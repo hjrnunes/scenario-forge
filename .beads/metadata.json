@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "scenario_forge",
+  "project_id": "c200f94e-aad4-4e07-9c0d-b64a3ea06656"
+}
