@@ -14,10 +14,13 @@ Design lineage:
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -180,3 +183,59 @@ class AttackTree(BaseModel):
                 f"Root node must have id 'n1', got '{self.root.id}'"
             )
         return self
+
+
+# ---------------------------------------------------------------------------
+# Pre-validation tree repair
+# ---------------------------------------------------------------------------
+
+
+def _repair_node(node: dict[str, Any]) -> dict[str, Any]:
+    """Recursively repair a node dict, collapsing single-child AND/OR nodes.
+
+    When an AND or OR node has exactly one child, the parent is replaced by the
+    child.  The parent's ``id`` is preserved (to maintain dotted-path
+    consistency), but the child's ``label``, ``gate``, ``zone``, ``children``,
+    and all other fields are used.
+
+    The function recurses depth-first so that deeply-nested single-child chains
+    are collapsed from the bottom up.
+    """
+    children = node.get("children")
+
+    # Recurse into children first (bottom-up repair).
+    if children and isinstance(children, list):
+        node["children"] = [_repair_node(c) for c in children]
+
+    gate = node.get("gate", "").upper()
+
+    if gate in ("AND", "OR") and children and len(children) == 1:
+        parent_id = node["id"]
+        child = node["children"][0]
+        logger.warning(
+            "Collapsing single-child %s node '%s' — "
+            "replacing with child '%s' (%s)",
+            gate,
+            parent_id,
+            child.get("id", "?"),
+            child.get("label", "?"),
+        )
+        # Build the merged node: parent's id, everything else from child.
+        merged: dict[str, Any] = {**child, "id": parent_id}
+        # Recurse again in case the child itself also needs repair.
+        return _repair_node(merged)
+
+    return node
+
+
+def repair_attack_tree_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Walk a raw attack-tree dict and fix single-child AND/OR nodes.
+
+    Call this on the dict produced by ``yaml.safe_load`` **before** passing it
+    to ``AttackTree.model_validate``.
+
+    Returns the (possibly mutated) dict — safe to pass straight to Pydantic.
+    """
+    if "root" in data and isinstance(data["root"], dict):
+        data["root"] = _repair_node(data["root"])
+    return data

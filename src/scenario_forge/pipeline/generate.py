@@ -20,7 +20,11 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from scenario_forge.llm.client import LLMClient, LLMResult
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode
+from scenario_forge.models.attack_tree import (
+    AttackTree,
+    AttackTreeNode,
+    repair_attack_tree_dict,
+)
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
@@ -313,6 +317,10 @@ def _parse_attack_tree_yaml(raw: str, seed: ScenarioSeed) -> AttackTree:
         pass  # top-level is the tree itself
     if isinstance(data, dict) and "attack_tree" in data:
         data = data["attack_tree"]
+
+    # Repair single-child AND/OR nodes before Pydantic validation.
+    if isinstance(data, dict):
+        data = repair_attack_tree_dict(data)
 
     return AttackTree.model_validate(data)
 
