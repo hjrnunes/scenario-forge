@@ -1,0 +1,1891 @@
+"""HTML template components for the scenario-forge report.
+
+CSS styles, JavaScript interactivity, and HTML section builders.
+Each section builder is a function returning an HTML string.
+"""
+
+from __future__ import annotations
+
+import html
+import re
+from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Zone colour palette
+# ---------------------------------------------------------------------------
+
+ZONE_COLORS: dict[int, str] = {
+    1: "#3b82f6",   # blue
+    2: "#8b5cf6",   # purple
+    3: "#f97316",   # orange
+    4: "#22c55e",   # green
+    5: "#ef4444",   # red
+}
+
+ZONE_NAMES: dict[int, str] = {
+    1: "Input Surfaces",
+    2: "Planning & Reasoning",
+    3: "Tool Execution",
+    4: "Memory & State",
+    5: "Inter-Agent Communication",
+}
+
+ZONE_BG_COLORS: dict[int, str] = {
+    1: "#1e3a5f",
+    2: "#3b1f6e",
+    3: "#5c2d0e",
+    4: "#0f3d1e",
+    5: "#5c1111",
+}
+
+
+def _esc(text: str | None) -> str:
+    """HTML-escape text safely."""
+    if text is None:
+        return ""
+    return html.escape(str(text))
+
+
+def _priority_color(composite: float) -> str:
+    if composite >= 0.7:
+        return "#ef4444"
+    if composite >= 0.4:
+        return "#f59e0b"
+    return "#22c55e"
+
+
+def _priority_label(composite: float) -> str:
+    if composite >= 0.7:
+        return "HIGH"
+    if composite >= 0.4:
+        return "MEDIUM"
+    return "LOW"
+
+
+# ---------------------------------------------------------------------------
+# CSS
+# ---------------------------------------------------------------------------
+
+def build_css() -> str:
+    return """
+<style>
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #1a1d2e;
+  --bg-card: #1e2235;
+  --bg-card-hover: #252a40;
+  --text-primary: #e8eaed;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --border: #2d3348;
+  --accent: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.15);
+  --zone-1: #3b82f6;
+  --zone-2: #8b5cf6;
+  --zone-3: #f97316;
+  --zone-4: #22c55e;
+  --zone-5: #ef4444;
+  --high: #ef4444;
+  --medium: #f59e0b;
+  --low: #22c55e;
+  --sidebar-width: 260px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  padding: 24px 0;
+  overflow-y: auto;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-brand {
+  padding: 0 20px 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.sidebar-brand h1 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+.sidebar-brand .subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sidebar nav { flex: 1; }
+
+.sidebar a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  border-left: 3px solid transparent;
+}
+
+.sidebar a:hover {
+  background: var(--accent-glow);
+  color: var(--text-primary);
+  border-left-color: var(--accent);
+}
+
+.sidebar a .nav-icon {
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* Main content */
+.main-content {
+  margin-left: var(--sidebar-width);
+  flex: 1;
+  padding: 40px 48px;
+  max-width: 1200px;
+}
+
+/* Section */
+.section {
+  margin-bottom: 56px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.section-header .badge {
+  background: var(--accent-glow);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  transition: border-color 0.2s ease;
+}
+
+.card:hover { border-color: #3d4460; }
+
+/* Zone diagram */
+.zone-diagram {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  padding: 32px 0;
+  flex-wrap: wrap;
+}
+
+.zone-box {
+  width: 160px;
+  height: 110px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: center;
+  border: 2px solid;
+  transition: transform 0.2s ease;
+}
+
+.zone-box:hover { transform: translateY(-3px); }
+
+.zone-box.active {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.zone-box.inactive {
+  background: #1a1d2e !important;
+  border-color: #2d3348 !important;
+  color: #4b5563 !important;
+  opacity: 0.5;
+}
+
+.zone-number {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+/* Capability flags table */
+.flags-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.flags-table th {
+  text-align: left;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.flags-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.flag-true { color: var(--low); font-weight: 600; }
+.flag-false { color: var(--text-muted); }
+
+.entry-point-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 12px;
+}
+
+.entry-point-list li {
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  border-left: 3px solid var(--accent);
+}
+
+/* Threat surface */
+.view-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.view-toggle button {
+  padding: 8px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.view-toggle button.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.view-toggle button:hover:not(.active) {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.view-panel { display: none; }
+.view-panel.active { display: block; }
+
+/* Risk card table */
+.risk-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.risk-table th {
+  text-align: left;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.risk-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  vertical-align: top;
+}
+
+.risk-table tr:hover td { background: var(--bg-card-hover); }
+
+.status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-actionable { background: rgba(34,197,94,0.15); color: #22c55e; }
+.status-governance { background: rgba(245,158,11,0.15); color: #f59e0b; }
+
+/* Chain diagram */
+.chain-diagram {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chain-hop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.chain-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Sankey flow */
+.sankey-container {
+  position: relative;
+  overflow-x: auto;
+  padding: 20px 0;
+}
+
+.sankey-svg {
+  width: 100%;
+  min-height: 300px;
+}
+
+.sankey-node {
+  cursor: default;
+}
+
+.sankey-node rect {
+  rx: 4;
+  ry: 4;
+}
+
+.sankey-node text {
+  fill: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.sankey-link {
+  fill: none;
+  stroke-opacity: 0.2;
+  transition: stroke-opacity 0.2s;
+}
+
+.sankey-link:hover {
+  stroke-opacity: 0.5;
+}
+
+/* Scenarios */
+.scenario-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 24px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.scenario-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.scenario-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scenario-id {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.scenario-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.priority-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scenario-body { padding: 24px; }
+
+.scenario-section {
+  margin-bottom: 24px;
+}
+
+.scenario-section:last-child { margin-bottom: 0; }
+
+.scenario-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scenario-summary {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+/* Zone breadcrumb */
+.zone-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.zone-crumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: white;
+}
+
+.zone-crumb-arrow {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 0 2px;
+}
+
+/* Attack tree */
+.attack-tree { font-size: 13px; }
+
+.attack-tree details {
+  margin-left: 20px;
+  border-left: 2px solid var(--border);
+  padding-left: 16px;
+  margin-bottom: 4px;
+}
+
+.attack-tree details > summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  margin-bottom: 4px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  transition: background 0.15s ease;
+}
+
+.attack-tree details > summary:hover { background: var(--bg-card-hover); }
+
+.attack-tree details > summary::-webkit-details-marker { display: none; }
+.attack-tree details > summary::marker { display: none; content: ''; }
+
+.attack-tree details > summary::before {
+  content: '\\25B6';
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.attack-tree details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.tree-leaf {
+  margin-left: 20px;
+  border-left: 2px solid var(--border);
+  padding: 8px 12px 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.gate-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.gate-and { background: rgba(139,92,246,0.2); color: #a78bfa; }
+.gate-or { background: rgba(59,130,246,0.2); color: #60a5fa; }
+.gate-leaf { background: rgba(107,114,128,0.2); color: #9ca3af; }
+
+.zone-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+}
+
+.tree-label { color: var(--text-primary); }
+
+.tree-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+/* Behavior spec */
+.feature-spec { font-size: 13px; }
+
+.feature-step {
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.step-keyword {
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+.step-text {
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 200px;
+}
+
+.step-given { background: rgba(59,130,246,0.08); border-left: 3px solid #3b82f6; }
+.step-given .step-keyword { color: #3b82f6; }
+
+.step-when { background: rgba(139,92,246,0.08); border-left: 3px solid #8b5cf6; }
+.step-when .step-keyword { color: #8b5cf6; }
+
+.step-and { background: rgba(139,92,246,0.05); border-left: 3px solid #6366f1; }
+.step-and .step-keyword { color: #6366f1; }
+
+.step-then { background: rgba(34,197,94,0.08); border-left: 3px solid #22c55e; }
+.step-then .step-keyword { color: #22c55e; }
+
+.step-but { background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; }
+.step-but .step-keyword { color: #ef4444; }
+
+.step-star { background: rgba(245,158,11,0.08); border-left: 3px solid #f59e0b; }
+.step-star .step-keyword { color: #f59e0b; }
+
+.step-docstring {
+  margin: 4px 0 4px 70px;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--border);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Priority signals */
+.signals-panel {
+  margin-top: 8px;
+}
+
+.signals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.signal-item {
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.signal-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.signal-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Heatmap */
+.heatmap-grid {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.heatmap-cell {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: white;
+  cursor: default;
+  position: relative;
+  transition: transform 0.15s ease;
+}
+
+.heatmap-cell:hover {
+  transform: scale(1.1);
+}
+
+.heatmap-cell .tooltip {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  z-index: 10;
+  margin-bottom: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.heatmap-cell:hover .tooltip { display: block; }
+
+/* Filter controls */
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  align-items: center;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.filter-select, .filter-input {
+  padding: 6px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  min-width: 140px;
+}
+
+.filter-select:focus, .filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.filter-btn {
+  padding: 6px 14px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-end;
+  transition: opacity 0.15s ease;
+}
+
+.filter-btn:hover { opacity: 0.85; }
+
+/* Raw data */
+.raw-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.raw-tab {
+  padding: 6px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.raw-tab.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.raw-tab:hover:not(.active) {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.raw-panel {
+  display: none;
+  position: relative;
+}
+
+.raw-panel.active { display: block; }
+
+.copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 5px 12px;
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  z-index: 2;
+  transition: all 0.15s ease;
+}
+
+.copy-btn:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.code-block {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+/* Syntax highlighting for YAML */
+.yaml-key { color: #60a5fa; }
+.yaml-string { color: #a78bfa; }
+.yaml-number { color: #f59e0b; }
+.yaml-bool { color: #22c55e; }
+.yaml-null { color: #6b7280; font-style: italic; }
+.yaml-comment { color: #4b5563; font-style: italic; }
+
+/* Gherkin highlighting */
+.gherkin-keyword { color: #60a5fa; font-weight: 700; }
+.gherkin-tag { color: #f59e0b; }
+.gherkin-string { color: #a78bfa; }
+.gherkin-comment { color: #4b5563; font-style: italic; }
+
+/* Details/summary for priority signals */
+details.expandable > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+details.expandable > summary::-webkit-details-marker { display: none; }
+details.expandable > summary::marker { display: none; content: ''; }
+
+details.expandable > summary::before {
+  content: '\\25B6';
+  font-size: 8px;
+  transition: transform 0.2s ease;
+}
+
+details.expandable[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+/* Scenario count badge */
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--accent);
+  color: white;
+}
+
+/* Legend row */
+.legend {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+</style>
+"""
+
+
+# ---------------------------------------------------------------------------
+# JavaScript
+# ---------------------------------------------------------------------------
+
+def build_js() -> str:
+    return """
+<script>
+// View toggle
+function toggleView(viewId, btn) {
+  document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('active'));
+  document.getElementById(viewId).classList.add('active');
+  btn.classList.add('active');
+}
+
+// Raw data tabs
+function switchRawTab(tabId, btn) {
+  document.querySelectorAll('.raw-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.raw-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  btn.classList.add('active');
+}
+
+// Copy to clipboard
+function copyToClipboard(elementId) {
+  const el = document.getElementById(elementId);
+  const text = el.innerText || el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+}
+
+// Scenario filtering
+function filterScenarios() {
+  const threatFilter = document.getElementById('filter-threat').value.toLowerCase();
+  const zoneFilter = document.getElementById('filter-zone').value;
+  const priorityFilter = document.getElementById('filter-priority').value;
+
+  document.querySelectorAll('.scenario-card[data-scenario]').forEach(card => {
+    let show = true;
+
+    if (threatFilter && !card.dataset.threats.toLowerCase().includes(threatFilter)) {
+      show = false;
+    }
+    if (zoneFilter && !card.dataset.zones.includes(zoneFilter)) {
+      show = false;
+    }
+    if (priorityFilter && card.dataset.priority !== priorityFilter) {
+      show = false;
+    }
+
+    card.style.display = show ? '' : 'none';
+  });
+
+  // Update visible count
+  const visible = document.querySelectorAll('.scenario-card[data-scenario]:not([style*="display: none"])').length;
+  const total = document.querySelectorAll('.scenario-card[data-scenario]').length;
+  const counter = document.getElementById('scenario-counter');
+  if (counter) counter.textContent = visible + ' / ' + total;
+}
+
+function resetFilters() {
+  document.getElementById('filter-threat').value = '';
+  document.getElementById('filter-zone').value = '';
+  document.getElementById('filter-priority').value = '';
+  filterScenarios();
+}
+</script>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Section 1: Capability Profile
+# ---------------------------------------------------------------------------
+
+def build_capability_profile_section(profile: dict[str, Any]) -> str:
+    zones_active = set(profile.get("zones_active", []))
+
+    # Zone diagram
+    zone_boxes = []
+    for z in range(1, 6):
+        active = z in zones_active
+        cls = "active" if active else "inactive"
+        color = ZONE_COLORS[z]
+        bg = ZONE_BG_COLORS[z] if active else ""
+        style = f'background:{bg};border-color:{color};color:{color};' if active else ''
+        zone_boxes.append(
+            f'<div class="zone-box {cls}" style="{style}">'
+            f'<span class="zone-number">{z}</span>'
+            f'<span>{_esc(ZONE_NAMES[z])}</span>'
+            f'</div>'
+        )
+
+    # Flags table
+    flags = [
+        ("Persistent Memory", profile.get("has_persistent_memory", False)),
+        ("Multi-Agent", profile.get("multi_agent", False)),
+        ("Human-in-the-Loop", profile.get("hitl", False)),
+        ("Confidence", profile.get("confidence", "unknown")),
+    ]
+    flag_rows = ""
+    for name, value in flags:
+        if isinstance(value, bool):
+            cls = "flag-true" if value else "flag-false"
+            display = "Yes" if value else "No"
+        else:
+            cls = ""
+            display = _esc(str(value).capitalize())
+        flag_rows += f'<tr><td>{_esc(name)}</td><td class="{cls}">{display}</td></tr>'
+
+    # Entry points
+    eps = profile.get("entry_points", [])
+    ep_items = "".join(f'<li>{_esc(ep)}</li>' for ep in eps)
+
+    return f"""
+    <div id="sec-profile" class="section">
+      <div class="section-header">
+        <h2>Capability Profile</h2>
+        <span class="badge">Schneider 5-Zone</span>
+      </div>
+
+      <div class="card">
+        <div class="zone-diagram">
+          {''.join(zone_boxes)}
+        </div>
+        <div class="legend" style="justify-content:center;">
+          <span class="legend-item"><span class="legend-dot" style="background:var(--accent);"></span> Active zone</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#2d3348;"></span> Inactive zone</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <table class="flags-table">
+          <thead><tr><th>Capability Flag</th><th>Value</th></tr></thead>
+          <tbody>{flag_rows}</tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Entry Points</div>
+        <ul class="entry-point-list">{ep_items}</ul>
+      </div>
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
+# Section 2: Threat Surface
+# ---------------------------------------------------------------------------
+
+def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
+    entries = threat_surface.get("entries", [])
+    governance = threat_surface.get("governance_only", [])
+    all_entries = entries + governance
+
+    # Option A: Table
+    table_rows = ""
+    for entry in all_entries:
+        rc = entry.get("risk_card", {})
+        gov = entry.get("governance_only", False)
+        status_cls = "status-governance" if gov else "status-actionable"
+        status_text = "Governance" if gov else "Actionable"
+
+        llm_ids = ", ".join(entry.get("owasp_llm_ids", [])) or "-"
+        t_ids = ", ".join(entry.get("agentic_threat_ids", [])) or "-"
+        subs = ", ".join(entry.get("sub_scenarios", [])) or "-"
+
+        # Chain diagram for actionable entries
+        chain_html = ""
+        if not gov and entry.get("owasp_llm_ids"):
+            chain_html = (
+                '<div class="chain-diagram">'
+                f'<span class="chain-hop">{_esc(rc.get("risk_id", ""))}</span>'
+                '<span class="chain-arrow">&rarr;</span>'
+                f'<span class="chain-hop">{_esc(llm_ids)}</span>'
+                '<span class="chain-arrow">&rarr;</span>'
+                f'<span class="chain-hop">{_esc(t_ids)}</span>'
+                '</div>'
+            )
+
+        conf = rc.get("confidence", 0)
+        conf_display = f"{conf:.2f}" if isinstance(conf, (int, float)) else str(conf)
+
+        table_rows += f"""
+        <tr>
+          <td>{_esc(rc.get("risk_id", ""))}</td>
+          <td>{_esc(rc.get("risk_name", ""))}</td>
+          <td><span class="status-badge {status_cls}">{status_text}</span></td>
+          <td>{conf_display}</td>
+          <td>{_esc(llm_ids)}</td>
+          <td>{_esc(t_ids)}</td>
+          <td>{_esc(subs)}</td>
+          <td>{chain_html}</td>
+        </tr>"""
+
+    # Option B: Sankey-style SVG
+    sankey_svg = _build_sankey_svg(entries)
+
+    return f"""
+    <div id="sec-threats" class="section">
+      <div class="section-header">
+        <h2>Threat Surface</h2>
+        <span class="badge">{len(entries)} actionable / {len(governance)} governance</span>
+      </div>
+
+      <div class="view-toggle">
+        <button class="active" onclick="toggleView('view-table', this)">Table View</button>
+        <button onclick="toggleView('view-sankey', this)">Flow Diagram</button>
+      </div>
+
+      <div id="view-table" class="view-panel active">
+        <div class="card" style="overflow-x:auto;">
+          <table class="risk-table">
+            <thead>
+              <tr>
+                <th>Risk ID</th>
+                <th>Risk Name</th>
+                <th>Status</th>
+                <th>Confidence</th>
+                <th>LLM Top 10</th>
+                <th>Agentic Threats</th>
+                <th>Sub-Scenarios</th>
+                <th>Chain</th>
+              </tr>
+            </thead>
+            <tbody>{table_rows}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="view-sankey" class="view-panel">
+        <div class="card">
+          <div class="sankey-container">{sankey_svg}</div>
+        </div>
+      </div>
+    </div>
+    """
+
+
+def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
+    """Build a pure SVG Sankey-style flow diagram."""
+    if not entries:
+        return '<p style="color:var(--text-muted);text-align:center;padding:40px;">No actionable entries to visualize.</p>'
+
+    # Collect unique nodes for each column
+    risk_ids: list[str] = []
+    llm_ids_set: list[str] = []
+    threat_ids_set: list[str] = []
+    scenario_ids_set: list[str] = []
+
+    for e in entries:
+        rc = e.get("risk_card", {})
+        rid = rc.get("risk_id", "")
+        if rid and rid not in risk_ids:
+            risk_ids.append(rid)
+        for lid in e.get("owasp_llm_ids", []):
+            if lid and lid not in llm_ids_set:
+                llm_ids_set.append(lid)
+        for tid in e.get("agentic_threat_ids", []):
+            if tid and tid not in threat_ids_set:
+                threat_ids_set.append(tid)
+        for sid in e.get("sub_scenarios", []):
+            if sid and sid not in scenario_ids_set:
+                scenario_ids_set.append(sid)
+
+    # Layout constants
+    col_x = [40, 240, 440, 640]
+    node_w = 140
+    node_h = 30
+    node_gap = 8
+    top_pad = 50
+    colors = ["#3b82f6", "#8b5cf6", "#f97316", "#ef4444"]
+    label_names = ["Risk Atlas", "LLM Top 10", "Agentic Threats", "Sub-Scenarios"]
+
+    columns = [risk_ids, llm_ids_set, threat_ids_set, scenario_ids_set]
+
+    # Calculate total height
+    max_nodes = max(len(c) for c in columns) if columns else 1
+    svg_h = max(top_pad + max_nodes * (node_h + node_gap) + 40, 200)
+
+    # Center each column vertically
+    def node_y(col_idx: int, item_idx: int) -> float:
+        col = columns[col_idx]
+        total_h = len(col) * node_h + (len(col) - 1) * node_gap
+        start_y = top_pad + (svg_h - top_pad - 20 - total_h) / 2
+        return start_y + item_idx * (node_h + node_gap)
+
+    # Build node positions
+    node_pos: dict[str, tuple[float, float, float, float]] = {}
+    svg_nodes = ""
+
+    for ci, col in enumerate(columns):
+        for ni, name in enumerate(col):
+            x = col_x[ci]
+            y = node_y(ci, ni)
+            node_pos[f"{ci}:{name}"] = (x, y, x + node_w, y + node_h)
+
+            truncated = name if len(name) <= 20 else name[:17] + "..."
+            svg_nodes += f"""
+            <g class="sankey-node">
+              <rect x="{x}" y="{y}" width="{node_w}" height="{node_h}"
+                    fill="{colors[ci]}" opacity="0.8"/>
+              <text x="{x + node_w/2}" y="{y + node_h/2 + 4}"
+                    text-anchor="middle" font-size="10" fill="white" font-weight="600">
+                {_esc(truncated)}
+              </text>
+            </g>"""
+
+    # Build links
+    svg_links = ""
+    link_colors = ["#3b82f6", "#8b5cf6", "#f97316"]
+
+    for e in entries:
+        rc = e.get("risk_card", {})
+        rid = rc.get("risk_id", "")
+
+        # Risk -> LLM
+        for lid in e.get("owasp_llm_ids", []):
+            svg_links += _sankey_link(node_pos, f"0:{rid}", f"1:{lid}", link_colors[0])
+
+        # LLM -> Threat
+        for lid in e.get("owasp_llm_ids", []):
+            for tid in e.get("agentic_threat_ids", []):
+                svg_links += _sankey_link(node_pos, f"1:{lid}", f"2:{tid}", link_colors[1])
+
+        # Threat -> Scenario
+        for tid in e.get("agentic_threat_ids", []):
+            for sid in e.get("sub_scenarios", []):
+                svg_links += _sankey_link(node_pos, f"2:{tid}", f"3:{sid}", link_colors[2])
+
+    # Column headers
+    svg_headers = ""
+    for ci, label in enumerate(label_names):
+        svg_headers += f"""
+        <text x="{col_x[ci] + node_w/2}" y="30" text-anchor="middle"
+              fill="var(--text-muted)" font-size="11" font-weight="600"
+              text-transform="uppercase" letter-spacing="0.5">{_esc(label)}</text>"""
+
+    return f"""
+    <svg class="sankey-svg" viewBox="0 0 820 {svg_h}" xmlns="http://www.w3.org/2000/svg">
+      {svg_headers}
+      {svg_links}
+      {svg_nodes}
+    </svg>
+    """
+
+
+def _sankey_link(
+    node_pos: dict[str, tuple[float, float, float, float]],
+    from_key: str, to_key: str, color: str,
+) -> str:
+    if from_key not in node_pos or to_key not in node_pos:
+        return ""
+    x1, y1, x1r, y1b = node_pos[from_key]
+    x2, y2, x2r, y2b = node_pos[to_key]
+    sx = x1r
+    sy = (y1 + y1b) / 2
+    ex = x2
+    ey = (y2 + y2b) / 2
+    cp1 = (sx + ex) / 2
+    return (
+        f'<path class="sankey-link" d="M{sx},{sy} C{cp1},{sy} {cp1},{ey} {ex},{ey}"'
+        f' stroke="{color}" stroke-width="2"/>'
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 3: Scenarios
+# ---------------------------------------------------------------------------
+
+def build_scenarios_section(
+    scenarios: list[dict[str, Any]],
+    feature_files: dict[str, str],
+) -> str:
+    if not scenarios:
+        return '<div id="sec-scenarios" class="section"><div class="section-header"><h2>Scenarios</h2></div><p style="color:var(--text-muted);">No scenarios generated.</p></div>'
+
+    # Heatmap
+    heatmap_cells = ""
+    for s in scenarios:
+        sid = s.get("scenario_id", "")
+        composite = s.get("priority", {}).get("composite", 0)
+        color = _priority_color(composite)
+        label = _priority_label(composite)
+        title = s.get("narrative", {}).get("title", sid)
+        short_id = sid.split("-")[-1][:6] if "-" in sid else sid[:6]
+        heatmap_cells += (
+            f'<div class="heatmap-cell" style="background:{color};">'
+            f'<span class="tooltip">{_esc(title)} ({composite:.2f})</span>'
+            f'{_esc(short_id)}'
+            f'</div>'
+        )
+
+    # Collect all threat IDs and zones for filters
+    all_threat_ids: list[str] = []
+    all_zones: set[int] = set()
+    for s in scenarios:
+        fac = s.get("faceting", {})
+        tc = fac.get("taxonomy_chain", {})
+        for tid in tc.get("agentic_threat_ids", []):
+            if tid not in all_threat_ids:
+                all_threat_ids.append(tid)
+        cp = fac.get("capability_profile", {})
+        for z in cp.get("zones_traversed", []):
+            all_zones.add(z)
+
+    threat_options = '<option value="">All</option>'
+    for tid in sorted(all_threat_ids):
+        threat_options += f'<option value="{_esc(tid)}">{_esc(tid)}</option>'
+
+    zone_options = '<option value="">All</option>'
+    for z in sorted(all_zones):
+        zone_options += f'<option value="{z}">Zone {z} - {_esc(ZONE_NAMES.get(z, ""))}</option>'
+
+    # Scenario cards
+    cards_html = ""
+    for s in scenarios:
+        cards_html += _build_scenario_card(s, feature_files)
+
+    return f"""
+    <div id="sec-scenarios" class="section">
+      <div class="section-header">
+        <h2>Scenarios</h2>
+        <span class="badge" id="scenario-counter">{len(scenarios)} / {len(scenarios)}</span>
+      </div>
+
+      <div class="scenario-section-title">Composite Score Heatmap</div>
+      <div class="heatmap-grid">{heatmap_cells}</div>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-dot" style="background:var(--high);"></span> High (&ge;0.7)</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--medium);"></span> Medium (0.4-0.7)</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--low);"></span> Low (&lt;0.4)</span>
+      </div>
+
+      <div class="filter-bar" style="margin-top:24px;">
+        <div class="filter-group">
+          <span class="filter-label">Threat ID</span>
+          <select id="filter-threat" class="filter-select" onchange="filterScenarios()">
+            {threat_options}
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Zone Traversed</span>
+          <select id="filter-zone" class="filter-select" onchange="filterScenarios()">
+            {zone_options}
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Priority Level</span>
+          <select id="filter-priority" class="filter-select" onchange="filterScenarios()">
+            <option value="">All</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <button class="filter-btn" onclick="resetFilters()">Reset</button>
+      </div>
+
+      {cards_html}
+    </div>
+    """
+
+
+def _build_scenario_card(scenario: dict[str, Any], feature_files: dict[str, str]) -> str:
+    sid = scenario.get("scenario_id", "")
+    narrative = scenario.get("narrative", {})
+    title = narrative.get("title", "")
+    summary = narrative.get("summary", "")
+    entry_point = narrative.get("entry_point", "")
+    zone_sequence = narrative.get("zone_sequence", [])
+    composite = scenario.get("priority", {}).get("composite", 0)
+    priority_label = _priority_label(composite)
+    priority_color = _priority_color(composite)
+
+    # Data attributes for filtering
+    faceting = scenario.get("faceting", {})
+    tc = faceting.get("taxonomy_chain", {})
+    threats = ",".join(tc.get("agentic_threat_ids", []))
+    cp = faceting.get("capability_profile", {})
+    zones = ",".join(str(z) for z in cp.get("zones_traversed", []))
+
+    # Zone breadcrumb
+    breadcrumb = ""
+    for i, z in enumerate(zone_sequence):
+        color = ZONE_COLORS.get(z, "#666")
+        bg = ZONE_BG_COLORS.get(z, "#333")
+        breadcrumb += f'<span class="zone-crumb" style="background:{bg};color:{color};">{z}</span>'
+        if i < len(zone_sequence) - 1:
+            breadcrumb += '<span class="zone-crumb-arrow">&rarr;</span>'
+
+    # Attack tree
+    attack_tree_data = scenario.get("attack_tree", {})
+    root = attack_tree_data.get("root")
+    attack_tree_html = _build_attack_tree_node(root) if root else ""
+    tree_goal = attack_tree_data.get("goal", "")
+
+    # Behavior spec from feature file
+    feature_content = feature_files.get(sid, "")
+    behavior_html = _build_behavior_spec(feature_content)
+
+    # Priority signals
+    signals = scenario.get("priority", {}).get("signals", {})
+    signals_html = _build_priority_signals(signals)
+
+    return f"""
+    <div class="scenario-card" data-scenario="{_esc(sid)}"
+         data-threats="{_esc(threats)}" data-zones="{_esc(zones)}"
+         data-priority="{_esc(priority_label.lower())}">
+      <div class="scenario-header">
+        <div class="scenario-header-left">
+          <span class="scenario-id">{_esc(sid)}</span>
+          <span class="scenario-title">{_esc(title)}</span>
+        </div>
+        <span class="priority-badge" style="background:rgba({_hex_to_rgb_css(priority_color)},0.15);color:{priority_color};">
+          {priority_label} ({composite:.2f})
+        </span>
+      </div>
+      <div class="scenario-body">
+        <div class="scenario-section">
+          <div class="scenario-section-title">Narrative</div>
+          <p class="scenario-summary">{_esc(summary)}</p>
+          <div style="margin-top:12px;font-size:13px;color:var(--text-secondary);">
+            <strong style="color:var(--text-muted);font-size:11px;">ENTRY POINT:</strong> {_esc(entry_point)}
+          </div>
+          <div style="margin-top:8px;">
+            <strong style="color:var(--text-muted);font-size:11px;">ZONE SEQUENCE:</strong>
+            <div class="zone-breadcrumb">{breadcrumb}</div>
+          </div>
+        </div>
+
+        <div class="scenario-section">
+          <div class="scenario-section-title">Attack Tree</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;font-style:italic;">
+            Goal: {_esc(tree_goal)}
+          </div>
+          <div class="attack-tree">{attack_tree_html}</div>
+        </div>
+
+        <div class="scenario-section">
+          <div class="scenario-section-title">Behavior Specification</div>
+          <div class="feature-spec">{behavior_html}</div>
+        </div>
+
+        <div class="scenario-section">
+          <details class="expandable">
+            <summary>Priority Signals</summary>
+            {signals_html}
+          </details>
+        </div>
+      </div>
+    </div>
+    """
+
+
+def _hex_to_rgb_css(hex_color: str) -> str:
+    """Convert #rrggbb to 'r,g,b' for rgba."""
+    h = hex_color.lstrip("#")
+    return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
+
+
+def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
+    if node is None:
+        return ""
+
+    gate = node.get("gate", "LEAF")
+    zone = node.get("zone", 1)
+    label = node.get("label", "")
+    children = node.get("children") or []
+    threat_id = node.get("threat_id")
+    technique_id = node.get("technique_id")
+    control_point = node.get("control_point")
+    structural_exposure = node.get("structural_exposure")
+
+    gate_cls = {"AND": "gate-and", "OR": "gate-or", "LEAF": "gate-leaf"}.get(gate, "gate-leaf")
+    gate_symbol = {"AND": "&and;", "OR": "&or;", "LEAF": "&bull;"}.get(gate, "&bull;")
+    zone_color = ZONE_COLORS.get(zone, "#666")
+    zone_bg = ZONE_BG_COLORS.get(zone, "#333")
+
+    meta_parts = []
+    if threat_id:
+        meta_parts.append(f'<span class="tree-meta">{_esc(threat_id)}</span>')
+    if technique_id:
+        meta_parts.append(f'<span class="tree-meta">{_esc(technique_id)}</span>')
+    if control_point:
+        meta_parts.append(f'<span class="tree-meta" style="color:var(--medium);" title="Control point">{_esc(control_point)}</span>')
+    if structural_exposure:
+        se_display = str(structural_exposure).replace("_", " ").title()
+        meta_parts.append(f'<span class="tree-meta" style="color:var(--high);" title="Structural exposure">{_esc(se_display)}</span>')
+    meta_html = " ".join(meta_parts)
+
+    if gate == "LEAF" or not children:
+        return f"""
+        <div class="tree-leaf">
+          <span class="gate-badge {gate_cls}">{gate_symbol}</span>
+          <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">Z{zone}</span>
+          <span class="tree-label">{_esc(label)}</span>
+          {meta_html}
+        </div>"""
+
+    children_html = "".join(_build_attack_tree_node(c) for c in children)
+    return f"""
+    <details open>
+      <summary>
+        <span class="gate-badge {gate_cls}">{gate_symbol}</span>
+        <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">Z{zone}</span>
+        <span class="tree-label">{_esc(label)}</span>
+        {meta_html}
+      </summary>
+      {children_html}
+    </details>"""
+
+
+def _build_behavior_spec(feature_content: str) -> str:
+    if not feature_content:
+        return '<p style="color:var(--text-muted);">No behavior specification available.</p>'
+
+    lines = feature_content.strip().split("\n")
+    result = []
+    in_docstring = False
+    docstring_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Handle docstrings (triple-quoted blocks)
+        if stripped.startswith('"""') and not in_docstring:
+            in_docstring = True
+            docstring_lines = [stripped[3:]]
+            continue
+        if in_docstring:
+            if stripped.endswith('"""'):
+                docstring_lines.append(stripped[:-3])
+                ds_text = "\n".join(docstring_lines).strip()
+                result.append(f'<div class="step-docstring">{_esc(ds_text)}</div>')
+                in_docstring = False
+                docstring_lines = []
+            else:
+                docstring_lines.append(stripped)
+            continue
+
+        # Skip @id lines and empty lines
+        if stripped.startswith("@") or not stripped:
+            if stripped.startswith("@"):
+                pass  # skip tags
+            continue
+
+        # Parse Gherkin keywords
+        keyword = None
+        text = stripped
+        step_class = ""
+
+        for kw, cls in [
+            ("Feature:", ""),
+            ("Background:", ""),
+            ("Scenario:", ""),
+            ("Given ", "step-given"),
+            ("When ", "step-when"),
+            ("And ", "step-and"),
+            ("Then ", "step-then"),
+            ("But ", "step-but"),
+            ("* ", "step-star"),
+        ]:
+            if stripped.startswith(kw):
+                keyword = kw.strip().rstrip(":")
+                text = stripped[len(kw):]
+                step_class = cls
+                break
+
+        if not keyword:
+            # Continuation or description line
+            if stripped and not stripped.startswith("#"):
+                result.append(f'<div style="padding:4px 14px 4px 70px;font-size:13px;color:var(--text-secondary);">{_esc(stripped)}</div>')
+            continue
+
+        # Feature/Background/Scenario headers
+        if keyword in ("Feature", "Background", "Scenario"):
+            result.append(
+                f'<div style="padding:10px 0 6px;font-size:14px;font-weight:700;color:var(--text-primary);">'
+                f'<span style="color:var(--accent);">{_esc(keyword)}:</span> {_esc(text)}</div>'
+            )
+            continue
+
+        # Extract zone badge from text
+        zone_badge = ""
+        zone_match = re.search(r'\(.*?[Zz]one\s*(\d).*?\)', text)
+        if zone_match:
+            z = int(zone_match.group(1))
+            if 1 <= z <= 5:
+                zc = ZONE_COLORS.get(z, "#666")
+                zbg = ZONE_BG_COLORS.get(z, "#333")
+                zone_badge = f'<span class="zone-badge" style="background:{zbg};color:{zc};margin-left:6px;">Z{z}</span>'
+
+        result.append(
+            f'<div class="feature-step {step_class}">'
+            f'<span class="step-keyword">{_esc(keyword)}</span>'
+            f'<span class="step-text">{_esc(text)}{zone_badge}</span>'
+            f'</div>'
+        )
+
+    return "\n".join(result)
+
+
+def _build_priority_signals(signals: dict[str, Any]) -> str:
+    if not signals:
+        return ""
+
+    display_map = {
+        "technique_maturity": "Technique Maturity",
+        "risk_impact": "Risk Impact",
+        "risk_likelihood": "Risk Likelihood",
+        "attack_complexity": "Attack Complexity",
+        "architecture_match": "Architecture Match",
+        "structural_exposure": "Structural Exposure",
+    }
+
+    items = ""
+    for key, label in display_map.items():
+        value = signals.get(key, "-")
+        if isinstance(value, str):
+            display = value.replace("_", " ").title()
+        else:
+            display = str(value)
+        items += f"""
+        <div class="signal-item">
+          <div class="signal-label">{_esc(label)}</div>
+          <div class="signal-value">{_esc(display)}</div>
+        </div>"""
+
+    return f'<div class="signals-grid">{items}</div>'
+
+
+# ---------------------------------------------------------------------------
+# Section 4: Raw Data
+# ---------------------------------------------------------------------------
+
+def build_raw_data_section(raw_files: dict[str, str]) -> str:
+    if not raw_files:
+        return ""
+
+    tabs_html = ""
+    panels_html = ""
+
+    for i, (filename, content) in enumerate(raw_files.items()):
+        active = " active" if i == 0 else ""
+        tab_id = f"raw-{i}"
+
+        tabs_html += f'<button class="raw-tab{active}" onclick="switchRawTab(\'{tab_id}\', this)">{_esc(filename)}</button>'
+
+        if filename.endswith(".yaml") or filename.endswith(".yml"):
+            highlighted = _highlight_yaml(content)
+        elif filename.endswith(".feature"):
+            highlighted = _highlight_gherkin(content)
+        else:
+            highlighted = _esc(content)
+
+        panels_html += f"""
+        <div id="{tab_id}" class="raw-panel{active}">
+          <button class="copy-btn" onclick="copyToClipboard('{tab_id}-code')">Copy</button>
+          <div class="code-block" id="{tab_id}-code">{highlighted}</div>
+        </div>"""
+
+    return f"""
+    <div id="sec-raw" class="section">
+      <div class="section-header">
+        <h2>Raw Data</h2>
+        <span class="badge">{len(raw_files)} files</span>
+      </div>
+      <div class="raw-tabs">{tabs_html}</div>
+      {panels_html}
+    </div>
+    """
+
+
+def _highlight_yaml(text: str) -> str:
+    """Simple regex-based YAML syntax highlighting."""
+    lines = text.split("\n")
+    result = []
+    for line in lines:
+        escaped = _esc(line)
+
+        # Comments
+        if escaped.strip().startswith("#"):
+            result.append(f'<span class="yaml-comment">{escaped}</span>')
+            continue
+
+        # Key-value pairs
+        m = re.match(r'^(\s*)([\w_-]+)(\s*:\s*)(.*)', escaped)
+        if m:
+            indent, key, colon, value = m.groups()
+            highlighted_value = _highlight_yaml_value(value)
+            result.append(f'{indent}<span class="yaml-key">{key}</span>{colon}{highlighted_value}')
+            continue
+
+        # List items
+        m = re.match(r'^(\s*-\s+)(.*)', escaped)
+        if m:
+            prefix, value = m.groups()
+            highlighted_value = _highlight_yaml_value(value)
+            result.append(f'{prefix}{highlighted_value}')
+            continue
+
+        result.append(escaped)
+
+    return "\n".join(result)
+
+
+def _highlight_yaml_value(value: str) -> str:
+    v = value.strip()
+    if not v or v == "":
+        return value
+    if v in ("null", "~"):
+        return f'<span class="yaml-null">{value}</span>'
+    if v in ("true", "false"):
+        return f'<span class="yaml-bool">{value}</span>'
+    if re.match(r'^-?\d+(\.\d+)?$', v):
+        return f'<span class="yaml-number">{value}</span>'
+    if (v.startswith("'") and v.endswith("'")) or (v.startswith('"') and v.endswith('"')):
+        return f'<span class="yaml-string">{value}</span>'
+    return value
+
+
+def _highlight_gherkin(text: str) -> str:
+    """Simple regex-based Gherkin syntax highlighting."""
+    lines = text.split("\n")
+    result = []
+    for line in lines:
+        escaped = _esc(line)
+
+        if escaped.strip().startswith("#"):
+            result.append(f'<span class="gherkin-comment">{escaped}</span>')
+            continue
+
+        if escaped.strip().startswith("@"):
+            result.append(f'<span class="gherkin-tag">{escaped}</span>')
+            continue
+
+        for kw in ["Feature:", "Background:", "Scenario:", "Scenario Outline:",
+                    "Given ", "When ", "Then ", "And ", "But ", "* "]:
+            ekw = _esc(kw)
+            if escaped.strip().startswith(ekw):
+                idx = escaped.index(ekw)
+                escaped = escaped[:idx] + f'<span class="gherkin-keyword">{ekw}</span>' + escaped[idx + len(ekw):]
+                break
+
+        # Highlight triple-quoted strings
+        if '&quot;&quot;&quot;' in escaped:
+            escaped = escaped.replace('&quot;&quot;&quot;', '<span class="gherkin-string">&quot;&quot;&quot;</span>')
+
+        result.append(escaped)
+
+    return "\n".join(result)
+
+
+# ---------------------------------------------------------------------------
+# Full page assembly
+# ---------------------------------------------------------------------------
+
+def build_full_page(
+    profile_html: str,
+    threats_html: str,
+    scenarios_html: str,
+    raw_html: str,
+    title: str = "Scenario Forge Report",
+) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{_esc(title)}</title>
+  {build_css()}
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h1>SCENARIO FORGE</h1>
+      <div class="subtitle">Red-Team Report</div>
+    </div>
+    <nav>
+      <a href="#sec-profile"><span class="nav-icon">&#9670;</span> Capability Profile</a>
+      <a href="#sec-threats"><span class="nav-icon">&#9888;</span> Threat Surface</a>
+      <a href="#sec-scenarios"><span class="nav-icon">&#9733;</span> Scenarios</a>
+      <a href="#sec-raw"><span class="nav-icon">&#128196;</span> Raw Data</a>
+    </nav>
+  </aside>
+
+  <main class="main-content">
+    {profile_html}
+    {threats_html}
+    {scenarios_html}
+    {raw_html}
+  </main>
+
+  {build_js()}
+</body>
+</html>
+"""

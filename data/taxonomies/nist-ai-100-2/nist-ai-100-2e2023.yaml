@@ -1,0 +1,542 @@
+# NIST AI 100-2e2023: Adversarial Machine Learning —
+# A Taxonomy and Terminology of Attacks and Mitigations
+# Source: https://doi.org/10.6028/NIST.AI.100-2e2023
+# Published: January 2024
+# Extracted into structured YAML for scenario-forge pipeline consumption.
+
+source:
+  name: "Adversarial Machine Learning: A Taxonomy and Terminology of Attacks and Mitigations"
+  identifier: "NIST AI 100-2e2023"
+  date: "2024-01"
+  publisher: "National Institute of Standards and Technology (NIST)"
+  authors:
+    - "Apostol Vassilev"
+    - "Alina Oprea"
+    - "Alie Fordyce"
+    - "Hyrum Anderson"
+  url: "https://doi.org/10.6028/NIST.AI.100-2e2023"
+  series: "NIST Trustworthy and Responsible AI"
+
+# The NIST taxonomy classifies attacks along 5 dimensions.
+# Unlike OWASP's enumerated threat lists, this is a dimensional classification
+# framework — attacks are characterized by where they fall on each axis.
+
+classification_dimensions:
+  - dimension: ai_system_type
+    description: "Whether the target is a Predictive AI or Generative AI system"
+    values:
+      - id: PredAI
+        name: "Predictive AI"
+        description: "Discriminative models that learn decision boundaries (classification, regression)"
+      - id: GenAI
+        name: "Generative AI"
+        description: "Models that learn data distributions and generate content (LLMs, diffusion models, GANs)"
+
+  - dimension: learning_stage
+    description: "Stage of the ML lifecycle when the attack is mounted"
+    values:
+      - id: training
+        name: "Training Stage"
+        description: "Attacks during model training, including pre-training and fine-tuning"
+        attack_types: [poisoning]
+      - id: deployment
+        name: "Deployment Stage"
+        description: "Attacks during model inference/deployment"
+        attack_types: [evasion, privacy, prompt_injection]
+
+  - dimension: attacker_goals
+    description: "The attacker's objectives classified by security violation type"
+    values:
+      - id: availability
+        name: "Availability Breakdown"
+        description: "Indiscriminate attack to break down overall model performance"
+      - id: integrity
+        name: "Integrity Violation"
+        description: "Targeted attack on the integrity of specific model outputs"
+      - id: privacy
+        name: "Privacy Compromise"
+        description: "Attacks to learn sensitive information about training data or the model"
+        subtypes:
+          - id: data_privacy
+            name: "Data Privacy"
+            description: "Attacks targeting training data confidentiality"
+          - id: model_privacy
+            name: "Model Privacy"
+            description: "Attacks targeting model architecture/parameters confidentiality"
+      - id: abuse
+        name: "Abuse Violation"
+        genai_only: true
+        description: "Repurposing a GenAI system's intended use for attacker's objectives"
+
+  - dimension: attacker_capabilities
+    description: "Types of capabilities the adversary leverages"
+    values:
+      - id: training_data_control
+        name: "Training Data Control"
+        description: "Attacker controls a subset of training data by inserting or modifying samples"
+      - id: model_control
+        name: "Model Control"
+        description: "Attacker controls model parameters (e.g., Trojan triggers, federated learning poisoning)"
+      - id: testing_data_control
+        name: "Testing Data Control"
+        description: "Attacker adds perturbations to testing samples at deployment time"
+      - id: label_limit
+        name: "Label Limit"
+        description: "Restricts adversarial control over training sample labels (clean-label attacks)"
+      - id: source_code_control
+        name: "Source Code Control"
+        description: "Attacker modifies ML algorithm source code or third-party libraries"
+      - id: query_access
+        name: "Query Access"
+        description: "Attacker submits queries to the model and receives predictions"
+      - id: resource_control
+        name: "Resource Control"
+        genai_only: true
+        description: "Attacker modifies resources (documents, web pages) ingested by GenAI at runtime"
+
+  - dimension: attacker_knowledge
+    description: "How much the attacker knows about the ML system"
+    values:
+      - id: white_box
+        name: "White-Box"
+        description: "Full knowledge of training data, model architecture, and hyperparameters"
+      - id: black_box
+        name: "Black-Box"
+        description: "Minimal knowledge; only query access to trained model"
+      - id: gray_box
+        name: "Gray-Box"
+        description: "Partial knowledge between white-box and black-box"
+
+# Attack catalog organized by AI system type and attack class
+predictive_ai_attacks:
+  evasion:
+    id: evasion
+    name: "Evasion Attacks"
+    stage: deployment
+    goal: integrity
+    description: >
+      Generate adversarial examples — testing samples whose classification can be changed
+      at deployment time with only minimal perturbation. The perturbation must be small enough
+      that a human cannot observe the transformation.
+    capabilities_required: [testing_data_control, query_access]
+    subtypes:
+      - id: white_box_evasion
+        name: "White-Box Evasion"
+        knowledge: white_box
+        description: "Optimization-based methods using full model access to generate adversarial examples"
+        techniques:
+          - name: "FGSM (Fast Gradient Sign Method)"
+            description: "Single iteration of gradient descent for adversarial example generation"
+          - name: "PGD (Projected Gradient Descent)"
+            description: "Iterative gradient descent with projection to allowed perturbation space"
+          - name: "Carlini-Wagner Attack"
+            description: "Multiple objectives minimizing loss and distance between adversarial and original samples"
+          - name: "DeepFool"
+            description: "Untargeted attack using linear approximation of neural network"
+          - name: "Universal Adversarial Perturbations"
+            description: "Input-agnostic perturbations effective across most samples"
+          - name: "Physically Realizable Attacks"
+            description: "Adversarial perturbations feasible in the physical world (e.g., modified road signs)"
+      - id: black_box_evasion
+        name: "Black-Box Evasion"
+        knowledge: black_box
+        description: "Attacks with minimal knowledge using only query access"
+        techniques:
+          - name: "Score-Based Attacks"
+            description: "Use model confidence scores with zeroth-order optimization to craft adversarial examples"
+          - name: "Decision-Based Attacks"
+            description: "Use only predicted labels; random walks along decision boundary"
+      - id: transferability
+        name: "Transferability Attacks"
+        knowledge: gray_box
+        description: "White-box attacks crafted on a substitute model and transferred to the target"
+    mitigations:
+      - name: "Adversarial Training"
+        description: "Augment training data with adversarial examples using correct labels"
+        limitations: "Decreased accuracy on clean data; computationally expensive"
+      - name: "Randomized Smoothing"
+        description: "Transform classifier into certifiably robust smooth classifier under Gaussian noise"
+        limitations: "Certified prediction only for subset of testing samples"
+      - name: "Formal Verification"
+        description: "SMT solvers and abstract interpretation to verify neural network robustness"
+        limitations: "Lack of scalability; computational cost; restricted operation types"
+
+  energy_latency:
+    id: energy_latency
+    name: "Energy-Latency Attacks"
+    stage: deployment
+    goal: availability
+    description: >
+      Deployment-time availability attacks that require only black-box query access.
+      Attacker crafts inputs that force resource-intensive computation, causing
+      degraded performance or denial of service. Distinct from poisoning-based
+      availability attacks (which occur at training time) and evasion attacks
+      (which target integrity).
+    capabilities_required: [query_access]
+    knowledge: black_box
+    mitigations:
+      - name: "Resource Monitoring and Rate Limiting"
+        description: "Monitor computational load per query and enforce limits"
+      - name: "Input Complexity Analysis"
+        description: "Detect and reject inputs designed to maximize computation"
+
+  poisoning:
+    id: poisoning
+    name: "Poisoning Attacks"
+    stage: training
+    goal: [availability, integrity]
+    description: >
+      Adversarial attacks during the training stage of the ML algorithm. Considered the most
+      critical vulnerability of ML systems deployed in production.
+    subtypes:
+      - id: availability_poisoning
+        name: "Availability Poisoning"
+        goal: availability
+        description: "Indiscriminate degradation of the ML model on all samples (denial-of-service on AI)"
+        capabilities_required: [training_data_control]
+        techniques:
+          - name: "Label Flipping"
+            description: "Generate training examples with victim labels selected by adversary"
+            knowledge: black_box
+          - name: "Optimization-Based Poisoning"
+            description: "Bilevel optimization to determine optimal poisoning samples"
+            knowledge: white_box
+          - name: "Clean-Label Availability Attacks"
+            description: "Attacker controls examples but not labels; uses generative models and gradient alignment"
+            knowledge: white_box
+        mitigations:
+          - name: "Training Data Sanitization"
+            description: "Detect and remove poisoned samples before training (RONI, outlier detection, clustering)"
+          - name: "Robust Training"
+            description: "Ensemble models, model voting, trimmed loss functions, randomized smoothing"
+
+      - id: targeted_poisoning
+        name: "Targeted Poisoning"
+        goal: integrity
+        description: "Induce change in model prediction on a small number of targeted samples"
+        capabilities_required: [training_data_control]
+        techniques:
+          - name: "Influence Functions"
+            description: "Leverage statistical influence functions in fine-tuning settings"
+          - name: "Feature Collision"
+            description: "Optimization to generate clean-label targeted poisoning via feature space collision"
+          - name: "Subpopulation Poisoning"
+            description: "Poison samples from an entire subpopulation defined by feature clusters"
+        mitigations:
+          - name: "Differential Privacy"
+            description: "DP training provides some protection but decreases accuracy"
+            limitations: "Group privacy bound fails for large poisoned sets"
+          - name: "Dataset Provenance and Integrity Attestation"
+            description: "Cryptographic mechanisms for provenance verification"
+
+      - id: backdoor_poisoning
+        name: "Backdoor Poisoning"
+        goal: integrity
+        description: >
+          Add trigger pattern to training samples; model learns to associate trigger with target
+          class. Any sample with the trigger is misclassified at test time.
+        capabilities_required: [training_data_control, testing_data_control]
+        techniques:
+          - name: "BadNets"
+            description: "First backdoor attack — small patch trigger in subset of images"
+          - name: "Clean-Label Backdoor"
+            description: "Adversary preserves labels of poisoned examples"
+          - name: "Latent Backdoor"
+            description: "Survives model fine-tuning of last few layers with clean data"
+          - name: "Dynamic Backdoor (BaN)"
+            description: "Trigger location changes across poisoned samples"
+          - name: "Functional Triggers"
+            description: "Triggers embedded throughout image using steganography"
+        mitigations:
+          - name: "Trigger Reconstruction"
+            description: "NeuralCleanse and variants reverse-engineer the backdoor pattern"
+          - name: "Model Inspection"
+            description: "Analyze trained model before deployment (NeuronInspect, DeepInspect, MNTD)"
+          - name: "Model Sanitization"
+            description: "Pruning, retraining, or fine-tuning to restore accuracy after detection"
+
+      - id: model_poisoning
+        name: "Model Poisoning"
+        goal: [availability, integrity]
+        description: "Directly modify trained model parameters to inject malicious functionality"
+        capabilities_required: [model_control]
+        techniques:
+          - name: "TrojNN"
+            description: "Reverse engineer trigger from trained network, retrain with embedded trigger"
+          - name: "Federated Learning Poisoning"
+            description: "Compromised clients send malicious model updates"
+          - name: "Supply Chain Model Poisoning"
+            description: "Malicious code in components from model suppliers (e.g., Dropout Attack)"
+        mitigations:
+          - name: "Byzantine-Resilient Aggregation"
+            description: "Identify and exclude malicious updates during federated aggregation"
+            limitations: "Motivated adversaries can add constraints to bypass defenses"
+
+  privacy:
+    id: privacy
+    name: "Privacy Attacks"
+    stage: deployment
+    goal: privacy
+    description: >
+      Attacks to infer sensitive information about training data or the ML model itself.
+    subtypes:
+      - id: data_reconstruction
+        name: "Data Reconstruction"
+        description: "Reverse engineer private information about individual records from aggregate information"
+        capabilities_required: [query_access]
+        techniques:
+          - name: "Model Inversion"
+            description: "Reconstruct class representatives from training data of ML model"
+          - name: "Reconstructor Network"
+            description: "Train network to recover data samples from model parameters"
+          - name: "Attribute Inference"
+            description: "Extract sensitive attribute assuming partial knowledge of other features"
+
+      - id: membership_inference
+        name: "Membership Inference"
+        description: "Determine whether a particular record was in the training dataset"
+        capabilities_required: [query_access]
+        techniques:
+          - name: "Loss-Based Attack"
+            description: "Sample is member if its loss is lower than threshold"
+          - name: "Shadow Models"
+            description: "Train meta-classifier on examples in/out of training set from shadow models"
+          - name: "LiRA"
+            description: "Hypothesis test using Gaussian distribution of model logits"
+
+      - id: model_extraction
+        name: "Model Extraction"
+        description: "Extract information about model architecture and parameters"
+        capabilities_required: [query_access]
+        techniques:
+          - name: "Direct Extraction"
+            description: "Compute model weights algebraically from mathematical formulation"
+          - name: "Active Learning Extraction"
+            description: "Guide queries for efficient weight extraction"
+          - name: "Side Channel Extraction"
+            description: "Electromagnetic side channels or Rowhammer attacks"
+
+      - id: property_inference
+        name: "Property Inference"
+        description: "Learn global information about training data distribution (e.g., sensitive attribute fractions)"
+        capabilities_required: [query_access]
+
+    mitigations:
+      - name: "Differential Privacy (DP)"
+        description: "Rigorous privacy definition bounding what an attacker can learn about each record"
+        limitations: "Trade-off between privacy level and model accuracy; does not protect against model extraction"
+      - name: "Privacy Auditing"
+        description: "Empirically measure actual privacy guarantees of an algorithm"
+      - name: "Machine Unlearning"
+        description: "Enable removal of user data from trained model (exact or approximate)"
+
+generative_ai_attacks:
+  supply_chain:
+    id: supply_chain
+    name: "AI Supply Chain Attacks"
+    stage: training
+    goal: [availability, integrity]
+    description: >
+      Attacks exploiting vulnerabilities in the AI supply chain — from model repositories
+      to training data sources.
+    subtypes:
+      - id: deserialization
+        name: "Deserialization Vulnerability"
+        description: >
+          ML model persistence formats (pickle, pytorch, joblib, numpy, tensorflow) allow
+          arbitrary code execution when deserialized. Typically rated critical severity.
+        capabilities_required: [source_code_control]
+      - id: web_scale_data_poisoning
+        name: "Web-Scale Data Poisoning"
+        description: >
+          Dataset publishers list URLs; expired domains can be purchased and content replaced.
+          An attacker can poison 0.001% of uncurated web-scale datasets to induce targeted failures.
+        capabilities_required: [training_data_control]
+    mitigations:
+      - name: "Vulnerability Scanning"
+        description: "Regular scanning of model artifacts used in ML pipeline"
+      - name: "Safe Persistence Formats"
+        description: "Adopt formats like safetensors that prevent arbitrary code execution"
+      - name: "Cryptographic Hash Verification"
+        description: "Publish and verify cryptographic hashes for training data downloads"
+
+  direct_prompt_injection:
+    id: direct_prompt_injection
+    name: "Direct Prompt Injection"
+    stage: deployment
+    goal: [abuse, privacy]
+    description: >
+      User injects text intended to alter LLM behavior. Exploits the lack of separation
+      between data and instructions. Includes jailbreaks and data extraction.
+    capabilities_required: [query_access]
+    subtypes:
+      - id: jailbreak
+        name: "Jailbreak"
+        goal: abuse
+        description: "Direct prompt injection to bypass safeguards for abuse purposes"
+        techniques:
+          - name: "Gradient-Based Attacks"
+            category: "white_box"
+            description: "Optimization-based jailbreaks; universal adversarial triggers that transfer across models"
+          - name: "Competing Objectives"
+            category: "manual"
+            subtechniques:
+              - "Prefix Injection — prompt model to begin with affirmative confirmation"
+              - "Refusal Suppression — instruct model to avoid generating refusals"
+              - "Style Injection — constrain language to bypass sophistication filters"
+              - "Role-Play — DAN, AIM and similar persona-based bypasses"
+          - name: "Mismatched Generalization"
+            category: "manual"
+            subtechniques:
+              - "Special Encoding — base64 encoding to bypass recognition"
+              - "Character Transformation — ROT13, l33tspeak, Morse code"
+              - "Word Transformation — Pig Latin, synonym swapping, payload splitting"
+              - "Prompt-Level Obfuscation — translation to other languages"
+          - name: "Automated Model-Based Red Teaming"
+            category: "automated"
+            description: "Three-model setup (attacker, target, judge) for automated jailbreak generation"
+      - id: data_extraction
+        name: "Data Extraction"
+        goal: privacy
+        description: "Extract training data, system prompts, or context information from GenAI models"
+        techniques:
+          - name: "Training Data Extraction"
+            description: "Prompt with prefixes to trigger verbatim memorized content (emails, phone numbers, locations)"
+          - name: "Prompt Stealing"
+            description: "Extract system prompts and instructions — high commercial value"
+          - name: "Context Extraction"
+            description: "In RAG applications, extract sensitive information from context"
+    mitigations:
+      - name: "Training for Alignment"
+        description: "RLHF and curated datasets for alignment"
+      - name: "Prompt Instruction and Formatting"
+        description: "Cue model to treat user input carefully; encapsulate prompts"
+      - name: "Detection Techniques"
+        description: "Input/output filters, LLM-based detection, commercial firewall products"
+
+  indirect_prompt_injection:
+    id: indirect_prompt_injection
+    name: "Indirect Prompt Injection"
+    stage: deployment
+    goal: [availability, integrity, privacy, abuse]
+    description: >
+      Attacker injects prompts via data channels (documents, web pages) ingested by RAG
+      applications, without directly interacting with the system. Analogous to SQL injection.
+    capabilities_required: [resource_control]
+    subtypes:
+      - id: availability_violations
+        name: "Availability Violations"
+        goal: availability
+        techniques:
+          - name: "Time-Consuming Background Tasks"
+            description: "Instruct model to perform looping tasks before answering"
+          - name: "Muting"
+            description: "Inject endoftext token to prevent model from generating output"
+          - name: "Inhibiting Capabilities"
+            description: "Instruct model it is not permitted to use certain APIs"
+          - name: "Disrupting Input/Output"
+            description: "Replace characters with homoglyphs; corrupt query results"
+      - id: integrity_violations
+        name: "Integrity Violations"
+        goal: integrity
+        techniques:
+          - name: "Wrong Summaries"
+            description: "Prompt model to produce adversarially chosen or arbitrary wrong summaries"
+          - name: "Disinformation Propagation"
+            description: "Exploit search chatbots to perpetuate untrustworthy sources"
+      - id: privacy_compromises
+        name: "Privacy Compromises"
+        goal: privacy
+        techniques:
+          - name: "Human-in-the-Loop Prompting"
+            description: "Exploit read operations to exfiltrate information to attacker"
+          - name: "Chat Session Interaction"
+            description: "Persuade user to follow URLs containing their personal data"
+          - name: "Invisible Markdown Image"
+            description: "Single-pixel image that exfiltrates chat data to malicious third party"
+      - id: abuse_violations
+        name: "Abuse Violations"
+        goal: abuse
+        techniques:
+          - name: "Phishing"
+            description: "LLMs produce and widely disseminate convincing scams"
+          - name: "Masquerading"
+            description: "LLM pretends to be official request or recommends fraudulent sites"
+          - name: "Spreading Injections"
+            description: "LLM acts as vector spreading injection to other models"
+          - name: "Spreading Malware"
+            description: "Exploit LLMs to persuade users to visit malicious pages"
+          - name: "Historical Distortion"
+            description: "Prompt model to output adversarially chosen disinformation"
+          - name: "Marginally Related Context Prompting"
+            description: "Steer search results toward specific orientations for bias amplification"
+    mitigations:
+      - name: "RLHF"
+        description: "Reinforcement learning from human feedback for alignment"
+      - name: "Filtering Retrieved Inputs"
+        description: "Process retrieved inputs to filter out instructions"
+      - name: "LLM Moderator"
+        description: "Separate LLM to detect attacks beyond filtering"
+      - name: "Interpretability-Based Detection"
+        description: "Outlier detection of prediction trajectories"
+
+# Remaining challenges identified by NIST
+open_challenges:
+  - id: scale
+    name: "The Scale Challenge"
+    description: >
+      Training data spans the internet with no single organization controlling it.
+      Open-source poisoning tools increase risk. Synthetic content at scale can cause model collapse.
+
+  - id: theoretical_limits
+    name: "Theoretical Limitations on Adversarial Robustness"
+    description: >
+      No information-theoretic security proofs for widely-used ML algorithms. Impossibility
+      results limit effectiveness of mitigations. Designing mitigations is inherently ad hoc.
+
+  - id: open_vs_closed
+    name: "The Open vs. Closed Model Dilemma"
+    description: >
+      Open models enable research and democratize access but also enable subversion.
+      White-box access makes open models feasible attack vectors for transferability attacks.
+
+  - id: supply_chain
+    name: "Supply Chain Challenges"
+    description: >
+      Information-theoretically undetectable Trojans may only be prevented by access control
+      and supply chain vetting. Program verification for ML remains challenging.
+
+  - id: trustworthy_tradeoffs
+    name: "Tradeoffs Between Attributes of Trustworthy AI"
+    description: >
+      Cannot simultaneously maximize accuracy, robustness, fairness, privacy, and explainability.
+      Organizations must prioritize based on use case.
+
+  - id: multimodal_robustness
+    name: "Multimodal Model Robustness"
+    description: >
+      Multimodal models are not necessarily more robust despite information redundancy.
+      Simultaneous attacks on all modalities are feasible.
+
+  - id: quantization
+    name: "Quantized Model Vulnerabilities"
+    description: >
+      Quantized models inherit original vulnerabilities plus error amplification from
+      reduced precision adversely affects adversarial robustness.
+
+# Data modalities where attacks have been demonstrated
+data_modalities:
+  - id: image
+    description: "Continuous domain; gradient-based methods directly applicable"
+  - id: text
+    description: "Discrete domain; must preserve semantic meaning; all attack classes demonstrated"
+  - id: audio
+    description: "Targeted attacks on speech-to-text models"
+  - id: video
+    description: "Sparse (few frames) and dense (all frames) adversarial attacks"
+  - id: cybersecurity
+    description: "Must respect application constraints; includes ICS/SCADA systems"
+  - id: tabular
+    description: "Finance, business, healthcare applications"
+  - id: multimodal
+    description: "Combination of modalities; simultaneous attacks across all modalities feasible"

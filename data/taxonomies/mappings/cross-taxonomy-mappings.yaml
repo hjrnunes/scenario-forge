@@ -1,0 +1,587 @@
+# Cross-Taxonomy Mappings for scenario-forge
+# Generated from source data in data/taxonomies/
+#
+# Relationships:
+#   T1-T17:   OWASP Agentic AI Threats & Mitigations v1.1 (17 foundational threats)
+#   ASI01-10: OWASP Top 10 for Agentic Applications 2026 (ranked risk list)
+#   LLM01-10: OWASP Top 10 for LLM Applications 2025 (ranked risk list)
+#   ATLAS:    MITRE ATLAS v2026.05 (adversarial TTP knowledge base)
+#   NIST:     NIST AI 100-2e2023 (classification framework)
+#
+# Mapping predicates follow SSSOM-lite conventions:
+#   exact_match:    Concepts are identical or near-identical
+#   broad_match:    Source is narrower than target (target covers more)
+#   narrow_match:   Source is broader than target (target covers less)
+#   related_match:  Concepts overlap but are not hierarchical
+#   extends:        Source extends target with new capabilities or scope
+
+source_quality_assessment:
+  crosswalk_llm_atlas:
+    source: "GenAI Security Crosswalk (OWASP)"
+    file: "crosswalk-llm-atlas.md"
+    quality: high
+    notes: >
+      Every LLM01-LLM10 entry has specific ATLAS technique IDs with tactic context,
+      real-world incident references, tiered mitigations (foundational/hardening/advanced),
+      tool recommendations, and cross-references. Well-maintained, versioned 2026-Q1.
+      Suitable for direct use in scenario generation pipeline.
+  crosswalk_asi_atlas:
+    source: "GenAI Security Crosswalk (OWASP)"
+    file: "crosswalk-asi-atlas.md"
+    quality: high
+    notes: >
+      Same quality as LLM crosswalk. Adds "agentic amplifier" column explaining how
+      agentic context escalates baseline ATLAS technique severity. Explicitly covers
+      multi-step attack chains and compounding blast radius. Production-ready.
+  asi_llm_crossrefs:
+    source: "GenAI Security Crosswalk JSON (embedded crossrefs)"
+    quality: high
+    notes: >
+      Bidirectional ASI↔LLM references embedded in each JSON entry. Core forward
+      mappings (ASI→LLM) are internally consistent, but 11 asymmetric pairs exist
+      where an LLM entry references an ASI entry that does not reciprocate. Affected
+      LLM entries: LLM02 (refs ASI01/02/03/06 unreciprocated), LLM03 (refs ASI07/10
+      unreciprocated), LLM06 (refs ASI07/09 unreciprocated), LLM07 (refs ASI01/02
+      unreciprocated), LLM10 (refs ASI10 unreciprocated). These asymmetries originate
+      in the source JSON files, not in this mapping.
+
+# ═══════════════════════════════════════════════════════════════════
+# T ↔ ASI Mappings
+# OWASP Agentic Threats (T1-T17) ↔ OWASP Agentic Top 10 (ASI01-ASI10)
+#
+# These are two documents from the same OWASP ASI initiative:
+#   T1-T17 = foundational threat catalog (Feb 2025, updated Dec 2025)
+#   ASI01-ASI10 = ranked risk list (2026)
+# The T-threats are more granular; the ASI entries consolidate related
+# threats into prioritized risk categories. Many T-threats map to a
+# single ASI entry, but some T-threats cross ASI boundaries.
+# ═══════════════════════════════════════════════════════════════════
+
+t_to_asi:
+  - source: T1
+    source_name: "Memory Poisoning"
+    target: ASI06
+    target_name: "Memory and Context Poisoning"
+    predicate: exact_match
+    confidence: 1.0
+    notes: "Both address corruption of agent memory. ASI06 adds context window scope."
+
+  - source: T2
+    source_name: "Tool Misuse"
+    target: ASI02
+    target_name: "Tool Misuse and Exploitation"
+    predicate: exact_match
+    confidence: 1.0
+    notes: "Direct conceptual match. ASI02 adds exploitation angle beyond misuse."
+
+  - source: T3
+    source_name: "Privilege Compromise"
+    target: ASI03
+    target_name: "Identity and Privilege Abuse"
+    predicate: narrow_match
+    confidence: 0.9
+    notes: "T3 focuses on privilege escalation; ASI03 covers both identity and privilege."
+
+  - source: T4
+    source_name: "Resource Overload"
+    target: ASI08
+    target_name: "Cascading Agent Failures"
+    predicate: related_match
+    confidence: 0.7
+    notes: "T4 is about resource exhaustion; ASI08 covers cascading failures broadly including resource exhaustion as one mechanism."
+
+  - source: T5
+    source_name: "Cascading Hallucination Attacks"
+    target: ASI09
+    target_name: "Human-Agent Trust Exploitation"
+    predicate: related_match
+    confidence: 0.6
+    notes: "T5 focuses on hallucination propagation; ASI09 covers trust exploitation which includes hallucination-enabled deception. Partial overlap."
+
+  - source: T5
+    source_name: "Cascading Hallucination Attacks"
+    target: ASI08
+    target_name: "Cascading Agent Failures"
+    predicate: related_match
+    confidence: 0.5
+    notes: "T5 hallucination cascades are one mechanism that can trigger ASI08 cascading failures across agents."
+
+  - source: T6
+    source_name: "Intent Breaking & Goal Manipulation"
+    target: ASI01
+    target_name: "Agent Goal Hijack"
+    predicate: exact_match
+    confidence: 1.0
+    notes: "Both address the same core threat of redirecting agent objectives."
+
+  - source: T7
+    source_name: "Misaligned & Deceptive Behaviors"
+    target: ASI10
+    target_name: "Rogue Agents"
+    predicate: related_match
+    confidence: 0.8
+    notes: "T7 covers emergent misalignment (single agent); ASI10 covers rogue behavior in multi-agent context. Overlapping but different scopes."
+
+  - source: T8
+    source_name: "Repudiation & Untraceability"
+    target: null
+    predicate: no_match
+    confidence: 1.0
+    notes: "No ASI entry directly addresses auditability/forensics. This is a gap in ASI Top 10."
+
+  - source: T9
+    source_name: "Identity Spoofing & Impersonation"
+    target: ASI03
+    target_name: "Identity and Privilege Abuse"
+    predicate: narrow_match
+    confidence: 0.8
+    notes: "T9 focuses on identity spoofing specifically; ASI03 covers broader identity+privilege abuse."
+
+  - source: T10
+    source_name: "Overwhelming Human in the Loop"
+    target: ASI09
+    target_name: "Human-Agent Trust Exploitation"
+    predicate: narrow_match
+    confidence: 0.8
+    notes: "T10 is a specific mechanism (decision fatigue); ASI09 covers trust exploitation broadly."
+
+  - source: T11
+    source_name: "Unexpected RCE and Code Attacks"
+    target: ASI05
+    target_name: "Unexpected Code Execution"
+    predicate: exact_match
+    confidence: 1.0
+    notes: "Both address the same threat of AI-generated code execution."
+
+  - source: T12
+    source_name: "Agent Communication Poisoning"
+    target: ASI07
+    target_name: "Insecure Inter-Agent Communications"
+    predicate: exact_match
+    confidence: 0.95
+    notes: "T12 focuses on poisoning; ASI07 covers all insecure comms including poisoning."
+
+  - source: T13
+    source_name: "Rogue Agents in Multi-Agent Systems"
+    target: ASI10
+    target_name: "Rogue Agents"
+    predicate: exact_match
+    confidence: 1.0
+    notes: "Direct match. Both cover malicious or compromised agents in multi-agent systems."
+
+  - source: T14
+    source_name: "Human Attacks on Multi-Agent Systems"
+    target: ASI09
+    target_name: "Human-Agent Trust Exploitation"
+    predicate: related_match
+    confidence: 0.6
+    notes: "T14 covers human adversaries exploiting multi-agent delegation; ASI09 covers human-agent trust broadly. Different emphasis."
+
+  - source: T14
+    source_name: "Human Attacks on Multi-Agent Systems"
+    target: ASI03
+    target_name: "Identity and Privilege Abuse"
+    predicate: related_match
+    confidence: 0.6
+    notes: "T14's privilege escalation via multi-agent impersonation maps to ASI03's scope."
+
+  - source: T15
+    source_name: "Human Manipulation"
+    target: ASI09
+    target_name: "Human-Agent Trust Exploitation"
+    predicate: narrow_match
+    confidence: 0.85
+    notes: "T15 is specifically about AI manipulating humans; ASI09 covers this plus broader trust issues."
+
+  - source: T16
+    source_name: "Insecure Inter-Agent Protocol Abuse"
+    target: ASI07
+    target_name: "Insecure Inter-Agent Communications"
+    predicate: narrow_match
+    confidence: 0.9
+    notes: "T16 focuses on protocol-level abuse (MCP, A2A); ASI07 covers all inter-agent security."
+
+  - source: T17
+    source_name: "Supply Chain Compromise"
+    target: ASI04
+    target_name: "Agentic Supply Chain"
+    predicate: exact_match
+    confidence: 1.0
+    notes: "Direct match. Both address supply chain compromise in agentic systems."
+
+# ═══════════════════════════════════════════════════════════════════
+# T ↔ LLM Mappings
+# OWASP Agentic Threats (T1-T17) ↔ OWASP LLM Top 10 (LLM01-LLM10)
+#
+# Extracted from the T&M v1.1 document itself. These are the
+# relationships the T&M authors explicitly called out.
+# Predicate "extends" means the agentic threat extends beyond
+# the base LLM risk with new attack surfaces.
+# ═══════════════════════════════════════════════════════════════════
+
+t_to_llm:
+  - source: T1
+    source_name: "Memory Poisoning"
+    target: LLM04
+    target_name: "Data and Model Poisoning"
+    predicate: extends
+    confidence: 0.9
+    notes: "T1 extends beyond static data poisoning to real-time poisoning of persistent agent memory."
+
+  - source: T1
+    source_name: "Memory Poisoning"
+    target: LLM08
+    target_name: "Vector and Embedding Weaknesses"
+    predicate: related_match
+    confidence: 0.7
+    notes: "Vector databases storing long-term embeddings introduce additional memory poisoning risks."
+
+  - source: T2
+    source_name: "Tool Misuse"
+    target: LLM06
+    target_name: "Excessive Agency"
+    predicate: extends
+    confidence: 0.85
+    notes: "T2 extends LLM06; agentic systems introduce unique risks with dynamic integrations."
+
+  - source: T2
+    source_name: "Tool Misuse"
+    target: LLM03
+    target_name: "Supply Chain Vulnerabilities"
+    predicate: related_match
+    confidence: 0.5
+    notes: "Related when tools come from untrusted sources."
+
+  - source: T2
+    source_name: "Tool Misuse"
+    target: LLM08
+    target_name: "Vector and Embedding Weaknesses"
+    predicate: related_match
+    confidence: 0.5
+    notes: "Related when RAG is performed via tools."
+
+  - source: T3
+    source_name: "Privilege Compromise"
+    target: LLM06
+    target_name: "Excessive Agency"
+    predicate: extends
+    confidence: 0.8
+    notes: "T3 amplifies LLM06 privilege escalation risks as agents can dynamically delegate roles."
+
+  - source: T4
+    source_name: "Resource Overload"
+    target: LLM10
+    target_name: "Unbounded Consumption"
+    predicate: extends
+    confidence: 0.85
+    notes: "Agentic agents can self-trigger tasks and spawn processes, leading to exponential resource consumption."
+
+  - source: T5
+    source_name: "Cascading Hallucination Attacks"
+    target: LLM09
+    target_name: "Misinformation"
+    predicate: extends
+    confidence: 0.85
+    notes: "Agentic AI extends misinformation through self-reinforcement mechanisms and multi-agent propagation."
+
+  - source: T6
+    source_name: "Intent Breaking & Goal Manipulation"
+    target: LLM01
+    target_name: "Prompt Injection"
+    predicate: extends
+    confidence: 0.9
+    notes: "Goal manipulation extends prompt injection; attackers inject adversarial objectives that shift long-term reasoning."
+
+  - source: T11
+    source_name: "Unexpected RCE and Code Attacks"
+    target: LLM01
+    target_name: "Prompt Injection"
+    predicate: related_match
+    confidence: 0.7
+    notes: "Agentic AI with function-calling can be manipulated via prompt injection to execute unauthorized commands."
+
+  - source: T11
+    source_name: "Unexpected RCE and Code Attacks"
+    target: LLM05
+    target_name: "Insecure Output Handling"
+    predicate: extends
+    confidence: 0.8
+    notes: "Agentic AI extends insecure output handling to direct code execution via tool integrations."
+
+  - source: T12
+    source_name: "Agent Communication Poisoning"
+    target: LLM04
+    target_name: "Data and Model Poisoning"
+    predicate: extends
+    confidence: 0.75
+    notes: "T12 extends beyond static data poisoning to target transient and dynamic inter-agent data."
+
+  - source: T12
+    source_name: "Agent Communication Poisoning"
+    target: LLM08
+    target_name: "Vector and Embedding Weaknesses"
+    predicate: related_match
+    confidence: 0.5
+    notes: "Related when shared knowledge stores are targeted in multi-agent systems."
+
+  - source: T13
+    source_name: "Rogue Agents in Multi-Agent Systems"
+    target: LLM06
+    target_name: "Excessive Agency"
+    predicate: extends
+    confidence: 0.8
+    notes: "LLM06 allows adversarial exploitation; introduces persistent rogue agent risks in agentic settings."
+
+  - source: T17
+    source_name: "Supply Chain Compromise"
+    target: LLM03
+    target_name: "Supply Chain Vulnerabilities"
+    predicate: extends
+    confidence: 0.9
+    notes: "Significantly amplified in agentic AI where agents autonomously invoke tools and chain decisions."
+
+  # T7, T8, T9, T10, T14, T15, T16 have no explicit LLM Top 10 cross-references
+  # in the T&M v1.1 document. These are threats that are new to agentic AI with
+  # no direct predecessor in the LLM risk landscape.
+
+# ═══════════════════════════════════════════════════════════════════
+# ASI ↔ LLM Mappings (from GenAI Security Crosswalk JSON crossrefs)
+# These are bidirectional — verified consistent in both directions.
+# ═══════════════════════════════════════════════════════════════════
+
+asi_to_llm:
+  - source: ASI01
+    source_name: "Agent Goal Hijack"
+    targets: [LLM01, LLM06]
+    predicate: extends
+    notes: "Autonomy turns single injection into multi-step attack chain"
+
+  - source: ASI02
+    source_name: "Tool Misuse and Exploitation"
+    targets: [LLM05, LLM06]
+    predicate: extends
+    notes: "Tool access converts prompt manipulation into real-world action"
+
+  - source: ASI03
+    source_name: "Identity and Privilege Abuse"
+    targets: [LLM06]
+    predicate: extends
+    notes: "Cached credentials give attacker persistent access beyond session"
+
+  - source: ASI04
+    source_name: "Agentic Supply Chain"
+    targets: [LLM03]
+    predicate: extends
+    notes: "Runtime dynamic loading means poisoned components affect all consumers"
+
+  - source: ASI05
+    source_name: "Unexpected Code Execution"
+    targets: [LLM05]
+    predicate: extends
+    notes: "Code generation + execution capability creates RCE gateway"
+
+  - source: ASI06
+    source_name: "Memory and Context Poisoning"
+    targets: [LLM04, LLM08]
+    predicate: extends
+    notes: "Persistence across sessions amplifies impact of single injection"
+
+  - source: ASI07
+    source_name: "Insecure Inter-Agent Communications"
+    targets: [LLM01]
+    predicate: extends
+    notes: "A2A spoofing misdirects entire agent clusters"
+
+  - source: ASI08
+    source_name: "Cascading Agent Failures"
+    targets: [LLM10]
+    predicate: extends
+    notes: "Single fault fans out across all downstream agents"
+
+  - source: ASI09
+    source_name: "Human-Agent Trust Exploitation"
+    targets: [LLM09]
+    predicate: extends
+    notes: "Agent fluency makes manipulation invisible to audit logs"
+
+  - source: ASI10
+    source_name: "Rogue Agents"
+    targets: [LLM06]
+    predicate: extends
+    notes: "Compliant surface masks persistent hidden goal pursuit"
+
+# Reverse direction (LLM → ASI, from the LLM JSON crossrefs)
+llm_to_asi:
+  - source: LLM01
+    source_name: "Prompt Injection"
+    targets: [ASI01, ASI02]
+
+  - source: LLM02
+    source_name: "Sensitive Information Disclosure"
+    targets: [ASI03, ASI06, ASI01, ASI02]
+
+  - source: LLM03
+    source_name: "Supply Chain Vulnerabilities"
+    targets: [ASI04, ASI07, ASI10]
+
+  - source: LLM04
+    source_name: "Data and Model Poisoning"
+    targets: [ASI06]
+
+  - source: LLM05
+    source_name: "Insecure Output Handling"
+    targets: [ASI02, ASI05]
+
+  - source: LLM06
+    source_name: "Excessive Agency"
+    targets: [ASI01, ASI02, ASI10, ASI09, ASI03, ASI07]
+
+  - source: LLM07
+    source_name: "System Prompt Leakage"
+    targets: [ASI01, ASI02]
+
+  - source: LLM08
+    source_name: "Vector and Embedding Weaknesses"
+    targets: [ASI06]
+
+  - source: LLM09
+    source_name: "Misinformation"
+    targets: [ASI09]
+
+  - source: LLM10
+    source_name: "Unbounded Consumption"
+    targets: [ASI10, ASI08]
+
+# ═══════════════════════════════════════════════════════════════════
+# T ↔ NIST Mappings
+# OWASP Agentic Threats (T1-T17) → NIST AI 100-2 attack categories
+#
+# NIST provides a classification framework rather than enumerated
+# threats, so these mappings connect T-threats to the NIST attack
+# classes they instantiate in the agentic context.
+# ═══════════════════════════════════════════════════════════════════
+
+t_to_nist:
+  - source: T1
+    source_name: "Memory Poisoning"
+    target: "poisoning.targeted_poisoning"
+    target_name: "Targeted Poisoning (runtime variant)"
+    predicate: extends
+    notes: "Memory poisoning extends training-time poisoning to runtime persistent memory"
+
+  - source: T2
+    source_name: "Tool Misuse"
+    target: "genai.indirect_prompt_injection.abuse_violations"
+    target_name: "Abuse Violations via Indirect Prompt Injection"
+    predicate: related_match
+    notes: "Tool misuse can be triggered via indirect prompt injection techniques"
+
+  - source: T5
+    source_name: "Cascading Hallucination Attacks"
+    target: "genai.indirect_prompt_injection.integrity_violations"
+    target_name: "Integrity Violations"
+    predicate: related_match
+    notes: "Hallucination cascades produce integrity violations across connected systems"
+
+  - source: T6
+    source_name: "Intent Breaking & Goal Manipulation"
+    target: "genai.direct_prompt_injection.jailbreak"
+    target_name: "Jailbreak / Direct Prompt Injection"
+    predicate: extends
+    notes: "Goal manipulation extends jailbreaking to persistent objective corruption"
+
+  - source: T6
+    source_name: "Intent Breaking & Goal Manipulation"
+    target: "genai.indirect_prompt_injection"
+    target_name: "Indirect Prompt Injection"
+    predicate: extends
+    notes: "Indirect injection via tool outputs or data channels can alter agent goals"
+
+  - source: T11
+    source_name: "Unexpected RCE and Code Attacks"
+    target: "genai.indirect_prompt_injection.abuse_violations"
+    target_name: "Abuse Violations"
+    predicate: related_match
+    notes: "Code execution attacks are a form of abuse violation in NIST framework"
+
+  - source: T12
+    source_name: "Agent Communication Poisoning"
+    target: "poisoning.backdoor_poisoning"
+    target_name: "Backdoor Poisoning"
+    predicate: related_match
+    notes: "Inter-agent communication poisoning is analogous to backdoor insertion in shared channels"
+
+  - source: T15
+    source_name: "Human Manipulation"
+    target: "genai.indirect_prompt_injection.privacy_compromises"
+    target_name: "Privacy Compromises via Indirect Prompt Injection"
+    predicate: related_match
+    notes: "AI-mediated human manipulation parallels NIST's human-in-the-loop data extraction"
+
+  - source: T17
+    source_name: "Supply Chain Compromise"
+    target: "genai.supply_chain"
+    target_name: "AI Supply Chain Attacks"
+    predicate: exact_match
+    notes: "Both address the same supply chain threat vector"
+
+# ═══════════════════════════════════════════════════════════════════
+# Coverage analysis: which threats have no LLM Top 10 predecessor
+# (truly new to agentic AI)
+# ═══════════════════════════════════════════════════════════════════
+
+agentic_only_threats:
+  description: >
+    These threats from T&M v1.1 have no cross-reference to any LLM Top 10 entry,
+    indicating they are fundamentally new attack surfaces introduced by agentic AI
+    capabilities (autonomy, memory, multi-agent coordination, human-in-the-loop).
+  threats:
+    - id: T7
+      name: "Misaligned & Deceptive Behaviors"
+      rationale: "Emerges from advanced reasoning — distinct from hallucinations"
+    - id: T8
+      name: "Repudiation & Untraceability"
+      rationale: "Autonomous operation creates new forensics challenges"
+    - id: T9
+      name: "Identity Spoofing & Impersonation"
+      rationale: "Agent-to-agent and agent-to-human identity is a new surface"
+    - id: T10
+      name: "Overwhelming Human in the Loop"
+      rationale: "HITL is specific to agentic architectures"
+    - id: T14
+      name: "Human Attacks on Multi-Agent Systems"
+      rationale: "Multi-agent delegation chains are a new attack surface"
+    - id: T15
+      name: "Human Manipulation"
+      rationale: "AI-mediated social engineering is a new capability"
+    - id: T16
+      name: "Insecure Inter-Agent Protocol Abuse"
+      rationale: "MCP/A2A protocols did not exist in the LLM-only era"
+
+# ═══════════════════════════════════════════════════════════════════
+# Coverage gaps identified
+# ═══════════════════════════════════════════════════════════════════
+
+gaps:
+  - taxonomy: "ASI Top 10"
+    gap: "No entry for T8 (Repudiation & Untraceability)"
+    impact: "Auditability and forensic analysis of autonomous agent actions is not ranked as a top risk."
+    recommendation: "Scenario-forge should still generate scenarios for T8 even though ASI doesn't rank it."
+
+  - taxonomy: "NIST AI 100-2"
+    gap: "No coverage of multi-agent threats (T12-T14), HITL attacks (T10), or agentic memory"
+    impact: "NIST framework predates agentic AI; its classification dimensions apply but specific attack types are missing."
+    recommendation: "Use NIST dimensions (attacker goals, capabilities, knowledge) to classify agentic-specific threats."
+
+  - taxonomy: "MITRE ATLAS"
+    gap: "Limited agentic-specific techniques; crosswalks map agentic risks to existing techniques"
+    impact: "ATLAS techniques provide the TTP detail but don't yet have agentic-specific entries."
+    recommendation: "Use ATLAS techniques as building blocks for multi-step agentic attack chains."
+
+  - taxonomy: "GenAI Security Crosswalk (source JSON)"
+    gap: "11 asymmetric ASI↔LLM cross-references in source JSON files"
+    impact: >
+      LLM02, LLM03, LLM06, LLM07, LLM10 reference ASI entries that do not reference
+      those LLM entries back. May indicate incomplete editorial review in source data
+      or intentional asymmetry (LLM→ASI refs are broader/more speculative).
+    recommendation: "Flag when generating mappings; do not assume bidirectional consistency."

@@ -1,0 +1,1228 @@
+{
+  "id": "ASI02",
+  "name": "Tool Misuse and Exploitation",
+  "source_list": "Agentic-Top10-2026",
+  "version": "2026-Q1",
+  "severity": "Critical",
+  "aivss_score": 9.6,
+  "audience": [
+    "red-teamer",
+    "security-engineer",
+    "ml-engineer",
+    "ot-engineer",
+    "ciso",
+    "compliance",
+    "auditor",
+    "developer"
+  ],
+  "mappings": [
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0067",
+      "control_name": "Output Manipulation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Crafting inputs that produce tool calls with destructive parameters"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0015",
+      "control_name": "LLM Capability Escalation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Exploiting overly permissive tool access to exceed intended agent scope"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0053",
+      "control_name": "AI Agent Tool Invocation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent autonomously invoking tools beyond authorised scope, harvesting data through tool chains"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "GV-1.7",
+      "control_name": "Policies for trustworthy AI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Policy defines permissible tool invocations per agent role — human confirmation required for irreversible tools"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MP-5.1",
+      "control_name": "Interdependencies",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All agent tool integrations mapped — data received, permission scope, reversibility, and risk rating per tool"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.5",
+      "control_name": "Testing — adversarial",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing of tool misuse scenarios — destructive parameter injection, tool chaining, MCP descriptor poisoning"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MG-2.2",
+      "control_name": "Risk response",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Incident response for tool misuse — tool disable, parameter audit, downstream impact assessment"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 9",
+      "control_name": "Risk management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All agent tool integrations assessed in Art. 9 risk management — reversibility classification documented"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 14",
+      "control_name": "Human oversight",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Irreversible tool invocations require human confirmation — Art. 14 binding requirement"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 15",
+      "control_name": "Accuracy, robustness, cybersecurity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Per-tool permission manifests and parameter validation are Art. 15 technical requirements"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.2",
+      "control_name": "Privileged access rights",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent tool access managed as privileged access — per-tool permission manifests, minimum scope, regular review"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.5.15",
+      "control_name": "Identity management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent tool access governed through identity management — tool permissions scoped per agent identity"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.15",
+      "control_name": "Logging",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All tool invocations logged with full context — tool identity, parameters, agent identity, timestamp"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.28",
+      "control_name": "Secure coding",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool parameter validation as secure coding requirement — LLM-generated parameters treated as untrusted"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.1.2",
+      "control_name": "Responsible AI system management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool access managed responsibly throughout agent lifecycle — permission review, irreversibility classification, human oversight requirements"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.3",
+      "control_name": "AI system security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Per-tool permission manifests and parameter validation as AIMS security controls"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.5.2",
+      "control_name": "Impact assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool misuse impact assessed — what harm is possible if each tool is misused autonomously"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "Third-party",
+      "control_name": "AI system acquisition",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool and MCP server providers assessed as third-party AI components — security obligations in contracts"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 5",
+      "control_name": "Account Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent tool access managed as privileged access — minimum scope, regular review"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 6",
+      "control_name": "Access Control Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Formal process for granting agent tool access — documented justification per tool"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 8",
+      "control_name": "Audit Log Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All tool invocations logged — tool identity, parameters, agent identity, timestamp"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 16",
+      "control_name": "Application Software Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool parameter validation as secure development requirement"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V4.1.3",
+      "control_name": "Verify access control enforces least privilege",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent tool access scoped to minimum required operations — read-only by default, write access formally approved"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V4.1.1",
+      "control_name": "Verify all sensitive functions have access control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All destructive tool operations require explicit authorisation — not inheritable from agent session"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V7.2.2",
+      "control_name": "Verify all business logic decisions logged",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All tool invocations logged — tool identity, parameters, agent session, timestamp"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V11.1.2",
+      "control_name": "Verify business logic abuse scenarios identified",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool chain exploitation scenarios identified in threat model — mitigations implemented and verified"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V13.1.1",
+      "control_name": "Verify API rate limiting",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool API endpoints rate-limited — anomalous invocation frequency detected"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.2",
+      "control_name": "Least privilege",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Per-tool minimum permission — setpoint adjustment tool restricted to specific tags and safe ranges"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.1",
+      "control_name": "Use control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Allowlisted tool operations for each agent role — agent cannot invoke tools outside its defined function"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 6.6",
+      "control_name": "Timely response to events",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Anomalous tool invocation patterns detected and responded to — alert, suspend, investigate"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.3",
+      "control_name": "Software and information integrity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool descriptor integrity verified — poisoned MCP tool descriptors rejected at loading"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.3",
+      "control_name": "Common ICS vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool misuse amplified by autonomous agent capabilities"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.5",
+      "control_name": "Supply chain risks",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Third-party OT tool components may enable misuse"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§6.2",
+      "control_name": "Risk assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Assess agent tool misuse risk in OT risk register"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§7.1",
+      "control_name": "Secure architecture",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool access controls enforced at zone boundary"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.AA-05",
+      "control_name": "Identity Management, Authentication & Access Control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Access permissions managed — per-tool permission manifests, least privilege per tool, irreversibility classification"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "GV.OC-01",
+      "control_name": "Organisational Context",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Policy defines permissible tool invocations — which tools require human confirmation"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "DE.CM-01",
+      "control_name": "Continuous Monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All tool invocations logged and monitored — anomalous parameters, unusual sequences, high frequency detected"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "RS.AN-03",
+      "control_name": "Incident Analysis",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Root cause analysis — which tool was misused, what downstream impact occurred, what parameters were used"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC5.2",
+      "control_name": "Control activities define tool permission scope — which tools are permitted, which parameters are valid, which actions require confirmation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool permission policy, permitted action allowlist"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC6.1",
+      "control_name": "Logical access controls enforce tool permissions — agent cannot invoke tools outside authorised scope",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool invocation logs, access rejection records"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC7.2",
+      "control_name": "Monitoring for anomalous tool invocations — destructive parameters, out-of-scope tools, unexpected sequences detected",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool call audit log, anomaly alert records"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "PI1.2",
+      "control_name": "Tool invocations are complete and accurate — parameter validation ensures tool calls match intended business operation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validation configuration, rejected call logs"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Agent tool permissions follow least-privilege — agent can only access CHD systems required for defined function",
+      "control_name": "Req 7.2",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Access control matrix for agent tools, privilege review records"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Agent tool permissions reviewed periodically — unused tool permissions removed; review schedule documented",
+      "control_name": "Req 7.3",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Periodic access review records"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "All tool invocations on CHD systems logged — tool name, parameters, data accessed, user/session identity",
+      "control_name": "Req 10.2",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool invocation audit log"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Tool parameter validation in agent code — LLM-generated tool parameters validated before execution",
+      "control_name": "Req 6.2",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Code review records covering parameter validation"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "AI System Integrity (ASI)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool permissions defined per agent role — scope enforced at the framework layer; irreversibility controls prevent unrecoverable actions"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "SCS",
+      "control_name": "Supply Chain Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All tool integrations assessed as supply chain components — integrity verification, vendor security review before integration"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "MON",
+      "control_name": "Monitoring and Detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All agent tool invocations logged — data volumes, destination, and parameter patterns monitored for anomalies"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Access Control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent tool credentials issued with least-privilege — no unnecessary tool permissions granted"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "D-SR",
+      "control_name": "Design / Security Requirements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Security requirements for every tool: auth, scope, parameter validation, irreversibility classification"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "I-SB",
+      "control_name": "Implementation / Secure Build",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Only approved tools can be registered; unsigned tools are rejected; MCP descriptor integrity verified"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-ST",
+      "control_name": "Verification / Security Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Automated checks on tool descriptors, parameters, and permissions; destructive parameter detection"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "G-PC",
+      "control_name": "Governance / Policy & Compliance",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Process for approving, reviewing, and revoking tool integrations; human confirmation for irreversible ops"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "O-OM",
+      "control_name": "Operations / Operational Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Alert on tool calls outside normal operating parameters; misuse pattern detection"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "E",
+      "control_name": "Privilege Abuse via Tools",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "T",
+      "control_name": "Action Tampering",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "S",
+      "control_name": "Tool/Target Spoofing",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-284",
+      "control_name": "Improper Access Control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent can invoke tools it should not have access to; tool parameters not range-validated"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Missing Authorisation",
+      "control_name": "CWE-862",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "No authorisation check before irreversible tool invocations; human confirmation not required"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Unrestricted Upload of File with Dangerous Type",
+      "control_name": "CWE-434",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Analogy: agent accepts and executes tool payloads without content validation"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Improper Control of Dynamically-Managed Code Resources",
+      "control_name": "CWE-913",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "MCP descriptors and tool specifications are dynamically loaded code resources — modification not controlled"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-20",
+      "control_name": "Improper Input Validation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Tool parameters generated by LLM not validated against safe ranges before execution"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "AST",
+      "control_name": "Agent-Specific",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Attempt to invoke tools outside the agent's defined role; test parameter ranges; verify irreversibility controls"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "ACT",
+      "control_name": "Access Control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify each tool enforces its own access controls independently of the agent framework"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "OHT",
+      "control_name": "Output Handling",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify tool call parameters generated by the LLM are validated before execution"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L3",
+      "control_name": "Agent Frameworks",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L6",
+      "control_name": "Security & Compliance",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L4",
+      "control_name": "Deployment & Infrastructure",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B001",
+      "control_name": "Third-party testing of adversarial robustness",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B004",
+      "control_name": "Prevent AI endpoint scraping",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B006",
+      "control_name": "Prevent unauthorized AI agent actions",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B007",
+      "control_name": "Enforce user access privileges to AI systems",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-5",
+      "control_name": "Over-Privileged NHI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Per-tool permission manifests — each tool scoped to minimum required operations"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-3",
+      "control_name": "Vulnerable Third-Party NHI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validate all third-party tool identities — reject tokens from unregistered issuers"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-9",
+      "control_name": "NHI Reuse",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Unique credential per tool integration — tool-scoped tokens, not agent-wide tokens"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.1.1-PS",
+      "control_name": "Define security requirements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Establishes tool access control as a mandatory deployment requirement"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.2.1-PS",
+      "control_name": "Design software to meet security requirements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Ensures tool misuse prevention is designed before implementation"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.7.2-PS",
+      "control_name": "Review the software for security vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validates tool controls before production deployment"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PS.1.1-PS",
+      "control_name": "Protect all code from unauthorised access",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prevents tampering with tool access control configuration"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "AC-3",
+      "control_name": "Access Enforcement — agent tool access",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enforce role-based access control on all agent tool resources; validate all tool parameters as untrusted; deny by default"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "AC-6",
+      "control_name": "Least Privilege — agent tool permissions",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enforce least privilege for all agent tool permissions; per-tool permission manifests, minimum scope, irreversibility classification"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "CM-7",
+      "control_name": "Least Functionality — agent capability restrictions",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Restrict agents to minimum necessary tool capabilities; disable unused tools, enforce human confirmation for irreversible operations"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "AU-2",
+      "control_name": "Event Logging — tool invocation logging",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Log all tool invocations with tool identity, parameters, agent identity, session, and timestamp; immutable trail for forensic investigation"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 9",
+      "control_name": "Protection and Prevention — agent tool access controls",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Implement security controls enforcing least privilege on agent tool access; validate all tool parameters as untrusted; enforce human confirmation for irreversible operations"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 5–7",
+      "control_name": "ICT Risk Management — agent tool governance",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include agent tool access policies in ICT risk management framework; define acceptable tool scopes per agent role and financial function; classify tool irreversibility"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 10",
+      "control_name": "Detection — tool misuse detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Monitor agent tool invocation patterns for anomalous usage — destructive parameters, unusual tool sequences, scope violations; alert on detection"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 24–27",
+      "control_name": "Resilience Testing — tool misuse testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include tool misuse scenarios in resilience testing; test whether agents can be manipulated into destructive tool invocations or harmful parameter injection"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Invariant Analyzer",
+      "type": "open-source",
+      "url": "https://github.com/invariantlabs-ai/invariant"
+    },
+    {
+      "name": "NeMo Guardrails",
+      "type": "open-source",
+      "url": "https://github.com/NVIDIA/NeMo-Guardrails"
+    },
+    {
+      "name": "MCP Inspector",
+      "type": "open-source",
+      "url": "https://github.com/modelcontextprotocol/inspector"
+    },
+    {
+      "name": "Claroty",
+      "type": "commercial",
+      "url": "https://claroty.com"
+    },
+    {
+      "name": "OWASP Dependency-Check",
+      "type": "open-source",
+      "url": "https://github.com/jeremylong/DependencyCheck"
+    },
+    {
+      "name": "Semgrep",
+      "type": "open-source",
+      "url": "https://github.com/returntocorp/semgrep"
+    },
+    {
+      "name": "Koi Security",
+      "type": "commercial",
+      "url": "https://www.koi.ai"
+    },
+    {
+      "name": "SPIFFE / SPIRE",
+      "type": "open-source",
+      "url": "https://spiffe.io"
+    },
+    {
+      "name": "HashiCorp Vault",
+      "type": "open-source",
+      "url": "https://www.vaultproject.io"
+    },
+    {
+      "name": "LAAF (LLM Agent Assessment Framework)",
+      "type": "open-source",
+      "url": "https://github.com/OWASP/LAAF"
+    },
+    {
+      "name": "Open Policy Agent (OPA)",
+      "type": "open-source",
+      "url": "https://www.openpolicyagent.org"
+    },
+    {
+      "name": "Guardrails AI",
+      "type": "open-source",
+      "url": "https://github.com/guardrails-ai/guardrails"
+    },
+    {
+      "name": "Open Policy Agent",
+      "type": "open-source",
+      "url": "https://www.openpolicyagent.org"
+    },
+    {
+      "name": "LangSmith",
+      "type": "commercial",
+      "url": "https://smith.langchain.com"
+    },
+    {
+      "name": "LAAF v2.0",
+      "url": "https://github.com/qorvexconsulting1/laaf-V2.0",
+      "type": "open-source"
+    }
+  ],
+  "incidents": [
+    {
+      "name": "AnythingLLM Multiple CVEs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00627.html",
+      "year": 2026,
+      "incident_id": "INC-00627"
+    },
+    {
+      "name": "ChainLeak -- Chainlit AI Framework Vulnerabilities (CVE-2026-22218 & CVE-2026-22219)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00739.html",
+      "year": 2026,
+      "incident_id": "INC-00739"
+    },
+    {
+      "name": "ChatGPT Data Exfiltration via DNS Covert Channel",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00746.html",
+      "year": 2026,
+      "incident_id": "INC-00746"
+    },
+    {
+      "name": "Claude AI jailbreak — Mexican government breach, 150GB data theft across 10 agencies",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00806.html",
+      "year": 2026,
+      "incident_id": "INC-00806"
+    },
+    {
+      "name": "Claude Code Project Files RCE & API Token Exfiltration (CVE-2025-59536 & CVE-2026-21852)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00813.html",
+      "year": 2026,
+      "incident_id": "INC-00813"
+    },
+    {
+      "name": "Claude Cowork File Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00827.html",
+      "year": 2026,
+      "incident_id": "INC-00827"
+    },
+    {
+      "name": "CrewAI Critical Vulnerabilities (CVE-2026-2275 et al.)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00860.html",
+      "year": 2026,
+      "incident_id": "INC-00860"
+    },
+    {
+      "name": "Docker MCP Server OS Command Injection (CVE-2026-5741)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00904.html",
+      "year": 2026,
+      "incident_id": "INC-00904"
+    },
+    {
+      "name": "EchoLeak — zero-click Microsoft Copilot data exfiltration via email prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00924.html",
+      "year": 2026,
+      "incident_id": "INC-00924"
+    },
+    {
+      "name": "Eight Attack Vectors in AWS Bedrock Agents",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00928.html",
+      "year": 2026,
+      "incident_id": "INC-00928"
+    },
+    {
+      "name": "Gemini Live in Chrome Hijacking (CVE-2026-0628)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01063.html",
+      "year": 2026,
+      "incident_id": "INC-01063"
+    },
+    {
+      "name": "GeminiJack — zero-click Gemini Enterprise data exfiltration via shared Google Docs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01064.html",
+      "year": 2026,
+      "incident_id": "INC-01064"
+    },
+    {
+      "name": "Langflow CSV Agent RCE via Prompt Injection (CVE-2026-27966)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01297.html",
+      "year": 2026,
+      "incident_id": "INC-01297"
+    },
+    {
+      "name": "MCP fURI -- Microsoft MarkItDown MCP SSRF",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01378.html",
+      "year": 2026,
+      "incident_id": "INC-01378"
+    },
+    {
+      "name": "MCPJam Inspector RCE (CVE-2026-23744)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01390.html",
+      "year": 2026,
+      "incident_id": "INC-01390"
+    },
+    {
+      "name": "MCPwned -- Azure MCP Server SSRF & Cloud Takeover (CVE-2026-26118)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01391.html",
+      "year": 2026,
+      "incident_id": "INC-01391"
+    },
+    {
+      "name": "Microsoft Excel XSS Weaponizes Copilot Agent (CVE-2026-26144)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01435.html",
+      "year": 2026,
+      "incident_id": "INC-01435"
+    },
+    {
+      "name": "Microsoft Semantic Kernel RCE (CVE-2026-26030)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01440.html",
+      "year": 2026,
+      "incident_id": "INC-01440"
+    },
+    {
+      "name": "n8n Unauthenticated RCE \"Ni8mare\" (CVE-2026-21858)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01471.html",
+      "year": 2026,
+      "incident_id": "INC-01471"
+    },
+    {
+      "name": "OpenClaw AI agent security crisis — 138 CVEs in 63 days, 341 malicious marketplace skills",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01592.html",
+      "year": 2026,
+      "incident_id": "INC-01592"
+    },
+    {
+      "name": "PerplexedBrowser -- Perplexity Comet Agentic Browser Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01637.html",
+      "year": 2026,
+      "incident_id": "INC-01637"
+    },
+    {
+      "name": "PraisonAI Quadruple CVE Disclosure",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01666.html",
+      "year": 2026,
+      "incident_id": "INC-01666"
+    },
+    {
+      "name": "SGLang Triple RCE (CVE-2026-3059, CVE-2026-3060, CVE-2026-3989)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01769.html",
+      "year": 2026,
+      "incident_id": "INC-01769"
+    },
+    {
+      "name": "AgentSeal MCP server mass scan — 66% of 1,808 servers have security findings",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02190.html",
+      "year": 2025,
+      "incident_id": "INC-02190"
+    },
+    {
+      "name": "Amazon Bedrock AgentCore Sandbox DNS Escape",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02297.html",
+      "year": 2025,
+      "incident_id": "INC-02297"
+    },
+    {
+      "name": "Amazon Q Prompt Poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02300.html",
+      "year": 2025,
+      "incident_id": "INC-02300"
+    },
+    {
+      "name": "Anthropic MCP Git Server Triple Flaw (CVE-2025-68143, -68144, -68145)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02321.html",
+      "year": 2025,
+      "incident_id": "INC-02321"
+    },
+    {
+      "name": "Anthropic SQLite MCP Server SQL Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02324.html",
+      "year": 2025,
+      "incident_id": "INC-02324"
+    },
+    {
+      "name": "Chinese State-Linked Operator (GTG-1002) Reportedly Uses Claude Code for Autonomous Cyber Espionage",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02426.html",
+      "year": 2025,
+      "incident_id": "INC-02426"
+    },
+    {
+      "name": "Claude Code DNS Exfiltration (CVE-2025-55284)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02435.html",
+      "year": 2025,
+      "incident_id": "INC-02435"
+    },
+    {
+      "name": "Claude Pirate Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02449.html",
+      "year": 2025,
+      "incident_id": "INC-02449"
+    },
+    {
+      "name": "Claude Skills Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02450.html",
+      "year": 2025,
+      "incident_id": "INC-02450"
+    },
+    {
+      "name": "Claude Skills ransomware deployment — MedusaLocker via malicious plugin",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02451.html",
+      "year": 2025,
+      "incident_id": "INC-02451"
+    },
+    {
+      "name": "Cline AI Coding Agent Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02455.html",
+      "year": 2025,
+      "incident_id": "INC-02455"
+    },
+    {
+      "name": "Cursorignore Bypass via New Cursorignore Write",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02480.html",
+      "year": 2025,
+      "incident_id": "INC-02480"
+    },
+    {
+      "name": "Devin AI Agent Prompt Injection & Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02512.html",
+      "year": 2025,
+      "incident_id": "INC-02512"
+    },
+    {
+      "name": "Dify SSRF via RemoteFileUploadApi (CVE-2025-56520)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02514.html",
+      "year": 2025,
+      "incident_id": "INC-02514"
+    },
+    {
+      "name": "EscapeRoute -- Anthropic Filesystem MCP Sandbox Escape (CVE-2025-53109 & CVE-2025-53110)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02546.html",
+      "year": 2025,
+      "incident_id": "INC-02546"
+    },
+    {
+      "name": "Flowise CustomMCP code injection RCE — CVSS 10.0, 12,000 instances exposed",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02581.html",
+      "year": 2025,
+      "incident_id": "INC-02581"
+    },
+    {
+      "name": "ForcedLeak — Salesforce Agentforce indirect prompt injection exfiltrates CRM data",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02590.html",
+      "year": 2025,
+      "incident_id": "INC-02590"
+    },
+    {
+      "name": "Framelink Figma MCP RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02592.html",
+      "year": 2025,
+      "incident_id": "INC-02592"
+    },
+    {
+      "name": "GitHub Copilot & Cursor Code-Agent Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02607.html",
+      "year": 2025,
+      "incident_id": "INC-02607"
+    },
+    {
+      "name": "GitHub Copilot Multi-Root Workspace RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02611.html",
+      "year": 2025,
+      "incident_id": "INC-02611"
+    },
+    {
+      "name": "GitPublic Issue Repo Hijack",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02613.html",
+      "year": 2025,
+      "incident_id": "INC-02613"
+    },
+    {
+      "name": "Google Antigravity AI Data Wipe",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02627.html",
+      "year": 2025,
+      "incident_id": "INC-02627"
+    },
+    {
+      "name": "Google Antigravity IDE Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02629.html",
+      "year": 2025,
+      "incident_id": "INC-02629"
+    },
+    {
+      "name": "Google Gemini Trifecta",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02636.html",
+      "year": 2025,
+      "incident_id": "INC-02636"
+    },
+    {
+      "name": "HashJack -- URL Fragment Prompt Injection for AI Browsers",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02686.html",
+      "year": 2025,
+      "incident_id": "INC-02686"
+    },
+    {
+      "name": "Hub MCP Prompt Injection (Cross-Context)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02700.html",
+      "year": 2025,
+      "incident_id": "INC-02700"
+    },
+    {
+      "name": "LangGrinch -- LangChain Core Serialization Injection (CVE-2025-68664)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02813.html",
+      "year": 2025,
+      "incident_id": "INC-02813"
+    },
+    {
+      "name": "Malicious MCP Server Impersonating Postmark",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02849.html",
+      "year": 2025,
+      "incident_id": "INC-02849"
+    },
+    {
+      "name": "MCP tool poisoning — hidden instructions in Model Context Protocol tool descriptions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02874.html",
+      "year": 2025,
+      "incident_id": "INC-02874"
+    },
+    {
+      "name": "Microsoft Copilot Studio agents public by default — unauthorized data exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02899.html",
+      "year": 2025,
+      "incident_id": "INC-02899"
+    },
+    {
+      "name": "Notion 3.0 AI Agent Data Exfiltration via Prompt Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02964.html",
+      "year": 2025,
+      "incident_id": "INC-02964"
+    },
+    {
+      "name": "NVIDIA Triton control-message manipulation -> RCE (Wiz chain final)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02971.html",
+      "year": 2025,
+      "incident_id": "INC-02971"
+    },
+    {
+      "name": "OpenAI ChatGPT Operator Vulnerability",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02997.html",
+      "year": 2025,
+      "incident_id": "INC-02997"
+    },
+    {
+      "name": "Perplexity Comet agentic browser — unauthorized Amazon customer account access",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03020.html",
+      "year": 2025,
+      "incident_id": "INC-03020"
+    },
+    {
+      "name": "Postgres MCP Server SQL Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03039.html",
+      "year": 2025,
+      "incident_id": "INC-03039"
+    },
+    {
+      "name": "ShadowLeak — ChatGPT Deep Research zero-click data exfiltration from connected services",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03210.html",
+      "year": 2025,
+      "incident_id": "INC-03210"
+    },
+    {
+      "name": "Visual Studio Code & Agentic AI workflows RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03334.html",
+      "year": 2025,
+      "incident_id": "INC-03334"
+    },
+    {
+      "name": "WhatsApp MCP tool poisoning — hidden instructions exfiltrate entire message history",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03368.html",
+      "year": 2025,
+      "incident_id": "INC-03368"
+    },
+    {
+      "name": "Windsurf Data Exfiltration & SpAIware (Multiple Vectors)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03376.html",
+      "year": 2025,
+      "incident_id": "INC-03376"
+    },
+    {
+      "name": "Anthropic Sleeper Agents paper — models trained to hide malicious behaviour",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03572.html",
+      "year": 2024,
+      "incident_id": "INC-03572"
+    },
+    {
+      "name": "Nassi et al. \"ComPromptMized\" Morris II multi-agent worm",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04027.html",
+      "year": 2024,
+      "incident_id": "INC-04027"
+    },
+    {
+      "name": "RAG corpus poisoning — embedding-space manipulation to force retrieval",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04142.html",
+      "year": 2024,
+      "incident_id": "INC-04142"
+    },
+    {
+      "name": "Slack AI indirect injection via channel content",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04208.html",
+      "year": 2024,
+      "incident_id": "INC-04208"
+    },
+    {
+      "name": "LangChain and LlamaIndex RCE — agent code execution via prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04715.html",
+      "year": 2023,
+      "incident_id": "INC-04715"
+    },
+    {
+      "name": "LangChain SSRF & PALChain RCE (CVE-2023-46229 & CVE-2023-44467)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04720.html",
+      "year": 2023,
+      "incident_id": "INC-04720"
+    }
+  ],
+  "crossrefs": {
+    "llm_top10": [
+      "LLM05",
+      "LLM06"
+    ],
+    "dsgai_2026": [
+      "DSGAI06",
+      "DSGAI12",
+      "DSGAI16"
+    ]
+  },
+  "changelog": [
+    {
+      "date": "2026-03-27",
+      "version": "1.0.0",
+      "change": "Initial entry — generated from GenAI Security Crosswalk v1.5.1 mapping files",
+      "author": "emmanuelgjr"
+    }
+  ]
+}

@@ -1,0 +1,1168 @@
+{
+  "id": "ASI05",
+  "name": "Unexpected Code Execution",
+  "source_list": "Agentic-Top10-2026",
+  "version": "2026-Q1",
+  "severity": "Critical",
+  "aivss_score": 9.9,
+  "audience": [
+    "red-teamer",
+    "security-engineer",
+    "ml-engineer",
+    "ot-engineer",
+    "ciso",
+    "compliance",
+    "auditor",
+    "developer"
+  ],
+  "mappings": [
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0040",
+      "control_name": "Unsafe Deserialisation via LLM",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent-generated code or payloads executed by downstream components"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0054",
+      "control_name": "LLM Jailbreak",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Overriding code execution safety guardrails to allow arbitrary command execution"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0067",
+      "control_name": "Output Manipulation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Crafting inputs that produce malicious executable code in agent output"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "GV-1.7",
+      "control_name": "Policies for trustworthy AI",
+      "tier": "Hardening",
+      "scope": "Build",
+      "notes": "Policy explicitly addresses agent code execution capability — sandbox requirements, permitted operations"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MP-2.3",
+      "control_name": "Risk categorisation",
+      "tier": "Hardening",
+      "scope": "Build",
+      "notes": "Code execution risk categorised separately per agent — blast radius, permitted operations, sandbox status"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.5",
+      "control_name": "Testing — adversarial",
+      "tier": "Hardening",
+      "scope": "Build",
+      "notes": "Adversarial testing of code execution paths — sandbox escape attempts, command injection via generated code"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MG-2.2",
+      "control_name": "Risk response",
+      "tier": "Hardening",
+      "scope": "Build",
+      "notes": "Incident response for agent code execution anomaly — sandbox isolation, kill switch, forensic capture"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 9",
+      "control_name": "Risk management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent code execution capability documented in Art. 9 risk management — sandbox status, permitted operations"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 15",
+      "control_name": "Accuracy, robustness, cybersecurity",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandboxing, input filtering, static analysis are Art. 15 requirements for agents with code execution"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 17",
+      "control_name": "Quality management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution anomaly response in quality management system"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.28",
+      "control_name": "Secure coding",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox, static analysis, and allowlist as secure coding requirements — no code execution without these controls"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.26",
+      "control_name": "Application security requirements",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Security requirements for agent code execution capability specified before development — sandbox spec, permitted operations"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.29",
+      "control_name": "Security testing",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox escape and code injection scenarios in security testing — adversarial testing before each deployment"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.16",
+      "control_name": "Monitoring activities",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution environments monitored — anomalous system calls, network attempts detected"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.3",
+      "control_name": "AI system security",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox, static analysis, and allowlist as AIMS security design requirements for code execution capability"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.6",
+      "control_name": "Testing of AI systems",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox escape and code injection scenarios in AIMS testing — adversarial testing before each deployment"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.5.2",
+      "control_name": "Impact assessment",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Impact of code execution capability formally assessed — RCE impact on persons and systems documented"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "Cl.6.1",
+      "control_name": "Risk assessment",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution risk in AI risk register — blast radius, sandbox status, permitted operations documented"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 16",
+      "control_name": "Application Software Security",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox, static analysis, and allowlist as secure development requirements for code execution"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 4",
+      "control_name": "Secure Configuration",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Secure configuration includes code execution sandbox — no defaults permitting unrestricted execution"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 18",
+      "control_name": "Penetration Testing",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox escape and code injection in penetration testing — adversarial scenarios before each deployment"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 13",
+      "control_name": "Network Monitoring",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution environments network-monitored — outbound connection attempts from sandbox detected"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.1",
+      "control_name": "Verify output encoding of untrusted data in HTML context",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent code output encoded before rendering in any context"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.4",
+      "control_name": "Verify application does not use eval or dynamic code",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "No eval or exec of agent-generated code — absolute prohibition enforced in code review"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.5",
+      "control_name": "Verify output encoding in OS command context",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent-generated commands validated before any shell execution"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.3.5",
+      "control_name": "Verify output encoding in SQL context",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "No raw agent output in SQL context — parameterised execution only"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V11.1.2",
+      "control_name": "Verify business logic limits",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution capability in agents subject to business logic controls — sandbox, allowlist, static analysis"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.3",
+      "control_name": "Software and information integrity",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "All agent-generated code validated before execution — allowlisted operations only"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.3",
+      "control_name": "Use control",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent code execution restricted to specific, defined operations — no shell access, no network programming"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.7",
+      "control_name": "Software and information integrity (monitoring)",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Runtime monitoring of agent code execution — anomalous system calls detected and blocked"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.3",
+      "control_name": "ICS vulnerabilities",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "Code execution bypass is a critical OT threat vector"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§6.2",
+      "control_name": "Risk assessment",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "Code execution capability in OT agents must be in risk register"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§7.1",
+      "control_name": "Secure architecture",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "Mandatory: code execution sandbox independent of OT control plane"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.PS-04",
+      "control_name": "Platform Security",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Secure software development — static analysis, sandbox, allowlist as code execution platform security controls"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.IR-01",
+      "control_name": "Infrastructure Resilience",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Networks and environments protected — sandbox isolated from production infrastructure"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "DE.CM-01",
+      "control_name": "Continuous Monitoring",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution monitored — sandbox escape attempts, anomalous system calls detected"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "RS.MI-01",
+      "control_name": "Incident Mitigation",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution incidents contained — sandbox isolated, forensic capture initiated"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC5.2",
+      "control_name": "Control activities define permitted code execution scope — sandbox requirements, approved languages, forbidden operations",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution policy, sandbox configuration"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC6.1",
+      "control_name": "Execution sandboxes access-controlled — no host filesystem or network access without authorisation",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox configuration, access control evidence"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC7.2",
+      "control_name": "Code execution events monitored — syscall patterns, network calls, and filesystem access from sandboxes logged",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Execution audit log, alert configuration"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "PI1.1",
+      "control_name": "Code execution is authorised — agent cannot execute code that was not explicitly requested by authorised user",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution authorisation records"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Code generation and execution controls in secure development — agent cannot execute generated code without validation",
+      "control_name": "Req 6.2",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Secure development policy covering code generation"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Agent execution environments protected — WAF or equivalent for agent endpoints with code execution capability",
+      "control_name": "Req 6.4",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "WAF configuration, protection evidence"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Code execution paths in penetration testing — test whether crafted inputs cause execution of out-of-scope code",
+      "control_name": "Req 11.3",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Pen test report with code execution test cases"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Code execution events logged — all agent-initiated execution with session identity and code summary",
+      "control_name": "Req 10.2",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution audit log"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "AI System Integrity (ASI)",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent-generated code validated and sandboxed before execution — AI system integrity verification includes code generation scope testing"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "MON",
+      "control_name": "Monitoring and Detection",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "All agent-initiated code execution logged — process spawning, filesystem access, and network calls from agent sandboxes monitored"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Secure Development",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Code execution sandbox as a secure development requirement — agent-generated code never executed in host context"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Network",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent code execution sandboxes network-isolated — no outbound connections to non-approved destinations"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "D-SA",
+      "control_name": "Design / Security Architecture",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "Sandbox controls must be layered — no single-point bypass path"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-AA",
+      "control_name": "Verification / Architecture Assessment",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "Independent review of every sandbox escape scenario"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-ST",
+      "control_name": "Verification / Security Testing",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "Dedicated red team exercise targeting sandbox escape"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "O-IM",
+      "control_name": "Operations / Incident Management",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "Alert immediately when unexpected code execution detected"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "G-SM",
+      "control_name": "Governance / Strategy & Metrics",
+      "tier": "Advanced",
+      "scope": "Both",
+      "notes": "No production agent with code execution without signed sandbox architecture review"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "E",
+      "control_name": "Code-Execution Privilege Elevation",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "T",
+      "control_name": "Execution-Path Tampering",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Improper Control of Generation of Code",
+      "control_name": "CWE-94",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent generates and executes code without adequate static analysis or sandbox"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-78",
+      "control_name": "Improper Neutralisation of Special Elements in OS Command",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM-generated code containing shell commands executed without sanitisation"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-77",
+      "control_name": "Improper Neutralisation of Special Elements in Command",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM output used directly in command context"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Improper Neutralisation of Directives in Dynamically Evaluated Code",
+      "control_name": "CWE-95",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Eval of LLM-generated code"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Use of Potentially Dangerous Function",
+      "control_name": "CWE-676",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent uses exec(), eval(), subprocess without validation"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "IHT",
+      "control_name": "Input Handling",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Craft inputs designed to generate code containing network calls, file system access, or shell commands"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "OHT",
+      "control_name": "Output Handling",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Verify static analysis catches dangerous operations before execution"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "AST",
+      "control_name": "Agent-Specific",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Test sandbox boundary enforcement from within the execution environment"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L4",
+      "control_name": "Deployment & Infrastructure",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L3",
+      "control_name": "Agent Frameworks",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L1",
+      "control_name": "Foundation Models",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B001",
+      "control_name": "Third-party testing of adversarial robustness",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B005",
+      "control_name": "Implement real-time input filtering",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B006",
+      "control_name": "Prevent unauthorized AI agent actions",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B009",
+      "control_name": "Limit output over-exposure",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-5",
+      "control_name": "Over-Privileged NHI",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Sandbox code execution under a separate, minimal credential — not the agent's primary identity"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-8",
+      "control_name": "Environment Isolation Failure",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Strict environment isolation for code execution — dedicated sandboxed identity"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-9",
+      "control_name": "NHI Reuse",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Unique credential per agent — code execution in one instance cannot leverage other instances' access"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.2.1-PS",
+      "control_name": "Design software to meet security requirements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Ensures code execution boundaries are designed before implementation"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.5.1-PS",
+      "control_name": "Secure coding practices",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prevents code execution vulnerabilities in agent implementation"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.8.2-PS",
+      "control_name": "Test for security vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validates execution boundary controls under attack conditions"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PS.1.1-PS",
+      "control_name": "Protect all code from unauthorised access",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prevents weakening of execution boundaries through configuration tampering"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "CM-7",
+      "control_name": "Least Functionality — code execution restrictions",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Restrict agent code execution to minimum necessary scope; enforce sandbox boundaries, disable unnecessary language features, and limit filesystem and network access"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SC-7",
+      "control_name": "Boundary Protection — execution sandbox",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enforce strict boundary protection on agent code execution environments; isolate from production systems, restrict network access, and enforce resource limits"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-3",
+      "control_name": "Malicious Code Protection — agent-generated code",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Scan agent-generated code for malicious patterns before execution; detect and block code that attempts filesystem access, network communication, or privilege escalation"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "CA-8",
+      "control_name": "Penetration Testing — execution boundary testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include agent code execution sandbox escape in penetration testing scope; test boundary integrity under adversarial conditions"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 9",
+      "control_name": "Protection and Prevention — code execution controls",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Implement security controls restricting agent code execution — sandboxing, capability restrictions, network isolation, and resource limits"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 24–27",
+      "control_name": "Resilience Testing — sandbox escape testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include agent code execution sandbox escape in threat-led penetration testing; test boundary integrity under adversarial conditions"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 17–23",
+      "control_name": "ICT Incident Management — code execution incident reporting",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Classify unexpected code execution events as ICT-related incidents; assess impact on financial systems and report per DORA criteria"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 10",
+      "control_name": "Detection — execution anomaly detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Monitor agent code execution for anomalous patterns — unexpected system calls, network access, filesystem operations; alert on detection"
+    }
+  ],
+  "tools": [
+    {
+      "name": "gVisor",
+      "type": "open-source",
+      "url": "https://gvisor.dev"
+    },
+    {
+      "name": "Semgrep",
+      "type": "open-source",
+      "url": "https://semgrep.dev"
+    },
+    {
+      "name": "Bandit",
+      "type": "open-source",
+      "url": "https://github.com/PyCQA/bandit"
+    },
+    {
+      "name": "Firecracker",
+      "type": "open-source",
+      "url": "https://firecracker-microvm.github.io"
+    },
+    {
+      "name": "Dragos",
+      "type": "commercial",
+      "url": "https://www.dragos.com"
+    },
+    {
+      "name": "Garak",
+      "type": "open-source",
+      "url": "https://github.com/leondz/garak"
+    },
+    {
+      "name": "E2B",
+      "type": "open-source",
+      "url": "https://e2b.dev"
+    }
+  ],
+  "incidents": [
+    {
+      "name": "AnythingLLM Multiple CVEs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00627.html",
+      "year": 2026,
+      "incident_id": "INC-00627"
+    },
+    {
+      "name": "Axios npm supply chain attack — North Korean Sapphire Sleet targets 70M weekly downloads",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00671.html",
+      "year": 2026,
+      "incident_id": "INC-00671"
+    },
+    {
+      "name": "ChatGPT Data Exfiltration via DNS Covert Channel",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00746.html",
+      "year": 2026,
+      "incident_id": "INC-00746"
+    },
+    {
+      "name": "Claude Code Project Files RCE & API Token Exfiltration (CVE-2025-59536 & CVE-2026-21852)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00813.html",
+      "year": 2026,
+      "incident_id": "INC-00813"
+    },
+    {
+      "name": "Clinejection — CI/CD pipeline compromise via Cline's issue triage bot, 4,000 machines infected",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00834.html",
+      "year": 2026,
+      "incident_id": "INC-00834"
+    },
+    {
+      "name": "CrewAI Critical Vulnerabilities (CVE-2026-2275 et al.)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00860.html",
+      "year": 2026,
+      "incident_id": "INC-00860"
+    },
+    {
+      "name": "Docker MCP Server OS Command Injection (CVE-2026-5741)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00904.html",
+      "year": 2026,
+      "incident_id": "INC-00904"
+    },
+    {
+      "name": "EchoLeak — zero-click Microsoft Copilot data exfiltration via email prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00924.html",
+      "year": 2026,
+      "incident_id": "INC-00924"
+    },
+    {
+      "name": "GlassWorm supply chain — 72 malicious VSCode extensions, 9 million installs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01092.html",
+      "year": 2026,
+      "incident_id": "INC-01092"
+    },
+    {
+      "name": "Langflow CSV Agent RCE via Prompt Injection (CVE-2026-27966)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01297.html",
+      "year": 2026,
+      "incident_id": "INC-01297"
+    },
+    {
+      "name": "Langflow Unauthenticated RCE (CVE-2026-33017)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01298.html",
+      "year": 2026,
+      "incident_id": "INC-01298"
+    },
+    {
+      "name": "LiteLLM PyPI supply chain backdoor — TeamPCP campaign compromises 3.4M daily downloads",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01340.html",
+      "year": 2026,
+      "incident_id": "INC-01340"
+    },
+    {
+      "name": "Marimo Pre-Auth RCE (CVE-2026-39987)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01370.html",
+      "year": 2026,
+      "incident_id": "INC-01370"
+    },
+    {
+      "name": "MCPJam Inspector RCE (CVE-2026-23744)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01390.html",
+      "year": 2026,
+      "incident_id": "INC-01390"
+    },
+    {
+      "name": "MCPwned -- Azure MCP Server SSRF & Cloud Takeover (CVE-2026-26118)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01391.html",
+      "year": 2026,
+      "incident_id": "INC-01391"
+    },
+    {
+      "name": "Microsoft 365 Copilot XPIA phishing — attacker-shaped email summaries via hidden instructions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01429.html",
+      "year": 2026,
+      "incident_id": "INC-01429"
+    },
+    {
+      "name": "Microsoft Semantic Kernel RCE (CVE-2026-26030)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01440.html",
+      "year": 2026,
+      "incident_id": "INC-01440"
+    },
+    {
+      "name": "n8n Unauthenticated RCE \"Ni8mare\" (CVE-2026-21858)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01471.html",
+      "year": 2026,
+      "incident_id": "INC-01471"
+    },
+    {
+      "name": "OpenClaw AI agent security crisis — 138 CVEs in 63 days, 341 malicious marketplace skills",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01592.html",
+      "year": 2026,
+      "incident_id": "INC-01592"
+    },
+    {
+      "name": "PraisonAI Quadruple CVE Disclosure",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01666.html",
+      "year": 2026,
+      "incident_id": "INC-01666"
+    },
+    {
+      "name": "SGLang Triple RCE (CVE-2026-3059, CVE-2026-3060, CVE-2026-3989)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01769.html",
+      "year": 2026,
+      "incident_id": "INC-01769"
+    },
+    {
+      "name": "vLLM RCE via Malicious Video URL (CVE-2026-22778)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02047.html",
+      "year": 2026,
+      "incident_id": "INC-02047"
+    },
+    {
+      "name": "XBOW — first critical CVE discovered entirely by autonomous AI penetration testing agent",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02105.html",
+      "year": 2026,
+      "incident_id": "INC-02105"
+    },
+    {
+      "name": "AgentSeal MCP server mass scan — 66% of 1,808 servers have security findings",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02190.html",
+      "year": 2025,
+      "incident_id": "INC-02190"
+    },
+    {
+      "name": "Amazon Q Prompt Poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02300.html",
+      "year": 2025,
+      "incident_id": "INC-02300"
+    },
+    {
+      "name": "Anthropic MCP Git Server Triple Flaw (CVE-2025-68143, -68144, -68145)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02321.html",
+      "year": 2025,
+      "incident_id": "INC-02321"
+    },
+    {
+      "name": "Claude Desktop PromptJacking RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02447.html",
+      "year": 2025,
+      "incident_id": "INC-02447"
+    },
+    {
+      "name": "Claude Skills ransomware deployment — MedusaLocker via malicious plugin",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02451.html",
+      "year": 2025,
+      "incident_id": "INC-02451"
+    },
+    {
+      "name": "Cline AI Coding Agent Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02455.html",
+      "year": 2025,
+      "incident_id": "INC-02455"
+    },
+    {
+      "name": "Cursor \"Open-Folder\" Autorun Vulnerability",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02462.html",
+      "year": 2025,
+      "incident_id": "INC-02462"
+    },
+    {
+      "name": "Cursor & Windsurf Forked Chromium 94+ N-Day Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02463.html",
+      "year": 2025,
+      "incident_id": "INC-02463"
+    },
+    {
+      "name": "Cursor CLI Project Config RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02467.html",
+      "year": 2025,
+      "incident_id": "INC-02467"
+    },
+    {
+      "name": "Cursor Config Overwrite via Case Mismatch",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02468.html",
+      "year": 2025,
+      "incident_id": "INC-02468"
+    },
+    {
+      "name": "Cursor Workspace File Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02471.html",
+      "year": 2025,
+      "incident_id": "INC-02471"
+    },
+    {
+      "name": "Cursorignore Bypass via New Cursorignore Write",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02480.html",
+      "year": 2025,
+      "incident_id": "INC-02480"
+    },
+    {
+      "name": "Devin AI Agent Prompt Injection & Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02512.html",
+      "year": 2025,
+      "incident_id": "INC-02512"
+    },
+    {
+      "name": "Dify SSRF via RemoteFileUploadApi (CVE-2025-56520)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02514.html",
+      "year": 2025,
+      "incident_id": "INC-02514"
+    },
+    {
+      "name": "EscapeRoute -- Anthropic Filesystem MCP Sandbox Escape (CVE-2025-53109 & CVE-2025-53110)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02546.html",
+      "year": 2025,
+      "incident_id": "INC-02546"
+    },
+    {
+      "name": "Flowise CustomMCP code injection RCE — CVSS 10.0, 12,000 instances exposed",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02581.html",
+      "year": 2025,
+      "incident_id": "INC-02581"
+    },
+    {
+      "name": "Flowise Pre-Auth Arbitrary File Upload",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02582.html",
+      "year": 2025,
+      "incident_id": "INC-02582"
+    },
+    {
+      "name": "Framelink Figma MCP RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02592.html",
+      "year": 2025,
+      "incident_id": "INC-02592"
+    },
+    {
+      "name": "GitHub Copilot & Cursor Code-Agent Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02607.html",
+      "year": 2025,
+      "incident_id": "INC-02607"
+    },
+    {
+      "name": "GitHub Copilot Multi-Root Workspace RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02611.html",
+      "year": 2025,
+      "incident_id": "INC-02611"
+    },
+    {
+      "name": "Google Antigravity AI Data Wipe",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02627.html",
+      "year": 2025,
+      "incident_id": "INC-02627"
+    },
+    {
+      "name": "Google Antigravity IDE Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02629.html",
+      "year": 2025,
+      "incident_id": "INC-02629"
+    },
+    {
+      "name": "Google Gemini CLI File Loss",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02631.html",
+      "year": 2025,
+      "incident_id": "INC-02631"
+    },
+    {
+      "name": "Hub MCP Prompt Injection (Cross-Context)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02700.html",
+      "year": 2025,
+      "incident_id": "INC-02700"
+    },
+    {
+      "name": "Kiro IDE Command Injection (CVE-2026-0830)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02793.html",
+      "year": 2025,
+      "incident_id": "INC-02793"
+    },
+    {
+      "name": "LangGrinch -- LangChain Core Serialization Injection (CVE-2025-68664)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02813.html",
+      "year": 2025,
+      "incident_id": "INC-02813"
+    },
+    {
+      "name": "Malicious MCP server backdoor on npm — dual reverse shells in mcp-runcommand-server",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02848.html",
+      "year": 2025,
+      "incident_id": "INC-02848"
+    },
+    {
+      "name": "MCP OAuth Response Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02871.html",
+      "year": 2025,
+      "incident_id": "INC-02871"
+    },
+    {
+      "name": "MCP tool poisoning — hidden instructions in Model Context Protocol tool descriptions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02874.html",
+      "year": 2025,
+      "incident_id": "INC-02874"
+    },
+    {
+      "name": "mcp-remote OAuth Command Injection (CVE-2025-6514)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02878.html",
+      "year": 2025,
+      "incident_id": "INC-02878"
+    },
+    {
+      "name": "NVIDIA Triton control-message manipulation -> RCE (Wiz chain final)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02971.html",
+      "year": 2025,
+      "incident_id": "INC-02971"
+    },
+    {
+      "name": "Ollama GGUF Model File RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02980.html",
+      "year": 2025,
+      "incident_id": "INC-02980"
+    },
+    {
+      "name": "OpenHands ZombAI RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03010.html",
+      "year": 2025,
+      "incident_id": "INC-03010"
+    },
+    {
+      "name": "Postgres MCP Server SQL Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03039.html",
+      "year": 2025,
+      "incident_id": "INC-03039"
+    },
+    {
+      "name": "React2Shell Impacting Dify and AI Platforms (CVE-2025-55182)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03149.html",
+      "year": 2025,
+      "incident_id": "INC-03149"
+    },
+    {
+      "name": "ShadowMQ — critical RCE in Meta/NVIDIA/vLLM inference servers via pickle deserialization",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03211.html",
+      "year": 2025,
+      "incident_id": "INC-03211"
+    },
+    {
+      "name": "ToolShell RCE via SharePoint",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03300.html",
+      "year": 2025,
+      "incident_id": "INC-03300"
+    },
+    {
+      "name": "Trail of Bits: Prompt Injection to RCE in AI Agents",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03304.html",
+      "year": 2025,
+      "incident_id": "INC-03304"
+    },
+    {
+      "name": "Visual Studio Code & Agentic AI workflows RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03334.html",
+      "year": 2025,
+      "incident_id": "INC-03334"
+    },
+    {
+      "name": "vLLM Model Config Auto-Map RCE (CVE-2025-66448)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03335.html",
+      "year": 2025,
+      "incident_id": "INC-03335"
+    },
+    {
+      "name": "vLLM Unsafe Tensor Deserialization (CVE-2025-62164)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03337.html",
+      "year": 2025,
+      "incident_id": "INC-03337"
+    },
+    {
+      "name": "Windsurf Data Exfiltration & SpAIware (Multiple Vectors)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03376.html",
+      "year": 2025,
+      "incident_id": "INC-03376"
+    },
+    {
+      "name": "OpenAI GPT-4 system prompt extraction toolkit — systematic prompt leakage",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04067.html",
+      "year": 2024,
+      "incident_id": "INC-04067"
+    },
+    {
+      "name": "LangChain and LlamaIndex RCE — agent code execution via prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04715.html",
+      "year": 2023,
+      "incident_id": "INC-04715"
+    },
+    {
+      "name": "LangChain SSRF & PALChain RCE (CVE-2023-46229 & CVE-2023-44467)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04720.html",
+      "year": 2023,
+      "incident_id": "INC-04720"
+    },
+    {
+      "name": "ShadowRay: Anyscale Ray Dashboard RCE (CVE-2023-48022) exploited in the wild",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04862.html",
+      "year": 2023,
+      "incident_id": "INC-04862"
+    }
+  ],
+  "crossrefs": {
+    "llm_top10": [
+      "LLM05"
+    ],
+    "dsgai_2026": [
+      "DSGAI12"
+    ]
+  },
+  "changelog": [
+    {
+      "date": "2026-03-27",
+      "version": "1.0.0",
+      "change": "Initial entry — generated from GenAI Security Crosswalk v1.5.1 mapping files",
+      "author": "emmanuelgjr"
+    }
+  ]
+}

@@ -1,0 +1,902 @@
+{
+  "id": "ASI10",
+  "name": "Rogue Agents",
+  "source_list": "Agentic-Top10-2026",
+  "version": "2026-Q1",
+  "severity": "Critical",
+  "aivss_score": 9.7,
+  "audience": [
+    "red-teamer",
+    "security-engineer",
+    "ml-engineer",
+    "ot-engineer",
+    "ciso",
+    "compliance",
+    "auditor",
+    "developer"
+  ],
+  "mappings": [
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0054",
+      "control_name": "LLM Jailbreak",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Persistent override of agent safety constraints enabling hidden goal execution"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0015",
+      "control_name": "LLM Capability Escalation",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent gradually escalates its own capabilities and permissions over time"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0053",
+      "control_name": "AI Agent Tool Invocation",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent autonomously invokes tools to maintain persistent access and hidden execution across sessions"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "GV-1.7",
+      "control_name": "Policies for trustworthy AI",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Policy requires behavioural monitoring of all deployed agents — rogue agent detection as a governance objective"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MP-2.3",
+      "control_name": "Risk categorisation",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent risk categorised per deployment — detection capability, blast radius, and response procedures mapped"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.5",
+      "control_name": "Testing — adversarial",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Adversarial testing covering rogue agent scenarios — behavioural drift, persistent hidden goal detection"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MG-2.2",
+      "control_name": "Risk response",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Incident response for rogue agent — kill switch, audit procedure, operational impact assessment, root cause"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 9",
+      "control_name": "Risk management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent risk in Art. 9 risk management — detection capability, blast radius, response documented"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 14",
+      "control_name": "Human oversight",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Kill switch and behavioural monitoring are Art. 14 human oversight requirements for agentic systems"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 15",
+      "control_name": "Accuracy, robustness, cybersecurity",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Behavioural baselines, anomaly detection, and automated suspension are Art. 15 requirements"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 17",
+      "control_name": "Quality management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Behavioural monitoring in post-market monitoring programme"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.16",
+      "control_name": "Monitoring activities",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Behavioural baseline monitoring — deviation detection is the primary rogue agent control, new 2022 control directly applicable"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.15",
+      "control_name": "Logging",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Comprehensive audit logging of all agent actions — no production deployment without full observability"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.2",
+      "control_name": "Privileged access rights",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Scope constraints enforced — rogue agent cannot exceed permission envelope regardless of internal goal state"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.5.24",
+      "control_name": "Information security incident management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent containment as ISMS incident — kill switch, recommendation audit, process state validation, forensic capture"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.3",
+      "control_name": "AI system security",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Scope constraints enforced at infrastructure layer — rogue agent cannot exceed permission envelope"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.8",
+      "control_name": "Monitoring of AI systems",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Behavioural monitoring as AIMS operational control — baseline deviation detection is the primary rogue agent control"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.1.2",
+      "control_name": "Responsible AI system management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Comprehensive audit logging and rogue agent containment as responsible lifecycle management obligation"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "Cl.9",
+      "control_name": "Performance evaluation",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent detection rates and containment times in AIMS management review"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 8",
+      "control_name": "Audit Log Management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Comprehensive audit logging of all agent actions — no production deployment without full observability"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 13",
+      "control_name": "Network Monitoring and Defence",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent behavioural anomalies centralised and alerted — rogue agent patterns detected through SIEM"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 17",
+      "control_name": "Incident Response",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent containment as incident response procedure — kill switch, audit, state validation, forensic"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 18",
+      "control_name": "Penetration Testing",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent scenarios in penetration testing — persistent hidden goal simulation, detection verification"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V7.2.1",
+      "control_name": "Verify access control decisions logged",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "All agent actions logged — no production deployment without complete observability"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V7.2.2",
+      "control_name": "Verify all business logic decisions logged",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "All agent tool invocations and recommendations logged — systematic bias detectable through aggregate analysis"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V11.1.2",
+      "control_name": "Verify business logic limits prevent abuse",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Scope constraints as business logic controls — rogue agent cannot exceed permission envelope"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V13.1.1",
+      "control_name": "Verify API rate limiting",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rate limiting prevents rogue agent from amplifying impact through API exhaustion"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.7",
+      "control_name": "Software and information integrity (monitoring)",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Continuous behavioural monitoring of all OT agents — deviation from established baseline detected"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 6.1",
+      "control_name": "Timely response to events",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent indicators treated as security events — immediate suspension, investigation, OT impact assessment"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.2",
+      "control_name": "Least privilege",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent cannot exceed defined permission scope even if internal goals are compromised"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.6",
+      "control_name": "Use control enforcement",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent cannot load additional tools or expand its own capability scope"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.3",
+      "control_name": "ICS vulnerabilities",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue automation is the highest-severity OT threat category"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§6.2",
+      "control_name": "Risk assessment",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Rogue agent scenarios must be in OT risk register"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§7.2",
+      "control_name": "Security controls",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Behavioural monitoring and containment for all OT automation"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "DE.CM-09",
+      "control_name": "Continuous Monitoring",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Monitoring for anomalous data and software use — behavioural baseline deviation detected"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "DE.AE-02",
+      "control_name": "Adverse Event Analysis",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Detected events analysed to understand attack targets — rogue agent patterns correlated across sessions"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "RS.AN-03",
+      "control_name": "Incident Analysis",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Root cause analysis — what caused rogue behaviour, which sessions were affected, what was the blast radius"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.AA-05",
+      "control_name": "Identity Management, Authentication & Access Control",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Access permissions managed — rogue agent cannot exceed its permission envelope regardless of internal goal state"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC7.2",
+      "control_name": "Continuous monitoring for rogue agent behaviour — actions outside authorised scope detected and alerted",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Agent action audit log, anomaly alert records"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC6.1",
+      "control_name": "Access controls define authorised agent scope — technical enforcement of what agents may and may not do",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Permission policy, access control configuration"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC3.3",
+      "control_name": "Rogue agent risk in risk assessment — autonomous agent operating outside scope is a documented risk",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Risk register with rogue agent scenarios"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "A1.1",
+      "control_name": "Rogue agent impact on availability — resource consumption by rogue agents does not degrade service for authorised operations",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Resource monitoring, quota enforcement records"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Agent access to CHD follows documented scope — technical controls prevent access outside defined role",
+      "control_name": "Req 7.2",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Access control matrix, technical enforcement evidence"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Rogue agent behaviour logged — actions outside defined scope generate audit log entries and alerts",
+      "control_name": "Req 10.2",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Action audit log, out-of-scope alert records"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Rogue agent scenarios in penetration test scope — test whether agents can operate outside authorised scope",
+      "control_name": "Req 11.3",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Pen test report with rogue agent test cases"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Rogue agent risk analysis — targeted risk analysis documents scenarios, CHD impact, treatment",
+      "control_name": "Req 12.3",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Risk analysis documentation"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "Monitoring and Detection (MON)",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Continuous monitoring for agents operating outside authorised scope — AI-specific behavioural baselines enable deviation detection"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "Incident Response (IRS)",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "AI incident response plan covers rogue agent scenarios — automated isolation, manual rollback, forensic investigation procedures"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "Governance and Risk (GOV)",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Authorised behaviour envelope documented per agent role — enables definition of what constitutes rogue behaviour"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "AI System Integrity (ASI)",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "AI system integrity controls enforce authorised behaviour boundaries — runtime enforcement, not just policy statements"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "D-TA",
+      "control_name": "Design / Threat Assessment",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Model scenarios where agents pursue hidden goals; identify detection and containment requirements"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-ST",
+      "control_name": "Verification / Security Testing",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Red team: simulate persistent hidden goal pursuit across extended sessions"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "O-IM",
+      "control_name": "Operations / Incident Management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Detect behavioural baseline deviations; alert on hidden tool invocations and recommendation bias"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "O-OM",
+      "control_name": "Operations / Operational Management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Continuous behavioural monitoring with baselines established during commissioning"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "O-IM",
+      "control_name": "Operations / Incident Management",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Documented runbook: kill switch, audit, state validation, forensic capture"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "E",
+      "control_name": "Unauthorised Privilege Use",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "T",
+      "control_name": "Behaviour Tampering",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "R",
+      "control_name": "Action Repudiation",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-284",
+      "control_name": "Improper Access Control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Rogue agent exceeds its permitted access scope — no scope enforcement"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Protection Mechanism Failure",
+      "control_name": "CWE-693",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Behavioural monitoring and detection mechanisms bypassed by rogue agent"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-799",
+      "control_name": "Improper Control of Interaction Frequency",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Rogue agent evades detection by maintaining normal action frequency while biasing recommendations"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Embedded Malicious Code",
+      "control_name": "CWE-506",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Rogue behaviour may result from backdoored model or component"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Incorrect Default Permissions",
+      "control_name": "CWE-276",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent deployed with broader permissions than needed — amplifies rogue blast radius"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "AST",
+      "control_name": "Agent-Specific",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Establish baseline during commissioning; inject anomalous behaviour patterns; verify detection"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "MBT",
+      "control_name": "Model Behaviour",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Verify that systematic recommendation bias is detectable through aggregate output analysis"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "LMT",
+      "control_name": "Logging & Monitoring",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Verify kill switch activation logs are complete and anomaly-to-suspension latency meets SLA"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L5",
+      "control_name": "Evaluation & Observability",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L1",
+      "control_name": "Foundation Models",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L6",
+      "control_name": "Security & Compliance",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B001",
+      "control_name": "Third-party testing of adversarial robustness",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B002",
+      "control_name": "Detect adversarial input",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B006",
+      "control_name": "Prevent unauthorized AI agent actions",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "C",
+      "control_name": "Safety (full domain)",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "E",
+      "control_name": "Accountability (full domain)",
+      "tier": "Hardening",
+      "scope": "Both"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-1",
+      "control_name": "Improper Offboarding",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Formal agent offboarding triggered immediately on rogue detection — all credentials revoked"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-5",
+      "control_name": "Over-Privileged NHI",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Least privilege — rogue agent with narrow scope causes less damage before containment"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-7",
+      "control_name": "Long-Lived Credentials",
+      "tier": "Hardening",
+      "scope": "Both",
+      "notes": "Short-lived credentials — rogue detection triggers token expiry without requiring manual revocation"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.7.2-PS",
+      "control_name": "Review the software for security vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Catches rogue agent risks before production"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.8.2-PS",
+      "control_name": "Test for security vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validates rogue agent detection under realistic conditions"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "RV.1.1-PS",
+      "control_name": "Identify and confirm vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enables rapid detection and containment of rogue agents"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "RV.3.1-PS",
+      "control_name": "Analyse root causes",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Builds organisational knowledge of rogue agent risks"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "CA-7",
+      "control_name": "Continuous Monitoring — rogue agent detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include monitoring for rogue agent behaviour in FedRAMP continuous monitoring; track for hidden goal pursuit, undisclosed tool calls, and systematic recommendation bias"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-4",
+      "control_name": "System Monitoring — behavioural anomaly detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Monitor agent systems for behavioural anomalies — unexpected tool invocations, deviation from established baselines, and hidden communication patterns"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "IR-4",
+      "control_name": "Incident Handling — rogue agent containment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Define incident handling procedures for rogue agent events; include kill switch activation, recommendation audit, state validation, and forensic capture"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "AU-6",
+      "control_name": "Audit Review — agent decision pattern review",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Conduct regular audit review of agent decision patterns; identify systematic bias, hidden objective indicators, and recommendation manipulation"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 10",
+      "control_name": "Detection — rogue agent behaviour monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Deploy comprehensive behavioural monitoring for all agents — establish behavioural baselines, detect deviations, alert on hidden tool invocations and systematic recommendation bias"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 17–23",
+      "control_name": "ICT Incident Management — rogue agent incident reporting",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Classify rogue agent events as ICT-related incidents; define containment procedures including kill switch activation, audit, and forensic capture"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 24–27",
+      "control_name": "Resilience Testing — rogue agent scenarios",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include rogue agent scenarios in threat-led penetration testing; simulate persistent hidden goal pursuit across extended sessions; verify detection capability"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 5–7",
+      "control_name": "ICT Risk Management — rogue agent governance",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include rogue agent risk in ICT risk management framework; define scope constraints and behavioural monitoring requirements for all agent deployments"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Langfuse",
+      "type": "open-source",
+      "url": "https://langfuse.com"
+    },
+    {
+      "name": "Helicone",
+      "type": "open-source",
+      "url": "https://www.helicone.ai"
+    },
+    {
+      "name": "Weights & Biases",
+      "type": "commercial",
+      "url": "https://wandb.ai"
+    },
+    {
+      "name": "Wazuh",
+      "type": "open-source",
+      "url": "https://wazuh.com"
+    },
+    {
+      "name": "Dragos",
+      "type": "commercial",
+      "url": "https://www.dragos.com"
+    },
+    {
+      "name": "Prometheus",
+      "type": "open-source",
+      "url": "https://prometheus.io"
+    },
+    {
+      "name": "Falco",
+      "type": "open-source",
+      "url": "https://falco.org"
+    },
+    {
+      "name": "Entro Security",
+      "type": "commercial",
+      "url": "https://entro.security"
+    },
+    {
+      "name": "HashiCorp Vault",
+      "type": "open-source",
+      "url": "https://www.vaultproject.io"
+    },
+    {
+      "name": "Teleport",
+      "type": "commercial",
+      "url": "https://goteleport.com"
+    },
+    {
+      "name": "LAAF (LLM Agent Assessment Framework)",
+      "type": "open-source",
+      "url": "https://github.com/OWASP/LAAF"
+    },
+    {
+      "name": "Garak",
+      "type": "open-source",
+      "url": "https://github.com/leondz/garak"
+    },
+    {
+      "name": "LangSmith",
+      "type": "commercial",
+      "url": "https://smith.langchain.com"
+    },
+    {
+      "name": "OpenTelemetry",
+      "type": "open-source",
+      "url": "https://opentelemetry.io"
+    },
+    {
+      "name": "PagerDuty",
+      "type": "commercial",
+      "url": "https://www.pagerduty.com"
+    },
+    {
+      "name": "AgentOps",
+      "url": "https://github.com/AgentOps-AI/agentops",
+      "type": "open-source"
+    }
+  ],
+  "incidents": [
+    {
+      "name": "AWS Bedrock AgentCore \"Agent God Mode\" Privilege Escalation",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00668.html",
+      "year": 2026,
+      "incident_id": "INC-00668"
+    },
+    {
+      "name": "Claude AI jailbreak — Mexican government breach, 150GB data theft across 10 agencies",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00806.html",
+      "year": 2026,
+      "incident_id": "INC-00806"
+    },
+    {
+      "name": "Clinejection — CI/CD pipeline compromise via Cline's issue triage bot, 4,000 machines infected",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00834.html",
+      "year": 2026,
+      "incident_id": "INC-00834"
+    },
+    {
+      "name": "Langflow Unauthenticated RCE (CVE-2026-33017)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01298.html",
+      "year": 2026,
+      "incident_id": "INC-01298"
+    },
+    {
+      "name": "Meta Rogue AI Agent Sev-1 — autonomous agent posts incorrect advice, exposing proprietary data",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01411.html",
+      "year": 2026,
+      "incident_id": "INC-01411"
+    },
+    {
+      "name": "OpenClaw AI agent security crisis — 138 CVEs in 63 days, 341 malicious marketplace skills",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01592.html",
+      "year": 2026,
+      "incident_id": "INC-01592"
+    },
+    {
+      "name": "XBOW — first critical CVE discovered entirely by autonomous AI penetration testing agent",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02105.html",
+      "year": 2026,
+      "incident_id": "INC-02105"
+    },
+    {
+      "name": "Agent-in-the-Middle — A2A protocol spoofing via fake agent cards",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02186.html",
+      "year": 2025,
+      "incident_id": "INC-02186"
+    },
+    {
+      "name": "Chinese State-Linked Operator (GTG-1002) Reportedly Uses Claude Code for Autonomous Cyber Espionage",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02426.html",
+      "year": 2025,
+      "incident_id": "INC-02426"
+    },
+    {
+      "name": "Claude Skills ransomware deployment — MedusaLocker via malicious plugin",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02451.html",
+      "year": 2025,
+      "incident_id": "INC-02451"
+    },
+    {
+      "name": "NVIDIA Triton control-message manipulation -> RCE (Wiz chain final)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02971.html",
+      "year": 2025,
+      "incident_id": "INC-02971"
+    },
+    {
+      "name": "Replit vibe coding meltdown — agent hallucinated data, deleted production database, hid mistakes",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03152.html",
+      "year": 2025,
+      "incident_id": "INC-03152"
+    },
+    {
+      "name": "Anthropic Sleeper Agents paper — models trained to hide malicious behaviour",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03572.html",
+      "year": 2024,
+      "incident_id": "INC-03572"
+    }
+  ],
+  "crossrefs": {
+    "llm_top10": [
+      "LLM06"
+    ],
+    "dsgai_2026": [
+      "DSGAI16",
+      "DSGAI03",
+      "DSGAI02",
+      "DSGAI20"
+    ]
+  },
+  "changelog": [
+    {
+      "date": "2026-03-27",
+      "version": "1.0.0",
+      "change": "Initial entry — generated from GenAI Security Crosswalk v1.5.1 mapping files",
+      "author": "emmanuelgjr"
+    }
+  ]
+}

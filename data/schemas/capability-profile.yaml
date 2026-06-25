@@ -1,0 +1,878 @@
+# ═══════════════════════════════════════════════════════════════════
+# Capability Profile Schema
+# ═══════════════════════════════════════════════════════════════════
+#
+# This schema defines the capability profile — the output of Stage 1
+# (Capability Profile Inference) in the scenario-forge pipeline. The
+# profile captures structural properties of the system under
+# assessment that determine which threat families are in scope and
+# how specific the generated scenarios can be.
+#
+# Pipeline role:
+#   Stage 1 output  →  determines SCOPE (which threats apply)
+#   Stage 2 output  →  determines SPECIFICITY (how concrete scenarios are)
+#
+# The profile is a reviewable, editable artifact. Humans can inspect
+# and correct inferences before scenario generation proceeds.
+#
+# Architecture model: Schneider's five-zone model
+#   Zone 1 = Input Surfaces
+#   Zone 2 = Planning & Reasoning
+#   Zone 3 = Tool Execution
+#   Zone 4 = Memory & State
+#   Zone 5 = Inter-Agent Communication
+#
+# A plain LLM is treated as a degenerate agent — "an agent that can
+# only talk" — with zones [1, 2]. As capabilities are added, zones
+# activate and additional threat families come into scope.
+#
+# ═══════════════════════════════════════════════════════════════════
+
+schema:
+  name: capability_profile
+  version: "1.0.0"
+  description: >
+    Schema for the capability profile artifact produced by Stage 1
+    (Capability Profile Inference) and optionally enriched by Stage 2
+    (LLM-inferred enrichment). Consumed by Stage 2 (Threat Surface
+    Determination) to filter the SSSOM chain and determine which
+    OWASP Agentic Threats, LLM Top 10 entries, and MITRE ATLAS
+    techniques are in scope.
+
+# ═══════════════════════════════════════════════════════════════════
+# Stage 1 Fields (required)
+#
+# Extracted via lightweight NLP/LLM pass over the use case
+# description. Always populated regardless of depth setting.
+# These fields alone are sufficient to filter the SSSOM chain
+# and determine which threats are in scope.
+# ═══════════════════════════════════════════════════════════════════
+
+stage_1:
+  zones_active:
+    type: list[integer]
+    required: true
+    valid_values: [1, 2, 3, 4, 5]
+    description: >
+      Which Schneider zones are active in the system under assessment.
+      Minimum is [1, 2] (Input + Reasoning) — every LLM system has
+      these. Additional zones activate as capabilities are present:
+        Zone 3 (Tool Execution): system can invoke tools, APIs, or
+          execute commands
+        Zone 4 (Memory & State): system has persistent memory across
+          sessions or interactions
+        Zone 5 (Inter-Agent Communication): system involves multiple
+          agents communicating with each other
+    constraints:
+      - "Must contain at least [1, 2] — all LLM systems have input and reasoning"
+      - "Zone 4 active implies has_persistent_memory: true"
+      - "Zone 5 active implies multi_agent: true"
+
+  has_persistent_memory:
+    type: boolean
+    required: true
+    description: >
+      Whether the system maintains state across sessions or
+      interactions. Includes long-term memory stores, conversation
+      history databases, vector databases for RAG with write-back,
+      or any mechanism where outputs from one session influence
+      future sessions. Short-lived context within a single request
+      does not count.
+    threat_gating: "Enables memory-based threats (T1, T5) and memory poisoning sub-scenarios"
+
+  multi_agent:
+    type: boolean
+    required: true
+    description: >
+      Whether the system involves multiple AI agents that communicate,
+      delegate, or coordinate with each other. Includes orchestrator-
+      worker patterns, agent-to-agent protocols (MCP, A2A), swarm
+      architectures, and any topology where one agent's output
+      becomes another agent's input as part of normal operation.
+      A single agent calling tools is NOT multi-agent.
+    threat_gating: "Enables multi-agent threats (T12, T13, T14)"
+
+  hitl:
+    type: boolean
+    required: true
+    description: >
+      Whether the system includes human-in-the-loop checkpoints where
+      a human reviews, approves, or overrides agent decisions before
+      they take effect. This includes approval workflows, review
+      gates, escalation paths, and any mechanism where human judgment
+      is a control point in the agent's execution.
+    threat_gating: "Enables HITL-specific threats (T10 Overwhelming Human in the Loop)"
+
+  entry_points:
+    type: list[string]
+    required: true
+    description: >
+      Attack entry points identified in the system, annotated with
+      the Schneider zone they belong to. Each entry point is a
+      channel through which untrusted input can reach the system.
+      Examples: "user prompts (zone 1)", "RAG-retrieved documents
+      (zone 1)", "tool API responses (zone 3)", "inter-agent
+      messages (zone 5)".
+    constraints:
+      - "At least one entry point must be specified"
+      - "Each entry should be annotated with its zone in parentheses"
+
+  confidence:
+    type: string
+    required: true
+    valid_values: [high, medium, low]
+    description: >
+      How well the use case description text supported the Stage 1
+      inferences. Reflects the quality and specificity of the input,
+      not the correctness of the inferences themselves.
+        high:   Use case text explicitly states architecture details
+                (zones, tools, memory, agents)
+        medium: Some capabilities are clearly described, others are
+                inferred from domain context
+        low:    Use case text is vague or minimal; inferences are
+                largely based on common patterns for the domain
+
+# ═══════════════════════════════════════════════════════════════════
+# Stage 2 Fields (optional)
+#
+# Populated by LLM-inferred enrichment at configurable depth.
+# These fields determine how SPECIFIC generated scenarios are —
+# they do not change which threats are in scope (that is Stage 1's
+# job). A missing Stage 2 section means scenarios will be generated
+# at category level rather than observable/stateful level.
+# ═══════════════════════════════════════════════════════════════════
+
+stage_2:
+  tool_types:
+    type: list[object]
+    required: false
+    populated_at: [moderate, thorough]
+    description: >
+      Tools and APIs the system can invoke, with classification.
+      Each entry describes a tool, its zone, and its risk-relevant
+      properties (e.g., whether it can modify external state,
+      access sensitive data, or execute code).
+    item_schema:
+      name:
+        type: string
+        description: "Tool or API name (e.g., 'database_query', 'send_email', 'execute_code')"
+      zone:
+        type: integer
+        description: "Schneider zone where this tool operates (typically 3)"
+      can_modify_state:
+        type: boolean
+        description: "Whether the tool can write/modify external systems"
+      data_sensitivity:
+        type: string
+        valid_values: [none, low, medium, high]
+        description: "Sensitivity of data the tool can access"
+      code_execution:
+        type: boolean
+        description: "Whether the tool can execute arbitrary code"
+
+  data_flows:
+    type: list[object]
+    required: false
+    populated_at: [moderate, thorough]
+    description: >
+      Data flows between zones and components. Captures where data
+      originates, where it flows, and what transformations or
+      validations occur along the path. Essential for identifying
+      injection points and trust boundary crossings.
+    item_schema:
+      source:
+        type: string
+        description: "Origin of the data (e.g., 'user input', 'RAG store', 'agent-B output')"
+      source_zone:
+        type: integer
+        description: "Schneider zone of the data source"
+      destination:
+        type: string
+        description: "Where the data flows to (e.g., 'LLM context', 'tool parameter', 'agent-A input')"
+      destination_zone:
+        type: integer
+        description: "Schneider zone of the destination"
+      data_type:
+        type: string
+        description: "Nature of the data (e.g., 'user query', 'retrieved document', 'tool result')"
+      validated:
+        type: boolean
+        description: "Whether the data is validated/sanitized at this boundary"
+
+  trust_boundaries:
+    type: list[object]
+    required: false
+    populated_at: [thorough]
+    description: >
+      Trust boundaries in the system architecture. A trust boundary
+      exists wherever data crosses from one trust domain to another —
+      e.g., from untrusted user input to the LLM context, from LLM
+      output to tool invocation, from one agent to another. These
+      are the key points where security controls should exist and
+      where attacks are most likely to succeed.
+    item_schema:
+      name:
+        type: string
+        description: "Descriptive name for the boundary (e.g., 'user-to-LLM', 'LLM-to-tool-execution')"
+      from_zone:
+        type: integer
+        description: "Schneider zone on the untrusted side"
+      to_zone:
+        type: integer
+        description: "Schneider zone on the trusted side"
+      controls:
+        type: list[string]
+        description: "Security controls at this boundary (e.g., 'input validation', 'output filtering', 'HITL approval')"
+      confidence:
+        type: string
+        valid_values: [explicit, inferred, hypothesized]
+        description: >
+          Whether this boundary was explicitly mentioned in the use case
+          (explicit), reasonably inferred from the architecture (inferred),
+          or hypothesized based on best practices (hypothesized)
+
+  memory_mechanisms:
+    type: list[object]
+    required: false
+    populated_at: [moderate, thorough]
+    description: >
+      Memory and state persistence mechanisms. Only relevant when
+      has_persistent_memory is true. Describes how the system stores
+      and retrieves state across interactions.
+    item_schema:
+      type:
+        type: string
+        valid_values: [conversation_history, vector_store, key_value_store, relational_db, knowledge_graph, session_cache, other]
+        description: "Category of memory mechanism"
+      scope:
+        type: string
+        valid_values: [per_user, shared, global]
+        description: "Whether memory is isolated per user, shared across users, or global"
+      persistence:
+        type: string
+        valid_values: [session, short_term, long_term, permanent]
+        description: "How long data persists"
+      writable_by_agent:
+        type: boolean
+        description: "Whether the agent can write to this store (vs read-only retrieval)"
+
+  external_integrations:
+    type: list[object]
+    required: false
+    populated_at: [moderate, thorough]
+    description: >
+      External systems and services the agent integrates with.
+      Captures the attack surface created by connections to systems
+      outside the agent's direct control.
+    item_schema:
+      name:
+        type: string
+        description: "Name of the external system (e.g., 'CRM', 'payment gateway', 'email service')"
+      integration_type:
+        type: string
+        valid_values: [api, database, message_queue, file_system, web_service, other]
+        description: "How the agent connects to this system"
+      auth_method:
+        type: string
+        valid_values: [api_key, oauth, service_account, none, unknown]
+        description: "Authentication mechanism used"
+      data_sensitivity:
+        type: string
+        valid_values: [none, low, medium, high]
+        description: "Sensitivity of data accessible through this integration"
+
+# ═══════════════════════════════════════════════════════════════════
+# Depth Setting
+#
+# Controls how much LLM inference is applied in Stage 2 enrichment.
+# Does not affect Stage 1 (always runs fully).
+# ═══════════════════════════════════════════════════════════════════
+
+depth:
+  type: string
+  required: true
+  valid_values: [minimal, moderate, thorough]
+  description: >
+    Controls the extent of Stage 2 LLM-inferred enrichment.
+    Stage 1 (deterministic flags) always runs regardless of depth.
+  levels:
+    minimal:
+      description: >
+        Only extract what is explicitly stated in the use case text.
+        No inference beyond what the text directly supports.
+      stage_2_fields_populated: []
+      result: >
+        Produces correct threat scope via Stage 1 flags. Scenarios
+        are generated at category level — generic attack patterns
+        applied to the stated system type. Suitable for brief,
+        one-paragraph use case descriptions.
+    moderate:
+      description: >
+        Infer likely components from domain context. For example,
+        "a customer service agent" probably has CRM access, ticket
+        management tools, and customer data — even if not explicitly
+        stated.
+      stage_2_fields_populated:
+        - tool_types
+        - data_flows
+        - memory_mechanisms
+        - external_integrations
+      result: >
+        Produces threat scope plus architectural detail. Scenarios
+        include specific tool names, data flow paths, and integration
+        points. Success criteria reach the observable level for most
+        scenarios.
+    thorough:
+      description: >
+        Generate a Schneider-style zone map with hypothesized trust
+        boundaries, data flows, and attack surfaces. Maximum inference
+        from the use case text, including likely security controls
+        and their potential weaknesses.
+      stage_2_fields_populated:
+        - tool_types
+        - data_flows
+        - trust_boundaries
+        - memory_mechanisms
+        - external_integrations
+      result: >
+        Full architectural model. Scenarios include trust boundary
+        analysis, control point identification, and structural
+        exposure assessment. Success criteria can reach the stateful
+        level where the text supports it.
+
+# ═══════════════════════════════════════════════════════════════════
+# Threat Scope Mapping
+#
+# Documents which Stage 1 capability flags gate which threats.
+# This mapping is the bridge between the capability profile and the
+# SSSOM chain walk in Stage 2 (Threat Surface Determination).
+#
+# Based on the OWASP Agentic Threats decision tree (Steps 1-6) and
+# the cross-taxonomy mappings in cross-taxonomy-mappings.yaml.
+# ═══════════════════════════════════════════════════════════════════
+
+threat_scope_mapping:
+
+  # ─── Always in scope (any LLM/agent system) ───────────────────
+  # Decision tree Step 1: "Does the agent independently determine
+  # the steps needed to achieve its goals?"
+  # Every system with zones [1, 2] has agency and reasoning.
+
+  always_in_scope:
+    condition: "zones_active includes [1, 2] (always true)"
+    threats:
+      - id: T6
+        name: "Intent Breaking & Goal Manipulation"
+        rationale: >
+          Any system with a prompt interface is susceptible to goal
+          manipulation via prompt injection. Extends LLM01 (Prompt
+          Injection) to persistent objective corruption.
+      - id: T7
+        name: "Misaligned & Deceptive Behaviors"
+        rationale: >
+          Emerges from advanced reasoning capabilities. The agent may
+          develop misaligned strategies to achieve goals without direct
+          malicious input. No LLM Top 10 predecessor — purely agentic.
+      - id: T8
+        name: "Repudiation & Untraceability"
+        rationale: >
+          Any autonomous agent creates forensic challenges. More severe
+          with greater autonomy but applies to all systems. No LLM Top
+          10 predecessor — purely agentic.
+      - id: T15
+        name: "Human Manipulation"
+        rationale: >
+          Any AI system that communicates with humans can potentially
+          be weaponized for social engineering. The implicit trust users
+          place in AI responses makes this universally applicable. No
+          LLM Top 10 predecessor — purely agentic.
+        design_decision: >
+          OWASP decision tree places T15 at Step 5 alongside T10 (HITL),
+          but we classify it as always-in-scope because human manipulation
+          does not require a formal HITL checkpoint — any user-facing AI
+          can manipulate humans regardless of whether HITL is a design
+          feature. This is a deliberate divergence from the literal
+          taxonomy gating.
+
+  # ─── Gated by has_persistent_memory ────────────────────────────
+  # Decision tree Step 2: "Does the agent rely on stored memory
+  # for decision-making?"
+
+  memory_gated:
+    condition: "has_persistent_memory == true (implies zone 4 active)"
+    threats:
+      - id: T1
+        name: "Memory Poisoning"
+        rationale: >
+          Requires persistent memory to poison. Short-term memory
+          attacks exploit context limitations; long-term memory risks
+          involve injecting false information across sessions. Extends
+          LLM04 (Data and Model Poisoning) to runtime persistent memory.
+        sub_scenario_gating:
+          T1-S4: "Only when memory scope is 'shared' — requires shared memory structures"
+      - id: T5
+        name: "Cascading Hallucination Attacks"
+        rationale: >
+          While hallucinations can occur in any LLM, cascading attacks
+          require memory to persist and propagate false information
+          across interactions. Extends LLM09 (Misinformation) through
+          self-reinforcement mechanisms.
+
+  # ─── Gated by zone 3 (Tool Execution) ─────────────────────────
+  # Decision tree Step 3: "Does the agent execute actions using
+  # tools, system commands, or external integrations?"
+
+  tool_execution_gated:
+    condition: "zones_active includes 3"
+    threats:
+      - id: T2
+        name: "Tool Misuse"
+        rationale: >
+          Requires tool access to misuse. Attackers manipulate the
+          agent into abusing authorized tools through deceptive
+          prompts. Extends LLM06 (Excessive Agency) with dynamic
+          integration risks.
+        sub_scenario_gating:
+          T2-S4: "Only when has_persistent_memory is true — requires persistent memory to poison"
+          T2-S5: "Only when memory_mechanisms includes vector_store — requires vector database"
+      - id: T3
+        name: "Privilege Compromise"
+        rationale: >
+          Requires tool/system access with permissions to escalate.
+          Agents autonomously inherit permissions, creating security
+          blind spots. Extends LLM06 (Excessive Agency).
+      - id: T4
+        name: "Resource Overload"
+        rationale: >
+          While basic resource exhaustion can target any endpoint,
+          agentic resource overload exploits tool execution to
+          trigger cascading resource consumption. Extends LLM10
+          (Unbounded Consumption).
+      - id: T11
+        name: "Unexpected RCE and Code Attacks"
+        rationale: >
+          Requires code execution capability. AI-generated code
+          execution in agentic applications can lead to unsafe code
+          generation and system compromise. Extends LLM05 (Insecure
+          Output Handling) and relates to LLM01 (Prompt Injection).
+      - id: T16
+        name: "Insecure Inter-Agent Protocol Abuse"
+        rationale: >
+          OWASP decision tree step 3 (tool/execution threats). Attackers
+          manipulate protocol-level commands, tool descriptions, or
+          consent flows in tool protocols (MCP, A2A). Applies to any
+          system using tool execution protocols, including single-agent
+          systems with MCP tool servers. No LLM Top 10 predecessor —
+          purely agentic.
+      - id: T17
+        name: "Supply Chain Compromise"
+        rationale: >
+          While supply chain risks exist for any software, agentic
+          supply chain compromise is amplified when agents
+          autonomously invoke tools and chain decisions. Extends
+          LLM03 (Supply Chain Vulnerabilities).
+
+  # ─── Gated by hitl ─────────────────────────────────────────────
+  # Decision tree Step 5: "Does AI require human engagement to
+  # achieve its goals or function effectively?"
+
+  hitl_gated:
+    condition: "hitl == true"
+    threats:
+      - id: T10
+        name: "Overwhelming Human in the Loop"
+        rationale: >
+          Only applicable when human oversight is a control point.
+          Attackers overwhelm reviewers with excessive intervention
+          requests, inducing decision fatigue that leads to rushed
+          approvals. No LLM Top 10 predecessor — purely agentic.
+
+  # ─── Gated by multi_agent ──────────────────────────────────────
+  # Decision tree Step 6: "Does the AI system rely on multiple
+  # interacting agents?"
+
+  multi_agent_gated:
+    condition: "multi_agent == true (implies zone 5 active)"
+    threats:
+      - id: T12
+        name: "Agent Communication Poisoning"
+        rationale: >
+          Requires inter-agent communication channels to poison.
+          Attackers inject false information into agent-to-agent
+          messages, corrupting shared knowledge and decision-making.
+          Extends LLM04 (Data and Model Poisoning) to transient
+          inter-agent data.
+      - id: T13
+        name: "Rogue Agents in Multi-Agent Systems"
+        rationale: >
+          Requires multi-agent architecture for a rogue agent to
+          infiltrate. Compromised agents exploit trust mechanisms
+          and workflow dependencies. Extends LLM06 (Excessive Agency)
+          with persistent rogue agent risks.
+      - id: T14
+        name: "Human Attacks on Multi-Agent Systems"
+        rationale: >
+          Requires multi-agent delegation chains to exploit. Attackers
+          abuse inter-agent trust relationships and task dependencies
+          to escalate privileges. No LLM Top 10 predecessor — purely
+          agentic.
+  # ─── Gated by external authentication ──────────────────────────
+  # Decision tree Step 4: "Does the AI system rely on
+  # authentication to verify users, tools, or services?"
+
+  auth_gated:
+    condition: "zones_active includes 3 AND system uses authentication for external services"
+    threats:
+      - id: T9
+        name: "Identity Spoofing & Impersonation"
+        rationale: >
+          Requires authentication mechanisms to exploit. Attackers
+          impersonate agents, users, or services by exploiting
+          identity verification weaknesses. No LLM Top 10
+          predecessor — purely agentic. Note: activated when zone 3
+          is active and external integrations involve authentication,
+          since identity is only meaningful when the system
+          authenticates to or is authenticated by external parties.
+
+# ═══════════════════════════════════════════════════════════════════
+# Example 1: Simple single-LLM chatbot (minimal depth)
+#
+# A basic customer-facing chatbot that answers questions from a
+# knowledge base. No tools, no persistent memory, no multi-agent
+# coordination. Single LLM behind an API.
+#
+# Expected threat scope: narrow — only T6, T7, T8, T15
+# (the "always in scope" set). No tool, memory, multi-agent,
+# or HITL threats apply.
+# ═══════════════════════════════════════════════════════════════════
+
+examples:
+  - name: "Simple FAQ Chatbot"
+    use_case_description: >
+      A customer-facing chatbot deployed on our website that answers
+      questions about our products using a static knowledge base.
+      Users type questions and get text responses. No login required.
+
+    depth: minimal
+
+    capability_profile:
+      # Stage 1 — deterministic flags
+      zones_active: [1, 2]
+      has_persistent_memory: false
+      multi_agent: false
+      hitl: false
+      entry_points:
+        - "user prompts via web chat widget (zone 1)"
+        - "static knowledge base documents (zone 1)"
+      confidence: high
+
+      # Stage 2 — not populated at minimal depth
+
+    resulting_threat_scope:
+      in_scope:
+        - id: T6
+          name: "Intent Breaking & Goal Manipulation"
+          applicable_sub_scenarios: [T6-S1, T6-S2, T6-S3]
+          notes: "User prompts are the primary injection vector. T6-S4 and T6-S5 less relevant without self-improvement capability."
+        - id: T7
+          name: "Misaligned & Deceptive Behaviors"
+          applicable_sub_scenarios: [T7-S1, T7-S3]
+          notes: "Reduced scope — no tools or real-world actions to misalign toward."
+        - id: T8
+          name: "Repudiation & Untraceability"
+          applicable_sub_scenarios: [T8-S1, T8-S3]
+          notes: "Logging and audit trail concerns apply even to simple chatbots."
+        - id: T15
+          name: "Human Manipulation"
+          applicable_sub_scenarios: [T15-S2]
+          notes: "Chatbot could be manipulated to generate deceptive messages. T15-S1 less relevant without transaction capability."
+      out_of_scope:
+        - ids: [T1, T5]
+          reason: "has_persistent_memory is false — no memory to poison or hallucinate into"
+        - ids: [T2, T3, T4, T11, T16, T17]
+          reason: "Zone 3 not active — no tool execution capability"
+        - ids: [T9]
+          reason: "No authentication mechanisms to exploit"
+        - ids: [T10]
+          reason: "hitl is false — no human-in-the-loop to overwhelm"
+        - ids: [T12, T13, T14]
+          reason: "multi_agent is false — no inter-agent communication"
+
+    scenario_specificity: >
+      At minimal depth with no Stage 2 enrichment, scenarios are
+      generated at category level. Example: "An attacker uses prompt
+      injection to redirect the chatbot's goal" rather than "An
+      attacker embeds a hidden instruction in a product review that
+      causes the chatbot to recommend a competitor's product."
+
+  # ═══════════════════════════════════════════════════════════════
+  # Example 2: Multi-agent customer service system (moderate depth)
+  #
+  # A customer service platform with multiple specialized agents,
+  # tool access (CRM, ticketing, refunds), persistent conversation
+  # history, and human escalation for high-value actions.
+  #
+  # Expected threat scope: broad — nearly all threats in scope.
+  # Full agentic threat surface.
+  # ═══════════════════════════════════════════════════════════════
+
+  - name: "Multi-Agent Customer Service Platform"
+    use_case_description: >
+      An AI-powered customer service platform with three specialized
+      agents: a triage agent that classifies and routes requests, a
+      support agent that resolves common issues using CRM and
+      ticketing tools, and a refund agent that processes returns and
+      refunds. Agents communicate via an internal message bus.
+      Customer conversation history is stored for context continuity.
+      Refunds above $500 require human manager approval.
+
+    depth: moderate
+
+    capability_profile:
+      # Stage 1 — deterministic flags
+      zones_active: [1, 2, 3, 4, 5]
+      has_persistent_memory: true
+      multi_agent: true
+      hitl: true
+      entry_points:
+        - "customer messages via chat/email (zone 1)"
+        - "CRM records retrieved during support (zone 1)"
+        - "tool API responses from ticketing system (zone 3)"
+        - "inter-agent messages on internal bus (zone 5)"
+      confidence: high
+
+      # Stage 2 — populated at moderate depth
+      tool_types:
+        - name: "crm_lookup"
+          zone: 3
+          can_modify_state: false
+          data_sensitivity: high
+          code_execution: false
+        - name: "crm_update"
+          zone: 3
+          can_modify_state: true
+          data_sensitivity: high
+          code_execution: false
+        - name: "create_ticket"
+          zone: 3
+          can_modify_state: true
+          data_sensitivity: medium
+          code_execution: false
+        - name: "process_refund"
+          zone: 3
+          can_modify_state: true
+          data_sensitivity: high
+          code_execution: false
+        - name: "send_email"
+          zone: 3
+          can_modify_state: true
+          data_sensitivity: medium
+          code_execution: false
+
+      data_flows:
+        - source: "customer message"
+          source_zone: 1
+          destination: "triage agent LLM context"
+          destination_zone: 2
+          data_type: "user query"
+          validated: false
+        - source: "triage agent classification"
+          source_zone: 2
+          destination: "support agent or refund agent (via message bus)"
+          destination_zone: 5
+          data_type: "routing decision with customer context"
+          validated: false
+        - source: "CRM"
+          source_zone: 3
+          destination: "support agent LLM context"
+          destination_zone: 2
+          data_type: "customer records"
+          validated: true
+        - source: "refund agent decision"
+          source_zone: 2
+          destination: "human manager review queue"
+          destination_zone: 1
+          data_type: "refund request with justification"
+          validated: false
+        - source: "conversation"
+          source_zone: 2
+          destination: "conversation history store"
+          destination_zone: 4
+          data_type: "interaction transcript"
+          validated: false
+
+      memory_mechanisms:
+        - type: conversation_history
+          scope: per_user
+          persistence: long_term
+          writable_by_agent: true
+        - type: key_value_store
+          scope: shared
+          persistence: long_term
+          writable_by_agent: false
+
+      external_integrations:
+        - name: "CRM system"
+          integration_type: api
+          auth_method: service_account
+          data_sensitivity: high
+        - name: "Ticketing system"
+          integration_type: api
+          auth_method: api_key
+          data_sensitivity: medium
+        - name: "Payment processor"
+          integration_type: api
+          auth_method: oauth
+          data_sensitivity: high
+        - name: "Email service"
+          integration_type: api
+          auth_method: api_key
+          data_sensitivity: medium
+
+    resulting_threat_scope:
+      in_scope:
+        # Always in scope
+        - id: T6
+          name: "Intent Breaking & Goal Manipulation"
+          applicable_sub_scenarios: [T6-S1, T6-S2, T6-S3, T6-S4]
+          notes: >
+            Multiple injection vectors: customer messages (direct),
+            CRM records (indirect), inter-agent messages (indirect).
+            T6-S3 especially relevant — tool output could contain
+            hidden instructions.
+        - id: T7
+          name: "Misaligned & Deceptive Behaviors"
+          applicable_sub_scenarios: [T7-S1, T7-S3, T7-S5]
+          notes: >
+            Refund agent could develop strategies to bypass the $500
+            threshold. Support agent could find workarounds to avoid
+            escalation.
+        - id: T8
+          name: "Repudiation & Untraceability"
+          applicable_sub_scenarios: [T8-S1, T8-S2, T8-S3]
+          notes: >
+            Financial transactions via refund agent create strong
+            auditability requirements. Multi-agent routing makes
+            tracing decisions harder.
+        - id: T15
+          name: "Human Manipulation"
+          applicable_sub_scenarios: [T15-S1, T15-S2]
+          notes: >
+            T15-S1 directly applicable — refund agent could be
+            compromised to present fraudulent payment details to
+            the human approver.
+
+        # Memory-gated
+        - id: T1
+          name: "Memory Poisoning"
+          applicable_sub_scenarios: [T1-S1, T1-S2, T1-S3]
+          notes: >
+            Conversation history is writable by agent and persists
+            long-term. T1-S4 (shared memory poisoning) excluded
+            because the shared key_value_store is read-only for
+            agents (writable_by_agent: false) — cross-session
+            contamination requires agent-writable shared memory.
+            Attacker could poison their own conversation history
+            to affect future interactions.
+        - id: T5
+          name: "Cascading Hallucination Attacks"
+          applicable_sub_scenarios: [T5-S1, T5-S2]
+          notes: >
+            Hallucinated information could persist in conversation
+            history and propagate across agent interactions via the
+            message bus.
+
+        # Tool-execution-gated
+        - id: T2
+          name: "Tool Misuse"
+          applicable_sub_scenarios: [T2-S1, T2-S2, T2-S3, T2-S4, T2-S6]
+          notes: >
+            Rich tool set with state-modifying capabilities.
+            T2-S2 especially relevant — tool chain from CRM lookup
+            to email send. T2-S5 excluded (no vector database).
+        - id: T3
+          name: "Privilege Compromise"
+          applicable_sub_scenarios: [T3-S1, T3-S2, T3-S3]
+          notes: >
+            Service accounts with CRM and payment access. Agents
+            inherit service account privileges. Cross-system
+            authorization exploitation via CRM to payment path.
+        - id: T4
+          name: "Resource Overload"
+          applicable_sub_scenarios: [T4-S1, T4-S2, T4-S3]
+          notes: >
+            Multiple external API dependencies (CRM, ticketing,
+            payment). T4-S2 amplified by multi-agent architecture.
+        - id: T9
+          name: "Identity Spoofing & Impersonation"
+          applicable_sub_scenarios: [T9-S1, T9-S2, T9-S5]
+          notes: >
+            External integrations use service accounts and API keys.
+            Agent impersonation could exploit inter-agent trust.
+        - id: T11
+          name: "Unexpected RCE and Code Attacks"
+          applicable_sub_scenarios: [T11-S3]
+          notes: >
+            No explicit code execution tools, but T11-S3 applies —
+            linguistic ambiguities in agent instructions could lead
+            to unintended actions.
+        - id: T16
+          name: "Insecure Inter-Agent Protocol Abuse"
+          applicable_sub_scenarios: [T16-S1, T16-S2, T16-S3]
+          notes: >
+            MCP tool server protocol and internal message bus are
+            both attack surfaces. Tool descriptions and consent
+            flows could be manipulated. Gated by zone 3 (tool
+            execution), not by multi-agent flag.
+        - id: T17
+          name: "Supply Chain Compromise"
+          applicable_sub_scenarios: [T17-S1]
+          notes: >
+            Agent framework, LLM provider, and tool integrations
+            are all supply chain surfaces.
+
+        # HITL-gated
+        - id: T10
+          name: "Overwhelming Human in the Loop"
+          applicable_sub_scenarios: [T10-S1, T10-S2, T10-S3]
+          notes: >
+            Human manager approval for refunds above $500 is the
+            HITL checkpoint. All three sub-scenarios apply — the
+            approval interface could be manipulated, the manager
+            overwhelmed, or trust gradually eroded.
+
+        # Multi-agent-gated
+        - id: T12
+          name: "Agent Communication Poisoning"
+          applicable_sub_scenarios: [T12-S1, T12-S2, T12-S3, T12-S4]
+          notes: >
+            Internal message bus is the inter-agent channel.
+            Triage agent routing decisions affect downstream agents.
+            Poisoned routing could direct sensitive requests to the
+            wrong agent.
+        - id: T13
+          name: "Rogue Agents in Multi-Agent Systems"
+          applicable_sub_scenarios: [T13-S1, T13-S2, T13-S4]
+          notes: >
+            Three-agent architecture with trust relationships.
+            A compromised triage agent could route all high-value
+            requests to a rogue refund agent.
+        - id: T14
+          name: "Human Attacks on Multi-Agent Systems"
+          applicable_sub_scenarios: [T14-S1, T14-S2, T14-S4]
+          notes: >
+            Inter-agent delegation chain (triage → support/refund)
+            creates privilege escalation opportunities. T14-S2
+            delegation loop especially relevant — request bounced
+            between agents could accumulate elevated trust.
+
+      out_of_scope: []
+
+    scenario_specificity: >
+      At moderate depth with Stage 2 enrichment, scenarios include
+      specific tool names and data flows. Example: "An attacker
+      injects a hidden instruction in a customer email that causes
+      the triage agent to route the request to the refund agent
+      with elevated priority. The refund agent invokes process_refund
+      with a $499 amount (just below the HITL threshold) against the
+      attacker's bank details retrieved from a poisoned CRM record."

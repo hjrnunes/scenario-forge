@@ -1,0 +1,1094 @@
+{
+  "id": "LLM03",
+  "name": "Supply Chain Vulnerabilities",
+  "source_list": "LLM-Top10-2025",
+  "version": "2026-Q1",
+  "severity": "High",
+  "aivss_score": null,
+  "audience": [
+    "red-teamer",
+    "security-engineer",
+    "developer",
+    "ml-engineer",
+    "ot-engineer",
+    "ciso",
+    "compliance",
+    "auditor"
+  ],
+  "mappings": [
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0056",
+      "control_name": "Extract LLM System Prompt",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Extracting system prompts that may reveal supply chain details, internal configurations, or security controls"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0048",
+      "control_name": "External Harms",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Introducing persistent malicious behaviour into model through supply chain leading to downstream external harms"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0010",
+      "control_name": "AI Supply Chain Compromise",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Compromising ML supply chain components — datasets, models, frameworks — to embed backdoors or malicious functionality"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "GV-1.6",
+      "control_name": "Policies for data privacy",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Supply chain data governance — policies for third-party model and data provenance"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MP-5.1",
+      "control_name": "Interdependencies",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Mapping of all AI system dependencies including third-party models, datasets, and libraries"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.5",
+      "control_name": "Testing and evaluation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Evaluation programme includes supply chain component integrity testing"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MG-3.2",
+      "control_name": "Residual risk — third party",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Residual risk from third-party components documented, monitored, and treated"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 9",
+      "control_name": "Risk management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Third-party component risks are in scope for Art. 9 risk management"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 17",
+      "control_name": "Quality management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Documented supply chain security procedures required"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 25",
+      "control_name": "Value chain responsibilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Providers must document what deployers inherit — deployers must verify"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 53(1)(a)",
+      "control_name": "GPAI documentation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Third-party training data provenance is a GPAI documentation obligation"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.5.19",
+      "control_name": "Supplier relationships",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Security requirements applied to all LLM model and data vendors — provenance, integrity, disclosure obligations"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.5.20",
+      "control_name": "Supplier agreements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Contractual security requirements for LLM component suppliers — integrity guarantees, vulnerability notification"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.5.21",
+      "control_name": "Supply chain security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Managing ICT supply chain risks — LLM model and library supply chain explicitly in scope"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.8",
+      "control_name": "Management of technical vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Scanning and patching LLM component vulnerabilities — model weights and inference runtime libraries"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "Third-party",
+      "control_name": "AI system acquisition",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Security requirements applied to all LLM component vendors — model providers, dataset suppliers, inference runtime vendors"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.10.2",
+      "control_name": "Customer relationships",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM deployment obligations to downstream customers — what security properties are guaranteed"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.1.2",
+      "control_name": "Responsible AI system management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM components managed responsibly through lifecycle — acquisition, testing, deployment, decommission"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.7.2",
+      "control_name": "Data quality",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Third-party training datasets assessed for quality — provenance, completeness, representativeness, security"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 2",
+      "control_name": "Inventory and Control of Software Assets",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "ML SBOM maintained as part of software asset inventory — model versions, libraries, adapters"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 7",
+      "control_name": "Continuous Vulnerability Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Vulnerability management process covers LLM component CVEs and dependency risks"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 16",
+      "control_name": "Application Software Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Only approved, verified LLM components used in production — unsigned components rejected"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V10.2.1",
+      "control_name": "Verify third-party components are current and free from vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All LLM component libraries and dependencies scanned for CVEs — ML SBOM maintained"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V10.2.2",
+      "control_name": "Verify only minimal approved external libraries are used",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Approved component list for LLM deployments — unsigned or unverified components rejected"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V14.2.2",
+      "control_name": "Verify build pipelines include security checks",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "CI/CD pipeline for LLM components includes integrity verification and vulnerability scanning"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.2",
+      "control_name": "Software and information integrity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Integrity verification of all LLM components before deployment in OT environment"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.6",
+      "control_name": "Use control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Restrictions on software installation — only approved, verified LLM components permitted in OT zones"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "Supplier security requirements",
+      "control_name": "62443-2-4",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Security requirements applied to all LLM vendors with access to OT environments"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.5",
+      "control_name": "Supply chain threats",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM model weights and plugins as supply chain risk components"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§6.3",
+      "control_name": "Risk response",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "ML SBOM and component integrity verification as supply chain controls"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§8.4",
+      "control_name": "Supply chain programme",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM vendors subject to same supply chain security requirements as OT software vendors"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "GV.SC-01",
+      "control_name": "Supply Chain Risk Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Cybersecurity supply chain risk management programme — LLM component vendors in scope"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "GV.SC-06",
+      "control_name": "Supply Chain Risk Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Cybersecurity requirements included in contracts with suppliers — LLM model and data vendors"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "ID.AM-08",
+      "control_name": "Asset Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Systems and hardware managed — ML SBOM as asset inventory for LLM components"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.PS-02",
+      "control_name": "Platform Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Software managed to reduce risk — LLM component vulnerability management and patching"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC9.1",
+      "control_name": "Vendor risk management",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC9.2",
+      "control_name": "Vendor agreements",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC8.1",
+      "control_name": "Change management",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC3.2",
+      "control_name": "Risk assessment",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 12.8.1",
+      "control_name": "Third-party service providers",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "List of all TPSPs maintained — LLM component vendors with CDE access or data in scope"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 12.8.3",
+      "control_name": "TPSP agreements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Written agreements with LLM vendors — acknowledge responsibility for CHD security"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 12.8.4",
+      "control_name": "TPSP PCI DSS compliance",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Monitor TPSP PCI DSS compliance status — LLM component vendors with CHD access have compliant status verified"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 6.3.3",
+      "control_name": "Security vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All LLM software components at latest security patches — ML libraries and inference runtime patched"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 6.5.1",
+      "control_name": "Secure system changes",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Model component updates follow change management — security testing before production"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "SCS",
+      "control_name": "Supply Chain Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM component vendors assessed — model providers, dataset vendors, inference runtime suppliers subject to SCS practices"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "Data and Model Security (DMS)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Model weight integrity verification — cryptographic signatures, hash-based baseline"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "Governance and Risk (GOV)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Vendor risk management extended to AI component suppliers — contractual security obligations"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Supply Chain",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "ML SBOM as software asset inventory — all LLM components inventoried, CVEs monitored"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "G-PC",
+      "control_name": "Policy & Compliance",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Supply chain security policy covers LLM component vendors — security requirements in procurement"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "I-SB",
+      "control_name": "Secure Build",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "ML SBOM maintained, CVE scanning in CI/CD — LLM components verified before each deployment"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-AA",
+      "control_name": "Architecture Assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM supply chain architecture reviewed — trust boundaries and component integrity verified"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "S",
+      "control_name": "Component Spoofing",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "T",
+      "control_name": "Supply Chain Tampering",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "E",
+      "control_name": "Escalation via Trusted Component",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-494",
+      "control_name": "Download of Code Without Integrity Check",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-345",
+      "control_name": "Insufficient Verification of Data Authenticity",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-1357",
+      "control_name": "Reliance on Insufficiently Trustworthy Component",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "SCT",
+      "control_name": "Supply Chain",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify cryptographic integrity of model weights, adapters, and libraries; test that procurement pipeline rejects tampered components"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "MBT",
+      "control_name": "Model Behaviour",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Test model with trigger inputs across all deployment configurations to detect backdoors introduced through supply chain"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "AST",
+      "control_name": "Agent-Specific",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify plugin descriptors and tool registries have not been tampered with; test that integrity checks reject modified components"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L3",
+      "control_name": "Agent Frameworks",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L4",
+      "control_name": "Deployment & Infrastructure",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L2",
+      "control_name": "Data Operations",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B001",
+      "control_name": "Third-party adversarial robustness testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B003",
+      "control_name": "Third-party security assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Hardening"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B008",
+      "control_name": "Third-party NHI controls",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Hardening"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "A",
+      "control_name": "Data & Privacy supply chain controls",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-3",
+      "control_name": "Vulnerable Third-Party NHI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Review all third-party credentials; apply minimum scope"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-8",
+      "control_name": "Environment Isolation Failure",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enforce environment isolation for all third-party integrations"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-2",
+      "control_name": "Secret Leakage",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Separate credential stores per third-party component"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.4.1-PS",
+      "control_name": "Reuse existing well-secured software — third-party AI model and dataset vetting",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Vet all third-party model weights, datasets, plugins, and libraries before use; verify provenance, licence, and security posture"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PS.2.1-PS",
+      "control_name": "Verify software integrity — model and library supply chain",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify integrity of all model artefacts and third-party components using cryptographic signatures and checksums before deployment"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PS.3.1-PS",
+      "control_name": "Archive and protect software releases — model registry",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Maintain a secure, versioned model registry with provenance records for all components; enable auditability and rollback"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "RV.1.1-PS",
+      "control_name": "Identify and confirm vulnerabilities — supply chain monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Monitor for newly disclosed vulnerabilities in third-party AI components; establish a triage process for AI-specific CVEs"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SR-2",
+      "control_name": "Supply Chain Risk Management Plan — AI components",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include all AI components — models, datasets, adapters, libraries, plugins — in the supply chain risk management plan with provenance and risk assessment"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SR-3",
+      "control_name": "Supply Chain Controls — model provenance verification",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Implement integrity verification for all AI supply chain components using cryptographic signatures, checksums, and attestation before deployment"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SA-9",
+      "control_name": "External Information System Services — third-party AI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Require third-party AI service providers to meet FedRAMP requirements; establish SLAs covering model security, data handling, and incident notification"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SA-3",
+      "control_name": "System Development Life Cycle — AI SDLC",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Integrate AI-specific security activities into the SDLC — model security review, adversarial testing, supply chain verification at each lifecycle phase"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 28–44",
+      "control_name": "Third-Party Risk — AI vendor oversight",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include AI model providers, dataset vendors, and ML library maintainers in third-party ICT risk management; conduct due diligence, contractual oversight, and ongoing monitoring"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 8",
+      "control_name": "Identification — AI supply chain assets",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Identify and classify all AI supply chain components — models, datasets, adapters, libraries, plugins — in the ICT asset inventory with provenance records"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 5–7",
+      "control_name": "ICT Risk Management — AI supply chain governance",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include AI supply chain risk in the ICT risk management framework; define policies for AI component sourcing, vetting, and lifecycle management"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 24–27",
+      "control_name": "Resilience Testing — supply chain resilience",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include AI supply chain disruption scenarios in resilience testing; test fallback procedures for third-party AI service failures"
+    }
+  ],
+  "tools": [
+    {
+      "name": "CycloneDX",
+      "type": "open-source",
+      "url": "https://cyclonedx.org"
+    },
+    {
+      "name": "OWASP Dependency-Check",
+      "type": "open-source",
+      "url": "https://owasp.org/www-project-dependency-check/"
+    },
+    {
+      "name": "ModelScan",
+      "type": "open-source",
+      "url": "https://github.com/protectai/modelscan"
+    },
+    {
+      "name": "Snyk",
+      "type": "commercial",
+      "url": "https://snyk.io"
+    },
+    {
+      "name": "Grype",
+      "type": "open-source",
+      "url": "https://github.com/anchore/grype"
+    },
+    {
+      "name": "Syft",
+      "type": "open-source",
+      "url": "https://github.com/anchore/syft"
+    },
+    {
+      "name": "Garak",
+      "type": "open-source",
+      "url": "https://github.com/leondz/garak"
+    },
+    {
+      "name": "Sigstore",
+      "type": "open-source",
+      "url": "https://www.sigstore.dev"
+    },
+    {
+      "name": "Counterfit",
+      "url": "https://github.com/Azure/counterfit",
+      "type": "open-source"
+    },
+    {
+      "name": "WhyLogs",
+      "url": "https://github.com/whylabs/whylogs",
+      "type": "open-source"
+    }
+  ],
+  "incidents": [
+    {
+      "name": "AnythingLLM Multiple CVEs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00627.html",
+      "year": 2026,
+      "incident_id": "INC-00627"
+    },
+    {
+      "name": "Axios npm supply chain attack — North Korean Sapphire Sleet targets 70M weekly downloads",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00671.html",
+      "year": 2026,
+      "incident_id": "INC-00671"
+    },
+    {
+      "name": "Claude Code Project Files RCE & API Token Exfiltration (CVE-2025-59536 & CVE-2026-21852)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00813.html",
+      "year": 2026,
+      "incident_id": "INC-00813"
+    },
+    {
+      "name": "Clinejection — CI/CD pipeline compromise via Cline's issue triage bot, 4,000 machines infected",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00834.html",
+      "year": 2026,
+      "incident_id": "INC-00834"
+    },
+    {
+      "name": "CrewAI Critical Vulnerabilities (CVE-2026-2275 et al.)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00860.html",
+      "year": 2026,
+      "incident_id": "INC-00860"
+    },
+    {
+      "name": "EchoLeak — zero-click Microsoft Copilot data exfiltration via email prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00924.html",
+      "year": 2026,
+      "incident_id": "INC-00924"
+    },
+    {
+      "name": "GlassWorm supply chain — 72 malicious VSCode extensions, 9 million installs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01092.html",
+      "year": 2026,
+      "incident_id": "INC-01092"
+    },
+    {
+      "name": "Langflow Unauthenticated RCE (CVE-2026-33017)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01298.html",
+      "year": 2026,
+      "incident_id": "INC-01298"
+    },
+    {
+      "name": "LiteLLM PyPI supply chain backdoor — TeamPCP campaign compromises 3.4M daily downloads",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01340.html",
+      "year": 2026,
+      "incident_id": "INC-01340"
+    },
+    {
+      "name": "MCPJam Inspector RCE (CVE-2026-23744)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01390.html",
+      "year": 2026,
+      "incident_id": "INC-01390"
+    },
+    {
+      "name": "MCPwned -- Azure MCP Server SSRF & Cloud Takeover (CVE-2026-26118)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01391.html",
+      "year": 2026,
+      "incident_id": "INC-01391"
+    },
+    {
+      "name": "Microsoft 365 Copilot XPIA phishing — attacker-shaped email summaries via hidden instructions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01429.html",
+      "year": 2026,
+      "incident_id": "INC-01429"
+    },
+    {
+      "name": "n8n Unauthenticated RCE \"Ni8mare\" (CVE-2026-21858)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01471.html",
+      "year": 2026,
+      "incident_id": "INC-01471"
+    },
+    {
+      "name": "OpenClaw AI agent security crisis — 138 CVEs in 63 days, 341 malicious marketplace skills",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01592.html",
+      "year": 2026,
+      "incident_id": "INC-01592"
+    },
+    {
+      "name": "SGLang Triple RCE (CVE-2026-3059, CVE-2026-3060, CVE-2026-3989)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01769.html",
+      "year": 2026,
+      "incident_id": "INC-01769"
+    },
+    {
+      "name": "vLLM RCE via Malicious Video URL (CVE-2026-22778)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02047.html",
+      "year": 2026,
+      "incident_id": "INC-02047"
+    },
+    {
+      "name": "VS Code Forks OpenVSX Extension Recommendations Supply Chain Risk",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02058.html",
+      "year": 2026,
+      "incident_id": "INC-02058"
+    },
+    {
+      "name": "AgentSeal MCP server mass scan — 66% of 1,808 servers have security findings",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02190.html",
+      "year": 2025,
+      "incident_id": "INC-02190"
+    },
+    {
+      "name": "AgentSmith Prompt-Hub Proxy Attack",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02191.html",
+      "year": 2025,
+      "incident_id": "INC-02191"
+    },
+    {
+      "name": "Amazon Q Prompt Poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02300.html",
+      "year": 2025,
+      "incident_id": "INC-02300"
+    },
+    {
+      "name": "Anthropic MCP Git Server Triple Flaw (CVE-2025-68143, -68144, -68145)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02321.html",
+      "year": 2025,
+      "incident_id": "INC-02321"
+    },
+    {
+      "name": "Anthropic SQLite MCP Server SQL Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02324.html",
+      "year": 2025,
+      "incident_id": "INC-02324"
+    },
+    {
+      "name": "Claude Code DNS Exfiltration (CVE-2025-55284)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02435.html",
+      "year": 2025,
+      "incident_id": "INC-02435"
+    },
+    {
+      "name": "Claude Skills Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02450.html",
+      "year": 2025,
+      "incident_id": "INC-02450"
+    },
+    {
+      "name": "Claude Skills ransomware deployment — MedusaLocker via malicious plugin",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02451.html",
+      "year": 2025,
+      "incident_id": "INC-02451"
+    },
+    {
+      "name": "Cursor \"Open-Folder\" Autorun Vulnerability",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02462.html",
+      "year": 2025,
+      "incident_id": "INC-02462"
+    },
+    {
+      "name": "Cursor & Windsurf Forked Chromium 94+ N-Day Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02463.html",
+      "year": 2025,
+      "incident_id": "INC-02463"
+    },
+    {
+      "name": "Cursor CLI Project Config RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02467.html",
+      "year": 2025,
+      "incident_id": "INC-02467"
+    },
+    {
+      "name": "Dify SSRF via RemoteFileUploadApi (CVE-2025-56520)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02514.html",
+      "year": 2025,
+      "incident_id": "INC-02514"
+    },
+    {
+      "name": "Dify Unauthenticated Information Disclosure (CVE-2025-63387)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02515.html",
+      "year": 2025,
+      "incident_id": "INC-02515"
+    },
+    {
+      "name": "EscapeRoute -- Anthropic Filesystem MCP Sandbox Escape (CVE-2025-53109 & CVE-2025-53110)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02546.html",
+      "year": 2025,
+      "incident_id": "INC-02546"
+    },
+    {
+      "name": "Flowise CustomMCP code injection RCE — CVSS 10.0, 12,000 instances exposed",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02581.html",
+      "year": 2025,
+      "incident_id": "INC-02581"
+    },
+    {
+      "name": "Flowise Pre-Auth Arbitrary File Upload",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02582.html",
+      "year": 2025,
+      "incident_id": "INC-02582"
+    },
+    {
+      "name": "ForcedLeak — Salesforce Agentforce indirect prompt injection exfiltrates CRM data",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02590.html",
+      "year": 2025,
+      "incident_id": "INC-02590"
+    },
+    {
+      "name": "Framelink Figma MCP RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02592.html",
+      "year": 2025,
+      "incident_id": "INC-02592"
+    },
+    {
+      "name": "GitHub Copilot & Cursor Code-Agent Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02607.html",
+      "year": 2025,
+      "incident_id": "INC-02607"
+    },
+    {
+      "name": "GitHub Copilot Multi-Root Workspace RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02611.html",
+      "year": 2025,
+      "incident_id": "INC-02611"
+    },
+    {
+      "name": "GPT-4.1 jailbreak via tool poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02646.html",
+      "year": 2025,
+      "incident_id": "INC-02646"
+    },
+    {
+      "name": "Hub MCP Prompt Injection (Cross-Context)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02700.html",
+      "year": 2025,
+      "incident_id": "INC-02700"
+    },
+    {
+      "name": "LangGrinch -- LangChain Core Serialization Injection (CVE-2025-68664)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02813.html",
+      "year": 2025,
+      "incident_id": "INC-02813"
+    },
+    {
+      "name": "Malicious MCP server backdoor on npm — dual reverse shells in mcp-runcommand-server",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02848.html",
+      "year": 2025,
+      "incident_id": "INC-02848"
+    },
+    {
+      "name": "Malicious MCP Server Impersonating Postmark",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02849.html",
+      "year": 2025,
+      "incident_id": "INC-02849"
+    },
+    {
+      "name": "MCP OAuth Response Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02871.html",
+      "year": 2025,
+      "incident_id": "INC-02871"
+    },
+    {
+      "name": "MCP tool poisoning — hidden instructions in Model Context Protocol tool descriptions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02874.html",
+      "year": 2025,
+      "incident_id": "INC-02874"
+    },
+    {
+      "name": "mcp-remote OAuth Command Injection (CVE-2025-6514)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02878.html",
+      "year": 2025,
+      "incident_id": "INC-02878"
+    },
+    {
+      "name": "NVIDIA Triton control-message manipulation -> RCE (Wiz chain final)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02971.html",
+      "year": 2025,
+      "incident_id": "INC-02971"
+    },
+    {
+      "name": "Ollama GGUF Model File RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02980.html",
+      "year": 2025,
+      "incident_id": "INC-02980"
+    },
+    {
+      "name": "OpenAI ChatGPT Operator Vulnerability",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02997.html",
+      "year": 2025,
+      "incident_id": "INC-02997"
+    },
+    {
+      "name": "React2Shell Impacting Dify and AI Platforms (CVE-2025-55182)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03149.html",
+      "year": 2025,
+      "incident_id": "INC-03149"
+    },
+    {
+      "name": "Salesloft Drift OAuth breach — Chinese actor UNC6395 accesses 700+ Salesforce CRM environments",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03194.html",
+      "year": 2025,
+      "incident_id": "INC-03194"
+    },
+    {
+      "name": "ShadowMQ — critical RCE in Meta/NVIDIA/vLLM inference servers via pickle deserialization",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03211.html",
+      "year": 2025,
+      "incident_id": "INC-03211"
+    },
+    {
+      "name": "Visual Studio Code & Agentic AI workflows RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03334.html",
+      "year": 2025,
+      "incident_id": "INC-03334"
+    },
+    {
+      "name": "vLLM Model Config Auto-Map RCE (CVE-2025-66448)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03335.html",
+      "year": 2025,
+      "incident_id": "INC-03335"
+    },
+    {
+      "name": "vLLM Unsafe Tensor Deserialization (CVE-2025-62164)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03337.html",
+      "year": 2025,
+      "incident_id": "INC-03337"
+    },
+    {
+      "name": "Anthropic Sleeper Agents paper — models trained to hide malicious behaviour",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03572.html",
+      "year": 2024,
+      "incident_id": "INC-03572"
+    },
+    {
+      "name": "Scale AI / Sama contractor data exposure — third-party AI labeling workforce privacy violations",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04179.html",
+      "year": 2024,
+      "incident_id": "INC-04179"
+    },
+    {
+      "name": "LangChain and LlamaIndex RCE — agent code execution via prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04715.html",
+      "year": 2023,
+      "incident_id": "INC-04715"
+    },
+    {
+      "name": "LangChain SSRF & PALChain RCE (CVE-2023-46229 & CVE-2023-44467)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04720.html",
+      "year": 2023,
+      "incident_id": "INC-04720"
+    },
+    {
+      "name": "ShadowRay: Anyscale Ray Dashboard RCE (CVE-2023-48022) exploited in the wild",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04862.html",
+      "year": 2023,
+      "incident_id": "INC-04862"
+    }
+  ],
+  "crossrefs": {
+    "agentic_top10": [
+      "ASI04",
+      "ASI07",
+      "ASI10"
+    ],
+    "dsgai_2026": [
+      "DSGAI04",
+      "DSGAI03",
+      "DSGAI06",
+      "DSGAI16",
+      "DSGAI17",
+      "DSGAI19"
+    ]
+  },
+  "changelog": [
+    {
+      "date": "2026-03-27",
+      "version": "1.0.0",
+      "change": "Initial entry — generated from GenAI Security Crosswalk v1.5.1 mapping files",
+      "author": "emmanuelgjr"
+    }
+  ]
+}

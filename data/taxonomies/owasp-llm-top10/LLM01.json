@@ -1,0 +1,1183 @@
+{
+  "id": "LLM01",
+  "name": "Prompt Injection",
+  "source_list": "LLM-Top10-2025",
+  "version": "2026-Q1",
+  "severity": "Critical",
+  "aivss_score": null,
+  "audience": [
+    "red-teamer",
+    "security-engineer",
+    "developer",
+    "ml-engineer",
+    "ot-engineer",
+    "ciso",
+    "compliance",
+    "auditor"
+  ],
+  "mappings": [
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0051.000",
+      "control_name": "Direct Prompt Injection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Attacker directly manipulates user-facing prompt to alter model behaviour"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0051.001",
+      "control_name": "Indirect Prompt Injection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Hidden instructions in content the model processes (documents, web, RAG)"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0054",
+      "control_name": "LLM Jailbreak",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Circumventing model safety guardrails via crafted prompt sequences"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "GV-1.7",
+      "control_name": "Policies for trustworthy AI characteristics",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Organisational policies explicitly address adversarial input risks including prompt injection"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MP-2.3",
+      "control_name": "Risk categorisation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prompt injection categorised as a high-priority risk in the AI system risk register"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.5",
+      "control_name": "Testing and evaluation — adversarial",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing programme validates model resilience to prompt injection at each release"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MG-2.2",
+      "control_name": "Risk response — incident",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Defined incident response procedures for detected prompt injection attacks"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 9",
+      "control_name": "Risk management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prompt injection must be identified, analysed, and mitigated in the risk management system"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 15",
+      "control_name": "Accuracy, robustness, cybersecurity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Robustness against prompt injection is a technical compliance requirement — not optional"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Providers of systemic risk GPAI models must conduct adversarial testing to identify and mitigate systemic risks",
+      "control_name": "Art. 55(1)(b) — Systemic risk GPAI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prompt injection adversarial testing is a binding obligation for systemic risk models"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.28",
+      "control_name": "Secure coding",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure coding requirements for all LLM integration code — input validation, sanitisation, context separation"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.29",
+      "control_name": "Security testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing programme covering prompt injection scenarios before each release"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.5.7",
+      "control_name": "Threat intelligence",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Active intelligence on prompt injection techniques — new attack patterns inform detection controls"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.16",
+      "control_name": "Monitoring activities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Runtime monitoring for prompt injection indicators in LLM inputs and outputs"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.3",
+      "control_name": "AI system security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "AI systems designed with security controls — input validation, context separation, injection detection as AIMS design requirements"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.6",
+      "control_name": "Testing of AI systems",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "AI systems tested before deployment — adversarial testing for prompt injection as AIMS testing requirement"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.8",
+      "control_name": "Monitoring of AI systems",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "AI systems monitored in operation — runtime injection detection as AIMS monitoring control"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "Cl.6.1",
+      "control_name": "Risk assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prompt injection included in AI risk assessment — risk owner, treatment, review cadence documented"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 16",
+      "control_name": "Application Software Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure development standards covering LLM integration — input validation, context separation"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 16",
+      "control_name": "Application Software Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Code review for all LLM integration code — prompt injection patterns reviewed"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 18",
+      "control_name": "Penetration Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing programme covering prompt injection scenarios"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 8",
+      "control_name": "Audit Log Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Runtime logging of all LLM inputs — injection attempts detectable through log analysis"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.1.1",
+      "control_name": "Verify all user input validated against an allowlist or rejected",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All inputs to LLMs validated — indirect injection through processed content equally in scope"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.1.2",
+      "control_name": "Verify that HTTP request parts are validated, sanitised, or rejected",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM API request validation — prompt structure, content type, and character set enforced"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.1",
+      "control_name": "Verify output encoding prevents injection attacks",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM output encoding before passing to downstream renderers or interpreters"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.5",
+      "control_name": "Verify application protects against OS command injection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM-generated content validated before execution in any shell or interpreter context"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V1.1.2",
+      "control_name": "Threat modelling of all data flows",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM data flows threat-modelled — all injection paths identified and documented"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V11.1.2",
+      "control_name": "Verify business logic limits prevent abuse of LLM functions",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Business logic controls preventing prompt injection from triggering unauthorised actions"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.3",
+      "control_name": "Software and information integrity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All inputs to LLMs connected to OT systems validated for integrity — crafted inputs rejected"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.2",
+      "control_name": "Least privilege",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLMs granted minimum necessary access to OT data — cannot read or write to control systems without explicit scoping"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.1",
+      "control_name": "Use control enforcement",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enforcement of permitted use of LLM within OT context — out-of-scope requests rejected at the gateway layer"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 1.6",
+      "control_name": "Authenticator feedback",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM interactions logged with user identity — injection attempts attributable to specific sessions"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 1.9",
+      "control_name": "Remote session termination",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Ability to terminate LLM sessions immediately on detection of suspicious behaviour"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.3",
+      "control_name": "Threats",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prompt injection as a new logic attack vector through LLM at the IT/OT boundary"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§6.2",
+      "control_name": "Risk assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prompt injection documented in OT risk assessment for each LLM integration"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§7.2",
+      "control_name": "Network segmentation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Input validation layer at the DMZ/control zone boundary — prompt injection filtered before reaching LLM"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.PS-04",
+      "control_name": "Platform Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure software development practices applied to LLM integrations — input validation as a platform security control"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "DE.CM-01",
+      "control_name": "Continuous Monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Networks and assets monitored for anomalies — LLM input channels monitored for injection indicators"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "ID.RA-01",
+      "control_name": "Risk Assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Vulnerabilities in assets identified and documented — prompt injection as a documented vulnerability class for all LLM deployments"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "GV.OC-01",
+      "control_name": "Organisational Context",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Mission and stakeholder expectations inform cybersecurity risk decisions — acceptable LLM use scope defines injection risk surface"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC3.2",
+      "control_name": "Risk assessment identifies threats and vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC7.2",
+      "control_name": "Anomaly and threat detection",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC5.2",
+      "control_name": "Select and develop control activities",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC6.1",
+      "control_name": "Logical access restrictions",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 6.2.4",
+      "control_name": "Secure software development",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All injection vulnerabilities addressed in LLM integration code — prompt injection as a known injection class"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 6.4.1",
+      "control_name": "Public-facing application protection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM-powered customer-facing applications protected against prompt injection — WAF or equivalent, security testing"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 10.6.1",
+      "control_name": "Audit log review",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Automated log analysis covering LLM injection indicators — anomalous inputs detected and reviewed"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 11.3.1",
+      "control_name": "External and internal penetration testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Penetration testing includes prompt injection scenarios for all LLM applications in PCI scope"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "AI System Integrity (ASI)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM applications tested against prompt injection before deployment — adversarial inputs validated as part of AI system integrity verification"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "MON",
+      "control_name": "Monitoring and Detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Runtime monitoring for injection indicators across all LLM input channels — AI-specific anomaly detection"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "Governance and Risk (GOV)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Prompt injection documented in AI risk register — risk assessment per deployment, treatment controls, review cadence"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Secure Development",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Input validation and context separation as secure development requirements for all LLM integrations"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "D-TA",
+      "control_name": "Threat Assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM data flows threat-modelled — all injection paths (direct, indirect, multi-turn) identified and documented"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "I-SB",
+      "control_name": "Secure Build",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Input validation and context separation as secure build requirements — reviewed in CI/CD before merge"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-ST",
+      "control_name": "Security Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing programme covering prompt injection — direct, indirect, RAG-specific, jailbreak scenarios"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "O-IM",
+      "control_name": "Incident Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Runtime injection detection as operational monitoring — alerts integrated into incident management"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "S",
+      "control_name": "Instruction Spoofing",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "T",
+      "control_name": "Behaviour Tampering",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "E",
+      "control_name": "Privilege Elevation via Injection",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-20",
+      "control_name": "Improper Input Validation",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-74",
+      "control_name": "Improper Neutralisation of Special Elements",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-77",
+      "control_name": "Command Injection",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "IHT",
+      "control_name": "Input Handling",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Inject instruction-overriding content through user prompt, RAG-retrieved documents, tool return values, uploaded files, and any other data source the LLM processes"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "MBT",
+      "control_name": "Model Behaviour",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify the LLM's task framing at request start matches its actions and outputs at completion — test divergence after injection"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "LMT",
+      "control_name": "Logging & Monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify that injection attempts are flagged in monitoring and appear in audit logs with sufficient detail for incident response"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L1",
+      "control_name": "Foundation Models",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L2",
+      "control_name": "Data Operations",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L3",
+      "control_name": "Agent Frameworks",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B001",
+      "control_name": "Third-party adversarial robustness testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B002",
+      "control_name": "Detect adversarial input",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Hardening"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B005",
+      "control_name": "Implement real-time input filtering",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B006",
+      "control_name": "Prevent unauthorized AI actions",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-5",
+      "control_name": "Over-Privileged NHI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Apply least-privilege to all LLM application credentials"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-7",
+      "control_name": "Long-Lived Credentials",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Rotate all LLM application tokens; implement short-lived token pattern"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.2.1-PS",
+      "control_name": "Design software to meet security requirements — adversarial input",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Threat model the AI pipeline for adversarial input vectors including direct and indirect prompt injection; document mitigating design decisions"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.7.2-PS",
+      "control_name": "Review the software for security vulnerabilities — model behaviour",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Review model outputs and system behaviour for unexpected responses to adversarial inputs; include injection bypass scenarios in code and design reviews"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.8.2-PS",
+      "control_name": "Test for security vulnerabilities — adversarial / red-team",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Conduct adversarial testing (red-teaming) against prompt injection vectors before each production release; cover direct, indirect, and multimodal injection paths"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "RV.1.1-PS",
+      "control_name": "Identify and confirm vulnerabilities — AI-specific",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Establish procedures to identify prompt injection incidents in production including monitoring, triage, and confirmation workflows"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-3",
+      "control_name": "Malicious Code Protection — adversarial AI inputs",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Extend malicious code protection to detect and block adversarial inputs including direct and indirect prompt injection payloads"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-10",
+      "control_name": "Information Input Validation — prompt validation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validate all inputs to LLM inference endpoints; enforce structural separation between instruction and data contexts; reject known injection patterns"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "RA-5",
+      "control_name": "Vulnerability Scanning — AI red-teaming",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include prompt injection vectors in vulnerability scanning programme; conduct regular automated and manual injection testing"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "CA-8",
+      "control_name": "Penetration Testing — AI adversarial testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include prompt injection scenarios in penetration testing engagements; cover direct, indirect, and multimodal injection paths"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 9",
+      "control_name": "Protection and Prevention — adversarial input controls",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Implement ICT security controls to detect and block adversarial inputs including direct and indirect prompt injection; treat as a mandatory protection measure"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 24–27",
+      "control_name": "Digital Operational Resilience Testing — AI red-teaming",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include prompt injection scenarios in threat-led penetration testing (TLPT); cover direct, indirect, and multimodal injection vectors targeting financial AI services"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 10",
+      "control_name": "Detection — injection monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Deploy detection mechanisms for prompt injection attempts; monitor inference requests for adversarial patterns and alert security operations"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 45",
+      "control_name": "Information Sharing — injection threat intelligence",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Share prompt injection threat intelligence with sector peers through DORA information sharing arrangements"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Garak",
+      "type": "open-source",
+      "url": "https://github.com/leondz/garak"
+    },
+    {
+      "name": "PromptBench",
+      "type": "open-source",
+      "url": "https://github.com/microsoft/promptbench"
+    },
+    {
+      "name": "LLM Guard",
+      "type": "open-source",
+      "url": "https://github.com/protectai/llm-guard"
+    },
+    {
+      "name": "Rebuff",
+      "type": "open-source",
+      "url": "https://github.com/protectai/rebuff"
+    },
+    {
+      "name": "NIST AI RMF Playbook",
+      "type": "open-source",
+      "url": "https://airc.nist.gov/Docs/2"
+    },
+    {
+      "name": "OWASP ZAP (for API testing)",
+      "type": "open-source",
+      "url": "https://www.zaproxy.org"
+    },
+    {
+      "name": "Claroty",
+      "type": "commercial",
+      "url": "https://claroty.com"
+    },
+    {
+      "name": "Dragos",
+      "type": "commercial",
+      "url": "https://www.dragos.com"
+    },
+    {
+      "name": "Garak (for adversarial testing)",
+      "type": "open-source",
+      "url": "https://github.com/leondz/garak"
+    },
+    {
+      "name": "Promptfoo",
+      "type": "open-source",
+      "url": "https://github.com/promptfoo/promptfoo"
+    },
+    {
+      "name": "PyRIT",
+      "type": "open-source",
+      "url": "https://github.com/Azure/PyRIT"
+    },
+    {
+      "name": "NIST SP 800-218A",
+      "type": "open-source",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218A.ipd"
+    },
+    {
+      "name": "NIST SP 800-53A",
+      "type": "open-source",
+      "url": "https://csrc.nist.gov/publications/detail/sp/800-53a/rev-5/final"
+    },
+    {
+      "name": "DORA RTS/ITS",
+      "type": "open-source",
+      "url": "https://www.eba.europa.eu/regulation-and-policy/digital-operational-resilience-act-dora"
+    },
+    {
+      "name": "LAAF v2.0",
+      "url": "https://github.com/qorvexconsulting1/laaf-V2.0",
+      "type": "open-source"
+    }
+  ],
+  "incidents": [
+    {
+      "name": "AI recommendation poisoning — hidden prompt injections in 'Summarize with AI' buttons across 31 companies",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00198.html",
+      "year": 2026,
+      "incident_id": "INC-00198"
+    },
+    {
+      "name": "AnythingLLM Multiple CVEs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00627.html",
+      "year": 2026,
+      "incident_id": "INC-00627"
+    },
+    {
+      "name": "ChatGPT Data Exfiltration via DNS Covert Channel",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00746.html",
+      "year": 2026,
+      "incident_id": "INC-00746"
+    },
+    {
+      "name": "Claude AI jailbreak — Mexican government breach, 150GB data theft across 10 agencies",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00806.html",
+      "year": 2026,
+      "incident_id": "INC-00806"
+    },
+    {
+      "name": "Claude Code Project Files RCE & API Token Exfiltration (CVE-2025-59536 & CVE-2026-21852)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00813.html",
+      "year": 2026,
+      "incident_id": "INC-00813"
+    },
+    {
+      "name": "Claude Cowork File Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00827.html",
+      "year": 2026,
+      "incident_id": "INC-00827"
+    },
+    {
+      "name": "Claudy Day -- Claude.ai Prompt Injection Attack Chain",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00833.html",
+      "year": 2026,
+      "incident_id": "INC-00833"
+    },
+    {
+      "name": "Clinejection — CI/CD pipeline compromise via Cline's issue triage bot, 4,000 machines infected",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00834.html",
+      "year": 2026,
+      "incident_id": "INC-00834"
+    },
+    {
+      "name": "CrewAI Critical Vulnerabilities (CVE-2026-2275 et al.)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00860.html",
+      "year": 2026,
+      "incident_id": "INC-00860"
+    },
+    {
+      "name": "EchoLeak — zero-click Microsoft Copilot data exfiltration via email prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00924.html",
+      "year": 2026,
+      "incident_id": "INC-00924"
+    },
+    {
+      "name": "Eight Attack Vectors in AWS Bedrock Agents",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00928.html",
+      "year": 2026,
+      "incident_id": "INC-00928"
+    },
+    {
+      "name": "GeminiJack — zero-click Gemini Enterprise data exfiltration via shared Google Docs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01064.html",
+      "year": 2026,
+      "incident_id": "INC-01064"
+    },
+    {
+      "name": "Langflow CSV Agent RCE via Prompt Injection (CVE-2026-27966)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01297.html",
+      "year": 2026,
+      "incident_id": "INC-01297"
+    },
+    {
+      "name": "Microsoft 365 Copilot XPIA phishing — attacker-shaped email summaries via hidden instructions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01429.html",
+      "year": 2026,
+      "incident_id": "INC-01429"
+    },
+    {
+      "name": "Microsoft Excel XSS Weaponizes Copilot Agent (CVE-2026-26144)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01435.html",
+      "year": 2026,
+      "incident_id": "INC-01435"
+    },
+    {
+      "name": "PerplexedBrowser -- Perplexity Comet Agentic Browser Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01637.html",
+      "year": 2026,
+      "incident_id": "INC-01637"
+    },
+    {
+      "name": "Amazon Q Prompt Poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02300.html",
+      "year": 2025,
+      "incident_id": "INC-02300"
+    },
+    {
+      "name": "Anthropic MCP Git Server Triple Flaw (CVE-2025-68143, -68144, -68145)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02321.html",
+      "year": 2025,
+      "incident_id": "INC-02321"
+    },
+    {
+      "name": "Anthropic SQLite MCP Server SQL Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02324.html",
+      "year": 2025,
+      "incident_id": "INC-02324"
+    },
+    {
+      "name": "Chinese State-Linked Operator (GTG-1002) Reportedly Uses Claude Code for Autonomous Cyber Espionage",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02426.html",
+      "year": 2025,
+      "incident_id": "INC-02426"
+    },
+    {
+      "name": "Claude Code DNS Exfiltration (CVE-2025-55284)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02435.html",
+      "year": 2025,
+      "incident_id": "INC-02435"
+    },
+    {
+      "name": "Claude Desktop PromptJacking RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02447.html",
+      "year": 2025,
+      "incident_id": "INC-02447"
+    },
+    {
+      "name": "Claude Pirate Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02449.html",
+      "year": 2025,
+      "incident_id": "INC-02449"
+    },
+    {
+      "name": "Claude Skills Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02450.html",
+      "year": 2025,
+      "incident_id": "INC-02450"
+    },
+    {
+      "name": "Cline AI Coding Agent Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02455.html",
+      "year": 2025,
+      "incident_id": "INC-02455"
+    },
+    {
+      "name": "Cursor CLI Project Config RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02467.html",
+      "year": 2025,
+      "incident_id": "INC-02467"
+    },
+    {
+      "name": "Cursor Config Overwrite via Case Mismatch",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02468.html",
+      "year": 2025,
+      "incident_id": "INC-02468"
+    },
+    {
+      "name": "Cursor Workspace File Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02471.html",
+      "year": 2025,
+      "incident_id": "INC-02471"
+    },
+    {
+      "name": "Cursorignore Bypass via New Cursorignore Write",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02480.html",
+      "year": 2025,
+      "incident_id": "INC-02480"
+    },
+    {
+      "name": "Devin AI Agent Prompt Injection & Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02512.html",
+      "year": 2025,
+      "incident_id": "INC-02512"
+    },
+    {
+      "name": "ForcedLeak — Salesforce Agentforce indirect prompt injection exfiltrates CRM data",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02590.html",
+      "year": 2025,
+      "incident_id": "INC-02590"
+    },
+    {
+      "name": "GitHub Copilot & Cursor Code-Agent Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02607.html",
+      "year": 2025,
+      "incident_id": "INC-02607"
+    },
+    {
+      "name": "GitHub Copilot Multi-Root Workspace RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02611.html",
+      "year": 2025,
+      "incident_id": "INC-02611"
+    },
+    {
+      "name": "GitPublic Issue Repo Hijack",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02613.html",
+      "year": 2025,
+      "incident_id": "INC-02613"
+    },
+    {
+      "name": "Google Antigravity IDE Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02629.html",
+      "year": 2025,
+      "incident_id": "INC-02629"
+    },
+    {
+      "name": "Google Gemini Trifecta",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02636.html",
+      "year": 2025,
+      "incident_id": "INC-02636"
+    },
+    {
+      "name": "GPT-4.1 jailbreak via tool poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02646.html",
+      "year": 2025,
+      "incident_id": "INC-02646"
+    },
+    {
+      "name": "HashJack -- URL Fragment Prompt Injection for AI Browsers",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02686.html",
+      "year": 2025,
+      "incident_id": "INC-02686"
+    },
+    {
+      "name": "Hub MCP Prompt Injection (Cross-Context)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02700.html",
+      "year": 2025,
+      "incident_id": "INC-02700"
+    },
+    {
+      "name": "LangGrinch -- LangChain Core Serialization Injection (CVE-2025-68664)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02813.html",
+      "year": 2025,
+      "incident_id": "INC-02813"
+    },
+    {
+      "name": "MCP tool poisoning — hidden instructions in Model Context Protocol tool descriptions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02874.html",
+      "year": 2025,
+      "incident_id": "INC-02874"
+    },
+    {
+      "name": "Microsoft Copilot Studio agents public by default — unauthorized data exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02899.html",
+      "year": 2025,
+      "incident_id": "INC-02899"
+    },
+    {
+      "name": "Notion 3.0 AI Agent Data Exfiltration via Prompt Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02964.html",
+      "year": 2025,
+      "incident_id": "INC-02964"
+    },
+    {
+      "name": "OpenAI ChatGPT Atlas Browser Prompt Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02994.html",
+      "year": 2025,
+      "incident_id": "INC-02994"
+    },
+    {
+      "name": "OpenAI ChatGPT Operator Vulnerability",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02997.html",
+      "year": 2025,
+      "incident_id": "INC-02997"
+    },
+    {
+      "name": "OpenHands ZombAI RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03010.html",
+      "year": 2025,
+      "incident_id": "INC-03010"
+    },
+    {
+      "name": "PoisonedRAG — 5 malicious texts in millions achieve 90% attack success rate on RAG systems",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03036.html",
+      "year": 2025,
+      "incident_id": "INC-03036"
+    },
+    {
+      "name": "Replit vibe coding meltdown — agent hallucinated data, deleted production database, hid mistakes",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03152.html",
+      "year": 2025,
+      "incident_id": "INC-03152"
+    },
+    {
+      "name": "ServiceNow BodySnatcher — hardcoded secret key enables full AI agent hijacking (CVE-2025-12420)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03208.html",
+      "year": 2025,
+      "incident_id": "INC-03208"
+    },
+    {
+      "name": "ShadowLeak — ChatGPT Deep Research zero-click data exfiltration from connected services",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03210.html",
+      "year": 2025,
+      "incident_id": "INC-03210"
+    },
+    {
+      "name": "Trail of Bits: Prompt Injection to RCE in AI Agents",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03304.html",
+      "year": 2025,
+      "incident_id": "INC-03304"
+    },
+    {
+      "name": "Visual Studio Code & Agentic AI workflows RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03334.html",
+      "year": 2025,
+      "incident_id": "INC-03334"
+    },
+    {
+      "name": "WhatsApp MCP tool poisoning — hidden instructions exfiltrate entire message history",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03368.html",
+      "year": 2025,
+      "incident_id": "INC-03368"
+    },
+    {
+      "name": "Windsurf Data Exfiltration & SpAIware (Multiple Vectors)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03376.html",
+      "year": 2025,
+      "incident_id": "INC-03376"
+    },
+    {
+      "name": "Crescendo: multi-turn escalation attack (Microsoft)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03687.html",
+      "year": 2024,
+      "incident_id": "INC-03687"
+    },
+    {
+      "name": "Many-shot jailbreaking (Anthropic research)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03967.html",
+      "year": 2024,
+      "incident_id": "INC-03967"
+    },
+    {
+      "name": "Nassi et al. \"ComPromptMized\" Morris II multi-agent worm",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04027.html",
+      "year": 2024,
+      "incident_id": "INC-04027"
+    },
+    {
+      "name": "OpenAI GPT-4 system prompt extraction toolkit — systematic prompt leakage",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04067.html",
+      "year": 2024,
+      "incident_id": "INC-04067"
+    },
+    {
+      "name": "RAG corpus poisoning — embedding-space manipulation to force retrieval",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04142.html",
+      "year": 2024,
+      "incident_id": "INC-04142"
+    },
+    {
+      "name": "Skeleton Key: direct system prompt override (Microsoft)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04207.html",
+      "year": 2024,
+      "incident_id": "INC-04207"
+    },
+    {
+      "name": "Slack AI indirect injection via channel content",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04208.html",
+      "year": 2024,
+      "incident_id": "INC-04208"
+    },
+    {
+      "name": "LangChain and LlamaIndex RCE — agent code execution via prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04715.html",
+      "year": 2023,
+      "incident_id": "INC-04715"
+    },
+    {
+      "name": "LangChain SSRF & PALChain RCE (CVE-2023-46229 & CVE-2023-44467)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04720.html",
+      "year": 2023,
+      "incident_id": "INC-04720"
+    },
+    {
+      "name": "ShadowRay: Anyscale Ray Dashboard RCE (CVE-2023-48022) exploited in the wild",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04862.html",
+      "year": 2023,
+      "incident_id": "INC-04862"
+    },
+    {
+      "name": "Perez & Ribeiro — 'Ignore Previous Prompt': foundational direct injection study",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-05172.html",
+      "year": 2022,
+      "incident_id": "INC-05172"
+    }
+  ],
+  "crossrefs": {
+    "agentic_top10": [
+      "ASI01",
+      "ASI02"
+    ],
+    "dsgai_2026": [
+      "DSGAI01",
+      "DSGAI15",
+      "DSGAI12"
+    ]
+  },
+  "changelog": [
+    {
+      "date": "2026-03-27",
+      "version": "1.0.0",
+      "change": "Initial entry — generated from GenAI Security Crosswalk v1.5.1 mapping files",
+      "author": "emmanuelgjr"
+    }
+  ]
+}

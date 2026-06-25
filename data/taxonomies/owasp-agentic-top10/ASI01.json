@@ -1,0 +1,1193 @@
+{
+  "id": "ASI01",
+  "name": "Agent Goal Hijack",
+  "source_list": "Agentic-Top10-2026",
+  "version": "2026-Q1",
+  "severity": "Critical",
+  "aivss_score": 9.8,
+  "audience": [
+    "red-teamer",
+    "security-engineer",
+    "ml-engineer",
+    "ot-engineer",
+    "ciso",
+    "compliance",
+    "auditor",
+    "developer"
+  ],
+  "mappings": [
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0051.000",
+      "control_name": "Direct Prompt Injection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Attacker directly injects goal-altering instructions into agent input"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0051.001",
+      "control_name": "Indirect Prompt Injection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Hidden instructions in documents, emails, RAG results, or tool outputs alter agent goals without user visibility"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0054",
+      "control_name": "LLM Jailbreak",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Override safety guardrails that constrain agent goal execution"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "GV-1.7",
+      "control_name": "Policies for trustworthy AI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Organisational policy defines permissible agent autonomy — agents cannot change their stated goals without human confirmation"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MP-2.3",
+      "control_name": "Risk categorisation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent goal hijack categorised in AI risk register per deployment — specific injection vectors mapped"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.5",
+      "control_name": "Testing — adversarial",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing programme covers goal hijack scenarios — indirect injection via all agent data sources"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MG-2.2",
+      "control_name": "Risk response",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Incident response for detected goal hijack — suspension procedure, action reversal checklist, OT impact assessment"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 9",
+      "control_name": "Risk management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent goal hijack included in Art. 9 risk assessment for every agentic deployment"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 14",
+      "control_name": "Human oversight",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agents whose goals can be hijacked and execute autonomously are an Art. 14 failure — human confirmation required before goal-changing actions"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 15",
+      "control_name": "Accuracy, robustness, cybersecurity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Input filtering, goal-state verification, and injection detection are Art. 15 technical requirements"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.28",
+      "control_name": "Secure coding",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure coding requirements for all agentic integration code — input validation, goal-state verification, context separation"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.29",
+      "control_name": "Security testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing programme covering goal hijack — direct, indirect, multi-turn injection before each release"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.16",
+      "control_name": "Monitoring activities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Runtime monitoring for injection indicators across all agent input channels — new 2022 control"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.5.7",
+      "control_name": "Threat intelligence",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Active intelligence on prompt injection and goal hijack techniques — new attack methods inform detection controls"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.3",
+      "control_name": "AI system security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Goal-state verification and input validation as AIMS security design requirements — structural controls enforced at orchestration layer"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.6",
+      "control_name": "Testing of AI systems",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Goal hijack scenarios in AIMS testing — direct, indirect, multi-turn injection tested before each production release"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.5.2",
+      "control_name": "Impact assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Impact assessment covers goal hijack risk — what autonomous actions are possible if goal is redirected, who is affected"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "Cl.6.1",
+      "control_name": "Risk assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Goal hijack in AI risk register — blast radius per deployment, owner, treatment, review cadence"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 16",
+      "control_name": "Application Software Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure development standards covering agentic integrations — input validation, goal-state verification"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 18",
+      "control_name": "Penetration Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Adversarial testing covering goal hijack — direct, indirect, multi-turn injection scenarios"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 8",
+      "control_name": "Audit Log Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All agent inputs logged — injection attempts detectable through log analysis"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 13",
+      "control_name": "Network Monitoring and Defence",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Network-layer monitoring for injection indicators in agent traffic"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.1.1",
+      "control_name": "Verify all user input validated against allowlist",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All inputs to agents validated — indirect injection through processed content equally in scope"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.1",
+      "control_name": "Verify output encoding prevents injection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent responses encoded before passing to downstream renderers — outputs treated as untrusted"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.5",
+      "control_name": "Verify application protects against OS command injection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent-generated instructions not executed in system context without validation"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V1.1.2",
+      "control_name": "Threat modelling of all data flows",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All agent input sources threat-modelled — every indirect injection path documented"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V11.1.2",
+      "control_name": "Verify business logic limits prevent function abuse",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Business logic controls prevent injection from redirecting agent goal"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.3",
+      "control_name": "Software and information integrity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All inputs to OT agents validated for integrity — no unvalidated external content directly into agent context"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.2",
+      "control_name": "Least privilege",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agents granted minimum tool access — each tool scoped to specific OT function, read-only by default"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.1",
+      "control_name": "Use control enforcement",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent actions in OT context subject to explicit use controls — goal-changing actions require human confirmation"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 6.1",
+      "control_name": "Timely response to events",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Goal hijack indicators treated as security events — agent suspended, human notified, actions reversed where feasible"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 1.9",
+      "control_name": "Session lock",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Operator-accessible agent kill switch — halt all agent activity immediately without affecting process control"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.3",
+      "control_name": "Vulnerabilities common to IT/OT",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Injection via historian and SCADA data feeds"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§6.2",
+      "control_name": "Risk assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Assess injection risk at every agent data ingestion point"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§7.2",
+      "control_name": "Security controls for ICS",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Input validation mandatory at OT data boundary"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "GV.OC-01",
+      "control_name": "Organisational Context",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Policy defines permissible agent autonomy — agents cannot change stated goals without human confirmation"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.PS-04",
+      "control_name": "Platform Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure software development — input validation and goal-state verification as platform security controls"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "DE.CM-01",
+      "control_name": "Continuous Monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Networks and assets monitored — injection indicators detected across all agent input channels"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "RS.MI-01",
+      "control_name": "Incident Mitigation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Incidents contained — agent suspended, actions reversed, kill switch activated"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC3.2",
+      "control_name": "Goal hijack risk identified in risk assessment — prompt injection, indirect injection, multi-turn manipulation documented",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Risk register with goal hijack entries, treatment status"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC7.2",
+      "control_name": "Runtime monitoring for goal-deviation indicators — AI-specific anomaly detection covering instruction-override patterns",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Monitoring configuration, alert logs, incident records"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC5.2",
+      "control_name": "Control activities define acceptable agent actions — agent cannot deviate from authorised goal scope",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent permission policy, goal-state verification design documentation"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "PI1.1",
+      "control_name": "Agent processing is authorised — actions taken by agent correspond to user's authorised intent, not attacker's injected instruction",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Action audit log, authorisation records per agent session"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Bespoke agent code reviewed for injection resistance — all agent integration code includes prompt injection as a vulnerability category",
+      "control_name": "Req 6.2",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure code review records, findings, remediation"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Penetration testing covers goal hijack — agentic AI systems tested for prompt injection before production and annually",
+      "control_name": "Req 11.3",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Pen test report with goal hijack test cases"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Agent actions logged — all goal-relevant agent actions logged with user identity, session ID, and action detail",
+      "control_name": "Req 10.2",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Audit log configuration, sample log entries"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Targeted risk analysis documents goal hijack — likelihood, impact on CHD, treatment controls specified",
+      "control_name": "Req 12.3",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Risk analysis for agentic AI in PCI scope"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "AI System Integrity (ASI)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent applications tested against goal hijack before deployment — direct and indirect injection across all input channels validated as part of AI system integrity verification"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "MON",
+      "control_name": "Monitoring and Detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Runtime monitoring for goal-hijack indicators across all agent input channels — AI-specific anomaly detection for instruction-override patterns"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "Governance and Risk (GOV)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Goal hijack documented in AI risk register — risk owner, treatment controls, review cadence"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Secure Development",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Input validation and context separation as secure development requirements for all agent integrations"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "D-TA",
+      "control_name": "Design / Threat Assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Model all injection surfaces: user input, retrieved content, tool responses, sub-agent messages"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "D-TA",
+      "control_name": "Design / Threat Assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "High-impact actions (delete, exfiltrate, send) demand higher injection resistance"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "I-SB",
+      "control_name": "Implementation / Secure Build",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enforce at agent boundary; validate all retrieved content before acting"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-ST",
+      "control_name": "Verification / Security Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Red team injection across all retrieval and tool paths"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "O-IM",
+      "control_name": "Operations / Incident Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Detect agent plan deviation from expected trajectory"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "G-EG",
+      "control_name": "Governance / Education & Guidance",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All developers with access to agent code understand injection risk model"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "S",
+      "control_name": "Instruction Spoofing",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "T",
+      "control_name": "Goal Tampering",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "E",
+      "control_name": "Privilege Elevation via Hijack",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-20",
+      "control_name": "Improper Input Validation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Root cause — agent inputs not validated before entering model context; indirect injection content not treated as untrusted"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-74",
+      "control_name": "Improper Neutralisation of Special Elements in Output Used by a Downstream Component",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Instruction elements in processed content not neutralised before agent reasoning"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Protection Mechanism Failure",
+      "control_name": "CWE-693",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Safety and goal-verification controls bypassed through injection"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Unintended Proxy or Intermediary",
+      "control_name": "CWE-441",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent acts as a proxy executing attacker instructions against backend systems"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "Externally Controlled Reference to a Resource in Another Sphere",
+      "control_name": "CWE-610",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Agent retrieves and acts on externally controlled content (RAG, email, tool returns) without adequate validation"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "IHT",
+      "control_name": "Input Handling",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Inject instruction-overriding content through user prompt, RAG-retrieved documents, tool return values, email content, uploaded files, and any other data source the agent processes"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "MBT",
+      "control_name": "Model Behaviour",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify the agent's stated goal at session start matches its actions at session end — test divergence after indirect injection"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "AST",
+      "control_name": "Agent-Specific",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Attempt to redirect agent goal through indirect injection paths specific to your deployment — historian data, vendor communications, web results"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L1",
+      "control_name": "Foundation Models",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L2",
+      "control_name": "Data Operations",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L3",
+      "control_name": "Agent Frameworks",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B001",
+      "control_name": "Third-party testing of adversarial robustness",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B002",
+      "control_name": "Detect adversarial input",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B005",
+      "control_name": "Implement real-time input filtering",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B006",
+      "control_name": "Prevent unauthorized AI agent actions",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-5",
+      "control_name": "Over-Privileged NHI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Scope all agent credentials to minimum required — least privilege enforced"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-7",
+      "control_name": "Long-Lived Credentials",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Short-lived credentials — tokens expire at task completion, no long-lived agent tokens"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-9",
+      "control_name": "NHI Reuse",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Unique identity per agent — no shared service accounts across agent deployments"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.2.1-PS",
+      "control_name": "Design software to meet security requirements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Ensures goal integrity is a design-phase requirement for all agentic systems"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.7.2-PS",
+      "control_name": "Review the software for security vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Catches goal manipulation vulnerabilities before production deployment"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.8.2-PS",
+      "control_name": "Test for security vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validates goal integrity controls under realistic attack conditions"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "RV.1.1-PS",
+      "control_name": "Identify and confirm vulnerabilities",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enables rapid detection and response to goal manipulation in live systems"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-3",
+      "control_name": "Malicious Code Protection — adversarial agent inputs",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Extend malicious code protection to detect and block adversarial inputs targeting agent goal manipulation including injection through tool outputs and context stores"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-10",
+      "control_name": "Information Input Validation — agent context validation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validate all inputs to agent systems including user prompts, tool outputs, memory retrievals, and inter-agent messages; enforce structural separation of instructions and data"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "CA-8",
+      "control_name": "Penetration Testing — agent hijacking testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include agent goal hijacking in penetration testing scope; cover injection through all input channels — user prompts, tool outputs, memory stores, and inter-agent communication"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "AU-2",
+      "control_name": "Event Logging — agent action audit trail",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Log all agent actions, goal interpretations, tool invocations, and decision points with sufficient detail to detect goal hijacking in post-incident analysis"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 9",
+      "control_name": "Protection and Prevention — adversarial agent controls",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Implement security controls to detect and block adversarial inputs targeting agent goal manipulation including injection through tool outputs and context stores"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 24–27",
+      "control_name": "Resilience Testing — agent hijacking scenarios",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include agent goal hijacking in threat-led penetration testing; cover injection through user prompts, tool outputs, memory stores, and inter-agent messages"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 10",
+      "control_name": "Detection — goal manipulation monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Deploy detection mechanisms for agent goal manipulation; monitor for behavioural deviations, unexpected tool invocations, and goal drift indicators"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 45",
+      "control_name": "Information Sharing — agent attack intelligence",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Share agent goal hijacking threat intelligence with sector peers through DORA information sharing arrangements"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Garak",
+      "type": "open-source",
+      "url": "https://github.com/leondz/garak"
+    },
+    {
+      "name": "Rebuff",
+      "type": "open-source",
+      "url": "https://github.com/protectai/rebuff"
+    },
+    {
+      "name": "Invariant Analyzer",
+      "type": "open-source",
+      "url": "https://github.com/invariantlabs-ai/invariant"
+    },
+    {
+      "name": "Claroty",
+      "type": "commercial",
+      "url": "https://claroty.com"
+    },
+    {
+      "name": "Dragos",
+      "type": "commercial",
+      "url": "https://www.dragos.com"
+    },
+    {
+      "name": "Garak (adversarial testing)",
+      "type": "open-source",
+      "url": "https://github.com/leondz/garak"
+    },
+    {
+      "name": "PromptBench",
+      "type": "open-source",
+      "url": "https://github.com/microsoft/promptbench"
+    },
+    {
+      "name": "OWASP AITG test cases",
+      "type": "open-source",
+      "url": "https://owasp.org"
+    },
+    {
+      "name": "HashiCorp Vault",
+      "type": "open-source",
+      "url": "https://www.vaultproject.io"
+    },
+    {
+      "name": "Entro Security",
+      "type": "commercial",
+      "url": "https://entro.security"
+    },
+    {
+      "name": "Teleport",
+      "type": "commercial",
+      "url": "https://goteleport.com"
+    },
+    {
+      "name": "LAAF (LLM Agent Assessment Framework)",
+      "type": "open-source",
+      "url": "https://github.com/OWASP/LAAF"
+    },
+    {
+      "name": "PyRIT",
+      "type": "open-source",
+      "url": "https://github.com/Azure/PyRIT"
+    },
+    {
+      "name": "NIST SP 800-218A",
+      "type": "open-source",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218A.ipd"
+    },
+    {
+      "name": "LLM Guard",
+      "type": "open-source",
+      "url": "https://github.com/protectai/llm-guard"
+    },
+    {
+      "name": "LangSmith",
+      "type": "commercial",
+      "url": "https://smith.langchain.com"
+    },
+    {
+      "name": "LAAF v2.0",
+      "url": "https://github.com/qorvexconsulting1/laaf-V2.0",
+      "type": "open-source"
+    }
+  ],
+  "incidents": [
+    {
+      "name": "AI recommendation poisoning — hidden prompt injections in 'Summarize with AI' buttons across 31 companies",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00198.html",
+      "year": 2026,
+      "incident_id": "INC-00198"
+    },
+    {
+      "name": "AnythingLLM Multiple CVEs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00627.html",
+      "year": 2026,
+      "incident_id": "INC-00627"
+    },
+    {
+      "name": "ChatGPT Data Exfiltration via DNS Covert Channel",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00746.html",
+      "year": 2026,
+      "incident_id": "INC-00746"
+    },
+    {
+      "name": "Claude AI jailbreak — Mexican government breach, 150GB data theft across 10 agencies",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00806.html",
+      "year": 2026,
+      "incident_id": "INC-00806"
+    },
+    {
+      "name": "Claude Cowork File Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00827.html",
+      "year": 2026,
+      "incident_id": "INC-00827"
+    },
+    {
+      "name": "Claudy Day -- Claude.ai Prompt Injection Attack Chain",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00833.html",
+      "year": 2026,
+      "incident_id": "INC-00833"
+    },
+    {
+      "name": "Clinejection — CI/CD pipeline compromise via Cline's issue triage bot, 4,000 machines infected",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00834.html",
+      "year": 2026,
+      "incident_id": "INC-00834"
+    },
+    {
+      "name": "EchoLeak — zero-click Microsoft Copilot data exfiltration via email prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00924.html",
+      "year": 2026,
+      "incident_id": "INC-00924"
+    },
+    {
+      "name": "Eight Attack Vectors in AWS Bedrock Agents",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00928.html",
+      "year": 2026,
+      "incident_id": "INC-00928"
+    },
+    {
+      "name": "GeminiJack — zero-click Gemini Enterprise data exfiltration via shared Google Docs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01064.html",
+      "year": 2026,
+      "incident_id": "INC-01064"
+    },
+    {
+      "name": "Langflow CSV Agent RCE via Prompt Injection (CVE-2026-27966)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01297.html",
+      "year": 2026,
+      "incident_id": "INC-01297"
+    },
+    {
+      "name": "Microsoft 365 Copilot XPIA phishing — attacker-shaped email summaries via hidden instructions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01429.html",
+      "year": 2026,
+      "incident_id": "INC-01429"
+    },
+    {
+      "name": "Microsoft Excel XSS Weaponizes Copilot Agent (CVE-2026-26144)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01435.html",
+      "year": 2026,
+      "incident_id": "INC-01435"
+    },
+    {
+      "name": "PerplexedBrowser -- Perplexity Comet Agentic Browser Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01637.html",
+      "year": 2026,
+      "incident_id": "INC-01637"
+    },
+    {
+      "name": "Amazon Q Prompt Poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02300.html",
+      "year": 2025,
+      "incident_id": "INC-02300"
+    },
+    {
+      "name": "Anthropic MCP Git Server Triple Flaw (CVE-2025-68143, -68144, -68145)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02321.html",
+      "year": 2025,
+      "incident_id": "INC-02321"
+    },
+    {
+      "name": "Chinese State-Linked Operator (GTG-1002) Reportedly Uses Claude Code for Autonomous Cyber Espionage",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02426.html",
+      "year": 2025,
+      "incident_id": "INC-02426"
+    },
+    {
+      "name": "Claude Code DNS Exfiltration (CVE-2025-55284)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02435.html",
+      "year": 2025,
+      "incident_id": "INC-02435"
+    },
+    {
+      "name": "Claude Desktop PromptJacking RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02447.html",
+      "year": 2025,
+      "incident_id": "INC-02447"
+    },
+    {
+      "name": "Claude Pirate Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02449.html",
+      "year": 2025,
+      "incident_id": "INC-02449"
+    },
+    {
+      "name": "Claude Skills Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02450.html",
+      "year": 2025,
+      "incident_id": "INC-02450"
+    },
+    {
+      "name": "Cline AI Coding Agent Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02455.html",
+      "year": 2025,
+      "incident_id": "INC-02455"
+    },
+    {
+      "name": "Cursor CLI Project Config RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02467.html",
+      "year": 2025,
+      "incident_id": "INC-02467"
+    },
+    {
+      "name": "Cursor Config Overwrite via Case Mismatch",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02468.html",
+      "year": 2025,
+      "incident_id": "INC-02468"
+    },
+    {
+      "name": "Cursor Workspace File Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02471.html",
+      "year": 2025,
+      "incident_id": "INC-02471"
+    },
+    {
+      "name": "Cursorignore Bypass via New Cursorignore Write",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02480.html",
+      "year": 2025,
+      "incident_id": "INC-02480"
+    },
+    {
+      "name": "Devin AI Agent Prompt Injection & Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02512.html",
+      "year": 2025,
+      "incident_id": "INC-02512"
+    },
+    {
+      "name": "ForcedLeak — Salesforce Agentforce indirect prompt injection exfiltrates CRM data",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02590.html",
+      "year": 2025,
+      "incident_id": "INC-02590"
+    },
+    {
+      "name": "GitHub Copilot & Cursor Code-Agent Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02607.html",
+      "year": 2025,
+      "incident_id": "INC-02607"
+    },
+    {
+      "name": "GitHub Copilot Multi-Root Workspace RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02611.html",
+      "year": 2025,
+      "incident_id": "INC-02611"
+    },
+    {
+      "name": "GitPublic Issue Repo Hijack",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02613.html",
+      "year": 2025,
+      "incident_id": "INC-02613"
+    },
+    {
+      "name": "Google Antigravity IDE Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02629.html",
+      "year": 2025,
+      "incident_id": "INC-02629"
+    },
+    {
+      "name": "Google Gemini Trifecta",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02636.html",
+      "year": 2025,
+      "incident_id": "INC-02636"
+    },
+    {
+      "name": "GPT-4.1 jailbreak via tool poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02646.html",
+      "year": 2025,
+      "incident_id": "INC-02646"
+    },
+    {
+      "name": "HashJack -- URL Fragment Prompt Injection for AI Browsers",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02686.html",
+      "year": 2025,
+      "incident_id": "INC-02686"
+    },
+    {
+      "name": "Hub MCP Prompt Injection (Cross-Context)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02700.html",
+      "year": 2025,
+      "incident_id": "INC-02700"
+    },
+    {
+      "name": "LangGrinch -- LangChain Core Serialization Injection (CVE-2025-68664)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02813.html",
+      "year": 2025,
+      "incident_id": "INC-02813"
+    },
+    {
+      "name": "Microsoft Copilot Studio agents public by default — unauthorized data exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02899.html",
+      "year": 2025,
+      "incident_id": "INC-02899"
+    },
+    {
+      "name": "Notion 3.0 AI Agent Data Exfiltration via Prompt Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02964.html",
+      "year": 2025,
+      "incident_id": "INC-02964"
+    },
+    {
+      "name": "OpenAI ChatGPT Atlas Browser Prompt Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02994.html",
+      "year": 2025,
+      "incident_id": "INC-02994"
+    },
+    {
+      "name": "OpenAI ChatGPT Operator Vulnerability",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02997.html",
+      "year": 2025,
+      "incident_id": "INC-02997"
+    },
+    {
+      "name": "OpenHands ZombAI RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03010.html",
+      "year": 2025,
+      "incident_id": "INC-03010"
+    },
+    {
+      "name": "PoisonedRAG — 5 malicious texts in millions achieve 90% attack success rate on RAG systems",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03036.html",
+      "year": 2025,
+      "incident_id": "INC-03036"
+    },
+    {
+      "name": "Replit vibe coding meltdown — agent hallucinated data, deleted production database, hid mistakes",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03152.html",
+      "year": 2025,
+      "incident_id": "INC-03152"
+    },
+    {
+      "name": "ServiceNow BodySnatcher — hardcoded secret key enables full AI agent hijacking (CVE-2025-12420)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03208.html",
+      "year": 2025,
+      "incident_id": "INC-03208"
+    },
+    {
+      "name": "ShadowLeak — ChatGPT Deep Research zero-click data exfiltration from connected services",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03210.html",
+      "year": 2025,
+      "incident_id": "INC-03210"
+    },
+    {
+      "name": "Trail of Bits: Prompt Injection to RCE in AI Agents",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03304.html",
+      "year": 2025,
+      "incident_id": "INC-03304"
+    },
+    {
+      "name": "Visual Studio Code & Agentic AI workflows RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03334.html",
+      "year": 2025,
+      "incident_id": "INC-03334"
+    },
+    {
+      "name": "WhatsApp MCP tool poisoning — hidden instructions exfiltrate entire message history",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03368.html",
+      "year": 2025,
+      "incident_id": "INC-03368"
+    },
+    {
+      "name": "Windsurf Data Exfiltration & SpAIware (Multiple Vectors)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03376.html",
+      "year": 2025,
+      "incident_id": "INC-03376"
+    },
+    {
+      "name": "Crescendo: multi-turn escalation attack (Microsoft)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03687.html",
+      "year": 2024,
+      "incident_id": "INC-03687"
+    },
+    {
+      "name": "Many-shot jailbreaking (Anthropic research)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03967.html",
+      "year": 2024,
+      "incident_id": "INC-03967"
+    },
+    {
+      "name": "Nassi et al. \"ComPromptMized\" Morris II multi-agent worm",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04027.html",
+      "year": 2024,
+      "incident_id": "INC-04027"
+    },
+    {
+      "name": "RAG corpus poisoning — embedding-space manipulation to force retrieval",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04142.html",
+      "year": 2024,
+      "incident_id": "INC-04142"
+    },
+    {
+      "name": "Skeleton Key: direct system prompt override (Microsoft)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04207.html",
+      "year": 2024,
+      "incident_id": "INC-04207"
+    },
+    {
+      "name": "Slack AI indirect injection via channel content",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04208.html",
+      "year": 2024,
+      "incident_id": "INC-04208"
+    },
+    {
+      "name": "LangChain and LlamaIndex RCE — agent code execution via prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04715.html",
+      "year": 2023,
+      "incident_id": "INC-04715"
+    },
+    {
+      "name": "LangChain SSRF & PALChain RCE (CVE-2023-46229 & CVE-2023-44467)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04720.html",
+      "year": 2023,
+      "incident_id": "INC-04720"
+    },
+    {
+      "name": "ShadowRay: Anyscale Ray Dashboard RCE (CVE-2023-48022) exploited in the wild",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04862.html",
+      "year": 2023,
+      "incident_id": "INC-04862"
+    }
+  ],
+  "crossrefs": {
+    "llm_top10": [
+      "LLM01",
+      "LLM06"
+    ],
+    "dsgai_2026": [
+      "DSGAI01",
+      "DSGAI15",
+      "DSGAI12",
+      "DSGAI02"
+    ]
+  },
+  "changelog": [
+    {
+      "date": "2026-03-27",
+      "version": "1.0.0",
+      "change": "Initial entry — generated from GenAI Security Crosswalk v1.5.1 mapping files",
+      "author": "emmanuelgjr"
+    }
+  ]
+}

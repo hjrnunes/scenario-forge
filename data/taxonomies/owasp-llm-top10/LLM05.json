@@ -1,0 +1,1134 @@
+{
+  "id": "LLM05",
+  "name": "Insecure Output Handling",
+  "source_list": "LLM-Top10-2025",
+  "version": "2026-Q1",
+  "severity": "High",
+  "aivss_score": null,
+  "audience": [
+    "red-teamer",
+    "security-engineer",
+    "developer",
+    "ml-engineer",
+    "ot-engineer",
+    "ciso",
+    "compliance",
+    "auditor"
+  ],
+  "mappings": [
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0067",
+      "control_name": "Output Manipulation",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Crafting inputs that produce dangerous outputs consumed by downstream systems"
+    },
+    {
+      "framework": "MITRE ATLAS",
+      "control_id": "AML.T0040",
+      "control_name": "Unsafe Deserialisation via LLM",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "LLM outputs containing serialised payloads executed by downstream components"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.5",
+      "control_name": "Testing — output safety",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Output handling security included in AI evaluation and testing programme"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MS-2.6",
+      "control_name": "Testing — data leakage",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Output leakage and injection scenarios covered in evaluation"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "MG-2.2",
+      "control_name": "Risk response",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Incident response for output handling failures defined and tested"
+    },
+    {
+      "framework": "NIST AI RMF 1.0",
+      "control_id": "GV-1.7",
+      "control_name": "Policies for trustworthy AI",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Organisational policy requires secure output handling for all LLM integrations"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 9",
+      "control_name": "Risk management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Insecure output handling included in risk management system"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 15",
+      "control_name": "Accuracy, robustness, cybersecurity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output validation and sanitisation are Art. 15 technical requirements"
+    },
+    {
+      "framework": "EU AI Act",
+      "control_id": "Art. 17",
+      "control_name": "Quality management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Post-market monitoring of output handling incidents required"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.28",
+      "control_name": "Secure coding",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Output encoding, sanitisation, and schema validation as secure coding requirements"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.26",
+      "control_name": "Application security requirements",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Security requirements for all interfaces consuming LLM output — specified before development"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.29",
+      "control_name": "Security testing",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Output injection scenarios in security testing — XSS, SQL injection, command injection via LLM output"
+    },
+    {
+      "framework": "ISO/IEC 27001:2022",
+      "control_id": "A.8.16",
+      "control_name": "Monitoring activities",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Runtime monitoring for output handling incidents — injection attempts in LLM output channels"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.3",
+      "control_name": "AI system security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output encoding and schema validation as AIMS security design requirements — LLM output treated as untrusted input to downstream systems"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.6.2.6",
+      "control_name": "Testing of AI systems",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output injection scenarios in AIMS testing — XSS, SQL injection, command injection via LLM output tested before deployment"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "A.9.1",
+      "control_name": "Use of AI systems",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Guidance on AI system use — downstream consumers informed that LLM output must be validated before use"
+    },
+    {
+      "framework": "ISO/IEC 42001:2023",
+      "control_id": "Operation",
+      "control_name": "Cl.8",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Operational controls for LLM deployment — output handling requirements documented as AIMS operational procedures"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 16",
+      "control_name": "Application Software Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output encoding and sanitisation as secure development requirements"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 8",
+      "control_name": "Audit Log Management",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Log all LLM outputs — injection attempts in model responses detectable"
+    },
+    {
+      "framework": "CIS Controls v8.1",
+      "control_id": "CIS 18",
+      "control_name": "Penetration Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output injection scenarios in penetration testing — XSS, SQL injection via LLM output"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.1",
+      "control_name": "Verify output encoding of untrusted data in HTML context",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM responses rendered in browser contexts encoded against XSS"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.3.5",
+      "control_name": "Verify output encoding in SQL query context",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM-generated SQL parameterised — never raw LLM output in SQL context"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.5",
+      "control_name": "Verify output encoding in OS command context",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM-generated commands validated — never raw output in shell context"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V5.2.4",
+      "control_name": "Verify application does not use eval or dynamic code",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "No eval or dynamic code execution of LLM-generated content"
+    },
+    {
+      "framework": "OWASP ASVS 4.0.3",
+      "control_id": "V4.2.2",
+      "control_name": "Verify anti-CSRF tokens in state-changing operations",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "CSRF protection on endpoints where LLM output triggers state changes"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.3",
+      "control_name": "Software and information integrity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All LLM output validated before rendering or passing to OT systems"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 2.3",
+      "control_name": "Use control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM output restricted to authorised actions — no raw output directly to control interfaces"
+    },
+    {
+      "framework": "ISA/IEC 62443",
+      "control_id": "SR 3.1",
+      "control_name": "Software and information integrity",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Communication integrity enforcement on all LLM-to-OT data paths"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§5.3",
+      "control_name": "Threats",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM output injection as a new instantiation of this threat at the IT/OT boundary"
+    },
+    {
+      "framework": "NIST SP 800-82 Rev 3",
+      "control_id": "§7.2",
+      "control_name": "Network segmentation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "LLM output validated at DMZ boundary before entering control zone display or data systems"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.PS-04",
+      "control_name": "Platform Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Secure software development practices — output encoding and schema validation as platform security requirements"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "PR.DS-02",
+      "control_name": "Data Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Data in transit protected — LLM output validated before passing to downstream systems"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "DE.CM-01",
+      "control_name": "Continuous Monitoring",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Networks and assets monitored — output injection patterns detected in LLM output channels"
+    },
+    {
+      "framework": "NIST CSF 2.0",
+      "control_id": "ID.RA-01",
+      "control_name": "Risk Assessment",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output injection documented as vulnerability class in risk assessment for all LLM integrations"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "PI1.1",
+      "control_name": "Processing integrity policies",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC5.2",
+      "control_name": "Select and develop control activities",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC7.2",
+      "control_name": "Anomaly detection",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "SOC 2",
+      "control_id": "CC3.2",
+      "control_name": "Risk assessment",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 6.2.4",
+      "control_name": "Bespoke and custom software",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output handling in LLM integrations addresses all injection vulnerability classes — LLM output treated as untrusted"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 6.4.1",
+      "control_name": "Public-facing web application protection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "All interfaces consuming LLM output in PCI scope protected — input validation on all downstream consumers"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 11.3.1",
+      "control_name": "Penetration testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output injection scenarios in penetration testing — SQL injection, command injection via LLM output"
+    },
+    {
+      "framework": "PCI DSS v4.0",
+      "control_id": "Req 10.6.1",
+      "control_name": "Audit log review",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Monitoring for injection patterns in LLM output channels within CDE"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Secure Development",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output encoding and schema validation as L1 secure development requirements — LLM output treated as untrusted"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L2",
+      "control_name": "AI System Integrity (ASI)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "AI-specific output validation — schema enforcement, injection pattern detection before downstream consumption"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "MON",
+      "control_name": "Monitoring and Detection",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Runtime monitoring of LLM output channels — injection patterns in model responses detected"
+    },
+    {
+      "framework": "ENISA Multilayer Framework",
+      "control_id": "L1",
+      "control_name": "General ICT — Application Security",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "DAST on all interfaces consuming LLM output as L1 application security practice"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "D-SR",
+      "control_name": "Security Requirements",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output encoding and schema validation as explicit security requirements before development"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "I-SB",
+      "control_name": "Secure Build",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output validation implemented in code — LLM output treated as untrusted, reviewed in code review"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-RT",
+      "control_name": "Requirements-Driven Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Output security requirements verified in testing — XSS, SQL injection via LLM output tested"
+    },
+    {
+      "framework": "OWASP SAMM v2.0",
+      "control_id": "V-ST",
+      "control_name": "Security Testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "DAST on all interfaces consuming LLM output as penetration testing activity"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "T",
+      "control_name": "Output Tampering into Downstream Systems",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "STRIDE",
+      "control_id": "E",
+      "control_name": "Privilege Escalation via Output Injection",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-79",
+      "control_name": "Cross-site Scripting (XSS)",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-89",
+      "control_name": "SQL Injection",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "CWE/CVE",
+      "control_id": "CWE-78",
+      "control_name": "OS Command Injection",
+      "tier": "Foundational",
+      "scope": "Build"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "OHT",
+      "control_name": "Output Handling",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify LLM-generated content is sanitised before insertion into HTML, SQL, shell commands, URLs, and other interpreters"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "IHT",
+      "control_name": "Input Handling",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Craft inputs designed to coerce the LLM into generating content that will be interpreted as code or commands by downstream systems"
+    },
+    {
+      "framework": "OWASP AI Testing Guide",
+      "control_id": "ACT",
+      "control_name": "Access Control",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Verify that downstream systems do not grant LLM outputs excessive permissions or execute LLM-generated commands without validation"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L3",
+      "control_name": "Agent Frameworks",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L4",
+      "control_name": "Deployment & Infrastructure",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "MAESTRO",
+      "control_id": "L1",
+      "control_name": "Foundation Models",
+      "tier": "Foundational",
+      "scope": "Both"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B005",
+      "control_name": "Implement real-time input filtering",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B006",
+      "control_name": "Prevent unauthorized AI actions",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "B009",
+      "control_name": "Validate AI-generated content",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "AIUC-1",
+      "control_id": "C",
+      "control_name": "Safety domain (harm prevention)",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Foundational"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-2",
+      "control_name": "Secret Leakage",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Credential detection in output pipeline before execution"
+    },
+    {
+      "framework": "OWASP NHI Top 10",
+      "control_id": "NHI-5",
+      "control_name": "Over-Privileged NHI",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Apply least-privilege to all credentials used in downstream processing"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.5.1-PS",
+      "control_name": "Secure coding — ML pipeline output handling",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Implement secure coding practices for all code paths that consume LLM output; treat model responses as untrusted input to downstream systems"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.7.2-PS",
+      "control_name": "Review for security vulnerabilities — output validation",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Include output injection and unsafe rendering scenarios in pre-release security reviews; verify that output sanitisation controls are present and effective"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PS.2.1-PS",
+      "control_name": "Verify software integrity — model artifact integrity",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Verify that the model artifact serving output has not been tampered with; maintain signed model checksums and verify before deployment"
+    },
+    {
+      "framework": "NIST SP 800-218A",
+      "control_id": "PW.8.2-PS",
+      "control_name": "Test for security vulnerabilities — output security",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Include output-based injection testing (XSS, SQLi, CMDi via LLM output) in adversarial test suites"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-10",
+      "control_name": "Information Input Validation — output context validation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Validate all LLM outputs before consumption by downstream systems; enforce output encoding, schema validation, and context-appropriate sanitisation"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SI-3",
+      "control_name": "Malicious Code Protection — output channel scanning",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Extend malicious code protection to LLM output channels; detect and block injection payloads — XSS, SQL injection, command injection — in model responses before downstream delivery"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "CA-8",
+      "control_name": "Penetration Testing — LLM output consumer testing",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Include LLM output handling in penetration testing scope; test all downstream consumers for injection via model-generated content"
+    },
+    {
+      "framework": "FedRAMP",
+      "control_id": "SC-7",
+      "control_name": "Boundary Protection — LLM-to-downstream isolation",
+      "tier": "Foundational",
+      "scope": "Both",
+      "notes": "Enforce boundary protection between LLM inference services and downstream consuming systems; apply output filtering and schema enforcement at the boundary"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 9",
+      "control_name": "Protection and Prevention — output validation controls",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Implement output sanitisation, encoding, and validation controls before LLM outputs reach downstream financial systems, APIs, or databases"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 10",
+      "control_name": "Detection — output anomaly detection",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Monitor LLM outputs for anomalous patterns indicating injection payloads, unexpected code fragments, or data exfiltration attempts"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 5–7",
+      "control_name": "ICT Risk Management — output trust governance",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Define policies governing trust boundaries between LLM outputs and downstream systems; mandate validation at all integration points"
+    },
+    {
+      "framework": "DORA",
+      "control_id": "Art. 17–23",
+      "control_name": "ICT Incident Management — output-triggered incidents",
+      "tier": "Foundational",
+      "scope": "Build",
+      "notes": "Classify and report incidents where LLM outputs triggered downstream system compromise; include in major ICT incident reporting where applicable"
+    }
+  ],
+  "tools": [
+    {
+      "name": "OWASP ZAP",
+      "type": "open-source",
+      "url": "https://www.zaproxy.org"
+    },
+    {
+      "name": "DOMPurify",
+      "type": "open-source",
+      "url": "https://github.com/cure53/DOMPurify"
+    },
+    {
+      "name": "Semgrep",
+      "type": "open-source",
+      "url": "https://semgrep.dev"
+    },
+    {
+      "name": "Guardrails AI",
+      "type": "open-source",
+      "url": "https://github.com/guardrails-ai/guardrails"
+    },
+    {
+      "name": "LLM Guard",
+      "type": "open-source",
+      "url": "https://github.com/protectai/llm-guard"
+    },
+    {
+      "name": "Burp Suite",
+      "type": "commercial",
+      "url": "https://portswigger.net/burp"
+    },
+    {
+      "name": "OWASP ESAPI",
+      "type": "open-source",
+      "url": "https://owasp.org/www-project-enterprise-security-api/"
+    },
+    {
+      "name": "Vigil",
+      "url": "https://github.com/deadbits/vigil-llm",
+      "type": "open-source"
+    }
+  ],
+  "incidents": [
+    {
+      "name": "AnythingLLM Multiple CVEs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00627.html",
+      "year": 2026,
+      "incident_id": "INC-00627"
+    },
+    {
+      "name": "Axios npm supply chain attack — North Korean Sapphire Sleet targets 70M weekly downloads",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00671.html",
+      "year": 2026,
+      "incident_id": "INC-00671"
+    },
+    {
+      "name": "ChatGPT Data Exfiltration via DNS Covert Channel",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00746.html",
+      "year": 2026,
+      "incident_id": "INC-00746"
+    },
+    {
+      "name": "Claude Code Project Files RCE & API Token Exfiltration (CVE-2025-59536 & CVE-2026-21852)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00813.html",
+      "year": 2026,
+      "incident_id": "INC-00813"
+    },
+    {
+      "name": "Clinejection — CI/CD pipeline compromise via Cline's issue triage bot, 4,000 machines infected",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00834.html",
+      "year": 2026,
+      "incident_id": "INC-00834"
+    },
+    {
+      "name": "CrewAI Critical Vulnerabilities (CVE-2026-2275 et al.)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00860.html",
+      "year": 2026,
+      "incident_id": "INC-00860"
+    },
+    {
+      "name": "Docker MCP Server OS Command Injection (CVE-2026-5741)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00904.html",
+      "year": 2026,
+      "incident_id": "INC-00904"
+    },
+    {
+      "name": "EchoLeak — zero-click Microsoft Copilot data exfiltration via email prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-00924.html",
+      "year": 2026,
+      "incident_id": "INC-00924"
+    },
+    {
+      "name": "Gemini Live in Chrome Hijacking (CVE-2026-0628)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01063.html",
+      "year": 2026,
+      "incident_id": "INC-01063"
+    },
+    {
+      "name": "GlassWorm supply chain — 72 malicious VSCode extensions, 9 million installs",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01092.html",
+      "year": 2026,
+      "incident_id": "INC-01092"
+    },
+    {
+      "name": "Langflow CSV Agent RCE via Prompt Injection (CVE-2026-27966)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01297.html",
+      "year": 2026,
+      "incident_id": "INC-01297"
+    },
+    {
+      "name": "Langflow Unauthenticated RCE (CVE-2026-33017)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01298.html",
+      "year": 2026,
+      "incident_id": "INC-01298"
+    },
+    {
+      "name": "LiteLLM PyPI supply chain backdoor — TeamPCP campaign compromises 3.4M daily downloads",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01340.html",
+      "year": 2026,
+      "incident_id": "INC-01340"
+    },
+    {
+      "name": "Marimo Pre-Auth RCE (CVE-2026-39987)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01370.html",
+      "year": 2026,
+      "incident_id": "INC-01370"
+    },
+    {
+      "name": "MCPJam Inspector RCE (CVE-2026-23744)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01390.html",
+      "year": 2026,
+      "incident_id": "INC-01390"
+    },
+    {
+      "name": "MCPwned -- Azure MCP Server SSRF & Cloud Takeover (CVE-2026-26118)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01391.html",
+      "year": 2026,
+      "incident_id": "INC-01391"
+    },
+    {
+      "name": "Microsoft 365 Copilot XPIA phishing — attacker-shaped email summaries via hidden instructions",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01429.html",
+      "year": 2026,
+      "incident_id": "INC-01429"
+    },
+    {
+      "name": "Microsoft Semantic Kernel RCE (CVE-2026-26030)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01440.html",
+      "year": 2026,
+      "incident_id": "INC-01440"
+    },
+    {
+      "name": "n8n Unauthenticated RCE \"Ni8mare\" (CVE-2026-21858)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01471.html",
+      "year": 2026,
+      "incident_id": "INC-01471"
+    },
+    {
+      "name": "OpenClaw AI agent security crisis — 138 CVEs in 63 days, 341 malicious marketplace skills",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01592.html",
+      "year": 2026,
+      "incident_id": "INC-01592"
+    },
+    {
+      "name": "PraisonAI Quadruple CVE Disclosure",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01666.html",
+      "year": 2026,
+      "incident_id": "INC-01666"
+    },
+    {
+      "name": "SGLang Triple RCE (CVE-2026-3059, CVE-2026-3060, CVE-2026-3989)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-01769.html",
+      "year": 2026,
+      "incident_id": "INC-01769"
+    },
+    {
+      "name": "vLLM RCE via Malicious Video URL (CVE-2026-22778)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02047.html",
+      "year": 2026,
+      "incident_id": "INC-02047"
+    },
+    {
+      "name": "Agent-in-the-Middle — A2A protocol spoofing via fake agent cards",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02186.html",
+      "year": 2025,
+      "incident_id": "INC-02186"
+    },
+    {
+      "name": "AgentSeal MCP server mass scan — 66% of 1,808 servers have security findings",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02190.html",
+      "year": 2025,
+      "incident_id": "INC-02190"
+    },
+    {
+      "name": "Amazon Q Prompt Poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02300.html",
+      "year": 2025,
+      "incident_id": "INC-02300"
+    },
+    {
+      "name": "Anthropic MCP Git Server Triple Flaw (CVE-2025-68143, -68144, -68145)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02321.html",
+      "year": 2025,
+      "incident_id": "INC-02321"
+    },
+    {
+      "name": "Claude Desktop PromptJacking RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02447.html",
+      "year": 2025,
+      "incident_id": "INC-02447"
+    },
+    {
+      "name": "Claude Skills ransomware deployment — MedusaLocker via malicious plugin",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02451.html",
+      "year": 2025,
+      "incident_id": "INC-02451"
+    },
+    {
+      "name": "Cline AI Coding Agent Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02455.html",
+      "year": 2025,
+      "incident_id": "INC-02455"
+    },
+    {
+      "name": "Cursor \"Open-Folder\" Autorun Vulnerability",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02462.html",
+      "year": 2025,
+      "incident_id": "INC-02462"
+    },
+    {
+      "name": "Cursor & Windsurf Forked Chromium 94+ N-Day Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02463.html",
+      "year": 2025,
+      "incident_id": "INC-02463"
+    },
+    {
+      "name": "Cursor CLI Project Config RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02467.html",
+      "year": 2025,
+      "incident_id": "INC-02467"
+    },
+    {
+      "name": "Cursor Config Overwrite via Case Mismatch",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02468.html",
+      "year": 2025,
+      "incident_id": "INC-02468"
+    },
+    {
+      "name": "Cursor Workspace File Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02471.html",
+      "year": 2025,
+      "incident_id": "INC-02471"
+    },
+    {
+      "name": "Cursorignore Bypass via New Cursorignore Write",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02480.html",
+      "year": 2025,
+      "incident_id": "INC-02480"
+    },
+    {
+      "name": "Devin AI Agent Prompt Injection & Data Exfiltration",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02512.html",
+      "year": 2025,
+      "incident_id": "INC-02512"
+    },
+    {
+      "name": "Dify SSRF via RemoteFileUploadApi (CVE-2025-56520)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02514.html",
+      "year": 2025,
+      "incident_id": "INC-02514"
+    },
+    {
+      "name": "Dify Unauthenticated Information Disclosure (CVE-2025-63387)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02515.html",
+      "year": 2025,
+      "incident_id": "INC-02515"
+    },
+    {
+      "name": "EscapeRoute -- Anthropic Filesystem MCP Sandbox Escape (CVE-2025-53109 & CVE-2025-53110)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02546.html",
+      "year": 2025,
+      "incident_id": "INC-02546"
+    },
+    {
+      "name": "Flowise CustomMCP code injection RCE — CVSS 10.0, 12,000 instances exposed",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02581.html",
+      "year": 2025,
+      "incident_id": "INC-02581"
+    },
+    {
+      "name": "Flowise Pre-Auth Arbitrary File Upload",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02582.html",
+      "year": 2025,
+      "incident_id": "INC-02582"
+    },
+    {
+      "name": "ForcedLeak — Salesforce Agentforce indirect prompt injection exfiltrates CRM data",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02590.html",
+      "year": 2025,
+      "incident_id": "INC-02590"
+    },
+    {
+      "name": "Framelink Figma MCP RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02592.html",
+      "year": 2025,
+      "incident_id": "INC-02592"
+    },
+    {
+      "name": "GitHub Copilot & Cursor Code-Agent Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02607.html",
+      "year": 2025,
+      "incident_id": "INC-02607"
+    },
+    {
+      "name": "GitHub Copilot Multi-Root Workspace RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02611.html",
+      "year": 2025,
+      "incident_id": "INC-02611"
+    },
+    {
+      "name": "Google Antigravity AI Data Wipe",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02627.html",
+      "year": 2025,
+      "incident_id": "INC-02627"
+    },
+    {
+      "name": "Google Antigravity IDE Vulnerabilities",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02629.html",
+      "year": 2025,
+      "incident_id": "INC-02629"
+    },
+    {
+      "name": "Google Gemini CLI File Loss",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02631.html",
+      "year": 2025,
+      "incident_id": "INC-02631"
+    },
+    {
+      "name": "GPT-4.1 jailbreak via tool poisoning",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02646.html",
+      "year": 2025,
+      "incident_id": "INC-02646"
+    },
+    {
+      "name": "Hub MCP Prompt Injection (Cross-Context)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02700.html",
+      "year": 2025,
+      "incident_id": "INC-02700"
+    },
+    {
+      "name": "Kiro IDE Command Injection (CVE-2026-0830)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02793.html",
+      "year": 2025,
+      "incident_id": "INC-02793"
+    },
+    {
+      "name": "LangGrinch -- LangChain Core Serialization Injection (CVE-2025-68664)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02813.html",
+      "year": 2025,
+      "incident_id": "INC-02813"
+    },
+    {
+      "name": "MCP OAuth Response Exploit",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02871.html",
+      "year": 2025,
+      "incident_id": "INC-02871"
+    },
+    {
+      "name": "mcp-remote OAuth Command Injection (CVE-2025-6514)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02878.html",
+      "year": 2025,
+      "incident_id": "INC-02878"
+    },
+    {
+      "name": "NVIDIA Triton control-message manipulation -> RCE (Wiz chain final)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02971.html",
+      "year": 2025,
+      "incident_id": "INC-02971"
+    },
+    {
+      "name": "Ollama GGUF Model File RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-02980.html",
+      "year": 2025,
+      "incident_id": "INC-02980"
+    },
+    {
+      "name": "OpenHands ZombAI RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03010.html",
+      "year": 2025,
+      "incident_id": "INC-03010"
+    },
+    {
+      "name": "Postgres MCP Server SQL Injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03039.html",
+      "year": 2025,
+      "incident_id": "INC-03039"
+    },
+    {
+      "name": "React2Shell Impacting Dify and AI Platforms (CVE-2025-55182)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03149.html",
+      "year": 2025,
+      "incident_id": "INC-03149"
+    },
+    {
+      "name": "Salesloft Drift OAuth breach — Chinese actor UNC6395 accesses 700+ Salesforce CRM environments",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03194.html",
+      "year": 2025,
+      "incident_id": "INC-03194"
+    },
+    {
+      "name": "ShadowMQ — critical RCE in Meta/NVIDIA/vLLM inference servers via pickle deserialization",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03211.html",
+      "year": 2025,
+      "incident_id": "INC-03211"
+    },
+    {
+      "name": "ToolShell RCE via SharePoint",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03300.html",
+      "year": 2025,
+      "incident_id": "INC-03300"
+    },
+    {
+      "name": "Trail of Bits: Prompt Injection to RCE in AI Agents",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03304.html",
+      "year": 2025,
+      "incident_id": "INC-03304"
+    },
+    {
+      "name": "Visual Studio Code & Agentic AI workflows RCE",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03334.html",
+      "year": 2025,
+      "incident_id": "INC-03334"
+    },
+    {
+      "name": "vLLM Model Config Auto-Map RCE (CVE-2025-66448)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03335.html",
+      "year": 2025,
+      "incident_id": "INC-03335"
+    },
+    {
+      "name": "vLLM Unsafe Tensor Deserialization (CVE-2025-62164)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03337.html",
+      "year": 2025,
+      "incident_id": "INC-03337"
+    },
+    {
+      "name": "Windsurf Data Exfiltration & SpAIware (Multiple Vectors)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-03376.html",
+      "year": 2025,
+      "incident_id": "INC-03376"
+    },
+    {
+      "name": "Microsoft-Powered New York City Chatbot Advises Illegal Practices",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04007.html",
+      "year": 2024,
+      "incident_id": "INC-04007"
+    },
+    {
+      "name": "LangChain and LlamaIndex RCE — agent code execution via prompt injection",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04715.html",
+      "year": 2023,
+      "incident_id": "INC-04715"
+    },
+    {
+      "name": "LangChain SSRF & PALChain RCE (CVE-2023-46229 & CVE-2023-44467)",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04720.html",
+      "year": 2023,
+      "incident_id": "INC-04720"
+    },
+    {
+      "name": "ShadowRay: Anyscale Ray Dashboard RCE (CVE-2023-48022) exploited in the wild",
+      "url": "https://emmanuelgjr.github.io/genai_incidents/incident/INC-04862.html",
+      "year": 2023,
+      "incident_id": "INC-04862"
+    }
+  ],
+  "crossrefs": {
+    "agentic_top10": [
+      "ASI02",
+      "ASI05"
+    ],
+    "dsgai_2026": [
+      "DSGAI05",
+      "DSGAI12"
+    ]
+  },
+  "changelog": [
+    {
+      "date": "2026-03-27",
+      "version": "1.0.0",
+      "change": "Initial entry — generated from GenAI Security Crosswalk v1.5.1 mapping files",
+      "author": "emmanuelgjr"
+    }
+  ]
+}

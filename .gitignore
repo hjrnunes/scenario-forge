@@ -1,6 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv*/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Secrets / local env
+.envrc
 
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Pipeline output
+output/
+
+# AI working files (findings are exploratory, not committed)
+ai/findings/
+ai/.DS_Store
