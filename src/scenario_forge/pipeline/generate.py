@@ -645,10 +645,53 @@ def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
     )
 
 
+def _sanitize_yaml_colons(raw_yaml: str) -> str:
+    """Quote YAML values that contain unquoted colons.
+
+    LLM-generated YAML often contains values like:
+        description: Human-in-the-loop: Investigator/Supervisor approval
+    which fails parsing because the second colon starts a new mapping.
+
+    This function finds lines matching ``<indent><key>: <value>`` where
+    ``<value>`` itself contains a ``:`` and is not already quoted, then wraps
+    the value in double quotes (escaping any internal double quotes).
+
+    Lines that are pure mapping keys (value is empty or only whitespace, i.e.
+    the value starts on the next indented line) are left untouched.
+    """
+    # Pattern: optional leading whitespace, a YAML key (``- `` list prefix
+    # allowed), then ``: ``, then a value that contains another ``:``.
+    # We only act when the value is *not* already wrapped in quotes.
+    _KEY_VALUE_RE = re.compile(
+        r"^(?P<prefix>\s*(?:-\s+)?)(?P<key>[A-Za-z_][\w.]*):\s+(?P<value>.+)$"
+    )
+
+    sanitized_lines: list[str] = []
+    for line in raw_yaml.split("\n"):
+        m = _KEY_VALUE_RE.match(line)
+        if m:
+            value = m.group("value")
+            # Only act if the value contains another colon AND is not already
+            # quoted (single or double).
+            if (
+                ":" in value
+                and not (value.startswith('"') and value.endswith('"'))
+                and not (value.startswith("'") and value.endswith("'"))
+            ):
+                # Escape existing double quotes inside the value, then wrap.
+                escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+                line = f'{m.group("prefix")}{m.group("key")}: "{escaped}"'
+        sanitized_lines.append(line)
+    return "\n".join(sanitized_lines)
+
+
 def _parse_attack_tree_yaml(raw: str, seed: ScenarioSeed) -> AttackTree:
     """Parse YAML text into an AttackTree model.
 
     Strips markdown code fences if present, then validates through Pydantic.
+    If the initial parse fails due to YAML syntax errors (commonly from
+    unquoted colons in LLM-generated values), the raw text is sanitized
+    and parsing is retried once.
     """
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -658,7 +701,22 @@ def _parse_attack_tree_yaml(raw: str, seed: ScenarioSeed) -> AttackTree:
             lines = lines[:-1]
         cleaned = "\n".join(lines)
 
-    data = yaml.safe_load(cleaned)
+    try:
+        data = yaml.safe_load(cleaned)
+    except yaml.YAMLError:
+        logger.warning(
+            "YAML parse failed for seed %s; attempting colon sanitization",
+            seed.id,
+        )
+        sanitized = _sanitize_yaml_colons(cleaned)
+        try:
+            data = yaml.safe_load(sanitized)
+        except yaml.YAMLError as exc:
+            raise yaml.YAMLError(
+                f"Failed to parse attack tree YAML for seed {seed.id} "
+                f"even after colon sanitization: {exc}"
+            ) from exc
+
     if isinstance(data, dict) and "root" not in data and "id" in data:
         pass  # top-level is the tree itself
     if isinstance(data, dict) and "attack_tree" in data:
