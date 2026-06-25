@@ -38,6 +38,7 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         response_format: type[BaseModel] | None = None,
+        max_completion_tokens: int = 16384,
     ) -> LLMResult:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -51,12 +52,14 @@ class LLMClient:
                 model=self.model,
                 messages=messages,
                 response_format=response_format,
+                max_completion_tokens=max_completion_tokens,
             )
             content = response.choices[0].message.parsed
         else:
             response = self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
+                max_completion_tokens=max_completion_tokens,
             )
             content = response.choices[0].message.content
 

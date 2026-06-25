@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models import CapabilityProfile
+from scenario_forge.models.capability_profile import Stage1Profile
 
 _SYSTEM_PROMPT = """\
 You are a security architect analysing an AI/LLM system description.
@@ -52,6 +53,7 @@ def infer_capability_profile(
     result = client.complete(
         system_prompt=_SYSTEM_PROMPT,
         user_prompt=use_case,
-        response_format=CapabilityProfile,
+        response_format=Stage1Profile,
     )
-    return result.content, result
+    profile = result.content.to_capability_profile()
+    return profile, result

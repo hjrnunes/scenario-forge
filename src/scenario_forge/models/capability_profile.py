@@ -173,6 +173,46 @@ class ExternalIntegration(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Stage 1-only model (used for LLM inference to avoid schema bloat)
+# ---------------------------------------------------------------------------
+
+
+class Stage1Profile(BaseModel):
+    """Slim Stage 1-only profile for the LLM structured-output call.
+
+    Excludes Stage 2 sub-models so the schema stays small and the model
+    doesn't generate runaway output trying to fill optional nested fields.
+    """
+
+    zones_active: list[int] = Field(
+        description=(
+            "Schneider zones active in the system. Minimum [1, 2]. "
+            "Zone 3=Tool Execution, 4=Memory/State, 5=Inter-Agent Communication."
+        ),
+    )
+    has_persistent_memory: bool = Field(
+        description="Whether the system maintains state across sessions or interactions.",
+    )
+    multi_agent: bool = Field(
+        description="Whether the system involves multiple AI agents that communicate or coordinate.",
+    )
+    hitl: bool = Field(
+        description="Whether the system includes human-in-the-loop checkpoints.",
+    )
+    entry_points: list[str] = Field(
+        description="Attack entry points annotated with their Schneider zone.",
+        min_length=1,
+    )
+    confidence: ConfidenceLevel = Field(
+        description="How well the use-case description supported Stage 1 inferences.",
+    )
+
+    def to_capability_profile(self) -> CapabilityProfile:
+        """Promote to a full CapabilityProfile (Stage 2 fields left as None)."""
+        return CapabilityProfile(**self.model_dump())
+
+
+# ---------------------------------------------------------------------------
 # Top-level model
 # ---------------------------------------------------------------------------
 

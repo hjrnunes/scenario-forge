@@ -1,40 +1,46 @@
 # Mayor Dashboard
 
-**Updated**: 2026-06-25 11:10
-**Resume**: `You are the mayor for this repository.` (paste bootstrap.md prompt)
+**Updated**: 2026-06-25 15:35
+**Resume**: `You are the mayor for this repository.`
 
 ## Needs operator now
 
-- **All work complete.** 29 beads closed, 0 open. Prototype validated end-to-end with HTML report.
-- **Nothing committed.** Entire codebase is uncommitted working tree changes atop a single `bd init` commit. Awaiting operator go-ahead to commit.
-- **Remote exists but no URL configured** — `git remote get-url origin` fails. Need remote URL before push.
+DHS ICE pipeline run complete. 13 scenarios generated at `output/dhs-ice/`. Review the report at `output/dhs-ice/report.html`.
 
-## Latest end-to-end results (output/ebay-v2/)
-
-| Metric | Value |
-|--------|-------|
-| Scenarios generated | 5/7 (2 failed: LLM-generated AND nodes with 1 child) |
-| Governance-only risk cards | 14 |
-| Gherkin format | Native keywords (When/And zones, Then/But/*, @tags) |
-| HTML report | output/ebay-v2/report.html (self-contained, verified in browser) |
-| Output artifacts | capability-profile.yaml, threat-surface.yaml, 5x .yaml + 5x .feature, report.html |
+Uncommitted code changes in mayor checkout (Stage1Profile fix + max_completion_tokens). `git diff` to review.
 
 ## Stance
 
-Design-only pre-alpha → **prototype validated**. Python library + thin CLI. Gemma via OpenAI-compatible endpoint.
+Pre-alpha prototype, validated end-to-end. Python library + thin CLI (typer). OpenAI-compatible LLM endpoint (Gemma 4 via OpenShift). Merge on green. No remote. LLM API calls unconstrained.
+
+## In-flight work
+
+None.
 
 ## Posture
 
-- **Mayor loops**: Not established — deferred; sprint complete, project quiescent.
-- **Tracker checkpoint**: Not committed — single `bd init` commit only.
-- **Worktrees**: None active (master only).
-- **PRs**: No remote URL configured; no PRs.
-- **Uncommitted files**: ~12 top-level paths (src/, data/, pyproject.toml, ai/, etc.)
+- **Latest commit**: `da24ad1` — auto-repair single-child AND/OR attack tree nodes
+- **Uncommitted**: `capability_profile.py` (Stage1Profile model), `profile.py` (use slim model), `client.py` (max_completion_tokens=16384)
+- **Mayor loops**: Active (reread @:03, dashboard @:33).
+- **Worktrees**: Clean.
+- **PRs**: No remote configured; no PRs.
+- **Tests**: 8 tests pass.
+
+## Recent completed work
+
+| Bead | Description | Result |
+|------|-------------|--------|
+| `scenario-forge-ejf` | DHS ICE pipeline run | 13 scenario pairs (T2/T3/T11/T17), 13 governance-only, 1 failed (T2-S5 YAML parse) |
 
 ## Tracker
 
-0 open. 29 closed. 29 total.
+1 open (P3 bug). 31 closed. 32 total.
 
-## Known issues (not beads — LLM output quality)
+| Bead | Priority | Description |
+|------|----------|-------------|
+| `scenario-forge-a4n` | P3 | Fix YAML serialization: unquoted colons in scenario values |
 
-- 2/7 scenarios fail attack tree validation: LLM generates AND nodes with only 1 child. Not a code bug — model output quality issue with smaller models.
+## Known issues (not beads -- LLM output quality)
+
+- 2/7 eBay scenarios previously failed attack tree validation due to single-child AND nodes. Now auto-repaired.
+- vLLM structured output with large Pydantic schemas causes runaway generation. Fixed by using Stage1Profile slim model.
