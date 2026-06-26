@@ -16,11 +16,11 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 ZONE_COLORS: dict[int, str] = {
-    1: "#3b82f6",   # blue
-    2: "#8b5cf6",   # purple
-    3: "#f97316",   # orange
-    4: "#22c55e",   # green
-    5: "#ef4444",   # red
+    1: "#3b82f6",  # blue
+    2: "#8b5cf6",  # purple
+    3: "#f97316",  # orange
+    4: "#22c55e",  # green
+    5: "#ef4444",  # red
 }
 
 ZONE_NAMES: dict[int, str] = {
@@ -66,6 +66,7 @@ def _priority_label(composite: float) -> str:
 # ---------------------------------------------------------------------------
 # CSS
 # ---------------------------------------------------------------------------
+
 
 def build_css() -> str:
     return """
@@ -963,6 +964,205 @@ details.expandable[open] > summary::before {
   color: white;
 }
 
+/* Score bar */
+.score-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.score-bar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 120px;
+}
+
+.score-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.score-bar-label {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  min-width: 36px;
+}
+
+/* Coverage section */
+.coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.coverage-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.coverage-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.coverage-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.coverage-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.coverage-status-green { background: rgba(34,197,94,0.15); color: #22c55e; }
+.coverage-status-amber { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.coverage-status-red { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+.coverage-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.coverage-list li {
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  border-left: 3px solid var(--high);
+  color: var(--text-secondary);
+}
+
+.coverage-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Diversity section */
+.diversity-bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.diversity-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.diversity-bar-label {
+  min-width: 130px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.diversity-bar-track {
+  flex: 1;
+  height: 20px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.diversity-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  min-width: 24px;
+}
+
+.diversity-bar-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 24px;
+  text-align: right;
+}
+
+.warning-banner {
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #f59e0b;
+}
+
+.warning-banner-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* Entry point distribution */
+.ep-dist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ep-dist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.ep-dist-name {
+  color: var(--text-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 8px;
+}
+
+.ep-dist-count {
+  font-weight: 700;
+  color: var(--accent);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
 /* Legend row */
 .legend {
   display: flex;
@@ -991,6 +1191,7 @@ details.expandable[open] > summary::before {
 # ---------------------------------------------------------------------------
 # JavaScript
 # ---------------------------------------------------------------------------
+
 
 def build_js() -> str:
     return """
@@ -1066,6 +1267,7 @@ function resetFilters() {
 # Section 1: Capability Profile
 # ---------------------------------------------------------------------------
 
+
 def build_capability_profile_section(profile: dict[str, Any]) -> str:
     zones_active = set(profile.get("zones_active", []))
 
@@ -1076,12 +1278,12 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
         cls = "active" if active else "inactive"
         color = ZONE_COLORS[z]
         bg = ZONE_BG_COLORS[z] if active else ""
-        style = f'background:{bg};border-color:{color};color:{color};' if active else ''
+        style = f"background:{bg};border-color:{color};color:{color};" if active else ""
         zone_boxes.append(
             f'<div class="zone-box {cls}" style="{style}">'
             f'<span class="zone-number">{z}</span>'
-            f'<span>{_esc(ZONE_NAMES[z])}</span>'
-            f'</div>'
+            f"<span>{_esc(ZONE_NAMES[z])}</span>"
+            f"</div>"
         )
 
     # Flags table
@@ -1103,7 +1305,7 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
 
     # Entry points
     eps = profile.get("entry_points", [])
-    ep_items = "".join(f'<li>{_esc(ep)}</li>' for ep in eps)
+    ep_items = "".join(f"<li>{_esc(ep)}</li>" for ep in eps)
 
     return f"""
     <div id="sec-profile" class="section">
@@ -1114,7 +1316,7 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
 
       <div class="card">
         <div class="zone-diagram">
-          {''.join(zone_boxes)}
+          {"".join(zone_boxes)}
         </div>
         <div class="legend" style="justify-content:center;">
           <span class="legend-item"><span class="legend-dot" style="background:var(--accent);"></span> Active zone</span>
@@ -1140,6 +1342,7 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # Section 2: Threat Surface
 # ---------------------------------------------------------------------------
+
 
 def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
     entries = threat_surface.get("entries", [])
@@ -1168,7 +1371,7 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
                 f'<span class="chain-hop">{_esc(llm_ids)}</span>'
                 '<span class="chain-arrow">&rarr;</span>'
                 f'<span class="chain-hop">{_esc(t_ids)}</span>'
-                '</div>'
+                "</div>"
             )
 
         conf = rc.get("confidence", 0)
@@ -1293,7 +1496,7 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
             <g class="sankey-node">
               <rect x="{x}" y="{y}" width="{node_w}" height="{node_h}"
                     fill="{colors[ci]}" opacity="0.8"/>
-              <text x="{x + node_w/2}" y="{y + node_h/2 + 4}"
+              <text x="{x + node_w / 2}" y="{y + node_h / 2 + 4}"
                     text-anchor="middle" font-size="10" fill="white" font-weight="600">
                 {_esc(truncated)}
               </text>
@@ -1314,18 +1517,22 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
         # LLM -> Threat
         for lid in e.get("owasp_llm_ids", []):
             for tid in e.get("agentic_threat_ids", []):
-                svg_links += _sankey_link(node_pos, f"1:{lid}", f"2:{tid}", link_colors[1])
+                svg_links += _sankey_link(
+                    node_pos, f"1:{lid}", f"2:{tid}", link_colors[1]
+                )
 
         # Threat -> Scenario
         for tid in e.get("agentic_threat_ids", []):
             for sid in e.get("sub_scenarios", []):
-                svg_links += _sankey_link(node_pos, f"2:{tid}", f"3:{sid}", link_colors[2])
+                svg_links += _sankey_link(
+                    node_pos, f"2:{tid}", f"3:{sid}", link_colors[2]
+                )
 
     # Column headers
     svg_headers = ""
     for ci, label in enumerate(label_names):
         svg_headers += f"""
-        <text x="{col_x[ci] + node_w/2}" y="30" text-anchor="middle"
+        <text x="{col_x[ci] + node_w / 2}" y="30" text-anchor="middle"
               fill="var(--text-muted)" font-size="11" font-weight="600"
               text-transform="uppercase" letter-spacing="0.5">{_esc(label)}</text>"""
 
@@ -1340,7 +1547,9 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
 
 def _sankey_link(
     node_pos: dict[str, tuple[float, float, float, float]],
-    from_key: str, to_key: str, color: str,
+    from_key: str,
+    to_key: str,
+    color: str,
 ) -> str:
     if from_key not in node_pos or to_key not in node_pos:
         return ""
@@ -1358,8 +1567,194 @@ def _sankey_link(
 
 
 # ---------------------------------------------------------------------------
+# Section 2b: Coverage Gaps
+# ---------------------------------------------------------------------------
+
+
+def _coverage_status(count: int) -> tuple[str, str]:
+    """Return (css_class, label) based on the number of uncovered items."""
+    if count == 0:
+        return "coverage-status-green", "Covered"
+    if count <= 2:
+        return "coverage-status-amber", f"{count} gap{'s' if count != 1 else ''}"
+    return "coverage-status-red", f"{count} gaps"
+
+
+def build_coverage_section(coverage_data: dict[str, Any]) -> str:
+    """Build the Coverage Gaps section from loaded coverage-gaps.json data.
+
+    Args:
+        coverage_data: Parsed JSON from ``coverage-gaps.json``.
+
+    Returns:
+        HTML string for the coverage gaps section.
+    """
+    gaps = coverage_data.get("coverage_gaps", {})
+    uncovered_eps = gaps.get("uncovered_entry_points", [])
+    uncovered_zones = gaps.get("uncovered_zones", [])
+    uncovered_threats = gaps.get("uncovered_threats", [])
+
+    total_gaps = len(uncovered_eps) + len(uncovered_zones) + len(uncovered_threats)
+
+    # Entry points card
+    ep_cls, ep_label = _coverage_status(len(uncovered_eps))
+    if uncovered_eps:
+        ep_items = "".join(f"<li>{_esc(ep)}</li>" for ep in uncovered_eps)
+        ep_body = f'<ul class="coverage-list">{ep_items}</ul>'
+    else:
+        ep_body = (
+            '<div class="coverage-empty">All entry points have scenario coverage.</div>'
+        )
+
+    # Zones card
+    z_cls, z_label = _coverage_status(len(uncovered_zones))
+    if uncovered_zones:
+        z_items = "".join(
+            f"<li>Zone {z} &mdash; {_esc(ZONE_NAMES.get(z, 'Unknown'))}</li>"
+            for z in uncovered_zones
+        )
+        z_body = f'<ul class="coverage-list">{z_items}</ul>'
+    else:
+        z_body = '<div class="coverage-empty">All active zones are traversed by scenarios.</div>'
+
+    # Threats card
+    t_cls, t_label = _coverage_status(len(uncovered_threats))
+    if uncovered_threats:
+        t_items = "".join(f"<li>{_esc(t)}</li>" for t in uncovered_threats)
+        t_body = f'<ul class="coverage-list">{t_items}</ul>'
+    else:
+        t_body = '<div class="coverage-empty">All in-scope threats have scenario coverage.</div>'
+
+    # Overall status badge
+    if total_gaps == 0:
+        badge_text = "Full Coverage"
+    else:
+        badge_text = f"{total_gaps} gap{'s' if total_gaps != 1 else ''}"
+
+    return f"""
+    <div id="sec-coverage" class="section">
+      <div class="section-header">
+        <h2>Coverage Analysis</h2>
+        <span class="badge">{badge_text}</span>
+      </div>
+
+      <div class="coverage-grid">
+        <div class="coverage-card">
+          <div class="coverage-card-header">
+            <span class="coverage-card-title">Entry Points</span>
+            <span class="coverage-status {ep_cls}">{ep_label}</span>
+          </div>
+          {ep_body}
+        </div>
+
+        <div class="coverage-card">
+          <div class="coverage-card-header">
+            <span class="coverage-card-title">Active Zones</span>
+            <span class="coverage-status {z_cls}">{z_label}</span>
+          </div>
+          {z_body}
+        </div>
+
+        <div class="coverage-card">
+          <div class="coverage-card-header">
+            <span class="coverage-card-title">In-Scope Threats</span>
+            <span class="coverage-status {t_cls}">{t_label}</span>
+          </div>
+          {t_body}
+        </div>
+      </div>
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
+# Section 2c: Attacker Diversity
+# ---------------------------------------------------------------------------
+
+_DIVERSITY_COLORS: dict[str, str] = {
+    "insider": "#ef4444",
+    "supply_chain": "#f97316",
+    "social_engineer": "#f59e0b",
+    "privileged_user": "#8b5cf6",
+    "external_attacker": "#3b82f6",
+    "unknown": "#6b7280",
+}
+
+
+def build_attacker_diversity_section(coverage_data: dict[str, Any]) -> str:
+    """Build the Attacker Diversity section from coverage-gaps.json data.
+
+    Args:
+        coverage_data: Parsed JSON from ``coverage-gaps.json``.
+
+    Returns:
+        HTML string for the attacker diversity section, or empty string
+        if no attacker diversity data is present.
+    """
+    diversity = coverage_data.get("attacker_diversity")
+    if not diversity:
+        return ""
+
+    model_counts: dict[str, int] = diversity.get("model_counts", {})
+    dominant_model = diversity.get("dominant_model", "unknown")
+    dominant_fraction = diversity.get("dominant_fraction", 0.0)
+    is_flagged = diversity.get("is_flagged", False)
+
+    total = sum(model_counts.values()) if model_counts else 1
+
+    # Warning banner if monotone
+    warning_html = ""
+    if is_flagged:
+        dominant_display = dominant_model.replace("_", " ").title()
+        pct = int(dominant_fraction * 100)
+        warning_html = (
+            '<div class="warning-banner">'
+            '<span class="warning-banner-icon">&#9888;</span>'
+            f"<span>Low attacker diversity: {pct}% of scenarios use the "
+            f"<strong>{_esc(dominant_display)}</strong> model. "
+            f"Consider varying threat actor types for broader coverage.</span>"
+            "</div>"
+        )
+
+    # Bar chart
+    bars_html = ""
+    for model, count in sorted(model_counts.items(), key=lambda x: x[1], reverse=True):
+        pct = (count / total * 100) if total > 0 else 0
+        color = _DIVERSITY_COLORS.get(model, "#6b7280")
+        display_name = model.replace("_", " ").title()
+        bars_html += f"""
+        <div class="diversity-bar-row">
+          <span class="diversity-bar-label">{_esc(display_name)}</span>
+          <div class="diversity-bar-track">
+            <div class="diversity-bar-fill" style="width:{pct:.0f}%;background:{color};">
+              {count}
+            </div>
+          </div>
+          <span class="diversity-bar-count">{pct:.0f}%</span>
+        </div>"""
+
+    unique_models = len(model_counts)
+
+    return f"""
+    <div id="sec-diversity" class="section">
+      <div class="section-header">
+        <h2>Attacker Diversity</h2>
+        <span class="badge">{unique_models} model{"s" if unique_models != 1 else ""}</span>
+      </div>
+
+      {warning_html}
+
+      <div class="card">
+        <div class="diversity-bar-chart">{bars_html}</div>
+      </div>
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
 # Section 3: Scenarios
 # ---------------------------------------------------------------------------
+
 
 def build_scenarios_section(
     scenarios: list[dict[str, Any]],
@@ -1380,9 +1775,35 @@ def build_scenarios_section(
         heatmap_cells += (
             f'<div class="heatmap-cell" style="background:{color};">'
             f'<span class="tooltip">{_esc(title)} ({composite:.2f})</span>'
-            f'{_esc(short_id)}'
-            f'</div>'
+            f"{_esc(short_id)}"
+            f"</div>"
         )
+
+    # Entry point distribution
+    ep_counts: dict[str, int] = {}
+    for s in scenarios:
+        ep = s.get("narrative", {}).get("entry_point", "")
+        if ep:
+            ep_counts[ep] = ep_counts.get(ep, 0) + 1
+
+    ep_dist_items = ""
+    for ep_name, ep_count in sorted(
+        ep_counts.items(), key=lambda x: x[1], reverse=True
+    ):
+        ep_dist_items += (
+            f'<div class="ep-dist-item">'
+            f'<span class="ep-dist-name" title="{_esc(ep_name)}">{_esc(ep_name)}</span>'
+            f'<span class="ep-dist-count">{ep_count}</span>'
+            f"</div>"
+        )
+
+    ep_dist_html = ""
+    if ep_counts:
+        ep_dist_html = f"""
+      <div class="card" style="margin-bottom:24px;">
+        <div class="scenario-section-title">Entry Point Distribution</div>
+        <div class="ep-dist-grid">{ep_dist_items}</div>
+      </div>"""
 
     # Collect all threat IDs and zones for filters
     all_threat_ids: list[str] = []
@@ -1403,7 +1824,9 @@ def build_scenarios_section(
 
     zone_options = '<option value="">All</option>'
     for z in sorted(all_zones):
-        zone_options += f'<option value="{z}">Zone {z} - {_esc(ZONE_NAMES.get(z, ""))}</option>'
+        zone_options += (
+            f'<option value="{z}">Zone {z} - {_esc(ZONE_NAMES.get(z, ""))}</option>'
+        )
 
     # Scenario cards
     cards_html = ""
@@ -1424,6 +1847,8 @@ def build_scenarios_section(
         <span class="legend-item"><span class="legend-dot" style="background:var(--medium);"></span> Medium (0.4-0.7)</span>
         <span class="legend-item"><span class="legend-dot" style="background:var(--low);"></span> Low (&lt;0.4)</span>
       </div>
+
+      {ep_dist_html}
 
       <div class="filter-bar" style="margin-top:24px;">
         <div class="filter-group">
@@ -1455,7 +1880,9 @@ def build_scenarios_section(
     """
 
 
-def _build_scenario_card(scenario: dict[str, Any], feature_files: dict[str, str]) -> str:
+def _build_scenario_card(
+    scenario: dict[str, Any], feature_files: dict[str, str]
+) -> str:
     sid = scenario.get("scenario_id", "")
     narrative = scenario.get("narrative", {})
     title = narrative.get("title", "")
@@ -1505,9 +1932,17 @@ def _build_scenario_card(scenario: dict[str, Any], feature_files: dict[str, str]
           <span class="scenario-id">{_esc(sid)}</span>
           <span class="scenario-title">{_esc(title)}</span>
         </div>
-        <span class="priority-badge" style="background:rgba({_hex_to_rgb_css(priority_color)},0.15);color:{priority_color};">
-          {priority_label} ({composite:.2f})
-        </span>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="score-bar-container">
+            <div class="score-bar-track">
+              <div class="score-bar-fill" style="width:{composite * 100:.0f}%;background:{priority_color};"></div>
+            </div>
+            <span class="score-bar-label" style="color:{priority_color};">{composite:.2f}</span>
+          </div>
+          <span class="priority-badge" style="background:rgba({_hex_to_rgb_css(priority_color)},0.15);color:{priority_color};">
+            {priority_label}
+          </span>
+        </div>
       </div>
       <div class="scenario-body">
         <div class="scenario-section">
@@ -1549,7 +1984,7 @@ def _build_scenario_card(scenario: dict[str, Any], feature_files: dict[str, str]
 def _hex_to_rgb_css(hex_color: str) -> str:
     """Convert #rrggbb to 'r,g,b' for rgba."""
     h = hex_color.lstrip("#")
-    return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
+    return f"{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}"
 
 
 def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
@@ -1565,7 +2000,9 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     control_point = node.get("control_point")
     structural_exposure = node.get("structural_exposure")
 
-    gate_cls = {"AND": "gate-and", "OR": "gate-or", "LEAF": "gate-leaf"}.get(gate, "gate-leaf")
+    gate_cls = {"AND": "gate-and", "OR": "gate-or", "LEAF": "gate-leaf"}.get(
+        gate, "gate-leaf"
+    )
     gate_symbol = {"AND": "&and;", "OR": "&or;", "LEAF": "&bull;"}.get(gate, "&bull;")
     zone_color = ZONE_COLORS.get(zone, "#666")
     zone_bg = ZONE_BG_COLORS.get(zone, "#333")
@@ -1576,10 +2013,14 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     if technique_id:
         meta_parts.append(f'<span class="tree-meta">{_esc(technique_id)}</span>')
     if control_point:
-        meta_parts.append(f'<span class="tree-meta" style="color:var(--medium);" title="Control point">{_esc(control_point)}</span>')
+        meta_parts.append(
+            f'<span class="tree-meta" style="color:var(--medium);" title="Control point">{_esc(control_point)}</span>'
+        )
     if structural_exposure:
         se_display = str(structural_exposure).replace("_", " ").title()
-        meta_parts.append(f'<span class="tree-meta" style="color:var(--high);" title="Structural exposure">{_esc(se_display)}</span>')
+        meta_parts.append(
+            f'<span class="tree-meta" style="color:var(--high);" title="Structural exposure">{_esc(se_display)}</span>'
+        )
     meta_html = " ".join(meta_parts)
 
     if gate == "LEAF" or not children:
@@ -1656,14 +2097,16 @@ def _build_behavior_spec(feature_content: str) -> str:
         ]:
             if stripped.startswith(kw):
                 keyword = kw.strip().rstrip(":")
-                text = stripped[len(kw):]
+                text = stripped[len(kw) :]
                 step_class = cls
                 break
 
         if not keyword:
             # Continuation or description line
             if stripped and not stripped.startswith("#"):
-                result.append(f'<div style="padding:4px 14px 4px 70px;font-size:13px;color:var(--text-secondary);">{_esc(stripped)}</div>')
+                result.append(
+                    f'<div style="padding:4px 14px 4px 70px;font-size:13px;color:var(--text-secondary);">{_esc(stripped)}</div>'
+                )
             continue
 
         # Feature/Background/Scenario headers
@@ -1676,7 +2119,7 @@ def _build_behavior_spec(feature_content: str) -> str:
 
         # Extract zone badge from text
         zone_badge = ""
-        zone_match = re.search(r'\(.*?[Zz]one\s*(\d).*?\)', text)
+        zone_match = re.search(r"\(.*?[Zz]one\s*(\d).*?\)", text)
         if zone_match:
             z = int(zone_match.group(1))
             if 1 <= z <= 5:
@@ -1688,7 +2131,7 @@ def _build_behavior_spec(feature_content: str) -> str:
             f'<div class="feature-step {step_class}">'
             f'<span class="step-keyword">{_esc(keyword)}</span>'
             f'<span class="step-text">{_esc(text)}{zone_badge}</span>'
-            f'</div>'
+            f"</div>"
         )
 
     return "\n".join(result)
@@ -1726,6 +2169,7 @@ def _build_priority_signals(signals: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # Section 4: Raw Data
 # ---------------------------------------------------------------------------
+
 
 def build_raw_data_section(raw_files: dict[str, str]) -> str:
     if not raw_files:
@@ -1778,19 +2222,21 @@ def _highlight_yaml(text: str) -> str:
             continue
 
         # Key-value pairs
-        m = re.match(r'^(\s*)([\w_-]+)(\s*:\s*)(.*)', escaped)
+        m = re.match(r"^(\s*)([\w_-]+)(\s*:\s*)(.*)", escaped)
         if m:
             indent, key, colon, value = m.groups()
             highlighted_value = _highlight_yaml_value(value)
-            result.append(f'{indent}<span class="yaml-key">{key}</span>{colon}{highlighted_value}')
+            result.append(
+                f'{indent}<span class="yaml-key">{key}</span>{colon}{highlighted_value}'
+            )
             continue
 
         # List items
-        m = re.match(r'^(\s*-\s+)(.*)', escaped)
+        m = re.match(r"^(\s*-\s+)(.*)", escaped)
         if m:
             prefix, value = m.groups()
             highlighted_value = _highlight_yaml_value(value)
-            result.append(f'{prefix}{highlighted_value}')
+            result.append(f"{prefix}{highlighted_value}")
             continue
 
         result.append(escaped)
@@ -1806,9 +2252,11 @@ def _highlight_yaml_value(value: str) -> str:
         return f'<span class="yaml-null">{value}</span>'
     if v in ("true", "false"):
         return f'<span class="yaml-bool">{value}</span>'
-    if re.match(r'^-?\d+(\.\d+)?$', v):
+    if re.match(r"^-?\d+(\.\d+)?$", v):
         return f'<span class="yaml-number">{value}</span>'
-    if (v.startswith("'") and v.endswith("'")) or (v.startswith('"') and v.endswith('"')):
+    if (v.startswith("'") and v.endswith("'")) or (
+        v.startswith('"') and v.endswith('"')
+    ):
         return f'<span class="yaml-string">{value}</span>'
     return value
 
@@ -1828,17 +2276,34 @@ def _highlight_gherkin(text: str) -> str:
             result.append(f'<span class="gherkin-tag">{escaped}</span>')
             continue
 
-        for kw in ["Feature:", "Background:", "Scenario:", "Scenario Outline:",
-                    "Given ", "When ", "Then ", "And ", "But ", "* "]:
+        for kw in [
+            "Feature:",
+            "Background:",
+            "Scenario:",
+            "Scenario Outline:",
+            "Given ",
+            "When ",
+            "Then ",
+            "And ",
+            "But ",
+            "* ",
+        ]:
             ekw = _esc(kw)
             if escaped.strip().startswith(ekw):
                 idx = escaped.index(ekw)
-                escaped = escaped[:idx] + f'<span class="gherkin-keyword">{ekw}</span>' + escaped[idx + len(ekw):]
+                escaped = (
+                    escaped[:idx]
+                    + f'<span class="gherkin-keyword">{ekw}</span>'
+                    + escaped[idx + len(ekw) :]
+                )
                 break
 
         # Highlight triple-quoted strings
-        if '&quot;&quot;&quot;' in escaped:
-            escaped = escaped.replace('&quot;&quot;&quot;', '<span class="gherkin-string">&quot;&quot;&quot;</span>')
+        if "&quot;&quot;&quot;" in escaped:
+            escaped = escaped.replace(
+                "&quot;&quot;&quot;",
+                '<span class="gherkin-string">&quot;&quot;&quot;</span>',
+            )
 
         result.append(escaped)
 
@@ -1849,13 +2314,24 @@ def _highlight_gherkin(text: str) -> str:
 # Full page assembly
 # ---------------------------------------------------------------------------
 
+
 def build_full_page(
     profile_html: str,
     threats_html: str,
     scenarios_html: str,
     raw_html: str,
+    coverage_html: str = "",
+    diversity_html: str = "",
     title: str = "Scenario Forge Report",
 ) -> str:
+    # Conditionally add sidebar links for coverage and diversity sections
+    coverage_nav = ""
+    if coverage_html:
+        coverage_nav = '<a href="#sec-coverage"><span class="nav-icon">&#9635;</span> Coverage Analysis</a>'
+    diversity_nav = ""
+    if diversity_html:
+        diversity_nav = '<a href="#sec-diversity"><span class="nav-icon">&#9783;</span> Attacker Diversity</a>'
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1873,6 +2349,8 @@ def build_full_page(
     <nav>
       <a href="#sec-profile"><span class="nav-icon">&#9670;</span> Capability Profile</a>
       <a href="#sec-threats"><span class="nav-icon">&#9888;</span> Threat Surface</a>
+      {coverage_nav}
+      {diversity_nav}
       <a href="#sec-scenarios"><span class="nav-icon">&#9733;</span> Scenarios</a>
       <a href="#sec-raw"><span class="nav-icon">&#128196;</span> Raw Data</a>
     </nav>
@@ -1881,6 +2359,8 @@ def build_full_page(
   <main class="main-content">
     {profile_html}
     {threats_html}
+    {coverage_html}
+    {diversity_html}
     {scenarios_html}
     {raw_html}
   </main>

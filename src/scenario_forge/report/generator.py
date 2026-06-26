@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
 import yaml
 
 from scenario_forge.report.template import (
+    build_attacker_diversity_section,
     build_capability_profile_section,
+    build_coverage_section,
     build_full_page,
     build_raw_data_section,
     build_scenarios_section,
@@ -72,7 +75,9 @@ def generate_report(output_dir: Path) -> Path:
                 data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
                 if data and isinstance(data, dict):
                     scenarios.append(data)
-                    raw_files[f"scenarios/{yaml_file.name}"] = yaml_file.read_text(encoding="utf-8")
+                    raw_files[f"scenarios/{yaml_file.name}"] = yaml_file.read_text(
+                        encoding="utf-8"
+                    )
                     logger.info("Loaded scenario %s", yaml_file.name)
             except Exception as exc:
                 logger.warning("Failed to load %s: %s", yaml_file, exc)
@@ -93,6 +98,21 @@ def generate_report(output_dir: Path) -> Path:
     else:
         logger.warning("scenarios/ directory not found in %s", output_dir)
 
+    # --- Load coverage gaps ---
+    coverage_path = output_dir / "coverage-gaps.json"
+    coverage_data: dict = {}
+    if coverage_path.exists():
+        try:
+            coverage_data = json.loads(coverage_path.read_text(encoding="utf-8")) or {}
+            logger.info("Loaded coverage gaps from %s", coverage_path)
+            raw_files["coverage-gaps.json"] = coverage_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            logger.warning("Failed to load %s: %s", coverage_path, exc)
+    else:
+        logger.info(
+            "coverage-gaps.json not found in %s (skipping coverage section)", output_dir
+        )
+
     # Sort scenarios by priority (descending)
     scenarios.sort(
         key=lambda s: s.get("priority", {}).get("composite", 0),
@@ -102,6 +122,13 @@ def generate_report(output_dir: Path) -> Path:
     # --- Build HTML sections ---
     profile_html = build_capability_profile_section(profile_data)
     threats_html = build_threat_surface_section(ts_data)
+
+    coverage_html = ""
+    diversity_html = ""
+    if coverage_data:
+        coverage_html = build_coverage_section(coverage_data)
+        diversity_html = build_attacker_diversity_section(coverage_data)
+
     scenarios_html = build_scenarios_section(scenarios, feature_files)
     raw_html = build_raw_data_section(raw_files)
 
@@ -111,6 +138,8 @@ def generate_report(output_dir: Path) -> Path:
         threats_html=threats_html,
         scenarios_html=scenarios_html,
         raw_html=raw_html,
+        coverage_html=coverage_html,
+        diversity_html=diversity_html,
     )
 
     # --- Write output ---
