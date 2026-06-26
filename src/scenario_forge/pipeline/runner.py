@@ -19,9 +19,11 @@ from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.generate import (
     assign_entry_point,
     extract_narrative_keywords,
+    extract_structural_pattern,
     generate_scenario,
     get_overused_entry_points,
     get_overused_patterns,
+    get_overused_structural_patterns,
     write_scenario_outputs,
 )
 from scenario_forge.pipeline.coverage import (
@@ -166,6 +168,8 @@ def run_pipeline(
     entry_point_usage: Counter[str] = Counter()
     # Track attack pattern keywords for narrative diversity enforcement.
     pattern_usage: Counter[str] = Counter()
+    # Track structural attack patterns for deep diversity enforcement.
+    structural_usage: Counter[str] = Counter()
     total_seeds = len(seeds)
 
     for i, seed in enumerate(seeds, 1):
@@ -188,6 +192,9 @@ def run_pipeline(
             total_seeds,
         )
         excluded_pats = get_overused_patterns(pattern_usage) or None
+        excluded_structural = (
+            get_overused_structural_patterns(structural_usage) or None
+        )
 
         try:
             envelope = generate_scenario(
@@ -198,6 +205,7 @@ def run_pipeline(
                 preferred_entry_point=preferred_ep,
                 excluded_entry_points=excluded_eps or None,
                 excluded_patterns=excluded_pats,
+                excluded_structural_patterns=excluded_structural,
             )
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             scenarios.append(envelope)
@@ -208,6 +216,10 @@ def run_pipeline(
             # Track attack pattern keywords for diversity enforcement.
             keywords = extract_narrative_keywords(envelope.narrative)
             pattern_usage.update(keywords)
+
+            # Track structural attack pattern for deep diversity enforcement.
+            structural_pattern = extract_structural_pattern(envelope.narrative)
+            structural_usage[structural_pattern] += 1
 
             notes = envelope.generation.notes or []
             generation_notes.extend(notes)

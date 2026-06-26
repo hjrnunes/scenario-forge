@@ -1,8 +1,9 @@
-"""Tests for the q7y/etk bead cluster.
+"""Tests for scoring calibration and diversity enforcement.
 
 Covers:
-- q7y: Scoring calibration rubric in Call 1 and Call 2 system prompts.
-- etk: Narrative diversity enforcement via excluded_patterns.
+- q7y/9zz: Scoring calibration rubric in Call 1 and Call 2 system prompts.
+- etk/cbk: Narrative diversity enforcement via excluded_patterns and
+  structural pattern detection.
 """
 
 from __future__ import annotations
@@ -10,18 +11,25 @@ from __future__ import annotations
 from collections import Counter
 from unittest.mock import MagicMock
 
+from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import (
+    AttackComplexity,
     CausalChainReframed,
     NarrativeLayer,
     NarrativeStep,
     RiskCardRef,
+    SeverityLevel,
 )
 from scenario_forge.pipeline.generate import (
     _CALL1_SYSTEM,
     _CALL2_SYSTEM,
+    _heuristic_attack_complexity,
+    _heuristic_risk_impact,
     extract_narrative_keywords,
+    extract_structural_pattern,
     get_overused_patterns,
+    get_overused_structural_patterns,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
@@ -128,10 +136,10 @@ class TestScoringCalibrationRubric:
         assert "prompt injection" in prompt_lower
         assert "supply-chain" in prompt_lower or "supply chain" in prompt_lower
 
-    def test_call1_warns_against_default_medium(self):
-        """Prompt should warn against defaulting to medium for everything."""
+    def test_call1_warns_against_default_high(self):
+        """Prompt should warn against defaulting to high for everything."""
         prompt_lower = _CALL1_SYSTEM.lower()
-        assert "do not default" in prompt_lower
+        assert "do not default to high" in prompt_lower
 
     def test_call1_instructs_zone_sequence_matching(self):
         """Prompt should instruct matching zone_sequence length to complexity."""
@@ -152,6 +160,188 @@ class TestScoringCalibrationRubric:
         """Call 2 should warn against same depth for every scenario."""
         prompt_lower = _CALL2_SYSTEM.lower()
         assert "do not default" in prompt_lower
+
+    def test_call1_contains_risk_impact_calibration(self):
+        """Call 1 system prompt must have a Risk Impact Calibration section."""
+        assert "Risk Impact Calibration" in _CALL1_SYSTEM
+
+    def test_call1_risk_impact_mentions_all_levels(self):
+        """Risk impact rubric must mention low, medium, high, critical."""
+        prompt_lower = _CALL1_SYSTEM.lower()
+        assert "low impact" in prompt_lower
+        assert "medium impact" in prompt_lower
+        assert "high impact" in prompt_lower
+        assert "critical impact" in prompt_lower
+
+    def test_call1_distribute_scores_instruction(self):
+        """Prompt should instruct to distribute scores, not cluster."""
+        assert "Distribute scores" in _CALL1_SYSTEM
+
+    def test_call1_complexity_impact_independence(self):
+        """Prompt should state complexity and impact are independent."""
+        assert "independent" in _CALL1_SYSTEM.lower()
+
+
+# ===========================================================================
+# Bead 9zz: Heuristic scoring spread
+# ===========================================================================
+
+
+def _make_tree_node(node_id: str, children: list[AttackTreeNode] | None = None) -> AttackTreeNode:
+    """Build a single attack tree node, LEAF if no children."""
+    if children:
+        return AttackTreeNode(
+            id=node_id, label=f"Node {node_id}", gate=GateType.AND,
+            zone=1, children=children,
+        )
+    return AttackTreeNode(
+        id=node_id, label=f"Leaf {node_id}", gate=GateType.LEAF, zone=1,
+    )
+
+
+def _make_tree_simple(nodes: int, depth: int) -> AttackTree:
+    """Build a synthetic attack tree with controlled node count and depth.
+
+    Builds a linear chain to reach the target depth. Each AND node gets
+    at least 2 children (one chain child + one leaf sibling). Extra nodes
+    are added as leaf siblings at the root level.
+    """
+    if depth <= 1 or nodes <= 1:
+        root = _make_tree_node("n1")
+        return AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
+
+    # Build a chain to target depth, always ensuring >= 2 children per AND
+    def _build(d: int, prefix: str) -> tuple[AttackTreeNode, int]:
+        if d >= depth:
+            return _make_tree_node(prefix), 1
+
+        # Build chain child for depth
+        chain_child, chain_used = _build(d + 1, f"{prefix}.1")
+        # Always add a sibling leaf for valid AND gate
+        sibling = _make_tree_node(f"{prefix}.2")
+        children = [chain_child, sibling]
+        total_used = 1 + chain_used + 1  # self + chain subtree + sibling
+
+        return _make_tree_node(prefix, children), total_used
+
+    root, used = _build(1, "n1")
+
+    # Add extra leaf siblings at root level to reach target node count
+    if root.children is not None:
+        sib_idx = len(root.children) + 1
+        while used < nodes:
+            root.children.append(_make_tree_node(f"n1.{sib_idx}"))
+            used += 1
+            sib_idx += 1
+
+    return AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
+
+
+class TestHeuristicAttackComplexity:
+    """Bead 9zz: attack_complexity should produce spread, not lock at high."""
+
+    def test_small_shallow_tree_is_low(self):
+        """3 nodes, depth 2 -> low complexity."""
+        tree = _make_tree_simple(nodes=3, depth=2)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.low
+
+    def test_medium_tree_is_medium(self):
+        """5 nodes, depth 3 -> medium complexity."""
+        tree = _make_tree_simple(nodes=5, depth=3)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.medium
+
+    def test_large_deep_tree_is_high(self):
+        """10 nodes, depth 4 -> high complexity."""
+        tree = _make_tree_simple(nodes=10, depth=4)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.high
+
+    def test_wide_shallow_tree_not_high(self):
+        """Many nodes but shallow depth should NOT be high complexity.
+
+        This is the key regression test for 9zz — previously 8+ nodes
+        always yielded high, even if the tree was only depth 2.
+        """
+        # Build a wide but shallow tree: 10 nodes, depth 2
+        children = [
+            AttackTreeNode(id=f"n1.{i}", label=f"Leaf {i}", gate=GateType.LEAF, zone=1)
+            for i in range(1, 10)
+        ]
+        root = AttackTreeNode(
+            id="n1", label="Root", gate=GateType.OR, zone=1, children=children,
+        )
+        tree = AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
+        result = _heuristic_attack_complexity(tree)
+        # 10 nodes but depth 2 — should NOT be high
+        assert result != AttackComplexity.high
+
+    def test_no_tree_uses_narrative_fallback(self):
+        """Without a tree, narrative zone count determines complexity."""
+        narrative_1zone = _make_narrative()
+        narrative_1zone_obj = NarrativeLayer(
+            title="T", summary="S", entry_point="ep",
+            zone_sequence=[1],
+            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+        )
+        result = _heuristic_attack_complexity(None, narrative_1zone_obj)
+        assert result == AttackComplexity.low
+
+
+class TestHeuristicRiskImpact:
+    """Bead 9zz: risk_impact should produce spread, not flat medium."""
+
+    def test_catastrophic_impact_text_is_critical(self):
+        """Impact text with 'catastrophic' -> critical."""
+        seed = _make_seed()
+        seed.risk_card_ref.impact = "Catastrophic organizational damage"
+        result = _heuristic_risk_impact(seed)
+        assert result == SeverityLevel.critical
+
+    def test_minor_impact_text_is_low(self):
+        """Impact text with 'minor' -> low."""
+        seed = _make_seed()
+        seed.risk_card_ref.impact = "Minor inconvenience to a single user"
+        result = _heuristic_risk_impact(seed)
+        assert result == SeverityLevel.low
+
+    def test_financial_impact_text_is_high(self):
+        """Impact text with 'financial' -> high."""
+        seed = _make_seed()
+        seed.risk_card_ref.impact = "Significant financial losses"
+        result = _heuristic_risk_impact(seed)
+        assert result == SeverityLevel.high
+
+    def test_generic_impact_text_with_wide_zones_elevates(self):
+        """Generic impact text + 4-zone narrative should push toward high."""
+        seed = _make_seed()
+        seed.risk_card_ref.impact = "Some generic impact description"
+        narrative = NarrativeLayer(
+            title="T", summary="S", entry_point="ep",
+            zone_sequence=[1, 2, 3, 4],
+            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+        )
+        result = _heuristic_risk_impact(seed, narrative)
+        # Generic text (0.4) + wide zones (0.3) = 0.7 -> medium
+        # But with consequence text or structural exposure, could be higher
+        assert result in (SeverityLevel.medium, SeverityLevel.high)
+
+    def test_no_impact_text_is_low(self):
+        """No impact text at all -> low (not medium default)."""
+        seed = _make_seed()
+        seed.risk_card_ref.impact = None
+        result = _heuristic_risk_impact(seed)
+        assert result == SeverityLevel.low
+
+    def test_consequence_text_contributes(self):
+        """Consequence text should contribute to the score."""
+        seed = _make_seed()
+        seed.risk_card_ref.impact = "Some generic impact"
+        seed.risk_card_ref.consequence = "Cascading failure across all systems"
+        result = _heuristic_risk_impact(seed)
+        # Generic impact (0.4) + cascading consequence (0.4) = 0.8 -> high
+        assert result == SeverityLevel.high
 
 
 # ===========================================================================
@@ -381,3 +571,232 @@ class TestNarrativePatternDiversityPrompt:
                 else call_args.kwargs["user_prompt"]
             )
         assert "Attack Pattern Diversity" not in user_prompt
+
+
+# ===========================================================================
+# Bead cbk: Structural attack pattern extraction
+# ===========================================================================
+
+
+class TestExtractStructuralPattern:
+    """Tests for extract_structural_pattern() — detects the attack phase
+    sequence (e.g., 'inject->hallucinate->persist->bypass') rather than
+    surface keywords."""
+
+    def test_classic_poison_hallucinate_persist_bypass(self):
+        """The canonical convergence pattern should be detected."""
+        narrative = NarrativeLayer(
+            title="Test",
+            summary="Test summary",
+            entry_point="ep",
+            zone_sequence=[1, 2, 4, 2],
+            steps=[
+                NarrativeStep(step_number=1, zone=1, action="I poison the API data with false information", effect="tainted data"),
+                NarrativeStep(step_number=2, zone=2, action="The model starts to hallucinate and produce false outputs", effect="wrong output"),
+                NarrativeStep(step_number=3, zone=4, action="False data persists in long-term memory", effect="permanent taint"),
+                NarrativeStep(step_number=4, zone=2, action="I bypass the human reviewer through fatigue", effect="approved"),
+            ],
+        )
+        pattern = extract_structural_pattern(narrative)
+        assert "poison" in pattern
+        assert "hallucinate" in pattern
+        assert "persist" in pattern
+        assert "bypass" in pattern
+
+    def test_simple_inject_exfiltrate(self):
+        """A simple two-phase attack: inject then exfiltrate."""
+        narrative = NarrativeLayer(
+            title="Test",
+            summary="S",
+            entry_point="ep",
+            zone_sequence=[1, 3],
+            steps=[
+                NarrativeStep(step_number=1, zone=1, action="I inject a malicious prompt", effect="accepted"),
+                NarrativeStep(step_number=2, zone=3, action="I exfiltrate sensitive data via the tool output", effect="data stolen"),
+            ],
+        )
+        pattern = extract_structural_pattern(narrative)
+        assert pattern == "inject->exfiltrate"
+
+    def test_collapses_consecutive_duplicates(self):
+        """Multiple consecutive steps of the same phase should collapse."""
+        narrative = NarrativeLayer(
+            title="Test",
+            summary="S",
+            entry_point="ep",
+            zone_sequence=[1, 1, 3],
+            steps=[
+                NarrativeStep(step_number=1, zone=1, action="I inject payload A", effect="partial"),
+                NarrativeStep(step_number=2, zone=1, action="I inject payload B to reinforce", effect="full"),
+                NarrativeStep(step_number=3, zone=3, action="I exfiltrate the result", effect="done"),
+            ],
+        )
+        pattern = extract_structural_pattern(narrative)
+        assert pattern == "inject->exfiltrate"
+
+    def test_unrecognized_actions_become_other(self):
+        """Steps with no recognized phase keywords become 'other'."""
+        narrative = NarrativeLayer(
+            title="Test",
+            summary="S",
+            entry_point="ep",
+            zone_sequence=[1],
+            steps=[
+                NarrativeStep(step_number=1, zone=1, action="I do something unusual and novel", effect="unclear"),
+            ],
+        )
+        pattern = extract_structural_pattern(narrative)
+        assert pattern == "other"
+
+    def test_probe_escalate_exfiltrate(self):
+        """A reconnaissance-first attack pattern."""
+        narrative = NarrativeLayer(
+            title="Test",
+            summary="S",
+            entry_point="ep",
+            zone_sequence=[1, 2, 3],
+            steps=[
+                NarrativeStep(step_number=1, zone=1, action="I probe the API to enumerate endpoints", effect="map"),
+                NarrativeStep(step_number=2, zone=2, action="I escalate privileges via admin misconfiguration", effect="admin"),
+                NarrativeStep(step_number=3, zone=3, action="I exfiltrate the full database", effect="stolen"),
+            ],
+        )
+        pattern = extract_structural_pattern(narrative)
+        assert pattern == "probe->escalate->exfiltrate"
+
+
+class TestGetOverusedStructuralPatterns:
+    """Tests for get_overused_structural_patterns()."""
+
+    def test_empty_counter_returns_empty(self):
+        counts = Counter()
+        assert get_overused_structural_patterns(counts) == []
+
+    def test_below_threshold_returns_empty(self):
+        counts = Counter({"inject->exfiltrate": 2, "poison->bypass": 1})
+        assert get_overused_structural_patterns(counts, threshold=2) == []
+
+    def test_above_threshold_detected(self):
+        counts = Counter({
+            "poison->hallucinate->persist->bypass": 5,
+            "inject->exfiltrate": 3,
+            "probe->escalate": 1,
+        })
+        result = get_overused_structural_patterns(counts, threshold=2)
+        assert "poison->hallucinate->persist->bypass" in result
+        assert "inject->exfiltrate" in result
+        assert "probe->escalate" not in result
+
+    def test_max_three_returned(self):
+        counts = Counter({f"pattern{i}->step": 10 for i in range(10)})
+        result = get_overused_structural_patterns(counts, threshold=2)
+        assert len(result) <= 3
+
+    def test_other_only_pattern_excluded(self):
+        """Patterns that are just 'other' should not be flagged."""
+        counts = Counter({"other": 10})
+        result = get_overused_structural_patterns(counts, threshold=2)
+        assert result == []
+
+
+class TestStructuralPatternPromptInjection:
+    """Tests that excluded_structural_patterns are injected into the Call 1 prompt."""
+
+    def test_prompt_includes_structural_exclusions(self):
+        """When excluded_structural_patterns is provided, prompt includes the section."""
+        from scenario_forge.pipeline.generate import (
+            Call1Response,
+            _call_narrative,
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.content = Call1Response(
+            title="Test",
+            summary="Test summary",
+            entry_point="API endpoint (zone 1)",
+            zone_sequence=[1, 2],
+            steps=[
+                {
+                    "step_number": 1,
+                    "zone": 1,
+                    "action": "test",
+                    "effect": "test",
+                }
+            ],
+        )
+        mock_client.complete.return_value = mock_result
+
+        seed = _make_seed()
+        profile = _make_profile()
+
+        _call_narrative(
+            seed,
+            profile,
+            mock_client,
+            "test use case",
+            excluded_structural_patterns=["poison->hallucinate->persist->bypass"],
+        )
+
+        call_args = mock_client.complete.call_args
+        user_prompt = call_args.kwargs.get("user_prompt") or call_args[1].get(
+            "user_prompt"
+        )
+        if user_prompt is None:
+            user_prompt = (
+                call_args[0][1]
+                if len(call_args[0]) > 1
+                else call_args.kwargs["user_prompt"]
+            )
+        assert "Structural Attack Pattern Diversity" in user_prompt
+        assert "poison" in user_prompt.lower()
+        assert "bypass" in user_prompt.lower()
+        assert "fundamentally different" in user_prompt.lower()
+
+    def test_prompt_no_structural_section_when_none(self):
+        """When no structural patterns excluded, section absent from prompt."""
+        from scenario_forge.pipeline.generate import (
+            Call1Response,
+            _call_narrative,
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.content = Call1Response(
+            title="Test",
+            summary="Test summary",
+            entry_point="document uploads (zone 1)",
+            zone_sequence=[1, 2],
+            steps=[
+                {
+                    "step_number": 1,
+                    "zone": 1,
+                    "action": "test",
+                    "effect": "test",
+                }
+            ],
+        )
+        mock_client.complete.return_value = mock_result
+
+        seed = _make_seed()
+        profile = _make_profile()
+
+        _call_narrative(
+            seed,
+            profile,
+            mock_client,
+            "test use case",
+            excluded_structural_patterns=None,
+        )
+
+        call_args = mock_client.complete.call_args
+        user_prompt = call_args.kwargs.get("user_prompt") or call_args[1].get(
+            "user_prompt"
+        )
+        if user_prompt is None:
+            user_prompt = (
+                call_args[0][1]
+                if len(call_args[0]) > 1
+                else call_args.kwargs["user_prompt"]
+            )
+        assert "Structural Attack Pattern Diversity" not in user_prompt
