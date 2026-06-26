@@ -706,14 +706,14 @@ def _parse_attack_tree_yaml(raw: str, seed: ScenarioSeed) -> AttackTree:
     except yaml.YAMLError:
         logger.warning(
             "YAML parse failed for seed %s; attempting colon sanitization",
-            seed.id,
+            seed.seed_id,
         )
         sanitized = _sanitize_yaml_colons(cleaned)
         try:
             data = yaml.safe_load(sanitized)
         except yaml.YAMLError as exc:
             raise yaml.YAMLError(
-                f"Failed to parse attack tree YAML for seed {seed.id} "
+                f"Failed to parse attack tree YAML for seed {seed.seed_id} "
                 f"even after colon sanitization: {exc}"
             ) from exc
 
