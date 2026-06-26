@@ -18,6 +18,7 @@ from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.generate import (
     assign_entry_point,
+    compute_entry_point_affinity,
     extract_narrative_keywords,
     generate_scenario,
     get_overused_entry_points,
@@ -25,6 +26,7 @@ from scenario_forge.pipeline.generate import (
     write_scenario_outputs,
 )
 from scenario_forge.pipeline.coverage import (
+    CoverageGaps,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
     write_coverage_report,
@@ -49,6 +51,128 @@ class PipelineResult(BaseModel):
     scenarios: list[ScenarioEnvelope]
     governance_only_count: int
     generation_notes: list[str]
+
+
+def _pick_best_seed_for_entry_point(
+    entry_point: str,
+    seeds: list[ScenarioSeed],
+    profile: CapabilityProfile,
+) -> ScenarioSeed | None:
+    """Select the seed whose threat zones best match a given entry point.
+
+    Uses ``compute_entry_point_affinity`` to score how well the entry point
+    feeds into the zones referenced by each seed's agentic threat IDs.
+    Falls back to the first seed if no affinity signal is available.
+
+    Returns ``None`` only when the seed list is empty.
+    """
+    if not seeds:
+        return None
+    if len(seeds) == 1:
+        return seeds[0]
+
+    best_seed = seeds[0]
+    best_score = -1.0
+
+    for seed in seeds:
+        # Use the profile's active zones as a proxy for the seed's zone
+        # affinity (consistent with the main generation loop).
+        scores = compute_entry_point_affinity(
+            [entry_point],
+            profile.zones_active,
+        )
+        score = scores.get(entry_point, 0.0)
+        if score > best_score:
+            best_score = score
+            best_seed = seed
+
+    return best_seed
+
+
+def _remediate_coverage_gaps(
+    coverage_gaps: CoverageGaps,
+    seeds: list[ScenarioSeed],
+    profile: CapabilityProfile,
+    client: LLMClient,
+    use_case: str,
+    scenarios_dir: Path,
+) -> tuple[list[ScenarioEnvelope], list[str]]:
+    """Generate additional scenarios for entry points that received none.
+
+    For each uncovered entry point identified by ``analyze_coverage_gaps``,
+    this function selects the most relevant existing seed (by zone affinity)
+    and calls ``generate_scenario`` with that entry point forced as the
+    preferred entry point.
+
+    Args:
+        coverage_gaps: Result from ``analyze_coverage_gaps``.
+        seeds: The scenario seeds from Stage 3.
+        profile: The capability profile from Stage 1.
+        client: LLM client for generation calls.
+        use_case: Free-text description of the AI system under assessment.
+        scenarios_dir: Directory for scenario output files.
+
+    Returns:
+        Tuple of (remediation_scenarios, generation_notes).
+    """
+    if not coverage_gaps.uncovered_entry_points:
+        return [], []
+
+    remediation_scenarios: list[ScenarioEnvelope] = []
+    generation_notes: list[str] = []
+
+    uncovered = coverage_gaps.uncovered_entry_points
+    logger.info(
+        "[Remediation] %d uncovered entry point(s) to remediate: %s",
+        len(uncovered),
+        uncovered,
+    )
+
+    for ep in uncovered:
+        seed = _pick_best_seed_for_entry_point(ep, seeds, profile)
+        if seed is None:
+            note = f"Remediation skipped for entry point '{ep}': no seeds available"
+            logger.warning("  %s", note)
+            generation_notes.append(note)
+            continue
+
+        logger.info(
+            "  Remediating entry point '%s' with seed %s (%s)...",
+            ep,
+            seed.seed_id,
+            seed.sub_scenario_name,
+        )
+
+        try:
+            envelope = generate_scenario(
+                seed,
+                profile,
+                client,
+                use_case,
+                preferred_entry_point=ep,
+            )
+            write_scenario_outputs(envelope, scenarios_dir)
+            remediation_scenarios.append(envelope)
+            logger.info(
+                "    Remediation scenario generated: %s (entry point: %s)",
+                envelope.scenario_id,
+                envelope.narrative.entry_point,
+            )
+        except Exception as exc:
+            note = (
+                f"Remediation generation failed for entry point '{ep}' "
+                f"with seed {seed.seed_id}: {exc}"
+            )
+            logger.error("    %s", note)
+            generation_notes.append(note)
+
+    logger.info(
+        "[Remediation] %d/%d uncovered entry points remediated",
+        len(remediation_scenarios),
+        len(uncovered),
+    )
+
+    return remediation_scenarios, generation_notes
 
 
 def run_profile_only(
@@ -219,6 +343,22 @@ def run_pipeline(
     logger.info("  %d/%d scenarios generated successfully", len(scenarios), len(seeds))
     if generation_notes:
         logger.info("  %d note(s) recorded", len(generation_notes))
+
+    # --- Coverage Remediation Pass ---
+    # Check for uncovered entry points and generate additional scenarios
+    # to fill gaps, before running the final coverage analysis.
+    pre_remediation_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+    if pre_remediation_gaps.uncovered_entry_points:
+        remediation_scenarios, remediation_notes = _remediate_coverage_gaps(
+            pre_remediation_gaps,
+            seeds,
+            profile,
+            client,
+            use_case,
+            scenarios_dir,
+        )
+        scenarios.extend(remediation_scenarios)
+        generation_notes.extend(remediation_notes)
 
     # --- Coverage Analysis ---
     logger.info("[Post-Generation] Analyzing coverage gaps...")
