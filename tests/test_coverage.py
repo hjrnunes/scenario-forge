@@ -54,6 +54,7 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.coverage import (
     AttackerDiversityResult,
     CoverageGaps,
+    _normalize_entry_point,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
     classify_attacker_model,
@@ -383,6 +384,212 @@ class TestCoverageGaps:
     def test_has_gaps_true_for_threats(self):
         gaps = CoverageGaps(uncovered_threats=["T5"])
         assert gaps.has_gaps
+
+
+# ---------------------------------------------------------------------------
+# Entry point normalization tests (scenario-forge-8dd)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeEntryPoint:
+    """Tests for _normalize_entry_point helper."""
+
+    def test_lowercases(self):
+        assert _normalize_entry_point("User Prompts (Zone 1)") == "user prompts (zone 1)"
+
+    def test_strips_whitespace(self):
+        assert _normalize_entry_point("  user prompts (zone 1)  ") == "user prompts (zone 1)"
+
+    def test_collapses_internal_whitespace(self):
+        assert _normalize_entry_point("user  prompts   (zone 1)") == "user prompts (zone 1)"
+
+    def test_removes_trailing_period(self):
+        assert _normalize_entry_point("user prompts (zone 1).") == "user prompts (zone 1)"
+
+    def test_removes_trailing_comma(self):
+        assert _normalize_entry_point("user prompts (zone 1),") == "user prompts (zone 1)"
+
+    def test_removes_trailing_semicolon(self):
+        assert _normalize_entry_point("user prompts (zone 1);") == "user prompts (zone 1)"
+
+    def test_identity_for_already_normalized(self):
+        assert _normalize_entry_point("user prompts (zone 1)") == "user prompts (zone 1)"
+
+
+class TestCoverageGapsEntryPointMatching:
+    """Tests for entry point coverage with normalized matching (scenario-forge-8dd)."""
+
+    def test_partial_entry_points_used(self):
+        """Scenarios using only 3 of 5 profile entry points → 2 uncovered."""
+        profile = _make_profile(
+            entry_points=[
+                "user prompts (zone 1)",
+                "document uploads (zone 1)",
+                "admin console (zone 2)",
+                "API gateway (zone 3)",
+                "message queue (zone 3)",
+            ],
+            zones_active=[1, 2, 3],
+        )
+        threat_surface = _make_threat_surface([["T1"]])
+        scenarios = [
+            _make_envelope(
+                entry_point="user prompts (zone 1)",
+                zone_sequence=[1, 2, 3],
+                agentic_threat_ids=["T1"],
+            ),
+            _make_envelope(
+                entry_point="admin console (zone 2)",
+                zone_sequence=[1, 2, 3],
+                agentic_threat_ids=["T1"],
+            ),
+            _make_envelope(
+                entry_point="API gateway (zone 3)",
+                zone_sequence=[1, 2, 3],
+                agentic_threat_ids=["T1"],
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert set(gaps.uncovered_entry_points) == {
+            "document uploads (zone 1)",
+            "message queue (zone 3)",
+        }
+        assert len(gaps.uncovered_entry_points) == 2
+        assert gaps.has_gaps
+
+    def test_all_entry_points_used_no_gaps(self):
+        """All entry points used → 0 uncovered."""
+        profile = _make_profile(
+            entry_points=["ep-a (zone 1)", "ep-b (zone 2)", "ep-c (zone 3)"],
+            zones_active=[1, 2, 3],
+        )
+        threat_surface = _make_threat_surface([["T1"]])
+        scenarios = [
+            _make_envelope(
+                entry_point="ep-a (zone 1)",
+                zone_sequence=[1, 2, 3],
+                agentic_threat_ids=["T1"],
+            ),
+            _make_envelope(
+                entry_point="ep-b (zone 2)",
+                zone_sequence=[1, 2, 3],
+                agentic_threat_ids=["T1"],
+            ),
+            _make_envelope(
+                entry_point="ep-c (zone 3)",
+                zone_sequence=[1, 2, 3],
+                agentic_threat_ids=["T1"],
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert gaps.uncovered_entry_points == []
+        assert not gaps.has_gaps
+
+    def test_empty_scenarios_all_uncovered(self):
+        """Empty scenarios list → all entry points uncovered."""
+        profile = _make_profile(
+            entry_points=[
+                "user prompts (zone 1)",
+                "document uploads (zone 1)",
+                "admin console (zone 2)",
+            ],
+            zones_active=[1, 2],
+        )
+        threat_surface = _make_threat_surface([["T1"]])
+        scenarios: list[ScenarioEnvelope] = []
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert set(gaps.uncovered_entry_points) == {
+            "user prompts (zone 1)",
+            "document uploads (zone 1)",
+            "admin console (zone 2)",
+        }
+        assert len(gaps.uncovered_entry_points) == 3
+
+    def test_case_insensitive_matching(self):
+        """LLM-generated entry points with different casing should match."""
+        profile = _make_profile(
+            entry_points=["User Prompts (Zone 1)", "Admin Console (Zone 2)"],
+            zones_active=[1, 2],
+        )
+        threat_surface = _make_threat_surface([["T1"]])
+        scenarios = [
+            _make_envelope(
+                entry_point="user prompts (zone 1)",
+                zone_sequence=[1, 2],
+                agentic_threat_ids=["T1"],
+            ),
+            _make_envelope(
+                entry_point="ADMIN CONSOLE (ZONE 2)",
+                zone_sequence=[1, 2],
+                agentic_threat_ids=["T1"],
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert gaps.uncovered_entry_points == []
+
+    def test_whitespace_normalized_matching(self):
+        """Extra whitespace in LLM output should not cause false gaps."""
+        profile = _make_profile(
+            entry_points=["user prompts (zone 1)", "admin console (zone 2)"],
+            zones_active=[1, 2],
+        )
+        threat_surface = _make_threat_surface([["T1"]])
+        scenarios = [
+            _make_envelope(
+                entry_point="user  prompts  (zone  1)",
+                zone_sequence=[1, 2],
+                agentic_threat_ids=["T1"],
+            ),
+            _make_envelope(
+                entry_point="  admin console (zone 2)  ",
+                zone_sequence=[1, 2],
+                agentic_threat_ids=["T1"],
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert gaps.uncovered_entry_points == []
+
+    def test_trailing_punctuation_normalized(self):
+        """Trailing punctuation from LLM output should not cause false gaps."""
+        profile = _make_profile(
+            entry_points=["user prompts (zone 1)", "admin console (zone 2)"],
+            zones_active=[1, 2],
+        )
+        threat_surface = _make_threat_surface([["T1"]])
+        scenarios = [
+            _make_envelope(
+                entry_point="user prompts (zone 1).",
+                zone_sequence=[1, 2],
+                agentic_threat_ids=["T1"],
+            ),
+            _make_envelope(
+                entry_point="admin console (zone 2)",
+                zone_sequence=[1, 2],
+                agentic_threat_ids=["T1"],
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert gaps.uncovered_entry_points == []
+
+    def test_uncovered_preserves_original_profile_names(self):
+        """Uncovered entry points should use the original profile names, not normalized."""
+        profile = _make_profile(
+            entry_points=["User Prompts (Zone 1)", "Admin Console (Zone 2)"],
+            zones_active=[1, 2],
+        )
+        threat_surface = _make_threat_surface([["T1"]])
+        scenarios: list[ScenarioEnvelope] = []
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        # Should preserve original casing from the profile
+        assert "User Prompts (Zone 1)" in gaps.uncovered_entry_points
+        assert "Admin Console (Zone 2)" in gaps.uncovered_entry_points
 
 
 # ---------------------------------------------------------------------------
