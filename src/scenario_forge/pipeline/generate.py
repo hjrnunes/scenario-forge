@@ -267,6 +267,98 @@ def get_overused_entry_points(
 
 
 # ---------------------------------------------------------------------------
+# Narrative pattern diversity helpers
+# ---------------------------------------------------------------------------
+
+# Stop words excluded from attack pattern keyword extraction.
+_PATTERN_STOP_WORDS: set[str] = {
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "by",
+    "from",
+    "with",
+    "that",
+    "this",
+    "it",
+    "as",
+    "its",
+    "i",
+    "my",
+    "me",
+    "we",
+    "our",
+    "zone",
+    "step",
+    "attack",
+    "attacker",
+    "system",
+    "use",
+    "using",
+}
+
+
+def extract_narrative_keywords(narrative: NarrativeLayer, max_keywords: int = 3) -> list[str]:
+    """Extract short keyword phrases summarizing the attack pattern from a narrative.
+
+    Uses the causal_chain_reframed fields and the narrative title/summary to
+    identify the dominant attack archetype. Returns up to *max_keywords*
+    descriptive words, lowercased and deduplicated.
+
+    This is intentionally a simple heuristic — keyword matching, not a
+    classifier. Good enough to nudge the LLM away from repeated templates.
+    """
+    text_parts: list[str] = []
+
+    # Prefer causal chain fields — they are more specific than the title.
+    if narrative.causal_chain_reframed is not None:
+        cc = narrative.causal_chain_reframed
+        text_parts.extend([cc.vulnerability, cc.consequence])
+
+    # Fall back to title + summary if no causal chain.
+    if not text_parts:
+        text_parts.extend([narrative.title, narrative.summary])
+
+    combined = " ".join(text_parts).lower()
+
+    # Tokenize: split on non-alpha and filter stop words / short tokens.
+    tokens = re.split(r"[^a-z]+", combined)
+    tokens = [t for t in tokens if t and len(t) > 2 and t not in _PATTERN_STOP_WORDS]
+
+    # Count and pick the most common meaningful tokens.
+    counts = Counter(tokens)
+    return [word for word, _ in counts.most_common(max_keywords)]
+
+
+def get_overused_patterns(
+    pattern_counts: Counter[str],
+    threshold: int = 2,
+) -> list[str]:
+    """Return attack pattern keywords used more than *threshold* times.
+
+    Returns up to 5 most-used patterns (enough to steer without overwhelming
+    the prompt).
+    """
+    overused = [kw for kw, count in pattern_counts.most_common() if count > threshold]
+    return overused[:5]
+
+
+# ---------------------------------------------------------------------------
 # Intermediate models for structured output (flattened for LLM reliability)
 # ---------------------------------------------------------------------------
 
@@ -334,6 +426,26 @@ specific failure mechanism (e.g., reviewer fatigue, volume overwhelming the \
 reviewer, UI that buries alerts, time pressure) rather than simply asserting \
 "the attacker bypasses review."
 
+## Attack Complexity Calibration
+Not all attacks are equally complex. Vary your narrative structure to reflect \
+the actual complexity of the specific attack being described:
+- LOW complexity: Single-step or direct attacks. Short zone sequence (1-2 zones). \
+Example: A simple prompt injection via the chat interface that directly extracts \
+data (Zone 1 only).
+- MEDIUM complexity: Multi-step attacks crossing 2-3 zones. \
+Example: An attacker crafts a malicious prompt (Zone 1) that tricks the reasoning \
+engine (Zone 2) into calling a tool with attacker-controlled parameters (Zone 3).
+- HIGH complexity: Multi-stage campaigns crossing 3-5 zones with persistence or \
+lateral movement. Example: A supply-chain attack that poisons a plugin (Zone 3), \
+plants false data in memory (Zone 4), which later corrupts inter-agent \
+communication (Zone 5) when the tainted context is shared.
+- CRITICAL complexity: Sophisticated, multi-phase attacks that chain multiple \
+independent vulnerabilities across most zones with evasion techniques.
+
+Match the zone_sequence length and number of steps to the actual complexity. \
+A simple injection should have 2-3 steps; a multi-stage campaign should have 5-8. \
+Do NOT default to medium complexity for every scenario.
+
 ## Causal Chain Reframing
 If a causal chain is provided (threat, threat_source, vulnerability, \
 consequence, impact), reframe each field from policy-voice to adversarial-voice. \
@@ -382,7 +494,17 @@ probabilistic_control, defense_in_depth_claim
 - Labels should be action-oriented ("Inject malicious parameters") not \
 passive ("Parameters are injected").
 - The goal should be a concrete attacker objective specific to the use case, \
-not a generic restatement of the OWASP threat.\
+not a generic restatement of the OWASP threat.
+
+## Tree Complexity Calibration
+Match tree depth and branching to the actual complexity of the attack:
+- Simple, direct attacks: depth 2-3, 3-5 nodes. Single OR gate at root with \
+a few alternative approaches.
+- Multi-step attacks: depth 3-4, 5-8 nodes. Mix of AND (required steps) and \
+OR (alternative paths) gates.
+- Sophisticated campaigns: depth 4-5, 8-12 nodes. Deep AND chains with OR \
+alternatives at key decision points.
+Do NOT default to the same depth for every scenario.\
 """
 
 _CALL3_SYSTEM = """\
@@ -782,6 +904,7 @@ def _call_narrative(
     use_case: str,
     preferred_entry_point: str | None = None,
     excluded_entry_points: list[str] | None = None,
+    excluded_patterns: list[str] | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     causal_section = ""
     risk_ref = seed.risk_card_ref
@@ -822,6 +945,19 @@ def _call_narrative(
             )
         diversity_section = "\n".join(diversity_lines) + "\n"
 
+    # Build attack pattern diversity section
+    pattern_section = ""
+    if excluded_patterns:
+        pattern_section = (
+            "\n## Attack Pattern Diversity\n"
+            "Avoid these attack patterns which are already well-represented "
+            "in this batch:\n"
+            f"- Overused patterns: {', '.join(excluded_patterns)}\n"
+            "Find a DIFFERENT attack approach. Use a different vulnerability "
+            "mechanism, a different propagation path, or a different impact "
+            "chain. Creativity and variety are essential.\n"
+        )
+
     user_prompt = f"""\
 ## Use Case
 {use_case}
@@ -843,7 +979,7 @@ def _call_narrative(
 - OWASP LLM IDs: {seed.owasp_llm_ids}
 - Agentic Threat IDs: {seed.agentic_threat_ids}
 - ATLAS Technique IDs: {seed.atlas_technique_ids}
-{causal_section}{diversity_section}\
+{causal_section}{diversity_section}{pattern_section}\
 """
 
     result = client.complete(
@@ -1066,6 +1202,7 @@ def generate_scenario(
     use_case: str,
     preferred_entry_point: str | None = None,
     excluded_entry_points: list[str] | None = None,
+    excluded_patterns: list[str] | None = None,
 ) -> ScenarioEnvelope:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -1084,6 +1221,7 @@ def generate_scenario(
         use_case: Free-text description of the system under assessment.
         preferred_entry_point: Suggested entry point for diversity (hint, not enforced).
         excluded_entry_points: Entry points to avoid (already overused in this batch).
+        excluded_patterns: Attack pattern keywords to avoid (already overused in this batch).
     """
     call_metas: list[CallMetadata] = []
     scenario_hash = _scenario_hash(seed.seed_id, use_case)
@@ -1096,6 +1234,7 @@ def generate_scenario(
         use_case,
         preferred_entry_point=preferred_entry_point,
         excluded_entry_points=excluded_entry_points,
+        excluded_patterns=excluded_patterns,
     )
     call_metas.append(_call_metadata(CallName.narrative, result1))
 
