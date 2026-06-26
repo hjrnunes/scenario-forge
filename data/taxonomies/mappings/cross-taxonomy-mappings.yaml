@@ -526,6 +526,71 @@ t_to_nist:
     notes: "Both address the same supply chain threat vector"
 
 # ═══════════════════════════════════════════════════════════════════
+# T-threat → Capability Profile Direct Mappings
+#
+# These mappings allow T-threats that have no LLM Top 10 predecessor
+# to be reached directly via capability profile features, bypassing
+# the three-hop Risk Atlas → LLM → T-threat chain.
+#
+# Each entry specifies the capability profile conditions under which
+# the threat applies. The pipeline checks these conditions against
+# the Stage 1 profile fields (zones_active, has_persistent_memory,
+# multi_agent, hitl).
+#
+# Note: threat_gating.py already gates these threats — this mapping
+# is for the *reachability* path, not the gating decision. A threat
+# must pass BOTH gating AND this direct-match check to appear in the
+# threat surface via the direct path.
+# ═══════════════════════════════════════════════════════════════════
+
+t_direct:
+  - source: T7
+    source_name: "Misaligned & Deceptive Behaviors"
+    profile_match:
+      # Always applicable — any LLM/agent system with planning capability
+      min_zones: [1, 2]
+    notes: "Emerges from advanced reasoning in any agent with planning (zones 1+2). No LLM predecessor."
+
+  - source: T8
+    source_name: "Repudiation & Untraceability"
+    profile_match:
+      min_zones: [1, 2]
+    notes: "Autonomous operation creates forensics challenges for any agent system. No LLM predecessor."
+
+  - source: T9
+    source_name: "Identity Spoofing & Impersonation"
+    profile_match:
+      min_zones: [1, 2, 3]
+    notes: "Agent-to-agent/human identity spoofing requires tool execution capability. No LLM predecessor."
+
+  - source: T10
+    source_name: "Overwhelming Human in the Loop"
+    profile_match:
+      min_zones: [1, 2]
+      requires_hitl: true
+    notes: "HITL-specific threat — only relevant when human checkpoints exist. No LLM predecessor."
+
+  - source: T14
+    source_name: "Human Attacks on Multi-Agent Systems"
+    profile_match:
+      min_zones: [1, 2, 5]
+      requires_multi_agent: true
+    notes: "Multi-agent delegation chain attacks require inter-agent communication. No LLM predecessor."
+
+  - source: T15
+    source_name: "Human Manipulation"
+    profile_match:
+      min_zones: [1, 2]
+    notes: "AI-mediated social engineering applies to any agent with user interaction. No LLM predecessor."
+
+  - source: T16
+    source_name: "Insecure Inter-Agent Protocol Abuse"
+    profile_match:
+      min_zones: [1, 2, 3, 5]
+      requires_multi_agent: true
+    notes: "Protocol abuse (MCP/A2A) requires tool execution + inter-agent comms. No LLM predecessor."
+
+# ═══════════════════════════════════════════════════════════════════
 # Coverage analysis: which threats have no LLM Top 10 predecessor
 # (truly new to agentic AI)
 # ═══════════════════════════════════════════════════════════════════
