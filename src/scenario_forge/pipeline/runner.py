@@ -18,8 +18,10 @@ from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.generate import (
     assign_entry_point,
+    extract_narrative_keywords,
     generate_scenario,
     get_overused_entry_points,
+    get_overused_patterns,
     write_scenario_outputs,
 )
 from scenario_forge.pipeline.coverage import (
@@ -162,6 +164,8 @@ def run_pipeline(
 
     # Track entry point usage across the batch for diversity enforcement.
     entry_point_usage: Counter[str] = Counter()
+    # Track attack pattern keywords for narrative diversity enforcement.
+    pattern_usage: Counter[str] = Counter()
     total_seeds = len(seeds)
 
     for i, seed in enumerate(seeds, 1):
@@ -183,6 +187,7 @@ def run_pipeline(
             entry_point_usage,
             total_seeds,
         )
+        excluded_pats = get_overused_patterns(pattern_usage) or None
 
         try:
             envelope = generate_scenario(
@@ -192,12 +197,17 @@ def run_pipeline(
                 use_case,
                 preferred_entry_point=preferred_ep,
                 excluded_entry_points=excluded_eps or None,
+                excluded_patterns=excluded_pats,
             )
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             scenarios.append(envelope)
 
             # Track which entry point was actually chosen by the LLM.
             entry_point_usage[envelope.narrative.entry_point] += 1
+
+            # Track attack pattern keywords for diversity enforcement.
+            keywords = extract_narrative_keywords(envelope.narrative)
+            pattern_usage.update(keywords)
 
             notes = envelope.generation.notes or []
             generation_notes.extend(notes)
