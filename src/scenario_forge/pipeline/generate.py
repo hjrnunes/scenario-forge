@@ -359,6 +359,128 @@ def get_overused_patterns(
 
 
 # ---------------------------------------------------------------------------
+# Structural attack pattern diversity helpers
+# ---------------------------------------------------------------------------
+
+# Canonical attack phase vocabulary. Each narrative step action is mapped to
+# one of these phase labels based on keyword matching. The resulting sequence
+# of phase labels forms the structural pattern fingerprint.
+_PHASE_KEYWORDS: dict[str, list[str]] = {
+    "poison": ["poison", "taint", "corrupt", "contaminate", "inject false",
+               "plant false", "fabricat", "supply-chain"],
+    "inject": ["inject", "craft", "embed", "insert", "smuggle", "implant"],
+    "probe": ["probe", "reconn", "enumerate", "discover", "scan", "map",
+              "fingerprint", "survey"],
+    "hallucinate": ["hallucin", "confabulat", "fabricat", "generate false",
+                    "produce false", "make up", "invent"],
+    "exfiltrate": ["exfiltrat", "extract", "steal", "leak", "siphon",
+                   "harvest", "scrape", "dump"],
+    "persist": ["persist", "store", "memory", "cache", "retain", "embed in",
+                "long-term", "permanent"],
+    "escalate": ["escalat", "privilege", "elevat", "admin", "root",
+                 "lateral", "pivot"],
+    "bypass": ["bypass", "circumvent", "evade", "defeat", "overwhelm",
+               "fatigue", "exhaust", "fool", "trick review"],
+    "deny": ["deny", "denial", "flood", "overwhelm", "exhaust",
+             "degrade", "disrupt", "dos"],
+    "manipulate": ["manipulat", "alter", "modify", "tamper", "forge",
+                   "spoof", "impersonat"],
+}
+
+
+def extract_structural_pattern(narrative: NarrativeLayer) -> str:
+    """Extract the structural attack phase sequence from a narrative.
+
+    Maps each narrative step's action text to a canonical phase label
+    (e.g., "inject", "poison", "persist", "bypass") and returns them
+    joined with arrows: "inject->hallucinate->persist->bypass".
+
+    Steps that don't match any phase keyword are labeled "other".
+    Consecutive duplicate phases are collapsed (e.g., inject->inject
+    becomes just inject).
+
+    This captures the *shape* of the attack, not surface keywords.
+    Two scenarios with different titles but the same structural pattern
+    ("poison->hallucinate->persist->bypass") are flagged as convergent.
+    """
+    phases: list[str] = []
+    for step in narrative.steps:
+        action_lower = step.action.lower()
+        matched_phase = "other"
+        for phase, keywords in _PHASE_KEYWORDS.items():
+            if any(kw in action_lower for kw in keywords):
+                matched_phase = phase
+                break
+        # Collapse consecutive duplicates
+        if not phases or phases[-1] != matched_phase:
+            phases.append(matched_phase)
+
+    return "->".join(phases)
+
+
+def get_overused_structural_patterns(
+    structural_counts: Counter[str],
+    threshold: int = 2,
+) -> list[str]:
+    """Return structural attack patterns used more than *threshold* times.
+
+    Returns up to 3 most-used structural patterns. These are phase sequences
+    like "inject->hallucinate->persist->bypass".
+    """
+    overused = [
+        pattern for pattern, count in structural_counts.most_common()
+        if count > threshold and pattern != "other"
+    ]
+    return overused[:3]
+
+
+def _format_structural_exclusions(patterns: list[str]) -> str:
+    """Format overused structural patterns into a prompt-ready exclusion block.
+
+    Translates phase-arrow patterns into natural language descriptions
+    that the LLM can understand and avoid.
+    """
+    if not patterns:
+        return ""
+
+    _PHASE_DESCRIPTIONS: dict[str, str] = {
+        "poison": "poisoning/corrupting data",
+        "inject": "injecting malicious content",
+        "probe": "reconnaissance/probing",
+        "hallucinate": "causing hallucination/confabulation",
+        "exfiltrate": "exfiltrating/stealing data",
+        "persist": "persisting in memory/state",
+        "escalate": "privilege escalation/lateral movement",
+        "bypass": "bypassing human review/controls",
+        "deny": "denial of service/degradation",
+        "manipulate": "manipulating/tampering with data",
+        "other": "general attack action",
+    }
+
+    lines = []
+    for pattern in patterns:
+        phases = pattern.split("->")
+        described = [_PHASE_DESCRIPTIONS.get(p, p) for p in phases]
+        lines.append(f"  - {' then '.join(described)} ({pattern})")
+
+    return (
+        "\n## Structural Attack Pattern Diversity\n"
+        "The following attack STRUCTURES have already been used too many times "
+        "in this batch. Do NOT follow these same phase sequences — use a "
+        "fundamentally different attack approach:\n"
+        + "\n".join(lines) + "\n"
+        "Instead, try attack shapes like:\n"
+        "  - Direct exploitation without persistence\n"
+        "  - Reconnaissance before targeted strike\n"
+        "  - Denial of service or resource exhaustion\n"
+        "  - Privilege escalation through trust boundary confusion\n"
+        "  - Data exfiltration via side channels\n"
+        "Vary the structural attack approach — do not repeat the same "
+        "sequence of attack phases.\n"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Intermediate models for structured output (flattened for LLM reliability)
 # ---------------------------------------------------------------------------
 
@@ -430,13 +552,19 @@ reviewer, UI that buries alerts, time pressure) rather than simply asserting \
 Not all attacks are equally complex. Vary your narrative structure to reflect \
 the actual complexity of the specific attack being described:
 - LOW complexity: Single-step or direct attacks. Short zone sequence (1-2 zones). \
+No special access or privileges required. 2-3 narrative steps. \
 Example: A simple prompt injection via the chat interface that directly extracts \
-data (Zone 1 only).
-- MEDIUM complexity: Multi-step attacks crossing 2-3 zones. \
+data (Zone 1 only). Another example: direct jailbreak through the user input field.
+- MEDIUM complexity: Multi-step attacks crossing 2-3 zones. Some access or \
+system knowledge needed. 3-5 narrative steps. \
 Example: An attacker crafts a malicious prompt (Zone 1) that tricks the reasoning \
-engine (Zone 2) into calling a tool with attacker-controlled parameters (Zone 3).
+engine (Zone 2) into calling a tool with attacker-controlled parameters (Zone 3). \
+Another example: social engineering to gain limited access, then exploiting a \
+misconfigured API.
 - HIGH complexity: Multi-stage campaigns crossing 3-5 zones with persistence or \
-lateral movement. Example: A supply-chain attack that poisons a plugin (Zone 3), \
+lateral movement. Requires privileged access or chaining multiple vulnerabilities. \
+5-8 narrative steps. \
+Example: A supply-chain attack that poisons a plugin (Zone 3), \
 plants false data in memory (Zone 4), which later corrupts inter-agent \
 communication (Zone 5) when the tainted context is shared.
 - CRITICAL complexity: Sophisticated, multi-phase attacks that chain multiple \
@@ -444,7 +572,28 @@ independent vulnerabilities across most zones with evasion techniques.
 
 Match the zone_sequence length and number of steps to the actual complexity. \
 A simple injection should have 2-3 steps; a multi-stage campaign should have 5-8. \
-Do NOT default to medium complexity for every scenario.
+Do NOT default to high complexity for every scenario. Many real attacks are simple \
+and direct — reflect that honestly.
+
+## Risk Impact Calibration
+Match the impact severity to what the attack actually achieves, not to how \
+complex it is. Complexity and impact are independent dimensions:
+- LOW impact: Minor inconvenience affecting a single user. No data loss. \
+Easily reversible. Example: chatbot gives a wrong answer once, user corrects it.
+- MEDIUM impact: Data exposure or service disruption affecting multiple users. \
+Correctable with effort. Example: PII from one user leaked in a chat response; \
+temporary denial of service.
+- HIGH impact: Financial loss, regulatory breach, or persistent data corruption \
+affecting many users. Example: tainted RAG data causes systematically wrong \
+financial advice; GDPR-reportable data exposure.
+- CRITICAL impact: Systemic compromise with organizational-level damage. \
+Cascading failures across systems. Example: supply chain attack corrupts all \
+agent outputs enterprise-wide; complete loss of AI system integrity.
+A simple attack can have critical impact (e.g., one prompt injection leaks \
+the entire customer database). A complex attack can have low impact (e.g., \
+multi-stage attack only degrades one user's experience temporarily). \
+Distribute scores — not every scenario is high complexity or medium impact. \
+Match the score to the actual attack described.
 
 ## Causal Chain Reframing
 If a causal chain is provided (threat, threat_source, vulnerability, \
@@ -794,32 +943,143 @@ def _heuristic_technique_maturity(attack_tree: AttackTree | None) -> TechniqueMa
         return TechniqueMaturity.feasible
 
 
-def _heuristic_risk_impact(seed: ScenarioSeed) -> SeverityLevel:
-    """Derive risk impact from causal chain impact field if available."""
+def _heuristic_risk_impact(
+    seed: ScenarioSeed,
+    narrative: NarrativeLayer | None = None,
+    attack_tree: AttackTree | None = None,
+) -> SeverityLevel:
+    """Derive risk impact from multiple signals for calibrated spread.
+
+    Uses a multi-signal approach to avoid flat "medium" for everything:
+    1. Causal chain impact text (keyword matching)
+    2. Zone breadth from narrative (more zones = wider blast radius)
+    3. Attack tree structural exposure signals (single-point-of-failure = critical)
+    4. Consequence text analysis (financial, regulatory, systemic keywords)
+
+    Concrete anchor criteria:
+    - LOW: minor inconvenience, single user affected, no data loss,
+      easily reversible (e.g., chatbot gives wrong answer once)
+    - MEDIUM: data exposure affecting multiple users, temporary service
+      disruption, correctable with effort (e.g., PII leaked to one user)
+    - HIGH: financial loss, regulatory breach, persistent data corruption,
+      multi-user impact (e.g., tainted RAG data causes wrong financial advice)
+    - CRITICAL: systemic compromise, organizational-level damage, cascading
+      failures across systems (e.g., supply chain attack corrupts all agent
+      outputs enterprise-wide)
+    """
+    score = 0.0  # Accumulate evidence; map to level at end
+
+    # Signal 1: Impact text from risk card
     impact_text = (
         getattr(seed.risk_card_ref, "impact", None) if seed.risk_card_ref else None
     )
-    if not impact_text:
-        return SeverityLevel.medium
-    lower = impact_text.lower()
-    if any(kw in lower for kw in ("severe", "critical", "catastrophic")):
+    if impact_text:
+        lower = impact_text.lower()
+        if any(kw in lower for kw in ("severe", "critical", "catastrophic",
+                                       "systemic", "enterprise", "cascading")):
+            score += 1.0
+        elif any(kw in lower for kw in ("significant", "major", "serious",
+                                         "financial", "regulatory", "breach")):
+            score += 0.7
+        elif any(kw in lower for kw in ("minor", "minimal", "negligible",
+                                         "inconvenience", "temporary")):
+            score += 0.1
+        else:
+            score += 0.4  # Generic impact text -> lean toward medium
+
+    # Signal 2: Consequence text (richer vocabulary than impact)
+    consequence_text = (
+        getattr(seed.risk_card_ref, "consequence", None) if seed.risk_card_ref else None
+    )
+    if consequence_text:
+        lower = consequence_text.lower()
+        if any(kw in lower for kw in ("all users", "organization", "enterprise",
+                                       "supply chain", "cascading", "systemic")):
+            score += 0.4
+        elif any(kw in lower for kw in ("multiple users", "financial", "legal",
+                                         "regulatory", "compliance", "persistent")):
+            score += 0.25
+        elif any(kw in lower for kw in ("single user", "one session",
+                                         "temporary", "reversible")):
+            score += 0.05
+
+    # Signal 3: Zone breadth from narrative (blast radius proxy)
+    if narrative:
+        distinct_zones = len(set(narrative.zone_sequence))
+        if distinct_zones >= 4:
+            score += 0.3  # Wide blast radius
+        elif distinct_zones >= 3:
+            score += 0.15
+        elif distinct_zones == 1:
+            score -= 0.1  # Contained to single zone
+
+    # Signal 4: Structural exposure from attack tree
+    if attack_tree:
+        exposures = _extract_structural_exposures_from_tree(attack_tree.root)
+        if "single_point_of_failure" in exposures:
+            score += 0.3
+        elif "convergence_point" in exposures:
+            score += 0.2
+
+    # Map accumulated score to severity level
+    if score >= 0.9:
         return SeverityLevel.critical
-    if any(kw in lower for kw in ("significant", "major", "serious")):
+    if score >= 0.6:
         return SeverityLevel.high
-    if any(kw in lower for kw in ("minor", "minimal", "negligible")):
-        return SeverityLevel.low
-    return SeverityLevel.medium
+    if score >= 0.3:
+        return SeverityLevel.medium
+    return SeverityLevel.low
 
 
-def _heuristic_attack_complexity(attack_tree: AttackTree | None) -> AttackComplexity:
-    """Derive attack complexity from attack tree total node count."""
+def _heuristic_attack_complexity(
+    attack_tree: AttackTree | None,
+    narrative: NarrativeLayer | None = None,
+) -> AttackComplexity:
+    """Derive attack complexity from attack tree structure and narrative.
+
+    Uses multiple signals to create spread instead of locking at "high":
+    1. Attack tree node count (primary signal)
+    2. Attack tree depth (secondary signal)
+    3. Zone sequence length from narrative (corroborating signal)
+
+    Concrete anchor criteria:
+    - LOW: Single-step or direct attack; 1-3 tree nodes; 1-2 zones;
+      no special access required (e.g., simple prompt injection via
+      chat input that directly extracts data)
+    - MEDIUM: Multi-step attack; 4-7 tree nodes; 2-3 zones; some
+      access or knowledge needed (e.g., crafted prompt tricks reasoning
+      engine into calling a tool with attacker-controlled parameters)
+    - HIGH: Multi-stage campaign; 8+ tree nodes AND depth 4+; 3+ zones;
+      privileged access, persistence, or lateral movement (e.g., supply
+      chain attack that poisons a plugin, persists in memory, and corrupts
+      inter-agent communication)
+    """
     if attack_tree is None:
+        # No tree: fall back to narrative zone count if available
+        if narrative:
+            zones = len(set(narrative.zone_sequence))
+            if zones >= 4:
+                return AttackComplexity.high
+            if zones >= 2:
+                return AttackComplexity.medium
+            return AttackComplexity.low
         return AttackComplexity.medium
+
     count = _tree_node_count(attack_tree.root)
-    if count >= 8:
+    depth = _tree_depth(attack_tree.root)
+
+    # Use both node count AND depth to avoid inflated complexity.
+    # An LLM that generates a wide-but-shallow tree (many nodes, depth 2)
+    # should not get "high" — it's breadth, not depth of attack.
+    if count >= 8 and depth >= 4:
         return AttackComplexity.high
-    if count >= 4:
+    if count >= 4 and depth >= 3:
         return AttackComplexity.medium
+    if count >= 4 or depth >= 3:
+        # One signal says medium but not both — use narrative as tiebreaker
+        if narrative and len(set(narrative.zone_sequence)) >= 3:
+            return AttackComplexity.medium
+        return AttackComplexity.low
     return AttackComplexity.low
 
 
@@ -900,9 +1160,9 @@ def _compute_priority(
 
     signals = PrioritySignals(
         technique_maturity=_heuristic_technique_maturity(attack_tree),
-        risk_impact=_heuristic_risk_impact(seed),
+        risk_impact=_heuristic_risk_impact(seed, narrative, attack_tree),
         risk_likelihood=_heuristic_risk_likelihood(narrative),
-        attack_complexity=_heuristic_attack_complexity(attack_tree),
+        attack_complexity=_heuristic_attack_complexity(attack_tree, narrative),
         architecture_match=ArchitectureMatch.explicit,
         structural_exposure=exposure,
     )
@@ -963,6 +1223,7 @@ def _call_narrative(
     preferred_entry_point: str | None = None,
     excluded_entry_points: list[str] | None = None,
     excluded_patterns: list[str] | None = None,
+    excluded_structural_patterns: list[str] | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     causal_section = ""
     risk_ref = seed.risk_card_ref
@@ -1016,6 +1277,13 @@ def _call_narrative(
             "chain. Creativity and variety are essential.\n"
         )
 
+    # Build structural pattern diversity section
+    structural_section = ""
+    if excluded_structural_patterns:
+        structural_section = _format_structural_exclusions(
+            excluded_structural_patterns
+        )
+
     user_prompt = f"""\
 ## Use Case
 {use_case}
@@ -1037,7 +1305,7 @@ def _call_narrative(
 - OWASP LLM IDs: {seed.owasp_llm_ids}
 - Agentic Threat IDs: {seed.agentic_threat_ids}
 - ATLAS Technique IDs: {seed.atlas_technique_ids}
-{causal_section}{diversity_section}{pattern_section}\
+{causal_section}{diversity_section}{pattern_section}{structural_section}\
 """
 
     result = client.complete(
@@ -1261,6 +1529,7 @@ def generate_scenario(
     preferred_entry_point: str | None = None,
     excluded_entry_points: list[str] | None = None,
     excluded_patterns: list[str] | None = None,
+    excluded_structural_patterns: list[str] | None = None,
 ) -> ScenarioEnvelope:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -1280,6 +1549,8 @@ def generate_scenario(
         preferred_entry_point: Suggested entry point for diversity (hint, not enforced).
         excluded_entry_points: Entry points to avoid (already overused in this batch).
         excluded_patterns: Attack pattern keywords to avoid (already overused in this batch).
+        excluded_structural_patterns: Structural attack phase sequences to avoid
+            (e.g., "inject->hallucinate->persist->bypass").
     """
     call_metas: list[CallMetadata] = []
     scenario_hash = _scenario_hash(seed.seed_id, use_case)
@@ -1293,6 +1564,7 @@ def generate_scenario(
         preferred_entry_point=preferred_entry_point,
         excluded_entry_points=excluded_entry_points,
         excluded_patterns=excluded_patterns,
+        excluded_structural_patterns=excluded_structural_patterns,
     )
     call_metas.append(_call_metadata(CallName.narrative, result1))
 
