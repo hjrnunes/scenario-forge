@@ -15,6 +15,9 @@ Covers:
   - Unknown attacker model
   - Empty scenarios list
 - Coverage report output
+- Coverage remediation (scenario-forge-5gs):
+  - _pick_best_seed_for_entry_point selection
+  - _remediate_coverage_gaps full flow
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -60,6 +64,11 @@ from scenario_forge.pipeline.coverage import (
     classify_attacker_model,
     write_coverage_report,
 )
+from scenario_forge.pipeline.runner import (
+    _pick_best_seed_for_entry_point,
+    _remediate_coverage_gaps,
+)
+from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
 
 
@@ -872,3 +881,181 @@ class TestWriteCoverageReport:
         data = json.loads(path.read_text())
         assert data["attacker_diversity"]["dominant_model"] == "external_attacker"
         assert data["attacker_diversity"]["is_flagged"] is False
+
+
+# ---------------------------------------------------------------------------
+# Coverage remediation tests (scenario-forge-5gs)
+# ---------------------------------------------------------------------------
+
+
+def _make_seed(
+    seed_id: str = "T1-S1",
+    threat_id: str = "T1",
+    threat_name: str = "Prompt Injection",
+    agentic_threat_ids: list[str] | None = None,
+) -> ScenarioSeed:
+    """Build a minimal valid ScenarioSeed for testing."""
+    if agentic_threat_ids is None:
+        agentic_threat_ids = [threat_id]
+    return ScenarioSeed(
+        seed_id=seed_id,
+        threat_id=threat_id,
+        threat_name=threat_name,
+        sub_scenario_name=f"Sub-scenario for {threat_name}",
+        sub_scenario_description=f"Description of {threat_name} sub-scenario.",
+        risk_card_ref=_make_risk_card_ref(),
+        contributing_risk_cards=[_make_risk_card_ref()],
+        owasp_llm_ids=["LLM01"],
+        agentic_threat_ids=agentic_threat_ids,
+    )
+
+
+class TestPickBestSeedForEntryPoint:
+    """Tests for _pick_best_seed_for_entry_point."""
+
+    def test_returns_none_for_empty_seeds(self):
+        profile = _make_profile()
+        result = _pick_best_seed_for_entry_point("chat input (zone 1)", [], profile)
+        assert result is None
+
+    def test_returns_only_seed_when_one_available(self):
+        profile = _make_profile()
+        seed = _make_seed()
+        result = _pick_best_seed_for_entry_point("chat input (zone 1)", [seed], profile)
+        assert result is seed
+
+    def test_returns_a_seed_from_multiple(self):
+        """With multiple seeds, should return one of them (not None)."""
+        profile = _make_profile(zones_active=[1, 2, 3])
+        seeds = [
+            _make_seed(seed_id="T1-S1", threat_id="T1"),
+            _make_seed(seed_id="T2-S1", threat_id="T2"),
+            _make_seed(seed_id="T3-S1", threat_id="T3"),
+        ]
+        result = _pick_best_seed_for_entry_point(
+            "admin console (zone 2)", seeds, profile
+        )
+        assert result is not None
+        assert result in seeds
+
+
+class TestRemediateCoverageGaps:
+    """Tests for _remediate_coverage_gaps."""
+
+    def test_no_uncovered_entry_points_returns_empty(self, tmp_path: Path):
+        """When there are no uncovered entry points, nothing happens."""
+        gaps = CoverageGaps(uncovered_entry_points=[])
+        profile = _make_profile()
+        client = MagicMock()
+
+        scenarios, notes = _remediate_coverage_gaps(
+            gaps, [_make_seed()], profile, client, "test use case", tmp_path
+        )
+        assert scenarios == []
+        assert notes == []
+
+    def test_no_seeds_records_skip_note(self, tmp_path: Path):
+        """When seeds are empty, each uncovered EP gets a skip note."""
+        gaps = CoverageGaps(uncovered_entry_points=["chat input (zone 1)"])
+        profile = _make_profile()
+        client = MagicMock()
+
+        scenarios, notes = _remediate_coverage_gaps(
+            gaps, [], profile, client, "test use case", tmp_path
+        )
+        assert scenarios == []
+        assert len(notes) == 1
+        assert "no seeds available" in notes[0]
+
+    @patch("scenario_forge.pipeline.runner.generate_scenario")
+    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    def test_generates_scenario_for_each_uncovered_ep(
+        self, mock_write, mock_generate, tmp_path: Path
+    ):
+        """Each uncovered entry point should trigger one generate_scenario call."""
+        uncovered = ["chat input (zone 1)", "admin dashboard (zone 2)"]
+        gaps = CoverageGaps(uncovered_entry_points=uncovered)
+        profile = _make_profile(
+            entry_points=["existing ep", "chat input (zone 1)", "admin dashboard (zone 2)"],
+            zones_active=[1, 2],
+        )
+        seeds = [_make_seed(seed_id="T1-S1"), _make_seed(seed_id="T2-S1")]
+        client = MagicMock()
+
+        # Create mock envelopes for each uncovered EP.
+        mock_envelopes = []
+        for ep in uncovered:
+            env = _make_envelope(entry_point=ep)
+            mock_envelopes.append(env)
+
+        mock_generate.side_effect = mock_envelopes
+        mock_write.return_value = (tmp_path / "test.yaml", None)
+
+        scenarios, notes = _remediate_coverage_gaps(
+            gaps, seeds, profile, client, "test use case", tmp_path
+        )
+
+        assert len(scenarios) == 2
+        assert mock_generate.call_count == 2
+
+        # Verify each call used the correct preferred_entry_point.
+        for i, ep in enumerate(uncovered):
+            call_kwargs = mock_generate.call_args_list[i]
+            assert call_kwargs.kwargs.get("preferred_entry_point") == ep
+
+    @patch("scenario_forge.pipeline.runner.generate_scenario")
+    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    def test_handles_generation_failure_gracefully(
+        self, mock_write, mock_generate, tmp_path: Path
+    ):
+        """When generate_scenario raises, we record a note and continue."""
+        gaps = CoverageGaps(
+            uncovered_entry_points=["ep-fail (zone 1)", "ep-ok (zone 2)"]
+        )
+        profile = _make_profile(zones_active=[1, 2])
+        seeds = [_make_seed()]
+        client = MagicMock()
+
+        # First call fails, second succeeds.
+        ok_envelope = _make_envelope(entry_point="ep-ok (zone 2)")
+        mock_generate.side_effect = [
+            RuntimeError("LLM timeout"),
+            ok_envelope,
+        ]
+        mock_write.return_value = (tmp_path / "test.yaml", None)
+
+        scenarios, notes = _remediate_coverage_gaps(
+            gaps, seeds, profile, client, "test use case", tmp_path
+        )
+
+        assert len(scenarios) == 1
+        assert scenarios[0] is ok_envelope
+        assert len(notes) == 1
+        assert "Remediation generation failed" in notes[0]
+        assert "ep-fail (zone 1)" in notes[0]
+
+    @patch("scenario_forge.pipeline.runner.generate_scenario")
+    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    def test_passes_seed_and_profile_to_generate(
+        self, mock_write, mock_generate, tmp_path: Path
+    ):
+        """Verify generate_scenario receives the correct seed, profile, and use_case."""
+        gaps = CoverageGaps(uncovered_entry_points=["api gateway (zone 3)"])
+        profile = _make_profile(zones_active=[1, 2, 3])
+        seed = _make_seed(seed_id="T5-S1")
+        client = MagicMock()
+
+        mock_envelope = _make_envelope(entry_point="api gateway (zone 3)")
+        mock_generate.return_value = mock_envelope
+        mock_write.return_value = (tmp_path / "test.yaml", None)
+
+        _remediate_coverage_gaps(
+            gaps, [seed], profile, client, "my use case", tmp_path
+        )
+
+        call_args = mock_generate.call_args
+        assert call_args.args[0] is seed  # seed
+        assert call_args.args[1] is profile  # profile
+        assert call_args.args[2] is client  # client
+        assert call_args.args[3] == "my use case"  # use_case
+        assert call_args.kwargs["preferred_entry_point"] == "api gateway (zone 3)"
