@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+import re
+import unicodedata
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,6 +54,93 @@ from scenario_forge.pipeline.seeds import ScenarioSeed
 logger = logging.getLogger(__name__)
 
 _GENERATOR_VERSION = "0.1.0"
+
+
+# ---------------------------------------------------------------------------
+# Non-Latin script sanitization
+# ---------------------------------------------------------------------------
+
+
+def _is_latin_or_common(char: str) -> bool:
+    """Return True if a character is Latin, Common, or Inherited script."""
+    # ASCII printable and whitespace are always kept
+    if char.isascii():
+        return True
+    # Use Unicode character name to detect Latin letters
+    name = unicodedata.name(char, "")
+    # Common punctuation/symbols/digits — keep
+    cat = unicodedata.category(char)
+    if cat[0] in ("P", "S", "N", "Z"):
+        return True
+    # Latin letters (accented, extended) have "LATIN" in their Unicode name
+    if "LATIN" in name:
+        return True
+    return False
+
+
+def _sanitize_non_latin(text: str) -> str:
+    """Remove non-Latin script characters that leak into English output.
+
+    CJK, Cyrillic, Arabic, and other non-Latin characters are stripped.
+    Accented Latin characters (French/Spanish/etc.) are preserved.
+    ASCII and common punctuation/symbols are always preserved.
+    Multiple consecutive spaces left after removal are collapsed.
+
+    Returns the cleaned text.
+    """
+    if not text:
+        return text
+    cleaned = "".join(ch for ch in text if _is_latin_or_common(ch))
+    # Collapse runs of spaces (but preserve newlines and other whitespace)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    # Strip leading/trailing space from each line
+    cleaned = "\n".join(line.strip() for line in cleaned.split("\n"))
+    return cleaned.strip()
+
+
+def _sanitize_narrative(narrative: NarrativeLayer) -> NarrativeLayer:
+    """Apply non-Latin sanitization to narrative text fields.
+
+    Logs a warning when sanitization modifies any field.
+    Returns a (possibly modified) copy of the narrative.
+    """
+    changed = False
+    title = _sanitize_non_latin(narrative.title)
+    summary = _sanitize_non_latin(narrative.summary)
+
+    if title != narrative.title or summary != narrative.summary:
+        changed = True
+
+    new_steps = []
+    for step in narrative.steps:
+        action = _sanitize_non_latin(step.action)
+        effect = _sanitize_non_latin(step.effect)
+        if action != step.action or effect != step.effect:
+            changed = True
+        new_steps.append(
+            NarrativeStep(
+                step_number=step.step_number,
+                zone=step.zone,
+                action=action,
+                effect=effect,
+                control_point=step.control_point,
+            )
+        )
+
+    if changed:
+        logger.warning(
+            "Sanitized non-Latin characters from narrative fields "
+            "(CJK/Cyrillic/Arabic leak from LLM output)"
+        )
+        return NarrativeLayer(
+            title=title,
+            summary=summary,
+            entry_point=narrative.entry_point,
+            zone_sequence=narrative.zone_sequence,
+            steps=new_steps,
+            causal_chain_reframed=narrative.causal_chain_reframed,
+        )
+    return narrative
 
 
 # ---------------------------------------------------------------------------
@@ -718,6 +807,7 @@ def _call_narrative(
         response_format=Call1Response,
     )
     narrative = _map_call1_to_narrative(result.content)
+    narrative = _sanitize_narrative(narrative)
     return narrative, result
 
 
