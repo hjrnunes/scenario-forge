@@ -551,22 +551,26 @@ reviewer, UI that buries alerts, time pressure) rather than simply asserting \
 ## Attack Complexity Calibration
 Not all attacks are equally complex. Vary your narrative structure to reflect \
 the actual complexity of the specific attack being described:
-- LOW complexity: Single-step or direct attacks. Short zone sequence (1-2 zones). \
-No special access or privileges required. 2-3 narrative steps. \
+- LOW complexity: Single-step or direct attacks with no deep chaining. Short \
+zone sequence (1-2 zones). No special access or privileges required. 2-3 \
+narrative steps. Shallow attack tree (depth 1-2, up to 4 nodes). \
 Example: A simple prompt injection via the chat interface that directly extracts \
 data (Zone 1 only). Another example: direct jailbreak through the user input field.
 - MEDIUM complexity: Multi-step attacks crossing 2-3 zones. Some access or \
-system knowledge needed. 3-5 narrative steps. \
+system knowledge needed. 3-5 narrative steps. Moderate tree depth (3) with \
+5-7 nodes. \
 Example: An attacker crafts a malicious prompt (Zone 1) that tricks the reasoning \
 engine (Zone 2) into calling a tool with attacker-controlled parameters (Zone 3). \
 Another example: social engineering to gain limited access, then exploiting a \
 misconfigured API.
-- HIGH complexity: Multi-stage campaigns crossing 3-5 zones with persistence or \
-lateral movement. Requires privileged access or chaining multiple vulnerabilities. \
-5-8 narrative steps. \
+- HIGH complexity: Multi-stage campaigns with deep attack trees (depth 4+) OR \
+wide attack surfaces (8+ nodes with many alternative exploitation paths). \
+Crossing 3-5 zones with persistence or lateral movement. Requires privileged \
+access or chaining multiple vulnerabilities. 5-8 narrative steps. \
 Example: A supply-chain attack that poisons a plugin (Zone 3), \
 plants false data in memory (Zone 4), which later corrupts inter-agent \
-communication (Zone 5) when the tainted context is shared.
+communication (Zone 5) when the tainted context is shared. Another example: \
+an attack with 8+ alternative entry vectors across multiple API surfaces.
 - CRITICAL complexity: Sophisticated, multi-phase attacks that chain multiple \
 independent vulnerabilities across most zones with evasion techniques.
 
@@ -1037,22 +1041,24 @@ def _heuristic_attack_complexity(
 ) -> AttackComplexity:
     """Derive attack complexity from attack tree structure and narrative.
 
-    Uses multiple signals to create spread instead of locking at "high":
-    1. Attack tree node count (primary signal)
-    2. Attack tree depth (secondary signal)
-    3. Zone sequence length from narrative (corroborating signal)
+    Three-tier heuristic producing low/medium/high spread:
+    1. Attack tree node count and depth (primary signals)
+    2. Zone sequence length from narrative (fallback when no tree)
 
     Concrete anchor criteria:
-    - LOW: Single-step or direct attack; 1-3 tree nodes; 1-2 zones;
-      no special access required (e.g., simple prompt injection via
-      chat input that directly extracts data)
-    - MEDIUM: Multi-step attack; 4-7 tree nodes; 2-3 zones; some
-      access or knowledge needed (e.g., crafted prompt tricks reasoning
-      engine into calling a tool with attacker-controlled parameters)
-    - HIGH: Multi-stage campaign; 8+ tree nodes AND depth 4+; 3+ zones;
-      privileged access, persistence, or lateral movement (e.g., supply
-      chain attack that poisons a plugin, persists in memory, and corrupts
-      inter-agent communication)
+    - LOW: Simple single-step or direct attack; tree depth <= 2 AND
+      node count <= 4; 1-2 zones; no special access required
+      (e.g., simple prompt injection via chat input, direct jailbreak)
+    - MEDIUM: Multi-step attack crossing 2-3 zones; moderate tree
+      depth and node count (default for anything between low and high)
+      (e.g., crafted prompt tricks reasoning into calling a tool with
+      attacker-controlled parameters)
+    - HIGH: Multi-stage campaign with deep trees OR wide attack surfaces;
+      either node count >= 8 OR tree depth >= 4; privileged access,
+      persistence, or lateral movement (e.g., supply chain attack that
+      poisons a plugin, persists in memory, and corrupts inter-agent
+      communication; OR a wide attack surface with many alternative
+      exploitation paths)
     """
     if attack_tree is None:
         # No tree: fall back to narrative zone count if available
@@ -1068,19 +1074,16 @@ def _heuristic_attack_complexity(
     count = _tree_node_count(attack_tree.root)
     depth = _tree_depth(attack_tree.root)
 
-    # Use both node count AND depth to avoid inflated complexity.
-    # An LLM that generates a wide-but-shallow tree (many nodes, depth 2)
-    # should not get "high" — it's breadth, not depth of attack.
-    if count >= 8 and depth >= 4:
-        return AttackComplexity.high
-    if count >= 4 and depth >= 3:
-        return AttackComplexity.medium
-    if count >= 4 or depth >= 3:
-        # One signal says medium but not both — use narrative as tiebreaker
-        if narrative and len(set(narrative.zone_sequence)) >= 3:
-            return AttackComplexity.medium
+    # Low: shallow AND small — simple, direct attacks
+    if depth <= 2 and count <= 4:
         return AttackComplexity.low
-    return AttackComplexity.low
+
+    # High: deep trees OR wide attack surfaces — either signal suffices
+    if count >= 8 or depth >= 4:
+        return AttackComplexity.high
+
+    # Medium: everything in between
+    return AttackComplexity.medium
 
 
 def _heuristic_risk_likelihood(narrative: NarrativeLayer) -> str:

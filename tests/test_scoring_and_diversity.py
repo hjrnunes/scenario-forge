@@ -238,13 +238,29 @@ def _make_tree_simple(nodes: int, depth: int) -> AttackTree:
 
 
 class TestHeuristicAttackComplexity:
-    """Bead 9zz: attack_complexity should produce spread, not lock at high."""
+    """Bead 9zz/o3k: attack_complexity three-tier heuristic with low/medium/high spread."""
+
+    # --- Low complexity tier ---
 
     def test_small_shallow_tree_is_low(self):
-        """3 nodes, depth 2 -> low complexity."""
+        """3 nodes, depth 2 -> low complexity (shallow AND small)."""
         tree = _make_tree_simple(nodes=3, depth=2)
         result = _heuristic_attack_complexity(tree)
         assert result == AttackComplexity.low
+
+    def test_single_node_tree_is_low(self):
+        """1 node, depth 1 -> low complexity (trivial tree)."""
+        tree = _make_tree_simple(nodes=1, depth=1)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.low
+
+    def test_four_nodes_depth_two_is_low(self):
+        """4 nodes, depth 2 -> low complexity (boundary: depth<=2 AND count<=4)."""
+        tree = _make_tree_simple(nodes=4, depth=2)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.low
+
+    # --- Medium complexity tier ---
 
     def test_medium_tree_is_medium(self):
         """5 nodes, depth 3 -> medium complexity."""
@@ -252,17 +268,40 @@ class TestHeuristicAttackComplexity:
         result = _heuristic_attack_complexity(tree)
         assert result == AttackComplexity.medium
 
+    def test_seven_nodes_depth_three_is_medium(self):
+        """7 nodes, depth 3 -> medium (below high thresholds)."""
+        tree = _make_tree_simple(nodes=7, depth=3)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.medium
+
+    def test_five_nodes_depth_three_is_medium(self):
+        """5 nodes, depth 3 -> medium (above low thresholds but below high)."""
+        tree = _make_tree_simple(nodes=5, depth=3)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.medium
+
+    # --- High complexity tier ---
+
     def test_large_deep_tree_is_high(self):
-        """10 nodes, depth 4 -> high complexity."""
+        """10 nodes, depth 4 -> high complexity (both signals)."""
         tree = _make_tree_simple(nodes=10, depth=4)
         result = _heuristic_attack_complexity(tree)
         assert result == AttackComplexity.high
 
-    def test_wide_shallow_tree_not_high(self):
-        """Many nodes but shallow depth should NOT be high complexity.
+    def test_deep_tree_is_high(self):
+        """5 nodes, depth 4 -> high complexity (depth >= 4 alone suffices).
 
-        This is the key regression test for 9zz — previously 8+ nodes
-        always yielded high, even if the tree was only depth 2.
+        Bead o3k: deep trees qualify for high even without many nodes.
+        """
+        tree = _make_tree_simple(nodes=5, depth=4)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.high
+
+    def test_wide_tree_is_high(self):
+        """Wide attack surface with 8+ nodes qualifies as high.
+
+        Bead o3k: node_count >= 8 alone suffices for high complexity.
+        Many alternative exploitation paths represent a wide attack surface.
         """
         # Build a wide but shallow tree: 10 nodes, depth 2
         children = [
@@ -274,12 +313,19 @@ class TestHeuristicAttackComplexity:
         )
         tree = AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
         result = _heuristic_attack_complexity(tree)
-        # 10 nodes but depth 2 — should NOT be high
-        assert result != AttackComplexity.high
+        # 10 nodes -> high (wide attack surface)
+        assert result == AttackComplexity.high
+
+    def test_eight_nodes_boundary_is_high(self):
+        """Exactly 8 nodes, depth 3 -> high (node_count >= 8 triggers high)."""
+        tree = _make_tree_simple(nodes=8, depth=3)
+        result = _heuristic_attack_complexity(tree)
+        assert result == AttackComplexity.high
+
+    # --- Narrative fallback (no tree) ---
 
     def test_no_tree_uses_narrative_fallback(self):
         """Without a tree, narrative zone count determines complexity."""
-        narrative_1zone = _make_narrative()
         narrative_1zone_obj = NarrativeLayer(
             title="T", summary="S", entry_point="ep",
             zone_sequence=[1],
@@ -287,6 +333,26 @@ class TestHeuristicAttackComplexity:
         )
         result = _heuristic_attack_complexity(None, narrative_1zone_obj)
         assert result == AttackComplexity.low
+
+    def test_no_tree_many_zones_is_high(self):
+        """Without a tree, 4+ zones -> high complexity."""
+        narrative = NarrativeLayer(
+            title="T", summary="S", entry_point="ep",
+            zone_sequence=[1, 2, 3, 4],
+            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+        )
+        result = _heuristic_attack_complexity(None, narrative)
+        assert result == AttackComplexity.high
+
+    def test_no_tree_two_zones_is_medium(self):
+        """Without a tree, 2-3 zones -> medium complexity."""
+        narrative = NarrativeLayer(
+            title="T", summary="S", entry_point="ep",
+            zone_sequence=[1, 2],
+            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+        )
+        result = _heuristic_attack_complexity(None, narrative)
+        assert result == AttackComplexity.medium
 
 
 class TestHeuristicRiskImpact:
