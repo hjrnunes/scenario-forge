@@ -653,6 +653,52 @@ def _heuristic_risk_likelihood(narrative: NarrativeLayer) -> str:
     return "low"
 
 
+def _continuous_zone_score(narrative: NarrativeLayer) -> float:
+    """Continuous zone traversal score in [0, 1].
+
+    Uses both the number of distinct zones and the length of the zone
+    sequence to produce a fine-grained value instead of coarse buckets.
+    """
+    distinct = len(set(narrative.zone_sequence))
+    length = len(narrative.zone_sequence)
+    # distinct zones: 1-5 mapped to 0.2-1.0
+    zone_breadth = min(distinct / 5.0, 1.0)
+    # sequence length: longer paths get a small bonus (capped at 10 steps)
+    path_depth = min(length / 10.0, 1.0)
+    # Blend: breadth is primary (70%), path depth adds differentiation (30%)
+    return 0.7 * zone_breadth + 0.3 * path_depth
+
+
+def _continuous_tree_complexity_score(attack_tree: AttackTree | None) -> float:
+    """Continuous attack tree complexity score in [0, 1].
+
+    Blends tree depth and node count for fine-grained differentiation.
+    """
+    if attack_tree is None:
+        return 0.3  # default for missing tree
+    depth = _tree_depth(attack_tree.root)
+    nodes = _tree_node_count(attack_tree.root)
+    # depth: 1-5 mapped to 0.2-1.0
+    depth_score = min(depth / 5.0, 1.0)
+    # nodes: 1-12 mapped to ~0.08-1.0 (diminishing returns past 12)
+    node_score = min(nodes / 12.0, 1.0)
+    # Blend depth (40%) and node count (60%)
+    return 0.4 * depth_score + 0.6 * node_score
+
+
+def _continuous_technique_maturity_score(attack_tree: AttackTree | None) -> float:
+    """Continuous technique maturity score in [0, 1].
+
+    Uses tree depth as a continuous proxy for maturity, with the
+    categorical mapping as anchor points.
+    """
+    if attack_tree is None:
+        return 0.5  # feasible default
+    depth = _tree_depth(attack_tree.root)
+    # Map depth 1-5 to a continuous range: 0.3 (theoretical) to 0.9
+    return min(0.3 + (depth - 1) * 0.15, 1.0)
+
+
 def _compute_priority(
     narrative: NarrativeLayer,
     attack_tree: AttackTree | None,
@@ -681,19 +727,8 @@ def _compute_priority(
         structural_exposure=exposure,
     )
 
-    weights = {
-        "technique_maturity": 0.15,
-        "risk_impact": 0.25,
-        "risk_likelihood": 0.20,
-        "attack_complexity": 0.15,
-        "architecture_match": 0.10,
-        "structural_exposure": 0.15,
-    }
+    # Categorical score map for signals that lack continuous proxies
     score_map = {
-        "theoretical": 0.3,
-        "feasible": 0.5,
-        "demonstrated": 0.75,
-        "realized": 1.0,
         "critical": 1.0,
         "high": 0.8,
         "medium": 0.5,
@@ -708,13 +743,23 @@ def _compute_priority(
         "none": 0.2,
     }
 
+    weights = {
+        "technique_maturity": 0.15,
+        "risk_impact": 0.25,
+        "risk_likelihood": 0.20,
+        "attack_complexity": 0.15,
+        "architecture_match": 0.10,
+        "structural_exposure": 0.15,
+    }
+
+    # Use continuous scores for signals with numeric proxies;
+    # fall back to categorical map for the rest.
     composite = (
         weights["technique_maturity"]
-        * score_map.get(signals.technique_maturity.value, 0.5)
+        * _continuous_technique_maturity_score(attack_tree)
         + weights["risk_impact"] * score_map.get(signals.risk_impact.value, 0.5)
-        + weights["risk_likelihood"] * score_map.get(signals.risk_likelihood, 0.5)
-        + weights["attack_complexity"]
-        * score_map.get(signals.attack_complexity.value, 0.5)
+        + weights["risk_likelihood"] * _continuous_zone_score(narrative)
+        + weights["attack_complexity"] * _continuous_tree_complexity_score(attack_tree)
         + weights["architecture_match"]
         * score_map.get(signals.architecture_match.value, 0.5)
         + weights["structural_exposure"]
