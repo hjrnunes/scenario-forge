@@ -239,6 +239,12 @@ and any defensive control_point that exists at that step.
 6. The title should be specific to the use case, not a generic restatement.
 7. The summary should be one paragraph in adversarial voice.
 
+## Human-in-the-Loop Bypass
+When the attack involves bypassing human-in-the-loop review, describe the \
+specific failure mechanism (e.g., reviewer fatigue, volume overwhelming the \
+reviewer, UI that buries alerts, time pressure) rather than simply asserting \
+"the attacker bypasses review."
+
 ## Causal Chain Reframing
 If a causal chain is provided (threat, threat_source, vulnerability, \
 consequence, impact), reframe each field from policy-voice to adversarial-voice. \
