@@ -11,6 +11,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 from scenario_forge.data.loaders import load_risk_extraction
+from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import ScenarioEnvelope
@@ -99,6 +100,16 @@ def run_pipeline(
     # --- Stage 2: Threat Surface Determination ---
     logger.info("[Stage 2] Determining threat surface...")
     risk_cards = load_risk_extraction(risk_extraction_path)
+
+    # Validate causal chain coherence before proceeding.
+    coherence_report = validate_risk_card_coherence(use_case, risk_cards)
+    if coherence_report.has_warnings:
+        for card_result in coherence_report.flagged_cards:
+            generation_notes.append(
+                f"Risk card {card_result.risk_id} ({card_result.risk_name}) "
+                f"may describe a different system (0 keyword overlap with use case)."
+            )
+
     threat_surface = determine_threat_surface(
         profile, risk_cards, sssom_path, ct_path, threats_path,
     )
