@@ -19,13 +19,14 @@ memory, T2-S5 requires a vector store).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import Any, Optional
-
 from pydantic import BaseModel, Field
 
 from scenario_forge.data.loaders import load_agentic_threats
 from scenario_forge.models import CapabilityProfile, MemoryScope, MemoryType
+
+logger = logging.getLogger(__name__)
 
 # Default path to OWASP Agentic Threats data
 _DEFAULT_THREATS_PATH = Path(__file__).resolve().parents[3] / "data" / "taxonomies" / "owasp-agentic-threats" / "owasp-agentic-threats-v1.1.yaml"
@@ -82,7 +83,14 @@ _MULTI_AGENT_GATED = ["T12", "T13", "T14"]
 
 
 def _has_shared_writable_memory(profile: CapabilityProfile) -> bool:
-    """Check if the profile has shared memory that the agent can write to."""
+    """Check if the profile has shared memory that the agent can write to.
+
+    Like ``_has_vector_store``, falls back to ``has_persistent_memory``
+    when ``memory_mechanisms`` is ``None`` (Stage 1 data only) to avoid
+    premature filtering.
+    """
+    if profile.memory_mechanisms is None:
+        return profile.has_persistent_memory
     if not profile.memory_mechanisms:
         return False
     return any(
@@ -92,8 +100,26 @@ def _has_shared_writable_memory(profile: CapabilityProfile) -> bool:
 
 
 def _has_vector_store(profile: CapabilityProfile) -> bool:
-    """Check if the profile includes a vector_store memory mechanism."""
+    """Check if the profile includes a vector_store memory mechanism.
+
+    When ``memory_mechanisms`` is populated (Stage 2 data), this performs
+    an exact check for a ``vector_store`` entry.  When it is ``None``
+    (Stage 1 data only, where the LLM prompt explicitly forbids
+    populating Stage 2 fields), the function falls back to
+    ``has_persistent_memory`` as a conservative proxy: if the system has
+    persistent memory at all, a vector store is plausible and we should
+    not silently filter out the sub-scenario.  This avoids the premature-
+    gating bug where ``memory_mechanisms`` was always ``None`` after
+    Stage 1, causing ``_has_vector_store()`` to always return ``False``
+    and silently dropping sub-scenarios like T2-S5.
+    """
+    if profile.memory_mechanisms is None:
+        # Stage 1 only — no detailed memory data yet.
+        # Fall back to the broad has_persistent_memory flag so we don't
+        # prematurely filter sub-scenarios that require a vector store.
+        return profile.has_persistent_memory
     if not profile.memory_mechanisms:
+        # Explicitly empty list (Stage 2 said "no memory mechanisms")
         return False
     return any(m.type == MemoryType.vector_store for m in profile.memory_mechanisms)
 
@@ -119,14 +145,50 @@ def _filter_sub_scenarios(
     excluded: set[str] = set()
 
     if threat_id == "T1":
-        if not _has_shared_writable_memory(profile):
+        has_swm = _has_shared_writable_memory(profile)
+        if not has_swm:
             excluded.add("T1-S4")
+            logger.warning(
+                "Gating FILTERED T1-S4: _has_shared_writable_memory=False "
+                "(memory_mechanisms=%s, has_persistent_memory=%s)",
+                "present" if profile.memory_mechanisms is not None else "None",
+                profile.has_persistent_memory,
+            )
+        else:
+            logger.info(
+                "Gating PASSED T1-S4: _has_shared_writable_memory=True "
+                "(memory_mechanisms=%s, has_persistent_memory=%s)",
+                "present" if profile.memory_mechanisms is not None else "None",
+                profile.has_persistent_memory,
+            )
 
     elif threat_id == "T2":
         if not profile.has_persistent_memory:
             excluded.add("T2-S4")
-        if not _has_vector_store(profile):
+            logger.warning(
+                "Gating FILTERED T2-S4: has_persistent_memory=False",
+            )
+        else:
+            logger.info(
+                "Gating PASSED T2-S4: has_persistent_memory=True",
+            )
+
+        has_vs = _has_vector_store(profile)
+        if not has_vs:
             excluded.add("T2-S5")
+            logger.warning(
+                "Gating FILTERED T2-S5: _has_vector_store=False "
+                "(memory_mechanisms=%s, has_persistent_memory=%s)",
+                "present" if profile.memory_mechanisms is not None else "None",
+                profile.has_persistent_memory,
+            )
+        else:
+            logger.info(
+                "Gating PASSED T2-S5: _has_vector_store=True "
+                "(memory_mechanisms=%s, has_persistent_memory=%s)",
+                "present" if profile.memory_mechanisms is not None else "None",
+                profile.has_persistent_memory,
+            )
 
     return [s for s in all_sub_scenarios if s not in excluded]
 
@@ -166,6 +228,16 @@ def determine_threat_scope(
         threat = threats[threat_id]
         all_subs = _get_all_sub_scenarios(threat)
         filtered_subs = _filter_sub_scenarios(threat_id, all_subs, profile)
+        dropped = set(all_subs) - set(filtered_subs)
+        logger.info(
+            "Threat %s (%s) IN SCOPE: %s — %d/%d sub-scenarios kept%s",
+            threat_id,
+            threat["name"],
+            reason,
+            len(filtered_subs),
+            len(all_subs),
+            f" (dropped: {sorted(dropped)})" if dropped else "",
+        )
         in_scope.append(
             ThreatScopeEntry(
                 threat_id=threat_id,
@@ -176,6 +248,11 @@ def determine_threat_scope(
         )
 
     def _add_out_of_scope(threat_ids: list[str], reason: str) -> None:
+        logger.warning(
+            "Threats %s OUT OF SCOPE: %s",
+            threat_ids,
+            reason,
+        )
         out_of_scope_groups[reason] = threat_ids
 
     # --- Always in scope ---
