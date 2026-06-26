@@ -22,6 +22,10 @@ from scenario_forge.pipeline.generate import (
     get_overused_entry_points,
     write_scenario_outputs,
 )
+from scenario_forge.pipeline.coverage import (
+    analyze_coverage_gaps,
+    write_coverage_report,
+)
 from scenario_forge.pipeline.profile import infer_capability_profile
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
@@ -204,6 +208,11 @@ def run_pipeline(
     logger.info("  %d/%d scenarios generated successfully", len(scenarios), len(seeds))
     if generation_notes:
         logger.info("  %d note(s) recorded", len(generation_notes))
+
+    # --- Coverage Analysis ---
+    logger.info("[Post-Generation] Analyzing coverage gaps...")
+    coverage_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+    write_coverage_report(coverage_gaps, output_dir)
 
     # --- Auto-generate HTML report ---
     try:
