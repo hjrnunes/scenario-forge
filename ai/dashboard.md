@@ -1,11 +1,14 @@
 # Mayor Dashboard
 
-**Updated**: 2026-06-26 19:10
+**Updated**: 2026-06-26 22:00
 **Resume**: `You are the mayor for this repository.`
 
 ## Needs operator now
 
-**All beads closed. Tracker empty.** 12 PRs merged across 6 waves. 227 tests green. Local 3 ahead + 1 uncommitted fix (`seed.id`). Push when ready.
+**Operator decision pending**: Scoring diversity fix strategy. The wave 8 heuristic threshold fix failed — the LLM always generates 9-14 node trees, so all scenarios score "high" complexity. Options:
+- **(a)** Prompt-level: vary tree complexity in generation prompt (simpler trees for simple attacks)
+- **(b)** Threshold recalibration: fit thresholds to empirical distribution (9-14 nodes)
+- **(c)** Both
 
 ## Stance
 
@@ -13,40 +16,35 @@ Pre-alpha prototype, validated end-to-end. Python library + thin CLI (typer). Op
 
 ## In-flight work
 
-_None. All work complete._
+_None._
 
-## Pipeline runs (completed this session)
+## Pipeline quality progression
 
-| Run | Scenarios | Unique on disk | Failures | Coverage | Quality |
-|-----|-----------|---------------|----------|----------|---------|
-| ebay-v3 | 131/138 LLM calls | 31 unique | 7 | Full | 3.1/5 |
-| leicestershire-police | 229/237 LLM calls | 36 unique | 8 | Full | 3.1/5 |
+| Run | Seeds | Success | Gaps | Score | Fixes |
+|-----|-------|---------|------|-------|-------|
+| ebay-v3 | 138 | 31 (22%) | n/a | 3.1/5 | none |
+| ebay-v4 | 31 | 28 (90%) | 2 | 3.6/5 | waves 1-6 |
+| ebay-v5 | 31 | 32 (103%) | 0 | 4.07/5 | waves 1-7 |
+| ebay-v6 | 31 | 32 (103%) | 1 | 3.93/5 | waves 1-8 |
+| police v1 | 237 | 36 (15%) | n/a | 3.1/5 | none |
+| police v2 | 37 | 33 (89%) | 1 | 4.0/5 | waves 1-6 |
+| police v3 | 37 | 37 (100%) | 0 | 4.3/5 | waves 1-7 |
+| police v4 | 37 | 38 (103%) | 1 | 4.3/5 | waves 1-8 |
+
+**Scoring diversity remains the drag** — attack_complexity locked at "high" (97-100%) because the LLM generates deep/wide trees regardless of the heuristic thresholds.
 
 ## Posture
 
-- **Latest commit**: local master 3 ahead of origin
-- **Mayor loops**: All 7 active.
-- **Worktrees**: 0 active.
-- **PRs**: 0 open. 12 merged total.
-- **Tests**: 227 pass (all green).
+- **Latest commit**: `89e3627` — origin/master in sync
+- **Worktrees**: 0 active
+- **PRs**: 0 open, 15 merged total
+- **Tests**: 270 pass (all green)
+- **Tracker**: 0 open, 58 closed
 
-## All merged PRs
+## Session summary (2026-06-26)
 
-| PR | Commit | Description | Beads | Wave |
-|----|--------|-------------|-------|------|
-| #1 | `bd8f8a8` | Project README | p4g | 1 |
-| #2 | `b00b123` | Risk card causal chain coherence check | hg4 | 1 |
-| #3 | `34d0ac7` | Log all gating decisions + fix vector store check | 890 | 1 |
-| #4 | `e24e407` | Direct T-threat mappings bypassing LLM hop | 010 | 1 |
-| #5 | `c1efc01` | Hybrid entry point diversity enforcement | gfk | 2 |
-| #6 | `a38d751` | Coverage gap + attacker model diversity flagging | n63, cw9 | 3 |
-| #7 | `513b274` | HITL prompt + CJK sanitization + scoring diversity | cyo, 0kv, twz | 3 |
-| #8 | `c335f47` | HTML report: coverage gaps, diversity, scoring | dzf | 4 |
-| #9 | merged | Deduplicate scenario seeds in expand_seeds() | 79u | 5 |
-| #10 | merged | Detect unused entry points in coverage gap analysis | 8dd | 5 |
-| #11 | merged | Filter noMatch predicates in SSSOM index | gy7 | 6 |
-| #12 | merged | Scoring calibration + narrative diversity enforcement | q7y, etk | 6 |
-
-## Tracker
-
-0 open. 54 closed. 54 total.
+- 8 waves of fixes dispatched and merged (15 PRs total, 58 beads closed)
+- 8 pipeline runs across 2 use cases (eBay, Leicestershire Police)
+- Quality improved from 3.1/5 baseline to 4.0-4.3/5
+- Key wins: seed deduplication, coverage gap detection + remediation, narrative diversity, SSSOM filtering, entry point coverage
+- Remaining: scoring diversity (complexity heuristic needs upstream prompt-level fix)
