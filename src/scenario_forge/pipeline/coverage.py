@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -52,6 +53,26 @@ class CoverageGaps:
         }
 
 
+def _normalize_entry_point(ep: str) -> str:
+    """Normalize an entry point string for fuzzy comparison.
+
+    LLM-generated ``narrative.entry_point`` values may differ from the
+    canonical profile entry points in casing, whitespace, or trailing
+    punctuation.  This helper collapses those differences so that coverage
+    checks are resilient to minor variation.
+
+    Steps:
+      1. Lowercase.
+      2. Strip leading/trailing whitespace.
+      3. Collapse internal runs of whitespace to a single space.
+      4. Remove trailing punctuation (period, comma, semicolon).
+    """
+    s = ep.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.rstrip(".,;")
+    return s
+
+
 def analyze_coverage_gaps(
     profile: CapabilityProfile,
     threat_surface: ThreatSurface,
@@ -64,6 +85,10 @@ def analyze_coverage_gaps(
       2. Active zones from the profile that no scenario traverses.
       3. In-scope threats from the threat surface that produced no scenarios.
 
+    Entry point matching uses normalized comparison (case-insensitive,
+    whitespace-collapsed) so that minor LLM generation variations do not
+    produce false coverage gaps.
+
     Args:
         profile: The capability profile from Stage 1.
         threat_surface: The threat surface from Stage 2.
@@ -72,19 +97,23 @@ def analyze_coverage_gaps(
     Returns:
         CoverageGaps with lists of uncovered entry points, zones, and threats.
     """
-    # Collect entry points used across all scenarios.
-    used_entry_points: set[str] = set()
+    # Collect normalized entry points used across all scenario narratives.
+    used_entry_points_normalized: set[str] = set()
     traversed_zones: set[int] = set()
     covered_threat_ids: set[str] = set()
 
     for envelope in scenarios:
-        used_entry_points.add(envelope.narrative.entry_point)
+        used_entry_points_normalized.add(
+            _normalize_entry_point(envelope.narrative.entry_point)
+        )
         traversed_zones.update(envelope.narrative.zone_sequence)
         covered_threat_ids.update(envelope.faceting.taxonomy_chain.agentic_threat_ids)
 
-    # 1. Uncovered entry points
+    # 1. Uncovered entry points — compare using normalized strings.
     uncovered_entry_points = [
-        ep for ep in profile.entry_points if ep not in used_entry_points
+        ep
+        for ep in profile.entry_points
+        if _normalize_entry_point(ep) not in used_entry_points_normalized
     ]
 
     # 2. Uncovered active zones
