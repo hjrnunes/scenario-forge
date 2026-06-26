@@ -1,9 +1,15 @@
 """Stage 2: Deterministic Threat Surface Determination.
 
-Three-hop taxonomy chain with no LLM calls:
+Primary path — three-hop taxonomy chain with no LLM calls:
   Hop 1  Risk Atlas ID  -> OWASP LLM Top 10 IDs  (via SSSOM)
   Hop 2  LLM Top 10 IDs -> OWASP Agentic Threat IDs (via cross-taxonomy, reversed)
   Hop 3  Filter by capability profile (via threat_gating)
+
+Direct path — for agentic-only threats with no LLM predecessor:
+  T-threats mapped directly to capability profile features (via t_direct
+  in cross-taxonomy-mappings.yaml), bypassing the LLM hop entirely.
+  These threats (T7-T10, T14-T16) are new to agentic AI and have no
+  cross-reference to any LLM Top 10 entry.
 """
 
 from __future__ import annotations
@@ -46,6 +52,84 @@ def _build_llm_to_t_index(cross_taxonomy: dict[str, Any]) -> dict[str, list[str]
     return dict(index)
 
 
+def _build_direct_t_mappings(
+    cross_taxonomy: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Extract the t_direct mappings from cross-taxonomy data.
+
+    Returns the raw list of direct mapping dicts, each containing
+    'source' (T-threat ID) and 'profile_match' (capability requirements).
+    """
+    return list(cross_taxonomy.get("t_direct", []))
+
+
+def _matches_profile_directly(
+    mapping: dict[str, Any],
+    profile: CapabilityProfile,
+) -> bool:
+    """Check if a direct T-threat mapping matches the capability profile.
+
+    Evaluates the profile_match conditions:
+      - min_zones: all listed zones must be in profile.zones_active
+      - requires_hitl: profile.hitl must be true
+      - requires_multi_agent: profile.multi_agent must be true
+
+    Args:
+        mapping: A single t_direct entry from cross-taxonomy-mappings.yaml.
+        profile: The system capability profile.
+
+    Returns:
+        True if the profile satisfies all conditions in the mapping.
+    """
+    match_spec = mapping.get("profile_match", {})
+
+    # Check minimum zones requirement
+    min_zones = match_spec.get("min_zones", [])
+    if min_zones:
+        active_zones = set(profile.zones_active)
+        if not set(min_zones).issubset(active_zones):
+            return False
+
+    # Check HITL requirement
+    if match_spec.get("requires_hitl", False) and not profile.hitl:
+        return False
+
+    # Check multi-agent requirement
+    if match_spec.get("requires_multi_agent", False) and not profile.multi_agent:
+        return False
+
+    return True
+
+
+def _resolve_direct_threats(
+    cross_taxonomy: dict[str, Any],
+    profile: CapabilityProfile,
+    in_scope_ids: set[str],
+) -> set[str]:
+    """Resolve T-threats reachable via the direct path.
+
+    Returns the set of T-threat IDs that:
+      1. Have a t_direct mapping in cross-taxonomy-mappings.yaml
+      2. Match the capability profile's features
+      3. Pass threat gating (are in in_scope_ids)
+
+    Args:
+        cross_taxonomy: Parsed cross-taxonomy-mappings.yaml.
+        profile: The system capability profile.
+        in_scope_ids: Set of threat IDs that passed gating.
+
+    Returns:
+        Set of T-threat IDs reachable via the direct path.
+    """
+    direct_mappings = _build_direct_t_mappings(cross_taxonomy)
+    direct_ids: set[str] = set()
+    for mapping in direct_mappings:
+        t_id = mapping["source"]
+        if t_id in in_scope_ids and _matches_profile_directly(mapping, profile):
+            direct_ids.add(t_id)
+    return direct_ids
+
+
 def _make_risk_card_ref(card: RiskCard) -> RiskCardRef:
     kwargs: dict[str, Any] = dict(
         risk_id=card.risk_id,
@@ -70,7 +154,12 @@ def determine_threat_surface(
     cross_taxonomy_path: str | Path,
     threats_path: str | Path | None = None,
 ) -> ThreatSurface:
-    """Walk the three-hop taxonomy chain to build the threat surface.
+    """Walk the taxonomy chain to build the threat surface.
+
+    Uses two paths to resolve T-threats:
+      1. Three-hop chain: Risk Atlas → LLM Top 10 → T-threat → gating
+      2. Direct path: T-threat → capability profile match → gating
+         (for agentic-only threats with no LLM predecessor)
 
     Args:
         profile: System capability profile from Stage 1.
@@ -97,6 +186,13 @@ def determine_threat_surface(
     threat_sub_scenarios: dict[str, list[str]] = {
         e.threat_id: e.applicable_sub_scenarios for e in threat_scope.in_scope
     }
+
+    # --- Direct path: T-threats reachable without LLM hop ---
+    direct_t_ids = _resolve_direct_threats(cross_taxonomy, profile, in_scope_ids)
+
+    # Track which direct-path threats were already reached via the LLM hop
+    # so we can detect truly unreachable threats
+    llm_reached_t_ids: set[str] = set()
 
     entries: list[ThreatSurfaceEntry] = []
     governance_only: list[ThreatSurfaceEntry] = []
@@ -126,6 +222,12 @@ def determine_threat_surface(
 
         # Filter to in-scope threats only
         scoped_t_ids = [t for t in all_t_ids if t in in_scope_ids]
+        llm_reached_t_ids.update(scoped_t_ids)
+
+        # Append direct-path threats that aren't already in the list
+        for dt_id in sorted(direct_t_ids):
+            if dt_id not in scoped_t_ids:
+                scoped_t_ids.append(dt_id)
 
         if not scoped_t_ids:
             governance_only.append(
