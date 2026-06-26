@@ -31,6 +31,10 @@ class ScenarioSeed(BaseModel):
     sub_scenario_name: str
     sub_scenario_description: str
     risk_card_ref: RiskCardRef
+    contributing_risk_cards: list[RiskCardRef] = Field(
+        default_factory=list,
+        description="All risk cards that contributed to this seed (including the primary).",
+    )
     owasp_llm_ids: list[str]
     agentic_threat_ids: list[str]
     atlas_technique_ids: list[str] = Field(default_factory=list)
@@ -69,7 +73,7 @@ def expand_seeds(
     threats = load_agentic_threats(path)
     sub_lookup = _build_sub_scenario_lookup(threats)
 
-    seeds: list[ScenarioSeed] = []
+    seen: dict[str, ScenarioSeed] = {}
 
     for entry in threat_surface.entries:
         if entry.governance_only:
@@ -80,18 +84,48 @@ def expand_seeds(
             if sub is None:
                 continue
 
-            seeds.append(
-                ScenarioSeed(
+            if sub_id in seen:
+                # Merge: union taxonomy IDs, collect contributing risk cards
+                existing = seen[sub_id]
+                merged_owasp = list(
+                    dict.fromkeys(existing.owasp_llm_ids + entry.owasp_llm_ids)
+                )
+                merged_agentic = list(
+                    dict.fromkeys(
+                        existing.agentic_threat_ids + entry.agentic_threat_ids
+                    )
+                )
+                merged_atlas = list(
+                    dict.fromkeys(
+                        existing.atlas_technique_ids + entry.atlas_technique_ids
+                    )
+                )
+                # Add the new risk card to contributing list (dedup by risk_id)
+                known_ids = {r.risk_id for r in existing.contributing_risk_cards}
+                new_contribs = list(existing.contributing_risk_cards)
+                if entry.risk_card.risk_id not in known_ids:
+                    new_contribs.append(entry.risk_card)
+
+                seen[sub_id] = existing.model_copy(
+                    update={
+                        "owasp_llm_ids": merged_owasp,
+                        "agentic_threat_ids": merged_agentic,
+                        "atlas_technique_ids": merged_atlas,
+                        "contributing_risk_cards": new_contribs,
+                    }
+                )
+            else:
+                seen[sub_id] = ScenarioSeed(
                     seed_id=sub_id,
                     threat_id=sub["threat_id"],
                     threat_name=sub["threat_name"],
                     sub_scenario_name=sub["name"],
                     sub_scenario_description=sub["description"],
                     risk_card_ref=entry.risk_card,
+                    contributing_risk_cards=[entry.risk_card],
                     owasp_llm_ids=entry.owasp_llm_ids,
                     agentic_threat_ids=entry.agentic_threat_ids,
                     atlas_technique_ids=entry.atlas_technique_ids,
                 )
-            )
 
-    return seeds
+    return list(seen.values())
