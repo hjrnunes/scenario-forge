@@ -1,12 +1,19 @@
-"""Tests for post-generation coverage gap analysis (scenario-forge-n63).
+"""Tests for post-generation coverage analysis.
 
 Covers:
-- All entry points covered (no gaps)
-- Some entry points missing
-- All entry points missing
-- Zone coverage gaps
-- Threat coverage gaps
-- Empty scenarios list
+- Coverage gap analysis (scenario-forge-n63):
+  - All entry points covered (no gaps)
+  - Some entry points missing
+  - All entry points missing
+  - Zone coverage gaps
+  - Threat coverage gaps
+  - Empty scenarios list
+- Attacker model diversity (scenario-forge-cw9):
+  - Diverse actors (no flag)
+  - Monotone actors (flagged)
+  - Single scenario edge case
+  - Unknown attacker model
+  - Empty scenarios list
 - Coverage report output
 """
 
@@ -15,6 +22,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+
+import pytest
 
 from scenario_forge.models.attack_tree import (
     AttackTree,
@@ -43,8 +52,11 @@ from scenario_forge.models.scenario import (
     TechniqueMaturity,
 )
 from scenario_forge.pipeline.coverage import (
+    AttackerDiversityResult,
     CoverageGaps,
+    analyze_attacker_diversity,
     analyze_coverage_gaps,
+    classify_attacker_model,
     write_coverage_report,
 )
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
@@ -374,6 +386,231 @@ class TestCoverageGaps:
 
 
 # ---------------------------------------------------------------------------
+# Attacker model diversity tests (scenario-forge-cw9)
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyAttackerModel:
+    """Tests for the keyword-based attacker model classifier."""
+
+    def test_insider_keywords(self):
+        assert (
+            classify_attacker_model("A disgruntled employee steals data") == "insider"
+        )
+        assert classify_attacker_model("The insider threat is real") == "insider"
+        assert (
+            classify_attacker_model("Rogue employee exfiltrates secrets") == "insider"
+        )
+
+    def test_supply_chain_keywords(self):
+        assert (
+            classify_attacker_model("Compromised vendor injects backdoor")
+            == "supply_chain"
+        )
+        assert (
+            classify_attacker_model("Supply chain attack via dependency")
+            == "supply_chain"
+        )
+        assert (
+            classify_attacker_model("Third-party library trojanized") == "supply_chain"
+        )
+
+    def test_social_engineer_keywords(self):
+        assert (
+            classify_attacker_model("Phishing email tricks the user")
+            == "social_engineer"
+        )
+        assert (
+            classify_attacker_model("Social engineer impersonates admin")
+            == "social_engineer"
+        )
+
+    def test_privileged_user_keywords(self):
+        assert (
+            classify_attacker_model("Malicious admin abuses access")
+            == "privileged_user"
+        )
+        assert (
+            classify_attacker_model("Privileged user escalates permissions")
+            == "privileged_user"
+        )
+
+    def test_external_attacker_keywords(self):
+        assert (
+            classify_attacker_model("External attacker sends crafted payload")
+            == "external_attacker"
+        )
+        assert (
+            classify_attacker_model("The attacker exploits a vulnerability")
+            == "external_attacker"
+        )
+        assert (
+            classify_attacker_model("A hacker breaks into the system")
+            == "external_attacker"
+        )
+
+    def test_unknown_when_no_keywords(self):
+        assert (
+            classify_attacker_model("The system processes data normally") == "unknown"
+        )
+
+    def test_case_insensitive(self):
+        assert classify_attacker_model("The INSIDER threat is real") == "insider"
+        assert classify_attacker_model("SUPPLY CHAIN compromise") == "supply_chain"
+
+    def test_priority_order_insider_over_external(self):
+        """Insider keywords take priority over external attacker keywords."""
+        result = classify_attacker_model("An insider attacker exfiltrates data")
+        assert result == "insider"
+
+
+class TestAnalyzeAttackerDiversity:
+    """Tests for analyze_attacker_diversity."""
+
+    def test_empty_scenarios(self):
+        result = analyze_attacker_diversity([])
+        assert result.model_counts == {}
+        assert result.dominant_model is None
+        assert result.is_flagged is False
+
+    def test_diverse_attacker_models_no_flag(self):
+        """When scenarios have varied attacker models, no flag."""
+        scenarios = [
+            _make_envelope(
+                summary="An insider steals credentials.",
+                step_actions=["I use my insider access to bypass controls."],
+            ),
+            _make_envelope(
+                summary="A supply chain attack injects malicious code.",
+                step_actions=["I compromise a third-party vendor."],
+            ),
+            _make_envelope(
+                summary="A phishing campaign targets users.",
+                step_actions=["I craft a social engineering email."],
+            ),
+            _make_envelope(
+                summary="External attacker exploits API.",
+                step_actions=["I send crafted payloads."],
+            ),
+            _make_envelope(
+                summary="A privileged user abuses admin console.",
+                step_actions=["I use malicious admin access."],
+            ),
+        ]
+
+        result = analyze_attacker_diversity(scenarios)
+        assert not result.is_flagged
+        assert len(result.model_counts) >= 4
+
+    def test_monotone_external_attacker_flagged(self):
+        """When >80% of scenarios use 'external_attacker', flag is raised."""
+        scenarios = [
+            _make_envelope(
+                summary="The attacker injects prompts.",
+                step_actions=["I craft a malicious prompt."],
+            ),
+            _make_envelope(
+                summary="The attacker exploits the API.",
+                step_actions=["I send malicious requests."],
+            ),
+            _make_envelope(
+                summary="The attacker steals data.",
+                step_actions=["I exfiltrate sensitive information."],
+            ),
+            _make_envelope(
+                summary="The attacker modifies output.",
+                step_actions=["I manipulate the response."],
+            ),
+            _make_envelope(
+                summary="The attacker escapes the sandbox.",
+                step_actions=["I break out of containment."],
+            ),
+        ]
+
+        result = analyze_attacker_diversity(scenarios)
+        assert result.is_flagged
+        assert result.dominant_model == "external_attacker"
+        assert result.dominant_fraction > 0.8
+
+    def test_exactly_at_threshold_not_flagged(self):
+        """Exactly 80% (4/5) should NOT be flagged (> threshold, not >=)."""
+        scenarios = [
+            _make_envelope(
+                summary="The attacker exploits a flaw.",
+                step_actions=["I craft a malicious payload."],
+            ),
+            _make_envelope(
+                summary="The attacker sends requests.",
+                step_actions=["I exploit the endpoint."],
+            ),
+            _make_envelope(
+                summary="The attacker steals tokens.",
+                step_actions=["I capture authentication tokens."],
+            ),
+            _make_envelope(
+                summary="The attacker escapes limits.",
+                step_actions=["I bypass rate limiting."],
+            ),
+            _make_envelope(
+                summary="An insider leaks data.",
+                step_actions=["I use insider access to exfiltrate data."],
+            ),
+        ]
+
+        result = analyze_attacker_diversity(scenarios)
+        # 4 external + 1 insider = 4/5 = 0.8
+        assert result.dominant_fraction == pytest.approx(0.8)
+        assert not result.is_flagged
+
+    def test_single_scenario_flagged(self):
+        """One scenario = 100% one model, which is > 80%, so it IS flagged."""
+        scenarios = [
+            _make_envelope(
+                summary="The attacker crafts malicious input.",
+                step_actions=["I inject a prompt."],
+            ),
+        ]
+
+        result = analyze_attacker_diversity(scenarios)
+        assert result.dominant_fraction == 1.0
+        assert result.is_flagged
+
+    def test_all_unknown_models_flagged(self):
+        """Scenarios with no recognizable keywords are classified as unknown."""
+        scenarios = [
+            _make_envelope(
+                summary="The system processes data.",
+                step_actions=["Data flows through the pipeline."],
+            ),
+            _make_envelope(
+                summary="Input is transformed.",
+                step_actions=["Transformation occurs."],
+            ),
+            _make_envelope(
+                summary="Output is generated.",
+                step_actions=["Results are produced."],
+            ),
+        ]
+
+        result = analyze_attacker_diversity(scenarios)
+        assert result.dominant_model == "unknown"
+        assert result.is_flagged
+
+    def test_to_dict(self):
+        result = AttackerDiversityResult(
+            model_counts={"external_attacker": 3, "insider": 1},
+            dominant_model="external_attacker",
+            dominant_fraction=0.75,
+            is_flagged=False,
+        )
+        d = result.to_dict()
+        assert d["model_counts"] == {"external_attacker": 3, "insider": 1}
+        assert d["dominant_model"] == "external_attacker"
+        assert d["dominant_fraction"] == 0.75
+        assert d["is_flagged"] is False
+
+
+# ---------------------------------------------------------------------------
 # Coverage report output tests
 # ---------------------------------------------------------------------------
 
@@ -387,8 +624,14 @@ class TestWriteCoverageReport:
             uncovered_zones=[3],
             uncovered_threats=["T5"],
         )
+        diversity = AttackerDiversityResult(
+            model_counts={"external_attacker": 5},
+            dominant_model="external_attacker",
+            dominant_fraction=1.0,
+            is_flagged=True,
+        )
 
-        path = write_coverage_report(gaps, tmp_path)
+        path = write_coverage_report(gaps, tmp_path, diversity)
         assert path.exists()
         assert path.name == "coverage-gaps.json"
 
@@ -396,6 +639,8 @@ class TestWriteCoverageReport:
         assert data["coverage_gaps"]["uncovered_entry_points"] == ["ep-a"]
         assert data["coverage_gaps"]["uncovered_zones"] == [3]
         assert data["coverage_gaps"]["uncovered_threats"] == ["T5"]
+        assert data["attacker_diversity"]["is_flagged"] is True
+        assert data["attacker_diversity"]["dominant_model"] == "external_attacker"
 
     def test_writes_empty_gaps(self, tmp_path: Path):
         gaps = CoverageGaps()
@@ -405,3 +650,18 @@ class TestWriteCoverageReport:
         assert data["coverage_gaps"]["uncovered_entry_points"] == []
         assert data["coverage_gaps"]["uncovered_zones"] == []
         assert data["coverage_gaps"]["uncovered_threats"] == []
+        assert "attacker_diversity" not in data
+
+    def test_writes_with_attacker_diversity(self, tmp_path: Path):
+        gaps = CoverageGaps()
+        diversity = AttackerDiversityResult(
+            model_counts={"insider": 2, "external_attacker": 3},
+            dominant_model="external_attacker",
+            dominant_fraction=0.6,
+            is_flagged=False,
+        )
+
+        path = write_coverage_report(gaps, tmp_path, diversity)
+        data = json.loads(path.read_text())
+        assert data["attacker_diversity"]["dominant_model"] == "external_attacker"
+        assert data["attacker_diversity"]["is_flagged"] is False

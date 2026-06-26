@@ -23,6 +23,7 @@ from scenario_forge.pipeline.generate import (
     write_scenario_outputs,
 )
 from scenario_forge.pipeline.coverage import (
+    analyze_attacker_diversity,
     analyze_coverage_gaps,
     write_coverage_report,
 )
@@ -212,7 +213,8 @@ def run_pipeline(
     # --- Coverage Analysis ---
     logger.info("[Post-Generation] Analyzing coverage gaps...")
     coverage_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-    write_coverage_report(coverage_gaps, output_dir)
+    attacker_diversity = analyze_attacker_diversity(scenarios)
+    write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
     # --- Auto-generate HTML report ---
     try:
