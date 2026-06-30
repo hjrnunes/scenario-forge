@@ -81,6 +81,7 @@ class StructuralExposureSignal(str, Enum):
 class CallName(str, Enum):
     """Which generation call produced a piece of the scenario."""
 
+    actor_profile = "actor_profile"
     narrative = "narrative"
     attack_tree = "attack_tree"
     behavior_spec = "behavior_spec"
@@ -133,6 +134,49 @@ class NarrativeLayer(BaseModel):
     causal_chain_reframed: Optional[CausalChainReframed] = Field(
         default=None,
         description="Risk card causal chain reframed to adversarial voice.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Actor profile sub-models
+# ---------------------------------------------------------------------------
+
+ActorType = Literal[
+    "cybercriminal",       # External, financially motivated (data theft, fraud, ransomware)
+    "nation-state",        # State-sponsored, well-resourced, strategic objectives
+    "malicious-insider",   # Privileged user acting deliberately (poisons data, abuses admin access)
+    "negligent-insider",   # Legitimate user, unintentional harm (pastes secrets, misconfigures)
+    "competitor",          # Rival organization (IP theft, output sabotage, reverse-engineering)
+    "hacktivist",          # Ideologically motivated (disruption, exposure, defacement)
+    "supply-chain-actor",  # Compromised upstream dependency (plugin, data source, tool, model provider)
+    "adversarial-user",    # End-user deliberately weaponizing the AI (jailbreaking, prompt injection)
+    "automated-agent",     # Another AI/bot attacking programmatically (agent-to-agent, automated injection)
+]
+
+ACTOR_TYPES: list[str] = list(ActorType.__args__)  # type: ignore[attr-defined]
+"""All valid actor type values as a plain list (for diversity tracking)."""
+
+
+class ActorProfile(BaseModel):
+    """Threat actor profile grounding the scenario narrative."""
+
+    actor_type: ActorType = Field(
+        description="Category of threat actor (e.g. cybercriminal, nation-state).",
+    )
+    motivation: str = Field(
+        description="Why they are attacking this specific target (1-2 sentences, adversarial voice).",
+    )
+    objective: str = Field(
+        description="Concrete end-goal (e.g. 'exfiltrate customer PII for resale').",
+    )
+    capability_level: Literal["novice", "intermediate", "advanced", "expert"] = Field(
+        description="Skill and sophistication level of the actor.",
+    )
+    resources: list[str] = Field(
+        description="What the actor has access to (e.g. 'open-source tools', 'insider credentials').",
+    )
+    campaign_context: str = Field(
+        description="Triggering conditions and predisposing factors (1-2 sentences).",
     )
 
 
@@ -307,6 +351,13 @@ class ScenarioEnvelope(BaseModel):
     )
     generator_version: str = Field(
         description="Version of the scenario-forge pipeline that produced this scenario.",
+    )
+
+    # --- Actor Profile ---
+
+    actor_profile: ActorProfile | None = Field(
+        default=None,
+        description="Threat actor profile grounding the scenario narrative.",
     )
 
     # --- Layer 1: Narrative ---
