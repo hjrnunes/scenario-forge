@@ -14,6 +14,7 @@ Direct path — for agentic-only threats with no LLM predecessor:
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,26 @@ from scenario_forge.data.sssom import build_risk_to_llm_index, load_sssom
 from scenario_forge.data.threat_gating import determine_threat_scope
 from scenario_forge.models import CapabilityProfile, RiskCard
 from scenario_forge.models.scenario import RiskCardRef
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Capability-gated ATLAS technique IDs
+# ---------------------------------------------------------------------------
+# ATLAS techniques that are semantically meaningful only when the system has
+# specific capabilities.  Techniques in this set are filtered from the seed
+# list when the required capability is absent.
+
+_ZONE3_GATED_TECHNIQUES: frozenset[str] = frozenset(
+    {
+        "AML.T0053",  # AI Agent Tool Invocation — requires tool execution
+        "AML.T0070",  # RAG Poisoning — requires retrieval tools
+        "AML.T0066",  # Retrieval Content Crafting — requires retrieval tools
+        "AML.T0071",  # Embedding Manipulation — requires retrieval/embedding
+        "AML.T0025",  # Resource Exhaustion via Embedding — requires retrieval/embedding
+    }
+)
 
 
 class ThreatSurfaceEntry(BaseModel):
@@ -275,6 +296,22 @@ def determine_threat_surface(
             for atlas_id in t_to_atlas.get(t_id, []):
                 if atlas_id not in all_atlas:
                     all_atlas.append(atlas_id)
+
+        # Filter capability-gated ATLAS techniques
+        zone_3_active = 3 in profile.zones_active
+        if not zone_3_active:
+            gated = [aid for aid in all_atlas if aid in _ZONE3_GATED_TECHNIQUES]
+            if gated:
+                logger.warning(
+                    "ATLAS technique filter: removing zone-3-gated techniques %s "
+                    "for risk %s (zones_active=%s)",
+                    gated,
+                    card.risk_id,
+                    profile.zones_active,
+                )
+                all_atlas = [
+                    aid for aid in all_atlas if aid not in _ZONE3_GATED_TECHNIQUES
+                ]
 
         entries.append(
             ThreatSurfaceEntry(
