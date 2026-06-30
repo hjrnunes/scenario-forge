@@ -99,6 +99,35 @@ _SIGNAL_TOOLTIPS: dict[str, str] = {
     ),
 }
 
+_ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
+    "AML.T0010": "AI Supply Chain Compromise",
+    "AML.T0015": "LLM Capability Escalation",
+    "AML.T0016": "Obtain Capabilities",
+    "AML.T0020": "Poison Training Data",
+    "AML.T0021": "Establish Accounts",
+    "AML.T0024": "Exfiltration via AI Inference API",
+    "AML.T0025": "Resource Exhaustion via Embedding",
+    "AML.T0029": "Denial of AI Service",
+    "AML.T0031": "Erode AI Model Integrity",
+    "AML.T0034": "Cost Harvesting",
+    "AML.T0040": "Unsafe Deserialisation via LLM",
+    "AML.T0043": "Craft Adversarial Data",
+    "AML.T0047": "AI-Enabled Product or Service",
+    "AML.T0048": "External Harms",
+    "AML.T0049": "Spearphishing via AI",
+    "AML.T0051.000": "Direct Prompt Injection",
+    "AML.T0051.001": "Indirect Prompt Injection",
+    "AML.T0053": "AI Agent Tool Invocation",
+    "AML.T0054": "LLM Jailbreak",
+    "AML.T0056": "Extract LLM System Prompt",
+    "AML.T0057": "LLM Data Leakage",
+    "AML.T0060": "Publish Hallucinated Entities",
+    "AML.T0066": "Retrieval Content Crafting",
+    "AML.T0067": "Output Manipulation",
+    "AML.T0070": "RAG Poisoning",
+    "AML.T0071": "Embedding Manipulation",
+}
+
 
 def _esc(text: str | None) -> str:
     """HTML-escape text safely."""
@@ -2431,10 +2460,9 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     if technique_id:
         tech_tip = ""
         if technique_id.startswith("AML.T"):
-            tech_tip = (
-                ' data-tooltip="MITRE ATLAS — Adversarial Threat Landscape '
-                'for AI Systems technique"'
-            )
+            name = _ATLAS_TECHNIQUE_NAMES.get(technique_id, "")
+            label = f"{technique_id} — {name}" if name else technique_id
+            tech_tip = f' data-tooltip="MITRE ATLAS: {_esc(label)}"'
         meta_parts.append(
             f'<span class="tree-meta"{tech_tip}>{_esc(technique_id)}</span>'
         )
