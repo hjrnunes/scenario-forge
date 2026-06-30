@@ -49,16 +49,43 @@ def _shannon_entropy(values: list[str], normalize: bool = True) -> float:
     return entropy
 
 
-def _jaccard_tokens(a: str, b: str) -> float:
-    """Jaccard similarity of token sets from two strings."""
+def _jaccard_tokens(a: str, b: str, stopwords: set[str] | None = None) -> float:
+    """Jaccard similarity of token sets from two strings.
+
+    Args:
+        a: First string.
+        b: Second string.
+        stopwords: Optional set of tokens to exclude before comparison.
+    """
     tokens_a = set(a.lower().split())
     tokens_b = set(b.lower().split())
+    if stopwords:
+        tokens_a -= stopwords
+        tokens_b -= stopwords
     if not tokens_a and not tokens_b:
         return 1.0
     union = tokens_a | tokens_b
     if not union:
         return 1.0
     return len(tokens_a & tokens_b) / len(union)
+
+
+def _extract_domain_stopwords(titles: list[str], threshold: float = 0.5) -> set[str]:
+    """Extract domain stopwords — words appearing in more than *threshold* of titles.
+
+    These are common domain vocabulary (e.g. "Policy", "Agent", "Attack") that
+    inflate Jaccard similarity without indicating genuine duplication.
+    """
+    if not titles:
+        return set()
+
+    word_counts: Counter[str] = Counter()
+    for title in titles:
+        unique_words = set(title.lower().split())
+        word_counts.update(unique_words)
+
+    n = len(titles)
+    return {word for word, count in word_counts.items() if count / n > threshold}
 
 
 def entry_point_entropy(scenarios: list[dict[str, Any]]) -> float:
@@ -113,6 +140,11 @@ def capability_level_evenness(scenarios: list[dict[str, Any]]) -> float:
 def title_uniqueness(scenarios: list[dict[str, Any]]) -> float:
     """Pairwise title uniqueness: 1 - max Jaccard similarity of title token sets.
 
+    Before computing Jaccard, extracts "domain stopwords" — words appearing in
+    more than 50% of titles — and excludes them.  This prevents common domain
+    vocabulary (e.g. "Policy", "Agent", "Manipulation") from penalizing batches
+    whose titles are genuinely diverse.
+
     Returns 1.0 if all titles are completely distinct, lower if duplicates exist.
     Returns 1.0 for 0 or 1 scenarios.
     """
@@ -125,10 +157,12 @@ def title_uniqueness(scenarios: list[dict[str, Any]]) -> float:
     if len(titles) <= 1:
         return 1.0
 
+    domain_stopwords = _extract_domain_stopwords(titles)
+
     max_sim = 0.0
     for i in range(len(titles)):
         for j in range(i + 1, len(titles)):
-            sim = _jaccard_tokens(titles[i], titles[j])
+            sim = _jaccard_tokens(titles[i], titles[j], stopwords=domain_stopwords)
             max_sim = max(max_sim, sim)
 
     return round(1.0 - max_sim, 4)

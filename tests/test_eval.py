@@ -579,6 +579,40 @@ class TestTitleUniqueness:
         result = title_uniqueness([])
         assert result == 1.0
 
+    def test_domain_stopwords_excluded(self):
+        """Shared domain vocabulary should not tank the score.
+
+        These titles share 'Policy' and 'Agent' across >50% of them, but
+        the discriminating words are unique. Without domain-stopword
+        filtering this would score ~0.50; with it the score should be high.
+        """
+        scenarios = [
+            _make_scenario(title="Policy Evasion via Memory Poisoning Agent"),
+            _make_scenario(title="Policy Bypass through Prompt Injection Agent"),
+            _make_scenario(title="Policy Circumvention with Tool Misuse Agent"),
+            _make_scenario(title="Policy Violation using Social Engineering Agent"),
+        ]
+        result = title_uniqueness(scenarios)
+        # With domain stopwords removed, titles are diverse
+        assert result > 0.6
+
+    def test_genuinely_duplicate_titles_still_score_low(self):
+        """Titles that are truly near-duplicates should still score low.
+
+        Here two titles share most of their non-domain words — they only
+        differ in one word out of several discriminating tokens.
+        """
+        scenarios = [
+            _make_scenario(title="Credential Theft via Phishing Email"),
+            _make_scenario(title="Credential Theft via Phishing SMS"),
+            _make_scenario(title="Supply Chain Backdoor Insertion"),
+            _make_scenario(title="Prompt Injection Memory Corruption"),
+        ]
+        result = title_uniqueness(scenarios)
+        # First two titles share "credential theft phishing" after removing
+        # any domain stopwords; should keep score moderate-to-low
+        assert result < 0.8
+
 
 class TestScoreDiversity:
     def test_returns_all_keys(self):
