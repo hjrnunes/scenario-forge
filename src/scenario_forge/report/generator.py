@@ -15,6 +15,7 @@ from scenario_forge.report.template import (
     build_full_page,
     build_raw_data_section,
     build_scenarios_section,
+    build_scorecard_section,
     build_threat_surface_section,
     build_use_case_section,
 )
@@ -114,6 +115,26 @@ def generate_report(output_dir: Path) -> Path:
             "coverage-gaps.json not found in %s (skipping coverage section)", output_dir
         )
 
+    # --- Load eval scorecard ---
+    scorecard_path = output_dir / "eval-scorecard.yaml"
+    scorecard_data: dict = {}
+    if scorecard_path.exists():
+        try:
+            scorecard_data = (
+                yaml.safe_load(scorecard_path.read_text(encoding="utf-8")) or {}
+            )
+            logger.info("Loaded eval scorecard from %s", scorecard_path)
+            raw_files["eval-scorecard.yaml"] = scorecard_path.read_text(
+                encoding="utf-8"
+            )
+        except Exception as exc:
+            logger.warning("Failed to load %s: %s", scorecard_path, exc)
+    else:
+        logger.info(
+            "eval-scorecard.yaml not found in %s (skipping scorecard section)",
+            output_dir,
+        )
+
     # Sort scenarios by priority (descending)
     scenarios.sort(
         key=lambda s: s.get("priority", {}).get("composite", 0),
@@ -142,6 +163,8 @@ def generate_report(output_dir: Path) -> Path:
 
     diversity_html = build_attacker_diversity_section(scenarios)
 
+    scorecard_html = build_scorecard_section(scorecard_data) if scorecard_data else ""
+
     scenarios_html = build_scenarios_section(scenarios, feature_files)
     raw_html = build_raw_data_section(raw_files)
 
@@ -154,6 +177,7 @@ def generate_report(output_dir: Path) -> Path:
         coverage_html=coverage_html,
         diversity_html=diversity_html,
         use_case_html=use_case_html,
+        scorecard_html=scorecard_html,
     )
 
     # --- Write output ---
