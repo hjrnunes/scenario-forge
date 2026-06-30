@@ -217,6 +217,7 @@ def run_pipeline(
     """
     ct_path = cross_taxonomy_path or _DEFAULT_CROSS_TAXONOMY_PATH
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "use-case.txt").write_text(use_case)
     generation_notes: list[str] = []
 
     client = LLMClient(base_url=base_url, api_key=api_key, model=model)
