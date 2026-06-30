@@ -68,12 +68,9 @@ _STRUCTURAL_EXPOSURE_TOOLTIPS: dict[str, str] = {
     "single_point_of_failure": "Only one control blocks this attack path",
     "convergence_point": "Multiple attack paths flow through this single control",
     "probabilistic_control": (
-        "Relies on an LLM guardrail or classifier "
-        "— not a binary pass/fail gate"
+        "Relies on an LLM guardrail or classifier — not a binary pass/fail gate"
     ),
-    "defense_in_depth_claim": (
-        "Multiple controls back each other up on this path"
-    ),
+    "defense_in_depth_claim": ("Multiple controls back each other up on this path"),
 }
 
 # Tooltip strings for gate types
@@ -129,7 +126,7 @@ def _sub_scenario_tooltip(sid: str) -> str:
         if name:
             return (
                 f' data-tooltip="Sub-scenario seed: threat {_esc(base)}, '
-                f'sub-scenario {_esc(parts[1])} '
+                f"sub-scenario {_esc(parts[1])} "
                 f'— expanded from OWASP agentic threat taxonomy"'
             )
     return ""
@@ -1306,6 +1303,118 @@ details.expandable[open] > summary::before {
   left: 0;
   transform: none;
 }
+
+/* Scorecard */
+.scorecard-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.scorecard-stat {
+  text-align: center;
+  padding: 16px 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.scorecard-stat-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--accent);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.scorecard-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.scorecard-group {
+  margin-bottom: 16px;
+}
+
+.scorecard-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.scorecard-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scorecard-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scorecard-badge-green {
+  background: rgba(34,197,94,0.12);
+  color: #22c55e;
+  border: 1px solid rgba(34,197,94,0.25);
+}
+
+.scorecard-badge-yellow {
+  background: rgba(245,158,11,0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245,158,11,0.25);
+}
+
+.scorecard-badge-red {
+  background: rgba(239,68,68,0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.25);
+}
+
+.scorecard-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.scorecard-detail-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.scorecard-detail-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.scorecard-detail-table td:first-child {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+}
 </style>
 """
 
@@ -1464,7 +1573,9 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
         else:
             cls = ""
             display = _esc(str(value).capitalize())
-        flag_rows += f'<tr><td{tip_attr}>{_esc(name)}</td><td class="{cls}">{display}</td></tr>'
+        flag_rows += (
+            f'<tr><td{tip_attr}>{_esc(name)}</td><td class="{cls}">{display}</td></tr>'
+        )
 
     # Entry points
     eps = profile.get("entry_points", [])
@@ -1540,8 +1651,7 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         raw_tids = entry.get("agentic_threat_ids", [])
         if raw_tids:
             tid_spans = ", ".join(
-                f"<span{_threat_id_tooltip(tid)}>{_esc(tid)}</span>"
-                for tid in raw_tids
+                f"<span{_threat_id_tooltip(tid)}>{_esc(tid)}</span>" for tid in raw_tids
             )
         else:
             tid_spans = "-"
@@ -1560,7 +1670,9 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         risk_id = rc.get("risk_id", "")
         risk_id_tip = ""
         if risk_id.startswith("atlas-"):
-            risk_id_tip = ' data-tooltip="IBM AI Risk Atlas — standardized AI risk identifier"'
+            risk_id_tip = (
+                ' data-tooltip="IBM AI Risk Atlas — standardized AI risk identifier"'
+            )
 
         # Chain diagram for actionable entries
         chain_html = ""
@@ -1875,16 +1987,16 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 _DIVERSITY_COLORS: dict[str, str] = {
-    "cybercriminal": "#ef4444",        # red
-    "nation-state": "#1e40af",         # dark blue
-    "malicious-insider": "#f97316",    # orange
-    "negligent-insider": "#f59e0b",    # amber/yellow
-    "competitor": "#8b5cf6",           # purple
-    "hacktivist": "#22c55e",           # green
-    "supply-chain-actor": "#14b8a6",   # teal
-    "adversarial-user": "#ec4899",     # pink/rose
-    "automated-agent": "#6b7280",      # gray
-    "unknown": "#4b5563",             # dark gray
+    "cybercriminal": "#ef4444",  # red
+    "nation-state": "#1e40af",  # dark blue
+    "malicious-insider": "#f97316",  # orange
+    "negligent-insider": "#f59e0b",  # amber/yellow
+    "competitor": "#8b5cf6",  # purple
+    "hacktivist": "#22c55e",  # green
+    "supply-chain-actor": "#14b8a6",  # teal
+    "adversarial-user": "#ec4899",  # pink/rose
+    "automated-agent": "#6b7280",  # gray
+    "unknown": "#4b5563",  # dark gray
 }
 
 
@@ -2103,10 +2215,10 @@ def build_scenarios_section(
 
 
 _CAPABILITY_COLORS: dict[str, str] = {
-    "novice": "#22c55e",       # green
-    "intermediate": "#3b82f6", # blue
-    "advanced": "#f97316",     # orange
-    "expert": "#ef4444",       # red
+    "novice": "#22c55e",  # green
+    "intermediate": "#3b82f6",  # blue
+    "advanced": "#f97316",  # orange
+    "expert": "#ef4444",  # red
 }
 
 _CAPABILITY_TOOLTIPS: dict[str, str] = {
@@ -2116,8 +2228,7 @@ _CAPABILITY_TOOLTIPS: dict[str, str] = {
         "Deep expertise, can develop custom tools and discover vulnerabilities"
     ),
     "expert": (
-        "Elite capabilities, can chain novel zero-days "
-        "and develop bespoke frameworks"
+        "Elite capabilities, can chain novel zero-days and develop bespoke frameworks"
     ),
 }
 
@@ -2155,7 +2266,7 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
             <div style="padding:12px 0 4px;">
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
                 <span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(type_color)},0.15);color:{type_color};">{_esc(type_display)}</span>
-                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};"{cap_tip_attr}>{_esc(cap_display)}</span>' if cap_display else ''}
+                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};"{cap_tip_attr}>{_esc(cap_display)}</span>' if cap_display else ""}
               </div>
               <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
                 <div style="margin-bottom:8px;">
@@ -2643,11 +2754,11 @@ def build_glossary_section() -> str:
     threat_rows = ""
     for tid, tname in THREAT_NAMES.items():
         threat_rows += (
-            f"<tr><td><code>{_esc(tid)}</code></td>"
-            f"<td>{_esc(tname)}</td></tr>"
+            f"<tr><td><code>{_esc(tid)}</code></td><td>{_esc(tname)}</td></tr>"
         )
 
-    return """
+    return (
+        """
     <div id="glossary" class="section">
       <div class="section-header">
         <h2>Glossary &amp; Methodology</h2>
@@ -2658,7 +2769,9 @@ def build_glossary_section() -> str:
         <div class="scenario-section-title">Threat IDs (OWASP Agentic Threats)</div>
         <table class="flags-table">
           <thead><tr><th>ID</th><th>Name</th></tr></thead>
-          <tbody>""" + threat_rows + """</tbody>
+          <tbody>"""
+        + threat_rows
+        + """</tbody>
         </table>
       </div>
 
@@ -2815,6 +2928,285 @@ def build_glossary_section() -> str:
       </div>
     </div>
     """
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 6: Eval Scorecard
+# ---------------------------------------------------------------------------
+
+
+def _scorecard_badge(value: float, label: str, *, invert: bool = False) -> str:
+    """Return a colored badge for a metric value.
+
+    Args:
+        value: Numeric metric value (0-1 scale for rates, raw for counts).
+        label: Display label for the badge.
+        invert: When True, lower values are better (e.g. violation counts).
+    """
+    if invert:
+        # For counts: 0 = green, >0 = red
+        css_cls = "scorecard-badge-green" if value == 0 else "scorecard-badge-red"
+    else:
+        if value >= 0.9:
+            css_cls = "scorecard-badge-green"
+        elif value >= 0.7:
+            css_cls = "scorecard-badge-yellow"
+        else:
+            css_cls = "scorecard-badge-red"
+    if isinstance(value, float) and not value.is_integer():
+        display = f"{value:.2f}"
+    else:
+        display = str(int(value))
+    return f'<span class="scorecard-badge {css_cls}">{_esc(label)}: {display}</span>'
+
+
+def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
+    """Build the Eval Scorecard HTML section from parsed YAML data.
+
+    Args:
+        scorecard_data: Parsed dict from ``eval-scorecard.yaml``.
+
+    Returns:
+        HTML string for the scorecard section, or empty string if data is empty.
+    """
+    if not scorecard_data:
+        return ""
+
+    ev = scorecard_data.get("evaluation", {})
+    if not ev:
+        return ""
+
+    scenario_count = ev.get("scenario_count", 0)
+    feature_file_count = ev.get("feature_file_count", 0)
+
+    # --- Summary stats ---
+    summary_html = f"""
+    <div class="scorecard-summary">
+      <div class="scorecard-stat">
+        <div class="scorecard-stat-value">{scenario_count}</div>
+        <div class="scorecard-stat-label">Scenarios</div>
+      </div>
+      <div class="scorecard-stat">
+        <div class="scorecard-stat-value">{feature_file_count}</div>
+        <div class="scorecard-stat-label">Feature Files</div>
+      </div>
+    </div>"""
+
+    # --- Consistency ---
+    consistency = ev.get("consistency", {})
+    consistency_badges = ""
+    if consistency:
+        mean = consistency.get("mean", 0)
+        stddev = consistency.get("stddev", 0)
+        consistency_badges += _scorecard_badge(mean, "Mean")
+        consistency_badges += _scorecard_badge(
+            1.0 - stddev, f"Stddev: {stddev:.3f}", invert=False
+        )
+
+    per_scenario_consistency = consistency.get("per_scenario", {})
+    consistency_detail = ""
+    if per_scenario_consistency:
+        rows = ""
+        for sid, metrics in per_scenario_consistency.items():
+            za = metrics.get("zone_alignment", 0)
+            epa = metrics.get("entry_point_agreement", 0)
+            snc = metrics.get("step_node_correspondence", 0)
+            za_cls = (
+                "scorecard-badge-green"
+                if za >= 0.9
+                else ("scorecard-badge-yellow" if za >= 0.7 else "scorecard-badge-red")
+            )
+            epa_cls = "scorecard-badge-green" if epa == 1 else "scorecard-badge-red"
+            snc_cls = (
+                "scorecard-badge-green"
+                if snc >= 0.9
+                else ("scorecard-badge-yellow" if snc >= 0.7 else "scorecard-badge-red")
+            )
+            rows += (
+                f"<tr>"
+                f"<td>{_esc(sid)}</td>"
+                f'<td><span class="scorecard-badge {za_cls}">{za:.2f}</span></td>'
+                f'<td><span class="scorecard-badge {epa_cls}">{epa}</span></td>'
+                f'<td><span class="scorecard-badge {snc_cls}">{snc:.2f}</span></td>'
+                f"</tr>"
+            )
+        consistency_detail = f"""
+        <details class="expandable" style="margin-top:10px;">
+          <summary>Per-Scenario Breakdown</summary>
+          <table class="scorecard-detail-table">
+            <thead><tr>
+              <th>Scenario</th>
+              <th>Zone Alignment</th>
+              <th>Entry Point Agreement</th>
+              <th>Step-Node Correspondence</th>
+            </tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </details>"""
+
+    consistency_html = f"""
+    <div class="scorecard-group">
+      <div class="scorecard-group-title">Consistency</div>
+      <div class="scorecard-metrics">{consistency_badges}</div>
+      {consistency_detail}
+    </div>"""
+
+    # --- Gherkin ---
+    gherkin = ev.get("gherkin", {})
+    gherkin_badges = ""
+    if gherkin:
+        psr = gherkin.get("parse_success_rate", 0)
+        msc = gherkin.get("mean_step_count", 0)
+        tag_con = gherkin.get("tag_consistency", {})
+        ig = tag_con.get("inconsistent_groups", 0)
+        bm_warnings = gherkin.get("background_missing_warnings", [])
+        gherkin_badges += _scorecard_badge(psr, "Parse Success Rate")
+        gherkin_badges += (
+            f'<span class="scorecard-badge scorecard-badge-green">'
+            f"Mean Step Count: {msc:.1f}</span>"
+        )
+        gherkin_badges += _scorecard_badge(ig, "Inconsistent Tag Groups", invert=True)
+        if bm_warnings:
+            gherkin_badges += (
+                f'<span class="scorecard-badge scorecard-badge-yellow">'
+                f"Background Warnings: {len(bm_warnings)}</span>"
+            )
+
+    gherkin_html = (
+        f"""
+    <div class="scorecard-group">
+      <div class="scorecard-group-title">Gherkin Quality</div>
+      <div class="scorecard-metrics">{gherkin_badges}</div>
+    </div>"""
+        if gherkin_badges
+        else ""
+    )
+
+    # --- Grounding ---
+    grounding = ev.get("grounding", {})
+    grounding_badges = ""
+    if grounding:
+        tiv = grounding.get("threat_id_validity", 0)
+        dr = grounding.get("dangling_references", 0)
+        tig = grounding.get("technique_id_grounding", 0)
+        utr = grounding.get("ungrounded_technique_references", 0)
+        grounding_badges += _scorecard_badge(tiv, "Threat ID Validity")
+        grounding_badges += _scorecard_badge(dr, "Dangling References", invert=True)
+        grounding_badges += _scorecard_badge(tig, "Technique ID Grounding")
+        grounding_badges += _scorecard_badge(
+            utr, "Ungrounded Technique Refs", invert=True
+        )
+
+    grounding_html = (
+        f"""
+    <div class="scorecard-group">
+      <div class="scorecard-group-title">Grounding</div>
+      <div class="scorecard-metrics">{grounding_badges}</div>
+    </div>"""
+        if grounding_badges
+        else ""
+    )
+
+    # --- Diversity ---
+    diversity = ev.get("diversity", {})
+    diversity_badges = ""
+    if diversity:
+        ep_ent = diversity.get("entry_point_entropy", {})
+        if isinstance(ep_ent, dict):
+            entropy = ep_ent.get("entropy", 0)
+            ep_cov = ep_ent.get("entry_point_coverage", 0)
+            diversity_badges += (
+                f'<span class="scorecard-badge scorecard-badge-green">'
+                f"EP Entropy: {entropy:.2f}</span>"
+            )
+            diversity_badges += _scorecard_badge(ep_cov, "EP Coverage")
+
+        zone_cov = diversity.get("zone_coverage", {})
+        if isinstance(zone_cov, dict):
+            azc = zone_cov.get("active_zone_coverage", 0)
+            diversity_badges += _scorecard_badge(azc, "Active Zone Coverage")
+            violations = zone_cov.get("out_of_scope_zone_violations", [])
+            if violations:
+                diversity_badges += _scorecard_badge(
+                    len(violations), "Zone Violations", invert=True
+                )
+
+        ate = diversity.get("actor_type_entropy", 0)
+        if isinstance(ate, (int, float)):
+            diversity_badges += _scorecard_badge(ate, "Actor Type Entropy")
+
+        cle = diversity.get("capability_level_evenness", 0)
+        if isinstance(cle, (int, float)):
+            diversity_badges += _scorecard_badge(cle, "Capability Evenness")
+
+        tu = diversity.get("title_uniqueness", 0)
+        if isinstance(tu, (int, float)):
+            diversity_badges += _scorecard_badge(tu, "Title Uniqueness")
+
+    diversity_html = (
+        f"""
+    <div class="scorecard-group">
+      <div class="scorecard-group-title">Diversity</div>
+      <div class="scorecard-metrics">{diversity_badges}</div>
+    </div>"""
+        if diversity_badges
+        else ""
+    )
+
+    # --- Plausibility ---
+    plausibility = ev.get("plausibility", {})
+    plausibility_html = ""
+    if plausibility:
+        violation_count = plausibility.get("capability_complexity_violation_count", 0)
+        plausibility_badges = _scorecard_badge(
+            violation_count, "Capability Violations", invert=True
+        )
+
+        per_scenario_p = plausibility.get("per_scenario", {})
+        violations_detail = ""
+        if per_scenario_p:
+            violation_items = ""
+            for sid, issues in per_scenario_p.items():
+                if issues and isinstance(issues, list):
+                    for issue in issues:
+                        violation_items += (
+                            f"<tr><td>{_esc(sid)}</td><td>{_esc(str(issue))}</td></tr>"
+                        )
+            if violation_items:
+                violations_detail = f"""
+        <details class="expandable" style="margin-top:10px;">
+          <summary>Violation Details</summary>
+          <table class="scorecard-detail-table">
+            <thead><tr><th>Scenario</th><th>Issue</th></tr></thead>
+            <tbody>{violation_items}</tbody>
+          </table>
+        </details>"""
+
+        plausibility_html = f"""
+    <div class="scorecard-group">
+      <div class="scorecard-group-title">Plausibility</div>
+      <div class="scorecard-metrics">{plausibility_badges}</div>
+      {violations_detail}
+    </div>"""
+
+    return f"""
+    <div id="sec-scorecard" class="section">
+      <div class="section-header">
+        <h2>Eval Scorecard</h2>
+        <span class="badge">Tier 1 Metrics</span>
+      </div>
+
+      <div class="card">
+        {summary_html}
+        {consistency_html}
+        {gherkin_html}
+        {grounding_html}
+        {diversity_html}
+        {plausibility_html}
+      </div>
+    </div>
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -2830,18 +3222,24 @@ def build_full_page(
     coverage_html: str = "",
     diversity_html: str = "",
     use_case_html: str = "",
+    scorecard_html: str = "",
     title: str = "Scenario Forge Report",
 ) -> str:
     # Conditionally add sidebar links for use case, coverage, and diversity sections
     use_case_nav = ""
     if use_case_html:
-        use_case_nav = '<a href="#sec-use-case"><span class="nav-icon">&#9673;</span> Use Case</a>'
+        use_case_nav = (
+            '<a href="#sec-use-case"><span class="nav-icon">&#9673;</span> Use Case</a>'
+        )
     coverage_nav = ""
     if coverage_html:
         coverage_nav = '<a href="#sec-coverage"><span class="nav-icon">&#9635;</span> Coverage Analysis</a>'
     diversity_nav = ""
     if diversity_html:
         diversity_nav = '<a href="#sec-diversity"><span class="nav-icon">&#9783;</span> Actor Profiles</a>'
+    scorecard_nav = ""
+    if scorecard_html:
+        scorecard_nav = '<a href="#sec-scorecard"><span class="nav-icon">&#9745;</span> Eval Scorecard</a>'
 
     glossary_html = build_glossary_section()
 
@@ -2866,6 +3264,7 @@ def build_full_page(
       {coverage_nav}
       {diversity_nav}
       <a href="#sec-scenarios"><span class="nav-icon">&#9733;</span> Scenarios</a>
+      {scorecard_nav}
       <a href="#sec-raw"><span class="nav-icon">&#128196;</span> Raw Data</a>
       <a href="#glossary"><span class="nav-icon">&#128214;</span> Glossary</a>
     </nav>
@@ -2878,6 +3277,7 @@ def build_full_page(
     {coverage_html}
     {diversity_html}
     {scenarios_html}
+    {scorecard_html}
     {raw_html}
     {glossary_html}
   </main>
