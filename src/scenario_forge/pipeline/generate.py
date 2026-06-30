@@ -628,17 +628,38 @@ into a concrete, use-case-specific attack narrative.
 1. Rewrite the generic sub-scenario description into an attack narrative \
 specific to the target system described in the use case.
 2. Walk the attack through the system's active Schneider zones.
-3. Pick an entry point from the capability profile's entry points. \
-If a preferred entry point is suggested, use it unless it would be \
+3. Determine the entry point from the attack's ACTUAL initial access vector \
+— where does the attacker first interact with or compromise the system? Do \
+NOT default to the most common entry point (e.g., "user prompts via chat \
+interface"). Consider:
+   - Supply-chain attacks enter through data ingestion, model providers, or \
+plugin sources — NOT the chat interface.
+   - Insider attacks may enter through admin consoles, configuration \
+interfaces, or internal APIs.
+   - Automated attacks may enter through public APIs, webhooks, or \
+inter-agent channels.
+   If a preferred entry point is suggested, use it unless it would be \
 unnatural for this specific attack. If an exclusion list is provided, \
-avoid those entry points — they have already been used heavily in \
-other scenarios in this batch.
+avoid those entry points.
 4. Produce an ordered zone_sequence showing the attack propagation path.
 5. Write each step in adversarial voice ("I craft...", "I exploit...") with \
 the zone where the step occurs, the attacker action, the resulting effect, \
 and any defensive control_point that exists at that step.
 6. The title should be specific to the use case, not a generic restatement.
 7. The summary should be one paragraph in adversarial voice.
+8. Cross-validate attack complexity against the Actor Profile's capability_level:
+   - A novice actor should execute LOW or MEDIUM complexity attacks — simple, \
+few steps, using known techniques.
+   - An intermediate actor handles MEDIUM complexity — adapted techniques, \
+2-4 step chains.
+   - An advanced actor can execute HIGH complexity — custom exploits, \
+multi-layer attacks, evasion.
+   - An expert actor can execute the highest complexity — zero-days, long \
+campaigns, novel vectors.
+   If the Actor Profile says "novice" but your attack requires advanced \
+skills, either simplify the attack or note that the capability level may be \
+too low for this threat. Do NOT assign "high" complexity to a novice actor's \
+attack.
 
 ## Human-in-the-Loop Bypass
 When the attack involves bypassing human-in-the-loop review, describe the \
@@ -710,7 +731,24 @@ actor's type, motivation, capability level, and resources should shape the \
 attack approach — the "who" is already decided; your job is to write the \
 "how". Match the narrative complexity and sophistication to the actor's \
 capability level. A novice actor uses simple, direct attacks; an expert \
-actor uses sophisticated, multi-stage campaigns.\
+actor uses sophisticated, multi-stage campaigns.
+
+## System Constraint Enforcement
+Your scenario MUST be consistent with the system's declared capabilities:
+- If the system is described as STATELESS or having no persistent memory, \
+your scenario MUST NOT rely on the system remembering, aggregating, or \
+correlating information across separate sessions or requests. Each \
+interaction is independent.
+- If the system has NO tool execution capability (no Zone 3), your scenario \
+MUST NOT describe the system executing external tools, making API calls, or \
+accessing filesystems.
+- If the system has NO inter-agent communication (no Zone 5), your scenario \
+MUST NOT describe agent-to-agent attacks or multi-agent coordination.
+- If human-in-the-loop is false, your scenario MUST NOT rely on bypassing \
+human review or approval steps that don't exist.
+Cross-check every attack step against these constraints before finalizing. \
+If an attack step contradicts a declared capability, revise the step or \
+choose a different attack vector.\
 """
 
 _CALL2_SYSTEM = """\
