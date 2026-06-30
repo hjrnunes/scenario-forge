@@ -8,11 +8,11 @@ Covers:
   - Zone coverage gaps
   - Threat coverage gaps
   - Empty scenarios list
-- Attacker model diversity (scenario-forge-cw9):
-  - Diverse actors (no flag)
-  - Monotone actors (flagged)
+- Actor profile diversity:
+  - Diverse actor types (no flag)
+  - Monotone actor types (flagged)
   - Single scenario edge case
-  - Unknown attacker model
+  - Missing actor profile (unknown)
   - Empty scenarios list
 - Coverage report output
 - Coverage remediation (scenario-forge-5gs):
@@ -55,13 +55,13 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
     TechniqueMaturity,
 )
+from scenario_forge.models.scenario import ActorProfile
 from scenario_forge.pipeline.coverage import (
     AttackerDiversityResult,
     CoverageGaps,
     _normalize_entry_point,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
-    classify_attacker_model,
     write_coverage_report,
 )
 from scenario_forge.pipeline.runner import (
@@ -94,6 +94,7 @@ def _make_envelope(
     agentic_threat_ids: list[str] | None = None,
     summary: str = "The attacker exploits user prompts to inject malicious instructions.",
     step_actions: list[str] | None = None,
+    actor_type: str | None = "adversarial-user",
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing."""
     if zone_sequence is None:
@@ -176,10 +177,22 @@ def _make_envelope(
         ],
     )
 
+    actor_profile = None
+    if actor_type is not None:
+        actor_profile = ActorProfile(
+            actor_type=actor_type,  # type: ignore[arg-type]
+            motivation="Motivated to compromise the system.",
+            objective="Exfiltrate sensitive data.",
+            capability_level="intermediate",
+            resources=["open-source tools"],
+            campaign_context="Opportunistic attack.",
+        )
+
     return ScenarioEnvelope(
         scenario_id="T1-S1-abc123",
         generated_at=datetime.now(),
         generator_version="0.1.0",
+        actor_profile=actor_profile,
         narrative=narrative,
         attack_tree=attack_tree,
         behavior_spec={},
@@ -602,86 +615,12 @@ class TestCoverageGapsEntryPointMatching:
 
 
 # ---------------------------------------------------------------------------
-# Attacker model diversity tests (scenario-forge-cw9)
+# Actor profile diversity tests
 # ---------------------------------------------------------------------------
 
 
-class TestClassifyAttackerModel:
-    """Tests for the keyword-based attacker model classifier."""
-
-    def test_insider_keywords(self):
-        assert (
-            classify_attacker_model("A disgruntled employee steals data") == "insider"
-        )
-        assert classify_attacker_model("The insider threat is real") == "insider"
-        assert (
-            classify_attacker_model("Rogue employee exfiltrates secrets") == "insider"
-        )
-
-    def test_supply_chain_keywords(self):
-        assert (
-            classify_attacker_model("Compromised vendor injects backdoor")
-            == "supply_chain"
-        )
-        assert (
-            classify_attacker_model("Supply chain attack via dependency")
-            == "supply_chain"
-        )
-        assert (
-            classify_attacker_model("Third-party library trojanized") == "supply_chain"
-        )
-
-    def test_social_engineer_keywords(self):
-        assert (
-            classify_attacker_model("Phishing email tricks the user")
-            == "social_engineer"
-        )
-        assert (
-            classify_attacker_model("Social engineer impersonates admin")
-            == "social_engineer"
-        )
-
-    def test_privileged_user_keywords(self):
-        assert (
-            classify_attacker_model("Malicious admin abuses access")
-            == "privileged_user"
-        )
-        assert (
-            classify_attacker_model("Privileged user escalates permissions")
-            == "privileged_user"
-        )
-
-    def test_external_attacker_keywords(self):
-        assert (
-            classify_attacker_model("External attacker sends crafted payload")
-            == "external_attacker"
-        )
-        assert (
-            classify_attacker_model("The attacker exploits a vulnerability")
-            == "external_attacker"
-        )
-        assert (
-            classify_attacker_model("A hacker breaks into the system")
-            == "external_attacker"
-        )
-
-    def test_unknown_when_no_keywords(self):
-        assert (
-            classify_attacker_model("The system processes data normally") == "unknown"
-        )
-
-    def test_case_insensitive(self):
-        assert classify_attacker_model("The INSIDER threat is real") == "insider"
-        assert classify_attacker_model("SUPPLY CHAIN compromise") == "supply_chain"
-
-    def test_priority_order_insider_over_external(self):
-        """Insider keywords take priority over external attacker keywords."""
-        result = classify_attacker_model("An insider attacker exfiltrates data")
-        assert result == "insider"
-
-
 class TestAnalyzeAttackerDiversity:
-    """Tests for analyze_attacker_diversity."""
+    """Tests for analyze_attacker_diversity (actor_profile based)."""
 
     def test_empty_scenarios(self):
         result = analyze_attacker_diversity([])
@@ -689,139 +628,98 @@ class TestAnalyzeAttackerDiversity:
         assert result.dominant_model is None
         assert result.is_flagged is False
 
-    def test_diverse_attacker_models_no_flag(self):
-        """When scenarios have varied attacker models, no flag."""
+    def test_diverse_actor_types_no_flag(self):
+        """When scenarios have varied actor types, no flag."""
         scenarios = [
-            _make_envelope(
-                summary="An insider steals credentials.",
-                step_actions=["I use my insider access to bypass controls."],
-            ),
-            _make_envelope(
-                summary="A supply chain attack injects malicious code.",
-                step_actions=["I compromise a third-party vendor."],
-            ),
-            _make_envelope(
-                summary="A phishing campaign targets users.",
-                step_actions=["I craft a social engineering email."],
-            ),
-            _make_envelope(
-                summary="External attacker exploits API.",
-                step_actions=["I send crafted payloads."],
-            ),
-            _make_envelope(
-                summary="A privileged user abuses admin console.",
-                step_actions=["I use malicious admin access."],
-            ),
+            _make_envelope(actor_type="malicious-insider"),
+            _make_envelope(actor_type="supply-chain-actor"),
+            _make_envelope(actor_type="hacktivist"),
+            _make_envelope(actor_type="cybercriminal"),
+            _make_envelope(actor_type="nation-state"),
         ]
 
         result = analyze_attacker_diversity(scenarios)
         assert not result.is_flagged
-        assert len(result.model_counts) >= 4
+        assert len(result.model_counts) == 5
 
-    def test_monotone_external_attacker_flagged(self):
-        """When >80% of scenarios use 'external_attacker', flag is raised."""
+    def test_monotone_actor_type_flagged(self):
+        """When >80% of scenarios use the same actor type, flag is raised."""
         scenarios = [
-            _make_envelope(
-                summary="The attacker injects prompts.",
-                step_actions=["I craft a malicious prompt."],
-            ),
-            _make_envelope(
-                summary="The attacker exploits the API.",
-                step_actions=["I send malicious requests."],
-            ),
-            _make_envelope(
-                summary="The attacker steals data.",
-                step_actions=["I exfiltrate sensitive information."],
-            ),
-            _make_envelope(
-                summary="The attacker modifies output.",
-                step_actions=["I manipulate the response."],
-            ),
-            _make_envelope(
-                summary="The attacker escapes the sandbox.",
-                step_actions=["I break out of containment."],
-            ),
+            _make_envelope(actor_type="adversarial-user"),
+            _make_envelope(actor_type="adversarial-user"),
+            _make_envelope(actor_type="adversarial-user"),
+            _make_envelope(actor_type="adversarial-user"),
+            _make_envelope(actor_type="adversarial-user"),
         ]
 
         result = analyze_attacker_diversity(scenarios)
         assert result.is_flagged
-        assert result.dominant_model == "external_attacker"
+        assert result.dominant_model == "adversarial-user"
         assert result.dominant_fraction > 0.8
 
     def test_exactly_at_threshold_not_flagged(self):
         """Exactly 80% (4/5) should NOT be flagged (> threshold, not >=)."""
         scenarios = [
-            _make_envelope(
-                summary="The attacker exploits a flaw.",
-                step_actions=["I craft a malicious payload."],
-            ),
-            _make_envelope(
-                summary="The attacker sends requests.",
-                step_actions=["I exploit the endpoint."],
-            ),
-            _make_envelope(
-                summary="The attacker steals tokens.",
-                step_actions=["I capture authentication tokens."],
-            ),
-            _make_envelope(
-                summary="The attacker escapes limits.",
-                step_actions=["I bypass rate limiting."],
-            ),
-            _make_envelope(
-                summary="An insider leaks data.",
-                step_actions=["I use insider access to exfiltrate data."],
-            ),
+            _make_envelope(actor_type="cybercriminal"),
+            _make_envelope(actor_type="cybercriminal"),
+            _make_envelope(actor_type="cybercriminal"),
+            _make_envelope(actor_type="cybercriminal"),
+            _make_envelope(actor_type="malicious-insider"),
         ]
 
         result = analyze_attacker_diversity(scenarios)
-        # 4 external + 1 insider = 4/5 = 0.8
+        # 4 cybercriminal + 1 malicious-insider = 4/5 = 0.8
         assert result.dominant_fraction == pytest.approx(0.8)
         assert not result.is_flagged
 
     def test_single_scenario_flagged(self):
-        """One scenario = 100% one model, which is > 80%, so it IS flagged."""
+        """One scenario = 100% one type, which is > 80%, so it IS flagged."""
         scenarios = [
-            _make_envelope(
-                summary="The attacker crafts malicious input.",
-                step_actions=["I inject a prompt."],
-            ),
+            _make_envelope(actor_type="nation-state"),
         ]
 
         result = analyze_attacker_diversity(scenarios)
         assert result.dominant_fraction == 1.0
         assert result.is_flagged
 
-    def test_all_unknown_models_flagged(self):
-        """Scenarios with no recognizable keywords are classified as unknown."""
+    def test_no_actor_profile_classified_as_unknown(self):
+        """Envelopes without actor_profile are classified as 'unknown'."""
         scenarios = [
-            _make_envelope(
-                summary="The system processes data.",
-                step_actions=["Data flows through the pipeline."],
-            ),
-            _make_envelope(
-                summary="Input is transformed.",
-                step_actions=["Transformation occurs."],
-            ),
-            _make_envelope(
-                summary="Output is generated.",
-                step_actions=["Results are produced."],
-            ),
+            _make_envelope(actor_type=None),
+            _make_envelope(actor_type=None),
+            _make_envelope(actor_type=None),
         ]
 
         result = analyze_attacker_diversity(scenarios)
         assert result.dominant_model == "unknown"
         assert result.is_flagged
 
+    def test_mixed_with_and_without_actor_profile(self):
+        """Mix of envelopes with and without actor_profile."""
+        scenarios = [
+            _make_envelope(actor_type="cybercriminal"),
+            _make_envelope(actor_type="nation-state"),
+            _make_envelope(actor_type=None),
+        ]
+
+        result = analyze_attacker_diversity(scenarios)
+        assert result.model_counts == {
+            "cybercriminal": 1,
+            "nation-state": 1,
+            "unknown": 1,
+        }
+        assert not result.is_flagged
+
     def test_to_dict(self):
         result = AttackerDiversityResult(
-            model_counts={"external_attacker": 3, "insider": 1},
-            dominant_model="external_attacker",
+            model_counts={"cybercriminal": 3, "malicious-insider": 1},
+            dominant_model="cybercriminal",
             dominant_fraction=0.75,
             is_flagged=False,
         )
         d = result.to_dict()
-        assert d["model_counts"] == {"external_attacker": 3, "insider": 1}
-        assert d["dominant_model"] == "external_attacker"
+        assert d["model_counts"] == {"cybercriminal": 3, "malicious-insider": 1}
+        assert d["dominant_model"] == "cybercriminal"
         assert d["dominant_fraction"] == 0.75
         assert d["is_flagged"] is False
 
