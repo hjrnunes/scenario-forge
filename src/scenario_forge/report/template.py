@@ -1835,50 +1835,67 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Section 2c: Attacker Diversity
+# Section 2c: Actor Profile Distribution
 # ---------------------------------------------------------------------------
 
 _DIVERSITY_COLORS: dict[str, str] = {
-    "insider": "#ef4444",
-    "supply_chain": "#f97316",
-    "social_engineer": "#f59e0b",
-    "privileged_user": "#8b5cf6",
-    "external_attacker": "#3b82f6",
-    "unknown": "#6b7280",
+    "cybercriminal": "#ef4444",        # red
+    "nation-state": "#1e40af",         # dark blue
+    "malicious-insider": "#f97316",    # orange
+    "negligent-insider": "#f59e0b",    # amber/yellow
+    "competitor": "#8b5cf6",           # purple
+    "hacktivist": "#22c55e",           # green
+    "supply-chain-actor": "#14b8a6",   # teal
+    "adversarial-user": "#ec4899",     # pink/rose
+    "automated-agent": "#6b7280",      # gray
+    "unknown": "#4b5563",             # dark gray
 }
 
 
-def build_attacker_diversity_section(coverage_data: dict[str, Any]) -> str:
-    """Build the Attacker Diversity section from coverage-gaps.json data.
+def build_attacker_diversity_section(scenarios: list[dict[str, Any]]) -> str:
+    """Build the Actor Profile Distribution section from scenario data.
+
+    Computes actor type distribution directly from the loaded scenario dicts
+    rather than relying on pre-computed data in ``coverage-gaps.json``.
 
     Args:
-        coverage_data: Parsed JSON from ``coverage-gaps.json``.
+        scenarios: List of parsed scenario envelope dicts (from YAML files).
 
     Returns:
-        HTML string for the attacker diversity section, or empty string
-        if no attacker diversity data is present.
+        HTML string for the actor profile distribution section, or empty string
+        if no scenarios are provided.
     """
-    diversity = coverage_data.get("attacker_diversity")
-    if not diversity:
+    if not scenarios:
         return ""
 
-    model_counts: dict[str, int] = diversity.get("model_counts", {})
-    dominant_model = diversity.get("dominant_model", "unknown")
-    dominant_fraction = diversity.get("dominant_fraction", 0.0)
-    is_flagged = diversity.get("is_flagged", False)
+    # Count actor types directly from scenario dicts
+    model_counts: dict[str, int] = {}
+    for s in scenarios:
+        actor_profile = s.get("actor_profile")
+        if actor_profile and isinstance(actor_profile, dict):
+            actor_type = actor_profile.get("actor_type", "unknown")
+        else:
+            actor_type = "unknown"
+        model_counts[actor_type] = model_counts.get(actor_type, 0) + 1
 
     total = sum(model_counts.values()) if model_counts else 1
+
+    # Compute dominant type and monotone flag (>80% threshold)
+    dominant_model = max(model_counts, key=model_counts.get)  # type: ignore[arg-type]
+    dominant_count = model_counts[dominant_model]
+    dominant_fraction = dominant_count / total
+    is_flagged = dominant_fraction > 0.8
 
     # Warning banner if monotone
     warning_html = ""
     if is_flagged:
-        dominant_display = dominant_model.replace("_", " ").title()
+        dominant_display = dominant_model.replace("-", " ").replace("_", " ").title()
         pct = int(dominant_fraction * 100)
         warning_html = (
             '<div class="warning-banner">'
             '<span class="warning-banner-icon">&#9888;</span>'
-            f"<span>Low attacker diversity: {pct}% of scenarios use the "
-            f"<strong>{_esc(dominant_display)}</strong> model. "
+            f"<span>Low actor diversity: {pct}% of scenarios use the "
+            f"<strong>{_esc(dominant_display)}</strong> actor type. "
             f"Consider varying threat actor types for broader coverage.</span>"
             "</div>"
         )
@@ -1888,7 +1905,7 @@ def build_attacker_diversity_section(coverage_data: dict[str, Any]) -> str:
     for model, count in sorted(model_counts.items(), key=lambda x: x[1], reverse=True):
         pct = (count / total * 100) if total > 0 else 0
         color = _DIVERSITY_COLORS.get(model, "#6b7280")
-        display_name = model.replace("_", " ").title()
+        display_name = model.replace("-", " ").replace("_", " ").title()
         bars_html += f"""
         <div class="diversity-bar-row">
           <span class="diversity-bar-label">{_esc(display_name)}</span>
@@ -1900,13 +1917,13 @@ def build_attacker_diversity_section(coverage_data: dict[str, Any]) -> str:
           <span class="diversity-bar-count">{pct:.0f}%</span>
         </div>"""
 
-    unique_models = len(model_counts)
+    unique_types = len(model_counts)
 
     return f"""
     <div id="sec-diversity" class="section">
       <div class="section-header">
-        <h2>Attacker Diversity</h2>
-        <span class="badge">{unique_models} model{"s" if unique_models != 1 else ""}</span>
+        <h2>Actor Profile Distribution</h2>
+        <span class="badge">{unique_types} type{"s" if unique_types != 1 else ""}</span>
       </div>
 
       {warning_html}
@@ -2049,6 +2066,70 @@ def build_scenarios_section(
     """
 
 
+_CAPABILITY_COLORS: dict[str, str] = {
+    "novice": "#22c55e",       # green
+    "intermediate": "#3b82f6", # blue
+    "advanced": "#f97316",     # orange
+    "expert": "#ef4444",       # red
+}
+
+
+def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
+    """Build a collapsible Actor Profile block for a scenario card.
+
+    Returns an empty string when the scenario has no ``actor_profile``.
+    """
+    actor_profile = scenario.get("actor_profile")
+    if not actor_profile:
+        return ""
+
+    actor_type = actor_profile.get("actor_type", "unknown")
+    motivation = actor_profile.get("motivation", "")
+    objective = actor_profile.get("objective", "")
+    capability_level = actor_profile.get("capability_level", "")
+    resources = actor_profile.get("resources", [])
+    campaign_context = actor_profile.get("campaign_context", "")
+
+    type_color = _DIVERSITY_COLORS.get(actor_type, "#6b7280")
+    type_display = actor_type.replace("-", " ").replace("_", " ").title()
+
+    cap_color = _CAPABILITY_COLORS.get(capability_level, "#6b7280")
+    cap_display = capability_level.title() if capability_level else ""
+
+    resources_str = ", ".join(resources) if resources else "None specified"
+
+    return f"""
+        <div class="scenario-section">
+          <details class="expandable" open>
+            <summary>Actor Profile</summary>
+            <div style="padding:12px 0 4px;">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                <span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(type_color)},0.15);color:{type_color};">{_esc(type_display)}</span>
+                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};">{_esc(cap_display)}</span>' if cap_display else ''}
+              </div>
+              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
+                <div style="margin-bottom:8px;">
+                  <strong style="color:var(--text-muted);font-size:11px;">MOTIVATION:</strong>
+                  <span>{_esc(motivation)}</span>
+                </div>
+                <div style="margin-bottom:8px;">
+                  <strong style="color:var(--text-muted);font-size:11px;">OBJECTIVE:</strong>
+                  <span>{_esc(objective)}</span>
+                </div>
+                <div style="margin-bottom:8px;">
+                  <strong style="color:var(--text-muted);font-size:11px;">RESOURCES:</strong>
+                  <span>{_esc(resources_str)}</span>
+                </div>
+                <div>
+                  <strong style="color:var(--text-muted);font-size:11px;">CAMPAIGN CONTEXT:</strong>
+                  <span>{_esc(campaign_context)}</span>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>"""
+
+
 def _build_scenario_card(
     scenario: dict[str, Any], feature_files: dict[str, str]
 ) -> str:
@@ -2114,6 +2195,8 @@ def _build_scenario_card(
         </div>
       </div>
       <div class="scenario-body">
+        {_build_actor_profile_block(scenario)}
+
         <div class="scenario-section">
           <div class="scenario-section-title">Narrative</div>
           <p class="scenario-summary">{_esc(summary)}</p>
@@ -2704,7 +2787,7 @@ def build_full_page(
         coverage_nav = '<a href="#sec-coverage"><span class="nav-icon">&#9635;</span> Coverage Analysis</a>'
     diversity_nav = ""
     if diversity_html:
-        diversity_nav = '<a href="#sec-diversity"><span class="nav-icon">&#9783;</span> Attacker Diversity</a>'
+        diversity_nav = '<a href="#sec-diversity"><span class="nav-icon">&#9783;</span> Actor Profiles</a>'
 
     glossary_html = build_glossary_section()
 

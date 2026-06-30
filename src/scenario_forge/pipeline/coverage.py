@@ -6,7 +6,7 @@ to flag coverage gaps:
   - Active zones with zero scenarios traversing them
   - In-scope threats that produced no scenarios
 
-Also provides attacker model diversity analysis (scenario-forge-cw9).
+Also provides actor profile diversity analysis.
 """
 
 from __future__ import annotations
@@ -160,64 +160,16 @@ def analyze_coverage_gaps(
 
 
 # ---------------------------------------------------------------------------
-# Attacker model diversity analysis (scenario-forge-cw9)
+# Actor profile diversity analysis
 # ---------------------------------------------------------------------------
 
-# Keyword -> attacker model classification.
-# Order matters: first match wins during classification.
-_ATTACKER_MODEL_KEYWORDS: dict[str, list[str]] = {
-    "insider": [
-        "insider",
-        "disgruntled employee",
-        "malicious employee",
-        "rogue employee",
-        "trusted insider",
-        "internal actor",
-    ],
-    "supply_chain": [
-        "supply chain",
-        "compromised vendor",
-        "third-party",
-        "third party",
-        "vendor compromise",
-        "upstream dependency",
-        "dependency confusion",
-    ],
-    "social_engineer": [
-        "social engineer",
-        "phishing",
-        "pretexting",
-        "spear-phishing",
-        "impersonat",
-        "vishing",
-    ],
-    "privileged_user": [
-        "privileged user",
-        "malicious admin",
-        "admin abuse",
-        "privileged access",
-        "elevated privilege",
-        "system administrator",
-    ],
-    "external_attacker": [
-        "external attacker",
-        "remote attacker",
-        "adversary",
-        "threat actor",
-        "attacker",
-        "hacker",
-        "malicious user",
-        "unauthorized",
-    ],
-}
-
-# Threshold: flag if this fraction or more of scenarios share one model.
+# Threshold: flag if this fraction or more of scenarios share one actor type.
 _MONOTONE_THRESHOLD = 0.8
 
 
 @dataclass
 class AttackerDiversityResult:
-    """Result of attacker model diversity analysis."""
+    """Result of actor profile diversity analysis."""
 
     model_counts: dict[str, int] = field(default_factory=dict)
     dominant_model: str | None = None
@@ -233,63 +185,36 @@ class AttackerDiversityResult:
         }
 
 
-def classify_attacker_model(text: str) -> str:
-    """Classify a text snippet into an attacker model category.
-
-    Scans for keyword matches in priority order. Returns the first matching
-    category, or ``"unknown"`` if no keywords match.
-
-    Args:
-        text: Narrative text to classify (summary + step actions).
-
-    Returns:
-        Attacker model category string.
-    """
-    lower = text.lower()
-    for model, keywords in _ATTACKER_MODEL_KEYWORDS.items():
-        for kw in keywords:
-            if kw in lower:
-                return model
-    return "unknown"
-
-
-def _extract_scenario_text(envelope: ScenarioEnvelope) -> str:
-    """Extract classifiable text from a scenario envelope.
-
-    Combines the narrative summary and all step actions into a single string
-    for attacker model classification.
-    """
-    parts = [envelope.narrative.summary]
-    for step in envelope.narrative.steps:
-        parts.append(step.action)
-    return " ".join(parts)
-
-
 def analyze_attacker_diversity(
     scenarios: list[ScenarioEnvelope],
 ) -> AttackerDiversityResult:
-    """Analyze attacker model diversity across generated scenarios.
+    """Analyze actor type diversity across generated scenarios.
 
-    Classifies each scenario's dominant attacker model by scanning narrative
-    text for keyword patterns, then flags when >80% of scenarios share the
-    same model.
+    Reads each scenario's ``actor_profile.actor_type`` directly (set during
+    Call 0) instead of scanning narrative text for keywords.  Envelopes
+    without an actor profile are counted as ``"unknown"``.
+
+    Flags when >80% of scenarios share the same actor type.
 
     Args:
         scenarios: The generated scenario envelopes.
 
     Returns:
-        AttackerDiversityResult with counts, dominant model, and flag status.
+        AttackerDiversityResult with counts, dominant type, and flag status.
     """
     if not scenarios:
         return AttackerDiversityResult()
 
     model_counts: dict[str, int] = {}
     for envelope in scenarios:
-        text = _extract_scenario_text(envelope)
-        model = classify_attacker_model(text)
-        model_counts[model] = model_counts.get(model, 0) + 1
+        actor_type = (
+            envelope.actor_profile.actor_type
+            if envelope.actor_profile is not None
+            else "unknown"
+        )
+        model_counts[actor_type] = model_counts.get(actor_type, 0) + 1
 
-    # Find the dominant model.
+    # Find the dominant actor type.
     dominant_model = max(model_counts, key=model_counts.get)  # type: ignore[arg-type]
     dominant_count = model_counts[dominant_model]
     dominant_fraction = dominant_count / len(scenarios)
@@ -297,8 +222,8 @@ def analyze_attacker_diversity(
 
     if is_flagged:
         logger.warning(
-            "Attacker model diversity: %.0f%% of scenarios use '%s' "
-            "(threshold: %.0f%%). Consider varying threat actor models.",
+            "Actor profile diversity: %.0f%% of scenarios use '%s' "
+            "(threshold: %.0f%%). Consider varying threat actor types.",
             dominant_fraction * 100,
             dominant_model,
             _MONOTONE_THRESHOLD * 100,
