@@ -1386,6 +1386,42 @@ function resetFilters() {
 
 
 # ---------------------------------------------------------------------------
+# Section 0: Use Case
+# ---------------------------------------------------------------------------
+
+
+def build_use_case_section(use_case_text: str) -> str:
+    """Build a styled section showing the use case description.
+
+    Args:
+        use_case_text: Free-text description of the AI system under assessment.
+
+    Returns:
+        HTML string for the use case section, or empty string if text is empty.
+    """
+    if not use_case_text or not use_case_text.strip():
+        return ""
+
+    # Preserve line breaks by converting newlines to <br> tags
+    paragraphs = use_case_text.strip().split("\n")
+    formatted = "<br>\n".join(_esc(p) for p in paragraphs)
+
+    return f"""
+    <div id="sec-use-case" class="section">
+      <div class="section-header">
+        <h2>System Under Assessment</h2>
+      </div>
+
+      <div class="card" style="background:var(--bg-secondary);border-left:4px solid var(--accent);">
+        <div style="font-size:14px;line-height:1.8;color:var(--text-secondary);">
+          {formatted}
+        </div>
+      </div>
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
 # Section 1: Capability Profile
 # ---------------------------------------------------------------------------
 
@@ -2793,9 +2829,13 @@ def build_full_page(
     raw_html: str,
     coverage_html: str = "",
     diversity_html: str = "",
+    use_case_html: str = "",
     title: str = "Scenario Forge Report",
 ) -> str:
-    # Conditionally add sidebar links for coverage and diversity sections
+    # Conditionally add sidebar links for use case, coverage, and diversity sections
+    use_case_nav = ""
+    if use_case_html:
+        use_case_nav = '<a href="#sec-use-case"><span class="nav-icon">&#9673;</span> Use Case</a>'
     coverage_nav = ""
     if coverage_html:
         coverage_nav = '<a href="#sec-coverage"><span class="nav-icon">&#9635;</span> Coverage Analysis</a>'
@@ -2820,6 +2860,7 @@ def build_full_page(
       <div class="subtitle">Red-Team Report</div>
     </div>
     <nav>
+      {use_case_nav}
       <a href="#sec-profile"><span class="nav-icon">&#9670;</span> Capability Profile</a>
       <a href="#sec-threats"><span class="nav-icon">&#9888;</span> Threat Surface</a>
       {coverage_nav}
@@ -2831,6 +2872,7 @@ def build_full_page(
   </aside>
 
   <main class="main-content">
+    {use_case_html}
     {profile_html}
     {threats_html}
     {coverage_html}

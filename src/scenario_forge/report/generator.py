@@ -16,6 +16,7 @@ from scenario_forge.report.template import (
     build_raw_data_section,
     build_scenarios_section,
     build_threat_surface_section,
+    build_use_case_section,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,7 +120,19 @@ def generate_report(output_dir: Path) -> Path:
         reverse=True,
     )
 
+    # --- Load use case description ---
+    use_case_path = output_dir / "use-case.txt"
+    use_case_text = ""
+    if use_case_path.exists():
+        use_case_text = use_case_path.read_text(encoding="utf-8")
+        logger.info("Loaded use case description from %s", use_case_path)
+    else:
+        logger.info(
+            "use-case.txt not found in %s (skipping use case section)", output_dir
+        )
+
     # --- Build HTML sections ---
+    use_case_html = build_use_case_section(use_case_text) if use_case_text else ""
     profile_html = build_capability_profile_section(profile_data)
     threats_html = build_threat_surface_section(ts_data)
 
@@ -140,6 +153,7 @@ def generate_report(output_dir: Path) -> Path:
         raw_html=raw_html,
         coverage_html=coverage_html,
         diversity_html=diversity_html,
+        use_case_html=use_case_html,
     )
 
     # --- Write output ---
