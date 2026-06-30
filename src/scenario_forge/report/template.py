@@ -1852,26 +1852,39 @@ _DIVERSITY_COLORS: dict[str, str] = {
 }
 
 
-def build_attacker_diversity_section(coverage_data: dict[str, Any]) -> str:
-    """Build the Actor Profile Distribution section from coverage-gaps.json data.
+def build_attacker_diversity_section(scenarios: list[dict[str, Any]]) -> str:
+    """Build the Actor Profile Distribution section from scenario data.
+
+    Computes actor type distribution directly from the loaded scenario dicts
+    rather than relying on pre-computed data in ``coverage-gaps.json``.
 
     Args:
-        coverage_data: Parsed JSON from ``coverage-gaps.json``.
+        scenarios: List of parsed scenario envelope dicts (from YAML files).
 
     Returns:
         HTML string for the actor profile distribution section, or empty string
-        if no attacker diversity data is present.
+        if no scenarios are provided.
     """
-    diversity = coverage_data.get("attacker_diversity")
-    if not diversity:
+    if not scenarios:
         return ""
 
-    model_counts: dict[str, int] = diversity.get("model_counts", {})
-    dominant_model = diversity.get("dominant_model", "unknown")
-    dominant_fraction = diversity.get("dominant_fraction", 0.0)
-    is_flagged = diversity.get("is_flagged", False)
+    # Count actor types directly from scenario dicts
+    model_counts: dict[str, int] = {}
+    for s in scenarios:
+        actor_profile = s.get("actor_profile")
+        if actor_profile and isinstance(actor_profile, dict):
+            actor_type = actor_profile.get("actor_type", "unknown")
+        else:
+            actor_type = "unknown"
+        model_counts[actor_type] = model_counts.get(actor_type, 0) + 1
 
     total = sum(model_counts.values()) if model_counts else 1
+
+    # Compute dominant type and monotone flag (>80% threshold)
+    dominant_model = max(model_counts, key=model_counts.get)  # type: ignore[arg-type]
+    dominant_count = model_counts[dominant_model]
+    dominant_fraction = dominant_count / total
+    is_flagged = dominant_fraction > 0.8
 
     # Warning banner if monotone
     warning_html = ""

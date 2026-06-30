@@ -124,10 +124,10 @@ def generate_report(output_dir: Path) -> Path:
     threats_html = build_threat_surface_section(ts_data)
 
     coverage_html = ""
-    diversity_html = ""
     if coverage_data:
         coverage_html = build_coverage_section(coverage_data)
-        diversity_html = build_attacker_diversity_section(coverage_data)
+
+    diversity_html = build_attacker_diversity_section(scenarios)
 
     scenarios_html = build_scenarios_section(scenarios, feature_files)
     raw_html = build_raw_data_section(raw_files)
