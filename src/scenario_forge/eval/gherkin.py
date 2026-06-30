@@ -17,9 +17,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Gherkin step keyword pattern
-_STEP_RE = re.compile(
-    r"^\s*(Given|When|Then|And|But)\s+", re.MULTILINE
-)
+_STEP_RE = re.compile(r"^\s*(Given|When|Then|And|But)\s+", re.MULTILINE)
 
 # Background section
 _BACKGROUND_RE = re.compile(r"^\s*Background:", re.MULTILINE)
@@ -123,10 +121,12 @@ def tag_consistency(gherkin_texts: list[str]) -> dict[str, Any]:
     inconsistent: list[dict[str, Any]] = []
     for norm, surfaces in sorted(norm_to_surfaces.items()):
         if len(surfaces) > 1:
-            inconsistent.append({
-                "normalized": norm,
-                "variants": sorted(surfaces),
-            })
+            inconsistent.append(
+                {
+                    "normalized": norm,
+                    "variants": sorted(surfaces),
+                }
+            )
 
     return {
         "inconsistent_groups": len(inconsistent),
@@ -178,9 +178,7 @@ def score_gherkin(gherkin_texts: list[str]) -> dict[str, Any]:
     for i, s in enumerate(singles):
         if not s["has_background"]:
             missing_bg.append(i)
-            logger.warning(
-                "Feature file %d lacks a Background section", i
-            )
+            logger.warning("Feature file %d lacks a Background section", i)
 
     return {
         "parse_success_rate": round(parse_ok / n, 4),

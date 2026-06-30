@@ -109,10 +109,12 @@ def score_grounding(
             if tid in valid_ids:
                 valid_refs += 1
             else:
-                dangling.append({
-                    "scenario_id": scenario_id,
-                    "threat_id": tid,
-                })
+                dangling.append(
+                    {
+                        "scenario_id": scenario_id,
+                        "threat_id": tid,
+                    }
+                )
 
         # --- technique_id grounding ---
         technique_ids = _collect_tree_technique_ids(root)
@@ -127,17 +129,21 @@ def score_grounding(
                     grounded_technique_refs += 1
                 elif not allowed:
                     # No seed technique IDs -> any technique_id is ungrounded
-                    ungrounded_techniques.append({
-                        "scenario_id": scenario_id,
-                        "technique_id": tech_id,
-                        "reason": "no_seed_technique_ids",
-                    })
+                    ungrounded_techniques.append(
+                        {
+                            "scenario_id": scenario_id,
+                            "technique_id": tech_id,
+                            "reason": "no_seed_technique_ids",
+                        }
+                    )
                 else:
-                    ungrounded_techniques.append({
-                        "scenario_id": scenario_id,
-                        "technique_id": tech_id,
-                        "reason": "not_in_seed",
-                    })
+                    ungrounded_techniques.append(
+                        {
+                            "scenario_id": scenario_id,
+                            "technique_id": tech_id,
+                            "reason": "not_in_seed",
+                        }
+                    )
 
     validity = valid_refs / total_refs if total_refs > 0 else 1.0
     technique_grounding = (

@@ -14,6 +14,8 @@ import math
 from collections import Counter
 from typing import Any
 
+from scenario_forge.models.capability_profile import ZONE_NAMES
+
 
 def _shannon_entropy(values: list[str], normalize: bool = True) -> float:
     """Compute Shannon entropy of a discrete distribution.
@@ -131,7 +133,7 @@ def entry_point_entropy(
 
 def zone_coverage(
     scenarios: list[dict[str, Any]],
-    active_zones: set[int] | None = None,
+    active_zones: set[str] | None = None,
 ) -> float | dict[str, Any]:
     """Fraction of zones represented across all scenarios.
 
@@ -146,12 +148,13 @@ def zone_coverage(
         a dict with 'raw_coverage', 'active_zone_coverage', and
         'out_of_scope_zone_violations'.
     """
-    all_zones: set[int] = set()
+    all_zones: set[str] = set()
     for s in scenarios:
         zones = s.get("narrative", {}).get("zone_sequence", [])
-        all_zones.update(zones)
+        all_zones.update(str(z) for z in zones)
 
-    raw_coverage = round(len(all_zones & {1, 2, 3, 4, 5}) / 5, 4)
+    valid_zone_names = set(ZONE_NAMES)
+    raw_coverage = round(len(all_zones & valid_zone_names) / len(ZONE_NAMES), 4)
 
     if active_zones is None:
         return raw_coverage
@@ -159,22 +162,22 @@ def zone_coverage(
     # Contextualized coverage against active zones
     covered_active = all_zones & active_zones
     active_coverage = (
-        round(len(covered_active) / len(active_zones), 4)
-        if active_zones
-        else 0.0
+        round(len(covered_active) / len(active_zones), 4) if active_zones else 0.0
     )
 
     # Find scenarios referencing zones outside the active set
     violations: list[dict[str, Any]] = []
     for s in scenarios:
         scenario_id = s.get("scenario_id", "unknown")
-        zones = set(s.get("narrative", {}).get("zone_sequence", []))
+        zones = {str(z) for z in s.get("narrative", {}).get("zone_sequence", [])}
         out_of_scope = zones - active_zones
         if out_of_scope:
-            violations.append({
-                "scenario_id": scenario_id,
-                "out_of_scope_zones": sorted(out_of_scope),
-            })
+            violations.append(
+                {
+                    "scenario_id": scenario_id,
+                    "out_of_scope_zones": sorted(out_of_scope),
+                }
+            )
 
     return {
         "raw_coverage": raw_coverage,
@@ -245,7 +248,7 @@ def score_diversity(
     scenarios: list[dict[str, Any]],
     *,
     expected_entry_points: int | None = None,
-    active_zones: set[int] | None = None,
+    active_zones: set[str] | None = None,
 ) -> dict[str, Any]:
     """Compute all batch diversity metrics.
 
@@ -268,9 +271,7 @@ def score_diversity(
         "entry_point_entropy": entry_point_entropy(
             scenarios, expected_entry_points=expected_entry_points
         ),
-        "zone_coverage": zone_coverage(
-            scenarios, active_zones=active_zones
-        ),
+        "zone_coverage": zone_coverage(scenarios, active_zones=active_zones),
         "actor_type_entropy": actor_type_entropy(scenarios),
         "capability_level_evenness": capability_level_evenness(scenarios),
         "title_uniqueness": title_uniqueness(scenarios),

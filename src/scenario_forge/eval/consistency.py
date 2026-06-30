@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES, ZONE_NAMES
+
 
 def _jaccard(a: set, b: set) -> float:
     """Jaccard similarity of two sets. Returns 1.0 if both are empty."""
@@ -22,12 +24,12 @@ def _jaccard(a: set, b: set) -> float:
     return len(a & b) / len(union)
 
 
-def _collect_tree_zones(node: dict[str, Any]) -> set[int]:
+def _collect_tree_zones(node: dict[str, Any]) -> set[str]:
     """Recursively collect all zone values from attack tree nodes."""
-    zones: set[int] = set()
+    zones: set[str] = set()
     zone = node.get("zone")
     if zone is not None:
-        zones.add(int(zone))
+        zones.add(str(zone))
     for child in node.get("children") or []:
         zones |= _collect_tree_zones(child)
     return zones
@@ -44,11 +46,31 @@ def _collect_tree_leaves(node: dict[str, Any]) -> list[dict[str, Any]]:
     return leaves
 
 
-def _extract_gherkin_zones(gherkin_text: str) -> set[int]:
-    """Extract zone annotations from Gherkin text (e.g. '# Zone 2')."""
-    zones: set[int] = set()
-    for match in re.finditer(r"#\s*[Zz]one\s+(\d+)", gherkin_text):
-        zones.add(int(match.group(1)))
+def _extract_gherkin_zones(gherkin_text: str) -> set[str]:
+    """Extract zone annotations from Gherkin text.
+
+    Supports both legacy integer annotations (e.g. ``# Zone 2``) and
+    string zone names (e.g. ``# Zone reasoning``).  Legacy integers are
+    mapped to the canonical string name via ``ZONE_NAMES``.
+    """
+    _INT_TO_NAME = dict(enumerate(ZONE_NAMES, 1))
+    zones: set[str] = set()
+    # Match "# Zone <word_or_number>"
+    for match in re.finditer(r"#\s*[Zz]one\s+(\S+)", gherkin_text):
+        token = match.group(1)
+        # Legacy integer form
+        if token.isdigit():
+            name = _INT_TO_NAME.get(int(token))
+            if name:
+                zones.add(name)
+        elif token in set(ZONE_NAMES):
+            zones.add(token)
+        # Also accept display names written as-is (e.g. "Input")
+        else:
+            for zn, display in ZONE_DISPLAY_NAMES.items():
+                if token.lower() in display.lower():
+                    zones.add(zn)
+                    break
     return zones
 
 
@@ -144,13 +166,11 @@ def step_node_correspondence(scenario: dict[str, Any]) -> float:
     leaves = _collect_tree_leaves(tree_root)
 
     # Build a mapping of zone -> set of leaf label tokens
-    zone_leaf_tokens: dict[int, set[str]] = {}
+    zone_leaf_tokens: dict[str, set[str]] = {}
     for leaf in leaves:
         z = leaf.get("zone")
         if z is not None:
-            label_tokens = set(
-                _normalize_entry_point(leaf.get("label", "")).split()
-            )
+            label_tokens = set(_normalize_entry_point(leaf.get("label", "")).split())
             desc_tokens = set(
                 _normalize_entry_point(leaf.get("description", "") or "").split()
             )
@@ -158,8 +178,25 @@ def step_node_correspondence(scenario: dict[str, Any]) -> float:
 
     # Stopwords to exclude from matching
     stopwords = {
-        "the", "a", "an", "to", "in", "of", "and", "or", "is", "for",
-        "with", "on", "at", "by", "from", "that", "this", "it", "as",
+        "the",
+        "a",
+        "an",
+        "to",
+        "in",
+        "of",
+        "and",
+        "or",
+        "is",
+        "for",
+        "with",
+        "on",
+        "at",
+        "by",
+        "from",
+        "that",
+        "this",
+        "it",
+        "as",
     }
 
     mapped = 0
