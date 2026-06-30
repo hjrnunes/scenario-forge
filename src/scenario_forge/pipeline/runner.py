@@ -298,6 +298,8 @@ def run_pipeline(
     structural_usage: Counter[str] = Counter()
     # Track actor type usage for actor diversity enforcement.
     actor_type_usage: Counter[str] = Counter()
+    # Track capability level usage for capability diversity enforcement.
+    capability_level_usage: Counter[str] = Counter()
     total_seeds = len(seeds)
     num_actor_types = len(ACTOR_TYPES)
 
@@ -337,6 +339,13 @@ def run_pipeline(
             if actor_type_usage.get(t, 0) > actor_fair_share
         ] or None
 
+        # Compute capability level diversity hint.
+        # Pick the least-used capability level as preferred.
+        _CAP_LEVELS = ("novice", "intermediate", "advanced", "expert")
+        preferred_cap = min(
+            _CAP_LEVELS, key=lambda c: capability_level_usage.get(c, 0)
+        )
+
         try:
             envelope = generate_scenario(
                 seed,
@@ -349,6 +358,7 @@ def run_pipeline(
                 excluded_structural_patterns=excluded_structural,
                 preferred_actor_type=preferred_actor,
                 excluded_actor_types=excluded_actors,
+                preferred_capability_level=preferred_cap,
             )
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             scenarios.append(envelope)
@@ -359,6 +369,7 @@ def run_pipeline(
             # Track which actor type was generated for diversity enforcement.
             if envelope.actor_profile is not None:
                 actor_type_usage[envelope.actor_profile.actor_type] += 1
+                capability_level_usage[envelope.actor_profile.capability_level] += 1
 
             # Track attack pattern keywords for diversity enforcement.
             keywords = extract_narrative_keywords(envelope.narrative)
