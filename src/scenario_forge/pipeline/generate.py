@@ -781,7 +781,10 @@ root:
 - LEAF nodes must have NO children. AND/OR nodes must have >= 2 children.
 - Add optional fields where appropriate:
   - threat_id: OWASP Agentic Threat ID (T1-T17)
-  - technique_id: MITRE ATLAS technique ID (AML.Tnnnn or AML.Tnnnn.nnn)
+  - technique_id: MITRE ATLAS technique ID — ONLY use IDs from the \
+ATLAS Technique IDs list provided in the scenario context. Do NOT \
+invent or hallucinate technique IDs. If no ATLAS technique IDs are \
+provided, omit the technique_id field entirely.
   - maestro_layer: MAESTRO architectural layer (1-7)
   - control_point: the defensive control that should block or detect this step
   - structural_exposure: one of single_point_of_failure, convergence_point, \
@@ -1630,13 +1633,32 @@ def _call_attack_tree(
     client: LLMClient,
     use_case: str,
 ) -> tuple[AttackTree, LLMResult]:
+    # Build technique constraint section
+    technique_section = ""
+    if seed.atlas_technique_ids:
+        ids_str = ", ".join(seed.atlas_technique_ids)
+        technique_section = (
+            f"\n## ATLAS Technique Constraint\n"
+            f"Allowed technique_id values: [{ids_str}]\n"
+            f"Use ONLY these technique IDs on leaf nodes. "
+            f"Do NOT invent or hallucinate new technique IDs. "
+            f"If none of these IDs fit a particular node, omit technique_id "
+            f"from that node rather than inventing one.\n"
+        )
+    else:
+        technique_section = (
+            "\n## ATLAS Technique Constraint\n"
+            "No ATLAS technique IDs are available for this seed. "
+            "Do NOT add technique_id to any node.\n"
+        )
+
     user_prompt = f"""\
 ## Scenario Context
 - Seed ID: {seed.seed_id}
 - Threat: {seed.threat_name} ({seed.threat_id})
 - ATLAS Technique IDs: {seed.atlas_technique_ids}
 - Use case: {use_case}
-
+{technique_section}
 ## Narrative (from Call 1)
 Title: {narrative.title}
 Summary: {narrative.summary}

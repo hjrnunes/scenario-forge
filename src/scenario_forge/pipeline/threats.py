@@ -52,6 +52,24 @@ def _build_llm_to_t_index(cross_taxonomy: dict[str, Any]) -> dict[str, list[str]
     return dict(index)
 
 
+def _build_t_to_atlas_index(
+    cross_taxonomy: dict[str, Any],
+) -> dict[str, list[str]]:
+    """Build T-threat ID -> list of ATLAS technique IDs from t_to_atlas.
+
+    Each t_to_atlas entry has 'source' (T-threat ID) and 'targets'
+    (list of AML.T IDs). Multiple entries for the same T-threat are
+    merged with deduplication.
+    """
+    index: dict[str, list[str]] = defaultdict(list)
+    for mapping in cross_taxonomy.get("t_to_atlas", []):
+        t_id = mapping["source"]
+        for atlas_id in mapping.get("targets", []):
+            if atlas_id not in index[t_id]:
+                index[t_id].append(atlas_id)
+    return dict(index)
+
+
 def _build_direct_t_mappings(
     cross_taxonomy: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -179,6 +197,9 @@ def determine_threat_surface(
     cross_taxonomy = load_cross_taxonomy_mappings(cross_taxonomy_path)
     llm_to_t = _build_llm_to_t_index(cross_taxonomy)
 
+    # --- ATLAS technique lookup: T-threat -> ATLAS technique IDs ---
+    t_to_atlas = _build_t_to_atlas_index(cross_taxonomy)
+
     # --- Hop 3: Filter by capability profile ---
     threat_scope = determine_threat_scope(profile, threats_path)
     in_scope_ids = {e.threat_id for e in threat_scope.in_scope}
@@ -248,11 +269,19 @@ def determine_threat_surface(
                 if sub not in all_subs:
                     all_subs.append(sub)
 
+        # Collect ATLAS technique IDs for all in-scope T-threats
+        all_atlas: list[str] = []
+        for t_id in scoped_t_ids:
+            for atlas_id in t_to_atlas.get(t_id, []):
+                if atlas_id not in all_atlas:
+                    all_atlas.append(atlas_id)
+
         entries.append(
             ThreatSurfaceEntry(
                 risk_card=ref,
                 owasp_llm_ids=llm_ids,
                 agentic_threat_ids=scoped_t_ids,
+                atlas_technique_ids=all_atlas,
                 sub_scenarios=all_subs,
             )
         )

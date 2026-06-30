@@ -468,6 +468,61 @@ class TestScoreGrounding:
         result = score_grounding([s1, s2])
         assert 0.0 < result["threat_id_validity"] < 1.0
 
+    def test_technique_ids_grounded(self):
+        """technique_ids that match seed's atlas_technique_ids are grounded."""
+        scenario = _make_scenario()
+        # Add technique_ids to tree nodes
+        scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
+        scenario["attack_tree"]["root"]["children"][1]["technique_id"] = "AML.T0054"
+        # Add atlas_technique_ids to the taxonomy chain
+        scenario["faceting"]["taxonomy_chain"]["atlas_technique_ids"] = [
+            "AML.T0051.000", "AML.T0051.001", "AML.T0054",
+        ]
+        result = score_grounding([scenario])
+        assert result["technique_id_grounding"] == 1.0
+        assert result["ungrounded_technique_references"] == 0
+
+    def test_technique_ids_ungrounded(self):
+        """technique_ids not in seed's atlas_technique_ids are ungrounded."""
+        scenario = _make_scenario()
+        scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T9999"
+        scenario["faceting"]["taxonomy_chain"]["atlas_technique_ids"] = [
+            "AML.T0051.000",
+        ]
+        result = score_grounding([scenario])
+        assert result["technique_id_grounding"] < 1.0
+        assert result["ungrounded_technique_references"] == 1
+        assert result["ungrounded_technique_details"][0]["reason"] == "not_in_seed"
+
+    def test_technique_ids_no_seed_atlas(self):
+        """technique_ids with no seed atlas_technique_ids are all ungrounded."""
+        scenario = _make_scenario()
+        scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
+        # No atlas_technique_ids in taxonomy chain
+        result = score_grounding([scenario])
+        assert result["technique_id_grounding"] == 0.0
+        assert result["ungrounded_technique_references"] == 1
+        assert result["ungrounded_technique_details"][0]["reason"] == "no_seed_technique_ids"
+
+    def test_no_technique_ids_default_grounded(self):
+        """When no technique_ids in tree, grounding defaults to 1.0."""
+        scenario = _make_scenario()
+        result = score_grounding([scenario])
+        assert result["technique_id_grounding"] == 1.0
+        assert result["ungrounded_technique_references"] == 0
+
+    def test_mixed_technique_grounding(self):
+        """Mix of grounded and ungrounded technique_ids."""
+        scenario = _make_scenario()
+        scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
+        scenario["attack_tree"]["root"]["children"][1]["technique_id"] = "AML.T9999"
+        scenario["faceting"]["taxonomy_chain"]["atlas_technique_ids"] = [
+            "AML.T0051.000", "AML.T0054",
+        ]
+        result = score_grounding([scenario])
+        assert result["technique_id_grounding"] == 0.5
+        assert result["ungrounded_technique_references"] == 1
+
 
 # ===========================================================================
 # Diversity tests
