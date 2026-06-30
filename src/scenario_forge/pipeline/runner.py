@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import Counter
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from scenario_forge.data.loaders import load_risk_extraction
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.models.scenario import ScenarioEnvelope
+from scenario_forge.models.scenario import ACTOR_TYPES, ScenarioEnvelope
 from scenario_forge.pipeline.generate import (
     assign_entry_point,
     compute_entry_point_affinity,
@@ -295,7 +296,10 @@ def run_pipeline(
     pattern_usage: Counter[str] = Counter()
     # Track structural attack patterns for deep diversity enforcement.
     structural_usage: Counter[str] = Counter()
+    # Track actor type usage for actor diversity enforcement.
+    actor_type_usage: Counter[str] = Counter()
     total_seeds = len(seeds)
+    num_actor_types = len(ACTOR_TYPES)
 
     for i, seed in enumerate(seeds, 1):
         label = f"{seed.seed_id}: {seed.sub_scenario_name}"
@@ -321,6 +325,18 @@ def run_pipeline(
             get_overused_structural_patterns(structural_usage) or None
         )
 
+        # Compute actor type diversity hints.
+        # Pick the least-used actor type as preferred; exclude types over
+        # their fair share (ceil(total_seeds / num_actor_types)).
+        actor_fair_share = math.ceil(total_seeds / num_actor_types)
+        preferred_actor = min(
+            ACTOR_TYPES, key=lambda t: actor_type_usage.get(t, 0)
+        )
+        excluded_actors = [
+            t for t in ACTOR_TYPES
+            if actor_type_usage.get(t, 0) > actor_fair_share
+        ] or None
+
         try:
             envelope = generate_scenario(
                 seed,
@@ -331,12 +347,18 @@ def run_pipeline(
                 excluded_entry_points=excluded_eps or None,
                 excluded_patterns=excluded_pats,
                 excluded_structural_patterns=excluded_structural,
+                preferred_actor_type=preferred_actor,
+                excluded_actor_types=excluded_actors,
             )
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             scenarios.append(envelope)
 
             # Track which entry point was actually chosen by the LLM.
             entry_point_usage[envelope.narrative.entry_point] += 1
+
+            # Track which actor type was generated for diversity enforcement.
+            if envelope.actor_profile is not None:
+                actor_type_usage[envelope.actor_profile.actor_type] += 1
 
             # Track attack pattern keywords for diversity enforcement.
             keywords = extract_narrative_keywords(envelope.narrative)
