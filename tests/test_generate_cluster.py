@@ -141,11 +141,11 @@ def _make_seed(
 
 def _make_narrative(
     *,
-    zone_sequence: list[int] | None = None,
+    zone_sequence: list[str] | None = None,
     num_steps: int = 3,
 ) -> NarrativeLayer:
     """Create a minimal NarrativeLayer for testing."""
-    zones = zone_sequence or [1, 2, 3]
+    zones = zone_sequence or ["input", "reasoning", "tool_execution"]
     steps = [
         NarrativeStep(
             step_number=i + 1,
@@ -177,7 +177,7 @@ def _make_attack_tree(*, depth: int = 3, node_count: int = 5, exposures=None):
         node_kwargs: dict = {
             "id": prefix,
             "label": f"Node {prefix}",
-            "zone": 1,
+            "zone": "input",
         }
         if exposures and prefix == "n1":
             node_kwargs["structural_exposure"] = exposures[0]
@@ -192,7 +192,7 @@ def _make_attack_tree(*, depth: int = 3, node_count: int = 5, exposures=None):
             id=f"{prefix}.2",
             label=f"Node {prefix}.2",
             gate="LEAF",
-            zone=2,
+            zone="reasoning",
         )
         node_kwargs["children"] = [child1, child2]
         return AttackTreeNode(**node_kwargs)
@@ -215,7 +215,7 @@ def _make_attack_tree(*, depth: int = 3, node_count: int = 5, exposures=None):
                     id=f"n1.{next_child_num + i}",
                     label=f"Extra leaf {next_child_num + i}",
                     gate="LEAF",
-                    zone=(i % 5) + 1,
+                    zone=["input", "reasoning", "tool_execution", "memory", "inter_agent"][i % 5],
                 )
             )
         root = root.model_copy(update={"children": extra_children})
@@ -240,8 +240,8 @@ class TestPriorityScoringDiversity:
     def test_different_zone_counts_produce_different_scores(self):
         """Scenarios traversing more zones should score differently."""
         seed = _make_seed()
-        n1 = _make_narrative(zone_sequence=[1])
-        n4 = _make_narrative(zone_sequence=[1, 2, 3, 4])
+        n1 = _make_narrative(zone_sequence=["input"])
+        n4 = _make_narrative(zone_sequence=["input", "reasoning", "tool_execution", "memory"])
         tree = _make_attack_tree(depth=3, node_count=5)
 
         p1 = _compute_priority(n1, tree, seed)
@@ -291,22 +291,22 @@ class TestPriorityScoringDiversity:
         """A batch of scenarios with varied inputs should not all get
         the same score."""
         configs = [
-            {"zone_sequence": [1], "impact": "minor", "depth": 2, "nodes": 3},
-            {"zone_sequence": [1, 2], "impact": None, "depth": 3, "nodes": 5},
+            {"zone_sequence": ["input"], "impact": "minor", "depth": 2, "nodes": 3},
+            {"zone_sequence": ["input", "reasoning"], "impact": None, "depth": 3, "nodes": 5},
             {
-                "zone_sequence": [1, 2, 3],
+                "zone_sequence": ["input", "reasoning", "tool_execution"],
                 "impact": "severe critical",
                 "depth": 4,
                 "nodes": 7,
             },
             {
-                "zone_sequence": [1, 2, 3, 4],
+                "zone_sequence": ["input", "reasoning", "tool_execution", "memory"],
                 "impact": "significant",
                 "depth": 5,
                 "nodes": 9,
             },
             {
-                "zone_sequence": [1, 3, 5],
+                "zone_sequence": ["input", "tool_execution", "inter_agent"],
                 "impact": "catastrophic",
                 "depth": 3,
                 "nodes": 6,
@@ -333,7 +333,7 @@ class TestPriorityScoringDiversity:
     def test_score_in_valid_range(self):
         """All computed scores must be in [0.0, 1.0]."""
         seed = _make_seed(impact="catastrophic")
-        narrative = _make_narrative(zone_sequence=[1, 2, 3, 4, 5])
+        narrative = _make_narrative(zone_sequence=["input", "reasoning", "tool_execution", "memory", "inter_agent"])
         tree = _make_attack_tree(depth=5, node_count=10)
         p = _compute_priority(narrative, tree, seed)
         assert 0.0 <= p.composite <= 1.0
@@ -345,8 +345,8 @@ class TestPriorityScoringDiversity:
         tree = _make_attack_tree(depth=3, node_count=5)
 
         # 2 zones vs 3 zones - both "medium" in old bucketing
-        n2 = _make_narrative(zone_sequence=[1, 2])
-        n3 = _make_narrative(zone_sequence=[1, 2, 3])
+        n2 = _make_narrative(zone_sequence=["input", "reasoning"])
+        n3 = _make_narrative(zone_sequence=["input", "reasoning", "tool_execution"])
 
         p2 = _compute_priority(n2, tree, seed)
         p3 = _compute_priority(n3, tree, seed)

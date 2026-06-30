@@ -82,10 +82,8 @@ class AttackTreeNode(BaseModel):
     gate: GateType = Field(
         description="Logical gate type: AND (all children must succeed), OR (any child suffices), LEAF (terminal).",
     )
-    zone: int = Field(
-        description="Schneider zone where this step occurs (1-5).",
-        ge=1,
-        le=5,
+    zone: str = Field(
+        description="Schneider zone where this step occurs.",
     )
     threat_id: Optional[str] = Field(
         default=None,

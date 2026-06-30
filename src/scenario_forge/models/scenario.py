@@ -96,7 +96,7 @@ class NarrativeStep(BaseModel):
     """A single step in the attack narrative."""
 
     step_number: int = Field(description="Sequence number of this step.")
-    zone: int = Field(description="Schneider zone (1-5) where this step occurs.", ge=1, le=5)
+    zone: str = Field(description="Schneider zone where this step occurs.")
     action: str = Field(description="What the attacker does at this step (adversarial voice).")
     effect: str = Field(description="What happens as a result -- system response or state change.")
     control_point: Optional[str] = Field(
@@ -123,7 +123,7 @@ class NarrativeLayer(BaseModel):
     entry_point: str = Field(
         description="Entry point from the capability profile (e.g. 'user prompts (zone 1)').",
     )
-    zone_sequence: list[Annotated[int, Field(ge=1, le=5)]] = Field(
+    zone_sequence: list[str] = Field(
         description="Ordered attack propagation path through Schneider zones.",
         min_length=1,
     )
@@ -230,7 +230,7 @@ class TaxonomyChain(BaseModel):
 class CapabilityProfileRef(BaseModel):
     """References to the capability profile that scoped this scenario."""
 
-    zones_traversed: list[Annotated[int, Field(ge=1, le=5)]] = Field(
+    zones_traversed: list[str] = Field(
         description="Ordered attack propagation path through Schneider zones.",
         min_length=1,
     )

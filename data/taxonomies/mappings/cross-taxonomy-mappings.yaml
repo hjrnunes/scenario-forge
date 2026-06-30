@@ -548,45 +548,45 @@ t_direct:
     source_name: "Misaligned & Deceptive Behaviors"
     profile_match:
       # Always applicable — any LLM/agent system with planning capability
-      min_zones: [1, 2]
-    notes: "Emerges from advanced reasoning in any agent with planning (zones 1+2). No LLM predecessor."
+      min_zones: [input, reasoning]
+    notes: "Emerges from advanced reasoning in any agent with planning (input+reasoning). No LLM predecessor."
 
   - source: T8
     source_name: "Repudiation & Untraceability"
     profile_match:
-      min_zones: [1, 2]
+      min_zones: [input, reasoning]
     notes: "Autonomous operation creates forensics challenges for any agent system. No LLM predecessor."
 
   - source: T9
     source_name: "Identity Spoofing & Impersonation"
     profile_match:
-      min_zones: [1, 2, 3]
+      min_zones: [input, reasoning, tool_execution]
     notes: "Agent-to-agent/human identity spoofing requires tool execution capability. No LLM predecessor."
 
   - source: T10
     source_name: "Overwhelming Human in the Loop"
     profile_match:
-      min_zones: [1, 2]
+      min_zones: [input, reasoning]
       requires_hitl: true
     notes: "HITL-specific threat — only relevant when human checkpoints exist. No LLM predecessor."
 
   - source: T14
     source_name: "Human Attacks on Multi-Agent Systems"
     profile_match:
-      min_zones: [1, 2, 5]
+      min_zones: [input, reasoning, inter_agent]
       requires_multi_agent: true
     notes: "Multi-agent delegation chain attacks require inter-agent communication. No LLM predecessor."
 
   - source: T15
     source_name: "Human Manipulation"
     profile_match:
-      min_zones: [1, 2]
+      min_zones: [input, reasoning]
     notes: "AI-mediated social engineering applies to any agent with user interaction. No LLM predecessor."
 
   - source: T16
     source_name: "Insecure Inter-Agent Protocol Abuse"
     profile_match:
-      min_zones: [1, 2, 3, 5]
+      min_zones: [input, reasoning, tool_execution, inter_agent]
       requires_multi_agent: true
     notes: "Protocol abuse (MCP/A2A) requires tool execution + inter-agent comms. No LLM predecessor."
 

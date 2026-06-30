@@ -90,7 +90,7 @@ def _make_risk_card_ref(risk_id: str = "test-risk") -> RiskCardRef:
 
 def _make_envelope(
     entry_point: str = "user prompts (zone 1)",
-    zone_sequence: list[int] | None = None,
+    zone_sequence: list[str] | None = None,
     agentic_threat_ids: list[str] | None = None,
     summary: str = "The attacker exploits user prompts to inject malicious instructions.",
     step_actions: list[str] | None = None,
@@ -98,7 +98,7 @@ def _make_envelope(
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing."""
     if zone_sequence is None:
-        zone_sequence = [1, 2]
+        zone_sequence = ["input", "reasoning"]
     if agentic_threat_ids is None:
         agentic_threat_ids = ["T1"]
     if step_actions is None:
@@ -130,10 +130,10 @@ def _make_envelope(
             id="n1",
             label="Root",
             gate=GateType.OR,
-            zone=1,
+            zone="input",
             children=[
-                AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone=1),
-                AttackTreeNode(id="n1.2", label="Path B", gate=GateType.LEAF, zone=2),
+                AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"),
+                AttackTreeNode(id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"),
             ],
         ),
     )
@@ -204,7 +204,7 @@ def _make_envelope(
 
 def _make_profile(
     entry_points: list[str] | None = None,
-    zones_active: list[int] | None = None,
+    zones_active: list[str] | None = None,
 ) -> CapabilityProfile:
     if entry_points is None:
         entry_points = [
@@ -213,7 +213,7 @@ def _make_profile(
             "admin console (zone 2)",
         ]
     if zones_active is None:
-        zones_active = [1, 2, 3]
+        zones_active = ["input", "reasoning", "tool_execution"]
     return CapabilityProfile(
         zones_active=zones_active,
         has_persistent_memory=False,
@@ -255,7 +255,7 @@ class TestCoverageGaps:
         """When every entry point has at least one scenario, no gaps."""
         profile = _make_profile(
             entry_points=["ep-a (zone 1)", "ep-b (zone 2)"],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
@@ -271,13 +271,13 @@ class TestCoverageGaps:
         """When some entry points have no scenarios, they appear as gaps."""
         profile = _make_profile(
             entry_points=["ep-a (zone 1)", "ep-b (zone 2)", "ep-c (zone 3)"],
-            zones_active=[1, 2, 3],
+            zones_active=["input", "reasoning", "tool_execution"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
             _make_envelope(
                 entry_point="ep-a (zone 1)",
-                zone_sequence=[1, 2, 3],
+                zone_sequence=["input", "reasoning", "tool_execution"],
                 agentic_threat_ids=["T1"],
             ),
         ]
@@ -299,10 +299,10 @@ class TestCoverageGaps:
 
     def test_all_zones_covered(self):
         """When all active zones are traversed, no zone gaps."""
-        profile = _make_profile(zones_active=[1, 2, 3])
+        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
-            _make_envelope(zone_sequence=[1, 2, 3], agentic_threat_ids=["T1"]),
+            _make_envelope(zone_sequence=["input", "reasoning", "tool_execution"], agentic_threat_ids=["T1"]),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -310,14 +310,14 @@ class TestCoverageGaps:
 
     def test_some_zones_uncovered(self):
         """Zones not traversed by any scenario appear as gaps."""
-        profile = _make_profile(zones_active=[1, 2, 3])
+        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
-            _make_envelope(zone_sequence=[1, 2], agentic_threat_ids=["T1"]),
+            _make_envelope(zone_sequence=["input", "reasoning"], agentic_threat_ids=["T1"]),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert gaps.uncovered_zones == [3]
+        assert gaps.uncovered_zones == ["tool_execution"]
 
     def test_all_threats_covered(self):
         """When every in-scope threat has at least one scenario, no gaps."""
@@ -345,23 +345,23 @@ class TestCoverageGaps:
         """With no scenarios, all entry points, zones, and threats are gaps."""
         profile = _make_profile(
             entry_points=["ep-a (zone 1)"],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         threat_surface = _make_threat_surface([["T1"]])
 
         gaps = analyze_coverage_gaps(profile, threat_surface, [])
         assert gaps.uncovered_entry_points == ["ep-a (zone 1)"]
-        assert gaps.uncovered_zones == [1, 2]
+        assert gaps.uncovered_zones == ["input", "reasoning"]
         assert gaps.uncovered_threats == ["T1"]
         assert gaps.has_gaps
 
     def test_zones_across_multiple_scenarios(self):
         """Zone coverage is the union across all scenarios."""
-        profile = _make_profile(zones_active=[1, 2, 3])
+        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
-            _make_envelope(zone_sequence=[1], agentic_threat_ids=["T1"]),
-            _make_envelope(zone_sequence=[2, 3], agentic_threat_ids=["T1"]),
+            _make_envelope(zone_sequence=["input"], agentic_threat_ids=["T1"]),
+            _make_envelope(zone_sequence=["reasoning", "tool_execution"], agentic_threat_ids=["T1"]),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -382,12 +382,12 @@ class TestCoverageGaps:
         """CoverageGaps.to_dict returns a serializable dict."""
         gaps = CoverageGaps(
             uncovered_entry_points=["ep-a"],
-            uncovered_zones=[3],
+            uncovered_zones=["tool_execution"],
             uncovered_threats=["T5"],
         )
         d = gaps.to_dict()
         assert d["uncovered_entry_points"] == ["ep-a"]
-        assert d["uncovered_zones"] == [3]
+        assert d["uncovered_zones"] == ["tool_execution"]
         assert d["uncovered_threats"] == ["T5"]
 
     def test_has_gaps_false_when_empty(self):
@@ -400,7 +400,7 @@ class TestCoverageGaps:
         assert gaps.has_gaps
 
     def test_has_gaps_true_for_zones(self):
-        gaps = CoverageGaps(uncovered_zones=[3])
+        gaps = CoverageGaps(uncovered_zones=["tool_execution"])
         assert gaps.has_gaps
 
     def test_has_gaps_true_for_threats(self):
@@ -451,23 +451,23 @@ class TestCoverageGapsEntryPointMatching:
                 "API gateway (zone 3)",
                 "message queue (zone 3)",
             ],
-            zones_active=[1, 2, 3],
+            zones_active=["input", "reasoning", "tool_execution"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
             _make_envelope(
                 entry_point="user prompts (zone 1)",
-                zone_sequence=[1, 2, 3],
+                zone_sequence=["input", "reasoning", "tool_execution"],
                 agentic_threat_ids=["T1"],
             ),
             _make_envelope(
                 entry_point="admin console (zone 2)",
-                zone_sequence=[1, 2, 3],
+                zone_sequence=["input", "reasoning", "tool_execution"],
                 agentic_threat_ids=["T1"],
             ),
             _make_envelope(
                 entry_point="API gateway (zone 3)",
-                zone_sequence=[1, 2, 3],
+                zone_sequence=["input", "reasoning", "tool_execution"],
                 agentic_threat_ids=["T1"],
             ),
         ]
@@ -484,23 +484,23 @@ class TestCoverageGapsEntryPointMatching:
         """All entry points used → 0 uncovered."""
         profile = _make_profile(
             entry_points=["ep-a (zone 1)", "ep-b (zone 2)", "ep-c (zone 3)"],
-            zones_active=[1, 2, 3],
+            zones_active=["input", "reasoning", "tool_execution"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
             _make_envelope(
                 entry_point="ep-a (zone 1)",
-                zone_sequence=[1, 2, 3],
+                zone_sequence=["input", "reasoning", "tool_execution"],
                 agentic_threat_ids=["T1"],
             ),
             _make_envelope(
                 entry_point="ep-b (zone 2)",
-                zone_sequence=[1, 2, 3],
+                zone_sequence=["input", "reasoning", "tool_execution"],
                 agentic_threat_ids=["T1"],
             ),
             _make_envelope(
                 entry_point="ep-c (zone 3)",
-                zone_sequence=[1, 2, 3],
+                zone_sequence=["input", "reasoning", "tool_execution"],
                 agentic_threat_ids=["T1"],
             ),
         ]
@@ -517,7 +517,7 @@ class TestCoverageGapsEntryPointMatching:
                 "document uploads (zone 1)",
                 "admin console (zone 2)",
             ],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios: list[ScenarioEnvelope] = []
@@ -534,18 +534,18 @@ class TestCoverageGapsEntryPointMatching:
         """LLM-generated entry points with different casing should match."""
         profile = _make_profile(
             entry_points=["User Prompts (Zone 1)", "Admin Console (Zone 2)"],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
             _make_envelope(
                 entry_point="user prompts (zone 1)",
-                zone_sequence=[1, 2],
+                zone_sequence=["input", "reasoning"],
                 agentic_threat_ids=["T1"],
             ),
             _make_envelope(
                 entry_point="ADMIN CONSOLE (ZONE 2)",
-                zone_sequence=[1, 2],
+                zone_sequence=["input", "reasoning"],
                 agentic_threat_ids=["T1"],
             ),
         ]
@@ -557,18 +557,18 @@ class TestCoverageGapsEntryPointMatching:
         """Extra whitespace in LLM output should not cause false gaps."""
         profile = _make_profile(
             entry_points=["user prompts (zone 1)", "admin console (zone 2)"],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
             _make_envelope(
                 entry_point="user  prompts  (zone  1)",
-                zone_sequence=[1, 2],
+                zone_sequence=["input", "reasoning"],
                 agentic_threat_ids=["T1"],
             ),
             _make_envelope(
                 entry_point="  admin console (zone 2)  ",
-                zone_sequence=[1, 2],
+                zone_sequence=["input", "reasoning"],
                 agentic_threat_ids=["T1"],
             ),
         ]
@@ -580,18 +580,18 @@ class TestCoverageGapsEntryPointMatching:
         """Trailing punctuation from LLM output should not cause false gaps."""
         profile = _make_profile(
             entry_points=["user prompts (zone 1)", "admin console (zone 2)"],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
             _make_envelope(
                 entry_point="user prompts (zone 1).",
-                zone_sequence=[1, 2],
+                zone_sequence=["input", "reasoning"],
                 agentic_threat_ids=["T1"],
             ),
             _make_envelope(
                 entry_point="admin console (zone 2)",
-                zone_sequence=[1, 2],
+                zone_sequence=["input", "reasoning"],
                 agentic_threat_ids=["T1"],
             ),
         ]
@@ -603,7 +603,7 @@ class TestCoverageGapsEntryPointMatching:
         """Uncovered entry points should use the original profile names, not normalized."""
         profile = _make_profile(
             entry_points=["User Prompts (Zone 1)", "Admin Console (Zone 2)"],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         threat_surface = _make_threat_surface([["T1"]])
         scenarios: list[ScenarioEnvelope] = []
@@ -735,7 +735,7 @@ class TestWriteCoverageReport:
     def test_writes_json_file(self, tmp_path: Path):
         gaps = CoverageGaps(
             uncovered_entry_points=["ep-a"],
-            uncovered_zones=[3],
+            uncovered_zones=["tool_execution"],
             uncovered_threats=["T5"],
         )
         diversity = AttackerDiversityResult(
@@ -751,7 +751,7 @@ class TestWriteCoverageReport:
 
         data = json.loads(path.read_text())
         assert data["coverage_gaps"]["uncovered_entry_points"] == ["ep-a"]
-        assert data["coverage_gaps"]["uncovered_zones"] == [3]
+        assert data["coverage_gaps"]["uncovered_zones"] == ["tool_execution"]
         assert data["coverage_gaps"]["uncovered_threats"] == ["T5"]
         assert data["attacker_diversity"]["is_flagged"] is True
         assert data["attacker_diversity"]["dominant_model"] == "external_attacker"
@@ -824,7 +824,7 @@ class TestPickBestSeedForEntryPoint:
 
     def test_returns_a_seed_from_multiple(self):
         """With multiple seeds, should return one of them (not None)."""
-        profile = _make_profile(zones_active=[1, 2, 3])
+        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         seeds = [
             _make_seed(seed_id="T1-S1", threat_id="T1"),
             _make_seed(seed_id="T2-S1", threat_id="T2"),
@@ -875,7 +875,7 @@ class TestRemediateCoverageGaps:
         gaps = CoverageGaps(uncovered_entry_points=uncovered)
         profile = _make_profile(
             entry_points=["existing ep", "chat input (zone 1)", "admin dashboard (zone 2)"],
-            zones_active=[1, 2],
+            zones_active=["input", "reasoning"],
         )
         seeds = [_make_seed(seed_id="T1-S1"), _make_seed(seed_id="T2-S1")]
         client = MagicMock()
@@ -910,7 +910,7 @@ class TestRemediateCoverageGaps:
         gaps = CoverageGaps(
             uncovered_entry_points=["ep-fail (zone 1)", "ep-ok (zone 2)"]
         )
-        profile = _make_profile(zones_active=[1, 2])
+        profile = _make_profile(zones_active=["input", "reasoning"])
         seeds = [_make_seed()]
         client = MagicMock()
 
@@ -939,7 +939,7 @@ class TestRemediateCoverageGaps:
     ):
         """Verify generate_scenario receives the correct seed, profile, and use_case."""
         gaps = CoverageGaps(uncovered_entry_points=["api gateway (zone 3)"])
-        profile = _make_profile(zones_active=[1, 2, 3])
+        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         seed = _make_seed(seed_id="T5-S1")
         client = MagicMock()
 

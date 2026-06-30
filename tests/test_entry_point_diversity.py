@@ -30,55 +30,55 @@ class TestComputeEntryPointAffinity:
     """Tests for the affinity scoring function."""
 
     def test_empty_entry_points_returns_empty(self):
-        assert compute_entry_point_affinity([], [1, 2]) == {}
+        assert compute_entry_point_affinity([], ["input", "reasoning"]) == {}
 
     def test_input_entry_point_has_high_affinity_for_zone_1(self):
         scores = compute_entry_point_affinity(
             ["user input form (zone 1)"],
-            [1, 2],
+            ["input", "reasoning"],
         )
         assert len(scores) == 1
-        # "input" and "form" both map to zone 1; zone_sequence has {1, 2}
-        # ep_zones = {1}, target = {1, 2}, overlap = {1}, union = {1, 2}
+        # "input" and "form" both map to input zone; zone_sequence has {input, reasoning}
+        # ep_zones = {input}, target = {input, reasoning}, overlap = {input}, union = {input, reasoning}
         # score = 1/2 = 0.5
         assert scores["user input form (zone 1)"] == pytest.approx(0.5)
 
     def test_tool_entry_point_has_high_affinity_for_zone_3(self):
         scores = compute_entry_point_affinity(
             ["plugin interface (zone 3)"],
-            [3],
+            ["tool_execution"],
         )
-        # "plugin" maps to zone 3; target = {3}
-        # ep_zones = {3}, overlap = {3}, union = {3}
+        # "plugin" maps to tool_execution zone; target = {tool_execution}
+        # ep_zones = {tool_execution}, overlap = {tool_execution}, union = {tool_execution}
         # score = 1/1 = 1.0
         assert scores["plugin interface (zone 3)"] == pytest.approx(1.0)
 
     def test_admin_console_has_affinity_for_zone_2_and_3(self):
         scores = compute_entry_point_affinity(
             ["admin console (zone 2)"],
-            [2, 3],
+            ["reasoning", "tool_execution"],
         )
-        # "admin" -> [2, 3], "console" -> [2, 3]
-        # ep_zones = {2, 3}, target = {2, 3}
-        # overlap = {2, 3}, union = {2, 3} -> score = 1.0
+        # "admin" -> [reasoning, tool_execution], "console" -> [reasoning, tool_execution]
+        # ep_zones = {reasoning, tool_execution}, target = {reasoning, tool_execution}
+        # overlap = {reasoning, tool_execution}, union = {reasoning, tool_execution} -> score = 1.0
         assert scores["admin console (zone 2)"] == pytest.approx(1.0)
 
     def test_no_keyword_match_defaults_to_zone_1(self):
         scores = compute_entry_point_affinity(
             ["exotic interface (zone 1)"],
-            [1],
+            ["input"],
         )
-        # No keyword match -> defaults to {1}
-        # target = {1}, overlap = {1}, union = {1} -> score = 1.0
+        # No keyword match -> defaults to {input}
+        # target = {input}, overlap = {input}, union = {input} -> score = 1.0
         assert scores["exotic interface (zone 1)"] == pytest.approx(1.0)
 
     def test_no_keyword_match_low_affinity_for_non_zone_1(self):
         scores = compute_entry_point_affinity(
             ["exotic interface (zone 1)"],
-            [3, 4],
+            ["tool_execution", "memory"],
         )
-        # No keyword match -> defaults to {1}
-        # target = {3, 4}, overlap = {}, union = {1, 3, 4} -> score = 0.0
+        # No keyword match -> defaults to {input}
+        # target = {tool_execution, memory}, overlap = {}, union = {input, tool_execution, memory} -> score = 0.0
         assert scores["exotic interface (zone 1)"] == pytest.approx(0.0)
 
     def test_multiple_entry_points_scored_independently(self):
@@ -88,7 +88,7 @@ class TestComputeEntryPointAffinity:
                 "admin console (zone 2)",
                 "API endpoint (zone 1)",
             ],
-            [1, 2],
+            ["input", "reasoning"],
         )
         assert len(scores) == 3
         # All should have non-negative scores
@@ -98,20 +98,20 @@ class TestComputeEntryPointAffinity:
     def test_api_entry_point_zones_1_and_3(self):
         scores = compute_entry_point_affinity(
             ["REST API (zone 1)"],
-            [1, 3],
+            ["input", "tool_execution"],
         )
-        # "api" -> [1, 3]
-        # ep_zones = {1, 3}, target = {1, 3} -> overlap = {1, 3}, union = {1, 3}
+        # "api" -> [input, tool_execution]
+        # ep_zones = {input, tool_execution}, target = {input, tool_execution} -> overlap = {input, tool_execution}, union = {input, tool_execution}
         # score = 1.0
         assert scores["REST API (zone 1)"] == pytest.approx(1.0)
 
     def test_memory_entry_point_affinity_for_zone_4(self):
         scores = compute_entry_point_affinity(
             ["shared memory store (zone 4)"],
-            [4],
+            ["memory"],
         )
-        # "memory" -> [4], "storage"? no, "store" does not match "storage"
-        # ep_zones = {4}, target = {4} -> 1.0
+        # "memory" -> [memory], "storage"? no, "store" does not match "storage"
+        # ep_zones = {memory}, target = {memory} -> 1.0
         assert scores["shared memory store (zone 4)"] == pytest.approx(1.0)
 
 
@@ -124,13 +124,13 @@ class TestAssignEntryPoint:
     """Tests for the entry point assignment logic."""
 
     def test_empty_entry_points_returns_none(self):
-        result = assign_entry_point([], [1, 2], Counter(), 10)
+        result = assign_entry_point([], ["input", "reasoning"], Counter(), 10)
         assert result is None
 
     def test_single_entry_point_returns_it(self):
         result = assign_entry_point(
             ["only option (zone 1)"],
-            [1, 2],
+            ["input", "reasoning"],
             Counter(),
             10,
         )
@@ -141,8 +141,8 @@ class TestAssignEntryPoint:
             "document uploads (zone 1)",
             "admin console (zone 2)",
         ]
-        # Zone sequence [2, 3] -> admin console should win
-        result = assign_entry_point(eps, [2, 3], Counter(), 10)
+        # Zone sequence [reasoning, tool_execution] -> admin console should win
+        result = assign_entry_point(eps, ["reasoning", "tool_execution"], Counter(), 10)
         assert result == "admin console (zone 2)"
 
     def test_penalises_overused_entry_point(self):
@@ -152,9 +152,9 @@ class TestAssignEntryPoint:
         ]
         # Even though uploads has better affinity for zone 1, it's overused
         usage = Counter({"document uploads (zone 1)": 8})
-        result = assign_entry_point(eps, [1], usage, 10)
+        result = assign_entry_point(eps, ["input"], usage, 10)
         # fair_share = ceil(10/2) = 5, uploads used 8 -> penalty = (8-5)*0.3 = 0.9
-        # uploads affinity for zone 1 is high but penalty brings it down
+        # uploads affinity for input zone is high but penalty brings it down
         # admin console has lower affinity but no penalty
         assert result is not None
 
@@ -163,9 +163,9 @@ class TestAssignEntryPoint:
             "chat interface (zone 1)",
             "input form (zone 1)",
         ]
-        # Both have same affinity for zone 1
+        # Both have same affinity for input zone
         usage = Counter({"chat interface (zone 1)": 6})
-        result = assign_entry_point(eps, [1], usage, 10)
+        result = assign_entry_point(eps, ["input"], usage, 10)
         # fair_share = ceil(10/2) = 5, chat used 6 -> penalty = (6-5)*0.3 = 0.3
         # input form used 0 -> no penalty
         assert result == "input form (zone 1)"
@@ -175,13 +175,13 @@ class TestAssignEntryPoint:
         # 10 seeds / 3 eps -> fair_share = ceil(10/3) = 4
         # None overused yet
         usage = Counter({"a": 4})
-        result = assign_entry_point(eps, [1], usage, 10)
+        result = assign_entry_point(eps, ["input"], usage, 10)
         # "a" is at fair share (4), not over it -> no penalty
         assert result is not None
 
     def test_returns_entry_point_not_none_with_multiple(self):
         eps = ["a (zone 1)", "b (zone 2)", "c (zone 3)"]
-        result = assign_entry_point(eps, [1, 2, 3], Counter(), 9)
+        result = assign_entry_point(eps, ["input", "reasoning", "tool_execution"], Counter(), 9)
         assert result in eps
 
 
@@ -275,7 +275,7 @@ class TestNarrativePromptIntegration:
         from scenario_forge.models.capability_profile import CapabilityProfile
 
         return CapabilityProfile(
-            zones_active=[1, 2, 3],
+            zones_active=["input", "reasoning", "tool_execution"],
             has_persistent_memory=False,
             multi_agent=False,
             hitl=False,
@@ -301,11 +301,11 @@ class TestNarrativePromptIntegration:
             title="Test",
             summary="Test summary",
             entry_point="admin console (zone 2)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }
@@ -353,11 +353,11 @@ class TestNarrativePromptIntegration:
             title="Test",
             summary="Test summary",
             entry_point="API endpoint (zone 1)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }
@@ -404,11 +404,11 @@ class TestNarrativePromptIntegration:
             title="Test",
             summary="Test summary",
             entry_point="document uploads (zone 1)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }
@@ -454,11 +454,11 @@ class TestNarrativePromptIntegration:
             title="Test",
             summary="Test summary",
             entry_point="admin console (zone 2)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }
@@ -505,7 +505,7 @@ class TestEdgeCases:
         eps = ["the only entry point (zone 1)"]
         usage = Counter({"the only entry point (zone 1)": 13})
 
-        assigned = assign_entry_point(eps, [1, 2], usage, 13)
+        assigned = assign_entry_point(eps, ["input", "reasoning"], usage, 13)
         assert assigned == "the only entry point (zone 1)"
 
         overused = get_overused_entry_points(eps, usage, 13)

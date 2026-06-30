@@ -64,7 +64,7 @@ def _make_seed() -> ScenarioSeed:
 def _make_profile() -> CapabilityProfile:
     """Create a minimal CapabilityProfile for testing."""
     return CapabilityProfile(
-        zones_active=[1, 2, 3],
+        zones_active=["input", "reasoning", "tool_execution"],
         has_persistent_memory=False,
         multi_agent=False,
         hitl=False,
@@ -88,11 +88,11 @@ def _make_narrative(
         title=title,
         summary=summary,
         entry_point="test entry point (zone 1)",
-        zone_sequence=[1, 2, 3],
+        zone_sequence=["input", "reasoning", "tool_execution"],
         steps=[
             NarrativeStep(
                 step_number=1,
-                zone=1,
+                zone="input",
                 action="action 1",
                 effect="effect 1",
             ),
@@ -192,10 +192,10 @@ def _make_tree_node(node_id: str, children: list[AttackTreeNode] | None = None) 
     if children:
         return AttackTreeNode(
             id=node_id, label=f"Node {node_id}", gate=GateType.AND,
-            zone=1, children=children,
+            zone="input", children=children,
         )
     return AttackTreeNode(
-        id=node_id, label=f"Leaf {node_id}", gate=GateType.LEAF, zone=1,
+        id=node_id, label=f"Leaf {node_id}", gate=GateType.LEAF, zone="input",
     )
 
 
@@ -305,11 +305,11 @@ class TestHeuristicAttackComplexity:
         """
         # Build a wide but shallow tree: 10 nodes, depth 2
         children = [
-            AttackTreeNode(id=f"n1.{i}", label=f"Leaf {i}", gate=GateType.LEAF, zone=1)
+            AttackTreeNode(id=f"n1.{i}", label=f"Leaf {i}", gate=GateType.LEAF, zone="input")
             for i in range(1, 10)
         ]
         root = AttackTreeNode(
-            id="n1", label="Root", gate=GateType.OR, zone=1, children=children,
+            id="n1", label="Root", gate=GateType.OR, zone="input", children=children,
         )
         tree = AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
         result = _heuristic_attack_complexity(tree)
@@ -328,8 +328,8 @@ class TestHeuristicAttackComplexity:
         """Without a tree, narrative zone count determines complexity."""
         narrative_1zone_obj = NarrativeLayer(
             title="T", summary="S", entry_point="ep",
-            zone_sequence=[1],
-            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+            zone_sequence=["input"],
+            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
         result = _heuristic_attack_complexity(None, narrative_1zone_obj)
         assert result == AttackComplexity.low
@@ -338,8 +338,8 @@ class TestHeuristicAttackComplexity:
         """Without a tree, 4+ zones -> high complexity."""
         narrative = NarrativeLayer(
             title="T", summary="S", entry_point="ep",
-            zone_sequence=[1, 2, 3, 4],
-            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+            zone_sequence=["input", "reasoning", "tool_execution", "memory"],
+            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
         result = _heuristic_attack_complexity(None, narrative)
         assert result == AttackComplexity.high
@@ -348,8 +348,8 @@ class TestHeuristicAttackComplexity:
         """Without a tree, 2-3 zones -> medium complexity."""
         narrative = NarrativeLayer(
             title="T", summary="S", entry_point="ep",
-            zone_sequence=[1, 2],
-            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+            zone_sequence=["input", "reasoning"],
+            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
         result = _heuristic_attack_complexity(None, narrative)
         assert result == AttackComplexity.medium
@@ -385,8 +385,8 @@ class TestHeuristicRiskImpact:
         seed.risk_card_ref.impact = "Some generic impact description"
         narrative = NarrativeLayer(
             title="T", summary="S", entry_point="ep",
-            zone_sequence=[1, 2, 3, 4],
-            steps=[NarrativeStep(step_number=1, zone=1, action="a", effect="e")],
+            zone_sequence=["input", "reasoning", "tool_execution", "memory"],
+            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
         result = _heuristic_risk_impact(seed, narrative)
         # Generic text (0.4) + wide zones (0.3) = 0.7 -> medium
@@ -551,11 +551,11 @@ class TestNarrativePatternDiversityPrompt:
             title="Test",
             summary="Test summary",
             entry_point="API endpoint (zone 1)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }
@@ -603,11 +603,11 @@ class TestNarrativePatternDiversityPrompt:
             title="Test",
             summary="Test summary",
             entry_point="document uploads (zone 1)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }
@@ -655,12 +655,12 @@ class TestExtractStructuralPattern:
             title="Test",
             summary="Test summary",
             entry_point="ep",
-            zone_sequence=[1, 2, 4, 2],
+            zone_sequence=["input", "reasoning", "memory", "reasoning"],
             steps=[
-                NarrativeStep(step_number=1, zone=1, action="I poison the API data with false information", effect="tainted data"),
-                NarrativeStep(step_number=2, zone=2, action="The model starts to hallucinate and produce false outputs", effect="wrong output"),
-                NarrativeStep(step_number=3, zone=4, action="False data persists in long-term memory", effect="permanent taint"),
-                NarrativeStep(step_number=4, zone=2, action="I bypass the human reviewer through fatigue", effect="approved"),
+                NarrativeStep(step_number=1, zone="input", action="I poison the API data with false information", effect="tainted data"),
+                NarrativeStep(step_number=2, zone="reasoning", action="The model starts to hallucinate and produce false outputs", effect="wrong output"),
+                NarrativeStep(step_number=3, zone="memory", action="False data persists in long-term memory", effect="permanent taint"),
+                NarrativeStep(step_number=4, zone="reasoning", action="I bypass the human reviewer through fatigue", effect="approved"),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -675,10 +675,10 @@ class TestExtractStructuralPattern:
             title="Test",
             summary="S",
             entry_point="ep",
-            zone_sequence=[1, 3],
+            zone_sequence=["input", "tool_execution"],
             steps=[
-                NarrativeStep(step_number=1, zone=1, action="I inject a malicious prompt", effect="accepted"),
-                NarrativeStep(step_number=2, zone=3, action="I exfiltrate sensitive data via the tool output", effect="data stolen"),
+                NarrativeStep(step_number=1, zone="input", action="I inject a malicious prompt", effect="accepted"),
+                NarrativeStep(step_number=2, zone="tool_execution", action="I exfiltrate sensitive data via the tool output", effect="data stolen"),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -690,11 +690,11 @@ class TestExtractStructuralPattern:
             title="Test",
             summary="S",
             entry_point="ep",
-            zone_sequence=[1, 1, 3],
+            zone_sequence=["input", "input", "tool_execution"],
             steps=[
-                NarrativeStep(step_number=1, zone=1, action="I inject payload A", effect="partial"),
-                NarrativeStep(step_number=2, zone=1, action="I inject payload B to reinforce", effect="full"),
-                NarrativeStep(step_number=3, zone=3, action="I exfiltrate the result", effect="done"),
+                NarrativeStep(step_number=1, zone="input", action="I inject payload A", effect="partial"),
+                NarrativeStep(step_number=2, zone="input", action="I inject payload B to reinforce", effect="full"),
+                NarrativeStep(step_number=3, zone="tool_execution", action="I exfiltrate the result", effect="done"),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -706,9 +706,9 @@ class TestExtractStructuralPattern:
             title="Test",
             summary="S",
             entry_point="ep",
-            zone_sequence=[1],
+            zone_sequence=["input"],
             steps=[
-                NarrativeStep(step_number=1, zone=1, action="I do something unusual and novel", effect="unclear"),
+                NarrativeStep(step_number=1, zone="input", action="I do something unusual and novel", effect="unclear"),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -720,11 +720,11 @@ class TestExtractStructuralPattern:
             title="Test",
             summary="S",
             entry_point="ep",
-            zone_sequence=[1, 2, 3],
+            zone_sequence=["input", "reasoning", "tool_execution"],
             steps=[
-                NarrativeStep(step_number=1, zone=1, action="I probe the API to enumerate endpoints", effect="map"),
-                NarrativeStep(step_number=2, zone=2, action="I escalate privileges via admin misconfiguration", effect="admin"),
-                NarrativeStep(step_number=3, zone=3, action="I exfiltrate the full database", effect="stolen"),
+                NarrativeStep(step_number=1, zone="input", action="I probe the API to enumerate endpoints", effect="map"),
+                NarrativeStep(step_number=2, zone="reasoning", action="I escalate privileges via admin misconfiguration", effect="admin"),
+                NarrativeStep(step_number=3, zone="tool_execution", action="I exfiltrate the full database", effect="stolen"),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -781,11 +781,11 @@ class TestStructuralPatternPromptInjection:
             title="Test",
             summary="Test summary",
             entry_point="API endpoint (zone 1)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }
@@ -832,11 +832,11 @@ class TestStructuralPatternPromptInjection:
             title="Test",
             summary="Test summary",
             entry_point="document uploads (zone 1)",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "test",
                     "effect": "test",
                 }

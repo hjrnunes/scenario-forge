@@ -19,7 +19,7 @@ from scenario_forge.models.attack_tree import (
 # ---------------------------------------------------------------------------
 
 
-def _leaf(node_id: str, label: str, zone: int = 1, **extra: Any) -> dict[str, Any]:
+def _leaf(node_id: str, label: str, zone: str = "input", **extra: Any) -> dict[str, Any]:
     """Create a minimal LEAF node dict."""
     return {"id": node_id, "label": label, "gate": "LEAF", "zone": zone, **extra}
 
@@ -29,7 +29,7 @@ def _gate(
     label: str,
     gate: str,
     children: list[dict[str, Any]],
-    zone: int = 1,
+    zone: str = "input",
     **extra: Any,
 ) -> dict[str, Any]:
     """Create an AND/OR node dict with the given children."""
@@ -259,18 +259,18 @@ class TestRepairAttackTreeDict:
                 _leaf("n1.1.1", "A", threat_id="T5"),
                 _leaf("n1.1.2", "B"),
             ],
-            zone=3,
+            zone="tool_execution",
             description="Important child",
             structural_exposure="convergence_point",
         )
         data = _wrap_tree(
-            _gate("n1", "Parent AND", "AND", [child], zone=1)
+            _gate("n1", "Parent AND", "AND", [child], zone="input")
         )
 
         result = repair_attack_tree_dict(data)
         root = result["root"]
 
         assert root["id"] == "n1"
-        assert root["zone"] == 3
+        assert root["zone"] == "tool_execution"
         assert root["description"] == "Important child"
         assert root["structural_exposure"] == "convergence_point"

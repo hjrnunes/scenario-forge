@@ -97,7 +97,7 @@ class TestSanitizeYamlColons:
             "  id: n1\n"
             "  label: Step 1: Initial access via phishing\n"
             "  gate: LEAF\n"
-            "  zone: 1\n"
+            "  zone: input\n"
         )
         # Confirm raw fails
         with pytest.raises(yaml.YAMLError):
@@ -130,7 +130,7 @@ class TestParseAttackTreeYamlColonHandling:
             "  label: Root attack\n"
             f"  description: {description}\n"
             "  gate: LEAF\n"
-            "  zone: 1\n"
+            "  zone: input\n"
         )
 
     @staticmethod
@@ -168,7 +168,7 @@ class TestParseAttackTreeYamlColonHandling:
             "  id: n1\n"
             "  label: Phase 1: Reconnaissance via OSINT\n"
             "  gate: LEAF\n"
-            "  zone: 1\n"
+            "  zone: input\n"
         )
         tree = _parse_attack_tree_yaml(raw, self._mock_seed())
         assert tree.root.label == "Phase 1: Reconnaissance via OSINT"
@@ -184,7 +184,7 @@ class TestParseAttackTreeYamlColonHandling:
             "  id: n1\n"
             "  label: Step 1: Access\n"
             "  gate: LEAF\n"
-            "  zone: 1\n"
+            "  zone: input\n"
             "```\n"
         )
         tree = _parse_attack_tree_yaml(raw, self._mock_seed())

@@ -34,7 +34,7 @@ class CoverageGaps:
     """Structured result of coverage gap analysis."""
 
     uncovered_entry_points: list[str] = field(default_factory=list)
-    uncovered_zones: list[int] = field(default_factory=list)
+    uncovered_zones: list[str] = field(default_factory=list)
     uncovered_threats: list[str] = field(default_factory=list)
 
     @property
@@ -99,7 +99,7 @@ def analyze_coverage_gaps(
     """
     # Collect normalized entry points used across all scenario narratives.
     used_entry_points_normalized: set[str] = set()
-    traversed_zones: set[int] = set()
+    traversed_zones: set[str] = set()
     covered_threat_ids: set[str] = set()
 
     for envelope in scenarios:

@@ -34,18 +34,18 @@ from scenario_forge.models import (
 def _make_profile(
     *,
     has_persistent_memory: bool = False,
-    zones_active: list[int] | None = None,
+    zones_active: list[str] | None = None,
     multi_agent: bool = False,
     hitl: bool = False,
     memory_mechanisms: list[MemoryMechanism] | None = None,
 ) -> CapabilityProfile:
     """Build a CapabilityProfile with sensible defaults for testing."""
     if zones_active is None:
-        zones = [1, 2, 3]
+        zones = ["input", "reasoning", "tool_execution"]
         if has_persistent_memory:
-            zones.append(4)
+            zones.append("memory")
         if multi_agent:
-            zones.append(5)
+            zones.append("inter_agent")
     else:
         zones = zones_active
     return CapabilityProfile(

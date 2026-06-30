@@ -23,6 +23,8 @@ from scenario_forge.models.capability_profile import (
     MemoryType,
     ToolType,
     TrustBoundary,
+    ZONE_DISPLAY_NAMES,
+    ZONE_NAMES,
 )
 from scenario_forge.models.risk_card import (
     EvidenceSpan,
@@ -74,6 +76,8 @@ __all__ = [
     "MemoryType",
     "ToolType",
     "TrustBoundary",
+    "ZONE_DISPLAY_NAMES",
+    "ZONE_NAMES",
     # risk_card
     "EvidenceSpan",
     "MitigationRef",

@@ -6,11 +6,11 @@ system under assessment that determine which threat families are in scope and
 how specific the generated scenarios can be.
 
 Architecture model: Schneider's five-zone model
-  Zone 1 = Input Surfaces
-  Zone 2 = Planning & Reasoning
-  Zone 3 = Tool Execution
-  Zone 4 = Memory & State
-  Zone 5 = Inter-Agent Communication
+  input            = Input Surfaces
+  reasoning        = Planning & Reasoning
+  tool_execution   = Tool Execution
+  memory           = Memory & State
+  inter_agent      = Inter-Agent Communication
 """
 
 from __future__ import annotations
@@ -19,6 +19,26 @@ from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
+
+# ---------------------------------------------------------------------------
+# Zone constants
+# ---------------------------------------------------------------------------
+
+ZONE_NAMES: tuple[str, ...] = (
+    "input",
+    "reasoning",
+    "tool_execution",
+    "memory",
+    "inter_agent",
+)
+
+ZONE_DISPLAY_NAMES: dict[str, str] = {
+    "input": "Input Surfaces",
+    "reasoning": "Planning & Reasoning",
+    "tool_execution": "Tool Execution",
+    "memory": "Memory & State",
+    "inter_agent": "Inter-Agent Communication",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +138,7 @@ class ToolType(BaseModel):
     """A tool or API the system can invoke, with risk-relevant properties."""
 
     name: str = Field(description="Tool or API name (e.g. 'database_query', 'send_email')")
-    zone: int = Field(description="Schneider zone where this tool operates (typically 3)", ge=1, le=5)
+    zone: str = Field(description="Schneider zone where this tool operates (typically 'tool_execution')")
     can_modify_state: bool = Field(description="Whether the tool can write/modify external systems")
     data_sensitivity: DataSensitivity = Field(description="Sensitivity of data the tool can access")
     code_execution: bool = Field(description="Whether the tool can execute arbitrary code")
@@ -128,9 +148,9 @@ class DataFlow(BaseModel):
     """A data flow between zones and components."""
 
     source: str = Field(description="Origin of the data (e.g. 'user input', 'RAG store')")
-    source_zone: int = Field(description="Schneider zone of the data source", ge=1, le=5)
+    source_zone: str = Field(description="Schneider zone of the data source")
     destination: str = Field(description="Where the data flows to (e.g. 'LLM context', 'tool parameter')")
-    destination_zone: int = Field(description="Schneider zone of the destination", ge=1, le=5)
+    destination_zone: str = Field(description="Schneider zone of the destination")
     data_type: str = Field(description="Nature of the data (e.g. 'user query', 'retrieved document')")
     validated: bool = Field(description="Whether the data is validated/sanitized at this boundary")
 
@@ -139,8 +159,8 @@ class TrustBoundary(BaseModel):
     """A trust boundary in the system architecture."""
 
     name: str = Field(description="Descriptive name for the boundary (e.g. 'user-to-LLM')")
-    from_zone: int = Field(description="Schneider zone on the untrusted side", ge=1, le=5)
-    to_zone: int = Field(description="Schneider zone on the trusted side", ge=1, le=5)
+    from_zone: str = Field(description="Schneider zone on the untrusted side")
+    to_zone: str = Field(description="Schneider zone on the trusted side")
     controls: list[str] = Field(
         default_factory=list,
         description="Security controls at this boundary (e.g. 'input validation')",
@@ -184,10 +204,11 @@ class Stage1Profile(BaseModel):
     doesn't generate runaway output trying to fill optional nested fields.
     """
 
-    zones_active: list[int] = Field(
+    zones_active: list[str] = Field(
         description=(
-            "Schneider zones active in the system. Minimum [1, 2]. "
-            "Zone 3=Tool Execution, 4=Memory/State, 5=Inter-Agent Communication."
+            "Schneider zones active in the system. "
+            "Minimum ['input', 'reasoning']. "
+            "Other zones: 'tool_execution', 'memory', 'inter_agent'."
         ),
     )
     has_persistent_memory: bool = Field(
@@ -226,10 +247,11 @@ class CapabilityProfile(BaseModel):
 
     # --- Stage 1 (required) ---
 
-    zones_active: list[int] = Field(
+    zones_active: list[str] = Field(
         description=(
-            "Schneider zones active in the system. Minimum [1, 2]. "
-            "Zone 3=Tool Execution, 4=Memory/State, 5=Inter-Agent Communication."
+            "Schneider zones active in the system. "
+            "Minimum ['input', 'reasoning']. "
+            "Other zones: 'tool_execution', 'memory', 'inter_agent'."
         ),
     )
     has_persistent_memory: bool = Field(
@@ -279,20 +301,33 @@ class CapabilityProfile(BaseModel):
         """Cross-field validation for zone/flag consistency."""
         zones = set(self.zones_active)
 
-        # Every LLM system must have zones 1 and 2
-        if not {1, 2}.issubset(zones):
-            raise ValueError("zones_active must contain at least [1, 2] — all LLM systems have input and reasoning")
+        # Every LLM system must have input and reasoning
+        if not {"input", "reasoning"}.issubset(zones):
+            raise ValueError(
+                "zones_active must contain at least ['input', 'reasoning'] "
+                "— all LLM systems have input and reasoning"
+            )
 
-        # Zone values must be 1-5
-        if not zones.issubset({1, 2, 3, 4, 5}):
-            raise ValueError("zones_active values must be between 1 and 5")
+        # Zone values must be valid names
+        if not zones.issubset(set(ZONE_NAMES)):
+            invalid = zones - set(ZONE_NAMES)
+            raise ValueError(
+                f"zones_active contains invalid zone names: {invalid}. "
+                f"Valid names: {ZONE_NAMES}"
+            )
 
-        # Zone 4 active implies has_persistent_memory
-        if 4 in zones and not self.has_persistent_memory:
-            raise ValueError("Zone 4 (Memory/State) active implies has_persistent_memory must be true")
+        # memory active implies has_persistent_memory
+        if "memory" in zones and not self.has_persistent_memory:
+            raise ValueError(
+                "Zone 'memory' (Memory & State) active implies "
+                "has_persistent_memory must be true"
+            )
 
-        # Zone 5 active implies multi_agent
-        if 5 in zones and not self.multi_agent:
-            raise ValueError("Zone 5 (Inter-Agent Communication) active implies multi_agent must be true")
+        # inter_agent active implies multi_agent
+        if "inter_agent" in zones and not self.multi_agent:
+            raise ValueError(
+                "Zone 'inter_agent' (Inter-Agent Communication) active "
+                "implies multi_agent must be true"
+            )
 
         return self
