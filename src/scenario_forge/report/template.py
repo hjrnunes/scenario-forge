@@ -1184,6 +1184,41 @@ details.expandable[open] > summary::before {
   height: 10px;
   border-radius: 3px;
 }
+
+/* CSS tooltips (replace unreliable native title= tooltips) */
+[data-tooltip] {
+  position: relative;
+  cursor: help;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  max-width: 400px;
+  white-space: normal;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-bottom: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+[data-tooltip]:hover::after {
+  opacity: 1;
+}
+/* Tree tooltips: left-aligned since tree nodes are on the left side */
+.tree-meta[data-tooltip]::after {
+  left: 0;
+  transform: none;
+}
 </style>
 """
 
@@ -1792,7 +1827,7 @@ def build_scenarios_section(
     ):
         ep_dist_items += (
             f'<div class="ep-dist-item">'
-            f'<span class="ep-dist-name" title="{_esc(ep_name)}">{_esc(ep_name)}</span>'
+            f'<span class="ep-dist-name" data-tooltip="{_esc(ep_name)}">{_esc(ep_name)}</span>'
             f'<span class="ep-dist-count">{ep_count}</span>'
             f"</div>"
         )
@@ -2014,12 +2049,12 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
         meta_parts.append(f'<span class="tree-meta">{_esc(technique_id)}</span>')
     if control_point:
         meta_parts.append(
-            f'<span class="tree-meta" style="color:var(--medium);" title="Control point">{_esc(control_point)}</span>'
+            f'<span class="tree-meta" style="color:var(--medium);" data-tooltip="Control point">{_esc(control_point)}</span>'
         )
     if structural_exposure:
         se_display = str(structural_exposure).replace("_", " ").title()
         meta_parts.append(
-            f'<span class="tree-meta" style="color:var(--high);" title="Structural exposure">{_esc(se_display)}</span>'
+            f'<span class="tree-meta" style="color:var(--high);" data-tooltip="Structural exposure">{_esc(se_display)}</span>'
         )
     meta_html = " ".join(meta_parts)
 
