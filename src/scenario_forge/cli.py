@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
+
 import typer
 import yaml
 
@@ -197,6 +199,54 @@ def profile(
             f" + {llm_result.completion_tokens} completion"
             f" ({llm_result.duration_ms}ms)"
         )
+
+    except Exception as exc:
+        typer.echo(f"\nError: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="eval")
+def eval_cmd(
+    output_dir: Path = typer.Option(
+        ...,
+        help="Output directory containing pipeline artifacts.",
+    ),
+    format: str = typer.Option(
+        "yaml",
+        help="Output format: yaml or json.",
+    ),
+) -> None:
+    """Evaluate generated scenario quality (Tier 1: deterministic metrics)."""
+    typer.echo(f"\nscenario-forge v{_VERSION} — eval\n{'=' * 40}")
+
+    if not output_dir.exists():
+        typer.echo(f"Error: output directory not found: {output_dir}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        from scenario_forge.eval.runner import run_evaluation
+
+        scorecard = run_evaluation(output_dir)
+
+        if format.lower() == "json":
+            output_text = json.dumps(scorecard, indent=2, default=str)
+            output_filename = "eval-scorecard.json"
+        else:
+            output_text = yaml.dump(
+                scorecard,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+            )
+            output_filename = "eval-scorecard.yaml"
+
+        typer.echo("")
+        typer.echo(output_text)
+
+        # Write scorecard to output directory
+        scorecard_path = output_dir / output_filename
+        scorecard_path.write_text(output_text, encoding="utf-8")
+        typer.echo(f"Scorecard written to {scorecard_path}")
 
     except Exception as exc:
         typer.echo(f"\nError: {exc}", err=True)
