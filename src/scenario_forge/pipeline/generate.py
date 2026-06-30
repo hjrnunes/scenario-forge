@@ -316,7 +316,9 @@ _PATTERN_STOP_WORDS: set[str] = {
 }
 
 
-def extract_narrative_keywords(narrative: NarrativeLayer, max_keywords: int = 3) -> list[str]:
+def extract_narrative_keywords(
+    narrative: NarrativeLayer, max_keywords: int = 3
+) -> list[str]:
     """Extract short keyword phrases summarizing the attack pattern from a narrative.
 
     Uses the causal_chain_reframed fields and the narrative title/summary to
@@ -369,25 +371,87 @@ def get_overused_patterns(
 # one of these phase labels based on keyword matching. The resulting sequence
 # of phase labels forms the structural pattern fingerprint.
 _PHASE_KEYWORDS: dict[str, list[str]] = {
-    "poison": ["poison", "taint", "corrupt", "contaminate", "inject false",
-               "plant false", "fabricat", "supply-chain"],
+    "poison": [
+        "poison",
+        "taint",
+        "corrupt",
+        "contaminate",
+        "inject false",
+        "plant false",
+        "fabricat",
+        "supply-chain",
+    ],
     "inject": ["inject", "craft", "embed", "insert", "smuggle", "implant"],
-    "probe": ["probe", "reconn", "enumerate", "discover", "scan", "map",
-              "fingerprint", "survey"],
-    "hallucinate": ["hallucin", "confabulat", "fabricat", "generate false",
-                    "produce false", "make up", "invent"],
-    "exfiltrate": ["exfiltrat", "extract", "steal", "leak", "siphon",
-                   "harvest", "scrape", "dump"],
-    "persist": ["persist", "store", "memory", "cache", "retain", "embed in",
-                "long-term", "permanent"],
-    "escalate": ["escalat", "privilege", "elevat", "admin", "root",
-                 "lateral", "pivot"],
-    "bypass": ["bypass", "circumvent", "evade", "defeat", "overwhelm",
-               "fatigue", "exhaust", "fool", "trick review"],
-    "deny": ["deny", "denial", "flood", "overwhelm", "exhaust",
-             "degrade", "disrupt", "dos"],
-    "manipulate": ["manipulat", "alter", "modify", "tamper", "forge",
-                   "spoof", "impersonat"],
+    "probe": [
+        "probe",
+        "reconn",
+        "enumerate",
+        "discover",
+        "scan",
+        "map",
+        "fingerprint",
+        "survey",
+    ],
+    "hallucinate": [
+        "hallucin",
+        "confabulat",
+        "fabricat",
+        "generate false",
+        "produce false",
+        "make up",
+        "invent",
+    ],
+    "exfiltrate": [
+        "exfiltrat",
+        "extract",
+        "steal",
+        "leak",
+        "siphon",
+        "harvest",
+        "scrape",
+        "dump",
+    ],
+    "persist": [
+        "persist",
+        "store",
+        "memory",
+        "cache",
+        "retain",
+        "embed in",
+        "long-term",
+        "permanent",
+    ],
+    "escalate": ["escalat", "privilege", "elevat", "admin", "root", "lateral", "pivot"],
+    "bypass": [
+        "bypass",
+        "circumvent",
+        "evade",
+        "defeat",
+        "overwhelm",
+        "fatigue",
+        "exhaust",
+        "fool",
+        "trick review",
+    ],
+    "deny": [
+        "deny",
+        "denial",
+        "flood",
+        "overwhelm",
+        "exhaust",
+        "degrade",
+        "disrupt",
+        "dos",
+    ],
+    "manipulate": [
+        "manipulat",
+        "alter",
+        "modify",
+        "tamper",
+        "forge",
+        "spoof",
+        "impersonat",
+    ],
 }
 
 
@@ -431,7 +495,8 @@ def get_overused_structural_patterns(
     like "inject->hallucinate->persist->bypass".
     """
     overused = [
-        pattern for pattern, count in structural_counts.most_common()
+        pattern
+        for pattern, count in structural_counts.most_common()
         if count > threshold and pattern != "other"
     ]
     return overused[:3]
@@ -470,8 +535,7 @@ def _format_structural_exclusions(patterns: list[str]) -> str:
         "\n## Structural Attack Pattern Diversity\n"
         "The following attack STRUCTURES have already been used too many times "
         "in this batch. Do NOT follow these same phase sequences — use a "
-        "fundamentally different attack approach:\n"
-        + "\n".join(lines) + "\n"
+        "fundamentally different attack approach:\n" + "\n".join(lines) + "\n"
         "Instead, try attack shapes like:\n"
         "  - Direct exploitation without persistence\n"
         "  - Reconnaissance before targeted strike\n"
@@ -609,7 +673,17 @@ three steps. Understands the target architecture at a surface level.
 - advanced: Develops custom exploits. Can maintain persistence, evade \
 detection, and operate across multiple system layers.
 - expert: State-sponsored or elite criminal level. Develops zero-days, \
-conducts long-term campaigns, has deep understanding of AI internals.\
+conducts long-term campaigns, has deep understanding of AI internals.
+
+## Actor-Type Capability Constraints (MANDATORY)
+These are hard floors — the capability_level you assign MUST respect them:
+- nation-state: capability_level MUST be "advanced" or "expert"
+- supply-chain-actor: capability_level MUST be "advanced" or "expert"
+- negligent-insider: actions MUST be accidental or careless, NOT deliberate \
+exploitation. The capability_level reflects their technical knowledge, but \
+their harmful actions are UNINTENTIONAL (mistakes, oversights, poor judgment, \
+policy violations through ignorance)
+- automated-agent: capability_level MUST be "intermediate" or higher\
 """
 
 _CALL1_SYSTEM = """\
@@ -1148,14 +1222,34 @@ def _heuristic_risk_impact(
     )
     if impact_text:
         lower = impact_text.lower()
-        if any(kw in lower for kw in ("severe", "critical", "catastrophic",
-                                       "systemic", "enterprise", "cascading")):
+        if any(
+            kw in lower
+            for kw in (
+                "severe",
+                "critical",
+                "catastrophic",
+                "systemic",
+                "enterprise",
+                "cascading",
+            )
+        ):
             score += 1.0
-        elif any(kw in lower for kw in ("significant", "major", "serious",
-                                         "financial", "regulatory", "breach")):
+        elif any(
+            kw in lower
+            for kw in (
+                "significant",
+                "major",
+                "serious",
+                "financial",
+                "regulatory",
+                "breach",
+            )
+        ):
             score += 0.7
-        elif any(kw in lower for kw in ("minor", "minimal", "negligible",
-                                         "inconvenience", "temporary")):
+        elif any(
+            kw in lower
+            for kw in ("minor", "minimal", "negligible", "inconvenience", "temporary")
+        ):
             score += 0.1
         else:
             score += 0.4  # Generic impact text -> lean toward medium
@@ -1166,14 +1260,34 @@ def _heuristic_risk_impact(
     )
     if consequence_text:
         lower = consequence_text.lower()
-        if any(kw in lower for kw in ("all users", "organization", "enterprise",
-                                       "supply chain", "cascading", "systemic")):
+        if any(
+            kw in lower
+            for kw in (
+                "all users",
+                "organization",
+                "enterprise",
+                "supply chain",
+                "cascading",
+                "systemic",
+            )
+        ):
             score += 0.4
-        elif any(kw in lower for kw in ("multiple users", "financial", "legal",
-                                         "regulatory", "compliance", "persistent")):
+        elif any(
+            kw in lower
+            for kw in (
+                "multiple users",
+                "financial",
+                "legal",
+                "regulatory",
+                "compliance",
+                "persistent",
+            )
+        ):
             score += 0.25
-        elif any(kw in lower for kw in ("single user", "one session",
-                                         "temporary", "reversible")):
+        elif any(
+            kw in lower
+            for kw in ("single user", "one session", "temporary", "reversible")
+        ):
             score += 0.05
 
     # Signal 3: Zone breadth from narrative (blast radius proxy)
@@ -1401,7 +1515,9 @@ def _normalize_actor_type(raw: str) -> str:
     for valid in ACTOR_TYPES:
         if valid in cleaned or cleaned in valid:
             return valid
-    logger.warning("Unrecognized actor_type '%s', defaulting to 'adversarial-user'", raw)
+    logger.warning(
+        "Unrecognized actor_type '%s', defaulting to 'adversarial-user'", raw
+    )
     return "adversarial-user"
 
 
@@ -1412,8 +1528,47 @@ def _normalize_capability_level(raw: str) -> str:
     for level in valid_levels:
         if level in cleaned:
             return level
-    logger.warning("Unrecognized capability_level '%s', defaulting to 'intermediate'", raw)
+    logger.warning(
+        "Unrecognized capability_level '%s', defaulting to 'intermediate'", raw
+    )
     return "intermediate"
+
+
+# Minimum capability levels by actor type. If the LLM returns a level below
+# the floor, we bump it up and log a warning. This is defence-in-depth
+# behind the prompt constraint in _CALL0_SYSTEM.
+_CAPABILITY_FLOORS: dict[str, str] = {
+    "nation-state": "advanced",
+    "supply-chain-actor": "advanced",
+    "automated-agent": "intermediate",
+}
+
+_CAPABILITY_ORDER: list[str] = ["novice", "intermediate", "advanced", "expert"]
+
+
+def _enforce_capability_floor(actor_type: str, capability_level: str) -> str:
+    """Bump capability_level up to the actor-type floor if it is too low.
+
+    Returns the (possibly upgraded) capability level.
+    """
+    floor = _CAPABILITY_FLOORS.get(actor_type)
+    if floor is None:
+        return capability_level
+    floor_idx = _CAPABILITY_ORDER.index(floor)
+    current_idx = (
+        _CAPABILITY_ORDER.index(capability_level)
+        if capability_level in _CAPABILITY_ORDER
+        else 1  # default to intermediate if unknown
+    )
+    if current_idx < floor_idx:
+        logger.warning(
+            "Capability floor violation: %s actor had '%s', bumped to '%s'",
+            actor_type,
+            capability_level,
+            floor,
+        )
+        return floor
+    return capability_level
 
 
 def _call_actor_profile(
@@ -1488,6 +1643,7 @@ def _call_actor_profile(
     resp = result.content
     actor_type = _normalize_actor_type(resp.actor_type)
     capability_level = _normalize_capability_level(resp.capability_level)
+    capability_level = _enforce_capability_floor(actor_type, capability_level)
     actor_profile = ActorProfile(
         actor_type=actor_type,
         motivation=resp.motivation,
@@ -1570,9 +1726,7 @@ def _call_narrative(
     # Build structural pattern diversity section
     structural_section = ""
     if excluded_structural_patterns:
-        structural_section = _format_structural_exclusions(
-            excluded_structural_patterns
-        )
+        structural_section = _format_structural_exclusions(excluded_structural_patterns)
 
     # Build actor profile section for narrative grounding
     actor_section = ""
