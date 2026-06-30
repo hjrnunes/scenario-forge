@@ -29,9 +29,12 @@ from scenario_forge.eval.gherkin import (
     step_count,
     step_keyword_balance,
     tag_consistency,
-    zone_annotation_rate,
 )
 from scenario_forge.eval.grounding import score_grounding
+from scenario_forge.eval.plausibility import (
+    capability_complexity_violations,
+    score_plausibility,
+)
 from scenario_forge.eval.runner import run_evaluation
 
 
@@ -366,21 +369,6 @@ class TestStepKeywordBalance:
         assert balance["Then"] > 0
 
 
-class TestZoneAnnotationRate:
-    def test_annotated_feature(self):
-        rate = zone_annotation_rate(_GHERKIN_VALID)
-        assert rate > 0.0
-
-    def test_no_annotations(self):
-        rate = zone_annotation_rate(_GHERKIN_MINIMAL)
-        assert rate == 0.0
-
-    def test_no_when_steps(self):
-        text = "Feature: X\n  Scenario: Y\n    Given something\n    Then result"
-        rate = zone_annotation_rate(text)
-        assert rate == 0.0
-
-
 class TestTagConsistency:
     def test_consistent_tags(self):
         texts = [
@@ -410,7 +398,11 @@ class TestScoreGherkin:
         assert "parse_success_rate" in result
         assert "mean_step_count" in result
         assert "tag_consistency" in result
+        assert "background_missing_warnings" in result
         assert result["parse_success_rate"] == 1.0
+        # _GHERKIN_MINIMAL has no Background, so index 1 should be warned
+        assert 1 in result["background_missing_warnings"]
+        assert 0 not in result["background_missing_warnings"]
 
     def test_empty_batch(self):
         result = score_gherkin([])
@@ -420,6 +412,25 @@ class TestScoreGherkin:
     def test_mixed_validity(self):
         result = score_gherkin([_GHERKIN_VALID, _GHERKIN_INVALID])
         assert result["parse_success_rate"] == 0.5
+
+    def test_no_background_rate_in_output(self):
+        """background_rate and mean_zone_annotation_rate are removed."""
+        result = score_gherkin([_GHERKIN_VALID])
+        assert "background_rate" not in result
+        assert "mean_zone_annotation_rate" not in result
+
+    def test_background_warning_emitted(self, caplog):
+        """Warning is logged when a feature file lacks a Background."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = score_gherkin([_GHERKIN_MINIMAL])
+        assert result["background_missing_warnings"] == [0]
+        assert "lacks a Background section" in caplog.text
+
+    def test_all_have_background(self):
+        result = score_gherkin([_GHERKIN_VALID, _GHERKIN_VALID])
+        assert result["background_missing_warnings"] == []
 
 
 # ===========================================================================
@@ -485,6 +496,28 @@ class TestEntryPointEntropy:
         result = entry_point_entropy([])
         assert result == 0.0
 
+    def test_with_expected_entry_points(self):
+        """When expected_entry_points is provided, returns a dict."""
+        scenarios = [
+            _make_scenario(entry_point="api endpoints"),
+            _make_scenario(entry_point="user prompts"),
+        ]
+        result = entry_point_entropy(scenarios, expected_entry_points=4)
+        assert isinstance(result, dict)
+        assert "entropy" in result
+        assert "entry_point_coverage" in result
+        # 2 unique out of 4 expected = 0.5
+        assert result["entry_point_coverage"] == 0.5
+        assert result["entropy"] > 0.0
+
+    def test_coverage_full(self):
+        """1/1 expected entry points = 1.0 coverage."""
+        scenarios = [
+            _make_scenario(entry_point="user prompts"),
+        ]
+        result = entry_point_entropy(scenarios, expected_entry_points=1)
+        assert result["entry_point_coverage"] == 1.0
+
 
 class TestZoneCoverage:
     def test_full_coverage(self):
@@ -504,6 +537,35 @@ class TestZoneCoverage:
     def test_no_scenarios(self):
         result = zone_coverage([])
         assert result == 0.0
+
+    def test_with_active_zones(self):
+        """When active_zones is provided, returns a dict with contextualized coverage."""
+        scenarios = [
+            _make_scenario(zone_sequence=[1, 2]),
+        ]
+        result = zone_coverage(scenarios, active_zones={1, 2, 3})
+        assert isinstance(result, dict)
+        assert result["raw_coverage"] == 0.4
+        # 2 out of 3 active zones covered
+        assert abs(result["active_zone_coverage"] - 0.6667) < 0.001
+
+    def test_out_of_scope_violations(self):
+        """Scenarios using zones outside the active set are flagged."""
+        scenarios = [
+            _make_scenario(scenario_id="s1", zone_sequence=[1, 2, 5]),
+        ]
+        result = zone_coverage(scenarios, active_zones={1, 2})
+        assert isinstance(result, dict)
+        assert len(result["out_of_scope_zone_violations"]) == 1
+        assert result["out_of_scope_zone_violations"][0]["out_of_scope_zones"] == [5]
+
+    def test_no_out_of_scope(self):
+        """No violations when all zones are within the active set."""
+        scenarios = [
+            _make_scenario(zone_sequence=[1, 2]),
+        ]
+        result = zone_coverage(scenarios, active_zones={1, 2, 3})
+        assert result["out_of_scope_zone_violations"] == []
 
 
 class TestActorTypeEntropy:
@@ -572,6 +634,40 @@ class TestTitleUniqueness:
         result = title_uniqueness([])
         assert result == 1.0
 
+    def test_domain_stopwords_excluded(self):
+        """Shared domain vocabulary should not tank the score.
+
+        These titles share 'Policy' and 'Agent' across >50% of them, but
+        the discriminating words are unique. Without domain-stopword
+        filtering this would score ~0.50; with it the score should be high.
+        """
+        scenarios = [
+            _make_scenario(title="Policy Evasion via Memory Poisoning Agent"),
+            _make_scenario(title="Policy Bypass through Prompt Injection Agent"),
+            _make_scenario(title="Policy Circumvention with Tool Misuse Agent"),
+            _make_scenario(title="Policy Violation using Social Engineering Agent"),
+        ]
+        result = title_uniqueness(scenarios)
+        # With domain stopwords removed, titles are diverse
+        assert result > 0.6
+
+    def test_genuinely_duplicate_titles_still_score_low(self):
+        """Titles that are truly near-duplicates should still score low.
+
+        Here two titles share most of their non-domain words — they only
+        differ in one word out of several discriminating tokens.
+        """
+        scenarios = [
+            _make_scenario(title="Credential Theft via Phishing Email"),
+            _make_scenario(title="Credential Theft via Phishing SMS"),
+            _make_scenario(title="Supply Chain Backdoor Insertion"),
+            _make_scenario(title="Prompt Injection Memory Corruption"),
+        ]
+        result = title_uniqueness(scenarios)
+        # First two titles share "credential theft phishing" after removing
+        # any domain stopwords; should keep score moderate-to-low
+        assert result < 0.8
+
 
 class TestScoreDiversity:
     def test_returns_all_keys(self):
@@ -593,6 +689,104 @@ class TestScoreDiversity:
         assert "actor_type_entropy" in result
         assert "capability_level_evenness" in result
         assert "title_uniqueness" in result
+
+
+# ===========================================================================
+# Plausibility tests
+# ===========================================================================
+
+
+class TestCapabilityComplexityViolations:
+    def test_nation_state_novice(self):
+        scenario = _make_scenario(actor_type="nation-state", capability_level="novice")
+        violations = capability_complexity_violations(scenario)
+        assert len(violations) == 1
+        assert "nation-state" in violations[0]
+
+    def test_nation_state_advanced(self):
+        scenario = _make_scenario(actor_type="nation-state", capability_level="advanced")
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_nation_state_expert(self):
+        scenario = _make_scenario(actor_type="nation-state", capability_level="expert")
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_supply_chain_intermediate(self):
+        scenario = _make_scenario(
+            actor_type="supply-chain-actor", capability_level="intermediate"
+        )
+        violations = capability_complexity_violations(scenario)
+        assert len(violations) == 1
+        assert "supply-chain-actor" in violations[0]
+
+    def test_supply_chain_expert(self):
+        scenario = _make_scenario(
+            actor_type="supply-chain-actor", capability_level="expert"
+        )
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_novice_high_complexity(self):
+        scenario = _make_scenario(
+            actor_type="adversarial-user", capability_level="novice"
+        )
+        # Set attack_complexity to "high"
+        scenario["priority"]["signals"]["attack_complexity"] = "high"
+        violations = capability_complexity_violations(scenario)
+        assert len(violations) == 1
+        assert "novice" in violations[0]
+        assert "high attack_complexity" in violations[0]
+
+    def test_novice_low_complexity(self):
+        scenario = _make_scenario(
+            actor_type="adversarial-user", capability_level="novice"
+        )
+        scenario["priority"]["signals"]["attack_complexity"] = "low"
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_normal_scenario_no_violations(self):
+        scenario = _make_scenario(
+            actor_type="cybercriminal", capability_level="intermediate"
+        )
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_missing_actor_profile(self):
+        scenario = _make_scenario()
+        del scenario["actor_profile"]
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+
+class TestScorePlausibility:
+    def test_no_violations(self):
+        scenarios = [
+            _make_scenario(actor_type="cybercriminal", capability_level="advanced"),
+        ]
+        result = score_plausibility(scenarios)
+        assert result["capability_complexity_violation_count"] == 0
+        assert "per_scenario" not in result
+
+    def test_with_violations(self):
+        scenarios = [
+            _make_scenario(
+                scenario_id="s1",
+                actor_type="nation-state",
+                capability_level="novice",
+            ),
+            _make_scenario(
+                scenario_id="s2",
+                actor_type="cybercriminal",
+                capability_level="advanced",
+            ),
+        ]
+        result = score_plausibility(scenarios)
+        assert result["capability_complexity_violation_count"] == 1
+        assert "s1" in result["per_scenario"]
+        assert "s2" not in result["per_scenario"]
 
 
 # ===========================================================================
@@ -637,6 +831,7 @@ class TestRunEvaluation:
         assert "gherkin" in ev
         assert "grounding" in ev
         assert "diversity" in ev
+        assert "plausibility" in ev
 
         # Check consistency has per-scenario data
         assert "per_scenario" in ev["consistency"]
@@ -677,6 +872,71 @@ class TestRunEvaluation:
         scorecard = run_evaluation(tmp_path)
         assert scorecard["evaluation"]["scenario_count"] == 1
         assert scorecard["evaluation"]["feature_file_count"] == 0
+
+    def test_with_capability_profile(self, tmp_path: Path):
+        """Runner loads capability-profile.yaml and passes context to diversity."""
+        scenarios_dir = tmp_path / "scenarios"
+        scenarios_dir.mkdir()
+
+        s = _make_scenario(
+            entry_point="user prompts",
+            zone_sequence=[1, 2],
+        )
+        yaml_path = scenarios_dir / "scenario-0.yaml"
+        yaml_path.write_text(
+            yaml.dump(s, default_flow_style=False), encoding="utf-8"
+        )
+
+        # Write a capability profile
+        cap_profile = {
+            "zones_active": [1, 2, 3],
+            "entry_points": [
+                "user prompts (zone 1)",
+                "api responses (zone 3)",
+            ],
+            "has_persistent_memory": False,
+            "multi_agent": False,
+            "hitl": False,
+            "confidence": "high",
+        }
+        cap_path = tmp_path / "capability-profile.yaml"
+        cap_path.write_text(
+            yaml.dump(cap_profile, default_flow_style=False), encoding="utf-8"
+        )
+
+        scorecard = run_evaluation(tmp_path)
+        ev = scorecard["evaluation"]
+        diversity = ev["diversity"]
+
+        # entry_point_entropy should be a dict with coverage
+        assert isinstance(diversity["entry_point_entropy"], dict)
+        assert "entry_point_coverage" in diversity["entry_point_entropy"]
+        # 1 unique entry point out of 2 expected
+        assert diversity["entry_point_entropy"]["entry_point_coverage"] == 0.5
+
+        # zone_coverage should be a dict with active zone coverage
+        assert isinstance(diversity["zone_coverage"], dict)
+        assert "active_zone_coverage" in diversity["zone_coverage"]
+        # Zones {1,2} covered out of active {1,2,3} = 2/3
+        assert abs(diversity["zone_coverage"]["active_zone_coverage"] - 0.6667) < 0.001
+
+    def test_without_capability_profile(self, tmp_path: Path):
+        """Without a capability profile, diversity returns bare floats."""
+        scenarios_dir = tmp_path / "scenarios"
+        scenarios_dir.mkdir()
+
+        s = _make_scenario()
+        yaml_path = scenarios_dir / "scenario-0.yaml"
+        yaml_path.write_text(
+            yaml.dump(s, default_flow_style=False), encoding="utf-8"
+        )
+
+        scorecard = run_evaluation(tmp_path)
+        diversity = scorecard["evaluation"]["diversity"]
+
+        # Should be plain floats, not dicts
+        assert isinstance(diversity["entry_point_entropy"], float)
+        assert isinstance(diversity["zone_coverage"], float)
 
     def test_scorecard_yaml_serializable(self, tmp_path: Path):
         """Scorecard should be serializable to YAML and JSON."""

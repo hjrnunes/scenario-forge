@@ -3,17 +3,18 @@
 Evaluates the structural quality of generated .feature files:
 - Parse success (regex-based validation)
 - Step count and keyword balance
-- Background presence
-- Zone annotation rate on When steps
+- Background presence (gate: warn if missing)
 - Tag consistency across a batch
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter
 from typing import Any
 
+logger = logging.getLogger(__name__)
 
 # Gherkin step keyword pattern
 _STEP_RE = re.compile(
@@ -29,14 +30,8 @@ _SCENARIO_RE = re.compile(r"^\s*Scenario:", re.MULTILINE)
 # Feature declaration
 _FEATURE_RE = re.compile(r"^\s*Feature:", re.MULTILINE)
 
-# Zone annotation on steps (typically as comments)
-_ZONE_COMMENT_RE = re.compile(r"#\s*[Zz]one\s+\d+")
-
 # Tags (e.g. @misaligned-and-deceptive-behavior)
 _TAG_RE = re.compile(r"@([\w-]+)")
-
-# When keyword steps
-_WHEN_RE = re.compile(r"^\s*When\s+", re.MULTILINE)
 
 
 def parse_success(gherkin_text: str) -> bool:
@@ -75,30 +70,6 @@ def step_keyword_balance(gherkin_text: str) -> dict[str, int]:
         "And": counts.get("And", 0),
         "But": counts.get("But", 0),
     }
-
-
-def zone_annotation_rate(gherkin_text: str) -> float:
-    """Fraction of When steps that have a zone annotation comment.
-
-    Looks for lines containing a When step that also have (on the same or
-    preceding line) a '# Zone N' comment.
-    """
-    lines = gherkin_text.split("\n")
-    when_count = 0
-    annotated_count = 0
-
-    for i, line in enumerate(lines):
-        if _WHEN_RE.match(line):
-            when_count += 1
-            # Check this line and the preceding line for zone annotation
-            if _ZONE_COMMENT_RE.search(line):
-                annotated_count += 1
-            elif i > 0 and _ZONE_COMMENT_RE.search(lines[i - 1]):
-                annotated_count += 1
-
-    if when_count == 0:
-        return 0.0
-    return annotated_count / when_count
 
 
 def extract_tags(gherkin_text: str) -> list[str]:
@@ -168,14 +139,13 @@ def score_gherkin_single(gherkin_text: str) -> dict[str, Any]:
 
     Returns:
         Dict with parse_success, step_count, has_background,
-        keyword_balance, zone_annotation_rate.
+        keyword_balance.
     """
     return {
         "parse_success": parse_success(gherkin_text),
         "step_count": step_count(gherkin_text),
         "has_background": has_background(gherkin_text),
         "keyword_balance": step_keyword_balance(gherkin_text),
-        "zone_annotation_rate": round(zone_annotation_rate(gherkin_text), 4),
     }
 
 
@@ -187,15 +157,14 @@ def score_gherkin(gherkin_texts: list[str]) -> dict[str, Any]:
 
     Returns:
         Dict with parse_success_rate, mean_step_count, tag_consistency,
-        and per-file details.
+        and background_missing_warnings.
     """
     if not gherkin_texts:
         return {
             "parse_success_rate": 0.0,
             "mean_step_count": 0.0,
-            "background_rate": 0.0,
-            "mean_zone_annotation_rate": 0.0,
             "tag_consistency": {"inconsistent_groups": 0, "details": []},
+            "background_missing_warnings": [],
         }
 
     singles = [score_gherkin_single(text) for text in gherkin_texts]
@@ -203,13 +172,19 @@ def score_gherkin(gherkin_texts: list[str]) -> dict[str, Any]:
 
     parse_ok = sum(1 for s in singles if s["parse_success"])
     total_steps = sum(s["step_count"] for s in singles)
-    bg_count = sum(1 for s in singles if s["has_background"])
-    zone_rates = [s["zone_annotation_rate"] for s in singles]
+
+    # Check for missing Background sections (gate, not a gradient metric)
+    missing_bg: list[int] = []
+    for i, s in enumerate(singles):
+        if not s["has_background"]:
+            missing_bg.append(i)
+            logger.warning(
+                "Feature file %d lacks a Background section", i
+            )
 
     return {
         "parse_success_rate": round(parse_ok / n, 4),
         "mean_step_count": round(total_steps / n, 2),
-        "background_rate": round(bg_count / n, 4),
-        "mean_zone_annotation_rate": round(sum(zone_rates) / n, 4),
         "tag_consistency": tag_consistency(gherkin_texts),
+        "background_missing_warnings": missing_bg,
     }
