@@ -7,13 +7,19 @@ Each section builder is a function returning an HTML string.
 from __future__ import annotations
 
 import html
+import logging
 import re
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from scenario_forge.models.capability_profile import (
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES as _ZONE_NAMES_TUPLE,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +137,62 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Taxonomy-derived lookup tables (loaded once at import time)
+# ---------------------------------------------------------------------------
+
+_THREAT_DESCRIPTIONS: dict[str, str] = {}
+_SUB_SCENARIO_INFO: dict[str, dict[str, str]] = {}
+
+
+def _load_taxonomy_lookups() -> None:
+    """Populate _THREAT_DESCRIPTIONS and _SUB_SCENARIO_INFO from the taxonomy YAML."""
+    taxonomy_path = (
+        Path(__file__).resolve().parents[3]
+        / "data"
+        / "taxonomies"
+        / "owasp-agentic-threats"
+        / "owasp-agentic-threats-v1.1.yaml"
+    )
+    if not taxonomy_path.exists():
+        logger.warning(
+            "Taxonomy YAML not found at %s; tooltips will be thin", taxonomy_path
+        )
+        return
+    try:
+        data = yaml.safe_load(taxonomy_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        logger.warning("Failed to load taxonomy YAML: %s", exc)
+        return
+
+    threats = data.get("threats", {})
+    for tid, info in threats.items():
+        desc = info.get("description", "")
+        if desc:
+            _THREAT_DESCRIPTIONS[tid] = desc.strip()
+        for scenario in info.get("scenarios", []):
+            sid = scenario.get("id", "")
+            if sid:
+                _SUB_SCENARIO_INFO[sid] = {
+                    "name": scenario.get("name", ""),
+                    "description": scenario.get("description", "").strip(),
+                }
+
+
+_load_taxonomy_lookups()
+
+
+def _truncate(text: str, max_len: int = 200) -> str:
+    """Truncate text to *max_len* characters, appending '...' if cut."""
+    if len(text) <= max_len:
+        return text
+    # Try to break at the end of a sentence within the limit
+    sentence_end = text.rfind(". ", 0, max_len)
+    if sentence_end > 0:
+        return text[: sentence_end + 1]
+    return text[:max_len] + "..."
+
+
 def _esc(text: str | None) -> str:
     """HTML-escape text safely."""
     if text is None:
@@ -154,13 +216,27 @@ def _threat_id_tooltip(tid: str) -> str:
     # Extract base threat ID (e.g. T7 from T7-S1)
     base = tid.split("-")[0] if "-" in tid else tid
     name = THREAT_NAMES.get(base, "")
-    if name:
-        return f' data-tooltip="{_esc(base)} — {_esc(name)}"'
-    return ""
+    if not name:
+        return ""
+    desc = _THREAT_DESCRIPTIONS.get(base, "")
+    if desc:
+        short_desc = _truncate(desc)
+        return f' data-tooltip="{_esc(base)} — {_esc(name)}: {_esc(short_desc)}"'
+    return f' data-tooltip="{_esc(base)} — {_esc(name)}"'
 
 
 def _sub_scenario_tooltip(sid: str) -> str:
     """Return a data-tooltip attribute for a sub-scenario ID like 'T2-S1'."""
+    info = _SUB_SCENARIO_INFO.get(sid)
+    if info:
+        name = info.get("name", "")
+        desc = info.get("description", "")
+        if name and desc:
+            short_desc = _truncate(desc)
+            return f' data-tooltip="{_esc(sid)} — {_esc(name)}: {_esc(short_desc)}"'
+        if name:
+            return f' data-tooltip="{_esc(sid)} — {_esc(name)}"'
+    # Fallback for unknown sub-scenario IDs
     parts = sid.split("-")
     if len(parts) >= 2:
         base = parts[0]
@@ -2167,6 +2243,14 @@ def build_threat_technique_section(
     if not scenarios:
         return ""
 
+    # --- Build scenario ID -> title lookup ---
+    sid_titles: dict[str, str] = {}
+    for s in scenarios:
+        s_id = s.get("scenario_id", "")
+        s_title = s.get("narrative", {}).get("title", "")
+        if s_id and s_title:
+            sid_titles[s_id] = s_title
+
     # --- Collect data from scenarios ---
     # Map: threat_id -> technique_id -> list[scenario_id]
     threat_tech_map: dict[str, dict[str, list[str]]] = {}
@@ -2242,7 +2326,9 @@ def build_threat_technique_section(
             scenario_ids = threat_tech_map.get(tid, {}).get(tech_id, [])
             if scenario_ids:
                 links = ", ".join(
-                    f'<a href="#scenario-{_esc(s_id)}">{_esc(s_id)}</a>'
+                    f'<a href="#scenario-{_esc(s_id)}"'
+                    f'{f""" data-tooltip="{_esc(sid_titles[s_id])}" """ if s_id in sid_titles else ""}'
+                    f">{_esc(s_id)}</a>"
                     for s_id in scenario_ids
                 )
                 cells += f'<td class="matrix-cell">{links}</td>'
@@ -2303,11 +2389,16 @@ def build_threat_technique_section(
                 f'color:{zc};">{_esc(zname)}</span>'
             )
 
+        sid_tip = (
+            f' data-tooltip="{_esc(sid_titles[sid])}"' if sid in sid_titles else ""
+        )
+        sub_tip = _sub_scenario_tooltip(sub) if sub else ""
+
         roster_body += (
             f"<tr>"
-            f'<td><a href="#scenario-{_esc(sid)}">{_esc(sid)}</a></td>'
+            f'<td><a href="#scenario-{_esc(sid)}"{sid_tip}>{_esc(sid)}</a></td>'
             f"<td>{threat_spans}</td>"
-            f"<td>{_esc(sub)}</td>"
+            f"<td><span{sub_tip}>{_esc(sub)}</span></td>"
             f"<td>{tech_spans}</td>"
             f"<td>{_esc(actor_display)}</td>"
             f"<td>{_esc(cap_display)}</td>"
