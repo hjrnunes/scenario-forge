@@ -17,6 +17,7 @@ from scenario_forge.report.template import (
     build_scenarios_section,
     build_scorecard_section,
     build_threat_surface_section,
+    build_threat_technique_section,
     build_use_case_section,
 )
 
@@ -163,6 +164,8 @@ def generate_report(output_dir: Path) -> Path:
 
     diversity_html = build_attacker_diversity_section(scenarios)
 
+    threat_technique_html = build_threat_technique_section(scenarios)
+
     scorecard_html = build_scorecard_section(scorecard_data) if scorecard_data else ""
 
     scenarios_html = build_scenarios_section(scenarios, feature_files)
@@ -178,6 +181,7 @@ def generate_report(output_dir: Path) -> Path:
         diversity_html=diversity_html,
         use_case_html=use_case_html,
         scorecard_html=scorecard_html,
+        threat_technique_html=threat_technique_html,
     )
 
     # --- Write output ---
