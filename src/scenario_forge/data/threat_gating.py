@@ -29,7 +29,13 @@ from scenario_forge.models import CapabilityProfile, MemoryScope, MemoryType
 logger = logging.getLogger(__name__)
 
 # Default path to OWASP Agentic Threats data
-_DEFAULT_THREATS_PATH = Path(__file__).resolve().parents[3] / "data" / "taxonomies" / "owasp-agentic-threats" / "owasp-agentic-threats-v1.1.yaml"
+_DEFAULT_THREATS_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "owasp-agentic-threats"
+    / "owasp-agentic-threats-v1.1.yaml"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +147,8 @@ def _filter_sub_scenarios(
       - T1-S4: only if shared writable memory exists
       - T2-S4: only if has_persistent_memory is true
       - T2-S5: only if vector_store is in memory_mechanisms
+      - T15-S1, T15-S2: only if zone 3 (tool execution) is active — both
+        seeds assume indirect prompt injection via external content ingestion
     """
     excluded: set[str] = set()
 
@@ -188,6 +196,22 @@ def _filter_sub_scenarios(
                 "(memory_mechanisms=%s, has_persistent_memory=%s)",
                 "present" if profile.memory_mechanisms is not None else "None",
                 profile.has_persistent_memory,
+            )
+
+    elif threat_id == "T15":
+        zone_3_active = 3 in profile.zones_active
+        if not zone_3_active:
+            excluded.update({"T15-S1", "T15-S2"})
+            logger.warning(
+                "Gating FILTERED T15-S1, T15-S2: zone 3 not active "
+                "(zones_active=%s) — both seeds assume indirect prompt "
+                "injection via external content ingestion",
+                profile.zones_active,
+            )
+        else:
+            logger.info(
+                "Gating PASSED T15-S1, T15-S2: zone 3 active (zones_active=%s)",
+                profile.zones_active,
             )
 
     return [s for s in all_sub_scenarios if s not in excluded]
