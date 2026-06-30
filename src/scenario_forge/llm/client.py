@@ -22,11 +22,6 @@ class LLMResult(BaseModel):
 class LLMClient:
     """Thin wrapper around the OpenAI SDK for structured and unstructured completions."""
 
-    # Previous default of 16384 caused truncation failures on complex
-    # scenarios (e.g. T7-S1 hit the cap exactly). 32768 doubles headroom
-    # and can be tuned per-deployment via SCENARIO_FORGE_MAX_COMPLETION_TOKENS.
-    _DEFAULT_MAX_COMPLETION_TOKENS = 32768
-
     def __init__(
         self,
         base_url: str | None = None,
@@ -37,12 +32,8 @@ class LLMClient:
         self.base_url = base_url or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL", "")
         self.api_key = api_key or os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
         self.model = model or os.environ.get("SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it")
-        self.max_completion_tokens = max_completion_tokens or int(
-            os.environ.get(
-                "SCENARIO_FORGE_MAX_COMPLETION_TOKENS",
-                str(self._DEFAULT_MAX_COMPLETION_TOKENS),
-            )
-        )
+        env_val = os.environ.get("SCENARIO_FORGE_MAX_COMPLETION_TOKENS")
+        self.max_completion_tokens = max_completion_tokens or (int(env_val) if env_val else None)
         self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
     def complete(
@@ -59,6 +50,10 @@ class LLMClient:
             {"role": "user", "content": user_prompt},
         ]
 
+        token_kwargs = {}
+        if effective_max is not None:
+            token_kwargs["max_completion_tokens"] = effective_max
+
         t0 = time.perf_counter_ns()
 
         if response_format is not None:
@@ -66,14 +61,14 @@ class LLMClient:
                 model=self.model,
                 messages=messages,
                 response_format=response_format,
-                max_completion_tokens=effective_max,
+                **token_kwargs,
             )
             content = response.choices[0].message.parsed
         else:
             response = self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_completion_tokens=effective_max,
+                **token_kwargs,
             )
             content = response.choices[0].message.content
 
