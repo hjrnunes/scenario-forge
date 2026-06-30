@@ -88,26 +88,99 @@ def _extract_domain_stopwords(titles: list[str], threshold: float = 0.5) -> set[
     return {word for word, count in word_counts.items() if count / n > threshold}
 
 
-def entry_point_entropy(scenarios: list[dict[str, Any]]) -> float:
+def entry_point_entropy(
+    scenarios: list[dict[str, Any]],
+    expected_entry_points: int | None = None,
+) -> float | dict[str, Any]:
     """Shannon entropy of entry points across scenarios (normalized).
 
     Extracts narrative.entry_point from each scenario.
+
+    Args:
+        scenarios: List of scenario dicts.
+        expected_entry_points: If provided, also compute entry_point_coverage
+            (actual unique / expected). When set, returns a dict instead of
+            a bare float.
+
+    Returns:
+        float (entropy) when expected_entry_points is None, otherwise a dict
+        with 'entropy' and 'entry_point_coverage'.
     """
     entry_points = []
     for s in scenarios:
         ep = s.get("narrative", {}).get("entry_point", "")
         if ep:
             entry_points.append(ep.lower().strip())
-    return round(_shannon_entropy(entry_points), 4)
+
+    entropy = round(_shannon_entropy(entry_points), 4)
+
+    if expected_entry_points is None:
+        return entropy
+
+    actual_unique = len(set(entry_points))
+    coverage = (
+        round(actual_unique / expected_entry_points, 4)
+        if expected_entry_points > 0
+        else 0.0
+    )
+    return {
+        "entropy": entropy,
+        "entry_point_coverage": coverage,
+    }
 
 
-def zone_coverage(scenarios: list[dict[str, Any]]) -> float:
-    """Fraction of the 5 Schneider zones represented across all scenarios."""
+def zone_coverage(
+    scenarios: list[dict[str, Any]],
+    active_zones: set[int] | None = None,
+) -> float | dict[str, Any]:
+    """Fraction of zones represented across all scenarios.
+
+    Args:
+        scenarios: List of scenario dicts.
+        active_zones: If provided, compute coverage as fraction of *active*
+            zones used (not all 5) and flag scenarios referencing zones
+            outside the active set. Returns a dict instead of a bare float.
+
+    Returns:
+        float (raw coverage vs 5 zones) when active_zones is None, otherwise
+        a dict with 'raw_coverage', 'active_zone_coverage', and
+        'out_of_scope_zone_violations'.
+    """
     all_zones: set[int] = set()
     for s in scenarios:
         zones = s.get("narrative", {}).get("zone_sequence", [])
         all_zones.update(zones)
-    return round(len(all_zones & {1, 2, 3, 4, 5}) / 5, 4)
+
+    raw_coverage = round(len(all_zones & {1, 2, 3, 4, 5}) / 5, 4)
+
+    if active_zones is None:
+        return raw_coverage
+
+    # Contextualized coverage against active zones
+    covered_active = all_zones & active_zones
+    active_coverage = (
+        round(len(covered_active) / len(active_zones), 4)
+        if active_zones
+        else 0.0
+    )
+
+    # Find scenarios referencing zones outside the active set
+    violations: list[dict[str, Any]] = []
+    for s in scenarios:
+        scenario_id = s.get("scenario_id", "unknown")
+        zones = set(s.get("narrative", {}).get("zone_sequence", []))
+        out_of_scope = zones - active_zones
+        if out_of_scope:
+            violations.append({
+                "scenario_id": scenario_id,
+                "out_of_scope_zones": sorted(out_of_scope),
+            })
+
+    return {
+        "raw_coverage": raw_coverage,
+        "active_zone_coverage": active_coverage,
+        "out_of_scope_zone_violations": violations,
+    }
 
 
 def actor_type_entropy(scenarios: list[dict[str, Any]]) -> float:
@@ -168,19 +241,36 @@ def title_uniqueness(scenarios: list[dict[str, Any]]) -> float:
     return round(1.0 - max_sim, 4)
 
 
-def score_diversity(scenarios: list[dict[str, Any]]) -> dict[str, Any]:
+def score_diversity(
+    scenarios: list[dict[str, Any]],
+    *,
+    expected_entry_points: int | None = None,
+    active_zones: set[int] | None = None,
+) -> dict[str, Any]:
     """Compute all batch diversity metrics.
 
     Args:
         scenarios: List of scenario dicts (parsed YAML).
+        expected_entry_points: Number of entry points from the capability
+            profile. When provided, entry_point_entropy includes a
+            coverage ratio alongside the raw entropy.
+        active_zones: Set of active Schneider zones from the capability
+            profile. When provided, zone_coverage includes contextualized
+            coverage and out-of-scope violation detection.
 
     Returns:
         Dict with entry_point_entropy, zone_coverage, actor_type_entropy,
-        capability_level_evenness, and title_uniqueness.
+        capability_level_evenness, and title_uniqueness.  When context
+        parameters are supplied the entropy/coverage values are dicts with
+        both raw and contextualized metrics.
     """
     return {
-        "entry_point_entropy": entry_point_entropy(scenarios),
-        "zone_coverage": zone_coverage(scenarios),
+        "entry_point_entropy": entry_point_entropy(
+            scenarios, expected_entry_points=expected_entry_points
+        ),
+        "zone_coverage": zone_coverage(
+            scenarios, active_zones=active_zones
+        ),
         "actor_type_entropy": actor_type_entropy(scenarios),
         "capability_level_evenness": capability_level_evenness(scenarios),
         "title_uniqueness": title_uniqueness(scenarios),

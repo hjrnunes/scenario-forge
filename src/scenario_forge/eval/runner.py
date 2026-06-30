@@ -116,8 +116,28 @@ def run_evaluation(
     # --- Grounding ---
     grounding_result = score_grounding(scenarios, threats_path)
 
+    # --- Load capability profile for context-aware metrics ---
+    cap_profile_path = output_dir / "capability-profile.yaml"
+    expected_entry_points: int | None = None
+    active_zones: set[int] | None = None
+
+    if cap_profile_path.exists():
+        with open(cap_profile_path) as f:
+            cap_data = yaml.safe_load(f)
+        if cap_data and isinstance(cap_data, dict):
+            ep_list = cap_data.get("entry_points")
+            if isinstance(ep_list, list):
+                expected_entry_points = len(ep_list)
+            za_list = cap_data.get("zones_active")
+            if isinstance(za_list, list):
+                active_zones = set(za_list)
+
     # --- Diversity ---
-    diversity_result = score_diversity(scenarios)
+    diversity_result = score_diversity(
+        scenarios,
+        expected_entry_points=expected_entry_points,
+        active_zones=active_zones,
+    )
 
     # --- Plausibility ---
     plausibility_result = score_plausibility(scenarios)

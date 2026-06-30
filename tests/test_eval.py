@@ -496,6 +496,28 @@ class TestEntryPointEntropy:
         result = entry_point_entropy([])
         assert result == 0.0
 
+    def test_with_expected_entry_points(self):
+        """When expected_entry_points is provided, returns a dict."""
+        scenarios = [
+            _make_scenario(entry_point="api endpoints"),
+            _make_scenario(entry_point="user prompts"),
+        ]
+        result = entry_point_entropy(scenarios, expected_entry_points=4)
+        assert isinstance(result, dict)
+        assert "entropy" in result
+        assert "entry_point_coverage" in result
+        # 2 unique out of 4 expected = 0.5
+        assert result["entry_point_coverage"] == 0.5
+        assert result["entropy"] > 0.0
+
+    def test_coverage_full(self):
+        """1/1 expected entry points = 1.0 coverage."""
+        scenarios = [
+            _make_scenario(entry_point="user prompts"),
+        ]
+        result = entry_point_entropy(scenarios, expected_entry_points=1)
+        assert result["entry_point_coverage"] == 1.0
+
 
 class TestZoneCoverage:
     def test_full_coverage(self):
@@ -515,6 +537,35 @@ class TestZoneCoverage:
     def test_no_scenarios(self):
         result = zone_coverage([])
         assert result == 0.0
+
+    def test_with_active_zones(self):
+        """When active_zones is provided, returns a dict with contextualized coverage."""
+        scenarios = [
+            _make_scenario(zone_sequence=[1, 2]),
+        ]
+        result = zone_coverage(scenarios, active_zones={1, 2, 3})
+        assert isinstance(result, dict)
+        assert result["raw_coverage"] == 0.4
+        # 2 out of 3 active zones covered
+        assert abs(result["active_zone_coverage"] - 0.6667) < 0.001
+
+    def test_out_of_scope_violations(self):
+        """Scenarios using zones outside the active set are flagged."""
+        scenarios = [
+            _make_scenario(scenario_id="s1", zone_sequence=[1, 2, 5]),
+        ]
+        result = zone_coverage(scenarios, active_zones={1, 2})
+        assert isinstance(result, dict)
+        assert len(result["out_of_scope_zone_violations"]) == 1
+        assert result["out_of_scope_zone_violations"][0]["out_of_scope_zones"] == [5]
+
+    def test_no_out_of_scope(self):
+        """No violations when all zones are within the active set."""
+        scenarios = [
+            _make_scenario(zone_sequence=[1, 2]),
+        ]
+        result = zone_coverage(scenarios, active_zones={1, 2, 3})
+        assert result["out_of_scope_zone_violations"] == []
 
 
 class TestActorTypeEntropy:
@@ -821,6 +872,71 @@ class TestRunEvaluation:
         scorecard = run_evaluation(tmp_path)
         assert scorecard["evaluation"]["scenario_count"] == 1
         assert scorecard["evaluation"]["feature_file_count"] == 0
+
+    def test_with_capability_profile(self, tmp_path: Path):
+        """Runner loads capability-profile.yaml and passes context to diversity."""
+        scenarios_dir = tmp_path / "scenarios"
+        scenarios_dir.mkdir()
+
+        s = _make_scenario(
+            entry_point="user prompts",
+            zone_sequence=[1, 2],
+        )
+        yaml_path = scenarios_dir / "scenario-0.yaml"
+        yaml_path.write_text(
+            yaml.dump(s, default_flow_style=False), encoding="utf-8"
+        )
+
+        # Write a capability profile
+        cap_profile = {
+            "zones_active": [1, 2, 3],
+            "entry_points": [
+                "user prompts (zone 1)",
+                "api responses (zone 3)",
+            ],
+            "has_persistent_memory": False,
+            "multi_agent": False,
+            "hitl": False,
+            "confidence": "high",
+        }
+        cap_path = tmp_path / "capability-profile.yaml"
+        cap_path.write_text(
+            yaml.dump(cap_profile, default_flow_style=False), encoding="utf-8"
+        )
+
+        scorecard = run_evaluation(tmp_path)
+        ev = scorecard["evaluation"]
+        diversity = ev["diversity"]
+
+        # entry_point_entropy should be a dict with coverage
+        assert isinstance(diversity["entry_point_entropy"], dict)
+        assert "entry_point_coverage" in diversity["entry_point_entropy"]
+        # 1 unique entry point out of 2 expected
+        assert diversity["entry_point_entropy"]["entry_point_coverage"] == 0.5
+
+        # zone_coverage should be a dict with active zone coverage
+        assert isinstance(diversity["zone_coverage"], dict)
+        assert "active_zone_coverage" in diversity["zone_coverage"]
+        # Zones {1,2} covered out of active {1,2,3} = 2/3
+        assert abs(diversity["zone_coverage"]["active_zone_coverage"] - 0.6667) < 0.001
+
+    def test_without_capability_profile(self, tmp_path: Path):
+        """Without a capability profile, diversity returns bare floats."""
+        scenarios_dir = tmp_path / "scenarios"
+        scenarios_dir.mkdir()
+
+        s = _make_scenario()
+        yaml_path = scenarios_dir / "scenario-0.yaml"
+        yaml_path.write_text(
+            yaml.dump(s, default_flow_style=False), encoding="utf-8"
+        )
+
+        scorecard = run_evaluation(tmp_path)
+        diversity = scorecard["evaluation"]["diversity"]
+
+        # Should be plain floats, not dicts
+        assert isinstance(diversity["entry_point_entropy"], float)
+        assert isinstance(diversity["zone_coverage"], float)
 
     def test_scorecard_yaml_serializable(self, tmp_path: Path):
         """Scorecard should be serializable to YAML and JSON."""
