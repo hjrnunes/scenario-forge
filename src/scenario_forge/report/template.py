@@ -111,24 +111,24 @@ def _esc(text: str | None) -> str:
 
 
 def _threat_id_tooltip(tid: str) -> str:
-    """Return a title attribute string for a threat ID like 'T7'."""
+    """Return a data-tooltip attribute string for a threat ID like 'T7'."""
     # Extract base threat ID (e.g. T7 from T7-S1)
     base = tid.split("-")[0] if "-" in tid else tid
     name = THREAT_NAMES.get(base, "")
     if name:
-        return f' title="{_esc(base)} — {_esc(name)}"'
+        return f' data-tooltip="{_esc(base)} — {_esc(name)}"'
     return ""
 
 
 def _sub_scenario_tooltip(sid: str) -> str:
-    """Return a title attribute for a sub-scenario ID like 'T2-S1'."""
+    """Return a data-tooltip attribute for a sub-scenario ID like 'T2-S1'."""
     parts = sid.split("-")
     if len(parts) >= 2:
         base = parts[0]
         name = THREAT_NAMES.get(base, "")
         if name:
             return (
-                f' title="Sub-scenario seed: threat {_esc(base)}, '
+                f' data-tooltip="Sub-scenario seed: threat {_esc(base)}, '
                 f'sub-scenario {_esc(parts[1])} '
                 f'— expanded from OWASP agentic threat taxonomy"'
             )
@@ -1272,6 +1272,40 @@ details.expandable[open] > summary::before {
   height: 10px;
   border-radius: 3px;
 }
+
+/* CSS tooltips (replace unreliable native title= tooltips) */
+[data-tooltip] {
+  position: relative;
+  cursor: help;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  max-width: 400px;
+  white-space: normal;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-bottom: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+[data-tooltip]:hover::after {
+  opacity: 1;
+}
+.tree-meta[data-tooltip]::after {
+  left: 0;
+  transform: none;
+}
 </style>
 """
 
@@ -1387,7 +1421,7 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
     ]
     flag_rows = ""
     for name, value, tip in flags:
-        tip_attr = f' title="{_esc(tip)}"' if tip else ""
+        tip_attr = f' data-tooltip="{_esc(tip)}"' if tip else ""
         if isinstance(value, bool):
             cls = "flag-true" if value else "flag-false"
             display = "Yes" if value else "No"
@@ -1459,7 +1493,7 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         raw_llm = entry.get("owasp_llm_ids", [])
         if raw_llm:
             llm_spans = ", ".join(
-                f'<span title="OWASP Top 10 for LLM Applications '
+                f'<span data-tooltip="OWASP Top 10 for LLM Applications '
                 f'— standardized LLM vulnerability category">{_esc(lid)}</span>'
                 for lid in raw_llm
             )
@@ -1490,7 +1524,7 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         risk_id = rc.get("risk_id", "")
         risk_id_tip = ""
         if risk_id.startswith("atlas-"):
-            risk_id_tip = ' title="IBM AI Risk Atlas — standardized AI risk identifier"'
+            risk_id_tip = ' data-tooltip="IBM AI Risk Atlas — standardized AI risk identifier"'
 
         # Chain diagram for actionable entries
         chain_html = ""
@@ -1514,8 +1548,8 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         <tr>
           <td{risk_id_tip}>{_esc(risk_id)}</td>
           <td>{_esc(rc.get("risk_name", ""))}</td>
-          <td><span class="status-badge {status_cls}" title="{_esc(status_tip)}">{status_text}</span></td>
-          <td title="Upstream extraction confidence — how strongly the policy text maps to this risk">{conf_display}</td>
+          <td><span class="status-badge {status_cls}" data-tooltip="{_esc(status_tip)}">{status_text}</span></td>
+          <td data-tooltip="Upstream extraction confidence — how strongly the policy text maps to this risk">{conf_display}</td>
           <td>{llm_spans}</td>
           <td>{tid_spans}</td>
           <td>{sub_spans}</td>
@@ -1924,7 +1958,7 @@ def build_scenarios_section(
     ):
         ep_dist_items += (
             f'<div class="ep-dist-item">'
-            f'<span class="ep-dist-name" title="{_esc(ep_name)}">{_esc(ep_name)}</span>'
+            f'<span class="ep-dist-name" data-tooltip="{_esc(ep_name)}">{_esc(ep_name)}</span>'
             f'<span class="ep-dist-count">{ep_count}</span>'
             f"</div>"
         )
@@ -1974,7 +2008,7 @@ def build_scenarios_section(
         <span class="badge" id="scenario-counter">{len(scenarios)} / {len(scenarios)}</span>
       </div>
 
-      <div class="scenario-section-title" title="Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a single 0-1 score">Composite Score Heatmap</div>
+      <div class="scenario-section-title" data-tooltip="Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a single 0-1 score">Composite Score Heatmap</div>
       <div class="heatmap-grid">{heatmap_cells}</div>
       <div class="legend">
         <span class="legend-item"><span class="legend-dot" style="background:var(--high);"></span> High (&ge;0.7)</span>
@@ -2140,7 +2174,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     )
     gate_symbol = {"AND": "&and;", "OR": "&or;", "LEAF": "&bull;"}.get(gate, "&bull;")
     gate_tip = _GATE_TOOLTIPS.get(gate, "")
-    gate_title = f' title="{_esc(gate_tip)}"' if gate_tip else ""
+    gate_title = f' data-tooltip="{_esc(gate_tip)}"' if gate_tip else ""
     zone_color = ZONE_COLORS.get(zone, "#666")
     zone_bg = ZONE_BG_COLORS.get(zone, "#333")
 
@@ -2154,7 +2188,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
         tech_tip = ""
         if technique_id.startswith("AML.T"):
             tech_tip = (
-                ' title="MITRE ATLAS — Adversarial Threat Landscape '
+                ' data-tooltip="MITRE ATLAS — Adversarial Threat Landscape '
                 'for AI Systems technique"'
             )
         meta_parts.append(
@@ -2163,7 +2197,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     if control_point:
         meta_parts.append(
             f'<span class="tree-meta" style="color:var(--medium);" '
-            f'title="Defensive control that should block or detect this '
+            f'data-tooltip="Defensive control that should block or detect this '
             f'attack step">{_esc(control_point)}</span>'
         )
     if structural_exposure:
@@ -2172,7 +2206,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
         se_tip = _STRUCTURAL_EXPOSURE_TOOLTIPS.get(se_str, "Structural exposure")
         meta_parts.append(
             f'<span class="tree-meta" style="color:var(--high);" '
-            f'title="{_esc(se_tip)}">{_esc(se_display)}</span>'
+            f'data-tooltip="{_esc(se_tip)}">{_esc(se_display)}</span>'
         )
     meta_html = " ".join(meta_parts)
 
@@ -2311,7 +2345,7 @@ def _build_priority_signals(signals: dict[str, Any]) -> str:
         else:
             display = str(value)
         tip = _SIGNAL_TOOLTIPS.get(key, "")
-        tip_attr = f' title="{_esc(tip)}"' if tip else ""
+        tip_attr = f' data-tooltip="{_esc(tip)}"' if tip else ""
         items += f"""
         <div class="signal-item"{tip_attr}>
           <div class="signal-label">{_esc(label)}</div>
