@@ -49,7 +49,10 @@ def capability_complexity_violations(scenario: dict[str, Any]) -> list[str]:
         )
 
     # Rule 2: supply-chain-actor should be advanced or expert
-    if actor_type == "supply-chain-actor" and capability_level not in _HIGH_SKILL_LEVELS:
+    if (
+        actor_type == "supply-chain-actor"
+        and capability_level not in _HIGH_SKILL_LEVELS
+    ):
         violations.append(
             f"supply-chain-actor has capability_level '{capability_level}'"
             f" (expected advanced or expert)"
@@ -57,9 +60,7 @@ def capability_complexity_violations(scenario: dict[str, Any]) -> list[str]:
 
     # Rule 3: novice actors should not have high attack_complexity
     if capability_level == "novice" and attack_complexity == "high":
-        violations.append(
-            "novice actor has high attack_complexity"
-        )
+        violations.append("novice actor has high attack_complexity")
 
     return violations
 

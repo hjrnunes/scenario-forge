@@ -102,9 +102,7 @@ def run_evaluation(
 
     # --- Gherkin ---
     gherkin_texts = [
-        gherkin_files[stem]
-        for stem in scenario_ids
-        if stem in gherkin_files
+        gherkin_files[stem] for stem in scenario_ids if stem in gherkin_files
     ]
     # Include any feature files not matched to a scenario YAML
     for stem, text in gherkin_files.items():
@@ -119,7 +117,7 @@ def run_evaluation(
     # --- Load capability profile for context-aware metrics ---
     cap_profile_path = output_dir / "capability-profile.yaml"
     expected_entry_points: int | None = None
-    active_zones: set[int] | None = None
+    active_zones: set[str] | None = None
 
     if cap_profile_path.exists():
         with open(cap_profile_path) as f:
@@ -130,7 +128,7 @@ def run_evaluation(
                 expected_entry_points = len(ep_list)
             za_list = cap_data.get("zones_active")
             if isinstance(za_list, list):
-                active_zones = set(za_list)
+                active_zones = {str(z) for z in za_list}
 
     # --- Diversity ---
     diversity_result = score_diversity(

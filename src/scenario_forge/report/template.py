@@ -10,34 +10,36 @@ import html
 import re
 from typing import Any
 
+from scenario_forge.models.capability_profile import (
+    ZONE_DISPLAY_NAMES,
+    ZONE_NAMES as _ZONE_NAMES_TUPLE,
+)
+
 
 # ---------------------------------------------------------------------------
 # Zone colour palette
 # ---------------------------------------------------------------------------
 
-ZONE_COLORS: dict[int, str] = {
-    1: "#3b82f6",  # blue
-    2: "#8b5cf6",  # purple
-    3: "#f97316",  # orange
-    4: "#22c55e",  # green
-    5: "#ef4444",  # red
+ZONE_COLORS: dict[str, str] = {
+    "input": "#3b82f6",  # blue
+    "reasoning": "#8b5cf6",  # purple
+    "tool_execution": "#f97316",  # orange
+    "memory": "#22c55e",  # green
+    "inter_agent": "#ef4444",  # red
 }
 
-ZONE_NAMES: dict[int, str] = {
-    1: "Input Surfaces",
-    2: "Planning & Reasoning",
-    3: "Tool Execution",
-    4: "Memory & State",
-    5: "Inter-Agent Communication",
+ZONE_NAMES: dict[str, str] = dict(ZONE_DISPLAY_NAMES)
+
+ZONE_BG_COLORS: dict[str, str] = {
+    "input": "#1e3a5f",
+    "reasoning": "#3b1f6e",
+    "tool_execution": "#5c2d0e",
+    "memory": "#0f3d1e",
+    "inter_agent": "#5c1111",
 }
 
-ZONE_BG_COLORS: dict[int, str] = {
-    1: "#1e3a5f",
-    2: "#3b1f6e",
-    3: "#5c2d0e",
-    4: "#0f3d1e",
-    5: "#5c1111",
-}
+# Legacy int-to-string mapping for backward compatibility with old data
+_INT_TO_ZONE_NAME: dict[int, str] = dict(enumerate(_ZONE_NAMES_TUPLE, 1))
 
 # ---------------------------------------------------------------------------
 # OWASP Agentic Threat names (stable taxonomy v1.1)
@@ -136,6 +138,17 @@ def _esc(text: str | None) -> str:
     return html.escape(str(text))
 
 
+def _normalize_zone(zone: int | str) -> str:
+    """Normalize a zone value to a canonical string name.
+
+    Accepts both legacy integer zone IDs (1-5) and string zone names.
+    Returns the canonical string name, or the input as-is if unrecognized.
+    """
+    if isinstance(zone, int):
+        return _INT_TO_ZONE_NAME.get(zone, str(zone))
+    return str(zone)
+
+
 def _threat_id_tooltip(tid: str) -> str:
     """Return a data-tooltip attribute string for a threat ID like 'T7'."""
     # Extract base threat ID (e.g. T7 from T7-S1)
@@ -196,11 +209,11 @@ def build_css() -> str:
   --border: #2d3348;
   --accent: #6366f1;
   --accent-glow: rgba(99, 102, 241, 0.15);
-  --zone-1: #3b82f6;
-  --zone-2: #8b5cf6;
-  --zone-3: #f97316;
-  --zone-4: #22c55e;
-  --zone-5: #ef4444;
+  --zone-input: #3b82f6;
+  --zone-reasoning: #8b5cf6;
+  --zone-tool-execution: #f97316;
+  --zone-memory: #22c55e;
+  --zone-inter-agent: #ef4444;
   --high: #ef4444;
   --medium: #f59e0b;
   --low: #22c55e;
@@ -1565,11 +1578,12 @@ def build_use_case_section(use_case_text: str) -> str:
 
 
 def build_capability_profile_section(profile: dict[str, Any]) -> str:
-    zones_active = set(profile.get("zones_active", []))
+    raw_zones_active = profile.get("zones_active", [])
+    zones_active = {_normalize_zone(z) for z in raw_zones_active}
 
     # Zone diagram
     zone_boxes = []
-    for z in range(1, 6):
+    for z in _ZONE_NAMES_TUPLE:
         active = z in zones_active
         cls = "active" if active else "inactive"
         color = ZONE_COLORS[z]
@@ -1577,8 +1591,7 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
         style = f"background:{bg};border-color:{color};color:{color};" if active else ""
         zone_boxes.append(
             f'<div class="zone-box {cls}" style="{style}">'
-            f'<span class="zone-number">{z}</span>'
-            f"<span>{_esc(ZONE_NAMES[z])}</span>"
+            f"<span>{_esc(ZONE_DISPLAY_NAMES[z])}</span>"
             f"</div>"
         )
 
@@ -1954,7 +1967,7 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     z_cls, z_label = _coverage_status(len(uncovered_zones))
     if uncovered_zones:
         z_items = "".join(
-            f"<li>Zone {z} &mdash; {_esc(ZONE_NAMES.get(z, 'Unknown'))}</li>"
+            f"<li>{_esc(ZONE_DISPLAY_NAMES.get(_normalize_zone(z), str(z)))}</li>"
             for z in uncovered_zones
         )
         z_body = f'<ul class="coverage-list">{z_items}</ul>'
@@ -2167,7 +2180,7 @@ def build_scenarios_section(
 
     # Collect all threat IDs and zones for filters
     all_threat_ids: list[str] = []
-    all_zones: set[int] = set()
+    all_zones: set[str] = set()
     for s in scenarios:
         fac = s.get("faceting", {})
         tc = fac.get("taxonomy_chain", {})
@@ -2176,7 +2189,7 @@ def build_scenarios_section(
                 all_threat_ids.append(tid)
         cp = fac.get("capability_profile", {})
         for z in cp.get("zones_traversed", []):
-            all_zones.add(z)
+            all_zones.add(_normalize_zone(z))
 
     threat_options = '<option value="">All</option>'
     for tid in sorted(all_threat_ids):
@@ -2186,9 +2199,8 @@ def build_scenarios_section(
 
     zone_options = '<option value="">All</option>'
     for z in sorted(all_zones):
-        zone_options += (
-            f'<option value="{z}">Zone {z} - {_esc(ZONE_NAMES.get(z, ""))}</option>'
-        )
+        display = ZONE_DISPLAY_NAMES.get(z, z)
+        zone_options += f'<option value="{_esc(z)}">{_esc(display)}</option>'
 
     # Scenario cards
     cards_html = ""
@@ -2338,14 +2350,16 @@ def _build_scenario_card(
     tc = faceting.get("taxonomy_chain", {})
     threats = ",".join(tc.get("agentic_threat_ids", []))
     cp = faceting.get("capability_profile", {})
-    zones = ",".join(str(z) for z in cp.get("zones_traversed", []))
+    zones = ",".join(_normalize_zone(z) for z in cp.get("zones_traversed", []))
 
     # Zone breadcrumb
     breadcrumb = ""
     for i, z in enumerate(zone_sequence):
-        color = ZONE_COLORS.get(z, "#666")
-        bg = ZONE_BG_COLORS.get(z, "#333")
-        breadcrumb += f'<span class="zone-crumb" style="background:{bg};color:{color};">{z}</span>'
+        zn = _normalize_zone(z)
+        color = ZONE_COLORS.get(zn, "#666")
+        bg = ZONE_BG_COLORS.get(zn, "#333")
+        display = ZONE_DISPLAY_NAMES.get(zn, zn)
+        breadcrumb += f'<span class="zone-crumb" style="background:{bg};color:{color};" data-tooltip="{_esc(display)}">{_esc(zn)}</span>'
         if i < len(zone_sequence) - 1:
             breadcrumb += '<span class="zone-crumb-arrow">&rarr;</span>'
 
@@ -2434,7 +2448,8 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
         return ""
 
     gate = node.get("gate", "LEAF")
-    zone = node.get("zone", 1)
+    raw_zone = node.get("zone", "input")
+    zone = _normalize_zone(raw_zone)
     label = node.get("label", "")
     children = node.get("children") or []
     threat_id = node.get("threat_id")
@@ -2450,6 +2465,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     gate_title = f' data-tooltip="{_esc(gate_tip)}"' if gate_tip else ""
     zone_color = ZONE_COLORS.get(zone, "#666")
     zone_bg = ZONE_BG_COLORS.get(zone, "#333")
+    zone_display = ZONE_DISPLAY_NAMES.get(zone, zone)
 
     meta_parts = []
     if threat_id:
@@ -2486,7 +2502,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
         return f"""
         <div class="tree-leaf">
           <span class="gate-badge {gate_cls}"{gate_title}>{gate_symbol}</span>
-          <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">Z{zone}</span>
+          <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">{_esc(zone_display)}</span>
           <span class="tree-label">{_esc(label)}</span>
           {meta_html}
         </div>"""
@@ -2496,7 +2512,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     <details open>
       <summary>
         <span class="gate-badge {gate_cls}"{gate_title}>{gate_symbol}</span>
-        <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">Z{zone}</span>
+        <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">{_esc(zone_display)}</span>
         <span class="tree-label">{_esc(label)}</span>
         {meta_html}
       </summary>
@@ -2576,15 +2592,28 @@ def _build_behavior_spec(feature_content: str) -> str:
             )
             continue
 
-        # Extract zone badge from text
+        # Extract zone badge from text — supports both legacy "(Zone 2)" and
+        # string-based "(Zone reasoning)" or "(Zone Tool Execution)" formats
         zone_badge = ""
-        zone_match = re.search(r"\(.*?[Zz]one\s*(\d).*?\)", text)
+        zone_match = re.search(r"\(.*?[Zz]one\s+(\S+(?:\s+\S+)*).*?\)", text)
         if zone_match:
-            z = int(zone_match.group(1))
-            if 1 <= z <= 5:
-                zc = ZONE_COLORS.get(z, "#666")
-                zbg = ZONE_BG_COLORS.get(z, "#333")
-                zone_badge = f'<span class="zone-badge" style="background:{zbg};color:{zc};margin-left:6px;">Z{z}</span>'
+            zone_token = zone_match.group(1).rstrip(")")
+            zn = None
+            if zone_token.isdigit():
+                zn = _INT_TO_ZONE_NAME.get(int(zone_token))
+            elif zone_token in set(_ZONE_NAMES_TUPLE):
+                zn = zone_token
+            else:
+                # Try matching against display names
+                for name, display in ZONE_DISPLAY_NAMES.items():
+                    if zone_token.lower() in display.lower():
+                        zn = name
+                        break
+            if zn:
+                zc = ZONE_COLORS.get(zn, "#666")
+                zbg = ZONE_BG_COLORS.get(zn, "#333")
+                zone_display_name = ZONE_DISPLAY_NAMES.get(zn, zn)
+                zone_badge = f'<span class="zone-badge" style="background:{zbg};color:{zc};margin-left:6px;">{_esc(zone_display_name)}</span>'
 
         result.append(
             f'<div class="feature-step {step_class}">'
@@ -2898,11 +2927,11 @@ def build_glossary_section() -> str:
             A capability decomposition framework that maps an AI agent&rsquo;s attack surface into five functional zones:
           </p>
           <ul style="font-size:13px;color:var(--text-secondary);margin:6px 0 0 20px;list-style:disc;">
-            <li><strong>Zone 1 &mdash; Input Surfaces:</strong> External interfaces where user or system input enters the agent</li>
-            <li><strong>Zone 2 &mdash; Planning &amp; Reasoning:</strong> The agent&rsquo;s decision-making and reasoning engine</li>
-            <li><strong>Zone 3 &mdash; Tool Execution:</strong> External tool and API calls the agent can make</li>
-            <li><strong>Zone 4 &mdash; Memory &amp; State:</strong> Persistent storage, context windows, and state management</li>
-            <li><strong>Zone 5 &mdash; Inter-Agent Communication:</strong> Message passing between agents in multi-agent systems</li>
+            <li><strong>Input Surfaces:</strong> External interfaces where user or system input enters the agent</li>
+            <li><strong>Planning &amp; Reasoning:</strong> The agent&rsquo;s decision-making and reasoning engine</li>
+            <li><strong>Tool Execution:</strong> External tool and API calls the agent can make</li>
+            <li><strong>Memory &amp; State:</strong> Persistent storage, context windows, and state management</li>
+            <li><strong>Inter-Agent Communication:</strong> Message passing between agents in multi-agent systems</li>
           </ul>
         </div>
 

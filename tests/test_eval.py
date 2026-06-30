@@ -46,10 +46,10 @@ from scenario_forge.eval.runner import run_evaluation
 def _make_scenario(
     scenario_id: str = "T7-S1-abc123",
     title: str = "Exploit Agent Reasoning via Prompt Injection",
-    entry_point: str = "user prompts (zone 1)",
-    zone_sequence: list[int] | None = None,
+    entry_point: str = "user prompts (zone input)",
+    zone_sequence: list[str] | None = None,
     steps: list[dict[str, Any]] | None = None,
-    root_zone: int = 1,
+    root_zone: str = "input",
     root_label: str = "Compromise agent via user prompts",
     root_threat_id: str = "T7",
     leaf_nodes: list[dict[str, Any]] | None = None,
@@ -58,24 +58,24 @@ def _make_scenario(
 ) -> dict[str, Any]:
     """Build a minimal synthetic scenario dict."""
     if zone_sequence is None:
-        zone_sequence = [1, 2, 3]
+        zone_sequence = ["input", "reasoning", "tool_execution"]
     if steps is None:
         steps = [
             {
                 "step_number": 1,
-                "zone": 1,
+                "zone": "input",
                 "action": "Craft a malicious user prompt targeting the agent",
                 "effect": "Agent receives adversarial input",
             },
             {
                 "step_number": 2,
-                "zone": 2,
+                "zone": "reasoning",
                 "action": "Exploit agent reasoning to bypass safety filters",
                 "effect": "Agent processes malicious instructions",
             },
             {
                 "step_number": 3,
-                "zone": 3,
+                "zone": "tool_execution",
                 "action": "Exfiltrate data via tool execution",
                 "effect": "Sensitive data exposed to attacker",
             },
@@ -87,14 +87,14 @@ def _make_scenario(
                 "id": "n1.1",
                 "label": "Craft malicious prompt",
                 "gate": "LEAF",
-                "zone": 1,
+                "zone": "input",
                 "threat_id": root_threat_id,
             },
             {
                 "id": "n1.2",
                 "label": "Bypass reasoning safety filters",
                 "gate": "LEAF",
-                "zone": 2,
+                "zone": "reasoning",
                 "threat_id": root_threat_id,
             },
         ]
@@ -173,13 +173,13 @@ Feature: Exploit Agent Reasoning via Prompt Injection
     And the agent has access to external tools
 
   Scenario: Adversarial user injects malicious prompt
-    # Zone 1
+    # Zone input
     When the adversarial user crafts a malicious prompt
     Then the agent receives adversarial input
-    # Zone 2
+    # Zone reasoning
     When the agent processes the malicious instructions
     Then the safety filters are bypassed
-    # Zone 3
+    # Zone tool_execution
     When the attacker exfiltrates data via tool execution
     Then sensitive data is exposed
 """
@@ -203,39 +203,39 @@ _GHERKIN_INVALID = "This is not valid Gherkin at all."
 
 class TestZoneAlignment:
     def test_perfect_alignment(self):
-        scenario = _make_scenario(zone_sequence=[1, 2, 3])
-        # Tree root is zone 1, children are zones 1 and 2
-        # Narrative zones: {1, 2, 3}, Tree zones: {1, 2}
+        scenario = _make_scenario(zone_sequence=["input", "reasoning", "tool_execution"])
+        # Tree root is zone "input", children are zones "input" and "reasoning"
+        # Narrative zones: {"input", "reasoning", "tool_execution"}, Tree zones: {"input", "reasoning"}
         score = zone_alignment(scenario)
         assert 0.0 <= score <= 1.0
 
     def test_with_gherkin(self):
-        scenario = _make_scenario(zone_sequence=[1, 2, 3])
+        scenario = _make_scenario(zone_sequence=["input", "reasoning", "tool_execution"])
         score = zone_alignment(scenario, _GHERKIN_VALID)
         assert 0.0 <= score <= 1.0
 
     def test_identical_zones(self):
         scenario = _make_scenario(
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
             steps=[
-                {"step_number": 1, "zone": 1, "action": "act", "effect": "eff"},
-                {"step_number": 2, "zone": 2, "action": "act", "effect": "eff"},
+                {"step_number": 1, "zone": "input", "action": "act", "effect": "eff"},
+                {"step_number": 2, "zone": "reasoning", "action": "act", "effect": "eff"},
             ],
         )
-        # Narrative zones {1, 2}, Tree zones {1, 2} -> Jaccard = 1.0
+        # Narrative zones {"input", "reasoning"}, Tree zones {"input", "reasoning"} -> Jaccard = 1.0
         score = zone_alignment(scenario)
         assert score == 1.0
 
     def test_no_zones(self):
         scenario = _make_scenario(zone_sequence=[])
-        scenario["attack_tree"]["root"]["zone"] = 1
+        scenario["attack_tree"]["root"]["zone"] = "input"
         score = zone_alignment(scenario)
         assert 0.0 <= score <= 1.0
 
 
 class TestEntryPointAgreement:
     def test_entry_in_gherkin_background(self):
-        scenario = _make_scenario(entry_point="user prompts (zone 1)")
+        scenario = _make_scenario(entry_point="user prompts (zone input)")
         result = entry_point_agreement(scenario, _GHERKIN_VALID)
         assert result == 1
 
@@ -278,7 +278,7 @@ class TestStepNodeCorrespondence:
             steps=[
                 {
                     "step_number": 1,
-                    "zone": 1,
+                    "zone": "input",
                     "action": "Craft malicious prompt injection",
                     "effect": "Agent compromised",
                 },
@@ -288,14 +288,14 @@ class TestStepNodeCorrespondence:
                     "id": "n1.1",
                     "label": "Craft malicious prompt",
                     "gate": "LEAF",
-                    "zone": 1,
+                    "zone": "input",
                     "threat_id": "T7",
                 },
                 {
                     "id": "n1.2",
                     "label": "Other node",
                     "gate": "LEAF",
-                    "zone": 2,
+                    "zone": "reasoning",
                     "threat_id": "T7",
                 },
             ],
@@ -577,14 +577,14 @@ class TestEntryPointEntropy:
 class TestZoneCoverage:
     def test_full_coverage(self):
         scenarios = [
-            _make_scenario(zone_sequence=[1, 2, 3, 4, 5]),
+            _make_scenario(zone_sequence=["input", "reasoning", "tool_execution", "memory", "inter_agent"]),
         ]
         result = zone_coverage(scenarios)
         assert result == 1.0
 
     def test_partial_coverage(self):
         scenarios = [
-            _make_scenario(zone_sequence=[1, 2]),
+            _make_scenario(zone_sequence=["input", "reasoning"]),
         ]
         result = zone_coverage(scenarios)
         assert result == 0.4
@@ -596,9 +596,9 @@ class TestZoneCoverage:
     def test_with_active_zones(self):
         """When active_zones is provided, returns a dict with contextualized coverage."""
         scenarios = [
-            _make_scenario(zone_sequence=[1, 2]),
+            _make_scenario(zone_sequence=["input", "reasoning"]),
         ]
-        result = zone_coverage(scenarios, active_zones={1, 2, 3})
+        result = zone_coverage(scenarios, active_zones={"input", "reasoning", "tool_execution"})
         assert isinstance(result, dict)
         assert result["raw_coverage"] == 0.4
         # 2 out of 3 active zones covered
@@ -607,19 +607,19 @@ class TestZoneCoverage:
     def test_out_of_scope_violations(self):
         """Scenarios using zones outside the active set are flagged."""
         scenarios = [
-            _make_scenario(scenario_id="s1", zone_sequence=[1, 2, 5]),
+            _make_scenario(scenario_id="s1", zone_sequence=["input", "reasoning", "inter_agent"]),
         ]
-        result = zone_coverage(scenarios, active_zones={1, 2})
+        result = zone_coverage(scenarios, active_zones={"input", "reasoning"})
         assert isinstance(result, dict)
         assert len(result["out_of_scope_zone_violations"]) == 1
-        assert result["out_of_scope_zone_violations"][0]["out_of_scope_zones"] == [5]
+        assert result["out_of_scope_zone_violations"][0]["out_of_scope_zones"] == ["inter_agent"]
 
     def test_no_out_of_scope(self):
         """No violations when all zones are within the active set."""
         scenarios = [
-            _make_scenario(zone_sequence=[1, 2]),
+            _make_scenario(zone_sequence=["input", "reasoning"]),
         ]
-        result = zone_coverage(scenarios, active_zones={1, 2, 3})
+        result = zone_coverage(scenarios, active_zones={"input", "reasoning", "tool_execution"})
         assert result["out_of_scope_zone_violations"] == []
 
 
@@ -855,13 +855,14 @@ class TestRunEvaluation:
         scenarios_dir = tmp_path / "scenarios"
         scenarios_dir.mkdir()
 
+        zone_names = ["input", "reasoning", "tool_execution", "memory", "inter_agent"]
         # Write scenario YAML files
         for i in range(3):
             s = _make_scenario(
                 scenario_id=f"T7-S{i+1}-abc{i:03d}",
                 title=f"Scenario {i+1}: {'ABCDEF'[i]} Attack",
                 entry_point=["user prompts", "api endpoints", "tool calls"][i % 3],
-                zone_sequence=[1, 2, (i % 5) + 1],
+                zone_sequence=["input", "reasoning", zone_names[i % 5]],
                 actor_type=["adversarial-user", "cybercriminal", "nation-state"][i],
                 capability_level=["novice", "intermediate", "advanced"][i],
             )
@@ -935,7 +936,7 @@ class TestRunEvaluation:
 
         s = _make_scenario(
             entry_point="user prompts",
-            zone_sequence=[1, 2],
+            zone_sequence=["input", "reasoning"],
         )
         yaml_path = scenarios_dir / "scenario-0.yaml"
         yaml_path.write_text(
@@ -944,10 +945,10 @@ class TestRunEvaluation:
 
         # Write a capability profile
         cap_profile = {
-            "zones_active": [1, 2, 3],
+            "zones_active": ["input", "reasoning", "tool_execution"],
             "entry_points": [
-                "user prompts (zone 1)",
-                "api responses (zone 3)",
+                "user prompts (zone input)",
+                "api responses (zone tool_execution)",
             ],
             "has_persistent_memory": False,
             "multi_agent": False,
@@ -972,7 +973,7 @@ class TestRunEvaluation:
         # zone_coverage should be a dict with active zone coverage
         assert isinstance(diversity["zone_coverage"], dict)
         assert "active_zone_coverage" in diversity["zone_coverage"]
-        # Zones {1,2} covered out of active {1,2,3} = 2/3
+        # Zones {"input","reasoning"} covered out of active {"input","reasoning","tool_execution"} = 2/3
         assert abs(diversity["zone_coverage"]["active_zone_coverage"] - 0.6667) < 0.001
 
     def test_without_capability_profile(self, tmp_path: Path):
