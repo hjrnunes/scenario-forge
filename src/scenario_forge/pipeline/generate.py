@@ -548,6 +548,21 @@ IMPORTANT: The actor_type field must be EXACTLY one of the values listed above \
 (e.g. "cybercriminal", "nation-state"). Do NOT add parenthetical qualifiers or \
 subtypes — use the exact string only.
 
+## Actor Type Disambiguation
+- malicious-insider vs negligent-insider: If the actor's motivation involves \
+DELIBERATE harm, personal gain, sabotage, or intentional data exfiltration, \
+use malicious-insider — even if they are a legitimate user. \
+negligent-insider is ONLY for accidental harm: misconfiguration, careless \
+data handling, failing to follow security procedures without malicious intent.
+- adversarial-user vs cybercriminal: adversarial-user has no special access \
+or resources — they use the system as any end-user would, but with hostile \
+intent (jailbreaking, prompt injection). cybercriminal operates from outside \
+with dedicated tools and infrastructure.
+- nation-state vs advanced cybercriminal: nation-state actors have strategic \
+(not financial) objectives: intelligence collection, disruption of critical \
+infrastructure, geopolitical advantage. A financially motivated actor with \
+advanced capabilities is still a cybercriminal.
+
 ## Instructions
 1. Select an actor type appropriate to the threat and target system described. \
 If a preferred actor type is suggested, use it unless it would be unrealistic \
@@ -557,10 +572,25 @@ types — they have already been used heavily in other scenarios in this batch.
 Explain why THIS system is attractive to THIS type of actor.
 3. State a concrete objective (e.g. "exfiltrate customer PII for resale on \
 dark web marketplaces", not "steal data").
-4. Set the capability level proportional to what the attack actually requires. \
-A simple prompt injection needs only a novice; a supply-chain poisoning \
-campaign requires an advanced or expert actor. Do NOT default to "advanced" \
-for every scenario.
+4. Set the capability level based on the MINIMUM skill required for this \
+specific attack:
+   - novice: The attack uses pre-built tools or known prompts with no \
+adaptation. Simple jailbreaks, copy-pasted prompt injections, basic social \
+engineering. If a non-technical person could follow a tutorial to do this, \
+it's novice.
+   - intermediate: The attack requires adapting known techniques to this \
+specific system. Chaining 2-3 steps, understanding the target architecture \
+at surface level, crafting system-specific prompts.
+   - advanced: The attack requires developing custom exploits, maintaining \
+persistence, evading detection, or operating across multiple system layers \
+simultaneously.
+   - expert: The attack requires discovering zero-days, conducting long-term \
+campaigns, or deep understanding of AI model internals (weights, training \
+data, inference pipeline).
+   DO NOT default to "intermediate" — actively consider whether a novice \
+could execute this attack or whether it truly requires advanced skills. \
+If a preferred capability level is suggested, use it unless it would be \
+unrealistic for this specific threat.
 5. List concrete resources the actor would need (e.g. "open-source prompt \
 injection toolkits", "insider credentials to the admin console", \
 "GPU cluster for automated fuzzing").
@@ -1330,6 +1360,7 @@ def _call_actor_profile(
     use_case: str,
     preferred_actor_type: str | None = None,
     excluded_actor_types: list[str] | None = None,
+    preferred_capability_level: str | None = None,
 ) -> tuple[ActorProfile, LLMResult]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
@@ -1340,13 +1371,15 @@ def _call_actor_profile(
         use_case: Free-text description of the system under assessment.
         preferred_actor_type: Suggested actor type for diversity (hint, not enforced).
         excluded_actor_types: Actor types to avoid (already overused in this batch).
+        preferred_capability_level: Suggested capability level for diversity
+            (hint, not enforced).
 
     Returns:
         Tuple of (ActorProfile, LLMResult).
     """
     # Build actor type diversity guidance
     diversity_section = ""
-    if preferred_actor_type or excluded_actor_types:
+    if preferred_actor_type or excluded_actor_types or preferred_capability_level:
         diversity_lines = ["\n## Actor Type Guidance"]
         if preferred_actor_type:
             diversity_lines.append(
@@ -1356,6 +1389,11 @@ def _call_actor_profile(
         if excluded_actor_types:
             diversity_lines.append(
                 f"- Avoid these overused actor types: {excluded_actor_types}"
+            )
+        if preferred_capability_level:
+            diversity_lines.append(
+                f"- Preferred capability level: {preferred_capability_level} "
+                "(use this unless it would be unrealistic for the threat)"
             )
         diversity_section = "\n".join(diversity_lines) + "\n"
 
@@ -1737,6 +1775,7 @@ def generate_scenario(
     excluded_structural_patterns: list[str] | None = None,
     preferred_actor_type: str | None = None,
     excluded_actor_types: list[str] | None = None,
+    preferred_capability_level: str | None = None,
 ) -> ScenarioEnvelope:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -1761,6 +1800,8 @@ def generate_scenario(
             (e.g., "inject->hallucinate->persist->bypass").
         preferred_actor_type: Suggested actor type for diversity (hint, not enforced).
         excluded_actor_types: Actor types to avoid (already overused in this batch).
+        preferred_capability_level: Suggested capability level for diversity
+            (hint, not enforced).
     """
     call_metas: list[CallMetadata] = []
     scenario_hash = _scenario_hash(seed.seed_id, use_case)
@@ -1773,6 +1814,7 @@ def generate_scenario(
         use_case,
         preferred_actor_type=preferred_actor_type,
         excluded_actor_types=excluded_actor_types,
+        preferred_capability_level=preferred_capability_level,
     )
     call_metas.append(_call_metadata(CallName.actor_profile, result0))
 
