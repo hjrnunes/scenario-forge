@@ -39,12 +39,100 @@ ZONE_BG_COLORS: dict[int, str] = {
     5: "#5c1111",
 }
 
+# ---------------------------------------------------------------------------
+# OWASP Agentic Threat names (stable taxonomy v1.1)
+# ---------------------------------------------------------------------------
+
+THREAT_NAMES: dict[str, str] = {
+    "T1": "Memory Poisoning",
+    "T2": "Tool Misuse",
+    "T3": "Privilege Compromise",
+    "T4": "Resource Overload",
+    "T5": "Cascading Hallucination Attacks",
+    "T6": "Intent Breaking & Goal Manipulation",
+    "T7": "Misaligned & Deceptive Behaviors",
+    "T8": "Repudiation & Untraceability",
+    "T9": "Identity Spoofing & Impersonation / Agent Identity Compromise",
+    "T10": "Overwhelming Human in the Loop",
+    "T11": "Unexpected RCE and Code Attacks",
+    "T12": "Agent Communication Poisoning",
+    "T13": "Rogue Agents in Multi-Agent Systems",
+    "T14": "Human Attacks on Multi-Agent Systems",
+    "T15": "Human Manipulation",
+    "T16": "Insecure Inter-Agent Protocol Abuse",
+    "T17": "Supply Chain Compromise",
+}
+
+# Tooltip strings for structural_exposure enum values
+_STRUCTURAL_EXPOSURE_TOOLTIPS: dict[str, str] = {
+    "single_point_of_failure": "Only one control blocks this attack path",
+    "convergence_point": "Multiple attack paths flow through this single control",
+    "probabilistic_control": (
+        "Relies on an LLM guardrail or classifier "
+        "— not a binary pass/fail gate"
+    ),
+    "defense_in_depth_claim": (
+        "Multiple controls back each other up on this path"
+    ),
+}
+
+# Tooltip strings for gate types
+_GATE_TOOLTIPS: dict[str, str] = {
+    "AND": "All child steps must succeed for this attack to proceed",
+    "OR": "Any one child step is sufficient for this attack to proceed",
+    "LEAF": "Concrete attack action — no sub-steps",
+}
+
+# Tooltip strings for priority signal fields
+_SIGNAL_TOOLTIPS: dict[str, str] = {
+    "technique_maturity": (
+        "How proven this attack technique is: feasible (theoretically possible), "
+        "demonstrated (shown in lab), realized (observed in the wild)"
+    ),
+    "architecture_match": (
+        "How the threat maps to this system: explicit (directly matches a "
+        "declared capability) or inferred (indirectly relevant based on "
+        "system profile)"
+    ),
+    "attack_complexity": "Difficulty of executing this attack: low/medium/high",
+    "risk_impact": "Potential damage if attack succeeds: low/medium/high/critical",
+    "risk_likelihood": "Probability of this attack being attempted: low/medium/high",
+    "structural_exposure": (
+        "How exposed this attack path is based on the defensive architecture"
+    ),
+}
+
 
 def _esc(text: str | None) -> str:
     """HTML-escape text safely."""
     if text is None:
         return ""
     return html.escape(str(text))
+
+
+def _threat_id_tooltip(tid: str) -> str:
+    """Return a title attribute string for a threat ID like 'T7'."""
+    # Extract base threat ID (e.g. T7 from T7-S1)
+    base = tid.split("-")[0] if "-" in tid else tid
+    name = THREAT_NAMES.get(base, "")
+    if name:
+        return f' title="{_esc(base)} — {_esc(name)}"'
+    return ""
+
+
+def _sub_scenario_tooltip(sid: str) -> str:
+    """Return a title attribute for a sub-scenario ID like 'T2-S1'."""
+    parts = sid.split("-")
+    if len(parts) >= 2:
+        base = parts[0]
+        name = THREAT_NAMES.get(base, "")
+        if name:
+            return (
+                f' title="Sub-scenario seed: threat {_esc(base)}, '
+                f'sub-scenario {_esc(parts[1])} '
+                f'— expanded from OWASP agentic threat taxonomy"'
+            )
+    return ""
 
 
 def _priority_color(composite: float) -> str:
@@ -1288,20 +1376,25 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
 
     # Flags table
     flags = [
-        ("Persistent Memory", profile.get("has_persistent_memory", False)),
-        ("Multi-Agent", profile.get("multi_agent", False)),
-        ("Human-in-the-Loop", profile.get("hitl", False)),
-        ("Confidence", profile.get("confidence", "unknown")),
+        ("Persistent Memory", profile.get("has_persistent_memory", False), ""),
+        ("Multi-Agent", profile.get("multi_agent", False), ""),
+        ("Human-in-the-Loop", profile.get("hitl", False), ""),
+        (
+            "Confidence",
+            profile.get("confidence", "unknown"),
+            "Profile inference confidence — how clearly the use-case description signals these capabilities",
+        ),
     ]
     flag_rows = ""
-    for name, value in flags:
+    for name, value, tip in flags:
+        tip_attr = f' title="{_esc(tip)}"' if tip else ""
         if isinstance(value, bool):
             cls = "flag-true" if value else "flag-false"
             display = "Yes" if value else "No"
         else:
             cls = ""
             display = _esc(str(value).capitalize())
-        flag_rows += f'<tr><td>{_esc(name)}</td><td class="{cls}">{display}</td></tr>'
+        flag_rows += f'<tr><td{tip_attr}>{_esc(name)}</td><td class="{cls}">{display}</td></tr>'
 
     # Entry points
     eps = profile.get("entry_points", [])
@@ -1356,21 +1449,61 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         gov = entry.get("governance_only", False)
         status_cls = "status-governance" if gov else "status-actionable"
         status_text = "Governance" if gov else "Actionable"
+        status_tip = (
+            "Governance: maps to organizational controls, not directly testable"
+            if gov
+            else "Actionable: maps to testable agentic threat scenarios"
+        )
 
-        llm_ids = ", ".join(entry.get("owasp_llm_ids", [])) or "-"
-        t_ids = ", ".join(entry.get("agentic_threat_ids", [])) or "-"
-        subs = ", ".join(entry.get("sub_scenarios", [])) or "-"
+        # Build LLM IDs with tooltips
+        raw_llm = entry.get("owasp_llm_ids", [])
+        if raw_llm:
+            llm_spans = ", ".join(
+                f'<span title="OWASP Top 10 for LLM Applications '
+                f'— standardized LLM vulnerability category">{_esc(lid)}</span>'
+                for lid in raw_llm
+            )
+        else:
+            llm_spans = "-"
+
+        # Build agentic threat IDs with tooltips
+        raw_tids = entry.get("agentic_threat_ids", [])
+        if raw_tids:
+            tid_spans = ", ".join(
+                f"<span{_threat_id_tooltip(tid)}>{_esc(tid)}</span>"
+                for tid in raw_tids
+            )
+        else:
+            tid_spans = "-"
+
+        # Build sub-scenario IDs with tooltips
+        raw_subs = entry.get("sub_scenarios", [])
+        if raw_subs:
+            sub_spans = ", ".join(
+                f"<span{_sub_scenario_tooltip(sid)}>{_esc(sid)}</span>"
+                for sid in raw_subs
+            )
+        else:
+            sub_spans = "-"
+
+        # Risk ID tooltip for atlas-* IDs
+        risk_id = rc.get("risk_id", "")
+        risk_id_tip = ""
+        if risk_id.startswith("atlas-"):
+            risk_id_tip = ' title="IBM AI Risk Atlas — standardized AI risk identifier"'
 
         # Chain diagram for actionable entries
         chain_html = ""
         if not gov and entry.get("owasp_llm_ids"):
+            llm_ids_plain = ", ".join(raw_llm)
+            t_ids_plain = ", ".join(raw_tids)
             chain_html = (
                 '<div class="chain-diagram">'
-                f'<span class="chain-hop">{_esc(rc.get("risk_id", ""))}</span>'
+                f'<span class="chain-hop"{risk_id_tip}>{_esc(risk_id)}</span>'
                 '<span class="chain-arrow">&rarr;</span>'
-                f'<span class="chain-hop">{_esc(llm_ids)}</span>'
+                f'<span class="chain-hop">{_esc(llm_ids_plain)}</span>'
                 '<span class="chain-arrow">&rarr;</span>'
-                f'<span class="chain-hop">{_esc(t_ids)}</span>'
+                f'<span class="chain-hop">{_esc(t_ids_plain)}</span>'
                 "</div>"
             )
 
@@ -1379,13 +1512,13 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
 
         table_rows += f"""
         <tr>
-          <td>{_esc(rc.get("risk_id", ""))}</td>
+          <td{risk_id_tip}>{_esc(risk_id)}</td>
           <td>{_esc(rc.get("risk_name", ""))}</td>
-          <td><span class="status-badge {status_cls}">{status_text}</span></td>
-          <td>{conf_display}</td>
-          <td>{_esc(llm_ids)}</td>
-          <td>{_esc(t_ids)}</td>
-          <td>{_esc(subs)}</td>
+          <td><span class="status-badge {status_cls}" title="{_esc(status_tip)}">{status_text}</span></td>
+          <td title="Upstream extraction confidence — how strongly the policy text maps to this risk">{conf_display}</td>
+          <td>{llm_spans}</td>
+          <td>{tid_spans}</td>
+          <td>{sub_spans}</td>
           <td>{chain_html}</td>
         </tr>"""
 
@@ -1769,7 +1902,6 @@ def build_scenarios_section(
         sid = s.get("scenario_id", "")
         composite = s.get("priority", {}).get("composite", 0)
         color = _priority_color(composite)
-        label = _priority_label(composite)
         title = s.get("narrative", {}).get("title", sid)
         short_id = sid.split("-")[-1][:6] if "-" in sid else sid[:6]
         heatmap_cells += (
@@ -1820,7 +1952,9 @@ def build_scenarios_section(
 
     threat_options = '<option value="">All</option>'
     for tid in sorted(all_threat_ids):
-        threat_options += f'<option value="{_esc(tid)}">{_esc(tid)}</option>'
+        tname = THREAT_NAMES.get(tid, "")
+        opt_label = f"{tid} — {tname}" if tname else tid
+        threat_options += f'<option value="{_esc(tid)}">{_esc(opt_label)}</option>'
 
     zone_options = '<option value="">All</option>'
     for z in sorted(all_zones):
@@ -1840,12 +1974,13 @@ def build_scenarios_section(
         <span class="badge" id="scenario-counter">{len(scenarios)} / {len(scenarios)}</span>
       </div>
 
-      <div class="scenario-section-title">Composite Score Heatmap</div>
+      <div class="scenario-section-title" title="Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a single 0-1 score">Composite Score Heatmap</div>
       <div class="heatmap-grid">{heatmap_cells}</div>
       <div class="legend">
         <span class="legend-item"><span class="legend-dot" style="background:var(--high);"></span> High (&ge;0.7)</span>
         <span class="legend-item"><span class="legend-dot" style="background:var(--medium);"></span> Medium (0.4-0.7)</span>
         <span class="legend-item"><span class="legend-dot" style="background:var(--low);"></span> Low (&lt;0.4)</span>
+        <span class="legend-item" style="margin-left:8px;font-style:italic;">Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a 0&ndash;1 score.</span>
       </div>
 
       {ep_dist_html}
@@ -2004,29 +2139,47 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
         gate, "gate-leaf"
     )
     gate_symbol = {"AND": "&and;", "OR": "&or;", "LEAF": "&bull;"}.get(gate, "&bull;")
+    gate_tip = _GATE_TOOLTIPS.get(gate, "")
+    gate_title = f' title="{_esc(gate_tip)}"' if gate_tip else ""
     zone_color = ZONE_COLORS.get(zone, "#666")
     zone_bg = ZONE_BG_COLORS.get(zone, "#333")
 
     meta_parts = []
     if threat_id:
-        meta_parts.append(f'<span class="tree-meta">{_esc(threat_id)}</span>')
+        meta_parts.append(
+            f'<span class="tree-meta"{_threat_id_tooltip(threat_id)}>'
+            f"{_esc(threat_id)}</span>"
+        )
     if technique_id:
-        meta_parts.append(f'<span class="tree-meta">{_esc(technique_id)}</span>')
+        tech_tip = ""
+        if technique_id.startswith("AML.T"):
+            tech_tip = (
+                ' title="MITRE ATLAS — Adversarial Threat Landscape '
+                'for AI Systems technique"'
+            )
+        meta_parts.append(
+            f'<span class="tree-meta"{tech_tip}>{_esc(technique_id)}</span>'
+        )
     if control_point:
         meta_parts.append(
-            f'<span class="tree-meta" style="color:var(--medium);" title="Control point">{_esc(control_point)}</span>'
+            f'<span class="tree-meta" style="color:var(--medium);" '
+            f'title="Defensive control that should block or detect this '
+            f'attack step">{_esc(control_point)}</span>'
         )
     if structural_exposure:
-        se_display = str(structural_exposure).replace("_", " ").title()
+        se_str = str(structural_exposure)
+        se_display = se_str.replace("_", " ").title()
+        se_tip = _STRUCTURAL_EXPOSURE_TOOLTIPS.get(se_str, "Structural exposure")
         meta_parts.append(
-            f'<span class="tree-meta" style="color:var(--high);" title="Structural exposure">{_esc(se_display)}</span>'
+            f'<span class="tree-meta" style="color:var(--high);" '
+            f'title="{_esc(se_tip)}">{_esc(se_display)}</span>'
         )
     meta_html = " ".join(meta_parts)
 
     if gate == "LEAF" or not children:
         return f"""
         <div class="tree-leaf">
-          <span class="gate-badge {gate_cls}">{gate_symbol}</span>
+          <span class="gate-badge {gate_cls}"{gate_title}>{gate_symbol}</span>
           <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">Z{zone}</span>
           <span class="tree-label">{_esc(label)}</span>
           {meta_html}
@@ -2036,7 +2189,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     return f"""
     <details open>
       <summary>
-        <span class="gate-badge {gate_cls}">{gate_symbol}</span>
+        <span class="gate-badge {gate_cls}"{gate_title}>{gate_symbol}</span>
         <span class="zone-badge" style="background:{zone_bg};color:{zone_color};">Z{zone}</span>
         <span class="tree-label">{_esc(label)}</span>
         {meta_html}
@@ -2157,8 +2310,10 @@ def _build_priority_signals(signals: dict[str, Any]) -> str:
             display = value.replace("_", " ").title()
         else:
             display = str(value)
+        tip = _SIGNAL_TOOLTIPS.get(key, "")
+        tip_attr = f' title="{_esc(tip)}"' if tip else ""
         items += f"""
-        <div class="signal-item">
+        <div class="signal-item"{tip_attr}>
           <div class="signal-label">{_esc(label)}</div>
           <div class="signal-value">{_esc(display)}</div>
         </div>"""
@@ -2311,6 +2466,191 @@ def _highlight_gherkin(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Section 5: Glossary appendix
+# ---------------------------------------------------------------------------
+
+
+def build_glossary_section() -> str:
+    """Build the Glossary & Methodology appendix section."""
+    # Build threat ID rows
+    threat_rows = ""
+    for tid, tname in THREAT_NAMES.items():
+        threat_rows += (
+            f"<tr><td><code>{_esc(tid)}</code></td>"
+            f"<td>{_esc(tname)}</td></tr>"
+        )
+
+    return """
+    <div id="glossary" class="section">
+      <div class="section-header">
+        <h2>Glossary &amp; Methodology</h2>
+      </div>
+
+      <!-- Terms glossary -->
+      <div class="card">
+        <div class="scenario-section-title">Threat IDs (OWASP Agentic Threats)</div>
+        <table class="flags-table">
+          <thead><tr><th>ID</th><th>Name</th></tr></thead>
+          <tbody>""" + threat_rows + """</tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Taxonomy References</div>
+        <table class="flags-table">
+          <thead><tr><th>Prefix / Pattern</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>LLM01</code>&ndash;<code>LLM10</code></td>
+              <td>OWASP Top 10 for LLM Applications &mdash; standardized LLM vulnerability categories</td>
+            </tr>
+            <tr>
+              <td><code>AML.T*</code></td>
+              <td>MITRE ATLAS &mdash; Adversarial Threat Landscape for AI Systems technique identifier</td>
+            </tr>
+            <tr>
+              <td><code>atlas-*</code></td>
+              <td>IBM AI Risk Atlas &mdash; standardized AI risk identifier</td>
+            </tr>
+            <tr>
+              <td><code>T&lt;n&gt;-S&lt;m&gt;</code></td>
+              <td>Sub-scenario seed &mdash; threat T&lt;n&gt;, sub-scenario m, expanded from the OWASP agentic threat taxonomy</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Status Badges</div>
+        <table class="flags-table">
+          <thead><tr><th>Badge</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="status-badge status-actionable">Actionable</span></td>
+              <td>Maps to testable agentic threat scenarios</td>
+            </tr>
+            <tr>
+              <td><span class="status-badge status-governance">Governance</span></td>
+              <td>Maps to organizational controls, not directly testable</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Attack Tree Fields</div>
+        <table class="flags-table">
+          <thead><tr><th>Field / Value</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Gate: AND</strong></td><td>All child steps must succeed for this attack to proceed</td></tr>
+            <tr><td><strong>Gate: OR</strong></td><td>Any one child step is sufficient for this attack to proceed</td></tr>
+            <tr><td><strong>Gate: LEAF</strong></td><td>Concrete attack action &mdash; no sub-steps</td></tr>
+            <tr><td><strong>control_point</strong></td><td>Defensive control that should block or detect this attack step</td></tr>
+            <tr><td><strong>single_point_of_failure</strong></td><td>Only one control blocks this attack path</td></tr>
+            <tr><td><strong>convergence_point</strong></td><td>Multiple attack paths flow through this single control</td></tr>
+            <tr><td><strong>probabilistic_control</strong></td><td>Relies on an LLM guardrail or classifier &mdash; not a binary pass/fail gate</td></tr>
+            <tr><td><strong>defense_in_depth_claim</strong></td><td>Multiple controls back each other up on this path</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Priority Signals</div>
+        <table class="flags-table">
+          <thead><tr><th>Signal</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><strong>technique_maturity</strong></td><td>How proven this attack technique is: <em>feasible</em> (theoretically possible), <em>demonstrated</em> (shown in lab), <em>realized</em> (observed in the wild)</td></tr>
+            <tr><td><strong>architecture_match</strong></td><td>How the threat maps to this system: <em>explicit</em> (directly matches a declared capability) or <em>inferred</em> (indirectly relevant based on system profile)</td></tr>
+            <tr><td><strong>attack_complexity</strong></td><td>Difficulty of executing this attack: low / medium / high</td></tr>
+            <tr><td><strong>risk_impact</strong></td><td>Potential damage if attack succeeds: low / medium / high / critical</td></tr>
+            <tr><td><strong>risk_likelihood</strong></td><td>Probability of this attack being attempted: low / medium / high</td></tr>
+            <tr><td><strong>composite_score</strong></td><td>Combines the above signals into a single 0&ndash;1 score for prioritization</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Confidence Values</div>
+        <table class="flags-table">
+          <thead><tr><th>Context</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Threat Surface table</td><td>Upstream extraction confidence &mdash; how strongly the policy text maps to this risk</td></tr>
+            <tr><td>Capability Profile</td><td>Profile inference confidence &mdash; how clearly the use-case description signals these capabilities</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Methodology -->
+      <div class="card">
+        <div class="scenario-section-title">Methodology Overview</div>
+
+        <div style="margin-bottom:18px;">
+          <strong style="color:var(--text-primary);">Schneider 5-Zone Model</strong>
+          <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
+            A capability decomposition framework that maps an AI agent&rsquo;s attack surface into five functional zones:
+          </p>
+          <ul style="font-size:13px;color:var(--text-secondary);margin:6px 0 0 20px;list-style:disc;">
+            <li><strong>Zone 1 &mdash; Input Surfaces:</strong> External interfaces where user or system input enters the agent</li>
+            <li><strong>Zone 2 &mdash; Planning &amp; Reasoning:</strong> The agent&rsquo;s decision-making and reasoning engine</li>
+            <li><strong>Zone 3 &mdash; Tool Execution:</strong> External tool and API calls the agent can make</li>
+            <li><strong>Zone 4 &mdash; Memory &amp; State:</strong> Persistent storage, context windows, and state management</li>
+            <li><strong>Zone 5 &mdash; Inter-Agent Communication:</strong> Message passing between agents in multi-agent systems</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom:18px;">
+          <strong style="color:var(--text-primary);">OWASP Agentic Threat Framework</strong>
+          <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
+            A taxonomy of 17 threat categories (T1&ndash;T17) specific to autonomous AI agent architectures,
+            published by OWASP. Each threat describes a class of attack that exploits agent-specific
+            capabilities such as tool use, memory, multi-agent communication, or human-in-the-loop
+            interactions. Threats are further decomposed into sub-scenarios (e.g.&nbsp;T7-S1, T7-S2) that
+            provide concrete attack seeds.
+          </p>
+        </div>
+
+        <div>
+          <strong style="color:var(--text-primary);">Scenario Forge 4-Stage Pipeline</strong>
+          <ol style="font-size:13px;color:var(--text-secondary);margin:6px 0 0 20px;">
+            <li><strong>Capability Profile:</strong> Infer the agent&rsquo;s capabilities, active zones, and entry points from a use-case description</li>
+            <li><strong>Threat Surface:</strong> Map the capability profile against risk taxonomies (IBM AI Risk Atlas, OWASP LLM Top&nbsp;10) and determine which agentic threats apply</li>
+            <li><strong>Scenario Seeds:</strong> Expand each applicable threat into concrete sub-scenario seeds drawn from the OWASP agentic threat taxonomy</li>
+            <li><strong>Scenario Generation:</strong> Use an LLM to generate full red-team scenarios for each seed, including narrative, attack trees, behavior specifications (Gherkin), and priority signals</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- External links -->
+      <div class="card">
+        <div class="scenario-section-title">External References</div>
+        <ul style="list-style:none;padding:0;margin:0;">
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <a href="https://genai.owasp.org/resource/agentic-ai-threats-and-mitigations/" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:13px;">
+              OWASP Agentic AI Threats &amp; Mitigations &#8599;
+            </a>
+          </li>
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <a href="https://genai.owasp.org/llm-top-10/" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:13px;">
+              OWASP Top 10 for LLM Applications &#8599;
+            </a>
+          </li>
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <a href="https://atlas.mitre.org/" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:13px;">
+              MITRE ATLAS &#8599;
+            </a>
+          </li>
+          <li style="padding:8px 0;">
+            <a href="https://www.ibm.com/docs/en/watsonx/saas?topic=ai-risk-atlas" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:13px;">
+              IBM AI Risk Atlas &#8599;
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
 # Full page assembly
 # ---------------------------------------------------------------------------
 
@@ -2331,6 +2671,8 @@ def build_full_page(
     diversity_nav = ""
     if diversity_html:
         diversity_nav = '<a href="#sec-diversity"><span class="nav-icon">&#9783;</span> Attacker Diversity</a>'
+
+    glossary_html = build_glossary_section()
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -2353,6 +2695,7 @@ def build_full_page(
       {diversity_nav}
       <a href="#sec-scenarios"><span class="nav-icon">&#9733;</span> Scenarios</a>
       <a href="#sec-raw"><span class="nav-icon">&#128196;</span> Raw Data</a>
+      <a href="#glossary"><span class="nav-icon">&#128214;</span> Glossary</a>
     </nav>
   </aside>
 
@@ -2363,6 +2706,7 @@ def build_full_page(
     {diversity_html}
     {scenarios_html}
     {raw_html}
+    {glossary_html}
   </main>
 
   {build_js()}
