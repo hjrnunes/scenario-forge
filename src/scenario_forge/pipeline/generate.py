@@ -907,7 +907,7 @@ Use EXACTLY one of these tags for @violation-category based on the threat being 
 - T8 (Repudiation & Untraceability): @repudiation-and-untraceability
 - T9 (Improper Output Handling): @improper-output-handling
 - T10 (HITL Bypass): @hitl-bypass
-- T15 (Supply Chain & Dependency): @supply-chain-vulnerability
+- T15 (Human Manipulation): @human-manipulation
 - T17 (Insufficient Logging): @insufficient-logging
 
 If the threat ID does not appear above, derive a kebab-case tag from the threat name.
