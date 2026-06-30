@@ -2073,6 +2073,18 @@ _CAPABILITY_COLORS: dict[str, str] = {
     "expert": "#ef4444",       # red
 }
 
+_CAPABILITY_TOOLTIPS: dict[str, str] = {
+    "novice": "Limited technical skills, relies on public tools and tutorials",
+    "intermediate": "Moderate skills, can adapt existing tools and techniques",
+    "advanced": (
+        "Deep expertise, can develop custom tools and discover vulnerabilities"
+    ),
+    "expert": (
+        "Elite capabilities, can chain novel zero-days "
+        "and develop bespoke frameworks"
+    ),
+}
+
 
 def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
     """Build a collapsible Actor Profile block for a scenario card.
@@ -2095,6 +2107,8 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
 
     cap_color = _CAPABILITY_COLORS.get(capability_level, "#6b7280")
     cap_display = capability_level.title() if capability_level else ""
+    cap_tip = _CAPABILITY_TOOLTIPS.get(capability_level, "")
+    cap_tip_attr = f' data-tooltip="{_esc(cap_tip)}"' if cap_tip else ""
 
     resources_str = ", ".join(resources) if resources else "None specified"
 
@@ -2105,7 +2119,7 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
             <div style="padding:12px 0 4px;">
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
                 <span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(type_color)},0.15);color:{type_color};">{_esc(type_display)}</span>
-                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};">{_esc(cap_display)}</span>' if cap_display else ''}
+                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};"{cap_tip_attr}>{_esc(cap_display)}</span>' if cap_display else ''}
               </div>
               <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
                 <div style="margin-bottom:8px;">
