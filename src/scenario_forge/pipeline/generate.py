@@ -548,6 +548,40 @@ def _format_structural_exclusions(patterns: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# ATLAS technique name lookup (for semantic matching in Call 2)
+# ---------------------------------------------------------------------------
+
+_ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
+    "AML.T0010": "AI Supply Chain Compromise",
+    "AML.T0015": "LLM Capability Escalation",
+    "AML.T0016": "Obtain Capabilities",
+    "AML.T0020": "Poison Training Data",
+    "AML.T0021": "Establish Accounts",
+    "AML.T0024": "Exfiltration via AI Inference API",
+    "AML.T0025": "Resource Exhaustion via Embedding",
+    "AML.T0029": "Denial of AI Service",
+    "AML.T0031": "Erode AI Model Integrity",
+    "AML.T0034": "Cost Harvesting",
+    "AML.T0040": "Unsafe Deserialisation via LLM",
+    "AML.T0043": "Craft Adversarial Data",
+    "AML.T0047": "AI-Enabled Product or Service",
+    "AML.T0048": "External Harms",
+    "AML.T0049": "Spearphishing via AI",
+    "AML.T0051.000": "Direct Prompt Injection",
+    "AML.T0051.001": "Indirect Prompt Injection",
+    "AML.T0053": "AI Agent Tool Invocation",
+    "AML.T0054": "LLM Jailbreak",
+    "AML.T0056": "Extract LLM System Prompt",
+    "AML.T0057": "LLM Data Leakage",
+    "AML.T0060": "Publish Hallucinated Entities",
+    "AML.T0066": "Retrieval Content Crafting",
+    "AML.T0067": "Output Manipulation",
+    "AML.T0070": "RAG Poisoning",
+    "AML.T0071": "Embedding Manipulation",
+}
+
+
+# ---------------------------------------------------------------------------
 # Intermediate models for structured output (flattened for LLM reliability)
 # ---------------------------------------------------------------------------
 
@@ -856,9 +890,12 @@ root:
 - Add optional fields where appropriate:
   - threat_id: OWASP Agentic Threat ID (T1-T17)
   - technique_id: MITRE ATLAS technique ID — ONLY use IDs from the \
-ATLAS Technique IDs list provided in the scenario context. Do NOT \
-invent or hallucinate technique IDs. If no ATLAS technique IDs are \
-provided, omit the technique_id field entirely.
+allowed technique list provided in the scenario context. Each allowed \
+technique includes its name; only assign a technique_id to a node if \
+the technique's name semantically matches the attack action described \
+in the node's label. Do NOT invent or hallucinate technique IDs. If \
+no ATLAS technique IDs are provided, omit the technique_id field \
+entirely.
   - maestro_layer: MAESTRO architectural layer (1-7)
   - control_point: the defensive control that should block or detect this step
   - structural_exposure: one of single_point_of_failure, convergence_point, \
@@ -1787,13 +1824,26 @@ def _call_attack_tree(
     client: LLMClient,
     use_case: str,
 ) -> tuple[AttackTree, LLMResult]:
-    # Build technique constraint section
+    # Build technique constraint section with descriptive names
     technique_section = ""
     if seed.atlas_technique_ids:
-        ids_str = ", ".join(seed.atlas_technique_ids)
+        ids_with_names = []
+        for tid in seed.atlas_technique_ids:
+            name = _ATLAS_TECHNIQUE_NAMES.get(tid, "")
+            if name:
+                ids_with_names.append(f"- {tid}: {name}")
+            else:
+                ids_with_names.append(f"- {tid}")
+        ids_block = "\n".join(ids_with_names)
         technique_section = (
             f"\n## ATLAS Technique Constraint\n"
-            f"Allowed technique_id values: [{ids_str}]\n"
+            f"Allowed technique_id values:\n{ids_block}\n\n"
+            f"Only assign a technique_id to a node if the technique's "
+            f"description semantically matches the attack action described "
+            f"in the node's label. For example, 'AI Agent Tool Invocation' "
+            f"should only be used for nodes that involve invoking or "
+            f"manipulating tools, not for prompt injection or hallucination "
+            f"steps.\n"
             f"Use ONLY these technique IDs on leaf nodes. "
             f"Do NOT invent or hallucinate new technique IDs. "
             f"If none of these IDs fit a particular node, omit technique_id "
