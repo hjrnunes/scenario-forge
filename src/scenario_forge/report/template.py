@@ -1457,6 +1457,115 @@ details.expandable[open] > summary::before {
   font-size: 12px;
   color: var(--text-primary);
 }
+
+/* Threat-Technique Matrix */
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.matrix-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+.matrix-table th.matrix-col-header {
+  text-align: center;
+  min-width: 80px;
+  writing-mode: horizontal-tb;
+}
+
+.matrix-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.matrix-table tr:hover td { background: var(--bg-card-hover); }
+
+.matrix-table tr.matrix-row-greyed td {
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.matrix-table tr.matrix-row-greyed:hover td {
+  background: transparent;
+}
+
+.matrix-table td.matrix-cell {
+  text-align: center;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+
+.matrix-table td.matrix-cell a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.matrix-table td.matrix-cell a:hover {
+  text-decoration: underline;
+}
+
+/* Roster table */
+.roster-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.roster-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.roster-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  vertical-align: top;
+}
+
+.roster-table tr:hover td { background: var(--bg-card-hover); }
+
+.roster-table td a {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.roster-table td a:hover { text-decoration: underline; }
+
+.roster-zone-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
 </style>
 """
 
@@ -2025,7 +2134,224 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Section 2c: Actor Profile Distribution
+# Section 2c: Threat-Technique Matrix
+# ---------------------------------------------------------------------------
+
+
+def _technique_id_tooltip(technique_id: str) -> str:
+    """Return a data-tooltip attribute for an ATLAS technique ID."""
+    name = _ATLAS_TECHNIQUE_NAMES.get(technique_id, "")
+    if name:
+        return f' data-tooltip="MITRE ATLAS: {_esc(technique_id)} — {_esc(name)}"'
+    return ""
+
+
+def build_threat_technique_section(
+    scenarios: list[dict[str, Any]],
+    in_scope_threats: list[str] | None = None,
+) -> str:
+    """Build the Threat-Technique Matrix section.
+
+    Contains two tables:
+    1. Cross-reference matrix: threats (rows) x techniques (columns) with scenario links
+    2. Scenario roster: one row per scenario with key metadata
+
+    Args:
+        scenarios: List of parsed scenario envelope dicts.
+        in_scope_threats: Explicit list of in-scope threat IDs (e.g. from threat gating).
+            If None, derives from scenarios and shows all T1-T17.
+
+    Returns:
+        HTML string for the section, or empty string if no scenarios.
+    """
+    if not scenarios:
+        return ""
+
+    # --- Collect data from scenarios ---
+    # Map: threat_id -> technique_id -> list[scenario_id]
+    threat_tech_map: dict[str, dict[str, list[str]]] = {}
+    # Collect all technique IDs appearing in this batch
+    all_techniques: list[str] = []
+    # Collect per-scenario metadata for roster
+    roster_rows: list[dict[str, Any]] = []
+
+    for s in scenarios:
+        sid = s.get("scenario_id", "")
+        faceting = s.get("faceting", {})
+        tc = faceting.get("taxonomy_chain", {})
+        cp = faceting.get("capability_profile", {})
+
+        threat_ids = tc.get("agentic_threat_ids", [])
+        technique_ids = tc.get("atlas_technique_ids", [])
+        scenario_seed = tc.get("scenario_seed", "")
+        zones_traversed = [_normalize_zone(z) for z in cp.get("zones_traversed", [])]
+
+        actor_profile = s.get("actor_profile", {}) or {}
+        actor_type = actor_profile.get("actor_type", "")
+        capability_level = actor_profile.get("capability_level", "")
+
+        # Populate cross-reference map
+        for tid in threat_ids:
+            base_tid = tid.split("-")[0] if "-" in tid else tid
+            if base_tid not in threat_tech_map:
+                threat_tech_map[base_tid] = {}
+            for tech_id in technique_ids:
+                if tech_id not in threat_tech_map[base_tid]:
+                    threat_tech_map[base_tid][tech_id] = []
+                if sid not in threat_tech_map[base_tid][tech_id]:
+                    threat_tech_map[base_tid][tech_id].append(sid)
+                if tech_id not in all_techniques:
+                    all_techniques.append(tech_id)
+
+        # Collect roster row
+        roster_rows.append(
+            {
+                "scenario_id": sid,
+                "threat_ids": threat_ids,
+                "sub_scenario": scenario_seed,
+                "technique_ids": technique_ids,
+                "actor_type": actor_type,
+                "capability_level": capability_level,
+                "zones_traversed": zones_traversed,
+            }
+        )
+
+    # Sort techniques for consistent column order
+    all_techniques.sort()
+
+    # All T1-T17 rows; greyed if no scenarios map to that threat
+    all_threat_ids = [f"T{i}" for i in range(1, 18)]
+
+    # --- Build Table 1: Cross-reference matrix ---
+    # Column headers
+    tech_headers = ""
+    for tech_id in all_techniques:
+        tech_tip = _technique_id_tooltip(tech_id)
+        tech_headers += f'<th class="matrix-col-header"{tech_tip}>{_esc(tech_id)}</th>'
+
+    # Rows
+    matrix_rows = ""
+    for tid in all_threat_ids:
+        threat_name = THREAT_NAMES.get(tid, "")
+        has_scenarios = tid in threat_tech_map
+        row_cls = "" if has_scenarios else " matrix-row-greyed"
+        tip = _threat_id_tooltip(tid)
+
+        cells = ""
+        for tech_id in all_techniques:
+            scenario_ids = threat_tech_map.get(tid, {}).get(tech_id, [])
+            if scenario_ids:
+                links = ", ".join(
+                    f'<a href="#scenario-{_esc(s_id)}">{_esc(s_id)}</a>'
+                    for s_id in scenario_ids
+                )
+                cells += f'<td class="matrix-cell">{links}</td>'
+            else:
+                cells += '<td class="matrix-cell"></td>'
+
+        matrix_rows += (
+            f'<tr class="{row_cls.strip()}">'
+            f"<td{tip}><strong>{_esc(tid)}</strong></td>"
+            f"<td>{_esc(threat_name)}</td>"
+            f"{cells}"
+            f"</tr>"
+        )
+
+    matrix_html = f"""
+      <div class="card" style="overflow-x:auto;margin-bottom:24px;">
+        <div class="scenario-section-title">Cross-Reference Matrix</div>
+        <table class="matrix-table">
+          <thead>
+            <tr>
+              <th>Threat</th>
+              <th>Name</th>
+              {tech_headers}
+            </tr>
+          </thead>
+          <tbody>{matrix_rows}</tbody>
+        </table>
+      </div>"""
+
+    # --- Build Table 2: Scenario roster ---
+    roster_rows.sort(key=lambda r: r["scenario_id"])
+
+    roster_body = ""
+    for row in roster_rows:
+        sid = row["scenario_id"]
+        threat_spans = ", ".join(
+            f"<span{_threat_id_tooltip(t)}>{_esc(t)}</span>" for t in row["threat_ids"]
+        )
+        sub = row["sub_scenario"]
+        tech_spans = ", ".join(
+            f"<span{_technique_id_tooltip(t)}>{_esc(t)}</span>"
+            for t in row["technique_ids"]
+        )
+        actor_display = (
+            row["actor_type"].replace("-", " ").replace("_", " ").title()
+            if row["actor_type"]
+            else ""
+        )
+        cap_display = row["capability_level"].title() if row["capability_level"] else ""
+
+        zone_badges = ""
+        for z in row["zones_traversed"]:
+            zc = ZONE_COLORS.get(z, "#666")
+            zbg = ZONE_BG_COLORS.get(z, "#333")
+            zname = ZONE_DISPLAY_NAMES.get(z, z)
+            zone_badges += (
+                f'<span class="zone-badge" style="background:{zbg};'
+                f'color:{zc};">{_esc(zname)}</span>'
+            )
+
+        roster_body += (
+            f"<tr>"
+            f'<td><a href="#scenario-{_esc(sid)}">{_esc(sid)}</a></td>'
+            f"<td>{threat_spans}</td>"
+            f"<td>{_esc(sub)}</td>"
+            f"<td>{tech_spans}</td>"
+            f"<td>{_esc(actor_display)}</td>"
+            f"<td>{_esc(cap_display)}</td>"
+            f'<td><div class="roster-zone-badges">{zone_badges}</div></td>'
+            f"</tr>"
+        )
+
+    roster_html = f"""
+      <div class="card" style="overflow-x:auto;">
+        <div class="scenario-section-title">Scenario Roster</div>
+        <table class="roster-table">
+          <thead>
+            <tr>
+              <th>Scenario ID</th>
+              <th>Threat IDs</th>
+              <th>Sub-Scenario</th>
+              <th>Technique IDs</th>
+              <th>Actor Type</th>
+              <th>Capability</th>
+              <th>Zones Traversed</th>
+            </tr>
+          </thead>
+          <tbody>{roster_body}</tbody>
+        </table>
+      </div>"""
+
+    # Active threats count
+    active_count = sum(1 for t in all_threat_ids if t in threat_tech_map)
+
+    return f"""
+    <div id="sec-threat-matrix" class="section">
+      <div class="section-header">
+        <h2>Threat&ndash;Technique Matrix</h2>
+        <span class="badge">{active_count}/{len(all_threat_ids)} threats &middot; {len(all_techniques)} techniques &middot; {len(scenarios)} scenarios</span>
+      </div>
+
+      {matrix_html}
+      {roster_html}
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
+# Section 2d: Actor Profile Distribution
 # ---------------------------------------------------------------------------
 
 _DIVERSITY_COLORS: dict[str, str] = {
@@ -2378,7 +2704,7 @@ def _build_scenario_card(
     signals_html = _build_priority_signals(signals)
 
     return f"""
-    <div class="scenario-card" data-scenario="{_esc(sid)}"
+    <div class="scenario-card" id="scenario-{_esc(sid)}" data-scenario="{_esc(sid)}"
          data-threats="{_esc(threats)}" data-zones="{_esc(zones)}"
          data-priority="{_esc(priority_label.lower())}">
       <div class="scenario-header">
@@ -3280,6 +3606,7 @@ def build_full_page(
     diversity_html: str = "",
     use_case_html: str = "",
     scorecard_html: str = "",
+    threat_technique_html: str = "",
     title: str = "Scenario Forge Report",
 ) -> str:
     # Conditionally add sidebar links for use case, coverage, and diversity sections
@@ -3297,6 +3624,9 @@ def build_full_page(
     scorecard_nav = ""
     if scorecard_html:
         scorecard_nav = '<a href="#sec-scorecard"><span class="nav-icon">&#9745;</span> Eval Scorecard</a>'
+    threat_technique_nav = ""
+    if threat_technique_html:
+        threat_technique_nav = '<a href="#sec-threat-matrix"><span class="nav-icon">&#9638;</span> Threat–Technique Matrix</a>'
 
     glossary_html = build_glossary_section()
 
@@ -3319,6 +3649,7 @@ def build_full_page(
       <a href="#sec-profile"><span class="nav-icon">&#9670;</span> Capability Profile</a>
       <a href="#sec-threats"><span class="nav-icon">&#9888;</span> Threat Surface</a>
       {coverage_nav}
+      {threat_technique_nav}
       {diversity_nav}
       <a href="#sec-scenarios"><span class="nav-icon">&#9733;</span> Scenarios</a>
       {scorecard_nav}
@@ -3332,6 +3663,7 @@ def build_full_page(
     {profile_html}
     {threats_html}
     {coverage_html}
+    {threat_technique_html}
     {diversity_html}
     {scenarios_html}
     {scorecard_html}
