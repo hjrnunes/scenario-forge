@@ -29,7 +29,6 @@ from scenario_forge.eval.gherkin import (
     step_count,
     step_keyword_balance,
     tag_consistency,
-    zone_annotation_rate,
 )
 from scenario_forge.eval.grounding import score_grounding
 from scenario_forge.eval.runner import run_evaluation
@@ -366,21 +365,6 @@ class TestStepKeywordBalance:
         assert balance["Then"] > 0
 
 
-class TestZoneAnnotationRate:
-    def test_annotated_feature(self):
-        rate = zone_annotation_rate(_GHERKIN_VALID)
-        assert rate > 0.0
-
-    def test_no_annotations(self):
-        rate = zone_annotation_rate(_GHERKIN_MINIMAL)
-        assert rate == 0.0
-
-    def test_no_when_steps(self):
-        text = "Feature: X\n  Scenario: Y\n    Given something\n    Then result"
-        rate = zone_annotation_rate(text)
-        assert rate == 0.0
-
-
 class TestTagConsistency:
     def test_consistent_tags(self):
         texts = [
@@ -410,7 +394,11 @@ class TestScoreGherkin:
         assert "parse_success_rate" in result
         assert "mean_step_count" in result
         assert "tag_consistency" in result
+        assert "background_missing_warnings" in result
         assert result["parse_success_rate"] == 1.0
+        # _GHERKIN_MINIMAL has no Background, so index 1 should be warned
+        assert 1 in result["background_missing_warnings"]
+        assert 0 not in result["background_missing_warnings"]
 
     def test_empty_batch(self):
         result = score_gherkin([])
@@ -420,6 +408,25 @@ class TestScoreGherkin:
     def test_mixed_validity(self):
         result = score_gherkin([_GHERKIN_VALID, _GHERKIN_INVALID])
         assert result["parse_success_rate"] == 0.5
+
+    def test_no_background_rate_in_output(self):
+        """background_rate and mean_zone_annotation_rate are removed."""
+        result = score_gherkin([_GHERKIN_VALID])
+        assert "background_rate" not in result
+        assert "mean_zone_annotation_rate" not in result
+
+    def test_background_warning_emitted(self, caplog):
+        """Warning is logged when a feature file lacks a Background."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = score_gherkin([_GHERKIN_MINIMAL])
+        assert result["background_missing_warnings"] == [0]
+        assert "lacks a Background section" in caplog.text
+
+    def test_all_have_background(self):
+        result = score_gherkin([_GHERKIN_VALID, _GHERKIN_VALID])
+        assert result["background_missing_warnings"] == []
 
 
 # ===========================================================================
