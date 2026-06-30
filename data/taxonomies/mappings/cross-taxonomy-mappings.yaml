@@ -643,6 +643,14 @@ gaps:
     impact: "ATLAS techniques provide the TTP detail but don't yet have agentic-specific entries."
     recommendation: "Use ATLAS techniques as building blocks for multi-step agentic attack chains."
 
+  - taxonomy: "GenAI Security Crosswalk (source JSON)"
+    gap: "11 asymmetric ASI↔LLM cross-references in source JSON files"
+    impact: >
+      LLM02, LLM03, LLM06, LLM07, LLM10 reference ASI entries that do not reference
+      those LLM entries back. May indicate incomplete editorial review in source data
+      or intentional asymmetry (LLM→ASI refs are broader/more speculative).
+    recommendation: "Flag when generating mappings; do not assume bidirectional consistency."
+
 # ═══════════════════════════════════════════════════════════════════
 # T ↔ ATLAS Mappings
 # OWASP Agentic Threats (T1-T17) → MITRE ATLAS Techniques
@@ -863,11 +871,3 @@ t_to_atlas:
     predicate: related_match
     confidence: 0.7
     notes: "direct T→ATLAS via ASI07 (Insecure Inter-Agent Communications). MCP/A2A protocol abuse maps to adversarial data crafting and agent account compromise. No LLM predecessor."
-
-  - taxonomy: "GenAI Security Crosswalk (source JSON)"
-    gap: "11 asymmetric ASI↔LLM cross-references in source JSON files"
-    impact: >
-      LLM02, LLM03, LLM06, LLM07, LLM10 reference ASI entries that do not reference
-      those LLM entries back. May indicate incomplete editorial review in source data
-      or intentional asymmetry (LLM→ASI refs are broader/more speculative).
-    recommendation: "Flag when generating mappings; do not assume bidirectional consistency."

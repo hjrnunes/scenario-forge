@@ -44,6 +44,27 @@ def _collect_tree_threat_ids(node: dict[str, Any]) -> list[str]:
     return ids
 
 
+def _collect_tree_technique_ids(node: dict[str, Any]) -> list[str]:
+    """Recursively collect all technique_id values from attack tree nodes."""
+    ids: list[str] = []
+    tech_id = node.get("technique_id")
+    if tech_id:
+        ids.append(tech_id)
+    for child in node.get("children") or []:
+        ids.extend(_collect_tree_technique_ids(child))
+    return ids
+
+
+def _get_seed_technique_ids(scenario: dict[str, Any]) -> list[str] | None:
+    """Extract the seed's atlas_technique_ids from the scenario's taxonomy chain.
+
+    Returns None if the field is absent, or the list of IDs if present.
+    """
+    faceting = scenario.get("faceting", {})
+    chain = faceting.get("taxonomy_chain", {})
+    return chain.get("atlas_technique_ids")
+
+
 def score_grounding(
     scenarios: list[dict[str, Any]],
     threats_path: Path | None = None,
@@ -53,6 +74,8 @@ def score_grounding(
     Checks:
     - threat_id validity: fraction of threat_ids that map to known OWASP threats
     - dangling reference count: number of invalid threat_ids
+    - technique_id grounding: fraction of technique_ids on tree nodes that
+      match the seed's atlas_technique_ids (ungrounded = hallucinated by LLM)
 
     Args:
         scenarios: List of scenario dicts (parsed YAML).
@@ -60,6 +83,7 @@ def score_grounding(
 
     Returns:
         Dict with threat_id_validity (float 0-1), dangling_references (int),
+        technique_id_grounding (float 0-1), ungrounded_technique_references (int),
         and details about any invalid references.
     """
     valid_ids = _load_valid_threat_ids(threats_path)
@@ -68,12 +92,18 @@ def score_grounding(
     valid_refs = 0
     dangling: list[dict[str, str]] = []
 
+    # Technique grounding tracking
+    total_technique_refs = 0
+    grounded_technique_refs = 0
+    ungrounded_techniques: list[dict[str, str]] = []
+
     for scenario in scenarios:
         scenario_id = scenario.get("scenario_id", "unknown")
         tree = scenario.get("attack_tree", {})
         root = tree.get("root", {})
-        threat_ids = _collect_tree_threat_ids(root)
 
+        # --- threat_id validation ---
+        threat_ids = _collect_tree_threat_ids(root)
         for tid in threat_ids:
             total_refs += 1
             if tid in valid_ids:
@@ -84,13 +114,47 @@ def score_grounding(
                     "threat_id": tid,
                 })
 
+        # --- technique_id grounding ---
+        technique_ids = _collect_tree_technique_ids(root)
+        seed_technique_ids = _get_seed_technique_ids(scenario)
+
+        if technique_ids:
+            # If the seed has atlas_technique_ids, validate against them
+            allowed = set(seed_technique_ids) if seed_technique_ids else set()
+            for tech_id in technique_ids:
+                total_technique_refs += 1
+                if allowed and tech_id in allowed:
+                    grounded_technique_refs += 1
+                elif not allowed:
+                    # No seed technique IDs -> any technique_id is ungrounded
+                    ungrounded_techniques.append({
+                        "scenario_id": scenario_id,
+                        "technique_id": tech_id,
+                        "reason": "no_seed_technique_ids",
+                    })
+                else:
+                    ungrounded_techniques.append({
+                        "scenario_id": scenario_id,
+                        "technique_id": tech_id,
+                        "reason": "not_in_seed",
+                    })
+
     validity = valid_refs / total_refs if total_refs > 0 else 1.0
+    technique_grounding = (
+        grounded_technique_refs / total_technique_refs
+        if total_technique_refs > 0
+        else 1.0
+    )
 
     result: dict[str, Any] = {
         "threat_id_validity": round(validity, 4),
         "dangling_references": len(dangling),
+        "technique_id_grounding": round(technique_grounding, 4),
+        "ungrounded_technique_references": len(ungrounded_techniques),
     }
     if dangling:
         result["dangling_details"] = dangling
+    if ungrounded_techniques:
+        result["ungrounded_technique_details"] = ungrounded_techniques
 
     return result

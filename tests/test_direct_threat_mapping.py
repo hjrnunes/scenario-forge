@@ -12,6 +12,7 @@ import pytest
 from scenario_forge.models import CapabilityProfile
 from scenario_forge.pipeline.threats import (
     _build_direct_t_mappings,
+    _build_t_to_atlas_index,
     _matches_profile_directly,
     _resolve_direct_threats,
 )
@@ -351,3 +352,34 @@ class TestDirectMappingYAMLIntegration:
         # T7, T8, T15 require only zones [1,2]
         assert result == {"T7", "T8", "T15"}
         # T9, T10, T14, T16 should NOT be resolved (profile mismatch or not in scope)
+
+    def test_t_to_atlas_section_exists(self, cross_taxonomy: dict) -> None:
+        """The t_to_atlas section must exist with entries for all 17 T-threats."""
+        assert "t_to_atlas" in cross_taxonomy
+        t_ids = {m["source"] for m in cross_taxonomy["t_to_atlas"]}
+        expected = {f"T{i}" for i in range(1, 18)}
+        assert t_ids == expected, f"Missing T-threats: {expected - t_ids}"
+
+    def test_t_to_atlas_all_entries_have_targets(
+        self, cross_taxonomy: dict
+    ) -> None:
+        """Every t_to_atlas entry must have non-empty targets list."""
+        for mapping in cross_taxonomy["t_to_atlas"]:
+            assert mapping.get("targets"), (
+                f"{mapping['source']} has empty targets"
+            )
+            assert all(
+                t.startswith("AML.T") for t in mapping["targets"]
+            ), f"{mapping['source']} has non-ATLAS technique ID in targets"
+
+    def test_build_t_to_atlas_index(self, cross_taxonomy: dict) -> None:
+        """_build_t_to_atlas_index produces a correct index."""
+        index = _build_t_to_atlas_index(cross_taxonomy)
+        # All 17 T-threats should have entries
+        assert len(index) == 17
+        # T6 should map to prompt injection techniques
+        assert "AML.T0051.000" in index["T6"]
+        assert "AML.T0054" in index["T6"]
+        # T4 should map to DoS/cost techniques
+        assert "AML.T0029" in index["T4"]
+        assert "AML.T0034" in index["T4"]
