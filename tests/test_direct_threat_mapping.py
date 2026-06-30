@@ -31,41 +31,41 @@ CROSS_TAXONOMY_WITH_DIRECT = {
         {
             "source": "T7",
             "source_name": "Misaligned & Deceptive Behaviors",
-            "profile_match": {"min_zones": [1, 2]},
+            "profile_match": {"min_zones": ["input", "reasoning"]},
         },
         {
             "source": "T8",
             "source_name": "Repudiation & Untraceability",
-            "profile_match": {"min_zones": [1, 2]},
+            "profile_match": {"min_zones": ["input", "reasoning"]},
         },
         {
             "source": "T9",
             "source_name": "Identity Spoofing & Impersonation",
-            "profile_match": {"min_zones": [1, 2, 3]},
+            "profile_match": {"min_zones": ["input", "reasoning", "tool_execution"]},
         },
         {
             "source": "T10",
             "source_name": "Overwhelming Human in the Loop",
-            "profile_match": {"min_zones": [1, 2], "requires_hitl": True},
+            "profile_match": {"min_zones": ["input", "reasoning"], "requires_hitl": True},
         },
         {
             "source": "T14",
             "source_name": "Human Attacks on Multi-Agent Systems",
             "profile_match": {
-                "min_zones": [1, 2, 5],
+                "min_zones": ["input", "reasoning", "inter_agent"],
                 "requires_multi_agent": True,
             },
         },
         {
             "source": "T15",
             "source_name": "Human Manipulation",
-            "profile_match": {"min_zones": [1, 2]},
+            "profile_match": {"min_zones": ["input", "reasoning"]},
         },
         {
             "source": "T16",
             "source_name": "Insecure Inter-Agent Protocol Abuse",
             "profile_match": {
-                "min_zones": [1, 2, 3, 5],
+                "min_zones": ["input", "reasoning", "tool_execution", "inter_agent"],
                 "requires_multi_agent": True,
             },
         },
@@ -81,7 +81,7 @@ CROSS_TAXONOMY_WITH_DIRECT = {
 def _minimal_profile(**overrides) -> CapabilityProfile:
     """Build a minimal capability profile with optional overrides."""
     defaults = dict(
-        zones_active=[1, 2],
+        zones_active=["input", "reasoning"],
         has_persistent_memory=False,
         multi_agent=False,
         hitl=False,
@@ -95,7 +95,7 @@ def _minimal_profile(**overrides) -> CapabilityProfile:
 def _full_profile() -> CapabilityProfile:
     """Build a fully-featured capability profile (all zones, all flags)."""
     return CapabilityProfile(
-        zones_active=[1, 2, 3, 4, 5],
+        zones_active=["input", "reasoning", "tool_execution", "memory", "inter_agent"],
         has_persistent_memory=True,
         multi_agent=True,
         hitl=True,
@@ -163,7 +163,7 @@ class TestMatchesProfileDirectly:
     def test_multi_agent_required_but_missing(self) -> None:
         """T14 requires multi_agent; profile without it should not match."""
         profile = _minimal_profile(
-            zones_active=[1, 2, 5],
+            zones_active=["input", "reasoning", "inter_agent"],
             multi_agent=True,
         )
         # T14 should match with zones 1,2,5 and multi_agent=true
@@ -184,7 +184,7 @@ class TestMatchesProfileDirectly:
         assert _matches_profile_directly(t16, profile_full) is True
 
         # Missing zone 5 should not match
-        profile_no_5 = _minimal_profile(zones_active=[1, 2, 3])
+        profile_no_5 = _minimal_profile(zones_active=["input", "reasoning", "tool_execution"])
         assert _matches_profile_directly(t16, profile_no_5) is False
 
     def test_full_profile_matches_all(self) -> None:
@@ -255,7 +255,7 @@ class TestResolveDirectThreats:
 
     def test_zone_3_profile_adds_t9(self) -> None:
         """Profile with zone 3 should also resolve T9."""
-        profile = _minimal_profile(zones_active=[1, 2, 3])
+        profile = _minimal_profile(zones_active=["input", "reasoning", "tool_execution"])
         in_scope = {"T7", "T8", "T9", "T15"}
         result = _resolve_direct_threats(
             CROSS_TAXONOMY_WITH_DIRECT, profile, in_scope
@@ -275,7 +275,7 @@ class TestResolveDirectThreats:
     def test_multi_agent_profile_adds_t14(self) -> None:
         """Profile with multi_agent + zone 5 should resolve T14."""
         profile = _minimal_profile(
-            zones_active=[1, 2, 5],
+            zones_active=["input", "reasoning", "inter_agent"],
             multi_agent=True,
         )
         in_scope = {"T7", "T8", "T14", "T15"}

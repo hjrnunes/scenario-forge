@@ -298,7 +298,7 @@ def determine_threat_surface(
                     all_atlas.append(atlas_id)
 
         # Filter capability-gated ATLAS techniques
-        zone_3_active = 3 in profile.zones_active
+        zone_3_active = "tool_execution" in profile.zones_active
         if not zone_3_active:
             gated = [aid for aid in all_atlas if aid in _ZONE3_GATED_TECHNIQUES]
             if gated:

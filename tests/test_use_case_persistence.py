@@ -41,7 +41,7 @@ def test_use_case_written_to_output_dir(
 
     # Minimal stubs so the pipeline doesn't blow up.
     profile = CapabilityProfile(
-        zones_active=[1, 2],
+        zones_active=["input", "reasoning"],
         entry_points=["ep-1"],
         confidence="high",
         has_persistent_memory=False,

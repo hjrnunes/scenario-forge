@@ -7,8 +7,8 @@ in data/schemas/capability-profile.yaml.
 Gating categories:
   - Always in scope: T6, T7, T8, T15
   - Memory-gated (has_persistent_memory): T1, T5
-  - Tool-execution-gated (zone 3 active): T2, T3, T4, T11, T16, T17
-  - Auth-gated (zone 3 active): T9
+  - Tool-execution-gated (tool_execution zone active): T2, T3, T4, T11, T16, T17
+  - Auth-gated (tool_execution zone active): T9
   - HITL-gated (hitl=true): T10
   - Multi-agent-gated (multi_agent=true): T12, T13, T14
 
@@ -147,7 +147,7 @@ def _filter_sub_scenarios(
       - T1-S4: only if shared writable memory exists
       - T2-S4: only if has_persistent_memory is true
       - T2-S5: only if vector_store is in memory_mechanisms
-      - T15-S1, T15-S2: only if zone 3 (tool execution) is active — both
+      - T15-S1, T15-S2: only if tool_execution zone is active — both
         seeds assume indirect prompt injection via external content ingestion
     """
     excluded: set[str] = set()
@@ -199,18 +199,18 @@ def _filter_sub_scenarios(
             )
 
     elif threat_id == "T15":
-        zone_3_active = 3 in profile.zones_active
+        zone_3_active = "tool_execution" in profile.zones_active
         if not zone_3_active:
             excluded.update({"T15-S1", "T15-S2"})
             logger.warning(
-                "Gating FILTERED T15-S1, T15-S2: zone 3 not active "
+                "Gating FILTERED T15-S1, T15-S2: tool_execution zone not active "
                 "(zones_active=%s) — both seeds assume indirect prompt "
                 "injection via external content ingestion",
                 profile.zones_active,
             )
         else:
             logger.info(
-                "Gating PASSED T15-S1, T15-S2: zone 3 active (zones_active=%s)",
+                "Gating PASSED T15-S1, T15-S2: tool_execution zone active (zones_active=%s)",
                 profile.zones_active,
             )
 
@@ -246,7 +246,7 @@ def determine_threat_scope(
     in_scope: list[ThreatScopeEntry] = []
     out_of_scope_groups: dict[str, list[str]] = {}
 
-    zone_3_active = 3 in profile.zones_active
+    zone_3_active = "tool_execution" in profile.zones_active
 
     def _add_in_scope(threat_id: str, reason: str) -> None:
         threat = threats[threat_id]
@@ -281,7 +281,7 @@ def determine_threat_scope(
 
     # --- Always in scope ---
     for tid in _ALWAYS_IN_SCOPE:
-        _add_in_scope(tid, "always in scope — any LLM/agent system with zones [1, 2]")
+        _add_in_scope(tid, "always in scope — any LLM/agent system with input and reasoning zones")
 
     # --- Memory-gated ---
     if profile.has_persistent_memory:
@@ -296,21 +296,21 @@ def determine_threat_scope(
     # --- Tool-execution-gated ---
     if zone_3_active:
         for tid in _TOOL_EXECUTION_GATED:
-            _add_in_scope(tid, "zone 3 (Tool Execution) is active")
+            _add_in_scope(tid, "tool_execution zone is active")
     else:
         _add_out_of_scope(
             _TOOL_EXECUTION_GATED,
-            "zone 3 not active — no tool execution capability",
+            "tool_execution zone not active — no tool execution capability",
         )
 
     # --- Auth-gated (T9 — separated for future auth-awareness refinement) ---
     if zone_3_active:
         for tid in _AUTH_GATED:
-            _add_in_scope(tid, "zone 3 (Tool Execution) is active — auth-gated threat")
+            _add_in_scope(tid, "tool_execution zone is active — auth-gated threat")
     else:
         _add_out_of_scope(
             _AUTH_GATED,
-            "zone 3 not active — no tool execution for auth-related threats",
+            "tool_execution zone not active — no tool execution for auth-related threats",
         )
 
     # --- HITL-gated ---
