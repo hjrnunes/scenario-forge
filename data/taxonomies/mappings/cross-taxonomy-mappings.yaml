@@ -643,6 +643,227 @@ gaps:
     impact: "ATLAS techniques provide the TTP detail but don't yet have agentic-specific entries."
     recommendation: "Use ATLAS techniques as building blocks for multi-step agentic attack chains."
 
+# ═══════════════════════════════════════════════════════════════════
+# T ↔ ATLAS Mappings
+# OWASP Agentic Threats (T1-T17) → MITRE ATLAS Techniques
+#
+# Composed via two paths:
+#   1. T→LLM→ATLAS chain: T-threat maps to LLM Top 10 (from t_to_llm),
+#      then LLM maps to ATLAS techniques (from crosswalk-llm-atlas.md).
+#   2. Direct mapping: agentic-only threats (T7-T10, T14-T16) map
+#      directly to ATLAS techniques via ASI→ATLAS (crosswalk-asi-atlas.md)
+#      since they have no LLM predecessor.
+#
+# ATLAS technique IDs verified against MITRE ATLAS v2026.05 and
+# GenAI Security Crosswalk 2026-Q2.
+# ═══════════════════════════════════════════════════════════════════
+
+t_to_atlas:
+  # --- T-threats with LLM predecessors (via T→LLM→ATLAS chain) ---
+
+  - source: T1
+    source_name: "Memory Poisoning"
+    targets: [AML.T0043, AML.T0031, AML.T0020, AML.T0071, AML.T0025, AML.T0070, AML.T0066]
+    target_names:
+      - "Craft Adversarial Data"
+      - "Erode AI Model Integrity"
+      - "Poison Training Data"
+      - "Embedding Manipulation"
+      - "Resource Exhaustion via Embedding"
+      - "RAG Poisoning"
+      - "Retrieval Content Crafting"
+    predicate: extends
+    confidence: 0.85
+    notes: "via T→LLM→ATLAS: T1→LLM04→{AML.T0043,AML.T0031,AML.T0020}, T1→LLM08→{AML.T0071,AML.T0025,AML.T0070,AML.T0066}. Memory poisoning extends data poisoning to runtime persistent memory."
+
+  - source: T2
+    source_name: "Tool Misuse"
+    targets: [AML.T0015, AML.T0053, AML.T0056, AML.T0048, AML.T0010, AML.T0071, AML.T0025, AML.T0070, AML.T0066]
+    target_names:
+      - "LLM Capability Escalation"
+      - "AI Agent Tool Invocation"
+      - "Extract LLM System Prompt"
+      - "External Harms"
+      - "AI Supply Chain Compromise"
+      - "Embedding Manipulation"
+      - "Resource Exhaustion via Embedding"
+      - "RAG Poisoning"
+      - "Retrieval Content Crafting"
+    predicate: extends
+    confidence: 0.8
+    notes: "via T→LLM→ATLAS: T2→LLM06→{AML.T0015,AML.T0053}, T2→LLM03→{AML.T0056,AML.T0048,AML.T0010}, T2→LLM08→{AML.T0071,AML.T0025,AML.T0070,AML.T0066}. Tool misuse extends excessive agency to dynamic integrations."
+
+  - source: T3
+    source_name: "Privilege Compromise"
+    targets: [AML.T0015, AML.T0053]
+    target_names:
+      - "LLM Capability Escalation"
+      - "AI Agent Tool Invocation"
+    predicate: extends
+    confidence: 0.8
+    notes: "via T→LLM→ATLAS: T3→LLM06→{AML.T0015,AML.T0053}. Privilege escalation amplified by dynamic role delegation in agentic systems."
+
+  - source: T4
+    source_name: "Resource Overload"
+    targets: [AML.T0029, AML.T0034]
+    target_names:
+      - "Denial of AI Service"
+      - "Cost Harvesting"
+    predicate: extends
+    confidence: 0.85
+    notes: "via T→LLM→ATLAS: T4→LLM10→{AML.T0029,AML.T0034}. Agentic systems self-trigger tasks leading to exponential resource consumption."
+
+  - source: T5
+    source_name: "Cascading Hallucination Attacks"
+    targets: [AML.T0060, AML.T0047]
+    target_names:
+      - "Publish Hallucinated Entities"
+      - "AI-Enabled Product or Service"
+    predicate: extends
+    confidence: 0.85
+    notes: "via T→LLM→ATLAS: T5→LLM09→{AML.T0060,AML.T0047}. Extends misinformation through multi-agent propagation and self-reinforcement."
+
+  - source: T6
+    source_name: "Intent Breaking & Goal Manipulation"
+    targets: [AML.T0051.000, AML.T0051.001, AML.T0054]
+    target_names:
+      - "Direct Prompt Injection"
+      - "Indirect Prompt Injection"
+      - "LLM Jailbreak"
+    predicate: extends
+    confidence: 0.9
+    notes: "via T→LLM→ATLAS: T6→LLM01→{AML.T0051.000,AML.T0051.001,AML.T0054}. Goal manipulation extends prompt injection to persistent objective corruption."
+
+  - source: T11
+    source_name: "Unexpected RCE and Code Attacks"
+    targets: [AML.T0051.000, AML.T0051.001, AML.T0054, AML.T0067, AML.T0040]
+    target_names:
+      - "Direct Prompt Injection"
+      - "Indirect Prompt Injection"
+      - "LLM Jailbreak"
+      - "Output Manipulation"
+      - "Unsafe Deserialisation via LLM"
+    predicate: extends
+    confidence: 0.8
+    notes: "via T→LLM→ATLAS: T11→LLM01→{AML.T0051.000,AML.T0051.001,AML.T0054}, T11→LLM05→{AML.T0067,AML.T0040}. Agentic code execution extends insecure output handling to RCE."
+
+  - source: T12
+    source_name: "Agent Communication Poisoning"
+    targets: [AML.T0043, AML.T0031, AML.T0020, AML.T0071, AML.T0025, AML.T0070, AML.T0066]
+    target_names:
+      - "Craft Adversarial Data"
+      - "Erode AI Model Integrity"
+      - "Poison Training Data"
+      - "Embedding Manipulation"
+      - "Resource Exhaustion via Embedding"
+      - "RAG Poisoning"
+      - "Retrieval Content Crafting"
+    predicate: extends
+    confidence: 0.75
+    notes: "via T→LLM→ATLAS: T12→LLM04→{AML.T0043,AML.T0031,AML.T0020}, T12→LLM08→{AML.T0071,AML.T0025,AML.T0070,AML.T0066}. Extends data poisoning to target transient inter-agent data."
+
+  - source: T13
+    source_name: "Rogue Agents in Multi-Agent Systems"
+    targets: [AML.T0015, AML.T0053]
+    target_names:
+      - "LLM Capability Escalation"
+      - "AI Agent Tool Invocation"
+    predicate: extends
+    confidence: 0.8
+    notes: "via T→LLM→ATLAS: T13→LLM06→{AML.T0015,AML.T0053}. Excessive agency enables persistent rogue agent risks in multi-agent settings."
+
+  - source: T17
+    source_name: "Supply Chain Compromise"
+    targets: [AML.T0056, AML.T0048, AML.T0010]
+    target_names:
+      - "Extract LLM System Prompt"
+      - "External Harms"
+      - "AI Supply Chain Compromise"
+    predicate: extends
+    confidence: 0.9
+    notes: "via T→LLM→ATLAS: T17→LLM03→{AML.T0056,AML.T0048,AML.T0010}. Amplified in agentic AI where agents autonomously invoke tools and chain decisions."
+
+  # --- Agentic-only threats (direct T→ATLAS, no LLM predecessor) ---
+
+  - source: T7
+    source_name: "Misaligned & Deceptive Behaviors"
+    targets: [AML.T0054, AML.T0015, AML.T0053]
+    target_names:
+      - "LLM Jailbreak"
+      - "LLM Capability Escalation"
+      - "AI Agent Tool Invocation"
+    predicate: related_match
+    confidence: 0.75
+    notes: "direct T→ATLAS via ASI10 (Rogue Agents). Misaligned behaviors share TTPs with rogue agent goal pursuit and capability escalation. No LLM predecessor."
+
+  - source: T8
+    source_name: "Repudiation & Untraceability"
+    targets: [AML.T0056, AML.T0057]
+    target_names:
+      - "Extract LLM System Prompt"
+      - "LLM Data Leakage"
+    predicate: related_match
+    confidence: 0.6
+    notes: "direct T→ATLAS. System prompt extraction enables evasion of logging controls; data leakage via unlogged channels supports repudiation. Weakest mapping — ATLAS lacks a dedicated auditability technique. No LLM predecessor."
+
+  - source: T9
+    source_name: "Identity Spoofing & Impersonation"
+    targets: [AML.T0021, AML.T0016, AML.T0024]
+    target_names:
+      - "Establish Accounts"
+      - "Obtain Capabilities"
+      - "Exfiltration via AI Inference API"
+    predicate: related_match
+    confidence: 0.8
+    notes: "direct T→ATLAS via ASI03 (Identity & Privilege Abuse). Agent identity spoofing maps to account establishment and capability acquisition techniques. No LLM predecessor."
+
+  - source: T10
+    source_name: "Overwhelming Human in the Loop"
+    targets: [AML.T0060, AML.T0047, AML.T0049]
+    target_names:
+      - "Publish Hallucinated Entities"
+      - "AI-Enabled Product or Service"
+      - "Spearphishing via AI"
+    predicate: related_match
+    confidence: 0.7
+    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). HITL overwhelm leverages hallucinated content and AI-generated persuasion to induce decision fatigue. No LLM predecessor."
+
+  - source: T14
+    source_name: "Human Attacks on Multi-Agent Systems"
+    targets: [AML.T0021, AML.T0016, AML.T0024, AML.T0060, AML.T0047, AML.T0049]
+    target_names:
+      - "Establish Accounts"
+      - "Obtain Capabilities"
+      - "Exfiltration via AI Inference API"
+      - "Publish Hallucinated Entities"
+      - "AI-Enabled Product or Service"
+      - "Spearphishing via AI"
+    predicate: related_match
+    confidence: 0.65
+    notes: "direct T→ATLAS via ASI03 + ASI09. Human adversaries exploit inter-agent delegation using identity/privilege techniques and trust manipulation. No LLM predecessor."
+
+  - source: T15
+    source_name: "Human Manipulation"
+    targets: [AML.T0060, AML.T0047, AML.T0049]
+    target_names:
+      - "Publish Hallucinated Entities"
+      - "AI-Enabled Product or Service"
+      - "Spearphishing via AI"
+    predicate: related_match
+    confidence: 0.75
+    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). AI-mediated social engineering maps to hallucinated entity publication and spearphishing. No LLM predecessor."
+
+  - source: T16
+    source_name: "Insecure Inter-Agent Protocol Abuse"
+    targets: [AML.T0043, AML.T0021, AML.T0016]
+    target_names:
+      - "Craft Adversarial Data"
+      - "Establish Accounts"
+      - "Obtain Capabilities"
+    predicate: related_match
+    confidence: 0.7
+    notes: "direct T→ATLAS via ASI07 (Insecure Inter-Agent Communications). MCP/A2A protocol abuse maps to adversarial data crafting and agent account compromise. No LLM predecessor."
+
   - taxonomy: "GenAI Security Crosswalk (source JSON)"
     gap: "11 asymmetric ASI↔LLM cross-references in source JSON files"
     impact: >
