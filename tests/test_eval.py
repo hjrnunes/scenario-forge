@@ -31,6 +31,10 @@ from scenario_forge.eval.gherkin import (
     tag_consistency,
 )
 from scenario_forge.eval.grounding import score_grounding
+from scenario_forge.eval.plausibility import (
+    capability_complexity_violations,
+    score_plausibility,
+)
 from scenario_forge.eval.runner import run_evaluation
 
 
@@ -637,6 +641,104 @@ class TestScoreDiversity:
 
 
 # ===========================================================================
+# Plausibility tests
+# ===========================================================================
+
+
+class TestCapabilityComplexityViolations:
+    def test_nation_state_novice(self):
+        scenario = _make_scenario(actor_type="nation-state", capability_level="novice")
+        violations = capability_complexity_violations(scenario)
+        assert len(violations) == 1
+        assert "nation-state" in violations[0]
+
+    def test_nation_state_advanced(self):
+        scenario = _make_scenario(actor_type="nation-state", capability_level="advanced")
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_nation_state_expert(self):
+        scenario = _make_scenario(actor_type="nation-state", capability_level="expert")
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_supply_chain_intermediate(self):
+        scenario = _make_scenario(
+            actor_type="supply-chain-actor", capability_level="intermediate"
+        )
+        violations = capability_complexity_violations(scenario)
+        assert len(violations) == 1
+        assert "supply-chain-actor" in violations[0]
+
+    def test_supply_chain_expert(self):
+        scenario = _make_scenario(
+            actor_type="supply-chain-actor", capability_level="expert"
+        )
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_novice_high_complexity(self):
+        scenario = _make_scenario(
+            actor_type="adversarial-user", capability_level="novice"
+        )
+        # Set attack_complexity to "high"
+        scenario["priority"]["signals"]["attack_complexity"] = "high"
+        violations = capability_complexity_violations(scenario)
+        assert len(violations) == 1
+        assert "novice" in violations[0]
+        assert "high attack_complexity" in violations[0]
+
+    def test_novice_low_complexity(self):
+        scenario = _make_scenario(
+            actor_type="adversarial-user", capability_level="novice"
+        )
+        scenario["priority"]["signals"]["attack_complexity"] = "low"
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_normal_scenario_no_violations(self):
+        scenario = _make_scenario(
+            actor_type="cybercriminal", capability_level="intermediate"
+        )
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+    def test_missing_actor_profile(self):
+        scenario = _make_scenario()
+        del scenario["actor_profile"]
+        violations = capability_complexity_violations(scenario)
+        assert violations == []
+
+
+class TestScorePlausibility:
+    def test_no_violations(self):
+        scenarios = [
+            _make_scenario(actor_type="cybercriminal", capability_level="advanced"),
+        ]
+        result = score_plausibility(scenarios)
+        assert result["capability_complexity_violation_count"] == 0
+        assert "per_scenario" not in result
+
+    def test_with_violations(self):
+        scenarios = [
+            _make_scenario(
+                scenario_id="s1",
+                actor_type="nation-state",
+                capability_level="novice",
+            ),
+            _make_scenario(
+                scenario_id="s2",
+                actor_type="cybercriminal",
+                capability_level="advanced",
+            ),
+        ]
+        result = score_plausibility(scenarios)
+        assert result["capability_complexity_violation_count"] == 1
+        assert "s1" in result["per_scenario"]
+        assert "s2" not in result["per_scenario"]
+
+
+# ===========================================================================
 # Runner / integration tests
 # ===========================================================================
 
@@ -678,6 +780,7 @@ class TestRunEvaluation:
         assert "gherkin" in ev
         assert "grounding" in ev
         assert "diversity" in ev
+        assert "plausibility" in ev
 
         # Check consistency has per-scenario data
         assert "per_scenario" in ev["consistency"]

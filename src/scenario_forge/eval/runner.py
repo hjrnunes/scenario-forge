@@ -16,6 +16,7 @@ from scenario_forge.eval.consistency import score_consistency
 from scenario_forge.eval.diversity import score_diversity
 from scenario_forge.eval.gherkin import score_gherkin
 from scenario_forge.eval.grounding import score_grounding
+from scenario_forge.eval.plausibility import score_plausibility
 
 
 def _load_scenarios(scenarios_dir: Path) -> list[tuple[str, dict[str, Any]]]:
@@ -118,6 +119,9 @@ def run_evaluation(
     # --- Diversity ---
     diversity_result = score_diversity(scenarios)
 
+    # --- Plausibility ---
+    plausibility_result = score_plausibility(scenarios)
+
     # --- Assemble scorecard ---
     scorecard: dict[str, Any] = {
         "evaluation": {
@@ -128,6 +132,7 @@ def run_evaluation(
             "gherkin": gherkin_result,
             "grounding": grounding_result,
             "diversity": diversity_result,
+            "plausibility": plausibility_result,
         }
     }
 
