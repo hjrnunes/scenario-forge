@@ -3505,13 +3505,15 @@ def build_glossary_section() -> str:
         </div>
 
         <div style="margin-bottom:18px;">
-          <strong style="color:var(--text-primary);">OWASP Agentic Threat Framework</strong>
+          <strong style="color:var(--text-primary);">Abstract Attack Patterns &amp; Provenance</strong>
           <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
-            A taxonomy of 17 threat categories (T1&ndash;T17) specific to autonomous AI agent architectures,
-            published by OWASP. Each threat describes a class of attack that exploits agent-specific
-            capabilities such as tool use, memory, multi-agent communication, or human-in-the-loop
-            interactions. Threats are further decomposed into sub-scenarios (e.g.&nbsp;T7-S1, T7-S2) that
-            provide concrete attack seeds.
+            OWASP agentic threats (T1&ndash;T17) are decomposed into <strong>abstract attack patterns</strong>
+            (AP-*) that serve as data-driven scenario seeds. Each pattern is linked to its source
+            sub-scenario via <strong>SSSOM provenance</strong> mappings, which also cross-reference
+            LAAF techniques and MITRE&nbsp;ATLAS tactic IDs. Patterns carry
+            <strong>prerequisite_capabilities</strong> declarations so that only patterns whose
+            prerequisites are satisfied by the system&rsquo;s capability profile are selected for
+            scenario generation.
           </p>
         </div>
 
@@ -3520,8 +3522,8 @@ def build_glossary_section() -> str:
           <ol style="font-size:13px;color:var(--text-secondary);margin:6px 0 0 20px;">
             <li><strong>Capability Profile:</strong> Infer the agent&rsquo;s capabilities, active zones, and entry points from a use-case description</li>
             <li><strong>Threat Surface:</strong> Map the capability profile against risk taxonomies (IBM AI Risk Atlas, OWASP LLM Top&nbsp;10) and determine which agentic threats apply</li>
-            <li><strong>Scenario Seeds:</strong> Expand each applicable threat into concrete sub-scenario seeds drawn from the OWASP agentic threat taxonomy</li>
-            <li><strong>Scenario Generation:</strong> Use an LLM to generate full red-team scenarios for each seed, including narrative, attack trees, behavior specifications (Gherkin), and priority signals</li>
+            <li><strong>Scenario Seeds:</strong> Select abstract attack patterns (AP-*) whose prerequisite capabilities match the system profile; each pattern carries SSSOM provenance linking back to OWASP, LAAF, and ATLAS sources</li>
+            <li><strong>Scenario Generation:</strong> Use an LLM to generate full red-team scenarios for each pattern, including narrative, attack trees, behavior specifications (Gherkin with injected ATLAS technique&nbsp;IDs), and priority signals</li>
           </ol>
         </div>
       </div>
