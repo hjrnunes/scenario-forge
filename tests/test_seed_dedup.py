@@ -72,9 +72,19 @@ _FAKE_THREATS = {
 def _run_expand(entries: list[ThreatSurfaceEntry]) -> list[ScenarioSeed]:
     """Run expand_seeds with fake threat data, bypassing file I/O."""
     ts = ThreatSurface(entries=entries, governance_only=[])
-    with patch(
-        "scenario_forge.pipeline.seeds.load_agentic_threats",
-        return_value=_FAKE_THREATS,
+    with (
+        patch(
+            "scenario_forge.pipeline.seeds.load_agentic_threats",
+            return_value=_FAKE_THREATS,
+        ),
+        patch(
+            "scenario_forge.pipeline.seeds.load_attack_patterns",
+            return_value={},
+        ),
+        patch(
+            "scenario_forge.pipeline.seeds.load_attack_pattern_provenance",
+            side_effect=FileNotFoundError,
+        ),
     ):
         return expand_seeds(ts)
 
