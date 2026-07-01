@@ -14,7 +14,11 @@ from typing import Any
 
 import yaml
 
-from scenario_forge.data.loaders import load_attack_patterns
+from scenario_forge.data.loaders import (
+    build_pattern_provenance_index,
+    load_attack_pattern_provenance,
+    load_attack_patterns,
+)
 from scenario_forge.models.capability_profile import (
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES as _ZONE_NAMES_TUPLE,
@@ -182,7 +186,7 @@ def _load_taxonomy_lookups() -> None:
 
 
 def _load_attack_pattern_lookups() -> None:
-    """Populate _ATTACK_PATTERN_INFO from the attack patterns YAML."""
+    """Populate _ATTACK_PATTERN_INFO from the attack patterns YAML and SSSOM provenance."""
     try:
         patterns = load_attack_patterns()
         for pid, pat in patterns.items():
@@ -190,6 +194,17 @@ def _load_attack_pattern_lookups() -> None:
                 "name": pat["name"],
                 "description": pat["description"].strip(),
             }
+    except FileNotFoundError:
+        pass
+
+    # Enrich with SSSOM provenance (OWASP origin)
+    try:
+        prov_mappings = load_attack_pattern_provenance()
+        prov_index = build_pattern_provenance_index(prov_mappings)
+        for pid, sources in prov_index.items():
+            owasp_ids = sources.get("owasp-agentic", [])
+            if owasp_ids and pid in _ATTACK_PATTERN_INFO:
+                _ATTACK_PATTERN_INFO[pid]["owasp_origin"] = owasp_ids[0]
     except FileNotFoundError:
         pass
 
@@ -247,7 +262,9 @@ def _sub_scenario_tooltip(sid: str) -> str:
         info = _ATTACK_PATTERN_INFO[sid]
         name = _esc(info["name"])
         desc = _truncate(_esc(info["description"]), 200)
-        return f' data-tooltip="{name}: {desc}"'
+        owasp_origin = info.get("owasp_origin", "")
+        origin_suffix = f" (derived from {_esc(owasp_origin)})" if owasp_origin else ""
+        return f' data-tooltip="{name}: {desc}{origin_suffix}"'
     info = _SUB_SCENARIO_INFO.get(sid)
     if info:
         name = info.get("name", "")

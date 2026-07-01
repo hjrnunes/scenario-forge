@@ -11,7 +11,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from scenario_forge.data.loaders import load_agentic_threats, load_attack_patterns
+from scenario_forge.data.loaders import (
+    build_pattern_provenance_index,
+    load_agentic_threats,
+    load_attack_pattern_provenance,
+    load_attack_patterns,
+)
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.threats import ThreatSurface
 
@@ -78,13 +83,18 @@ def expand_seeds(
 
     # Load abstract attack patterns (if available)
     patterns = load_attack_patterns(attack_patterns_path)
-    # Build reverse lookup: owasp_sub_scenario_id -> pattern
+    # Build reverse lookup: owasp_sub_scenario_id -> pattern via SSSOM provenance
     owasp_to_pattern: dict[str, dict] = {}
-    for pid, pat in patterns.items():
-        ref = pat.get("example_reference", {})
-        owasp_id = ref.get("owasp_id")
-        if owasp_id:
-            owasp_to_pattern[owasp_id] = pat
+    try:
+        prov_mappings = load_attack_pattern_provenance()
+        prov_index = build_pattern_provenance_index(prov_mappings)
+        for pid, sources in prov_index.items():
+            owasp_ids = sources.get("owasp-agentic", [])
+            if owasp_ids and pid in patterns:
+                for owasp_id in owasp_ids:
+                    owasp_to_pattern[owasp_id] = patterns[pid]
+    except FileNotFoundError:
+        pass
 
     seen: dict[str, ScenarioSeed] = {}
 

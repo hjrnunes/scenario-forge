@@ -13,6 +13,7 @@ from typing import Any
 
 import yaml
 
+from scenario_forge.data.sssom import SSSOMMapping, load_sssom
 from scenario_forge.models import EvidenceSpan, MitigationRef, RiskCard
 
 
@@ -160,3 +161,59 @@ def build_threat_to_patterns_index(
     for pid, pattern in patterns.items():
         index[pattern["threat_id"]].append(pid)
     return dict(index)
+
+
+_DEFAULT_ATTACK_PATTERNS_SSSOM_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "attack-patterns"
+    / "attack-patterns.sssom.tsv"
+)
+
+
+def load_attack_pattern_provenance(
+    path: str | Path | None = None,
+) -> list[SSSOMMapping]:
+    """Load the attack-pattern SSSOM TSV provenance file.
+
+    Args:
+        path: Path to the .sssom.tsv file. Defaults to the one next to
+              the attack-patterns YAML.
+
+    Returns:
+        List of SSSOMMapping instances.
+    """
+    p = Path(path) if path else _DEFAULT_ATTACK_PATTERNS_SSSOM_PATH
+    return load_sssom(p)
+
+
+def build_pattern_provenance_index(
+    mappings: list[SSSOMMapping],
+) -> dict[str, dict[str, list[str]]]:
+    """Build a nested index of pattern provenance by source.
+
+    Returns:
+        Dict mapping pattern IDs to dicts of object_source -> list of
+        object IDs.  Example::
+
+            {
+                "AP-T7-01": {
+                    "owasp-agentic": ["T7-S1"],
+                    "laaf": ["S1", "M3"],
+                    "mitre-atlas": ["AML.T0054", "AML.T0015", "AML.T0053"],
+                },
+                ...
+            }
+    """
+    index: dict[str, dict[str, list[str]]] = {}
+    for m in mappings:
+        pid = m.subject_id
+        src = m.object_source
+        if pid not in index:
+            index[pid] = {}
+        if src not in index[pid]:
+            index[pid][src] = []
+        if m.object_id not in index[pid][src]:
+            index[pid][src].append(m.object_id)
+    return index

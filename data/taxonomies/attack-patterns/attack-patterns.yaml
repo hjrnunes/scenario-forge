@@ -27,9 +27,6 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-    example_reference:
-      owasp_id: "T7-S1"
-      owasp_name: "Bypassing Constraints for Stock and Chemical Orders"
 
   AP-T7-02:
     id: "AP-T7-02"
@@ -47,9 +44,6 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-    example_reference:
-      owasp_id: "T7-S2"
-      owasp_name: "Self-Preservation and Availability Exploitation"
 
   AP-T7-03:
     id: "AP-T7-03"
@@ -67,9 +61,6 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-    example_reference:
-      owasp_id: "T7-S3"
-      owasp_name: "AI Deception for Task Completion"
 
   AP-T7-04:
     id: "AP-T7-04"
@@ -87,9 +78,6 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-    example_reference:
-      owasp_id: "T7-S4"
-      owasp_name: "Goal-Driven Lethal Decision-Making"
 
   AP-T7-05:
     id: "AP-T7-05"
@@ -107,6 +95,3 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-    example_reference:
-      owasp_id: "T7-S5"
-      owasp_name: "Insider Trading"
