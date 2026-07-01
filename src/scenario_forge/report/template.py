@@ -148,7 +148,7 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
 
 _THREAT_DESCRIPTIONS: dict[str, str] = {}
 _SUB_SCENARIO_INFO: dict[str, dict[str, str]] = {}
-_ATTACK_PATTERN_INFO: dict[str, dict[str, str]] = {}
+_ATTACK_PATTERN_INFO: dict[str, dict[str, Any]] = {}
 
 
 def _load_taxonomy_lookups() -> None:
@@ -197,14 +197,21 @@ def _load_attack_pattern_lookups() -> None:
     except FileNotFoundError:
         pass
 
-    # Enrich with SSSOM provenance (OWASP origin)
+    # Enrich with SSSOM provenance (OWASP origin, LAAF, ATLAS correspondences)
     try:
         prov_mappings = load_attack_pattern_provenance()
         prov_index = build_pattern_provenance_index(prov_mappings)
         for pid, sources in prov_index.items():
             owasp_ids = sources.get("owasp-agentic", [])
-            if owasp_ids and pid in _ATTACK_PATTERN_INFO:
-                _ATTACK_PATTERN_INFO[pid]["owasp_origin"] = owasp_ids[0]
+            laaf_ids = sources.get("laaf", [])
+            atlas_ids = sources.get("mitre-atlas", [])
+            if pid in _ATTACK_PATTERN_INFO:
+                if owasp_ids:
+                    _ATTACK_PATTERN_INFO[pid]["owasp_origin"] = owasp_ids[0]
+                if laaf_ids:
+                    _ATTACK_PATTERN_INFO[pid]["laaf_techniques"] = laaf_ids
+                if atlas_ids:
+                    _ATTACK_PATTERN_INFO[pid]["atlas_techniques"] = atlas_ids
     except FileNotFoundError:
         pass
 
@@ -264,7 +271,15 @@ def _sub_scenario_tooltip(sid: str) -> str:
         desc = _truncate(_esc(info["description"]), 200)
         owasp_origin = info.get("owasp_origin", "")
         origin_suffix = f" (derived from {_esc(owasp_origin)})" if owasp_origin else ""
-        return f' data-tooltip="{name}: {desc}{origin_suffix}"'
+        laaf = info.get("laaf_techniques", [])
+        atlas = info.get("atlas_techniques", [])
+        prov_parts: list[str] = []
+        if laaf:
+            prov_parts.append(f"LAAF: {', '.join(_esc(t) for t in laaf)}")
+        if atlas:
+            prov_parts.append(f"ATLAS: {', '.join(_esc(t) for t in atlas)}")
+        prov_suffix = f" | Provenance: {'; '.join(prov_parts)}" if prov_parts else ""
+        return f' data-tooltip="{name}: {desc}{origin_suffix}{prov_suffix}"'
     info = _SUB_SCENARIO_INFO.get(sid)
     if info:
         name = info.get("name", "")
@@ -2787,6 +2802,88 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
         </div>"""
 
 
+def _build_provenance_block(scenario_seed: str) -> str:
+    """Build a Provenance section for AP-* scenario seeds.
+
+    Returns an HTML block showing the SSSOM provenance chain (OWASP origin,
+    LAAF correspondences, ATLAS correspondences) for the given attack pattern.
+    Returns empty string for non-AP seeds or when no provenance data exists.
+    """
+    if not scenario_seed or not scenario_seed.startswith("AP-"):
+        return ""
+    info = _ATTACK_PATTERN_INFO.get(scenario_seed)
+    if not info:
+        return ""
+
+    owasp_origin = info.get("owasp_origin", "")
+    laaf = info.get("laaf_techniques", [])
+    atlas = info.get("atlas_techniques", [])
+
+    if not owasp_origin and not laaf and not atlas:
+        return ""
+
+    rows = ""
+    if owasp_origin:
+        origin_tip = _sub_scenario_tooltip(owasp_origin) if owasp_origin else ""
+        rows += (
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+            f'<span style="min-width:100px;font-size:11px;font-weight:600;'
+            f'color:var(--text-muted);text-transform:uppercase;">Origin</span>'
+            f'<span style="padding:3px 10px;border-radius:4px;font-size:12px;'
+            f"font-weight:600;background:rgba(99,102,241,0.15);"
+            f"color:var(--accent);font-family:'SF Mono','Fira Code',"
+            f'monospace;"{origin_tip}>{_esc(owasp_origin)}</span>'
+            f"</div>"
+        )
+    if laaf:
+        laaf_badges = "".join(
+            f'<span style="padding:3px 10px;border-radius:4px;font-size:12px;'
+            f"font-weight:600;background:rgba(34,197,94,0.15);"
+            f"color:#22c55e;font-family:'SF Mono','Fira Code',"
+            f'monospace;margin-right:4px;">{_esc(lid)}</span>'
+            for lid in laaf
+        )
+        rows += (
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;'
+            f'flex-wrap:wrap;">'
+            f'<span style="min-width:100px;font-size:11px;font-weight:600;'
+            f'color:var(--text-muted);text-transform:uppercase;"'
+            f' data-tooltip="LLM Agent Attack Framework technique correspondences"'
+            f">LAAF</span>"
+            f"{laaf_badges}"
+            f"</div>"
+        )
+    if atlas:
+        atlas_badges = "".join(
+            f'<span style="padding:3px 10px;border-radius:4px;font-size:12px;'
+            f"font-weight:600;background:rgba(249,115,22,0.15);"
+            f"color:#f97316;font-family:'SF Mono','Fira Code',"
+            f'monospace;margin-right:4px;"'
+            f"{_technique_id_tooltip(aid)}>{_esc(aid)}</span>"
+            for aid in atlas
+        )
+        rows += (
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;'
+            f'flex-wrap:wrap;">'
+            f'<span style="min-width:100px;font-size:11px;font-weight:600;'
+            f'color:var(--text-muted);text-transform:uppercase;"'
+            f' data-tooltip="MITRE ATLAS technique correspondences"'
+            f">ATLAS</span>"
+            f"{atlas_badges}"
+            f"</div>"
+        )
+
+    return f"""
+        <div class="scenario-section">
+          <details class="expandable" open>
+            <summary>SSSOM Provenance</summary>
+            <div style="padding:12px 0 4px;">
+              {rows}
+            </div>
+          </details>
+        </div>"""
+
+
 def _build_scenario_card(
     scenario: dict[str, Any], feature_files: dict[str, str]
 ) -> str:
@@ -2832,6 +2929,10 @@ def _build_scenario_card(
     signals = scenario.get("priority", {}).get("signals", {})
     signals_html = _build_priority_signals(signals)
 
+    # SSSOM provenance for AP-* scenario seeds
+    scenario_seed = tc.get("scenario_seed", "")
+    provenance_html = _build_provenance_block(scenario_seed)
+
     return f"""
     <div class="scenario-card" id="scenario-{_esc(sid)}" data-scenario="{_esc(sid)}"
          data-threats="{_esc(threats)}" data-zones="{_esc(zones)}"
@@ -2855,6 +2956,7 @@ def _build_scenario_card(
       </div>
       <div class="scenario-body">
         {_build_actor_profile_block(scenario)}
+        {provenance_html}
 
         <div class="scenario-section">
           <div class="scenario-section-title">Narrative</div>
