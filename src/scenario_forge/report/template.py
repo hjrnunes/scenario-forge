@@ -2783,11 +2783,11 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
         return ""
 
     actor_type = actor_profile.get("actor_type", "unknown")
-    motivation = actor_profile.get("motivation", "")
-    objective = actor_profile.get("objective", "")
     capability_level = actor_profile.get("capability_level", "")
+    beliefs = actor_profile.get("beliefs", [])
+    desires = actor_profile.get("desires", [])
+    intentions = actor_profile.get("intentions", [])
     resources = actor_profile.get("resources", [])
-    campaign_context = actor_profile.get("campaign_context", "")
 
     type_color = _DIVERSITY_COLORS.get(actor_type, "#6b7280")
     type_display = actor_type.replace("-", " ").replace("_", " ").title()
@@ -2798,6 +2798,12 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
     cap_tip_attr = f' data-tooltip="{_esc(cap_tip)}"' if cap_tip else ""
 
     resources_str = ", ".join(resources) if resources else "None specified"
+
+    beliefs_items = "".join(f"<li>{_esc(b)}</li>" for b in beliefs)
+    desires_items = "".join(f"<li>{_esc(d)}</li>" for d in desires)
+    intentions_items = "".join(f"<li>{_esc(i)}</li>" for i in intentions)
+
+    list_style = 'style="margin:4px 0 0 16px;padding:0;font-size:13px;color:var(--text-secondary);line-height:1.6;"'
 
     return f"""
         <div class="scenario-section">
@@ -2810,20 +2816,20 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
               </div>
               <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
                 <div style="margin-bottom:8px;">
-                  <strong style="color:var(--text-muted);font-size:11px;">MOTIVATION:</strong>
-                  <span>{_esc(motivation)}</span>
+                  <strong style="color:var(--text-muted);font-size:11px;">BELIEFS:</strong>
+                  <ul {list_style}>{beliefs_items}</ul>
                 </div>
                 <div style="margin-bottom:8px;">
-                  <strong style="color:var(--text-muted);font-size:11px;">OBJECTIVE:</strong>
-                  <span>{_esc(objective)}</span>
+                  <strong style="color:var(--text-muted);font-size:11px;">DESIRES:</strong>
+                  <ul {list_style}>{desires_items}</ul>
+                </div>
+                <div style="margin-bottom:8px;">
+                  <strong style="color:var(--text-muted);font-size:11px;">INTENTIONS:</strong>
+                  <ul {list_style}>{intentions_items}</ul>
                 </div>
                 <div style="margin-bottom:8px;">
                   <strong style="color:var(--text-muted);font-size:11px;">RESOURCES:</strong>
                   <span>{_esc(resources_str)}</span>
-                </div>
-                <div>
-                  <strong style="color:var(--text-muted);font-size:11px;">CAMPAIGN CONTEXT:</strong>
-                  <span>{_esc(campaign_context)}</span>
                 </div>
               </div>
             </div>

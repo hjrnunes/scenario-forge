@@ -185,11 +185,11 @@ def _make_envelope(
     if actor_type is not None:
         actor_profile = ActorProfile(
             actor_type=actor_type,  # type: ignore[arg-type]
-            motivation="Motivated to compromise the system.",
-            objective="Exfiltrate sensitive data.",
             capability_level="intermediate",
+            beliefs=["The system exposes a chat API"],
+            desires=["Exfiltrate sensitive data"],
+            intentions=["Exploit the chat interface"],
             resources=["open-source tools"],
-            campaign_context="Opportunistic attack.",
         )
 
     return ScenarioEnvelope(

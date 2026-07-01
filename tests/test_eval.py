@@ -123,11 +123,11 @@ def _make_scenario(
         },
         "actor_profile": {
             "actor_type": actor_type,
-            "motivation": "Financial gain",
-            "objective": "Steal customer data",
             "capability_level": capability_level,
+            "beliefs": ["The system has a public chat API"],
+            "desires": ["Exfiltrate customer data"],
+            "intentions": ["Use prompt injection via the chat interface"],
             "resources": ["open-source tools"],
-            "campaign_context": "Targeted attack",
         },
         "faceting": {
             "risk_card": {
@@ -203,14 +203,18 @@ _GHERKIN_INVALID = "This is not valid Gherkin at all."
 
 class TestZoneAlignment:
     def test_perfect_alignment(self):
-        scenario = _make_scenario(zone_sequence=["input", "reasoning", "tool_execution"])
+        scenario = _make_scenario(
+            zone_sequence=["input", "reasoning", "tool_execution"]
+        )
         # Tree root is zone "input", children are zones "input" and "reasoning"
         # Narrative zones: {"input", "reasoning", "tool_execution"}, Tree zones: {"input", "reasoning"}
         score = zone_alignment(scenario)
         assert 0.0 <= score <= 1.0
 
     def test_with_gherkin(self):
-        scenario = _make_scenario(zone_sequence=["input", "reasoning", "tool_execution"])
+        scenario = _make_scenario(
+            zone_sequence=["input", "reasoning", "tool_execution"]
+        )
         score = zone_alignment(scenario, _GHERKIN_VALID)
         assert 0.0 <= score <= 1.0
 
@@ -219,7 +223,12 @@ class TestZoneAlignment:
             zone_sequence=["input", "reasoning"],
             steps=[
                 {"step_number": 1, "zone": "input", "action": "act", "effect": "eff"},
-                {"step_number": 2, "zone": "reasoning", "action": "act", "effect": "eff"},
+                {
+                    "step_number": 2,
+                    "zone": "reasoning",
+                    "action": "act",
+                    "effect": "eff",
+                },
             ],
         )
         # Narrative zones {"input", "reasoning"}, Tree zones {"input", "reasoning"} -> Jaccard = 1.0
@@ -476,7 +485,9 @@ class TestScoreGrounding:
         scenario["attack_tree"]["root"]["children"][1]["technique_id"] = "AML.T0054"
         # Add atlas_technique_ids to the taxonomy chain
         scenario["faceting"]["taxonomy_chain"]["atlas_technique_ids"] = [
-            "AML.T0051.000", "AML.T0051.001", "AML.T0054",
+            "AML.T0051.000",
+            "AML.T0051.001",
+            "AML.T0054",
         ]
         result = score_grounding([scenario])
         assert result["technique_id_grounding"] == 1.0
@@ -502,7 +513,10 @@ class TestScoreGrounding:
         result = score_grounding([scenario])
         assert result["technique_id_grounding"] == 0.0
         assert result["ungrounded_technique_references"] == 1
-        assert result["ungrounded_technique_details"][0]["reason"] == "no_seed_technique_ids"
+        assert (
+            result["ungrounded_technique_details"][0]["reason"]
+            == "no_seed_technique_ids"
+        )
 
     def test_no_technique_ids_default_grounded(self):
         """When no technique_ids in tree, grounding defaults to 1.0."""
@@ -517,7 +531,8 @@ class TestScoreGrounding:
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
         scenario["attack_tree"]["root"]["children"][1]["technique_id"] = "AML.T9999"
         scenario["faceting"]["taxonomy_chain"]["atlas_technique_ids"] = [
-            "AML.T0051.000", "AML.T0054",
+            "AML.T0051.000",
+            "AML.T0054",
         ]
         result = score_grounding([scenario])
         assert result["technique_id_grounding"] == 0.5
@@ -577,7 +592,15 @@ class TestEntryPointEntropy:
 class TestZoneCoverage:
     def test_full_coverage(self):
         scenarios = [
-            _make_scenario(zone_sequence=["input", "reasoning", "tool_execution", "memory", "inter_agent"]),
+            _make_scenario(
+                zone_sequence=[
+                    "input",
+                    "reasoning",
+                    "tool_execution",
+                    "memory",
+                    "inter_agent",
+                ]
+            ),
         ]
         result = zone_coverage(scenarios)
         assert result == 1.0
@@ -598,7 +621,9 @@ class TestZoneCoverage:
         scenarios = [
             _make_scenario(zone_sequence=["input", "reasoning"]),
         ]
-        result = zone_coverage(scenarios, active_zones={"input", "reasoning", "tool_execution"})
+        result = zone_coverage(
+            scenarios, active_zones={"input", "reasoning", "tool_execution"}
+        )
         assert isinstance(result, dict)
         assert result["raw_coverage"] == 0.4
         # 2 out of 3 active zones covered
@@ -607,19 +632,25 @@ class TestZoneCoverage:
     def test_out_of_scope_violations(self):
         """Scenarios using zones outside the active set are flagged."""
         scenarios = [
-            _make_scenario(scenario_id="s1", zone_sequence=["input", "reasoning", "inter_agent"]),
+            _make_scenario(
+                scenario_id="s1", zone_sequence=["input", "reasoning", "inter_agent"]
+            ),
         ]
         result = zone_coverage(scenarios, active_zones={"input", "reasoning"})
         assert isinstance(result, dict)
         assert len(result["out_of_scope_zone_violations"]) == 1
-        assert result["out_of_scope_zone_violations"][0]["out_of_scope_zones"] == ["inter_agent"]
+        assert result["out_of_scope_zone_violations"][0]["out_of_scope_zones"] == [
+            "inter_agent"
+        ]
 
     def test_no_out_of_scope(self):
         """No violations when all zones are within the active set."""
         scenarios = [
             _make_scenario(zone_sequence=["input", "reasoning"]),
         ]
-        result = zone_coverage(scenarios, active_zones={"input", "reasoning", "tool_execution"})
+        result = zone_coverage(
+            scenarios, active_zones={"input", "reasoning", "tool_execution"}
+        )
         assert result["out_of_scope_zone_violations"] == []
 
 
@@ -759,7 +790,9 @@ class TestCapabilityComplexityViolations:
         assert "nation-state" in violations[0]
 
     def test_nation_state_advanced(self):
-        scenario = _make_scenario(actor_type="nation-state", capability_level="advanced")
+        scenario = _make_scenario(
+            actor_type="nation-state", capability_level="advanced"
+        )
         violations = capability_complexity_violations(scenario)
         assert violations == []
 
@@ -859,8 +892,8 @@ class TestRunEvaluation:
         # Write scenario YAML files
         for i in range(3):
             s = _make_scenario(
-                scenario_id=f"T7-S{i+1}-abc{i:03d}",
-                title=f"Scenario {i+1}: {'ABCDEF'[i]} Attack",
+                scenario_id=f"T7-S{i + 1}-abc{i:03d}",
+                title=f"Scenario {i + 1}: {'ABCDEF'[i]} Attack",
                 entry_point=["user prompts", "api endpoints", "tool calls"][i % 3],
                 zone_sequence=["input", "reasoning", zone_names[i % 5]],
                 actor_type=["adversarial-user", "cybercriminal", "nation-state"][i],
@@ -921,9 +954,7 @@ class TestRunEvaluation:
 
         s = _make_scenario()
         yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(
-            yaml.dump(s, default_flow_style=False), encoding="utf-8"
-        )
+        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
 
         scorecard = run_evaluation(tmp_path)
         assert scorecard["evaluation"]["scenario_count"] == 1
@@ -939,9 +970,7 @@ class TestRunEvaluation:
             zone_sequence=["input", "reasoning"],
         )
         yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(
-            yaml.dump(s, default_flow_style=False), encoding="utf-8"
-        )
+        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
 
         # Write a capability profile
         cap_profile = {
@@ -983,9 +1012,7 @@ class TestRunEvaluation:
 
         s = _make_scenario()
         yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(
-            yaml.dump(s, default_flow_style=False), encoding="utf-8"
-        )
+        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
 
         scorecard = run_evaluation(tmp_path)
         diversity = scorecard["evaluation"]["diversity"]
@@ -1001,9 +1028,7 @@ class TestRunEvaluation:
 
         s = _make_scenario()
         yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(
-            yaml.dump(s, default_flow_style=False), encoding="utf-8"
-        )
+        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
 
         scorecard = run_evaluation(tmp_path)
 

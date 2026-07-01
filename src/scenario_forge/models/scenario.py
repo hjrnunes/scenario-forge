@@ -175,20 +175,20 @@ class ActorProfile(BaseModel):
     actor_type: ActorType = Field(
         description="Category of threat actor (e.g. cybercriminal, nation-state).",
     )
-    motivation: str = Field(
-        description="Why they are attacking this specific target (1-2 sentences, adversarial voice).",
-    )
-    objective: str = Field(
-        description="Concrete end-goal (e.g. 'exfiltrate customer PII for resale').",
-    )
     capability_level: Literal["novice", "intermediate", "advanced", "expert"] = Field(
         description="Skill and sophistication level of the actor.",
     )
+    beliefs: list[str] = Field(
+        description="Deployment-time, black-box observations about the target system.",
+    )
+    desires: list[str] = Field(
+        description="Concrete goals — what success looks like for this actor.",
+    )
+    intentions: list[str] = Field(
+        description="Committed attack approach — techniques and sequence.",
+    )
     resources: list[str] = Field(
         description="What the actor has access to (e.g. 'open-source tools', 'insider credentials').",
-    )
-    campaign_context: str = Field(
-        description="Triggering conditions and predisposing factors (1-2 sentences).",
     )
 
 
