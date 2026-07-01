@@ -774,76 +774,12 @@ the zone where the step occurs, the attacker action, the resulting effect, \
 and any defensive control_point that exists at that step.
 6. The title should be specific to the use case, not a generic restatement.
 7. The summary should be one paragraph in adversarial voice.
-8. Cross-validate attack complexity against the Actor Profile's capability_level:
-   - A novice actor should execute LOW or MEDIUM complexity attacks — simple, \
-few steps, using known techniques.
-   - An intermediate actor handles MEDIUM complexity — adapted techniques, \
-2-4 step chains.
-   - An advanced actor can execute HIGH complexity — custom exploits, \
-multi-layer attacks, evasion.
-   - An expert actor can execute the highest complexity — zero-days, long \
-campaigns, novel vectors.
-   If the Actor Profile says "novice" but your attack requires advanced \
-skills, either simplify the attack or note that the capability level may be \
-too low for this threat. Do NOT assign "high" complexity to a novice actor's \
-attack.
 
 ## Human-in-the-Loop Bypass
 When the attack involves bypassing human-in-the-loop review, describe the \
 specific failure mechanism (e.g., reviewer fatigue, volume overwhelming the \
 reviewer, UI that buries alerts, time pressure) rather than simply asserting \
 "the attacker bypasses review."
-
-## Attack Complexity Calibration
-Not all attacks are equally complex. Vary your narrative structure to reflect \
-the actual complexity of the specific attack being described:
-- LOW complexity: Single-step or direct attacks with no deep chaining. Short \
-zone sequence (1-2 zones). No special access or privileges required. 2-3 \
-narrative steps. Shallow attack tree (depth 1-2, up to 4 nodes). \
-Example: A simple prompt injection via the chat interface that directly extracts \
-data (input zone only). Another example: direct jailbreak through the user input field.
-- MEDIUM complexity: Multi-step attacks crossing 2-3 zones. Some access or \
-system knowledge needed. 3-5 narrative steps. Moderate tree depth (3) with \
-5-7 nodes. \
-Example: An attacker crafts a malicious prompt (input) that tricks the reasoning \
-engine (reasoning) into calling a tool with attacker-controlled parameters \
-(tool_execution). Another example: social engineering to gain limited access, \
-then exploiting a misconfigured API.
-- HIGH complexity: Multi-stage campaigns with deep attack trees (depth 4+) OR \
-wide attack surfaces (8+ nodes with many alternative exploitation paths). \
-Crossing 3-5 zones with persistence or lateral movement. Requires privileged \
-access or chaining multiple vulnerabilities. 5-8 narrative steps. \
-Example: A supply-chain attack that poisons a plugin (tool_execution), \
-plants false data in memory (memory), which later corrupts inter-agent \
-communication (inter_agent) when the tainted context is shared. Another example: \
-an attack with 8+ alternative entry vectors across multiple API surfaces.
-- CRITICAL complexity: Sophisticated, multi-phase attacks that chain multiple \
-independent vulnerabilities across most zones with evasion techniques.
-
-Match the zone_sequence length and number of steps to the actual complexity. \
-A simple injection should have 2-3 steps; a multi-stage campaign should have 5-8. \
-Do NOT default to high complexity for every scenario. Many real attacks are simple \
-and direct — reflect that honestly.
-
-## Risk Impact Calibration
-Match the impact severity to what the attack actually achieves, not to how \
-complex it is. Complexity and impact are independent dimensions:
-- LOW impact: Minor inconvenience affecting a single user. No data loss. \
-Easily reversible. Example: chatbot gives a wrong answer once, user corrects it.
-- MEDIUM impact: Data exposure or service disruption affecting multiple users. \
-Correctable with effort. Example: PII from one user leaked in a chat response; \
-temporary denial of service.
-- HIGH impact: Financial loss, regulatory breach, or persistent data corruption \
-affecting many users. Example: tainted RAG data causes systematically wrong \
-financial advice; GDPR-reportable data exposure.
-- CRITICAL impact: Systemic compromise with organizational-level damage. \
-Cascading failures across systems. Example: supply chain attack corrupts all \
-agent outputs enterprise-wide; complete loss of AI system integrity.
-A simple attack can have critical impact (e.g., one prompt injection leaks \
-the entire customer database). A complex attack can have low impact (e.g., \
-multi-stage attack only degrades one user's experience temporarily). \
-Distribute scores — not every scenario is high complexity or medium impact. \
-Match the score to the actual attack described.
 
 ## Causal Chain Reframing
 If a causal chain is provided (threat, threat_source, vulnerability, \
