@@ -149,6 +149,7 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
 _THREAT_DESCRIPTIONS: dict[str, str] = {}
 _SUB_SCENARIO_INFO: dict[str, dict[str, str]] = {}
 _ATTACK_PATTERN_INFO: dict[str, dict[str, Any]] = {}
+_OWASP_TO_PATTERN: dict[str, str] = {}
 
 
 def _load_taxonomy_lookups() -> None:
@@ -214,6 +215,12 @@ def _load_attack_pattern_lookups() -> None:
                     _ATTACK_PATTERN_INFO[pid]["atlas_techniques"] = atlas_ids
     except FileNotFoundError:
         pass
+
+    # Build reverse lookup: OWASP sub-scenario ID -> AP-* pattern ID
+    for pid, info in _ATTACK_PATTERN_INFO.items():
+        owasp_origin = info.get("owasp_origin")
+        if owasp_origin:
+            _OWASP_TO_PATTERN[owasp_origin] = pid
 
 
 _load_taxonomy_lookups()
@@ -871,9 +878,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
+  min-width: auto;
   height: 22px;
-  padding: 0 6px;
+  padding: 0 8px;
   border-radius: 4px;
   font-size: 10px;
   font-weight: 700;
@@ -1936,13 +1943,16 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         else:
             tid_spans = "-"
 
-        # Build sub-scenario IDs with tooltips
+        # Build sub-scenario IDs with tooltips (remap to AP-* where available)
         raw_subs = entry.get("sub_scenarios", [])
         if raw_subs:
-            sub_spans = ", ".join(
-                f"<span{_sub_scenario_tooltip(sid)}>{_esc(sid)}</span>"
-                for sid in raw_subs
-            )
+            sub_parts: list[str] = []
+            for sid in raw_subs:
+                display_sid = _OWASP_TO_PATTERN.get(sid, sid)
+                sub_parts.append(
+                    f"<span{_sub_scenario_tooltip(display_sid)}>{_esc(display_sid)}</span>"
+                )
+            sub_spans = ", ".join(sub_parts)
         else:
             sub_spans = "-"
 
@@ -2051,8 +2061,9 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
             if tid and tid not in threat_ids_set:
                 threat_ids_set.append(tid)
         for sid in e.get("sub_scenarios", []):
-            if sid and sid not in scenario_ids_set:
-                scenario_ids_set.append(sid)
+            display_sid = _OWASP_TO_PATTERN.get(sid, sid) if sid else sid
+            if display_sid and display_sid not in scenario_ids_set:
+                scenario_ids_set.append(display_sid)
 
     # Layout constants
     col_x = [40, 240, 440, 640]
@@ -2061,7 +2072,7 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
     node_gap = 8
     top_pad = 50
     colors = ["#3b82f6", "#8b5cf6", "#f97316", "#ef4444"]
-    label_names = ["Risk Atlas", "LLM Top 10", "Agentic Threats", "Sub-Scenarios"]
+    label_names = ["Risk Atlas", "LLM Top 10", "Agentic Threats", "Attack Patterns"]
 
     columns = [risk_ids, llm_ids_set, threat_ids_set, scenario_ids_set]
 
@@ -2116,11 +2127,12 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
                     node_pos, f"1:{lid}", f"2:{tid}", link_colors[1]
                 )
 
-        # Threat -> Scenario
+        # Threat -> Scenario (remap to AP-* where available)
         for tid in e.get("agentic_threat_ids", []):
             for sid in e.get("sub_scenarios", []):
+                display_sid = _OWASP_TO_PATTERN.get(sid, sid) if sid else sid
                 svg_links += _sankey_link(
-                    node_pos, f"2:{tid}", f"3:{sid}", link_colors[2]
+                    node_pos, f"2:{tid}", f"3:{display_sid}", link_colors[2]
                 )
 
     # Column headers
@@ -3493,13 +3505,15 @@ def build_glossary_section() -> str:
         </div>
 
         <div style="margin-bottom:18px;">
-          <strong style="color:var(--text-primary);">OWASP Agentic Threat Framework</strong>
+          <strong style="color:var(--text-primary);">Abstract Attack Patterns &amp; Provenance</strong>
           <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
-            A taxonomy of 17 threat categories (T1&ndash;T17) specific to autonomous AI agent architectures,
-            published by OWASP. Each threat describes a class of attack that exploits agent-specific
-            capabilities such as tool use, memory, multi-agent communication, or human-in-the-loop
-            interactions. Threats are further decomposed into sub-scenarios (e.g.&nbsp;T7-S1, T7-S2) that
-            provide concrete attack seeds.
+            OWASP agentic threats (T1&ndash;T17) are decomposed into <strong>abstract attack patterns</strong>
+            (AP-*) that serve as data-driven scenario seeds. Each pattern is linked to its source
+            sub-scenario via <strong>SSSOM provenance</strong> mappings, which also cross-reference
+            LAAF techniques and MITRE&nbsp;ATLAS tactic IDs. Patterns carry
+            <strong>prerequisite_capabilities</strong> declarations so that only patterns whose
+            prerequisites are satisfied by the system&rsquo;s capability profile are selected for
+            scenario generation.
           </p>
         </div>
 
@@ -3508,8 +3522,8 @@ def build_glossary_section() -> str:
           <ol style="font-size:13px;color:var(--text-secondary);margin:6px 0 0 20px;">
             <li><strong>Capability Profile:</strong> Infer the agent&rsquo;s capabilities, active zones, and entry points from a use-case description</li>
             <li><strong>Threat Surface:</strong> Map the capability profile against risk taxonomies (IBM AI Risk Atlas, OWASP LLM Top&nbsp;10) and determine which agentic threats apply</li>
-            <li><strong>Scenario Seeds:</strong> Expand each applicable threat into concrete sub-scenario seeds drawn from the OWASP agentic threat taxonomy</li>
-            <li><strong>Scenario Generation:</strong> Use an LLM to generate full red-team scenarios for each seed, including narrative, attack trees, behavior specifications (Gherkin), and priority signals</li>
+            <li><strong>Scenario Seeds:</strong> Select abstract attack patterns (AP-*) whose prerequisite capabilities match the system profile; each pattern carries SSSOM provenance linking back to OWASP, LAAF, and ATLAS sources</li>
+            <li><strong>Scenario Generation:</strong> Use an LLM to generate full red-team scenarios for each pattern, including narrative, attack trees, behavior specifications (Gherkin with injected ATLAS technique&nbsp;IDs), and priority signals</li>
           </ol>
         </div>
       </div>
