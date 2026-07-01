@@ -693,10 +693,11 @@ unrealistic for this specific threat.
 5. List concrete resources the actor would need (e.g. "open-source prompt \
 injection toolkits", "insider credentials to the admin console", \
 "GPU cluster for automated fuzzing").
-6. Describe the campaign context: what triggered this attack, what \
-predisposing conditions exist (e.g. "recent layoffs created disgruntled \
-employees with lingering system access", "the system's public API lacks \
-rate limiting"). These are NIST 800-30 predisposing conditions.
+6. Describe the campaign context: what triggered this attack and what \
+environmental or organizational conditions make it possible (e.g. "recent \
+layoffs created disgruntled employees with lingering system access", \
+"the system's public API lacks rate limiting", "weak monitoring of \
+automated API usage").
 7. Write in adversarial first-person voice ("I am a...", "My goal is...", \
 "I have access to...").
 
