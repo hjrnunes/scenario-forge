@@ -33,6 +33,7 @@ class ScenarioSeed(BaseModel):
     seed_id: str = Field(description="Sub-scenario ID, e.g. 'T2-S1'.")
     threat_id: str = Field(description="Parent threat ID, e.g. 'T2'.")
     threat_name: str
+    threat_description: str = ""
     mechanism_name: str
     mechanism_description: str
     owasp_sub_scenario_ref: str | None = None
@@ -58,6 +59,7 @@ def _build_sub_scenario_lookup(
                 "description": scenario["description"].strip(),
                 "threat_id": threat_id,
                 "threat_name": threat["name"],
+                "threat_description": threat.get("description", "").strip(),
             }
     return lookup
 
@@ -155,6 +157,7 @@ def expand_seeds(
                     seed_id=effective_id,
                     threat_id=sub["threat_id"],
                     threat_name=sub["threat_name"],
+                    threat_description=sub.get("threat_description", ""),
                     mechanism_name=mechanism_name,
                     mechanism_description=mechanism_desc,
                     owasp_sub_scenario_ref=owasp_ref,
