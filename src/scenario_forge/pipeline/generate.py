@@ -314,13 +314,46 @@ _PATTERN_STOP_WORDS: set[str] = {
     "system",
     "use",
     "using",
+    # Security-domain common words that appear in nearly every narrative
+    # and dominate counts without adding discriminative signal.
+    "exploit",
+    "model",
+    "data",
+    "user",
+    "access",
+    "information",
+    "security",
+    "service",
+    "response",
+    "request",
+    "input",
+    "output",
+    "process",
+    "control",
+    "policy",
+    "target",
+    "threat",
+    "risk",
+    "vulnerability",
+    "lack",
+    "agent",
+    "prompt",
+    "reasoning",
+    "tool",
 }
 
 
 def extract_narrative_keywords(
-    narrative: NarrativeLayer, max_keywords: int = 3
+    narrative: NarrativeLayer,
+    max_keywords: int = 3,
+    mechanism_name: str | None = None,
 ) -> list[str]:
     """Extract short keyword phrases summarizing the attack pattern from a narrative.
+
+    When *mechanism_name* is provided, keywords are preferentially extracted
+    from it (the mechanism name is the actual distinguishing signal between
+    seeds). Falls back to narrative text when the mechanism name yields
+    fewer than *max_keywords* after stop-word filtering.
 
     Uses the causal_chain_reframed fields and the narrative title/summary to
     identify the dominant attack archetype. Returns up to *max_keywords*
@@ -329,7 +362,23 @@ def extract_narrative_keywords(
     This is intentionally a simple heuristic — keyword matching, not a
     classifier. Good enough to nudge the LLM away from repeated templates.
     """
+
+    def _tokenize(text: str) -> list[str]:
+        tokens = re.split(r"[^a-z]+", text.lower())
+        return [t for t in tokens if t and len(t) > 2 and t not in _PATTERN_STOP_WORDS]
+
+    # Try mechanism_name first — it's the best discriminative signal.
+    if mechanism_name:
+        mech_tokens = _tokenize(mechanism_name)
+        if len(mech_tokens) >= max_keywords:
+            counts = Counter(mech_tokens)
+            return [word for word, _ in counts.most_common(max_keywords)]
+
     text_parts: list[str] = []
+
+    # Prepend mechanism_name tokens (if any) so they get counted.
+    if mechanism_name:
+        text_parts.append(mechanism_name)
 
     # Prefer causal chain fields — they are more specific than the title.
     if narrative.causal_chain_reframed is not None:
@@ -337,14 +386,13 @@ def extract_narrative_keywords(
         text_parts.extend([cc.vulnerability, cc.consequence])
 
     # Fall back to title + summary if no causal chain.
-    if not text_parts:
+    if not text_parts or (len(text_parts) == 1 and mechanism_name):
         text_parts.extend([narrative.title, narrative.summary])
 
     combined = " ".join(text_parts).lower()
 
     # Tokenize: split on non-alpha and filter stop words / short tokens.
-    tokens = re.split(r"[^a-z]+", combined)
-    tokens = [t for t in tokens if t and len(t) > 2 and t not in _PATTERN_STOP_WORDS]
+    tokens = _tokenize(combined)
 
     # Count and pick the most common meaningful tokens.
     counts = Counter(tokens)
@@ -581,6 +629,38 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
     "AML.T0071": "Embedding Manipulation",
 }
 
+# ---------------------------------------------------------------------------
+# OWASP LLM Top 10 v2025 name lookup (for descriptive taxonomy refs)
+# ---------------------------------------------------------------------------
+
+_OWASP_LLM_NAMES: dict[str, str] = {
+    "LLM01": "Prompt Injection",
+    "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain Vulnerabilities",
+    "LLM04": "Data and Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
+}
+
+
+def _format_taxonomy_ids(ids: list[str], name_map: dict[str, str]) -> str:
+    """Format a list of taxonomy IDs as 'ID: Name' entries, comma-separated.
+
+    Falls back to the raw ID if no name is found in the lookup dict.
+    """
+    parts = []
+    for tid in ids:
+        name = name_map.get(tid)
+        if name:
+            parts.append(f"{tid}: {name}")
+        else:
+            parts.append(tid)
+    return ", ".join(parts) if parts else "none"
+
 
 # ---------------------------------------------------------------------------
 # Intermediate models for structured output (flattened for LLM reliability)
@@ -794,7 +874,7 @@ If no causal chain is provided, omit causal_chain_reframed.
 
 ## Actor Profile Grounding
 If an actor profile is provided, ground the narrative in that actor. The \
-actor's type, motivation, capability level, and resources should shape the \
+actor's type, beliefs, desires, intentions, capability level, and resources should shape the \
 attack approach — the "who" is already decided; your job is to write the \
 "how". Match the narrative complexity and sophistication to the actor's \
 capability level. A novice actor uses simple, direct attacks; an expert \
@@ -1685,7 +1765,6 @@ mechanism applied to the target system described above.
 - Mechanism: {seed.mechanism_name}
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only, not meaningful to the scenario)
 
 ## Target System Architecture
 The following describes what the target system can and cannot do. \
@@ -1819,7 +1898,6 @@ mechanism applied to the target system described above.
 - Mechanism: {seed.mechanism_name}
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only, not meaningful to the scenario)
 
 ## Target System Architecture
 The following describes what the target system can and cannot do. \
@@ -1830,10 +1908,10 @@ Your attack narrative must only reference capabilities the system actually has.
 - Communicates with other AI agents: {profile.multi_agent}
 - Has human approval gates: {profile.hitl}
 
-## Taxonomy References
-- OWASP LLM IDs: {seed.owasp_llm_ids}
-- Agentic Threat IDs: {seed.agentic_threat_ids}
-- ATLAS Technique IDs: {seed.atlas_technique_ids}
+## Related Taxonomy Entries
+- OWASP LLM: {_format_taxonomy_ids(seed.owasp_llm_ids, _OWASP_LLM_NAMES)}
+- Agentic Threat: {seed.threat_name}
+- ATLAS Techniques: {_format_taxonomy_ids(seed.atlas_technique_ids, _ATLAS_TECHNIQUE_NAMES)}
 {actor_section}{causal_section}{diversity_section}{pattern_section}{structural_section}\
 """
 
@@ -1897,7 +1975,6 @@ instance of this attack mechanism.
 - Mechanism: {seed.mechanism_name}
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only, not meaningful to the tree)
 - ATLAS Technique IDs: {seed.atlas_technique_ids}
 - Use case: {use_case}
 {technique_section}
@@ -2001,7 +2078,7 @@ Steps:
 ## Attack Mechanism
 - Mechanism: {seed.mechanism_name}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only)
+- Pattern ID: {seed.seed_id}
 - Suggested violation category: derive a kebab-case tag from the threat name \
 (e.g. "{"-".join(seed.threat_name.lower().split()[:3])}")
 
