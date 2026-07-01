@@ -368,7 +368,9 @@ def run_pipeline(
                 capability_level_usage[envelope.actor_profile.capability_level] += 1
 
             # Track attack pattern keywords for diversity enforcement.
-            keywords = extract_narrative_keywords(envelope.narrative)
+            keywords = extract_narrative_keywords(
+                envelope.narrative, mechanism_name=seed.mechanism_name
+            )
             pattern_usage.update(keywords)
 
             # Track structural attack pattern for deep diversity enforcement.

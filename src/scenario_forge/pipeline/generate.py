@@ -314,13 +314,46 @@ _PATTERN_STOP_WORDS: set[str] = {
     "system",
     "use",
     "using",
+    # Security-domain common words that appear in nearly every narrative
+    # and dominate counts without adding discriminative signal.
+    "exploit",
+    "model",
+    "data",
+    "user",
+    "access",
+    "information",
+    "security",
+    "service",
+    "response",
+    "request",
+    "input",
+    "output",
+    "process",
+    "control",
+    "policy",
+    "target",
+    "threat",
+    "risk",
+    "vulnerability",
+    "lack",
+    "agent",
+    "prompt",
+    "reasoning",
+    "tool",
 }
 
 
 def extract_narrative_keywords(
-    narrative: NarrativeLayer, max_keywords: int = 3
+    narrative: NarrativeLayer,
+    max_keywords: int = 3,
+    mechanism_name: str | None = None,
 ) -> list[str]:
     """Extract short keyword phrases summarizing the attack pattern from a narrative.
+
+    When *mechanism_name* is provided, keywords are preferentially extracted
+    from it (the mechanism name is the actual distinguishing signal between
+    seeds). Falls back to narrative text when the mechanism name yields
+    fewer than *max_keywords* after stop-word filtering.
 
     Uses the causal_chain_reframed fields and the narrative title/summary to
     identify the dominant attack archetype. Returns up to *max_keywords*
@@ -329,7 +362,23 @@ def extract_narrative_keywords(
     This is intentionally a simple heuristic — keyword matching, not a
     classifier. Good enough to nudge the LLM away from repeated templates.
     """
+
+    def _tokenize(text: str) -> list[str]:
+        tokens = re.split(r"[^a-z]+", text.lower())
+        return [t for t in tokens if t and len(t) > 2 and t not in _PATTERN_STOP_WORDS]
+
+    # Try mechanism_name first — it's the best discriminative signal.
+    if mechanism_name:
+        mech_tokens = _tokenize(mechanism_name)
+        if len(mech_tokens) >= max_keywords:
+            counts = Counter(mech_tokens)
+            return [word for word, _ in counts.most_common(max_keywords)]
+
     text_parts: list[str] = []
+
+    # Prepend mechanism_name tokens (if any) so they get counted.
+    if mechanism_name:
+        text_parts.append(mechanism_name)
 
     # Prefer causal chain fields — they are more specific than the title.
     if narrative.causal_chain_reframed is not None:
@@ -337,14 +386,13 @@ def extract_narrative_keywords(
         text_parts.extend([cc.vulnerability, cc.consequence])
 
     # Fall back to title + summary if no causal chain.
-    if not text_parts:
+    if not text_parts or (len(text_parts) == 1 and mechanism_name):
         text_parts.extend([narrative.title, narrative.summary])
 
     combined = " ".join(text_parts).lower()
 
     # Tokenize: split on non-alpha and filter stop words / short tokens.
-    tokens = re.split(r"[^a-z]+", combined)
-    tokens = [t for t in tokens if t and len(t) > 2 and t not in _PATTERN_STOP_WORDS]
+    tokens = _tokenize(combined)
 
     # Count and pick the most common meaningful tokens.
     counts = Counter(tokens)
