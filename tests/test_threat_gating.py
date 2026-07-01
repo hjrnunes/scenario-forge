@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import logging
 
+from scenario_forge.data.loaders import (
+    build_pattern_provenance_index,
+    load_attack_pattern_provenance,
+    load_attack_patterns,
+)
 from scenario_forge.data.threat_gating import (
+    _build_sub_scenario_to_pattern,
     _filter_sub_scenarios,
     _has_shared_writable_memory,
     _has_vector_store,
@@ -29,6 +35,18 @@ from scenario_forge.models import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def _load_sub_scenario_to_pattern() -> dict[str, dict]:
+    """Load the real sub-scenario-to-pattern mapping for data-driven gating."""
+    patterns = load_attack_patterns()
+    prov = load_attack_pattern_provenance()
+    prov_index = build_pattern_provenance_index(prov)
+    return _build_sub_scenario_to_pattern(patterns, prov_index)
+
+
+# Module-level cache — loaded once per test session
+_SUB_SCENARIO_TO_PATTERN: dict[str, dict] = _load_sub_scenario_to_pattern()
 
 
 def _make_profile(
@@ -172,39 +190,43 @@ class TestHasSharedWritableMemory:
 
 
 class TestFilterSubScenarios:
-    """Verify sub-scenario filtering with Stage 1 data (the common case)."""
+    """Verify data-driven sub-scenario filtering."""
 
     def test_t2_s5_not_filtered_with_stage1_persistent_memory(self):
-        """The key bug: T2-S5 was always filtered because memory_mechanisms
-        was None.  With the fix, has_persistent_memory=True preserves T2-S5."""
+        """T2-S5 requires vector_store; with Stage 1 data (memory_mechanisms
+        is None), has_persistent_memory=True acts as conservative proxy and
+        preserves T2-S5."""
         profile = _make_profile(has_persistent_memory=True)
         all_subs = ["T2-S1", "T2-S2", "T2-S3", "T2-S4", "T2-S5", "T2-S6"]
-        result = _filter_sub_scenarios("T2", all_subs, profile)
+        result = _filter_sub_scenarios("T2", all_subs, profile, _SUB_SCENARIO_TO_PATTERN)
         assert "T2-S5" in result
         assert "T2-S4" in result
 
     def test_t2_s5_filtered_when_no_persistent_memory(self):
-        """When has_persistent_memory is False, both T2-S4 and T2-S5 are
-        correctly filtered."""
+        """When has_persistent_memory is False, T2-S4 and T2-S5 are filtered
+        by their prerequisite_capabilities."""
         profile = _make_profile(has_persistent_memory=False)
         all_subs = ["T2-S1", "T2-S2", "T2-S3", "T2-S4", "T2-S5", "T2-S6"]
-        result = _filter_sub_scenarios("T2", all_subs, profile)
+        result = _filter_sub_scenarios("T2", all_subs, profile, _SUB_SCENARIO_TO_PATTERN)
         assert "T2-S4" not in result
         assert "T2-S5" not in result
 
     def test_t1_s4_not_filtered_with_stage1_persistent_memory(self):
-        """T1-S4 should be kept when has_persistent_memory is True and
-        memory_mechanisms is None (Stage 1 fallback)."""
-        profile = _make_profile(has_persistent_memory=True)
+        """T1-S4 requires shared writable memory; with Stage 1 data and
+        has_persistent_memory=True, the fallback proxy keeps it."""
+        profile = _make_profile(
+            has_persistent_memory=True, multi_agent=True,
+        )
         all_subs = ["T1-S1", "T1-S2", "T1-S3", "T1-S4"]
-        result = _filter_sub_scenarios("T1", all_subs, profile)
+        result = _filter_sub_scenarios("T1", all_subs, profile, _SUB_SCENARIO_TO_PATTERN)
         assert "T1-S4" in result
 
-    def test_unrelated_threat_id_passes_all(self):
-        """Threats without sub-scenario rules pass everything through."""
+    def test_unrelated_threat_passes_all_with_matching_zones(self):
+        """T6 sub-scenarios only need input+reasoning zones, which the default
+        profile provides, so nothing is filtered."""
         profile = _make_profile(has_persistent_memory=False)
         all_subs = ["T6-S1", "T6-S2"]
-        result = _filter_sub_scenarios("T6", all_subs, profile)
+        result = _filter_sub_scenarios("T6", all_subs, profile, _SUB_SCENARIO_TO_PATTERN)
         assert result == all_subs
 
 
@@ -221,7 +243,7 @@ class TestGatingLogging:
         profile = _make_profile(has_persistent_memory=True)
         all_subs = ["T2-S1", "T2-S5"]
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
-            _filter_sub_scenarios("T2", all_subs, profile)
+            _filter_sub_scenarios("T2", all_subs, profile, _SUB_SCENARIO_TO_PATTERN)
 
         t2_s5_logs = [r for r in caplog.records if "T2-S5" in r.message]
         assert len(t2_s5_logs) >= 1, "Expected at least one log message about T2-S5"
@@ -232,7 +254,7 @@ class TestGatingLogging:
         profile = _make_profile(has_persistent_memory=False)
         all_subs = ["T2-S1", "T2-S5"]
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
-            _filter_sub_scenarios("T2", all_subs, profile)
+            _filter_sub_scenarios("T2", all_subs, profile, _SUB_SCENARIO_TO_PATTERN)
 
         t2_s5_logs = [r for r in caplog.records if "T2-S5" in r.message]
         assert len(t2_s5_logs) >= 1, "Expected at least one log message about T2-S5"
@@ -243,7 +265,7 @@ class TestGatingLogging:
         profile = _make_profile(has_persistent_memory=False)
         all_subs = ["T1-S1", "T1-S4"]
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
-            _filter_sub_scenarios("T1", all_subs, profile)
+            _filter_sub_scenarios("T1", all_subs, profile, _SUB_SCENARIO_TO_PATTERN)
 
         t1_s4_logs = [r for r in caplog.records if "T1-S4" in r.message]
         assert len(t1_s4_logs) >= 1
