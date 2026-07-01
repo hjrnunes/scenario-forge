@@ -12,6 +12,7 @@ ScenarioEnvelope:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import re
@@ -1104,6 +1105,29 @@ def _call_metadata(call_name: CallName, result: LLMResult) -> CallMetadata:
     )
 
 
+def _call_log_entry(
+    call_name: CallName,
+    result: LLMResult,
+    scenario_id: str,
+) -> dict:
+    """Build a JSON-serialisable log entry for a single LLM call."""
+    raw_content = result.content
+    if hasattr(raw_content, "model_dump"):
+        raw_content = raw_content.model_dump(mode="json")
+    elif not isinstance(raw_content, str):
+        raw_content = str(raw_content)
+    return {
+        "scenario_id": scenario_id,
+        "call": call_name.value,
+        "system_prompt": result.system_prompt,
+        "user_prompt": result.user_prompt,
+        "response": raw_content,
+        "prompt_tokens": result.prompt_tokens,
+        "completion_tokens": result.completion_tokens,
+        "duration_ms": result.duration_ms,
+    }
+
+
 def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
     steps = [
         NarrativeStep(
@@ -2136,7 +2160,7 @@ def generate_scenario(
     preferred_actor_type: str | None = None,
     excluded_actor_types: list[str] | None = None,
     preferred_capability_level: str | None = None,
-) -> ScenarioEnvelope:
+) -> tuple[ScenarioEnvelope, list[dict]]:
     """Generate a complete ScenarioEnvelope from a single seed.
 
     Four sequential LLM calls:
@@ -2147,6 +2171,10 @@ def generate_scenario(
 
     All four calls must succeed; failures propagate to the caller.
     The runner's per-scenario try/except handles logging and continuation.
+
+    Returns:
+        A tuple of (envelope, call_log_entries).  The call log entries are
+        JSON-serialisable dicts suitable for writing to ``calls.jsonl``.
 
     Args:
         seed: The scenario seed to generate from.
@@ -2213,7 +2241,7 @@ def generate_scenario(
     )
     call_metas.append(_call_metadata(CallName.behavior_spec, result3))
 
-    return _assemble_envelope(
+    envelope = _assemble_envelope(
         seed=seed,
         profile=profile,
         narrative=narrative,
@@ -2225,6 +2253,16 @@ def generate_scenario(
         notes=[],
         actor_profile=actor_profile,
     )
+
+    # Build call log entries for JSONL output.
+    call_log_entries = [
+        _call_log_entry(CallName.actor_profile, result0, envelope.scenario_id),
+        _call_log_entry(CallName.narrative, result1, envelope.scenario_id),
+        _call_log_entry(CallName.attack_tree, result2, envelope.scenario_id),
+        _call_log_entry(CallName.behavior_spec, result3, envelope.scenario_id),
+    ]
+
+    return envelope, call_log_entries
 
 
 def write_scenario_outputs(
@@ -2251,3 +2289,19 @@ def write_scenario_outputs(
         feature_path.write_text(envelope.behavior_spec, encoding="utf-8")
 
     return envelope_path, feature_path
+
+
+def write_call_log(
+    call_log_entries: list[dict],
+    output_dir: Path,
+) -> None:
+    """Append call-log entries to ``calls.jsonl`` in *output_dir*.
+
+    Each entry is written as a single JSON line.  The file is opened in
+    append mode so multiple scenarios can safely be written incrementally.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    calls_path = output_dir / "calls.jsonl"
+    with calls_path.open("a", encoding="utf-8") as fh:
+        for entry in call_log_entries:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")

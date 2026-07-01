@@ -101,6 +101,28 @@ def generate_report(output_dir: Path) -> Path:
     else:
         logger.warning("scenarios/ directory not found in %s", output_dir)
 
+    # --- Load LLM call logs ---
+    calls_path = output_dir / "scenarios" / "calls.jsonl"
+    call_logs: dict[str, list[dict]] = {}  # keyed by scenario_id
+    if calls_path.exists():
+        try:
+            for line in calls_path.read_text(encoding="utf-8").strip().splitlines():
+                entry = json.loads(line)
+                sid = entry.get("scenario_id", "")
+                call_logs.setdefault(sid, []).append(entry)
+            logger.info(
+                "Loaded %d call log entries from %s",
+                sum(len(v) for v in call_logs.values()),
+                calls_path,
+            )
+        except Exception as exc:
+            logger.warning("Failed to load %s: %s", calls_path, exc)
+    else:
+        logger.info(
+            "calls.jsonl not found in %s (skipping call log section)",
+            output_dir / "scenarios",
+        )
+
     # --- Load coverage gaps ---
     coverage_path = output_dir / "coverage-gaps.json"
     coverage_data: dict = {}
@@ -168,7 +190,7 @@ def generate_report(output_dir: Path) -> Path:
 
     scorecard_html = build_scorecard_section(scorecard_data) if scorecard_data else ""
 
-    scenarios_html = build_scenarios_section(scenarios, feature_files)
+    scenarios_html = build_scenarios_section(scenarios, feature_files, call_logs)
     raw_html = build_raw_data_section(raw_files)
 
     # --- Assemble full page ---
