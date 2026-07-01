@@ -130,13 +130,21 @@ def load_risk_extraction(path: str | Path) -> list[RiskCard]:
     return cards
 
 
-_DEFAULT_ATTACK_PATTERNS_PATH = (
+_DEFAULT_ATTACK_PATTERNS_DIR = (
     Path(__file__).resolve().parents[3]
     / "data"
     / "taxonomies"
     / "attack-patterns"
-    / "attack-patterns.yaml"
 )
+
+_DEFAULT_ATTACK_PATTERNS_PATH = _DEFAULT_ATTACK_PATTERNS_DIR / "attack-patterns.yaml"
+
+
+def _load_single_attack_patterns_file(p: Path) -> dict[str, dict]:
+    """Load a single attack patterns YAML file and return its patterns dict."""
+    with open(p) as f:
+        data = yaml.safe_load(f)
+    return dict(data.get("patterns", {}))
 
 
 def load_attack_patterns(
@@ -144,13 +152,26 @@ def load_attack_patterns(
 ) -> dict[str, dict]:
     """Load abstract attack patterns YAML, keyed by pattern ID.
 
+    When ``path`` is given, loads just that single file.  When ``path``
+    is ``None``, globs all ``attack-patterns*.yaml`` files from the
+    default directory and merges their ``patterns`` dicts into one.
+
     Returns:
         Dict mapping pattern IDs (e.g. 'AP-T7-01') to their full pattern dicts.
     """
-    p = Path(path) if path else _DEFAULT_ATTACK_PATTERNS_PATH
-    with open(p) as f:
-        data = yaml.safe_load(f)
-    return dict(data.get("patterns", {}))
+    if path is not None:
+        return _load_single_attack_patterns_file(Path(path))
+
+    # Glob all matching files from the default directory
+    files = sorted(_DEFAULT_ATTACK_PATTERNS_DIR.glob("attack-patterns*.yaml"))
+    if not files:
+        # Fallback: try the exact default path (raises FileNotFoundError if missing)
+        return _load_single_attack_patterns_file(_DEFAULT_ATTACK_PATTERNS_PATH)
+
+    merged: dict[str, dict] = {}
+    for f in files:
+        merged.update(_load_single_attack_patterns_file(f))
+    return merged
 
 
 def build_threat_to_patterns_index(
@@ -164,28 +185,39 @@ def build_threat_to_patterns_index(
 
 
 _DEFAULT_ATTACK_PATTERNS_SSSOM_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "data"
-    / "taxonomies"
-    / "attack-patterns"
-    / "attack-patterns.sssom.tsv"
+    _DEFAULT_ATTACK_PATTERNS_DIR / "attack-patterns.sssom.tsv"
 )
 
 
 def load_attack_pattern_provenance(
     path: str | Path | None = None,
 ) -> list[SSSOMMapping]:
-    """Load the attack-pattern SSSOM TSV provenance file.
+    """Load attack-pattern SSSOM TSV provenance file(s).
+
+    When ``path`` is given, loads just that single file.  When ``path``
+    is ``None``, globs all ``attack-patterns*.sssom.tsv`` files from the
+    default directory and concatenates their mappings.
 
     Args:
-        path: Path to the .sssom.tsv file. Defaults to the one next to
-              the attack-patterns YAML.
+        path: Path to the .sssom.tsv file. Defaults to globbing the
+              attack-patterns directory.
 
     Returns:
         List of SSSOMMapping instances.
     """
-    p = Path(path) if path else _DEFAULT_ATTACK_PATTERNS_SSSOM_PATH
-    return load_sssom(p)
+    if path is not None:
+        return load_sssom(Path(path))
+
+    # Glob all matching SSSOM files from the default directory
+    files = sorted(_DEFAULT_ATTACK_PATTERNS_DIR.glob("attack-patterns*.sssom.tsv"))
+    if not files:
+        # Fallback: try the exact default path (raises FileNotFoundError if missing)
+        return load_sssom(_DEFAULT_ATTACK_PATTERNS_SSSOM_PATH)
+
+    merged: list[SSSOMMapping] = []
+    for f in files:
+        merged.extend(load_sssom(f))
+    return merged
 
 
 def build_pattern_provenance_index(
