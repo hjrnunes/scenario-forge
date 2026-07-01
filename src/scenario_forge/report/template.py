@@ -871,9 +871,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
+  min-width: auto;
   height: 22px;
-  padding: 0 6px;
+  padding: 0 8px;
   border-radius: 4px;
   font-size: 10px;
   font-weight: 700;
