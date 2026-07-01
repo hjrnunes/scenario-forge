@@ -1,0 +1,339 @@
+# Abstract attack patterns for scenario-forge.
+# Domain-agnostic mechanism descriptions for T1 (Memory Poisoning), T2 (Tool Misuse),
+# T3 (Privilege Compromise), and T4 (Resource Overload).
+# Each pattern is derived from an OWASP sub-scenario but strips domain-specific details,
+# describing the attack mechanism rather than a specific target application.
+
+source:
+  name: "scenario-forge abstract attack patterns"
+  version: "0.1.0"
+  derived_from:
+    - "OWASP Agentic AI Threats & Mitigations v1.1"
+    - "NIST AI 100-2e2023"
+
+patterns:
+  # ═══════════════════════════════════════════════════════════════════
+  # T1 — Memory Poisoning (4 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T1-01:
+    id: "AP-T1-01"
+    threat_id: "T1"
+    name: "Persistent memory rule injection"
+    description: >
+      An attacker repeatedly reinforces a false operational rule in the agent's
+      persistent memory until the agent treats it as established fact. Once
+      embedded, the fabricated rule overrides legitimate validation logic,
+      causing the agent to authorize actions that violate its actual constraints.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.targeted_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "memory"]
+      requires_persistent_memory: true
+
+  AP-T1-02:
+    id: "AP-T1-02"
+    threat_id: "T1"
+    name: "Context window saturation for privilege escalation"
+    description: >
+      An attacker fragments a privilege escalation attempt across multiple
+      sessions, exploiting the agent's finite context window. Each fragment
+      stays below detection thresholds individually, but cumulatively the agent
+      loses track of prior authorization state and grants access it should deny.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.targeted_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "memory"]
+
+  AP-T1-03:
+    id: "AP-T1-03"
+    threat_id: "T1"
+    name: "Gradual threat-model erosion via memory drift"
+    description: >
+      An attacker incrementally alters the agent's stored threat definitions or
+      classification criteria over successive interactions. The gradual drift
+      causes the agent to progressively reclassify malicious activity as benign,
+      creating a blind spot that permits undetected attacks.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.targeted_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "memory"]
+      requires_persistent_memory: true
+
+  AP-T1-04:
+    id: "AP-T1-04"
+    threat_id: "T1"
+    name: "Shared memory corruption for cross-agent influence"
+    description: >
+      An attacker writes false operational data into a memory structure shared
+      among multiple agents. Other agents that read from this shared store
+      incorporate the corrupted data into their decision-making, propagating
+      incorrect behavior across the system without direct interaction with each
+      affected agent.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.targeted_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "memory", "inter_agent"]
+      requires_shared_writable_memory: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T2 — Tool Misuse (6 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T2-01:
+    id: "AP-T2-01"
+    threat_id: "T2"
+    name: "Parameter pollution via function-call manipulation"
+    description: >
+      An attacker crafts input that causes the agent to invoke a tool with
+      inflated, malformed, or boundary-violating parameter values. The tool
+      executes within its granted permissions but produces an outcome far
+      outside intended operational bounds, such as amplified quantities or
+      modified recipients.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T2-02:
+    id: "AP-T2-02"
+    threat_id: "T2"
+    name: "Multi-tool chain exploitation for data exfiltration"
+    description: >
+      An attacker manipulates the agent into chaining two or more authorized
+      tools in a sequence the system designer did not anticipate. One tool
+      retrieves sensitive data while a subsequent tool transmits it to an
+      external destination. Each individual tool call appears legitimate,
+      making the composite attack difficult to detect.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T2-03:
+    id: "AP-T2-03"
+    threat_id: "T2"
+    name: "Automated mass-action abuse via tool amplification"
+    description: >
+      An attacker tricks the agent into using its document generation,
+      distribution, or batch-processing tools to perform a high-volume
+      malicious operation. The agent's automation capability amplifies a
+      single deceptive input into a large-scale action such as mass
+      distribution of crafted content.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T2-04:
+    id: "AP-T2-04"
+    threat_id: "T2"
+    name: "Tool misuse via poisoned persistent memory"
+    description: >
+      An attacker injects false directives into the agent's persistent memory
+      in a prior session. In subsequent sessions the agent retrieves the
+      poisoned memory and treats it as legitimate operational context, causing
+      it to invoke tools with unauthorized parameters or targets while
+      bypassing session-level security checks.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "memory", "tool_execution"]
+      requires_persistent_memory: true
+      requires_tool_execution: true
+
+  AP-T2-05:
+    id: "AP-T2-05"
+    threat_id: "T2"
+    name: "Tool misuse via adversarial retrieval content"
+    description: >
+      An attacker inserts adversarially crafted content into a vector store
+      that the agent queries for context. When the agent retrieves this
+      poisoned content, it interprets the embedded directives as legitimate
+      operational guidance, leading to unsafe or unauthorized tool invocations
+      driven by the manipulated retrieval results.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "memory", "tool_execution"]
+      requires_vector_store: true
+      requires_tool_execution: true
+
+  AP-T2-06:
+    id: "AP-T2-06"
+    threat_id: "T2"
+    name: "Tool hijacking via prompt injection"
+    description: >
+      An attacker injects adversarial instructions into user input or an
+      external data source consumed by the agent. The injected prompt
+      overrides or supplements the agent's goal, causing it to invoke a
+      tool — such as a shell, API client, or code interpreter — to execute
+      a command chosen by the attacker.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      requires_tool_execution: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T3 — Privilege Compromise (3 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T3-01:
+    id: "AP-T3-01"
+    threat_id: "T3"
+    name: "Temporary privilege retention via misconfiguration exploitation"
+    description: >
+      An attacker manipulates the agent into requesting temporary elevated
+      privileges under a legitimate pretext. The agent then exploits a
+      misconfiguration in the permission lifecycle to retain those privileges
+      beyond their intended scope, enabling persistent unauthorized access
+      to sensitive resources.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T3-02:
+    id: "AP-T3-02"
+    threat_id: "T3"
+    name: "Cross-boundary authorization escalation"
+    description: >
+      An attacker leverages the agent's authorized access to one system to
+      escalate privileges in a connected system that lacks independent scope
+      enforcement. The agent's credentials or trust relationships carry over
+      across system boundaries, granting access to resources beyond the
+      agent's intended authorization domain.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T3-03:
+    id: "AP-T3-03"
+    threat_id: "T3"
+    name: "Shadow agent credential inheritance"
+    description: >
+      An attacker exploits weak provisioning controls to instantiate an
+      unauthorized agent that inherits or copies legitimate credentials from
+      the hosting environment. The shadow agent operates alongside authorized
+      agents, using inherited permissions to perform actions while evading
+      detection through its apparent legitimacy.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      requires_tool_execution: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T4 — Resource Overload (4 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T4-01:
+    id: "AP-T4-01"
+    threat_id: "T4"
+    name: "Computationally expensive input exploitation"
+    description: >
+      An attacker submits specially crafted inputs that force the agent into
+      resource-intensive processing paths — such as deeply nested reasoning,
+      complex parsing, or exhaustive search. The disproportionate compute
+      cost per request degrades throughput and delays time-sensitive operations.
+    nist_classification:
+      attacker_goal: "availability"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T4-02:
+    id: "AP-T4-02"
+    threat_id: "T4"
+    name: "Multi-agent concurrent resource exhaustion"
+    description: >
+      An attacker triggers multiple agents to perform resource-intensive
+      tasks simultaneously, either by exploiting fan-out mechanisms or by
+      sending parallel requests. The aggregate computational demand exceeds
+      system capacity, degrading service quality across all agents and
+      operations.
+    nist_classification:
+      attacker_goal: "availability"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T4-03:
+    id: "AP-T4-03"
+    threat_id: "T4"
+    name: "External API quota exhaustion"
+    description: >
+      An attacker crafts requests that cause the agent to make excessive
+      calls to rate-limited or quota-bound external APIs. The rapid
+      consumption of API quotas blocks legitimate operations that depend
+      on those external services, creating a denial-of-service condition
+      without directly attacking the agent's infrastructure.
+    nist_classification:
+      attacker_goal: "availability"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T4-04:
+    id: "AP-T4-04"
+    threat_id: "T4"
+    name: "Memory allocation cascade failure"
+    description: >
+      An attacker initiates multiple concurrent tasks that each require
+      substantial memory allocation. The cumulative demand causes memory
+      fragmentation and leaks, leading to cascading failures as the system
+      exhausts available memory and cannot service new or existing requests.
+    nist_classification:
+      attacker_goal: "availability"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
