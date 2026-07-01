@@ -1687,12 +1687,14 @@ def _call_actor_profile(
 - Mechanism: {seed.mechanism_name}
 - Description: {seed.mechanism_description}
 
-## Capability Profile
-- Active zones: {profile.zones_active}
-- Entry points: {profile.entry_points}
-- Persistent memory: {profile.has_persistent_memory}
-- Multi-agent: {profile.multi_agent}
-- Human-in-the-loop: {profile.hitl}
+## Target System Architecture
+The following describes what the target system can and cannot do. \
+Your actor profile must only reference capabilities the system actually has.
+- System components (zones) the attacker can interact with: {profile.zones_active}
+- How an attacker initially accesses the system: {profile.entry_points}
+- Has persistent memory across sessions: {profile.has_persistent_memory}
+- Communicates with other AI agents: {profile.multi_agent}
+- Has human approval gates: {profile.hitl}
 {diversity_section}\
 """
 
@@ -1814,12 +1816,14 @@ def _call_narrative(
 - Mechanism: {seed.mechanism_name}
 - Description: {seed.mechanism_description}
 
-## Capability Profile
-- Active zones: {profile.zones_active}
-- Entry points: {profile.entry_points}
-- Persistent memory: {profile.has_persistent_memory}
-- Multi-agent: {profile.multi_agent}
-- Human-in-the-loop: {profile.hitl}
+## Target System Architecture
+The following describes what the target system can and cannot do. \
+Your attack narrative must only reference capabilities the system actually has.
+- System components (zones) the attacker can interact with: {profile.zones_active}
+- How an attacker initially accesses the system: {profile.entry_points}
+- Has persistent memory across sessions: {profile.has_persistent_memory}
+- Communicates with other AI agents: {profile.multi_agent}
+- Has human approval gates: {profile.hitl}
 
 ## Taxonomy References
 - OWASP LLM IDs: {seed.owasp_llm_ids}
