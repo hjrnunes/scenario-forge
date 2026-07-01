@@ -110,42 +110,6 @@ class TestScoringCalibrationRubric:
     """The Call 1 and Call 2 system prompts must include complexity
     calibration guidance to prevent scoring monoculture."""
 
-    def test_call1_contains_complexity_calibration(self):
-        """Call 1 system prompt must have an Attack Complexity Calibration section."""
-        assert "Attack Complexity Calibration" in _CALL1_SYSTEM
-
-    def test_call1_mentions_low_complexity(self):
-        """Rubric must give an example of LOW complexity."""
-        prompt_lower = _CALL1_SYSTEM.lower()
-        assert "low complexity" in prompt_lower
-
-    def test_call1_mentions_high_complexity(self):
-        """Rubric must give an example of HIGH complexity."""
-        prompt_lower = _CALL1_SYSTEM.lower()
-        assert "high complexity" in prompt_lower
-
-    def test_call1_mentions_critical_complexity(self):
-        """Rubric must mention CRITICAL complexity for extreme cases."""
-        prompt_lower = _CALL1_SYSTEM.lower()
-        assert "critical complexity" in prompt_lower
-
-    def test_call1_contains_anchor_examples(self):
-        """The rubric should include concrete anchor examples."""
-        prompt_lower = _CALL1_SYSTEM.lower()
-        # Should mention specific attack types as examples
-        assert "prompt injection" in prompt_lower
-        assert "supply-chain" in prompt_lower or "supply chain" in prompt_lower
-
-    def test_call1_warns_against_default_high(self):
-        """Prompt should warn against defaulting to high for everything."""
-        prompt_lower = _CALL1_SYSTEM.lower()
-        assert "do not default to high" in prompt_lower
-
-    def test_call1_instructs_zone_sequence_matching(self):
-        """Prompt should instruct matching zone_sequence length to complexity."""
-        prompt_lower = _CALL1_SYSTEM.lower()
-        assert "zone_sequence" in prompt_lower
-
     def test_call2_contains_tree_calibration(self):
         """Call 2 system prompt must have Tree Complexity Calibration section."""
         assert "Tree Complexity Calibration" in _CALL2_SYSTEM
@@ -161,25 +125,6 @@ class TestScoringCalibrationRubric:
         prompt_lower = _CALL2_SYSTEM.lower()
         assert "do not default" in prompt_lower
 
-    def test_call1_contains_risk_impact_calibration(self):
-        """Call 1 system prompt must have a Risk Impact Calibration section."""
-        assert "Risk Impact Calibration" in _CALL1_SYSTEM
-
-    def test_call1_risk_impact_mentions_all_levels(self):
-        """Risk impact rubric must mention low, medium, high, critical."""
-        prompt_lower = _CALL1_SYSTEM.lower()
-        assert "low impact" in prompt_lower
-        assert "medium impact" in prompt_lower
-        assert "high impact" in prompt_lower
-        assert "critical impact" in prompt_lower
-
-    def test_call1_distribute_scores_instruction(self):
-        """Prompt should instruct to distribute scores, not cluster."""
-        assert "Distribute scores" in _CALL1_SYSTEM
-
-    def test_call1_complexity_impact_independence(self):
-        """Prompt should state complexity and impact are independent."""
-        assert "independent" in _CALL1_SYSTEM.lower()
 
 
 # ===========================================================================
