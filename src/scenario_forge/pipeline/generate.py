@@ -581,6 +581,38 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
     "AML.T0071": "Embedding Manipulation",
 }
 
+# ---------------------------------------------------------------------------
+# OWASP LLM Top 10 v2025 name lookup (for descriptive taxonomy refs)
+# ---------------------------------------------------------------------------
+
+_OWASP_LLM_NAMES: dict[str, str] = {
+    "LLM01": "Prompt Injection",
+    "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain Vulnerabilities",
+    "LLM04": "Data and Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
+}
+
+
+def _format_taxonomy_ids(ids: list[str], name_map: dict[str, str]) -> str:
+    """Format a list of taxonomy IDs as 'ID: Name' entries, comma-separated.
+
+    Falls back to the raw ID if no name is found in the lookup dict.
+    """
+    parts = []
+    for tid in ids:
+        name = name_map.get(tid)
+        if name:
+            parts.append(f"{tid}: {name}")
+        else:
+            parts.append(tid)
+    return ", ".join(parts) if parts else "none"
+
 
 # ---------------------------------------------------------------------------
 # Intermediate models for structured output (flattened for LLM reliability)
@@ -1828,10 +1860,10 @@ Your attack narrative must only reference capabilities the system actually has.
 - Communicates with other AI agents: {profile.multi_agent}
 - Has human approval gates: {profile.hitl}
 
-## Taxonomy References
-- OWASP LLM IDs: {seed.owasp_llm_ids}
-- Agentic Threat IDs: {seed.agentic_threat_ids}
-- ATLAS Technique IDs: {seed.atlas_technique_ids}
+## Related Taxonomy Entries
+- OWASP LLM: {_format_taxonomy_ids(seed.owasp_llm_ids, _OWASP_LLM_NAMES)}
+- Agentic Threat: {seed.threat_name}
+- ATLAS Techniques: {_format_taxonomy_ids(seed.atlas_technique_ids, _ATLAS_TECHNIQUE_NAMES)}
 {actor_section}{causal_section}{diversity_section}{pattern_section}{structural_section}\
 """
 
