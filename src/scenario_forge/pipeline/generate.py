@@ -794,7 +794,7 @@ If no causal chain is provided, omit causal_chain_reframed.
 
 ## Actor Profile Grounding
 If an actor profile is provided, ground the narrative in that actor. The \
-actor's type, motivation, capability level, and resources should shape the \
+actor's type, beliefs, desires, intentions, capability level, and resources should shape the \
 attack approach — the "who" is already decided; your job is to write the \
 "how". Match the narrative complexity and sophistication to the actor's \
 capability level. A novice actor uses simple, direct attacks; an expert \
