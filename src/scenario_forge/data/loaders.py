@@ -7,6 +7,7 @@ scenario generation pipeline.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -126,3 +127,36 @@ def load_risk_extraction(path: str | Path) -> list[RiskCard]:
         cards.append(card)
 
     return cards
+
+
+_DEFAULT_ATTACK_PATTERNS_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "attack-patterns"
+    / "attack-patterns.yaml"
+)
+
+
+def load_attack_patterns(
+    path: str | Path | None = None,
+) -> dict[str, dict]:
+    """Load abstract attack patterns YAML, keyed by pattern ID.
+
+    Returns:
+        Dict mapping pattern IDs (e.g. 'AP-T7-01') to their full pattern dicts.
+    """
+    p = Path(path) if path else _DEFAULT_ATTACK_PATTERNS_PATH
+    with open(p) as f:
+        data = yaml.safe_load(f)
+    return dict(data.get("patterns", {}))
+
+
+def build_threat_to_patterns_index(
+    patterns: dict[str, dict],
+) -> dict[str, list[str]]:
+    """Build threat_id -> list of pattern IDs index."""
+    index: dict[str, list[str]] = defaultdict(list)
+    for pid, pattern in patterns.items():
+        index[pattern["threat_id"]].append(pid)
+    return dict(index)

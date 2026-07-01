@@ -223,7 +223,7 @@ class TaxonomyChain(BaseModel):
         description="MITRE ATLAS technique IDs (e.g. ['AML.T0051']). May be empty.",
     )
     scenario_seed: str = Field(
-        description="The OWASP sub-scenario template that seeded this scenario (e.g. 'T2-S1').",
+        description="The attack pattern or sub-scenario that seeded this scenario (e.g. 'AP-T7-01' or 'T2-S1').",
     )
 
 

@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from scenario_forge.data.loaders import load_attack_patterns
 from scenario_forge.models.capability_profile import (
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES as _ZONE_NAMES_TUPLE,
@@ -143,6 +144,7 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
 
 _THREAT_DESCRIPTIONS: dict[str, str] = {}
 _SUB_SCENARIO_INFO: dict[str, dict[str, str]] = {}
+_ATTACK_PATTERN_INFO: dict[str, dict[str, str]] = {}
 
 
 def _load_taxonomy_lookups() -> None:
@@ -179,7 +181,21 @@ def _load_taxonomy_lookups() -> None:
                 }
 
 
+def _load_attack_pattern_lookups() -> None:
+    """Populate _ATTACK_PATTERN_INFO from the attack patterns YAML."""
+    try:
+        patterns = load_attack_patterns()
+        for pid, pat in patterns.items():
+            _ATTACK_PATTERN_INFO[pid] = {
+                "name": pat["name"],
+                "description": pat["description"].strip(),
+            }
+    except FileNotFoundError:
+        pass
+
+
 _load_taxonomy_lookups()
+_load_attack_pattern_lookups()
 
 
 def _truncate(text: str, max_len: int = 200) -> str:
@@ -226,7 +242,12 @@ def _threat_id_tooltip(tid: str) -> str:
 
 
 def _sub_scenario_tooltip(sid: str) -> str:
-    """Return a data-tooltip attribute for a sub-scenario ID like 'T2-S1'."""
+    """Return a data-tooltip attribute for a sub-scenario ID like 'T2-S1' or 'AP-T7-01'."""
+    if sid.startswith("AP-") and sid in _ATTACK_PATTERN_INFO:
+        info = _ATTACK_PATTERN_INFO[sid]
+        name = _esc(info["name"])
+        desc = _truncate(_esc(info["description"]), 200)
+        return f' data-tooltip="{name}: {desc}"'
     info = _SUB_SCENARIO_INFO.get(sid)
     if info:
         name = info.get("name", "")
