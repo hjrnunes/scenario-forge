@@ -1659,11 +1659,11 @@ def _call_actor_profile(
 ## Use Case
 {use_case}
 
-## OWASP Sub-Scenario Seed
+## Attack Mechanism Seed
 - Seed ID: {seed.seed_id}
 - Threat: {seed.threat_name} ({seed.threat_id})
-- Sub-scenario: {seed.sub_scenario_name}
-- Description: {seed.sub_scenario_description}
+- Mechanism: {seed.mechanism_name}
+- Description: {seed.mechanism_description}
 
 ## Capability Profile
 - Active zones: {profile.zones_active}
@@ -1786,11 +1786,11 @@ def _call_narrative(
 ## Use Case
 {use_case}
 
-## OWASP Sub-Scenario Seed
+## Attack Mechanism Seed
 - Seed ID: {seed.seed_id}
 - Threat: {seed.threat_name} ({seed.threat_id})
-- Sub-scenario: {seed.sub_scenario_name}
-- Description: {seed.sub_scenario_description}
+- Mechanism: {seed.mechanism_name}
+- Description: {seed.mechanism_description}
 
 ## Capability Profile
 - Active zones: {profile.zones_active}

@@ -45,8 +45,8 @@ def _make_seed() -> ScenarioSeed:
         seed_id="T1-S1",
         threat_id="T1",
         threat_name="Test Threat",
-        sub_scenario_name="Test Sub-Scenario",
-        sub_scenario_description="A test description",
+        mechanism_name="Test Sub-Scenario",
+        mechanism_description="A test description",
         risk_card_ref=RiskCardRef(
             risk_id="test-risk",
             risk_name="Test Risk",

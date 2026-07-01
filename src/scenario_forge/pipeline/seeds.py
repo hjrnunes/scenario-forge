@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from scenario_forge.data.loaders import load_agentic_threats
+from scenario_forge.data.loaders import load_agentic_threats, load_attack_patterns
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.threats import ThreatSurface
 
@@ -28,8 +28,9 @@ class ScenarioSeed(BaseModel):
     seed_id: str = Field(description="Sub-scenario ID, e.g. 'T2-S1'.")
     threat_id: str = Field(description="Parent threat ID, e.g. 'T2'.")
     threat_name: str
-    sub_scenario_name: str
-    sub_scenario_description: str
+    mechanism_name: str
+    mechanism_description: str
+    owasp_sub_scenario_ref: str | None = None
     risk_card_ref: RiskCardRef
     contributing_risk_cards: list[RiskCardRef] = Field(
         default_factory=list,
@@ -59,12 +60,14 @@ def _build_sub_scenario_lookup(
 def expand_seeds(
     threat_surface: ThreatSurface,
     threats_path: str | Path | None = None,
+    attack_patterns_path: str | Path | None = None,
 ) -> list[ScenarioSeed]:
     """Expand threat surface entries into individual scenario seeds.
 
     Args:
         threat_surface: Output from Stage 2.
         threats_path: Optional path to OWASP agentic threats YAML.
+        attack_patterns_path: Optional path to abstract attack patterns YAML.
 
     Returns:
         List of ScenarioSeed, one per in-scope sub-scenario.
@@ -72,6 +75,16 @@ def expand_seeds(
     path = Path(threats_path) if threats_path else _DEFAULT_THREATS_PATH
     threats = load_agentic_threats(path)
     sub_lookup = _build_sub_scenario_lookup(threats)
+
+    # Load abstract attack patterns (if available)
+    patterns = load_attack_patterns(attack_patterns_path)
+    # Build reverse lookup: owasp_sub_scenario_id -> pattern
+    owasp_to_pattern: dict[str, dict] = {}
+    for pid, pat in patterns.items():
+        ref = pat.get("example_reference", {})
+        owasp_id = ref.get("owasp_id")
+        if owasp_id:
+            owasp_to_pattern[owasp_id] = pat
 
     seen: dict[str, ScenarioSeed] = {}
 
@@ -84,9 +97,22 @@ def expand_seeds(
             if sub is None:
                 continue
 
-            if sub_id in seen:
+            # Check if an abstract pattern exists for this sub-scenario
+            pattern = owasp_to_pattern.get(sub_id)
+            if pattern:
+                effective_id = pattern["id"]
+                mechanism_name = pattern["name"]
+                mechanism_desc = pattern["description"].strip()
+                owasp_ref = sub_id
+            else:
+                effective_id = sub_id
+                mechanism_name = sub["name"]
+                mechanism_desc = sub["description"]
+                owasp_ref = None
+
+            if effective_id in seen:
                 # Merge: union taxonomy IDs, collect contributing risk cards
-                existing = seen[sub_id]
+                existing = seen[effective_id]
                 merged_owasp = list(
                     dict.fromkeys(existing.owasp_llm_ids + entry.owasp_llm_ids)
                 )
@@ -106,7 +132,7 @@ def expand_seeds(
                 if entry.risk_card.risk_id not in known_ids:
                     new_contribs.append(entry.risk_card)
 
-                seen[sub_id] = existing.model_copy(
+                seen[effective_id] = existing.model_copy(
                     update={
                         "owasp_llm_ids": merged_owasp,
                         "agentic_threat_ids": merged_agentic,
@@ -115,12 +141,13 @@ def expand_seeds(
                     }
                 )
             else:
-                seen[sub_id] = ScenarioSeed(
-                    seed_id=sub_id,
+                seen[effective_id] = ScenarioSeed(
+                    seed_id=effective_id,
                     threat_id=sub["threat_id"],
                     threat_name=sub["threat_name"],
-                    sub_scenario_name=sub["name"],
-                    sub_scenario_description=sub["description"],
+                    mechanism_name=mechanism_name,
+                    mechanism_description=mechanism_desc,
+                    owasp_sub_scenario_ref=owasp_ref,
                     risk_card_ref=entry.risk_card,
                     contributing_risk_cards=[entry.risk_card],
                     owasp_llm_ids=entry.owasp_llm_ids,

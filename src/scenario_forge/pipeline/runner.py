@@ -143,7 +143,7 @@ def _remediate_coverage_gaps(
             "  Remediating entry point '%s' with seed %s (%s)...",
             ep,
             seed.seed_id,
-            seed.sub_scenario_name,
+            seed.mechanism_name,
         )
 
         try:
@@ -304,7 +304,7 @@ def run_pipeline(
     num_actor_types = len(ACTOR_TYPES)
 
     for i, seed in enumerate(seeds, 1):
-        label = f"{seed.seed_id}: {seed.sub_scenario_name}"
+        label = f"{seed.seed_id}: {seed.mechanism_name}"
         logger.info("  [%d/%d] %s...", i, len(seeds), label)
 
         # Determine entry point hint for this seed based on affinity + diversity.
