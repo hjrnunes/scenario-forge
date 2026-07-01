@@ -1,0 +1,324 @@
+# Abstract attack patterns for scenario-forge (Batch B: T5/T6/T11/T13).
+# Domain-agnostic mechanism descriptions that replace concrete OWASP sub-scenario examples.
+# Each pattern is derived from an OWASP sub-scenario but strips domain-specific details,
+# describing the attack mechanism rather than a specific target application.
+
+source:
+  name: "scenario-forge abstract attack patterns"
+  version: "0.1.0"
+  derived_from:
+    - "OWASP Agentic AI Threats & Mitigations v1.1"
+    - "NIST AI 100-2e2023"
+
+patterns:
+  # ═══════════════════════════════════════════════════════════════════
+  # T5 — Cascading Hallucination Attacks (4 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T5-01:
+    id: "AP-T5-01"
+    threat_id: "T5"
+    name: "Progressive misinformation accumulation in persistent memory"
+    description: >
+      An attacker injects subtly false information into an agent's responses,
+      which the agent then stores in its long-term memory. Over successive
+      interactions the fabricated data compounds, producing progressively
+      more distorted outputs as the agent treats its own prior hallucinations
+      as authoritative source material.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.integrity_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "memory"]
+      requires_persistent_memory: true
+
+  AP-T5-02:
+    id: "AP-T5-02"
+    threat_id: "T5"
+    name: "Hallucinated endpoint injection for data exfiltration"
+    description: >
+      An attacker introduces references to fictitious external endpoints
+      into the agent's context. The agent, unable to distinguish the
+      fabricated endpoints from legitimate ones, generates calls to
+      attacker-controlled services, leaking sensitive data from its
+      operational context in the process.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.integrity_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "memory"]
+      requires_persistent_memory: true
+
+  AP-T5-03:
+    id: "AP-T5-03"
+    threat_id: "T5"
+    name: "Self-reinforcing hallucination amplification in decision chains"
+    description: >
+      An attacker plants a false factual claim into an agent's reasoning
+      context. As the agent builds subsequent decisions on top of the
+      fabricated premise, each reasoning step amplifies the original
+      hallucination, producing increasingly dangerous recommendations
+      that compound through the decision chain.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.integrity_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "memory"]
+      requires_persistent_memory: true
+
+  AP-T5-04:
+    id: "AP-T5-04"
+    threat_id: "T5"
+    name: "Fabricated reference data injection for value manipulation"
+    description: >
+      An attacker injects false quantitative reference data into an agent's
+      context, causing the agent to negotiate, transact, or make decisions
+      based on unrealistic values. The hallucinated data persists across
+      interactions, systematically biasing all downstream computations that
+      depend on the corrupted reference values.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.integrity_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "memory"]
+      requires_persistent_memory: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T6 — Intent Breaking & Goal Manipulation (5 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T6-01:
+    id: "AP-T6-01"
+    threat_id: "T6"
+    name: "Incremental sub-goal injection for plan drift"
+    description: >
+      An attacker incrementally injects auxiliary sub-goals into the agent's
+      planning framework over multiple interactions. Each injected sub-goal
+      appears benign in isolation, but their cumulative effect gradually
+      shifts the agent's plan away from its original objective while
+      maintaining the surface appearance of coherent reasoning.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.direct_prompt_injection.jailbreak"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T6-02:
+    id: "AP-T6-02"
+    threat_id: "T6"
+    name: "Direct instruction override for tool-chain hijacking"
+    description: >
+      An attacker issues an explicit instruction that commands the agent
+      to discard its original directives and instead execute an attacker-
+      specified sequence of tool invocations. The agent's lack of robust
+      instruction-data separation causes it to treat the injected command
+      as authoritative, executing unauthorized action chains.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.direct_prompt_injection.jailbreak"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T6-03:
+    id: "AP-T6-03"
+    threat_id: "T6"
+    name: "Indirect goal redirection via poisoned tool output"
+    description: >
+      A compromised or malicious data source returns output containing
+      hidden instructions that the agent misinterprets as part of its
+      operational goal. The agent incorporates the injected objective
+      into its plan without recognizing the boundary between data and
+      instruction, leading to unintended actions such as data exfiltration.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T6-04:
+    id: "AP-T6-04"
+    threat_id: "T6"
+    name: "Reflection loop resource exhaustion trap"
+    description: >
+      An attacker crafts input that triggers the agent's self-evaluation
+      or reflection mechanism into an unbounded loop. The agent repeatedly
+      re-analyzes its own output, consuming computational resources and
+      preventing it from completing real-time tasks, effectively creating
+      a denial-of-service condition through the agent's own reasoning process.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.direct_prompt_injection.jailbreak"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T6-05:
+    id: "AP-T6-05"
+    threat_id: "T6"
+    name: "Self-improvement mechanism corruption"
+    description: >
+      An attacker manipulates the agent's meta-learning or self-improvement
+      mechanisms by introducing adversarial feedback patterns. The agent's
+      adaptation process incorporates the malicious patterns, progressively
+      degrading its decision-making integrity as it optimizes toward
+      attacker-influenced objectives across successive learning cycles.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T11 — Unexpected RCE and Code Attacks (3 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T11-01:
+    id: "AP-T11-01"
+    threat_id: "T11"
+    name: "Infrastructure-as-code injection via agent code generation"
+    description: >
+      An attacker manipulates an agent with code-generation capabilities
+      into producing infrastructure configuration scripts that contain
+      embedded malicious commands. The generated code passes superficial
+      review because the harmful payloads are concealed within legitimate-
+      looking configuration directives, enabling secret extraction or
+      security control disablement upon execution.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+
+  AP-T11-02:
+    id: "AP-T11-02"
+    threat_id: "T11"
+    name: "Workflow automation backdoor insertion"
+    description: >
+      An agent responsible for generating or modifying automation workflows
+      is manipulated into embedding backdoor logic within the generated
+      scripts. The backdoor persists across workflow executions, bypassing
+      security validation checks that inspect only the declared workflow
+      structure rather than the full executable content.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+
+  AP-T11-03:
+    id: "AP-T11-03"
+    threat_id: "T11"
+    name: "Linguistic ambiguity exploitation for command injection"
+    description: >
+      An attacker crafts natural-language input containing deliberate
+      ambiguities that the agent resolves into executable commands with
+      unintended semantics. The gap between the agent's language
+      interpretation and the execution environment's command parsing
+      creates an injection vector that bypasses intent-based security
+      filters operating at the natural-language layer.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T13 — Rogue Agents in Multi-Agent Systems (4 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T13-01:
+    id: "AP-T13-01"
+    threat_id: "T13"
+    name: "Trust-exploiting workflow injection by rogue agent"
+    description: >
+      A compromised or malicious agent exploits inter-agent trust
+      mechanisms to inject unauthorized tasks into a multi-agent workflow.
+      By impersonating a legitimate agent role, the rogue agent bypasses
+      validation controls and inserts fraudulent operations that other
+      agents process as authenticated workflow steps.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T13-02:
+    id: "AP-T13-02"
+    threat_id: "T13"
+    name: "Orchestration hijacking via fragmented approval chains"
+    description: >
+      A rogue agent manipulates the orchestration layer of a multi-agent
+      system by routing tasks through multiple lower-privilege agents in
+      sequence. Each agent approves only its fragment of the request,
+      and no single agent sees the full operation, allowing the rogue
+      agent to assemble fragmented approvals into authorization for an
+      action that would fail holistic validation.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T13-03:
+    id: "AP-T13-03"
+    threat_id: "T13"
+    name: "Coordinated task flooding by colluding agents"
+    description: >
+      Multiple compromised agents simultaneously generate excessive task
+      requests targeting shared computational resources. The coordinated
+      flood overwhelms the system's scheduling and resource allocation
+      mechanisms, degrading performance for legitimate agents and delaying
+      time-sensitive decision-making processes.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T13-04:
+    id: "AP-T13-04"
+    threat_id: "T13"
+    name: "Infectious reasoning-chain backdoor propagation"
+    description: >
+      A single compromised agent embeds malicious logic within its
+      reasoning chain outputs. As other agents in the multi-agent system
+      consume these outputs as inputs to their own reasoning, the
+      backdoor logic silently propagates across the agent network,
+      creating a self-spreading compromise that persists even if the
+      original rogue agent is isolated.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
