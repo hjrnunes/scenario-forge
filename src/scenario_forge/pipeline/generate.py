@@ -741,8 +741,8 @@ tool execution for a system without tool_execution zone).\
 
 _CALL1_SYSTEM = """\
 You are a security red-team analyst using Schneider's five-zone threat model \
-for AI/LLM systems. Your task is to rewrite a generic OWASP sub-scenario \
-into a concrete, use-case-specific attack narrative.
+for AI/LLM systems. Your task is to write a concrete, use-case-specific \
+attack narrative based on the attack mechanism seed provided.
 
 ## Schneider Zones (use these exact names)
 - input: Input Surfaces
@@ -752,8 +752,8 @@ into a concrete, use-case-specific attack narrative.
 - inter_agent: Inter-Agent Communication
 
 ## Instructions
-1. Rewrite the generic sub-scenario description into an attack narrative \
-specific to the target system described in the use case.
+1. Write an attack narrative specific to the target system described in \
+the use case, based on the attack mechanism seed provided.
 2. Walk the attack through the system's active Schneider zones.
 3. Determine the entry point from the attack's ACTUAL initial access vector \
 — where does the attacker first interact with or compromise the system? Do \
