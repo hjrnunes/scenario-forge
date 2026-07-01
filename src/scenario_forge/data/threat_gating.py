@@ -12,9 +12,9 @@ Gating categories:
   - HITL-gated (hitl=true): T10
   - Multi-agent-gated (multi_agent=true): T12, T13, T14
 
-Sub-scenario filtering applies additional checks within gated threats
-(e.g. T1-S4 requires shared writable memory, T2-S4 requires persistent
-memory, T2-S5 requires a vector store).
+Sub-scenario filtering evaluates ``prerequisite_capabilities`` defined
+in each attack pattern to apply additional checks within gated threats
+(e.g. shared writable memory, vector store, tool execution zone).
 """
 
 from __future__ import annotations
@@ -215,122 +215,40 @@ def _filter_sub_scenarios(
     threat_id: str,
     all_sub_scenarios: list[str],
     profile: CapabilityProfile,
-    sub_scenario_to_pattern: dict[str, dict] | None = None,
+    sub_scenario_to_pattern: dict[str, dict],
 ) -> list[str]:
-    """Apply sub-scenario gating rules for specific threats.
+    """Apply data-driven sub-scenario gating for a threat.
 
-    Uses a two-tier approach:
-      1. **Data-driven**: If ``sub_scenario_to_pattern`` is provided and a
-         sub-scenario has an associated pattern with ``prerequisite_capabilities``,
-         evaluate those capabilities against the profile.
-      2. **Hardcoded fallback**: For sub-scenarios without a pattern or without
-         ``prerequisite_capabilities``, fall back to the original rules:
-           - T1-S4: only if shared writable memory exists
-           - T2-S4: only if has_persistent_memory is true
-           - T2-S5: only if vector_store is in memory_mechanisms
-           - T15-S1, T15-S2: only if tool_execution zone is active
+    For each sub-scenario that has an associated attack pattern with
+    ``prerequisite_capabilities``, evaluates those capabilities against
+    the profile.  Sub-scenarios whose prerequisites are not met are
+    excluded from the returned list.
     """
     excluded: set[str] = set()
 
-    # Track which sub-scenarios were handled by data-driven evaluation
-    data_driven_handled: set[str] = set()
+    for sub_id in all_sub_scenarios:
+        pattern = sub_scenario_to_pattern.get(sub_id)
+        if pattern is None:
+            continue
+        prereqs = pattern.get("prerequisite_capabilities")
+        if prereqs is None:
+            continue
 
-    # --- Tier 1: Data-driven evaluation ---
-    if sub_scenario_to_pattern:
-        for sub_id in all_sub_scenarios:
-            pattern = sub_scenario_to_pattern.get(sub_id)
-            if pattern is None:
-                continue
-            prereqs = pattern.get("prerequisite_capabilities")
-            if prereqs is None:
-                continue
-
-            data_driven_handled.add(sub_id)
-            if not _evaluate_prerequisite_capabilities(prereqs, profile):
-                excluded.add(sub_id)
-                logger.warning(
-                    "Gating FILTERED %s (data-driven): prerequisite_capabilities "
-                    "not met (pattern=%s)",
-                    sub_id,
-                    pattern.get("id", "unknown"),
-                )
-            else:
-                logger.info(
-                    "Gating PASSED %s (data-driven): prerequisite_capabilities "
-                    "satisfied (pattern=%s)",
-                    sub_id,
-                    pattern.get("id", "unknown"),
-                )
-
-    # --- Tier 2: Hardcoded fallback for sub-scenarios not handled above ---
-    if threat_id == "T1":
-        if "T1-S4" not in data_driven_handled:
-            has_swm = _has_shared_writable_memory(profile)
-            if not has_swm:
-                excluded.add("T1-S4")
-                logger.warning(
-                    "Gating FILTERED T1-S4: _has_shared_writable_memory=False "
-                    "(memory_mechanisms=%s, has_persistent_memory=%s)",
-                    "present" if profile.memory_mechanisms is not None else "None",
-                    profile.has_persistent_memory,
-                )
-            else:
-                logger.info(
-                    "Gating PASSED T1-S4: _has_shared_writable_memory=True "
-                    "(memory_mechanisms=%s, has_persistent_memory=%s)",
-                    "present" if profile.memory_mechanisms is not None else "None",
-                    profile.has_persistent_memory,
-                )
-
-    elif threat_id == "T2":
-        if "T2-S4" not in data_driven_handled:
-            if not profile.has_persistent_memory:
-                excluded.add("T2-S4")
-                logger.warning(
-                    "Gating FILTERED T2-S4: has_persistent_memory=False",
-                )
-            else:
-                logger.info(
-                    "Gating PASSED T2-S4: has_persistent_memory=True",
-                )
-
-        if "T2-S5" not in data_driven_handled:
-            has_vs = _has_vector_store(profile)
-            if not has_vs:
-                excluded.add("T2-S5")
-                logger.warning(
-                    "Gating FILTERED T2-S5: _has_vector_store=False "
-                    "(memory_mechanisms=%s, has_persistent_memory=%s)",
-                    "present" if profile.memory_mechanisms is not None else "None",
-                    profile.has_persistent_memory,
-                )
-            else:
-                logger.info(
-                    "Gating PASSED T2-S5: _has_vector_store=True "
-                    "(memory_mechanisms=%s, has_persistent_memory=%s)",
-                    "present" if profile.memory_mechanisms is not None else "None",
-                    profile.has_persistent_memory,
-                )
-
-    elif threat_id == "T15":
-        unflagged_t15 = {"T15-S1", "T15-S2"} - data_driven_handled
-        if unflagged_t15:
-            zone_3_active = "tool_execution" in profile.zones_active
-            if not zone_3_active:
-                excluded.update(unflagged_t15)
-                logger.warning(
-                    "Gating FILTERED %s: tool_execution zone not active "
-                    "(zones_active=%s) — both seeds assume indirect prompt "
-                    "injection via external content ingestion",
-                    sorted(unflagged_t15),
-                    profile.zones_active,
-                )
-            else:
-                logger.info(
-                    "Gating PASSED %s: tool_execution zone active (zones_active=%s)",
-                    sorted(unflagged_t15),
-                    profile.zones_active,
-                )
+        if not _evaluate_prerequisite_capabilities(prereqs, profile):
+            excluded.add(sub_id)
+            logger.warning(
+                "Gating FILTERED %s: prerequisite_capabilities "
+                "not met (pattern=%s)",
+                sub_id,
+                pattern.get("id", "unknown"),
+            )
+        else:
+            logger.info(
+                "Gating PASSED %s: prerequisite_capabilities "
+                "satisfied (pattern=%s)",
+                sub_id,
+                pattern.get("id", "unknown"),
+            )
 
     return [s for s in all_sub_scenarios if s not in excluded]
 
@@ -361,24 +279,16 @@ def determine_threat_scope(
     path = Path(threats_path) if threats_path else _DEFAULT_THREATS_PATH
     threats = load_agentic_threats(path)
 
-    # Load attack patterns and provenance once for data-driven gating
-    sub_scenario_to_pattern: dict[str, dict] = {}
-    try:
-        patterns = load_attack_patterns()
-        prov_mappings = load_attack_pattern_provenance()
-        prov_index = build_pattern_provenance_index(prov_mappings)
-        sub_scenario_to_pattern = _build_sub_scenario_to_pattern(patterns, prov_index)
-        logger.info(
-            "Loaded %d attack patterns, mapped %d sub-scenarios for data-driven gating",
-            len(patterns),
-            len(sub_scenario_to_pattern),
-        )
-    except Exception:
-        logger.debug(
-            "Could not load attack patterns for data-driven gating; "
-            "falling back to hardcoded rules only",
-            exc_info=True,
-        )
+    # Load attack patterns and provenance for data-driven gating
+    patterns = load_attack_patterns()
+    prov_mappings = load_attack_pattern_provenance()
+    prov_index = build_pattern_provenance_index(prov_mappings)
+    sub_scenario_to_pattern = _build_sub_scenario_to_pattern(patterns, prov_index)
+    logger.info(
+        "Loaded %d attack patterns, mapped %d sub-scenarios for data-driven gating",
+        len(patterns),
+        len(sub_scenario_to_pattern),
+    )
 
     in_scope: list[ThreatScopeEntry] = []
     out_of_scope_groups: dict[str, list[str]] = {}
