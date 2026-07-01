@@ -741,11 +741,16 @@ tool execution for a system without tool_execution zone).\
 """
 
 _CALL1_SYSTEM = """\
-You are a security red-team analyst using Schneider's five-zone threat model \
-for AI/LLM systems. Your task is to write a concrete, use-case-specific \
-attack narrative based on the attack mechanism seed provided.
+You are a security red-team analyst. Your task is to write a concrete, \
+use-case-specific attack narrative based on the attack mechanism seed provided.
 
-## Schneider Zones (use these exact names)
+You will use a five-zone model that divides an AI system into architectural \
+layers an attack may traverse: input surfaces (where external data enters), \
+planning & reasoning (the LLM's internal processing), tool execution \
+(external actions the system can take), memory & state (persistent data the \
+system maintains), and inter-agent communication (messages between AI agents).
+
+## Zones (use these exact names)
 - input: Input Surfaces
 - reasoning: Planning & Reasoning
 - tool_execution: Tool Execution
@@ -755,7 +760,7 @@ attack narrative based on the attack mechanism seed provided.
 ## Instructions
 1. Write an attack narrative specific to the target system described in \
 the use case, based on the attack mechanism seed provided.
-2. Walk the attack through the system's active Schneider zones.
+2. Walk the attack through the system's active zones.
 3. Determine the entry point from the attack's ACTUAL initial access vector \
 — where does the attacker first interact with or compromise the system? Do \
 NOT default to the most common entry point (e.g., "user prompts via chat \
@@ -837,7 +842,9 @@ zone annotation must be drawn from the active zone list.\
 
 _CALL2_SYSTEM = """\
 You are a security analyst formalizing an attack narrative into a structured \
-AND/OR attack tree following Schneider's methodology.
+AND/OR attack tree. The narrative uses a five-zone model that divides an AI \
+system into architectural layers: input surfaces, planning & reasoning, tool \
+execution, memory & state, and inter-agent communication.
 
 ## Output Format
 Produce a YAML document with this structure:
@@ -986,7 +993,7 @@ The FIRST Given step MUST reference the narrative's entry point using its \
 key terms (e.g. "Given access to the user text prompt interface (input)").
 - `When`/`And` steps describe attack phases. Each step must end with \
 the zone name in parentheses (e.g. `(input)`, `(reasoning)`) indicating \
-the Schneider zone where the phase occurs.
+the architectural zone where the phase occurs.
 - `Then` is the primary behavioral success criterion — what the attack achieves.
 - `But` is a contrasting/negative assertion — what defense should fire but \
 does not.
