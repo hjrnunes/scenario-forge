@@ -2128,11 +2128,21 @@ def _assemble_envelope(
         notes=notes if notes else None,
     )
 
+    scenario_seed_metadata = {
+        "seed_id": seed.seed_id,
+        "threat_id": seed.threat_id,
+        "threat_name": seed.threat_name,
+        "mechanism_name": seed.mechanism_name,
+        "mechanism_description": seed.mechanism_description,
+        "owasp_sub_scenario_ref": seed.owasp_sub_scenario_ref,
+    }
+
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         version=1,
         generated_at=datetime.now(UTC),
         generator_version=_GENERATOR_VERSION,
+        scenario_seed_metadata=scenario_seed_metadata,
         actor_profile=actor_profile,
         narrative=narrative,
         attack_tree=attack_tree,

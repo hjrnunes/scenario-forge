@@ -2912,6 +2912,91 @@ def _build_provenance_block(scenario_seed: str) -> str:
         </div>"""
 
 
+def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
+    """Build a Scenario Seed section from scenario_seed_metadata.
+
+    Returns an HTML block showing the seed's mechanism name, description,
+    threat context, and OWASP origin. Returns empty string when metadata
+    is absent.
+    """
+    meta = scenario.get("scenario_seed_metadata")
+    if not meta:
+        return ""
+
+    mechanism_name = meta.get("mechanism_name", "")
+    mechanism_description = meta.get("mechanism_description", "")
+    seed_id = meta.get("seed_id", "")
+    threat_id = meta.get("threat_id", "")
+    threat_name = meta.get("threat_name", "")
+    owasp_ref = meta.get("owasp_sub_scenario_ref", "")
+
+    if not mechanism_name and not seed_id:
+        return ""
+
+    # Threat span with tooltip
+    threat_html = ""
+    if threat_id:
+        tip = _threat_id_tooltip(threat_id)
+        threat_label = (
+            f"{_esc(threat_id)} &mdash; {_esc(threat_name)}"
+            if threat_name
+            else _esc(threat_id)
+        )
+        threat_html = (
+            f"<span><strong>Threat:</strong> <span{tip}>{threat_label}</span></span>"
+        )
+
+    # Origin span
+    origin_html = ""
+    if owasp_ref:
+        origin_tip = _sub_scenario_tooltip(owasp_ref)
+        origin_html = (
+            f"<span><strong>Origin:</strong> "
+            f"<span{origin_tip}>{_esc(owasp_ref)}</span></span>"
+        )
+
+    # Seed ID span
+    seed_html = ""
+    if seed_id:
+        seed_html = f"<span><strong>Seed:</strong> {_esc(seed_id)}</span>"
+
+    meta_row_items = " ".join(
+        item for item in [seed_html, threat_html, origin_html] if item
+    )
+
+    # Mechanism description (truncated for display)
+    desc_html = ""
+    if mechanism_description:
+        desc_html = (
+            f'<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">'
+            f"{_esc(mechanism_description)}"
+            f"</div>"
+        )
+
+    # Mechanism name
+    name_html = ""
+    if mechanism_name:
+        name_html = (
+            f'<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">'
+            f"{_esc(mechanism_name)}"
+            f"</div>"
+        )
+
+    return f"""
+        <div class="scenario-section">
+          <details class="expandable" open>
+            <summary>Scenario Seed</summary>
+            <div style="padding:12px 0 4px;">
+              {name_html}
+              {desc_html}
+              <div style="display:flex;gap:16px;font-size:12px;">
+                {meta_row_items}
+              </div>
+            </div>
+          </details>
+        </div>"""
+
+
 def _build_scenario_card(
     scenario: dict[str, Any],
     feature_files: dict[str, str],
@@ -2962,6 +3047,9 @@ def _build_scenario_card(
     # SSSOM provenance for AP-* scenario seeds
     scenario_seed = tc.get("scenario_seed", "")
     provenance_html = _build_provenance_block(scenario_seed)
+
+    # Scenario seed metadata
+    seed_metadata_html = _build_seed_metadata_block(scenario)
 
     # LLM call log section
     call_log_html = ""
@@ -3035,6 +3123,7 @@ def _build_scenario_card(
       <div class="scenario-body">
         {_build_actor_profile_block(scenario)}
         {provenance_html}
+        {seed_metadata_html}
 
         <div class="scenario-section">
           <div class="scenario-section-title">Narrative</div>

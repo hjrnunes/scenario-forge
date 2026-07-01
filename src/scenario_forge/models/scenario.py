@@ -97,8 +97,12 @@ class NarrativeStep(BaseModel):
 
     step_number: int = Field(description="Sequence number of this step.")
     zone: str = Field(description="Schneider zone where this step occurs.")
-    action: str = Field(description="What the attacker does at this step (adversarial voice).")
-    effect: str = Field(description="What happens as a result -- system response or state change.")
+    action: str = Field(
+        description="What the attacker does at this step (adversarial voice)."
+    )
+    effect: str = Field(
+        description="What happens as a result -- system response or state change."
+    )
     control_point: Optional[str] = Field(
         default=None,
         description="Defensive control at this step, if one exists.",
@@ -109,9 +113,15 @@ class CausalChainReframed(BaseModel):
     """The risk card causal chain reframed from policy-voice to adversarial-voice."""
 
     threat: str = Field(description="The threat reframed in adversarial voice.")
-    threat_source: str = Field(description="The threat source reframed in adversarial voice.")
-    vulnerability: str = Field(description="The vulnerability reframed in adversarial voice.")
-    consequence: str = Field(description="The consequence reframed in adversarial voice.")
+    threat_source: str = Field(
+        description="The threat source reframed in adversarial voice."
+    )
+    vulnerability: str = Field(
+        description="The vulnerability reframed in adversarial voice."
+    )
+    consequence: str = Field(
+        description="The consequence reframed in adversarial voice."
+    )
     impact: str = Field(description="The impact reframed in adversarial voice.")
 
 
@@ -119,7 +129,9 @@ class NarrativeLayer(BaseModel):
     """Layer 1: Schneider-style attack narrative with structured steps."""
 
     title: str = Field(description="Human-readable scenario title.")
-    summary: str = Field(description="One-paragraph executive summary in adversarial voice.")
+    summary: str = Field(
+        description="One-paragraph executive summary in adversarial voice."
+    )
     entry_point: str = Field(
         description="Entry point from the capability profile (e.g. 'user prompts (zone 1)').",
     )
@@ -142,15 +154,15 @@ class NarrativeLayer(BaseModel):
 # ---------------------------------------------------------------------------
 
 ActorType = Literal[
-    "cybercriminal",       # External, financially motivated (data theft, fraud, ransomware)
-    "nation-state",        # State-sponsored, well-resourced, strategic objectives
-    "malicious-insider",   # Privileged user acting deliberately (poisons data, abuses admin access)
-    "negligent-insider",   # Legitimate user, unintentional harm (pastes secrets, misconfigures)
-    "competitor",          # Rival organization (IP theft, output sabotage, reverse-engineering)
-    "hacktivist",          # Ideologically motivated (disruption, exposure, defacement)
+    "cybercriminal",  # External, financially motivated (data theft, fraud, ransomware)
+    "nation-state",  # State-sponsored, well-resourced, strategic objectives
+    "malicious-insider",  # Privileged user acting deliberately (poisons data, abuses admin access)
+    "negligent-insider",  # Legitimate user, unintentional harm (pastes secrets, misconfigures)
+    "competitor",  # Rival organization (IP theft, output sabotage, reverse-engineering)
+    "hacktivist",  # Ideologically motivated (disruption, exposure, defacement)
     "supply-chain-actor",  # Compromised upstream dependency (plugin, data source, tool, model provider)
-    "adversarial-user",    # End-user deliberately weaponizing the AI (jailbreaking, prompt injection)
-    "automated-agent",     # Another AI/bot attacking programmatically (agent-to-agent, automated injection)
+    "adversarial-user",  # End-user deliberately weaponizing the AI (jailbreaking, prompt injection)
+    "automated-agent",  # Another AI/bot attacking programmatically (agent-to-agent, automated injection)
 ]
 
 ACTOR_TYPES: list[str] = list(ActorType.__args__)  # type: ignore[attr-defined]
@@ -188,10 +200,14 @@ class ActorProfile(BaseModel):
 class RiskCardRef(BaseModel):
     """Provenance linking back to the input risk card."""
 
-    risk_id: str = Field(description="Risk taxonomy ID (e.g. 'atlas-prompt-injection').")
+    risk_id: str = Field(
+        description="Risk taxonomy ID (e.g. 'atlas-prompt-injection')."
+    )
     risk_name: str = Field(description="Human-readable risk name from the risk card.")
     risk_description: str = Field(description="Risk description from the risk card.")
-    taxonomy: Literal["ibm-risk-atlas"] = Field(description="Source taxonomy identifier.")
+    taxonomy: Literal["ibm-risk-atlas"] = Field(
+        description="Source taxonomy identifier."
+    )
     confidence: float = Field(
         description="Cross-encoder confidence score from the risk card (0.0 - 1.0).",
         ge=0.0,
@@ -245,7 +261,9 @@ class CapabilityProfileRef(BaseModel):
 class FacetingMetadata(BaseModel):
     """Layer 4: Structured metadata enabling queries across the scenario collection."""
 
-    risk_card: RiskCardRef = Field(description="Provenance linking to the input risk card.")
+    risk_card: RiskCardRef = Field(
+        description="Provenance linking to the input risk card."
+    )
     taxonomy_chain: TaxonomyChain = Field(description="Full three-hop taxonomy chain.")
     capability_profile: CapabilityProfileRef = Field(
         description="References to the capability profile that scoped this scenario.",
@@ -306,7 +324,9 @@ class CallMetadata(BaseModel):
     call: CallName = Field(description="Which generation call this is.")
     prompt_tokens: int = Field(description="Number of prompt tokens used.")
     completion_tokens: int = Field(description="Number of completion tokens generated.")
-    duration_ms: int = Field(description="Wall-clock duration of the LLM call in milliseconds.")
+    duration_ms: int = Field(
+        description="Wall-clock duration of the LLM call in milliseconds."
+    )
 
 
 class GenerationMetadata(BaseModel):
@@ -351,6 +371,17 @@ class ScenarioEnvelope(BaseModel):
     )
     generator_version: str = Field(
         description="Version of the scenario-forge pipeline that produced this scenario.",
+    )
+
+    # --- Scenario Seed Metadata ---
+
+    scenario_seed_metadata: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Rich metadata from the scenario seed: seed_id, threat_id, "
+            "threat_name, mechanism_name, mechanism_description, "
+            "owasp_sub_scenario_ref."
+        ),
     )
 
     # --- Actor Profile ---
