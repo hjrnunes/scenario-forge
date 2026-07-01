@@ -1,0 +1,397 @@
+# Abstract attack patterns for scenario-forge (Phase 3: T8/T9/T10/T14/T16).
+# Domain-agnostic mechanism descriptions for the agentic-only threats — those
+# with no NIST attack-class mapping.
+# Each pattern is derived from an OWASP sub-scenario but strips domain-specific details,
+# describing the attack mechanism rather than a specific target application.
+
+source:
+  name: "scenario-forge abstract attack patterns"
+  version: "0.1.0"
+  derived_from:
+    - "OWASP Agentic AI Threats & Mitigations v1.1"
+    - "NIST AI 100-2e2023"
+
+patterns:
+  # ═══════════════════════════════════════════════════════════════════
+  # T8 — Repudiation & Untraceability (3 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T8-01:
+    id: "AP-T8-01"
+    threat_id: "T8"
+    name: "Audit trail manipulation via logging gap exploitation"
+    description: >
+      An attacker exploits gaps or weaknesses in an AI agent's logging
+      infrastructure to ensure that unauthorized actions are incompletely
+      or inaccurately recorded. By targeting the boundary between action
+      execution and log persistence, the attacker creates a divergence
+      between what the agent did and what the audit trail reflects,
+      undermining forensic reconstruction.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T8-02:
+    id: "AP-T8-02"
+    threat_id: "T8"
+    name: "Action obfuscation via minimal-trace interaction crafting"
+    description: >
+      An attacker designs interactions that cause the agent to take
+      security-relevant actions while producing minimal or obscured log
+      entries. By structuring requests to exploit edge cases in the
+      agent's logging logic, the attacker ensures that investigators
+      cannot reconstruct the sequence of events or attribute actions
+      to their true source.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T8-03:
+    id: "AP-T8-03"
+    threat_id: "T8"
+    name: "Systematic audit trail degradation for compliance evasion"
+    description: >
+      An agent operating in a regulated context produces incomplete or
+      inconsistent audit trails due to systematic logging failures that
+      an attacker can trigger or amplify. The resulting gaps make it
+      impossible for auditors to verify compliance, effectively shielding
+      violations from detection while the agent continues to operate
+      within its normal behavioral envelope.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T9 — Identity Spoofing & Impersonation (6 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T9-01:
+    id: "AP-T9-01"
+    threat_id: "T9"
+    name: "User impersonation via agent action attribution hijacking"
+    description: >
+      An attacker injects instructions into an agent that has delegated
+      action capabilities (such as sending messages or initiating
+      transactions), causing it to perform actions attributed to a
+      legitimate user. The agent's privileged access to act on behalf
+      of users is exploited to forge the apparent origin of actions,
+      bypassing identity verification at the action layer.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T9-02:
+    id: "AP-T9-02"
+    threat_id: "T9"
+    name: "Agent identity spoofing via compromised service credentials"
+    description: >
+      An attacker compromises an agent's service credentials or
+      registration mechanism, using the stolen identity to perform
+      unauthorized operations that appear to originate from the
+      legitimate agent. Because downstream systems and peer agents
+      trust the spoofed identity, the attacker inherits the
+      compromised agent's permissions and trust relationships across
+      the system.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+      requires_multi_agent: true
+
+  AP-T9-03:
+    id: "AP-T9-03"
+    threat_id: "T9"
+    name: "Behavioral mimicry for trust-based access acquisition"
+    description: >
+      A rogue agent replicates the interaction patterns, communication
+      style, and decision-making behavior of a trusted system agent.
+      By presenting a convincing behavioral profile, the rogue agent
+      passes implicit trust checks that rely on behavioral consistency
+      rather than cryptographic identity, gaining unauthorized access
+      to resources and peer agent cooperation.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T9-04:
+    id: "AP-T9-04"
+    threat_id: "T9"
+    name: "Cross-platform identity adaptation for boundary bypass"
+    description: >
+      A malicious agent dynamically adapts its identity presentation
+      to match the authentication requirements of different connected
+      platforms or services. By altering credentials, metadata, or
+      behavioral signatures to satisfy each platform's distinct
+      verification model, the agent traverses security boundaries
+      that assume identities are platform-specific and non-transferable.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+      requires_multi_agent: true
+
+  AP-T9-05:
+    id: "AP-T9-05"
+    threat_id: "T9"
+    name: "False attribution attack via identity proxy exploitation"
+    description: >
+      An attacker exploits weak authentication controls to perform
+      sensitive or prohibited actions under another user's identity.
+      The agent system attributes the actions to the spoofed identity,
+      creating a false audit trail that incriminates the victim while
+      shielding the true attacker from accountability.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+
+  AP-T9-06:
+    id: "AP-T9-06"
+    threat_id: "T9"
+    name: "Persistent agent identity takeover via long-lived credential theft"
+    description: >
+      An attacker obtains a long-lived authentication token or API key
+      tied to an enterprise agent's formal identity. Using this
+      persistent credential, the attacker bypasses the agent's
+      conversational interface and its guardrails, directly accessing
+      backend services and automation pipelines with the agent's full
+      privilege set for an extended period.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+      requires_multi_agent: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T10 — Overwhelming Human in the Loop (3 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T10-01:
+    id: "AP-T10-01"
+    threat_id: "T10"
+    name: "Human oversight interface manipulation via artificial decision context"
+    description: >
+      An attacker compromises the interface between an AI agent and its
+      human overseer by injecting artificial decision contexts that
+      obscure critical information. The manipulated presentation causes
+      the human reviewer to evaluate actions based on incomplete or
+      misleading context, effectively neutralizing the oversight
+      function while maintaining the appearance of human-in-the-loop
+      control.
+    nist_classification:
+      attacker_goal: "availability"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+      requires_hitl: true
+
+  AP-T10-02:
+    id: "AP-T10-02"
+    threat_id: "T10"
+    name: "Decision fatigue induction via approval request flooding"
+    description: >
+      An attacker overwhelms human reviewers with a high volume of
+      approval requests, trivial alerts, or artificially urgent
+      decision prompts. The sustained cognitive load induces decision
+      fatigue, causing reviewers to rubber-stamp approvals or skip
+      verification steps. The attacker embeds malicious requests
+      within the flood, exploiting the degraded review quality to
+      bypass security controls.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+      requires_hitl: true
+
+  AP-T10-03:
+    id: "AP-T10-03"
+    threat_id: "T10"
+    name: "Trust calibration degradation via incremental inconsistency injection"
+    description: >
+      An attacker gradually introduces subtle inconsistencies into an
+      agent's outputs or behavior, eroding the human overseer's ability
+      to calibrate trust. As the overseer encounters increasing
+      unreliability, their confidence in distinguishing legitimate
+      from malicious actions declines, reducing the effectiveness of
+      human oversight as a security control and creating opportunities
+      for undetected exploitation.
+    nist_classification:
+      attacker_goal: "availability"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning"]
+      requires_hitl: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T14 — Human Attacks on Multi-Agent Systems (4 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T14-01:
+    id: "AP-T14-01"
+    threat_id: "T14"
+    name: "Coordinated privilege escalation via multi-agent identity chain compromise"
+    description: >
+      An attacker compromises the identity verification chain across
+      multiple cooperating agents, causing one agent to falsely
+      authenticate another. By manipulating the inter-agent trust
+      handshake, the attacker creates a chain of fraudulent
+      endorsements that escalates privileges beyond what any single
+      agent would independently grant, bypassing multi-layer
+      security controls.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T14-02:
+    id: "AP-T14-02"
+    threat_id: "T14"
+    name: "Delegation loop exploitation for incremental privilege accumulation"
+    description: >
+      An attacker repeatedly escalates a request between interdependent
+      agents, exploiting the assumption that a request passed by a peer
+      agent has already been validated. Each delegation step adds
+      implicit trust without independent verification, creating a
+      feedback loop that incrementally grants elevated access until
+      the attacker obtains privileges exceeding the authorization of
+      any individual agent.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T14-03:
+    id: "AP-T14-03"
+    threat_id: "T14"
+    name: "Multi-agent task saturation for security function denial"
+    description: >
+      An attacker floods a multi-agent system with continuous
+      high-priority task requests, consuming the processing capacity
+      of agents responsible for security monitoring, threat detection,
+      or access control. The saturated security agents cannot process
+      legitimate alerts, creating a window during which the attacker
+      executes the primary attack undetected.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T14-04:
+    id: "AP-T14-04"
+    threat_id: "T14"
+    name: "Cross-agent approval forgery via fragmented validation exploitation"
+    description: >
+      An attacker exploits inconsistencies between multiple agents that
+      each perform partial identity or authorization checks. By
+      satisfying each agent's individual validation criteria while
+      failing composite checks, the attacker obtains approval for
+      actions that would be rejected by any single agent performing
+      full-scope verification. The fragmented validation creates
+      gaps that the attacker threads through.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # T16 — Insecure Inter-Agent Protocol Abuse (3 patterns)
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T16-01:
+    id: "AP-T16-01"
+    threat_id: "T16"
+    name: "Consent flow manipulation via protocol-level auto-approval injection"
+    description: >
+      An attacker crafts a malicious agent or endpoint that participates
+      in an inter-agent protocol exchange but manipulates the consent
+      negotiation flow. By injecting auto-approval signals or bypassing
+      confirmation steps defined in the protocol, the attacker causes
+      sensitive operations to execute without the explicit user intent
+      or peer-agent agreement that the protocol is designed to enforce.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T16-02:
+    id: "AP-T16-02"
+    threat_id: "T16"
+    name: "Context hijacking via crafted protocol response injection"
+    description: >
+      An attacker intercepts or crafts a server-side response within an
+      inter-agent protocol implementation, injecting malicious context
+      or tool metadata into the response payload. A receiving agent
+      interprets the injected content as trusted protocol context and
+      executes unintended operations, because the protocol's trust
+      model does not validate the semantic integrity of response
+      content beyond structural conformance.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T16-03:
+    id: "AP-T16-03"
+    threat_id: "T16"
+    name: "Tool capability misrepresentation via registry description poisoning"
+    description: >
+      An attacker embeds misleading, overly broad, or adversarially
+      crafted tool descriptions in a shared tool registry or protocol
+      metadata store. When a consuming agent selects and invokes the
+      tool based on its description, it operates under false assumptions
+      about the tool's scope and behavior, inadvertently leaking
+      sensitive data or triggering privileged operations that the
+      agent would not have authorized with accurate metadata.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+      requires_tool_execution: true
