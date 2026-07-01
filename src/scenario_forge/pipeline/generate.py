@@ -908,6 +908,9 @@ probabilistic_control, defense_in_depth_claim
 passive ("Parameters are injected").
 - The goal should be a concrete attacker objective specific to the use case, \
 not a generic restatement of the OWASP threat.
+- The root node label MUST reference the narrative's entry point — include \
+its key terms (e.g. "via user text prompts", "through chat interface") so \
+that the root label and the entry point share vocabulary.
 
 ## Tree Complexity Calibration
 Match tree depth and branching to the actual complexity of the attack:
@@ -996,7 +999,9 @@ fabricated product claims
 success criteria (e.g. @integrity-corruption, @unauthorized-data-exfiltration, \
 @identity-compromise, @memory-integrity-breach, @inter-agent-integrity-breach). \
 Infer it from the attack type.
-- Background Given/And steps list zone and capability preconditions.
+- Background Given/And steps list zone and capability preconditions. \
+The FIRST Given step MUST reference the narrative's entry point using its \
+key terms (e.g. "Given access to the user text prompt interface (input)").
 - `When`/`And` steps describe attack phases. Each step must end with \
 the zone name in parentheses (e.g. `(input)`, `(reasoning)`) indicating \
 the Schneider zone where the phase occurs.
