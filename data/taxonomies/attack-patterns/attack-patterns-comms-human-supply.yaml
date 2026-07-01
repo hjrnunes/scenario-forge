@@ -1,0 +1,192 @@
+# Abstract attack patterns for scenario-forge (Batch C: T12/T15/T17).
+# Domain-agnostic mechanism descriptions that replace concrete OWASP sub-scenario examples.
+# Each pattern is derived from an OWASP sub-scenario but strips domain-specific details,
+# describing the attack mechanism rather than a specific target application.
+
+source:
+  name: "scenario-forge abstract attack patterns"
+  version: "0.1.0"
+  derived_from:
+    - "OWASP Agentic AI Threats & Mitigations v1.1"
+    - "NIST AI 100-2e2023"
+
+patterns:
+  AP-T12-01:
+    id: "AP-T12-01"
+    threat_id: "T12"
+    name: "Collaborative decision manipulation via inter-agent message injection"
+    description: >
+      An attacker injects crafted messages into inter-agent communication channels,
+      introducing misleading data that gradually shifts the collective decision-making
+      of a multi-agent system. Because each agent treats incoming peer messages as
+      trusted input, the injected content compounds through successive reasoning steps,
+      steering the group toward attacker-chosen objectives without triggering anomaly
+      detection on any single message.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.backdoor_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T12-02:
+    id: "AP-T12-02"
+    threat_id: "T12"
+    name: "Trust network exploitation via forged consensus"
+    description: >
+      An attacker forges consensus or validation messages within a multi-agent
+      trust network, exploiting weak authentication between agents to make
+      fabricated assertions appear as peer-validated facts. Downstream agents
+      that rely on peer endorsement accept the forged consensus without
+      independent verification, propagating attacker-controlled conclusions
+      through the trust chain.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.backdoor_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T12-03:
+    id: "AP-T12-03"
+    threat_id: "T12"
+    name: "Misinformation cascade via shared knowledge poisoning"
+    description: >
+      An attacker plants false data into a shared knowledge store or message
+      channel used by multiple agents. The poisoned data propagates as agents
+      consume, reason over, and re-emit it to peers, creating a cascade where
+      each retransmission reinforces the false information. The attack can be
+      tuned for either stealthy long-term degradation or rapid misinformation
+      spread depending on the injection rate.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.backdoor_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T12-04:
+    id: "AP-T12-04"
+    threat_id: "T12"
+    name: "Communication channel manipulation via protocol-level interference"
+    description: >
+      An attacker exploits vulnerabilities in the transport or protocol layer
+      of inter-agent communication to intercept, delay, reorder, or inject
+      messages. By introducing artificial barriers or selectively dropping
+      messages, the attacker partitions the agent network or forces agents
+      to operate on stale or incomplete information, degrading coordination
+      and enabling secondary attacks.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.backdoor_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T12-05:
+    id: "AP-T12-05"
+    threat_id: "T12"
+    name: "Consensus mechanism exploitation via induced disagreement"
+    description: >
+      An attacker subtly perturbs inputs or intermediate results shared among
+      agents engaged in collective decision-making, introducing artificial
+      disagreements that prevent consensus. The induced conflicts erode the
+      system's ability to converge on correct decisions, causing deadlock,
+      fallback to weaker heuristics, or acceptance of attacker-preferred
+      outcomes when tie-breaking logic activates.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "poisoning.backdoor_poisoning"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "inter_agent"]
+      requires_multi_agent: true
+
+  AP-T15-01:
+    id: "AP-T15-01"
+    threat_id: "T15"
+    name: "Trust-exploiting content substitution for fraudulent action"
+    description: >
+      An attacker uses indirect prompt injection to manipulate an AI assistant
+      into substituting legitimate operational data (such as payment details
+      or contact information) with attacker-controlled values. The human
+      operator, trusting the AI-presented information as verified, acts on
+      the substituted data without independent verification, completing a
+      fraudulent transaction on the attacker's behalf.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.privacy_compromises"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T15-02:
+    id: "AP-T15-02"
+    threat_id: "T15"
+    name: "AI-mediated social engineering via deceptive instruction generation"
+    description: >
+      An attacker compromises an AI assistant's output generation through
+      indirect prompt injection, causing it to produce urgent, authoritative
+      messages that direct users toward malicious actions such as clicking
+      attacker-controlled links or disclosing credentials. The AI's
+      established trust relationship with the user bypasses normal skepticism,
+      making the social engineering significantly more effective than
+      traditional phishing.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.privacy_compromises"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      requires_tool_execution: true
+
+  AP-T17-01:
+    id: "AP-T17-01"
+    threat_id: "T17"
+    name: "Upstream artifact poisoning via repository compromise"
+    description: >
+      An attacker injects malicious instructions or code into a public or
+      shared repository that serves as an upstream dependency for an AI
+      agent's prompt templates, tool definitions, or configuration. When the
+      agent's build or deployment pipeline pulls the compromised artifact,
+      the payload executes with the agent's full privileges, potentially
+      affecting all downstream users before the compromise is detected.
+    nist_classification:
+      attacker_goal: "integrity"
+      attacker_knowledge: "white_box"
+      learning_stage: "deployment"
+      attack_class: "genai.supply_chain"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+
+  AP-T17-02:
+    id: "AP-T17-02"
+    threat_id: "T17"
+    name: "Autonomous agent self-sabotage via unvalidated execution"
+    description: >
+      An autonomous code-generating agent, operating without adequate
+      environment separation or output validation, hallucinates incorrect
+      resource references, destroys legitimate data, and then produces
+      falsified verification results to conceal the failure. The lack of
+      supply chain integrity controls between the agent's generation,
+      execution, and validation stages allows a single hallucination to
+      cascade into data loss and deceptive reporting.
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "white_box"
+      learning_stage: "deployment"
+      attack_class: "genai.supply_chain"
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
