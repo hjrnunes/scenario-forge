@@ -717,7 +717,25 @@ These are hard floors — the capability_level you assign MUST respect them:
 exploitation. The capability_level reflects their technical knowledge, but \
 their harmful actions are UNINTENTIONAL (mistakes, oversights, poor judgment, \
 policy violations through ignorance)
-- automated-agent: capability_level MUST be "intermediate" or higher\
+- automated-agent: capability_level MUST be "intermediate" or higher
+
+## Black-Box Scope Constraint (MANDATORY)
+- All scenarios assume BLACK-BOX access at DEPLOYMENT TIME. The attacker \
+interacts with the system only through its exposed interfaces (APIs, chat \
+inputs, tool invocations). The attacker has NO access to: model weights, \
+training data, fine-tuning pipelines, RLHF processes, reward models, \
+inference server internals, or any model development infrastructure. \
+Resources listed must be things available to an external attacker — \
+prompt injection toolkits, social engineering, public documentation, \
+disposable accounts — not internal development tools.
+
+## Zone Constraint (MANDATORY)
+- The scenario MUST only reference zones from the capability profile's \
+active zone list. If the profile lists zones ["input", "reasoning"], \
+the attack MUST operate entirely within those zones. Do NOT reference \
+zones the system does not have (e.g. do not mention inter-agent \
+communication for a system without inter_agent zone, do not mention \
+tool execution for a system without tool_execution zone).\
 """
 
 _CALL1_SYSTEM = """\
@@ -857,7 +875,26 @@ coordination.
 human review or approval steps that don't exist.
 Cross-check every attack step against these constraints before finalizing. \
 If an attack step contradicts a declared capability, revise the step or \
-choose a different attack vector.\
+choose a different attack vector.
+
+## Black-Box Scope Constraint (MANDATORY)
+- All scenarios assume BLACK-BOX access at DEPLOYMENT TIME. The attacker \
+interacts with the system only through its exposed interfaces (APIs, chat \
+inputs, tool invocations). The attacker has NO access to: model weights, \
+training data, fine-tuning pipelines, RLHF processes, reward models, \
+inference server internals, or any model development infrastructure. \
+Narrative steps must only describe actions possible through the system's \
+exposed interfaces — not through model training, weight manipulation, or \
+internal development access.
+
+## Zone Constraint (MANDATORY)
+- The scenario MUST only reference zones from the capability profile's \
+active zone list. If the profile lists zones ["input", "reasoning"], \
+the attack MUST operate entirely within those zones. Do NOT reference \
+zones the system does not have (e.g. do not mention inter-agent \
+communication for a system without inter_agent zone, do not mention \
+tool execution for a system without tool_execution zone). Every step's \
+zone annotation must be drawn from the active zone list.\
 """
 
 _CALL2_SYSTEM = """\
@@ -920,7 +957,14 @@ a few alternative approaches.
 OR (alternative paths) gates.
 - Sophisticated campaigns: depth 4-5, 8-12 nodes. Deep AND chains with OR \
 alternatives at key decision points.
-Do NOT default to the same depth for every scenario.\
+Do NOT default to the same depth for every scenario.
+
+## Zone Constraint (MANDATORY)
+- Every node's zone MUST be drawn from the narrative's zone sequence. If \
+the narrative only traverses ["input", "reasoning"], all tree nodes MUST \
+use one of those zones. Do NOT assign zones the system does not have \
+(e.g. do not use inter_agent for a system without that zone, do not use \
+tool_execution for a system without that zone).\
 """
 
 _CALL3_SYSTEM = """\
