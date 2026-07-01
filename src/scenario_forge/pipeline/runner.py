@@ -26,6 +26,7 @@ from scenario_forge.pipeline.generate import (
     get_overused_entry_points,
     get_overused_patterns,
     get_overused_structural_patterns,
+    write_call_log,
     write_scenario_outputs,
 )
 from scenario_forge.pipeline.coverage import (
@@ -147,7 +148,7 @@ def _remediate_coverage_gaps(
         )
 
         try:
-            envelope = generate_scenario(
+            envelope, call_log_entries = generate_scenario(
                 seed,
                 profile,
                 client,
@@ -155,6 +156,7 @@ def _remediate_coverage_gaps(
                 preferred_entry_point=ep,
             )
             write_scenario_outputs(envelope, scenarios_dir)
+            write_call_log(call_log_entries, scenarios_dir)
             remediation_scenarios.append(envelope)
             logger.info(
                 "    Remediation scenario generated: %s (entry point: %s)",
@@ -323,31 +325,24 @@ def run_pipeline(
             total_seeds,
         )
         excluded_pats = get_overused_patterns(pattern_usage) or None
-        excluded_structural = (
-            get_overused_structural_patterns(structural_usage) or None
-        )
+        excluded_structural = get_overused_structural_patterns(structural_usage) or None
 
         # Compute actor type diversity hints.
         # Pick the least-used actor type as preferred; exclude types over
         # their fair share (ceil(total_seeds / num_actor_types)).
         actor_fair_share = math.ceil(total_seeds / num_actor_types)
-        preferred_actor = min(
-            ACTOR_TYPES, key=lambda t: actor_type_usage.get(t, 0)
-        )
+        preferred_actor = min(ACTOR_TYPES, key=lambda t: actor_type_usage.get(t, 0))
         excluded_actors = [
-            t for t in ACTOR_TYPES
-            if actor_type_usage.get(t, 0) > actor_fair_share
+            t for t in ACTOR_TYPES if actor_type_usage.get(t, 0) > actor_fair_share
         ] or None
 
         # Compute capability level diversity hint.
         # Pick the least-used capability level as preferred.
         _CAP_LEVELS = ("novice", "intermediate", "advanced", "expert")
-        preferred_cap = min(
-            _CAP_LEVELS, key=lambda c: capability_level_usage.get(c, 0)
-        )
+        preferred_cap = min(_CAP_LEVELS, key=lambda c: capability_level_usage.get(c, 0))
 
         try:
-            envelope = generate_scenario(
+            envelope, call_log_entries = generate_scenario(
                 seed,
                 profile,
                 client,
@@ -361,6 +356,7 @@ def run_pipeline(
                 preferred_capability_level=preferred_cap,
             )
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
+            write_call_log(call_log_entries, scenarios_dir)
             scenarios.append(envelope)
 
             # Track which entry point was actually chosen by the LLM.

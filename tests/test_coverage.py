@@ -132,8 +132,12 @@ def _make_envelope(
             gate=GateType.OR,
             zone="input",
             children=[
-                AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"),
-                AttackTreeNode(id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"),
+                AttackTreeNode(
+                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                ),
+                AttackTreeNode(
+                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                ),
             ],
         ),
     )
@@ -302,7 +306,10 @@ class TestCoverageGaps:
         profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
-            _make_envelope(zone_sequence=["input", "reasoning", "tool_execution"], agentic_threat_ids=["T1"]),
+            _make_envelope(
+                zone_sequence=["input", "reasoning", "tool_execution"],
+                agentic_threat_ids=["T1"],
+            ),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -313,7 +320,9 @@ class TestCoverageGaps:
         profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
-            _make_envelope(zone_sequence=["input", "reasoning"], agentic_threat_ids=["T1"]),
+            _make_envelope(
+                zone_sequence=["input", "reasoning"], agentic_threat_ids=["T1"]
+            ),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -361,7 +370,9 @@ class TestCoverageGaps:
         threat_surface = _make_threat_surface([["T1"]])
         scenarios = [
             _make_envelope(zone_sequence=["input"], agentic_threat_ids=["T1"]),
-            _make_envelope(zone_sequence=["reasoning", "tool_execution"], agentic_threat_ids=["T1"]),
+            _make_envelope(
+                zone_sequence=["reasoning", "tool_execution"], agentic_threat_ids=["T1"]
+            ),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -417,25 +428,41 @@ class TestNormalizeEntryPoint:
     """Tests for _normalize_entry_point helper."""
 
     def test_lowercases(self):
-        assert _normalize_entry_point("User Prompts (Zone 1)") == "user prompts (zone 1)"
+        assert (
+            _normalize_entry_point("User Prompts (Zone 1)") == "user prompts (zone 1)"
+        )
 
     def test_strips_whitespace(self):
-        assert _normalize_entry_point("  user prompts (zone 1)  ") == "user prompts (zone 1)"
+        assert (
+            _normalize_entry_point("  user prompts (zone 1)  ")
+            == "user prompts (zone 1)"
+        )
 
     def test_collapses_internal_whitespace(self):
-        assert _normalize_entry_point("user  prompts   (zone 1)") == "user prompts (zone 1)"
+        assert (
+            _normalize_entry_point("user  prompts   (zone 1)")
+            == "user prompts (zone 1)"
+        )
 
     def test_removes_trailing_period(self):
-        assert _normalize_entry_point("user prompts (zone 1).") == "user prompts (zone 1)"
+        assert (
+            _normalize_entry_point("user prompts (zone 1).") == "user prompts (zone 1)"
+        )
 
     def test_removes_trailing_comma(self):
-        assert _normalize_entry_point("user prompts (zone 1),") == "user prompts (zone 1)"
+        assert (
+            _normalize_entry_point("user prompts (zone 1),") == "user prompts (zone 1)"
+        )
 
     def test_removes_trailing_semicolon(self):
-        assert _normalize_entry_point("user prompts (zone 1);") == "user prompts (zone 1)"
+        assert (
+            _normalize_entry_point("user prompts (zone 1);") == "user prompts (zone 1)"
+        )
 
     def test_identity_for_already_normalized(self):
-        assert _normalize_entry_point("user prompts (zone 1)") == "user prompts (zone 1)"
+        assert (
+            _normalize_entry_point("user prompts (zone 1)") == "user prompts (zone 1)"
+        )
 
 
 class TestCoverageGapsEntryPointMatching:
@@ -867,26 +894,31 @@ class TestRemediateCoverageGaps:
 
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    @patch("scenario_forge.pipeline.runner.write_call_log")
     def test_generates_scenario_for_each_uncovered_ep(
-        self, mock_write, mock_generate, tmp_path: Path
+        self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """Each uncovered entry point should trigger one generate_scenario call."""
         uncovered = ["chat input (zone 1)", "admin dashboard (zone 2)"]
         gaps = CoverageGaps(uncovered_entry_points=uncovered)
         profile = _make_profile(
-            entry_points=["existing ep", "chat input (zone 1)", "admin dashboard (zone 2)"],
+            entry_points=[
+                "existing ep",
+                "chat input (zone 1)",
+                "admin dashboard (zone 2)",
+            ],
             zones_active=["input", "reasoning"],
         )
         seeds = [_make_seed(seed_id="T1-S1"), _make_seed(seed_id="T2-S1")]
         client = MagicMock()
 
         # Create mock envelopes for each uncovered EP.
-        mock_envelopes = []
+        mock_results = []
         for ep in uncovered:
             env = _make_envelope(entry_point=ep)
-            mock_envelopes.append(env)
+            mock_results.append((env, []))
 
-        mock_generate.side_effect = mock_envelopes
+        mock_generate.side_effect = mock_results
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
         scenarios, notes = _remediate_coverage_gaps(
@@ -903,8 +935,9 @@ class TestRemediateCoverageGaps:
 
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    @patch("scenario_forge.pipeline.runner.write_call_log")
     def test_handles_generation_failure_gracefully(
-        self, mock_write, mock_generate, tmp_path: Path
+        self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """When generate_scenario raises, we record a note and continue."""
         gaps = CoverageGaps(
@@ -918,7 +951,7 @@ class TestRemediateCoverageGaps:
         ok_envelope = _make_envelope(entry_point="ep-ok (zone 2)")
         mock_generate.side_effect = [
             RuntimeError("LLM timeout"),
-            ok_envelope,
+            (ok_envelope, []),
         ]
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
@@ -934,8 +967,9 @@ class TestRemediateCoverageGaps:
 
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    @patch("scenario_forge.pipeline.runner.write_call_log")
     def test_passes_seed_and_profile_to_generate(
-        self, mock_write, mock_generate, tmp_path: Path
+        self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """Verify generate_scenario receives the correct seed, profile, and use_case."""
         gaps = CoverageGaps(uncovered_entry_points=["api gateway (zone 3)"])
@@ -944,12 +978,10 @@ class TestRemediateCoverageGaps:
         client = MagicMock()
 
         mock_envelope = _make_envelope(entry_point="api gateway (zone 3)")
-        mock_generate.return_value = mock_envelope
+        mock_generate.return_value = (mock_envelope, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        _remediate_coverage_gaps(
-            gaps, [seed], profile, client, "my use case", tmp_path
-        )
+        _remediate_coverage_gaps(gaps, [seed], profile, client, "my use case", tmp_path)
 
         call_args = mock_generate.call_args
         assert call_args.args[0] is seed  # seed

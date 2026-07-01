@@ -7,6 +7,7 @@ Each section builder is a function returning an HTML string.
 from __future__ import annotations
 
 import html
+import json
 import logging
 import re
 from pathlib import Path
@@ -1702,6 +1703,19 @@ details.expandable[open] > summary::before {
   gap: 4px;
   flex-wrap: wrap;
 }
+
+.call-log-pre {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
 </style>
 """
 
@@ -2615,6 +2629,7 @@ def build_attacker_diversity_section(scenarios: list[dict[str, Any]]) -> str:
 def build_scenarios_section(
     scenarios: list[dict[str, Any]],
     feature_files: dict[str, str],
+    call_logs: dict[str, list[dict]] | None = None,
 ) -> str:
     if not scenarios:
         return '<div id="sec-scenarios" class="section"><div class="section-header"><h2>Scenarios</h2></div><p style="color:var(--text-muted);">No scenarios generated.</p></div>'
@@ -2685,9 +2700,10 @@ def build_scenarios_section(
         zone_options += f'<option value="{_esc(z)}">{_esc(display)}</option>'
 
     # Scenario cards
+    _call_logs = call_logs or {}
     cards_html = ""
     for s in scenarios:
-        cards_html += _build_scenario_card(s, feature_files)
+        cards_html += _build_scenario_card(s, feature_files, _call_logs)
 
     return f"""
     <div id="sec-scenarios" class="section">
@@ -2897,7 +2913,9 @@ def _build_provenance_block(scenario_seed: str) -> str:
 
 
 def _build_scenario_card(
-    scenario: dict[str, Any], feature_files: dict[str, str]
+    scenario: dict[str, Any],
+    feature_files: dict[str, str],
+    call_logs: dict[str, list[dict]] | None = None,
 ) -> str:
     sid = scenario.get("scenario_id", "")
     narrative = scenario.get("narrative", {})
@@ -2944,6 +2962,54 @@ def _build_scenario_card(
     # SSSOM provenance for AP-* scenario seeds
     scenario_seed = tc.get("scenario_seed", "")
     provenance_html = _build_provenance_block(scenario_seed)
+
+    # LLM call log section
+    call_log_html = ""
+    _logs = (call_logs or {}).get(sid, [])
+    if _logs:
+        _CALL_DISPLAY_NAMES = {
+            "actor_profile": "Actor Profile",
+            "narrative": "Narrative",
+            "attack_tree": "Attack Tree",
+            "behavior_spec": "Behavior Spec",
+        }
+        call_items = ""
+        for idx, entry in enumerate(_logs):
+            call_name = entry.get("call", "")
+            display_name = _CALL_DISPLAY_NAMES.get(call_name, call_name)
+            ptokens = entry.get("prompt_tokens", 0)
+            ctokens = entry.get("completion_tokens", 0)
+            dur = entry.get("duration_ms", 0)
+            sys_prompt = _esc(entry.get("system_prompt", ""))
+            usr_prompt = _esc(entry.get("user_prompt", ""))
+            response_raw = entry.get("response", "")
+            if isinstance(response_raw, dict) or isinstance(response_raw, list):
+                response_text = _esc(
+                    json.dumps(response_raw, indent=2, ensure_ascii=False)
+                )
+            else:
+                response_text = _esc(str(response_raw))
+            call_items += f"""
+            <details class="expandable">
+              <summary>Call {idx}: {_esc(display_name)} ({ptokens} prompt / {ctokens} completion tokens, {dur}ms)</summary>
+              <div style="padding:8px 0;">
+                <h4 style="margin:8px 0 4px;font-size:12px;color:var(--text-muted);">System Prompt</h4>
+                <pre class="call-log-pre">{sys_prompt}</pre>
+                <h4 style="margin:12px 0 4px;font-size:12px;color:var(--text-muted);">User Prompt</h4>
+                <pre class="call-log-pre">{usr_prompt}</pre>
+                <h4 style="margin:12px 0 4px;font-size:12px;color:var(--text-muted);">Response</h4>
+                <pre class="call-log-pre">{response_text}</pre>
+              </div>
+            </details>"""
+        call_log_html = f"""
+        <div class="scenario-section">
+          <details class="expandable">
+            <summary>LLM Calls ({len(_logs)})</summary>
+            <div style="padding:8px 0;">
+              {call_items}
+            </div>
+          </details>
+        </div>"""
 
     return f"""
     <div class="scenario-card" id="scenario-{_esc(sid)}" data-scenario="{_esc(sid)}"
@@ -3001,6 +3067,8 @@ def _build_scenario_card(
             {signals_html}
           </details>
         </div>
+
+        {call_log_html}
       </div>
     </div>
     """

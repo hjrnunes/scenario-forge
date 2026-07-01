@@ -17,6 +17,8 @@ class LLMResult(BaseModel):
     prompt_tokens: int = Field(description="Prompt tokens consumed.")
     completion_tokens: int = Field(description="Completion tokens generated.")
     duration_ms: int = Field(description="Wall-clock duration in milliseconds.")
+    system_prompt: str = Field(default="", description="System prompt sent to the LLM.")
+    user_prompt: str = Field(default="", description="User prompt sent to the LLM.")
 
 
 class LLMClient:
@@ -31,9 +33,13 @@ class LLMClient:
     ) -> None:
         self.base_url = base_url or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL", "")
         self.api_key = api_key or os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
-        self.model = model or os.environ.get("SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it")
+        self.model = model or os.environ.get(
+            "SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it"
+        )
         env_val = os.environ.get("SCENARIO_FORGE_MAX_COMPLETION_TOKENS")
-        self.max_completion_tokens = max_completion_tokens or (int(env_val) if env_val else None)
+        self.max_completion_tokens = max_completion_tokens or (
+            int(env_val) if env_val else None
+        )
         self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
     def complete(
@@ -73,11 +79,16 @@ class LLMClient:
             content = response.choices[0].message.content
 
         duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
-        usage = response.usage or type("U", (), {"prompt_tokens": 0, "completion_tokens": 0})()
+        usage = (
+            response.usage
+            or type("U", (), {"prompt_tokens": 0, "completion_tokens": 0})()
+        )
 
         return LLMResult(
             content=content,
             prompt_tokens=usage.prompt_tokens,
             completion_tokens=usage.completion_tokens,
             duration_ms=duration_ms,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
         )
