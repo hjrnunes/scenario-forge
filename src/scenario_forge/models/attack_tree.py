@@ -159,12 +159,12 @@ class AttackTree(BaseModel):
     """
 
     id: str = Field(
-        description="Tree identifier. Format: 'tree-{seed_id}' (e.g. 'tree-T2-S1').",
-        pattern=r"^tree-T\d+-S\d+$",
+        description="Tree identifier. Format: 'tree-{seed_id}' (e.g. 'tree-T2-S1' or 'tree-AP-T7-01').",
+        pattern=r"^tree-(AP-)?T\d+-[A-Z]?\d+$",
     )
     seed_id: str = Field(
-        description="The OWASP sub-scenario seed that produced this tree (e.g. 'T2-S1').",
-        pattern=r"^T\d+-S\d+$",
+        description="The attack pattern or sub-scenario seed that produced this tree (e.g. 'T2-S1' or 'AP-T7-01').",
+        pattern=r"^(AP-)?T\d+-[A-Z]?\d+$",
     )
     goal: str = Field(
         description="The attacker's top-level objective, stated as a concrete outcome.",

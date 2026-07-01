@@ -28,11 +28,25 @@ class SSSOMMapping(BaseModel):
     mapping_justification: str
 
 
+def _split_curie(curie: str) -> tuple[str, str]:
+    """Split a CURIE into (prefix, local_id).
+
+    If no colon is present, returns ("", curie).
+    """
+    if ":" in curie:
+        prefix, local = curie.split(":", 1)
+        return prefix, local
+    return "", curie
+
+
 def load_sssom(path: str | Path) -> list[SSSOMMapping]:
     """Parse an SSSOM TSV file, skipping comment lines.
 
-    Comment lines start with '#'. The first non-comment line is the
-    header row with column names.
+    Supports two column layouts:
+      - Explicit source columns (subject_source, object_source)
+      - CURIE-only format where source is derived from the ID prefix
+        (e.g. ``ibm-risk-atlas:atlas-hallucination`` → source
+        ``ibm-risk-atlas``, id ``atlas-hallucination``)
 
     Args:
         path: Path to the .sssom.tsv file.
@@ -43,18 +57,28 @@ def load_sssom(path: str | Path) -> list[SSSOMMapping]:
     mappings: list[SSSOMMapping] = []
 
     with open(path, newline="") as f:
-        # Skip comment lines (starting with #) and blank lines
         lines = [line for line in f if not line.startswith("#") and line.strip()]
 
     reader = csv.DictReader(lines, delimiter="\t")
+    has_source_cols = reader.fieldnames is not None and "subject_source" in reader.fieldnames
+
     for row in reader:
+        if has_source_cols:
+            subject_id = row["subject_id"]
+            subject_source = row["subject_source"]
+            object_id = row["object_id"]
+            object_source = row["object_source"]
+        else:
+            subject_source, subject_id = _split_curie(row["subject_id"])
+            object_source, object_id = _split_curie(row["object_id"])
+
         mappings.append(
             SSSOMMapping(
-                subject_id=row["subject_id"],
-                subject_source=row["subject_source"],
+                subject_id=subject_id,
+                subject_source=subject_source,
                 predicate_id=row["predicate_id"],
-                object_id=row["object_id"],
-                object_source=row["object_source"],
+                object_id=object_id,
+                object_source=object_source,
                 mapping_justification=row["mapping_justification"],
             )
         )
