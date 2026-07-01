@@ -149,6 +149,7 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
 _THREAT_DESCRIPTIONS: dict[str, str] = {}
 _SUB_SCENARIO_INFO: dict[str, dict[str, str]] = {}
 _ATTACK_PATTERN_INFO: dict[str, dict[str, Any]] = {}
+_OWASP_TO_PATTERN: dict[str, str] = {}
 
 
 def _load_taxonomy_lookups() -> None:
@@ -214,6 +215,12 @@ def _load_attack_pattern_lookups() -> None:
                     _ATTACK_PATTERN_INFO[pid]["atlas_techniques"] = atlas_ids
     except FileNotFoundError:
         pass
+
+    # Build reverse lookup: OWASP sub-scenario ID -> AP-* pattern ID
+    for pid, info in _ATTACK_PATTERN_INFO.items():
+        owasp_origin = info.get("owasp_origin")
+        if owasp_origin:
+            _OWASP_TO_PATTERN[owasp_origin] = pid
 
 
 _load_taxonomy_lookups()
@@ -1936,13 +1943,16 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         else:
             tid_spans = "-"
 
-        # Build sub-scenario IDs with tooltips
+        # Build sub-scenario IDs with tooltips (remap to AP-* where available)
         raw_subs = entry.get("sub_scenarios", [])
         if raw_subs:
-            sub_spans = ", ".join(
-                f"<span{_sub_scenario_tooltip(sid)}>{_esc(sid)}</span>"
-                for sid in raw_subs
-            )
+            sub_parts: list[str] = []
+            for sid in raw_subs:
+                display_sid = _OWASP_TO_PATTERN.get(sid, sid)
+                sub_parts.append(
+                    f"<span{_sub_scenario_tooltip(display_sid)}>{_esc(display_sid)}</span>"
+                )
+            sub_spans = ", ".join(sub_parts)
         else:
             sub_spans = "-"
 
@@ -2051,8 +2061,9 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
             if tid and tid not in threat_ids_set:
                 threat_ids_set.append(tid)
         for sid in e.get("sub_scenarios", []):
-            if sid and sid not in scenario_ids_set:
-                scenario_ids_set.append(sid)
+            display_sid = _OWASP_TO_PATTERN.get(sid, sid) if sid else sid
+            if display_sid and display_sid not in scenario_ids_set:
+                scenario_ids_set.append(display_sid)
 
     # Layout constants
     col_x = [40, 240, 440, 640]
@@ -2061,7 +2072,7 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
     node_gap = 8
     top_pad = 50
     colors = ["#3b82f6", "#8b5cf6", "#f97316", "#ef4444"]
-    label_names = ["Risk Atlas", "LLM Top 10", "Agentic Threats", "Sub-Scenarios"]
+    label_names = ["Risk Atlas", "LLM Top 10", "Agentic Threats", "Attack Patterns"]
 
     columns = [risk_ids, llm_ids_set, threat_ids_set, scenario_ids_set]
 
@@ -2116,11 +2127,12 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
                     node_pos, f"1:{lid}", f"2:{tid}", link_colors[1]
                 )
 
-        # Threat -> Scenario
+        # Threat -> Scenario (remap to AP-* where available)
         for tid in e.get("agentic_threat_ids", []):
             for sid in e.get("sub_scenarios", []):
+                display_sid = _OWASP_TO_PATTERN.get(sid, sid) if sid else sid
                 svg_links += _sankey_link(
-                    node_pos, f"2:{tid}", f"3:{sid}", link_colors[2]
+                    node_pos, f"2:{tid}", f"3:{display_sid}", link_colors[2]
                 )
 
     # Column headers
