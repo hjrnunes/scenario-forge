@@ -1685,7 +1685,6 @@ mechanism applied to the target system described above.
 - Mechanism: {seed.mechanism_name}
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only, not meaningful to the scenario)
 
 ## Target System Architecture
 The following describes what the target system can and cannot do. \
@@ -1819,7 +1818,6 @@ mechanism applied to the target system described above.
 - Mechanism: {seed.mechanism_name}
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only, not meaningful to the scenario)
 
 ## Target System Architecture
 The following describes what the target system can and cannot do. \
@@ -1897,7 +1895,6 @@ instance of this attack mechanism.
 - Mechanism: {seed.mechanism_name}
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only, not meaningful to the tree)
 - ATLAS Technique IDs: {seed.atlas_technique_ids}
 - Use case: {use_case}
 {technique_section}
@@ -2001,7 +1998,7 @@ Steps:
 ## Attack Mechanism
 - Mechanism: {seed.mechanism_name}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- Pattern ID: {seed.seed_id} (for traceability only)
+- Pattern ID: {seed.seed_id}
 - Suggested violation category: derive a kebab-case tag from the threat name \
 (e.g. "{"-".join(seed.threat_name.lower().split()[:3])}")
 
