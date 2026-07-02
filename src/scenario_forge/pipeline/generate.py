@@ -1894,6 +1894,13 @@ def _call_actor_profile(
 
     # Build shared ATLAS technique context
     technique_context = _build_technique_context_block(seed.atlas_technique_ids)
+    technique_framing_0 = (
+        "Use these techniques to inform the actor's intentions and resource "
+        "selection — the actor should have plausible knowledge and tools for "
+        "these techniques.\n"
+        if technique_context
+        else ""
+    )
 
     user_prompt = f"""\
 ## Use Case
@@ -1908,14 +1915,18 @@ mechanism applied to the target system described above.
 
 ## Target System Architecture
 The following describes what the target system can and cannot do. \
-Your actor profile must only reference capabilities the system actually has.
+Your actor profile must only reference capabilities the system actually has. \
+Use `zones_active` to constrain which system components appear in the actor's \
+beliefs and intentions. Use `entry_points` to ground the actor's access vectors.
 - System components (zones) the attacker can interact with: {profile.zones_active}
 - How an attacker initially accesses the system: {profile.entry_points}
 - Has persistent memory across sessions: {profile.has_persistent_memory}
 - Communicates with other AI agents: {profile.multi_agent}
 - Has human approval gates: {profile.hitl}
 
-{technique_context}{diversity_section}\
+{technique_context}\
+{technique_framing_0}\
+{diversity_section}\
 """
 
     result = client.complete(
@@ -1974,7 +1985,7 @@ def _call_narrative(
             if value is not None:
                 lines.append(f"- {label}: {value}")
         causal_section = (
-            "\n## Source Risk Context (reframe, do not copy verbatim)\n"
+            "\n## Causal Chain (reframe from policy-voice to adversarial-voice, do not copy verbatim)\n"
             + "\n".join(lines)
             + "\n"
         )
@@ -2018,6 +2029,8 @@ def _call_narrative(
         resources_str = ", ".join(actor_profile.resources)
         actor_section = (
             "\n## Actor Profile (ground the narrative in this actor)\n"
+            "The narrative's attacker must match this actor's capability level, "
+            "resources, and motivations.\n"
             f"- Actor type: {actor_profile.actor_type}\n"
             f"- Capability level: {actor_profile.capability_level}\n"
             f"- Beliefs about the target:\n"
@@ -2028,6 +2041,15 @@ def _call_narrative(
             + "".join(f"  - {i}\n" for i in actor_profile.intentions)
             + f"- Resources: {resources_str}\n"
         )
+
+    technique_context_1 = _build_technique_context_block(seed.atlas_technique_ids)
+    technique_framing_1 = (
+        "Reference these techniques in narrative step actions where applicable. "
+        "Annotate technique usage with the ID in square brackets, "
+        "e.g. [AML.T0054].\n"
+        if seed.atlas_technique_ids
+        else ""
+    )
 
     user_prompt = f"""\
 ## Use Case
@@ -2042,7 +2064,9 @@ mechanism applied to the target system described above.
 
 ## Target System Architecture
 The following describes what the target system can and cannot do. \
-Your attack narrative must only reference capabilities the system actually has.
+Your attack narrative must only reference capabilities the system actually has. \
+Use `zones_active` to constrain which system components appear in narrative steps. \
+Use `entry_points` to ground the attacker's initial access.
 - System components (zones) the attacker can interact with: {profile.zones_active}
 - How an attacker initially accesses the system: {profile.entry_points}
 - Has persistent memory across sessions: {profile.has_persistent_memory}
@@ -2050,10 +2074,13 @@ Your attack narrative must only reference capabilities the system actually has.
 - Has human approval gates: {profile.hitl}
 
 ## Related Taxonomy Entries
+Ground the narrative in these taxonomy categories. The attack mechanism above \
+is a specific instance of these broader threat categories.
 - OWASP LLM: {_format_taxonomy_ids(seed.owasp_llm_ids, _OWASP_LLM_NAMES)}
 - Agentic Threat: {seed.threat_name}
 
-{_build_technique_context_block(seed.atlas_technique_ids)}\
+{technique_context_1}\
+{technique_framing_1}\
 {actor_section}{causal_section}{diversity_section}{pattern_section}{structural_section}\
 """
 
@@ -2077,6 +2104,8 @@ def _call_attack_tree(
     narrative: NarrativeLayer,
     client: LLMClient,
     use_case: str,
+    profile: CapabilityProfile | None = None,
+    actor_profile: ActorProfile | None = None,
 ) -> tuple[AttackTree, LLMResult]:
     # Build shared technique context + Call 2-specific constraint rules
     technique_context = _build_technique_context_block(seed.atlas_technique_ids)
@@ -2103,6 +2132,26 @@ def _call_attack_tree(
             "Do NOT add technique_id to any node.\n"
         )
 
+    # Build optional architecture and actor profile sections for Call 2
+    arch_section = ""
+    if profile is not None:
+        arch_section = (
+            "\n## Target System Architecture\n"
+            "Every node's zone must be drawn from these active zones.\n"
+            f"- Active zones: {profile.zones_active}\n"
+            f"- Entry points: {profile.entry_points}\n"
+        )
+
+    actor_section = ""
+    if actor_profile is not None:
+        actor_section = (
+            "\n## Actor Profile\n"
+            "The tree's depth and complexity must be commensurate with "
+            "the actor's capability level.\n"
+            f"- Actor type: {actor_profile.actor_type}\n"
+            f"- Capability level: {actor_profile.capability_level}\n"
+        )
+
     user_prompt = f"""\
 ## Attack Mechanism (the tree must formalize this)
 The attack tree must formalize the narrative below, which is a concrete \
@@ -2111,7 +2160,7 @@ instance of this attack mechanism.
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
 - Use case: {use_case}
-
+{arch_section}{actor_section}
 {technique_context}{technique_constraint}
 ## Narrative (from Call 1)
 Title: {narrative.title}
@@ -2203,16 +2252,25 @@ Steps:
         )
 
     technique_context = _build_technique_context_block(seed.atlas_technique_ids)
+    technique_framing_3 = (
+        "Annotate Gherkin steps with technique IDs in square brackets where "
+        "the step implements a specific technique, e.g. [AML.T0054].\n"
+        if technique_context
+        else ""
+    )
 
     user_prompt += f"""
 ## Capability Profile
+Use active zones to determine which Background Given steps to include. \
+Only reference system capabilities that match this profile.
 - Active zones: {profile.zones_active}
 - Entry points: {profile.entry_points}
 - Persistent memory: {profile.has_persistent_memory}
 - Multi-agent: {profile.multi_agent}
 - Human-in-the-loop: {profile.hitl}
 
-{technique_context}{tree_section}
+{technique_context}\
+{technique_framing_3}{tree_section}
 ## Attack Mechanism
 - Mechanism: {seed.mechanism_name}
 - Threat category: {seed.threat_name} — {seed.threat_description}
@@ -2411,6 +2469,8 @@ def generate_scenario(
         narrative,
         client,
         use_case,
+        profile=profile,
+        actor_profile=actor_profile,
     )
     call_metas.append(_call_metadata(CallName.attack_tree, result2))
 
