@@ -3817,13 +3817,121 @@ def build_glossary_section() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _scorecard_badge(value: float, label: str, *, invert: bool = False) -> str:
+_SCORECARD_METRIC_TOOLTIPS: dict[str, str] = {
+    # Consistency group
+    "Consistency": (
+        "How well scenario narratives, attack trees, and behavior specs "
+        "agree on zones, entry points, and attack steps"
+    ),
+    "Mean": (
+        "Average consistency score across all scenarios (0-1). "
+        "Combines zone alignment, entry point agreement, and "
+        "step-node correspondence"
+    ),
+    "Zone Alignment": (
+        "Fraction of zones in the narrative zone-sequence that also "
+        "appear in the attack-tree nodes (0-1)"
+    ),
+    "Entry Point Agreement": (
+        "1 if the narrative entry point matches the attack-tree root zone, 0 otherwise"
+    ),
+    "Step-Node Correspondence": (
+        "Fraction of Gherkin steps whose zone tag matches an "
+        "attack-tree node zone (0-1)"
+    ),
+    # Gherkin group
+    "Gherkin Quality": (
+        "Structural quality of generated Gherkin behavior specifications"
+    ),
+    "Parse Success Rate": (
+        "Fraction of generated feature files that parse without syntax errors (0-1)"
+    ),
+    "Mean Step Count": (
+        "Average number of Given/When/Then steps per scenario. Higher "
+        "counts indicate more detailed specifications"
+    ),
+    "Inconsistent Tag Groups": (
+        "Number of scenario groups where Gherkin tags disagree with "
+        "scenario metadata (0 is best)"
+    ),
+    "Background Warnings": (
+        "Feature files missing a Background section that sets up the agent context"
+    ),
+    # Grounding group
+    "Grounding": (
+        "Whether generated IDs and references resolve to real taxonomy entries"
+    ),
+    "Threat ID Validity": (
+        "Fraction of threat IDs in scenarios that match known OWASP "
+        "Agentic Threat IDs (0-1)"
+    ),
+    "Dangling References": (
+        "Number of taxonomy IDs referenced in scenarios that do not "
+        "exist in the source taxonomy (0 is best)"
+    ),
+    "Technique ID Grounding": (
+        "Fraction of ATLAS technique IDs in scenarios that resolve to "
+        "known MITRE ATLAS techniques (0-1)"
+    ),
+    "Ungrounded Technique Refs": (
+        "Number of ATLAS technique references that do not match any "
+        "known technique (0 is best)"
+    ),
+    # Diversity group
+    "Diversity": (
+        "How well scenarios cover different attack surfaces, actor "
+        "types, and entry points"
+    ),
+    "EP Entropy": (
+        "Shannon entropy of entry-point distribution. Higher values "
+        "mean more evenly distributed entry points"
+    ),
+    "EP Coverage": (
+        "Fraction of declared system entry points that appear in at "
+        "least one scenario (0-1)"
+    ),
+    "Active Zone Coverage": (
+        "Fraction of active capability zones that are targeted by at "
+        "least one scenario (0-1)"
+    ),
+    "Zone Violations": (
+        "Scenarios that target zones not declared as active in the "
+        "capability profile (0 is best)"
+    ),
+    "Actor Type Entropy": (
+        "Shannon entropy of actor-type distribution. Higher values "
+        "indicate more diverse attacker personas"
+    ),
+    "Capability Evenness": (
+        "How evenly capability levels (novice to expert) are "
+        "distributed across scenarios (0-1)"
+    ),
+    "Title Uniqueness": (
+        "Fraction of scenario titles that are unique. Detects "
+        "duplicate or near-duplicate generations (1 is best)"
+    ),
+    # Plausibility group
+    "Plausibility": (
+        "Whether attack steps are realistic given the actor's declared capability level"
+    ),
+    "Capability Violations": (
+        "Number of scenarios where attack complexity exceeds the "
+        "actor's capability level (0 is best)"
+    ),
+}
+
+
+def _scorecard_badge(
+    value: float, label: str, *, invert: bool = False, tooltip: str = ""
+) -> str:
     """Return a colored badge for a metric value.
 
     Args:
         value: Numeric metric value (0-1 scale for rates, raw for counts).
         label: Display label for the badge.
         invert: When True, lower values are better (e.g. violation counts).
+        tooltip: Optional tooltip text. If empty, looks up from
+                 ``_SCORECARD_METRIC_TOOLTIPS`` using *label*.
     """
     if invert:
         # For counts: 0 = green, >0 = red
@@ -3839,7 +3947,9 @@ def _scorecard_badge(value: float, label: str, *, invert: bool = False) -> str:
         display = f"{value:.2f}"
     else:
         display = str(int(value))
-    return f'<span class="scorecard-badge {css_cls}">{_esc(label)}: {display}</span>'
+    tip = tooltip or _SCORECARD_METRIC_TOOLTIPS.get(label, "")
+    tip_attr = f' data-tooltip="{_esc(tip)}"' if tip else ""
+    return f'<span class="scorecard-badge {css_cls}"{tip_attr}>{_esc(label)}: {display}</span>'
 
 
 def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
@@ -3882,7 +3992,13 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         stddev = consistency.get("stddev", 0)
         consistency_badges += _scorecard_badge(mean, "Mean")
         consistency_badges += _scorecard_badge(
-            1.0 - stddev, f"Stddev: {stddev:.3f}", invert=False
+            1.0 - stddev,
+            f"Stddev: {stddev:.3f}",
+            invert=False,
+            tooltip=(
+                "Standard deviation of per-scenario consistency scores. "
+                "Lower values mean more uniform quality across scenarios"
+            ),
         )
 
     per_scenario_consistency = consistency.get("per_scenario", {})
@@ -3918,17 +4034,18 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
           <table class="scorecard-detail-table">
             <thead><tr>
               <th>Scenario</th>
-              <th>Zone Alignment</th>
-              <th>Entry Point Agreement</th>
-              <th>Step-Node Correspondence</th>
+              <th data-tooltip="{_esc(_SCORECARD_METRIC_TOOLTIPS.get("Zone Alignment", ""))}">Zone Alignment</th>
+              <th data-tooltip="{_esc(_SCORECARD_METRIC_TOOLTIPS.get("Entry Point Agreement", ""))}">Entry Point Agreement</th>
+              <th data-tooltip="{_esc(_SCORECARD_METRIC_TOOLTIPS.get("Step-Node Correspondence", ""))}">Step-Node Correspondence</th>
             </tr></thead>
             <tbody>{rows}</tbody>
           </table>
         </details>"""
 
+    consistency_tip = _SCORECARD_METRIC_TOOLTIPS.get("Consistency", "")
     consistency_html = f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Consistency</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(consistency_tip)}">Consistency</div>
       <div class="scorecard-metrics">{consistency_badges}</div>
       {consistency_detail}
     </div>"""
@@ -3943,21 +4060,26 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         ig = tag_con.get("inconsistent_groups", 0)
         bm_warnings = gherkin.get("background_missing_warnings", [])
         gherkin_badges += _scorecard_badge(psr, "Parse Success Rate")
+        msc_tip = _SCORECARD_METRIC_TOOLTIPS.get("Mean Step Count", "")
         gherkin_badges += (
-            f'<span class="scorecard-badge scorecard-badge-green">'
+            f'<span class="scorecard-badge scorecard-badge-green"'
+            f' data-tooltip="{_esc(msc_tip)}">'
             f"Mean Step Count: {msc:.1f}</span>"
         )
         gherkin_badges += _scorecard_badge(ig, "Inconsistent Tag Groups", invert=True)
         if bm_warnings:
+            bw_tip = _SCORECARD_METRIC_TOOLTIPS.get("Background Warnings", "")
             gherkin_badges += (
-                f'<span class="scorecard-badge scorecard-badge-yellow">'
+                f'<span class="scorecard-badge scorecard-badge-yellow"'
+                f' data-tooltip="{_esc(bw_tip)}">'
                 f"Background Warnings: {len(bm_warnings)}</span>"
             )
 
+    gherkin_tip = _SCORECARD_METRIC_TOOLTIPS.get("Gherkin Quality", "")
     gherkin_html = (
         f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Gherkin Quality</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(gherkin_tip)}">Gherkin Quality</div>
       <div class="scorecard-metrics">{gherkin_badges}</div>
     </div>"""
         if gherkin_badges
@@ -3979,10 +4101,11 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
             utr, "Ungrounded Technique Refs", invert=True
         )
 
+    grounding_tip = _SCORECARD_METRIC_TOOLTIPS.get("Grounding", "")
     grounding_html = (
         f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Grounding</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(grounding_tip)}">Grounding</div>
       <div class="scorecard-metrics">{grounding_badges}</div>
     </div>"""
         if grounding_badges
@@ -3997,8 +4120,10 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         if isinstance(ep_ent, dict):
             entropy = ep_ent.get("entropy", 0)
             ep_cov = ep_ent.get("entry_point_coverage", 0)
+            ep_ent_tip = _SCORECARD_METRIC_TOOLTIPS.get("EP Entropy", "")
             diversity_badges += (
-                f'<span class="scorecard-badge scorecard-badge-green">'
+                f'<span class="scorecard-badge scorecard-badge-green"'
+                f' data-tooltip="{_esc(ep_ent_tip)}">'
                 f"EP Entropy: {entropy:.2f}</span>"
             )
             diversity_badges += _scorecard_badge(ep_cov, "EP Coverage")
@@ -4025,10 +4150,11 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         if isinstance(tu, (int, float)):
             diversity_badges += _scorecard_badge(tu, "Title Uniqueness")
 
+    diversity_tip = _SCORECARD_METRIC_TOOLTIPS.get("Diversity", "")
     diversity_html = (
         f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Diversity</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(diversity_tip)}">Diversity</div>
       <div class="scorecard-metrics">{diversity_badges}</div>
     </div>"""
         if diversity_badges
@@ -4064,9 +4190,10 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
           </table>
         </details>"""
 
+        plausibility_tip = _SCORECARD_METRIC_TOOLTIPS.get("Plausibility", "")
         plausibility_html = f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Plausibility</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(plausibility_tip)}">Plausibility</div>
       <div class="scorecard-metrics">{plausibility_badges}</div>
       {violations_detail}
     </div>"""
