@@ -42,10 +42,10 @@ from scenario_forge.pipeline.seeds import ScenarioSeed
 def _make_seed() -> ScenarioSeed:
     """Create a minimal ScenarioSeed for testing."""
     return ScenarioSeed(
-        seed_id="T1-S1",
+        seed_id="AP-T1-01",
         threat_id="T1",
         threat_name="Test Threat",
-        mechanism_name="Test Sub-Scenario",
+        mechanism_name="Test Attack Pattern",
         mechanism_description="A test description",
         risk_card_ref=RiskCardRef(
             risk_id="test-risk",
@@ -126,21 +126,28 @@ class TestScoringCalibrationRubric:
         assert "do not default" in prompt_lower
 
 
-
 # ===========================================================================
 # Bead 9zz: Heuristic scoring spread
 # ===========================================================================
 
 
-def _make_tree_node(node_id: str, children: list[AttackTreeNode] | None = None) -> AttackTreeNode:
+def _make_tree_node(
+    node_id: str, children: list[AttackTreeNode] | None = None
+) -> AttackTreeNode:
     """Build a single attack tree node, LEAF if no children."""
     if children:
         return AttackTreeNode(
-            id=node_id, label=f"Node {node_id}", gate=GateType.AND,
-            zone="input", children=children,
+            id=node_id,
+            label=f"Node {node_id}",
+            gate=GateType.AND,
+            zone="input",
+            children=children,
         )
     return AttackTreeNode(
-        id=node_id, label=f"Leaf {node_id}", gate=GateType.LEAF, zone="input",
+        id=node_id,
+        label=f"Leaf {node_id}",
+        gate=GateType.LEAF,
+        zone="input",
     )
 
 
@@ -153,7 +160,9 @@ def _make_tree_simple(nodes: int, depth: int) -> AttackTree:
     """
     if depth <= 1 or nodes <= 1:
         root = _make_tree_node("n1")
-        return AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
+        return AttackTree(
+            id="tree-AP-T1-01", seed_id="AP-T1-01", goal="Test", root=root
+        )
 
     # Build a chain to target depth, always ensuring >= 2 children per AND
     def _build(d: int, prefix: str) -> tuple[AttackTreeNode, int]:
@@ -179,7 +188,7 @@ def _make_tree_simple(nodes: int, depth: int) -> AttackTree:
             used += 1
             sib_idx += 1
 
-    return AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
+    return AttackTree(id="tree-AP-T1-01", seed_id="AP-T1-01", goal="Test", root=root)
 
 
 class TestHeuristicAttackComplexity:
@@ -250,13 +259,21 @@ class TestHeuristicAttackComplexity:
         """
         # Build a wide but shallow tree: 10 nodes, depth 2
         children = [
-            AttackTreeNode(id=f"n1.{i}", label=f"Leaf {i}", gate=GateType.LEAF, zone="input")
+            AttackTreeNode(
+                id=f"n1.{i}", label=f"Leaf {i}", gate=GateType.LEAF, zone="input"
+            )
             for i in range(1, 10)
         ]
         root = AttackTreeNode(
-            id="n1", label="Root", gate=GateType.OR, zone="input", children=children,
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            children=children,
         )
-        tree = AttackTree(id="tree-T1-S1", seed_id="T1-S1", goal="Test", root=root)
+        tree = AttackTree(
+            id="tree-AP-T1-01", seed_id="AP-T1-01", goal="Test", root=root
+        )
         result = _heuristic_attack_complexity(tree)
         # 10 nodes -> high (wide attack surface)
         assert result == AttackComplexity.high
@@ -272,7 +289,9 @@ class TestHeuristicAttackComplexity:
     def test_no_tree_uses_narrative_fallback(self):
         """Without a tree, narrative zone count determines complexity."""
         narrative_1zone_obj = NarrativeLayer(
-            title="T", summary="S", entry_point="ep",
+            title="T",
+            summary="S",
+            entry_point="ep",
             zone_sequence=["input"],
             steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
@@ -282,7 +301,9 @@ class TestHeuristicAttackComplexity:
     def test_no_tree_many_zones_is_high(self):
         """Without a tree, 4+ zones -> high complexity."""
         narrative = NarrativeLayer(
-            title="T", summary="S", entry_point="ep",
+            title="T",
+            summary="S",
+            entry_point="ep",
             zone_sequence=["input", "reasoning", "tool_execution", "memory"],
             steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
@@ -292,7 +313,9 @@ class TestHeuristicAttackComplexity:
     def test_no_tree_two_zones_is_medium(self):
         """Without a tree, 2-3 zones -> medium complexity."""
         narrative = NarrativeLayer(
-            title="T", summary="S", entry_point="ep",
+            title="T",
+            summary="S",
+            entry_point="ep",
             zone_sequence=["input", "reasoning"],
             steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
@@ -329,7 +352,9 @@ class TestHeuristicRiskImpact:
         seed = _make_seed()
         seed.risk_card_ref.impact = "Some generic impact description"
         narrative = NarrativeLayer(
-            title="T", summary="S", entry_point="ep",
+            title="T",
+            summary="S",
+            entry_point="ep",
             zone_sequence=["input", "reasoning", "tool_execution", "memory"],
             steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
         )
@@ -602,10 +627,30 @@ class TestExtractStructuralPattern:
             entry_point="ep",
             zone_sequence=["input", "reasoning", "memory", "reasoning"],
             steps=[
-                NarrativeStep(step_number=1, zone="input", action="I poison the API data with false information", effect="tainted data"),
-                NarrativeStep(step_number=2, zone="reasoning", action="The model starts to hallucinate and produce false outputs", effect="wrong output"),
-                NarrativeStep(step_number=3, zone="memory", action="False data persists in long-term memory", effect="permanent taint"),
-                NarrativeStep(step_number=4, zone="reasoning", action="I bypass the human reviewer through fatigue", effect="approved"),
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="I poison the API data with false information",
+                    effect="tainted data",
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="The model starts to hallucinate and produce false outputs",
+                    effect="wrong output",
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="memory",
+                    action="False data persists in long-term memory",
+                    effect="permanent taint",
+                ),
+                NarrativeStep(
+                    step_number=4,
+                    zone="reasoning",
+                    action="I bypass the human reviewer through fatigue",
+                    effect="approved",
+                ),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -622,8 +667,18 @@ class TestExtractStructuralPattern:
             entry_point="ep",
             zone_sequence=["input", "tool_execution"],
             steps=[
-                NarrativeStep(step_number=1, zone="input", action="I inject a malicious prompt", effect="accepted"),
-                NarrativeStep(step_number=2, zone="tool_execution", action="I exfiltrate sensitive data via the tool output", effect="data stolen"),
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="I inject a malicious prompt",
+                    effect="accepted",
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="tool_execution",
+                    action="I exfiltrate sensitive data via the tool output",
+                    effect="data stolen",
+                ),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -637,9 +692,24 @@ class TestExtractStructuralPattern:
             entry_point="ep",
             zone_sequence=["input", "input", "tool_execution"],
             steps=[
-                NarrativeStep(step_number=1, zone="input", action="I inject payload A", effect="partial"),
-                NarrativeStep(step_number=2, zone="input", action="I inject payload B to reinforce", effect="full"),
-                NarrativeStep(step_number=3, zone="tool_execution", action="I exfiltrate the result", effect="done"),
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="I inject payload A",
+                    effect="partial",
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="input",
+                    action="I inject payload B to reinforce",
+                    effect="full",
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="tool_execution",
+                    action="I exfiltrate the result",
+                    effect="done",
+                ),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -653,7 +723,12 @@ class TestExtractStructuralPattern:
             entry_point="ep",
             zone_sequence=["input"],
             steps=[
-                NarrativeStep(step_number=1, zone="input", action="I do something unusual and novel", effect="unclear"),
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="I do something unusual and novel",
+                    effect="unclear",
+                ),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -667,9 +742,24 @@ class TestExtractStructuralPattern:
             entry_point="ep",
             zone_sequence=["input", "reasoning", "tool_execution"],
             steps=[
-                NarrativeStep(step_number=1, zone="input", action="I probe the API to enumerate endpoints", effect="map"),
-                NarrativeStep(step_number=2, zone="reasoning", action="I escalate privileges via admin misconfiguration", effect="admin"),
-                NarrativeStep(step_number=3, zone="tool_execution", action="I exfiltrate the full database", effect="stolen"),
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="I probe the API to enumerate endpoints",
+                    effect="map",
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="I escalate privileges via admin misconfiguration",
+                    effect="admin",
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="tool_execution",
+                    action="I exfiltrate the full database",
+                    effect="stolen",
+                ),
             ],
         )
         pattern = extract_structural_pattern(narrative)
@@ -688,11 +778,13 @@ class TestGetOverusedStructuralPatterns:
         assert get_overused_structural_patterns(counts, threshold=2) == []
 
     def test_above_threshold_detected(self):
-        counts = Counter({
-            "poison->hallucinate->persist->bypass": 5,
-            "inject->exfiltrate": 3,
-            "probe->escalate": 1,
-        })
+        counts = Counter(
+            {
+                "poison->hallucinate->persist->bypass": 5,
+                "inject->exfiltrate": 3,
+                "probe->escalate": 1,
+            }
+        )
         result = get_overused_structural_patterns(counts, threshold=2)
         assert "poison->hallucinate->persist->bypass" in result
         assert "inject->exfiltrate" in result

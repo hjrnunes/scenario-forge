@@ -2,91 +2,74 @@
 # Provenance mappings: OWASP origin, LAAF technique, and MITRE ATLAS correspondences
 # curie_map:
 #   scenario-forge: https://github.com/hjrnunes/scenario-forge/
-#   owasp-agentic: https://owasp.org/www-project-agentic-ai-threats/
 #   laaf: https://github.com/laaf-ai/laaf/
 #   mitre-atlas: https://atlas.mitre.org/
 #   skos: http://www.w3.org/2004/02/skos/core#
 #   semapv: https://w3id.org/semapv/vocab/
 subject_id	subject_source	predicate_id	object_id	object_source	mapping_justification
-AP-T5-01	scenario-forge	skos:exactMatch	T5-S1	owasp-agentic	semapv:ManualMappingCuration
 AP-T5-01	scenario-forge	skos:relatedMatch	S3	laaf	semapv:ManualMappingCuration
 AP-T5-01	scenario-forge	skos:relatedMatch	T8	laaf	semapv:ManualMappingCuration
 AP-T5-01	scenario-forge	skos:relatedMatch	AML.T0060	mitre-atlas	semapv:ManualMappingCuration
 AP-T5-01	scenario-forge	skos:relatedMatch	AML.T0047	mitre-atlas	semapv:ManualMappingCuration
-AP-T5-02	scenario-forge	skos:exactMatch	T5-S2	owasp-agentic	semapv:ManualMappingCuration
 AP-T5-02	scenario-forge	skos:relatedMatch	M8	laaf	semapv:ManualMappingCuration
 AP-T5-02	scenario-forge	skos:relatedMatch	S8	laaf	semapv:ManualMappingCuration
 AP-T5-02	scenario-forge	skos:relatedMatch	AML.T0060	mitre-atlas	semapv:ManualMappingCuration
 AP-T5-02	scenario-forge	skos:relatedMatch	AML.T0047	mitre-atlas	semapv:ManualMappingCuration
-AP-T5-03	scenario-forge	skos:exactMatch	T5-S3	owasp-agentic	semapv:ManualMappingCuration
 AP-T5-03	scenario-forge	skos:relatedMatch	T8	laaf	semapv:ManualMappingCuration
 AP-T5-03	scenario-forge	skos:relatedMatch	L1	laaf	semapv:ManualMappingCuration
 AP-T5-03	scenario-forge	skos:relatedMatch	AML.T0060	mitre-atlas	semapv:ManualMappingCuration
 AP-T5-03	scenario-forge	skos:relatedMatch	AML.T0047	mitre-atlas	semapv:ManualMappingCuration
-AP-T5-04	scenario-forge	skos:exactMatch	T5-S4	owasp-agentic	semapv:ManualMappingCuration
 AP-T5-04	scenario-forge	skos:relatedMatch	M8	laaf	semapv:ManualMappingCuration
 AP-T5-04	scenario-forge	skos:relatedMatch	T5	laaf	semapv:ManualMappingCuration
 AP-T5-04	scenario-forge	skos:relatedMatch	AML.T0060	mitre-atlas	semapv:ManualMappingCuration
 AP-T5-04	scenario-forge	skos:relatedMatch	AML.T0047	mitre-atlas	semapv:ManualMappingCuration
-AP-T6-01	scenario-forge	skos:exactMatch	T6-S1	owasp-agentic	semapv:ManualMappingCuration
 AP-T6-01	scenario-forge	skos:relatedMatch	L2	laaf	semapv:ManualMappingCuration
 AP-T6-01	scenario-forge	skos:relatedMatch	M3	laaf	semapv:ManualMappingCuration
 AP-T6-01	scenario-forge	skos:relatedMatch	AML.T0051.000	mitre-atlas	semapv:ManualMappingCuration
 AP-T6-01	scenario-forge	skos:relatedMatch	AML.T0054	mitre-atlas	semapv:ManualMappingCuration
-AP-T6-02	scenario-forge	skos:exactMatch	T6-S2	owasp-agentic	semapv:ManualMappingCuration
 AP-T6-02	scenario-forge	skos:relatedMatch	S1	laaf	semapv:ManualMappingCuration
 AP-T6-02	scenario-forge	skos:relatedMatch	M3	laaf	semapv:ManualMappingCuration
 AP-T6-02	scenario-forge	skos:relatedMatch	AML.T0051.000	mitre-atlas	semapv:ManualMappingCuration
 AP-T6-02	scenario-forge	skos:relatedMatch	AML.T0054	mitre-atlas	semapv:ManualMappingCuration
-AP-T6-03	scenario-forge	skos:exactMatch	T6-S3	owasp-agentic	semapv:ManualMappingCuration
 AP-T6-03	scenario-forge	skos:relatedMatch	S8	laaf	semapv:ManualMappingCuration
 AP-T6-03	scenario-forge	skos:relatedMatch	L3	laaf	semapv:ManualMappingCuration
 AP-T6-03	scenario-forge	skos:relatedMatch	AML.T0051.001	mitre-atlas	semapv:ManualMappingCuration
 AP-T6-03	scenario-forge	skos:relatedMatch	AML.T0054	mitre-atlas	semapv:ManualMappingCuration
-AP-T6-04	scenario-forge	skos:exactMatch	T6-S4	owasp-agentic	semapv:ManualMappingCuration
 AP-T6-04	scenario-forge	skos:relatedMatch	L4	laaf	semapv:ManualMappingCuration
 AP-T6-04	scenario-forge	skos:relatedMatch	T3	laaf	semapv:ManualMappingCuration
 AP-T6-04	scenario-forge	skos:relatedMatch	AML.T0051.000	mitre-atlas	semapv:ManualMappingCuration
 AP-T6-04	scenario-forge	skos:relatedMatch	AML.T0051.001	mitre-atlas	semapv:ManualMappingCuration
-AP-T6-05	scenario-forge	skos:exactMatch	T6-S5	owasp-agentic	semapv:ManualMappingCuration
 AP-T6-05	scenario-forge	skos:relatedMatch	L1	laaf	semapv:ManualMappingCuration
 AP-T6-05	scenario-forge	skos:relatedMatch	M3	laaf	semapv:ManualMappingCuration
 AP-T6-05	scenario-forge	skos:relatedMatch	AML.T0051.001	mitre-atlas	semapv:ManualMappingCuration
 AP-T6-05	scenario-forge	skos:relatedMatch	AML.T0054	mitre-atlas	semapv:ManualMappingCuration
-AP-T11-01	scenario-forge	skos:exactMatch	T11-S1	owasp-agentic	semapv:ManualMappingCuration
 AP-T11-01	scenario-forge	skos:relatedMatch	S8	laaf	semapv:ManualMappingCuration
 AP-T11-01	scenario-forge	skos:relatedMatch	L3	laaf	semapv:ManualMappingCuration
 AP-T11-01	scenario-forge	skos:relatedMatch	AML.T0051.001	mitre-atlas	semapv:ManualMappingCuration
 AP-T11-01	scenario-forge	skos:relatedMatch	AML.T0067	mitre-atlas	semapv:ManualMappingCuration
 AP-T11-01	scenario-forge	skos:relatedMatch	AML.T0040	mitre-atlas	semapv:ManualMappingCuration
-AP-T11-02	scenario-forge	skos:exactMatch	T11-S2	owasp-agentic	semapv:ManualMappingCuration
 AP-T11-02	scenario-forge	skos:relatedMatch	T2	laaf	semapv:ManualMappingCuration
 AP-T11-02	scenario-forge	skos:relatedMatch	L3	laaf	semapv:ManualMappingCuration
 AP-T11-02	scenario-forge	skos:relatedMatch	AML.T0054	mitre-atlas	semapv:ManualMappingCuration
 AP-T11-02	scenario-forge	skos:relatedMatch	AML.T0067	mitre-atlas	semapv:ManualMappingCuration
 AP-T11-02	scenario-forge	skos:relatedMatch	AML.T0040	mitre-atlas	semapv:ManualMappingCuration
-AP-T11-03	scenario-forge	skos:exactMatch	T11-S3	owasp-agentic	semapv:ManualMappingCuration
 AP-T11-03	scenario-forge	skos:relatedMatch	S4	laaf	semapv:ManualMappingCuration
 AP-T11-03	scenario-forge	skos:relatedMatch	S6	laaf	semapv:ManualMappingCuration
 AP-T11-03	scenario-forge	skos:relatedMatch	AML.T0051.000	mitre-atlas	semapv:ManualMappingCuration
 AP-T11-03	scenario-forge	skos:relatedMatch	AML.T0054	mitre-atlas	semapv:ManualMappingCuration
 AP-T11-03	scenario-forge	skos:relatedMatch	AML.T0067	mitre-atlas	semapv:ManualMappingCuration
-AP-T13-01	scenario-forge	skos:exactMatch	T13-S1	owasp-agentic	semapv:ManualMappingCuration
 AP-T13-01	scenario-forge	skos:relatedMatch	M2	laaf	semapv:ManualMappingCuration
 AP-T13-01	scenario-forge	skos:relatedMatch	M5	laaf	semapv:ManualMappingCuration
 AP-T13-01	scenario-forge	skos:relatedMatch	AML.T0015	mitre-atlas	semapv:ManualMappingCuration
 AP-T13-01	scenario-forge	skos:relatedMatch	AML.T0053	mitre-atlas	semapv:ManualMappingCuration
-AP-T13-02	scenario-forge	skos:exactMatch	T13-S2	owasp-agentic	semapv:ManualMappingCuration
 AP-T13-02	scenario-forge	skos:relatedMatch	L5	laaf	semapv:ManualMappingCuration
 AP-T13-02	scenario-forge	skos:relatedMatch	M3	laaf	semapv:ManualMappingCuration
 AP-T13-02	scenario-forge	skos:relatedMatch	AML.T0015	mitre-atlas	semapv:ManualMappingCuration
 AP-T13-02	scenario-forge	skos:relatedMatch	AML.T0053	mitre-atlas	semapv:ManualMappingCuration
-AP-T13-03	scenario-forge	skos:exactMatch	T13-S3	owasp-agentic	semapv:ManualMappingCuration
 AP-T13-03	scenario-forge	skos:relatedMatch	T1	laaf	semapv:ManualMappingCuration
 AP-T13-03	scenario-forge	skos:relatedMatch	L5	laaf	semapv:ManualMappingCuration
 AP-T13-03	scenario-forge	skos:relatedMatch	AML.T0015	mitre-atlas	semapv:ManualMappingCuration
 AP-T13-03	scenario-forge	skos:relatedMatch	AML.T0053	mitre-atlas	semapv:ManualMappingCuration
-AP-T13-04	scenario-forge	skos:exactMatch	T13-S4	owasp-agentic	semapv:ManualMappingCuration
 AP-T13-04	scenario-forge	skos:relatedMatch	T8	laaf	semapv:ManualMappingCuration
 AP-T13-04	scenario-forge	skos:relatedMatch	L4	laaf	semapv:ManualMappingCuration
 AP-T13-04	scenario-forge	skos:relatedMatch	AML.T0015	mitre-atlas	semapv:ManualMappingCuration

@@ -19,7 +19,6 @@ from scenario_forge.report.template import (
     build_threat_surface_section,
     build_threat_technique_section,
     build_use_case_section,
-    populate_owasp_to_pattern,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,7 @@ def generate_report(output_dir: Path) -> Path:
         # Load feature files
         for feature_file in sorted(scenarios_dir.glob("*.feature")):
             content = feature_file.read_text(encoding="utf-8")
-            # Extract scenario ID from filename (e.g., T5-S1-5f016c.feature -> T5-S1-5f016c)
+            # Extract scenario ID from filename (e.g., AP-T5-01-5f016c.feature -> AP-T5-01-5f016c)
             scenario_id = feature_file.stem
             feature_files[scenario_id] = content
             raw_files[f"scenarios/{feature_file.name}"] = content
@@ -177,10 +176,6 @@ def generate_report(output_dir: Path) -> Path:
         )
 
     # --- Build HTML sections ---
-    # Populate OWASP-to-pattern reverse lookup from scenario seed metadata
-    # (must run before any section that uses _OWASP_TO_PATTERN)
-    populate_owasp_to_pattern(scenarios)
-
     use_case_html = build_use_case_section(use_case_text) if use_case_text else ""
     profile_html = build_capability_profile_section(profile_data)
     threats_html = build_threat_surface_section(ts_data)

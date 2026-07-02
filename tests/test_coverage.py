@@ -123,8 +123,8 @@ def _make_envelope(
     )
 
     attack_tree = AttackTree(
-        id="tree-T1-S1",
-        seed_id="T1-S1",
+        id="tree-AP-T1-01",
+        seed_id="AP-T1-01",
         goal="Compromise the system",
         root=AttackTreeNode(
             id="n1",
@@ -147,7 +147,7 @@ def _make_envelope(
         taxonomy_chain=TaxonomyChain(
             owasp_llm_ids=["LLM01"],
             agentic_threat_ids=agentic_threat_ids,
-            scenario_seed="T1-S1",
+            scenario_seed="AP-T1-01",
         ),
         capability_profile=CapabilityProfileRef(
             zones_traversed=zone_sequence,
@@ -193,7 +193,7 @@ def _make_envelope(
         )
 
     return ScenarioEnvelope(
-        scenario_id="T1-S1-abc123",
+        scenario_id="AP-T1-01-abc123",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         actor_profile=actor_profile,
@@ -241,7 +241,7 @@ def _make_threat_surface(
                 risk_card=_make_risk_card_ref(f"risk-{i}"),
                 owasp_llm_ids=["LLM01"],
                 agentic_threat_ids=ids,
-                sub_scenarios=[f"{t}-S1" for t in ids],
+                attack_pattern_ids=[f"AP-{t}-01" for t in ids],
             )
         )
     return ThreatSurface(entries=entries, governance_only=[])
@@ -814,7 +814,7 @@ class TestWriteCoverageReport:
 
 
 def _make_seed(
-    seed_id: str = "T1-S1",
+    seed_id: str = "AP-T1-01",
     threat_id: str = "T1",
     threat_name: str = "Prompt Injection",
     agentic_threat_ids: list[str] | None = None,
@@ -826,8 +826,8 @@ def _make_seed(
         seed_id=seed_id,
         threat_id=threat_id,
         threat_name=threat_name,
-        mechanism_name=f"Sub-scenario for {threat_name}",
-        mechanism_description=f"Description of {threat_name} sub-scenario.",
+        mechanism_name=f"Attack pattern for {threat_name}",
+        mechanism_description=f"Description of {threat_name} attack pattern.",
         risk_card_ref=_make_risk_card_ref(),
         contributing_risk_cards=[_make_risk_card_ref()],
         owasp_llm_ids=["LLM01"],
@@ -853,9 +853,9 @@ class TestPickBestSeedForEntryPoint:
         """With multiple seeds, should return one of them (not None)."""
         profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         seeds = [
-            _make_seed(seed_id="T1-S1", threat_id="T1"),
-            _make_seed(seed_id="T2-S1", threat_id="T2"),
-            _make_seed(seed_id="T3-S1", threat_id="T3"),
+            _make_seed(seed_id="AP-T1-01", threat_id="T1"),
+            _make_seed(seed_id="AP-T2-01", threat_id="T2"),
+            _make_seed(seed_id="AP-T3-01", threat_id="T3"),
         ]
         result = _pick_best_seed_for_entry_point(
             "admin console (zone 2)", seeds, profile
@@ -909,7 +909,7 @@ class TestRemediateCoverageGaps:
             ],
             zones_active=["input", "reasoning"],
         )
-        seeds = [_make_seed(seed_id="T1-S1"), _make_seed(seed_id="T2-S1")]
+        seeds = [_make_seed(seed_id="AP-T1-01"), _make_seed(seed_id="AP-T2-01")]
         client = MagicMock()
 
         # Create mock envelopes for each uncovered EP.
@@ -974,7 +974,7 @@ class TestRemediateCoverageGaps:
         """Verify generate_scenario receives the correct seed, profile, and use_case."""
         gaps = CoverageGaps(uncovered_entry_points=["api gateway (zone 3)"])
         profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
-        seed = _make_seed(seed_id="T5-S1")
+        seed = _make_seed(seed_id="AP-T5-01")
         client = MagicMock()
 
         mock_envelope = _make_envelope(entry_point="api gateway (zone 3)")

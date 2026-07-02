@@ -1,7 +1,7 @@
 """Pydantic models for the Attack Tree artifact.
 
 AND/OR attack tree produced by Call 2 of the scenario generation pipeline.
-Each tree decomposes a single OWASP sub-scenario seed into a hierarchical
+Each tree decomposes a single abstract attack pattern seed into a hierarchical
 set of attack steps with logical gates, zone annotations, taxonomy
 references, and structural exposure signals.
 
@@ -154,17 +154,17 @@ class AttackTreeNode(BaseModel):
 class AttackTree(BaseModel):
     """Top-level attack tree container.
 
-    One tree per scenario seed.  Decomposes a single OWASP sub-scenario into a
+    One tree per scenario seed.  Decomposes a single abstract attack pattern into a
     hierarchical AND/OR tree of attack steps.
     """
 
     id: str = Field(
-        description="Tree identifier. Format: 'tree-{seed_id}' (e.g. 'tree-T2-S1' or 'tree-AP-T7-01').",
-        pattern=r"^tree-(AP-)?T\d+-[A-Z]?\d+$",
+        description="Tree identifier. Format: 'tree-{seed_id}' (e.g. 'tree-AP-T7-01').",
+        pattern=r"^tree-AP-T\d+-\d+$",
     )
     seed_id: str = Field(
-        description="The attack pattern or sub-scenario seed that produced this tree (e.g. 'T2-S1' or 'AP-T7-01').",
-        pattern=r"^(AP-)?T\d+-[A-Z]?\d+$",
+        description="The attack pattern seed that produced this tree (e.g. 'AP-T7-01').",
+        pattern=r"^AP-T\d+-\d+$",
     )
     goal: str = Field(
         description="The attacker's top-level objective, stated as a concrete outcome.",
@@ -177,9 +177,7 @@ class AttackTree(BaseModel):
     def validate_root_id(self) -> AttackTree:
         """Root node must have id 'n1'."""
         if self.root.id != "n1":
-            raise ValueError(
-                f"Root node must have id 'n1', got '{self.root.id}'"
-            )
+            raise ValueError(f"Root node must have id 'n1', got '{self.root.id}'")
         return self
 
 
@@ -211,8 +209,7 @@ def _repair_node(node: dict[str, Any]) -> dict[str, Any]:
         parent_id = node["id"]
         child = node["children"][0]
         logger.warning(
-            "Collapsing single-child %s node '%s' — "
-            "replacing with child '%s' (%s)",
+            "Collapsing single-child %s node '%s' — replacing with child '%s' (%s)",
             gate,
             parent_id,
             child.get("id", "?"),

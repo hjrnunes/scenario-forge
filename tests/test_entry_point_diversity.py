@@ -181,7 +181,9 @@ class TestAssignEntryPoint:
 
     def test_returns_entry_point_not_none_with_multiple(self):
         eps = ["a (zone 1)", "b (zone 2)", "c (zone 3)"]
-        result = assign_entry_point(eps, ["input", "reasoning", "tool_execution"], Counter(), 9)
+        result = assign_entry_point(
+            eps, ["input", "reasoning", "tool_execution"], Counter(), 9
+        )
         assert result in eps
 
 
@@ -252,10 +254,10 @@ class TestNarrativePromptIntegration:
         from scenario_forge.pipeline.seeds import ScenarioSeed
 
         return ScenarioSeed(
-            seed_id="T1-S1",
+            seed_id="AP-T1-01",
             threat_id="T1",
             threat_name="Test Threat",
-            mechanism_name="Test Sub-Scenario",
+            mechanism_name="Test Attack Pattern",
             mechanism_description="A test description",
             risk_card_ref=RiskCardRef(
                 risk_id="test-risk",

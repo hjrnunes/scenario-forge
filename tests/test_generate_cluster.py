@@ -127,10 +127,10 @@ def _make_seed(
     if impact is not None:
         ref_kwargs["impact"] = impact
     return ScenarioSeed(
-        seed_id="T1-S1",
+        seed_id="AP-T1-01",
         threat_id="T1",
         threat_name="Test Threat",
-        mechanism_name="Test Sub-Scenario",
+        mechanism_name="Test Attack Pattern",
         mechanism_description="A test description",
         risk_card_ref=RiskCardRef(**ref_kwargs),
         owasp_llm_ids=["LLM01"],
@@ -215,14 +215,20 @@ def _make_attack_tree(*, depth: int = 3, node_count: int = 5, exposures=None):
                     id=f"n1.{next_child_num + i}",
                     label=f"Extra leaf {next_child_num + i}",
                     gate="LEAF",
-                    zone=["input", "reasoning", "tool_execution", "memory", "inter_agent"][i % 5],
+                    zone=[
+                        "input",
+                        "reasoning",
+                        "tool_execution",
+                        "memory",
+                        "inter_agent",
+                    ][i % 5],
                 )
             )
         root = root.model_copy(update={"children": extra_children})
 
     return AttackTree(
-        id="tree-T1-S1",
-        seed_id="T1-S1",
+        id="tree-AP-T1-01",
+        seed_id="AP-T1-01",
         goal="Test goal",
         root=root,
     )
@@ -241,7 +247,9 @@ class TestPriorityScoringDiversity:
         """Scenarios traversing more zones should score differently."""
         seed = _make_seed()
         n1 = _make_narrative(zone_sequence=["input"])
-        n4 = _make_narrative(zone_sequence=["input", "reasoning", "tool_execution", "memory"])
+        n4 = _make_narrative(
+            zone_sequence=["input", "reasoning", "tool_execution", "memory"]
+        )
         tree = _make_attack_tree(depth=3, node_count=5)
 
         p1 = _compute_priority(n1, tree, seed)
@@ -292,7 +300,12 @@ class TestPriorityScoringDiversity:
         the same score."""
         configs = [
             {"zone_sequence": ["input"], "impact": "minor", "depth": 2, "nodes": 3},
-            {"zone_sequence": ["input", "reasoning"], "impact": None, "depth": 3, "nodes": 5},
+            {
+                "zone_sequence": ["input", "reasoning"],
+                "impact": None,
+                "depth": 3,
+                "nodes": 5,
+            },
             {
                 "zone_sequence": ["input", "reasoning", "tool_execution"],
                 "impact": "severe critical",
@@ -333,7 +346,15 @@ class TestPriorityScoringDiversity:
     def test_score_in_valid_range(self):
         """All computed scores must be in [0.0, 1.0]."""
         seed = _make_seed(impact="catastrophic")
-        narrative = _make_narrative(zone_sequence=["input", "reasoning", "tool_execution", "memory", "inter_agent"])
+        narrative = _make_narrative(
+            zone_sequence=[
+                "input",
+                "reasoning",
+                "tool_execution",
+                "memory",
+                "inter_agent",
+            ]
+        )
         tree = _make_attack_tree(depth=5, node_count=10)
         p = _compute_priority(narrative, tree, seed)
         assert 0.0 <= p.composite <= 1.0

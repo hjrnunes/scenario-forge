@@ -4,6 +4,10 @@ Verifies that expand_seeds() populates owasp_origin, laaf_technique_ids,
 and atlas_provenance_ids from the SSSOM provenance index, and that
 atlas_provenance_ids is filtered to only include ATLAS IDs that survived
 zone-3 gating (i.e. present in the seed's atlas_technique_ids).
+
+The pipeline iterates AP-* IDs directly from ThreatSurfaceEntry.attack_pattern_ids,
+looking up pattern metadata from the AP-* YAML. SSSOM provenance provides
+LAAF and ATLAS cross-references for each AP-* pattern.
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ def _make_entry(
     risk_id: str,
     owasp_llm_ids: list[str],
     agentic_threat_ids: list[str],
-    sub_scenarios: list[str],
+    attack_pattern_ids: list[str],
     atlas_technique_ids: list[str] | None = None,
 ) -> ThreatSurfaceEntry:
     return ThreatSurfaceEntry(
@@ -45,7 +49,7 @@ def _make_entry(
         owasp_llm_ids=owasp_llm_ids,
         agentic_threat_ids=agentic_threat_ids,
         atlas_technique_ids=atlas_technique_ids or [],
-        sub_scenarios=sub_scenarios,
+        attack_pattern_ids=attack_pattern_ids,
     )
 
 
@@ -64,7 +68,7 @@ def _sssom(
     )
 
 
-# Minimal threat data and patterns
+# Minimal threat data
 _FAKE_THREATS = {
     "T7": {
         "name": "Misaligned & Deceptive Behaviors",
@@ -80,12 +84,19 @@ _FAKE_THREATS = {
     },
 }
 
+# Attack pattern metadata (keyed by AP-* ID)
 _FAKE_PATTERNS = {
     "AP-T7-01": {
         "id": "AP-T7-01",
         "name": "Constraint bypass via goal-priority conflict",
         "description": "Agent bypasses constraints",
         "threat_id": "T7",
+    },
+    "AP-T2-01": {
+        "id": "AP-T2-01",
+        "name": "Unauthorized tool invocation",
+        "description": "Agent invokes tools beyond its mandate",
+        "threat_id": "T2",
     },
 }
 
@@ -134,13 +145,13 @@ class TestSeedProvenanceFields:
     """Verify owasp_origin, laaf_technique_ids, atlas_provenance_ids on seeds."""
 
     def test_provenance_fields_populated_for_ap_seed(self):
-        """When a pattern with provenance maps to a sub-scenario, the seed
-        gets owasp_origin, laaf_technique_ids, and atlas_provenance_ids."""
+        """AP-T7-01 directly in attack_pattern_ids should carry
+        LAAF and ATLAS provenance from SSSOM."""
         entry = _make_entry(
             "risk-a",
             ["LLM01"],
             ["T7"],
-            ["T7-S1"],
+            ["AP-T7-01"],
             atlas_technique_ids=["AML.T0054", "AML.T0015", "AML.T0053"],
         )
         seeds = _run_expand([entry], patterns=_FAKE_PATTERNS, prov=_FAKE_PROV)
@@ -154,6 +165,21 @@ class TestSeedProvenanceFields:
             "AML.T0053",
         }
 
+    def test_mechanism_name_from_pattern(self):
+        """Seeds should get mechanism_name and mechanism_description from
+        the AP-* pattern dict."""
+        entry = _make_entry(
+            "risk-a",
+            ["LLM01"],
+            ["T7"],
+            ["AP-T7-01"],
+        )
+        seeds = _run_expand([entry], patterns=_FAKE_PATTERNS, prov=_FAKE_PROV)
+
+        seed = next(s for s in seeds if s.seed_id == "AP-T7-01")
+        assert seed.mechanism_name == "Constraint bypass via goal-priority conflict"
+        assert seed.mechanism_description == "Agent bypasses constraints"
+
     def test_atlas_provenance_filtered_by_zone3_gating(self):
         """atlas_provenance_ids should only include ATLAS IDs that are present
         in atlas_technique_ids (i.e. survived zone-3 gating).
@@ -165,7 +191,7 @@ class TestSeedProvenanceFields:
             "risk-a",
             ["LLM01"],
             ["T7"],
-            ["T7-S1"],
+            ["AP-T7-01"],
             atlas_technique_ids=["AML.T0054", "AML.T0015"],
         )
         seeds = _run_expand([entry], patterns=_FAKE_PATTERNS, prov=_FAKE_PROV)
@@ -180,10 +206,10 @@ class TestSeedProvenanceFields:
             "risk-a",
             ["LLM01"],
             ["T7"],
-            ["T7-S1"],
+            ["AP-T7-01"],
             atlas_technique_ids=["AML.T0054"],
         )
-        # No provenance data — load_attack_pattern_provenance raises FileNotFoundError
+        # No provenance data -- load_attack_pattern_provenance raises FileNotFoundError
         ts = ThreatSurface(entries=[entry], governance_only=[])
         with (
             patch(
@@ -201,33 +227,30 @@ class TestSeedProvenanceFields:
         ):
             seeds = expand_seeds(ts)
 
-        # Without SSSOM, the pattern lookup won't map T7-S1 -> AP-T7-01,
-        # so the seed will use T7-S1 as seed_id
-        seed = seeds[0]
+        # Without SSSOM, the pattern is still found (via attack_pattern_ids),
+        # but provenance fields are empty
+        seed = next(s for s in seeds if s.seed_id == "AP-T7-01")
         assert seed.owasp_origin is None
         assert seed.laaf_technique_ids == []
         assert seed.atlas_provenance_ids == []
 
-    def test_non_ap_seed_has_no_provenance(self):
-        """Seeds that don't map to an abstract pattern have no provenance."""
+    def test_unknown_ap_id_skipped(self):
+        """AP IDs not in the patterns dict are silently skipped."""
         entry = _make_entry(
             "risk-a",
             ["LLM01"],
-            ["T2"],
-            ["T2-S1"],
+            ["T7"],
+            ["AP-T7-99"],  # not in _FAKE_PATTERNS
             atlas_technique_ids=["AML.T0054"],
         )
-        seeds = _run_expand([entry], patterns={}, prov=[])
+        seeds = _run_expand([entry], patterns=_FAKE_PATTERNS, prov=[])
 
-        seed = next(s for s in seeds if s.seed_id == "T2-S1")
-        assert seed.owasp_origin is None
-        assert seed.laaf_technique_ids == []
-        assert seed.atlas_provenance_ids == []
+        assert len(seeds) == 0
 
     def test_provenance_defaults_on_model(self):
         """New provenance fields have sensible defaults for backwards compat."""
         seed = ScenarioSeed(
-            seed_id="T1-S1",
+            seed_id="AP-T1-01",
             threat_id="T1",
             threat_name="Test",
             mechanism_name="Sub",
@@ -243,12 +266,12 @@ class TestSeedProvenanceFields:
     def test_merged_seed_atlas_provenance_filtered(self):
         """When two entries merge into one AP-* seed, atlas_provenance_ids is
         filtered against the merged atlas_technique_ids set."""
-        # Entry A has AML.T0054 and AML.T0015
+        # Entry A has AML.T0054
         entry_a = _make_entry(
             "risk-a",
             ["LLM01"],
             ["T7"],
-            ["T7-S1"],
+            ["AP-T7-01"],
             atlas_technique_ids=["AML.T0054"],
         )
         # Entry B adds AML.T0015 (but not AML.T0053)
@@ -256,7 +279,7 @@ class TestSeedProvenanceFields:
             "risk-b",
             ["LLM02"],
             ["T7"],
-            ["T7-S1"],
+            ["AP-T7-01"],
             atlas_technique_ids=["AML.T0015"],
         )
         seeds = _run_expand(
@@ -333,71 +356,3 @@ class TestReportProvenanceBlock:
         html = _build_provenance_block(scenario)
         assert "AML.T0054" in html
         assert "AML.T0053" not in html
-
-
-class TestPopulateOwaspToPattern:
-    """Verify populate_owasp_to_pattern builds the reverse lookup correctly."""
-
-    def test_builds_lookup_from_scenarios(self):
-        """populate_owasp_to_pattern should map owasp_origin -> seed_id."""
-        from scenario_forge.report.template import (
-            _OWASP_TO_PATTERN,
-            populate_owasp_to_pattern,
-        )
-
-        scenarios = [
-            {
-                "scenario_seed_metadata": {
-                    "seed_id": "AP-T7-01",
-                    "owasp_origin": "T7-S1",
-                }
-            },
-            {
-                "scenario_seed_metadata": {
-                    "seed_id": "AP-T7-02",
-                    "owasp_origin": "T7-S2",
-                }
-            },
-        ]
-        populate_owasp_to_pattern(scenarios)
-        assert _OWASP_TO_PATTERN.get("T7-S1") == "AP-T7-01"
-        assert _OWASP_TO_PATTERN.get("T7-S2") == "AP-T7-02"
-
-    def test_ignores_non_ap_seeds(self):
-        """Non-AP seeds should not populate the lookup."""
-        from scenario_forge.report.template import (
-            _OWASP_TO_PATTERN,
-            populate_owasp_to_pattern,
-        )
-
-        scenarios = [
-            {
-                "scenario_seed_metadata": {
-                    "seed_id": "T2-S1",
-                    "owasp_origin": None,
-                }
-            },
-        ]
-        populate_owasp_to_pattern(scenarios)
-        assert "T2-S1" not in _OWASP_TO_PATTERN
-
-    def test_clears_previous_entries(self):
-        """Each call should clear previous entries before rebuilding."""
-        from scenario_forge.report.template import (
-            _OWASP_TO_PATTERN,
-            populate_owasp_to_pattern,
-        )
-
-        scenarios_1 = [
-            {
-                "scenario_seed_metadata": {
-                    "seed_id": "AP-T7-01",
-                    "owasp_origin": "T7-S1",
-                }
-            },
-        ]
-        populate_owasp_to_pattern(scenarios_1)
-        assert "T7-S1" in _OWASP_TO_PATTERN
-
-        populate_owasp_to_pattern([])
-        assert "T7-S1" not in _OWASP_TO_PATTERN

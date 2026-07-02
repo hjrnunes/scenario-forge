@@ -53,7 +53,7 @@ class ThreatSurfaceEntry(BaseModel):
     owasp_llm_ids: list[str]
     agentic_threat_ids: list[str]
     atlas_technique_ids: list[str] = Field(default_factory=list)
-    sub_scenarios: list[str]
+    attack_pattern_ids: list[str] = Field(default_factory=list)
     governance_only: bool = False
 
 
@@ -224,9 +224,9 @@ def determine_threat_surface(
     # --- Hop 3: Filter by capability profile ---
     threat_scope = determine_threat_scope(profile, threats_path)
     in_scope_ids = {e.threat_id for e in threat_scope.in_scope}
-    # Build threat_id -> applicable sub-scenario IDs
-    threat_sub_scenarios: dict[str, list[str]] = {
-        e.threat_id: e.applicable_sub_scenarios for e in threat_scope.in_scope
+    # Build threat_id -> applicable attack pattern IDs
+    threat_attack_patterns: dict[str, list[str]] = {
+        e.threat_id: e.attack_pattern_ids for e in threat_scope.in_scope
     }
 
     # --- Direct path: T-threats reachable without LLM hop ---
@@ -249,7 +249,7 @@ def determine_threat_surface(
                     risk_card=ref,
                     owasp_llm_ids=[],
                     agentic_threat_ids=[],
-                    sub_scenarios=[],
+                    attack_pattern_ids=[],
                     governance_only=True,
                 )
             )
@@ -277,18 +277,18 @@ def determine_threat_surface(
                     risk_card=ref,
                     owasp_llm_ids=llm_ids,
                     agentic_threat_ids=[],
-                    sub_scenarios=[],
+                    attack_pattern_ids=[],
                     governance_only=True,
                 )
             )
             continue
 
-        # Collect sub-scenarios from in-scope threats
-        all_subs: list[str] = []
+        # Collect attack pattern IDs from in-scope threats
+        all_ap_ids: list[str] = []
         for t_id in scoped_t_ids:
-            for sub in threat_sub_scenarios.get(t_id, []):
-                if sub not in all_subs:
-                    all_subs.append(sub)
+            for ap_id in threat_attack_patterns.get(t_id, []):
+                if ap_id not in all_ap_ids:
+                    all_ap_ids.append(ap_id)
 
         # Collect ATLAS technique IDs for all in-scope T-threats
         all_atlas: list[str] = []
@@ -319,7 +319,7 @@ def determine_threat_surface(
                 owasp_llm_ids=llm_ids,
                 agentic_threat_ids=scoped_t_ids,
                 atlas_technique_ids=all_atlas,
-                sub_scenarios=all_subs,
+                attack_pattern_ids=all_ap_ids,
             )
         )
 

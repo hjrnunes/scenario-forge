@@ -44,7 +44,7 @@ from scenario_forge.eval.runner import run_evaluation
 
 
 def _make_scenario(
-    scenario_id: str = "T7-S1-abc123",
+    scenario_id: str = "AP-T7-01-abc123",
     title: str = "Exploit Agent Reasoning via Prompt Injection",
     entry_point: str = "user prompts (zone input)",
     zone_sequence: list[str] | None = None,
@@ -109,8 +109,8 @@ def _make_scenario(
             "steps": steps,
         },
         "attack_tree": {
-            "id": "tree-T7-S1",
-            "seed_id": "T7-S1",
+            "id": "tree-AP-T7-01",
+            "seed_id": "AP-T7-01",
             "goal": "Compromise agent via prompt injection",
             "root": {
                 "id": "n1",
@@ -141,7 +141,7 @@ def _make_scenario(
             "taxonomy_chain": {
                 "owasp_llm_ids": ["LLM01"],
                 "agentic_threat_ids": ["T7"],
-                "scenario_seed": "T7-S1",
+                "scenario_seed": "AP-T7-01",
             },
             "capability_profile": {
                 "zones_traversed": zone_sequence,
