@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from scenario_forge.models.capability_profile import ConfidenceLevel
 
@@ -43,7 +43,13 @@ class MitigationRef(BaseModel):
         default=None,
         description="Identifier for the mitigation if one exists in the taxonomy.",
     )
-    description: str = Field(description="Description of the mitigation measure.")
+    description: str = Field(default="", description="Description of the mitigation measure.")
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _coerce_none_description(cls, v: object) -> str:
+        return v if v is not None else ""
+
     source: Optional[str] = Field(
         default=None,
         description="Source taxonomy or framework for this mitigation.",
