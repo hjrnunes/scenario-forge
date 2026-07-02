@@ -24,12 +24,15 @@ class LLMResult(BaseModel):
 class LLMClient:
     """Thin wrapper around the OpenAI SDK for structured and unstructured completions."""
 
+    DEFAULT_TEMPERATURE: float = 0.4
+
     def __init__(
         self,
         base_url: str | None = None,
         api_key: str | None = None,
         model: str | None = None,
         max_completion_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> None:
         self.base_url = base_url or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL", "")
         self.api_key = api_key or os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
@@ -40,6 +43,13 @@ class LLMClient:
         self.max_completion_tokens = max_completion_tokens or (
             int(env_val) if env_val else None
         )
+        env_temp = os.environ.get("SCENARIO_FORGE_TEMPERATURE")
+        if temperature is not None:
+            self.temperature = temperature
+        elif env_temp is not None:
+            self.temperature = float(env_temp)
+        else:
+            self.temperature = self.DEFAULT_TEMPERATURE
         self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
     def complete(
@@ -48,17 +58,19 @@ class LLMClient:
         user_prompt: str,
         response_format: type[BaseModel] | None = None,
         max_completion_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> LLMResult:
         effective_max = max_completion_tokens or self.max_completion_tokens
+        effective_temp = temperature if temperature is not None else self.temperature
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
-        token_kwargs = {}
+        extra_kwargs: dict[str, Any] = {"temperature": effective_temp}
         if effective_max is not None:
-            token_kwargs["max_completion_tokens"] = effective_max
+            extra_kwargs["max_completion_tokens"] = effective_max
 
         t0 = time.perf_counter_ns()
 
@@ -67,14 +79,14 @@ class LLMClient:
                 model=self.model,
                 messages=messages,
                 response_format=response_format,
-                **token_kwargs,
+                **extra_kwargs,
             )
             content = response.choices[0].message.parsed
         else:
             response = self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                **token_kwargs,
+                **extra_kwargs,
             )
             content = response.choices[0].message.content
 
