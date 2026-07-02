@@ -1027,7 +1027,7 @@ Feature: <title>
 
 ## Example
 
-@id:T5-S1-5f016c
+@id:AP-T5-01-5f016c
 @integrity-corruption
 Feature: Long-term Sentiment & Product Data Corruption via Memory Injection
   An attacker uses the customer chat interface to inject subtle, false
@@ -2169,7 +2169,6 @@ def _assemble_envelope(
         "threat_name": seed.threat_name,
         "mechanism_name": seed.mechanism_name,
         "mechanism_description": seed.mechanism_description,
-        "owasp_sub_scenario_ref": seed.owasp_sub_scenario_ref,
         "owasp_origin": seed.owasp_origin,
         "laaf_technique_ids": seed.laaf_technique_ids,
         "atlas_provenance_ids": seed.atlas_provenance_ids,

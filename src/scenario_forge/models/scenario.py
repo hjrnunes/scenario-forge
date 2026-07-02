@@ -239,7 +239,7 @@ class TaxonomyChain(BaseModel):
         description="MITRE ATLAS technique IDs (e.g. ['AML.T0051']). May be empty.",
     )
     scenario_seed: str = Field(
-        description="The attack pattern or sub-scenario that seeded this scenario (e.g. 'AP-T7-01' or 'T2-S1').",
+        description="The attack pattern that seeded this scenario (e.g. 'AP-T7-01').",
     )
 
 
@@ -360,7 +360,7 @@ class ScenarioEnvelope(BaseModel):
     # --- Identity ---
 
     scenario_id: str = Field(
-        description="Stable identifier: <threat_id>-<sub_scenario_seed>-<hash>.",
+        description="Stable identifier: <attack_pattern_id>-<hash>.",
     )
     version: int = Field(
         default=1,
@@ -379,8 +379,7 @@ class ScenarioEnvelope(BaseModel):
         default=None,
         description=(
             "Rich metadata from the scenario seed: seed_id, threat_id, "
-            "threat_name, mechanism_name, mechanism_description, "
-            "owasp_sub_scenario_ref."
+            "threat_name, mechanism_name, mechanism_description."
         ),
     )
 

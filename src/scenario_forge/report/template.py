@@ -146,13 +146,11 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 _THREAT_DESCRIPTIONS: dict[str, str] = {}
-_SUB_SCENARIO_INFO: dict[str, dict[str, str]] = {}
 _ATTACK_PATTERN_INFO: dict[str, dict[str, Any]] = {}
-_OWASP_TO_PATTERN: dict[str, str] = {}
 
 
 def _load_taxonomy_lookups() -> None:
-    """Populate _THREAT_DESCRIPTIONS and _SUB_SCENARIO_INFO from the taxonomy YAML."""
+    """Populate _THREAT_DESCRIPTIONS from the taxonomy YAML."""
     taxonomy_path = (
         Path(__file__).resolve().parents[3]
         / "data"
@@ -176,13 +174,6 @@ def _load_taxonomy_lookups() -> None:
         desc = info.get("description", "")
         if desc:
             _THREAT_DESCRIPTIONS[tid] = desc.strip()
-        for scenario in info.get("scenarios", []):
-            sid = scenario.get("id", "")
-            if sid:
-                _SUB_SCENARIO_INFO[sid] = {
-                    "name": scenario.get("name", ""),
-                    "description": scenario.get("description", "").strip(),
-                }
 
 
 def _load_attack_pattern_lookups() -> None:
@@ -204,21 +195,6 @@ def _load_attack_pattern_lookups() -> None:
 
 _load_taxonomy_lookups()
 _load_attack_pattern_lookups()
-
-
-def populate_owasp_to_pattern(scenarios: list[dict[str, Any]]) -> None:
-    """Build _OWASP_TO_PATTERN from scenario seed metadata (no SSSOM loading).
-
-    Must be called before building report sections that use the reverse
-    lookup (threat surface sankey, scenario tooltips).
-    """
-    _OWASP_TO_PATTERN.clear()
-    for sc in scenarios:
-        meta = sc.get("scenario_seed_metadata") or {}
-        seed_id = meta.get("seed_id", "")
-        owasp_origin = meta.get("owasp_origin")
-        if owasp_origin and seed_id.startswith("AP-"):
-            _OWASP_TO_PATTERN[owasp_origin] = seed_id
 
 
 def _truncate(text: str, max_len: int = 200) -> str:
@@ -252,7 +228,7 @@ def _normalize_zone(zone: int | str) -> str:
 
 def _threat_id_tooltip(tid: str) -> str:
     """Return a data-tooltip attribute string for a threat ID like 'T7'."""
-    # Extract base threat ID (e.g. T7 from T7-S1)
+    # Extract base threat ID (e.g. T7 from AP-T7-01)
     base = tid.split("-")[0] if "-" in tid else tid
     name = THREAT_NAMES.get(base, "")
     if not name:
@@ -264,14 +240,14 @@ def _threat_id_tooltip(tid: str) -> str:
     return f' data-tooltip="{_esc(base)} — {_esc(name)}"'
 
 
-def _sub_scenario_tooltip(sid: str, seed_meta: dict[str, Any] | None = None) -> str:
-    """Return a data-tooltip attribute for a sub-scenario ID like 'T2-S1' or 'AP-T7-01'.
+def _attack_pattern_tooltip(ap_id: str, seed_meta: dict[str, Any] | None = None) -> str:
+    """Return a data-tooltip attribute for an attack pattern ID like 'AP-T7-01'.
 
     When *seed_meta* (scenario_seed_metadata dict) is provided, provenance
     data is read from it instead of from the module-level _ATTACK_PATTERN_INFO.
     """
-    if sid.startswith("AP-") and sid in _ATTACK_PATTERN_INFO:
-        info = _ATTACK_PATTERN_INFO[sid]
+    if ap_id in _ATTACK_PATTERN_INFO:
+        info = _ATTACK_PATTERN_INFO[ap_id]
         name = _esc(info["name"])
         desc = _truncate(_esc(info["description"]), 200)
         # Provenance comes from seed metadata when available
@@ -290,26 +266,6 @@ def _sub_scenario_tooltip(sid: str, seed_meta: dict[str, Any] | None = None) -> 
             prov_parts.append(f"ATLAS: {', '.join(_esc(t) for t in atlas)}")
         prov_suffix = f" | Provenance: {'; '.join(prov_parts)}" if prov_parts else ""
         return f' data-tooltip="{name}: {desc}{origin_suffix}{prov_suffix}"'
-    info = _SUB_SCENARIO_INFO.get(sid)
-    if info:
-        name = info.get("name", "")
-        desc = info.get("description", "")
-        if name and desc:
-            short_desc = _truncate(desc)
-            return f' data-tooltip="{_esc(sid)} — {_esc(name)}: {_esc(short_desc)}"'
-        if name:
-            return f' data-tooltip="{_esc(sid)} — {_esc(name)}"'
-    # Fallback for unknown sub-scenario IDs
-    parts = sid.split("-")
-    if len(parts) >= 2:
-        base = parts[0]
-        name = THREAT_NAMES.get(base, "")
-        if name:
-            return (
-                f' data-tooltip="Sub-scenario seed: threat {_esc(base)}, '
-                f"sub-scenario {_esc(parts[1])} "
-                f'— expanded from OWASP agentic threat taxonomy"'
-            )
     return ""
 
 
@@ -1960,16 +1916,15 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         else:
             tid_spans = "-"
 
-        # Build sub-scenario IDs with tooltips (remap to AP-* where available)
-        raw_subs = entry.get("sub_scenarios", [])
-        if raw_subs:
-            sub_parts: list[str] = []
-            for sid in raw_subs:
-                display_sid = _OWASP_TO_PATTERN.get(sid, sid)
-                sub_parts.append(
-                    f"<span{_sub_scenario_tooltip(display_sid)}>{_esc(display_sid)}</span>"
+        # Build attack pattern IDs with tooltips
+        raw_aps = entry.get("attack_pattern_ids", [])
+        if raw_aps:
+            ap_parts: list[str] = []
+            for ap_id in raw_aps:
+                ap_parts.append(
+                    f"<span{_attack_pattern_tooltip(ap_id)}>{_esc(ap_id)}</span>"
                 )
-            sub_spans = ", ".join(sub_parts)
+            sub_spans = ", ".join(ap_parts)
         else:
             sub_spans = "-"
 
@@ -2037,7 +1992,7 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
                 <th>Confidence</th>
                 <th>LLM Top 10</th>
                 <th>Agentic Threats</th>
-                <th>Sub-Scenarios</th>
+                <th>Attack Patterns</th>
                 <th>Chain</th>
               </tr>
             </thead>
@@ -2077,10 +2032,9 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
         for tid in e.get("agentic_threat_ids", []):
             if tid and tid not in threat_ids_set:
                 threat_ids_set.append(tid)
-        for sid in e.get("sub_scenarios", []):
-            display_sid = _OWASP_TO_PATTERN.get(sid, sid) if sid else sid
-            if display_sid and display_sid not in scenario_ids_set:
-                scenario_ids_set.append(display_sid)
+        for ap_id in e.get("attack_pattern_ids", []):
+            if ap_id and ap_id not in scenario_ids_set:
+                scenario_ids_set.append(ap_id)
 
     # Layout constants
     col_x = [40, 240, 440, 640]
@@ -2144,12 +2098,11 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
                     node_pos, f"1:{lid}", f"2:{tid}", link_colors[1]
                 )
 
-        # Threat -> Scenario (remap to AP-* where available)
+        # Threat -> Attack Pattern
         for tid in e.get("agentic_threat_ids", []):
-            for sid in e.get("sub_scenarios", []):
-                display_sid = _OWASP_TO_PATTERN.get(sid, sid) if sid else sid
+            for ap_id in e.get("attack_pattern_ids", []):
                 svg_links += _sankey_link(
-                    node_pos, f"2:{tid}", f"3:{display_sid}", link_colors[2]
+                    node_pos, f"2:{tid}", f"3:{ap_id}", link_colors[2]
                 )
 
     # Column headers
@@ -2374,7 +2327,7 @@ def build_threat_technique_section(
             {
                 "scenario_id": sid,
                 "threat_ids": threat_ids,
-                "sub_scenario": scenario_seed,
+                "attack_pattern": scenario_seed,
                 "technique_ids": technique_ids,
                 "actor_type": actor_type,
                 "capability_level": capability_level,
@@ -2449,7 +2402,7 @@ def build_threat_technique_section(
         threat_spans = ", ".join(
             f"<span{_threat_id_tooltip(t)}>{_esc(t)}</span>" for t in row["threat_ids"]
         )
-        sub = row["sub_scenario"]
+        sub = row["attack_pattern"]
         tech_spans = ", ".join(
             f"<span{_technique_id_tooltip(t)}>{_esc(t)}</span>"
             for t in row["technique_ids"]
@@ -2474,7 +2427,7 @@ def build_threat_technique_section(
         sid_tip = (
             f' data-tooltip="{_esc(sid_titles[sid])}"' if sid in sid_titles else ""
         )
-        sub_tip = _sub_scenario_tooltip(sub) if sub else ""
+        sub_tip = _attack_pattern_tooltip(sub) if sub else ""
 
         roster_body += (
             f"<tr>"
@@ -2496,7 +2449,7 @@ def build_threat_technique_section(
             <tr>
               <th>Scenario ID</th>
               <th>Threat IDs</th>
-              <th>Sub-Scenario</th>
+              <th>Attack Pattern</th>
               <th>Technique IDs</th>
               <th>Actor Type</th>
               <th>Capability</th>
@@ -2863,7 +2816,7 @@ def _build_provenance_block(scenario: dict[str, Any]) -> str:
 
     rows = ""
     if owasp_origin:
-        origin_tip = _sub_scenario_tooltip(owasp_origin) if owasp_origin else ""
+        origin_tip = _attack_pattern_tooltip(owasp_origin) if owasp_origin else ""
         rows += (
             f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
             f'<span style="min-width:100px;font-size:11px;font-weight:600;'
@@ -2939,7 +2892,7 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
     seed_id = meta.get("seed_id", "")
     threat_id = meta.get("threat_id", "")
     threat_name = meta.get("threat_name", "")
-    owasp_ref = meta.get("owasp_sub_scenario_ref", "")
+    owasp_origin = meta.get("owasp_origin", "")
 
     if not mechanism_name and not seed_id:
         return ""
@@ -2959,11 +2912,11 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
 
     # Origin span
     origin_html = ""
-    if owasp_ref:
-        origin_tip = _sub_scenario_tooltip(owasp_ref)
+    if owasp_origin:
+        origin_tip = _attack_pattern_tooltip(owasp_origin)
         origin_html = (
             f"<span><strong>Origin:</strong> "
-            f"<span{origin_tip}>{_esc(owasp_ref)}</span></span>"
+            f"<span{origin_tip}>{_esc(owasp_origin)}</span></span>"
         )
 
     # Seed ID span
@@ -3586,8 +3539,8 @@ def build_glossary_section() -> str:
               <td>IBM AI Risk Atlas &mdash; standardized AI risk identifier</td>
             </tr>
             <tr>
-              <td><code>T&lt;n&gt;-S&lt;m&gt;</code></td>
-              <td>Sub-scenario seed &mdash; threat T&lt;n&gt;, sub-scenario m, expanded from the OWASP agentic threat taxonomy</td>
+              <td><code>AP-T&lt;n&gt;-&lt;nn&gt;</code></td>
+              <td>Abstract attack pattern &mdash; domain-agnostic scenario seed derived from OWASP agentic threat T&lt;n&gt;</td>
             </tr>
           </tbody>
         </table>
@@ -3675,8 +3628,8 @@ def build_glossary_section() -> str:
           <strong style="color:var(--text-primary);">Abstract Attack Patterns &amp; Provenance</strong>
           <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
             OWASP agentic threats (T1&ndash;T17) are decomposed into <strong>abstract attack patterns</strong>
-            (AP-*) that serve as data-driven scenario seeds. Each pattern is linked to its source
-            sub-scenario via <strong>SSSOM provenance</strong> mappings, which also cross-reference
+            (AP-*) that serve as data-driven scenario seeds. Each pattern is linked via
+            <strong>SSSOM provenance</strong> mappings that cross-reference
             LAAF techniques and MITRE&nbsp;ATLAS tactic IDs. Patterns carry
             <strong>prerequisite_capabilities</strong> declarations so that only patterns whose
             prerequisites are satisfied by the system&rsquo;s capability profile are selected for

@@ -1,13 +1,12 @@
 """Stage 3: Deterministic Scenario Seed Expansion.
 
-Enumerates all sub-scenarios from the in-scope threat surface entries,
-producing one ScenarioSeed per sub-scenario with full provenance.
+Enumerates all attack patterns from the in-scope threat surface entries,
+producing one ScenarioSeed per AP-* pattern with full provenance.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -30,13 +29,12 @@ _DEFAULT_THREATS_PATH = (
 
 
 class ScenarioSeed(BaseModel):
-    seed_id: str = Field(description="Sub-scenario ID, e.g. 'T2-S1'.")
-    threat_id: str = Field(description="Parent threat ID, e.g. 'T2'.")
+    seed_id: str = Field(description="Attack pattern ID, e.g. 'AP-T7-01'.")
+    threat_id: str = Field(description="Parent threat ID, e.g. 'T7'.")
     threat_name: str
     threat_description: str = ""
     mechanism_name: str
     mechanism_description: str
-    owasp_sub_scenario_ref: str | None = None
     risk_card_ref: RiskCardRef
     contributing_risk_cards: list[RiskCardRef] = Field(
         default_factory=list,
@@ -51,23 +49,6 @@ class ScenarioSeed(BaseModel):
     atlas_provenance_ids: list[str] = Field(default_factory=list)
 
 
-def _build_sub_scenario_lookup(
-    threats: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
-    """Build a flat lookup from sub-scenario ID to its metadata + parent threat."""
-    lookup: dict[str, dict[str, Any]] = {}
-    for threat_id, threat in threats.items():
-        for scenario in threat.get("scenarios", []):
-            lookup[scenario["id"]] = {
-                "name": scenario["name"],
-                "description": scenario["description"].strip(),
-                "threat_id": threat_id,
-                "threat_name": threat["name"],
-                "threat_description": threat.get("description", "").strip(),
-            }
-    return lookup
-
-
 def expand_seeds(
     threat_surface: ThreatSurface,
     threats_path: str | Path | None = None,
@@ -75,31 +56,28 @@ def expand_seeds(
 ) -> list[ScenarioSeed]:
     """Expand threat surface entries into individual scenario seeds.
 
+    Iterates AP-* attack pattern IDs directly from the threat surface,
+    looking up pattern metadata (name, description) from the AP-* YAML.
+
     Args:
         threat_surface: Output from Stage 2.
         threats_path: Optional path to OWASP agentic threats YAML.
         attack_patterns_path: Optional path to abstract attack patterns YAML.
 
     Returns:
-        List of ScenarioSeed, one per in-scope sub-scenario.
+        List of ScenarioSeed, one per in-scope attack pattern.
     """
     path = Path(threats_path) if threats_path else _DEFAULT_THREATS_PATH
     threats = load_agentic_threats(path)
-    sub_lookup = _build_sub_scenario_lookup(threats)
 
-    # Load abstract attack patterns (if available)
+    # Load abstract attack patterns
     patterns = load_attack_patterns(attack_patterns_path)
-    # Build reverse lookup: owasp_sub_scenario_id -> pattern via SSSOM provenance
-    owasp_to_pattern: dict[str, dict] = {}
+
+    # Build SSSOM provenance index for LAAF and ATLAS lookups
     prov_index: dict[str, dict[str, list[str]]] = {}
     try:
         prov_mappings = load_attack_pattern_provenance()
         prov_index = build_pattern_provenance_index(prov_mappings)
-        for pid, sources in prov_index.items():
-            owasp_ids = sources.get("owasp-agentic", [])
-            if owasp_ids and pid in patterns:
-                for owasp_id in owasp_ids:
-                    owasp_to_pattern[owasp_id] = patterns[pid]
     except FileNotFoundError:
         pass
 
@@ -109,33 +87,28 @@ def expand_seeds(
         if entry.governance_only:
             continue
 
-        for sub_id in entry.sub_scenarios:
-            sub = sub_lookup.get(sub_id)
-            if sub is None:
+        for ap_id in entry.attack_pattern_ids:
+            pattern = patterns.get(ap_id)
+            if pattern is None:
                 continue
 
-            # Check if an abstract pattern exists for this sub-scenario
-            pattern = owasp_to_pattern.get(sub_id)
-            if pattern:
-                effective_id = pattern["id"]
-                mechanism_name = pattern["name"]
-                mechanism_desc = pattern["description"].strip()
-                owasp_ref = sub_id
-            else:
-                effective_id = sub_id
-                mechanism_name = sub["name"]
-                mechanism_desc = sub["description"]
-                owasp_ref = None
+            threat_id = pattern["threat_id"]
+            threat = threats.get(threat_id)
+            threat_name = threat["name"] if threat else ""
+            threat_description = threat.get("description", "").strip() if threat else ""
 
-            # Extract SSSOM provenance for this pattern (if available)
-            pattern_prov = prov_index.get(effective_id, {})
+            mechanism_name = pattern["name"]
+            mechanism_desc = pattern["description"].strip()
+
+            # Extract SSSOM provenance for this pattern
+            pattern_prov = prov_index.get(ap_id, {})
             prov_owasp_ids = pattern_prov.get("owasp-agentic", [])
             prov_laaf_ids = pattern_prov.get("laaf", [])
             prov_atlas_ids = pattern_prov.get("mitre-atlas", [])
 
-            if effective_id in seen:
+            if ap_id in seen:
                 # Merge: union taxonomy IDs, collect contributing risk cards
-                existing = seen[effective_id]
+                existing = seen[ap_id]
                 merged_owasp = list(
                     dict.fromkeys(existing.owasp_llm_ids + entry.owasp_llm_ids)
                 )
@@ -160,7 +133,7 @@ def expand_seeds(
                     aid for aid in prov_atlas_ids if aid in set(merged_atlas)
                 ]
 
-                seen[effective_id] = existing.model_copy(
+                seen[ap_id] = existing.model_copy(
                     update={
                         "owasp_llm_ids": merged_owasp,
                         "agentic_threat_ids": merged_agentic,
@@ -177,14 +150,13 @@ def expand_seeds(
                     aid for aid in prov_atlas_ids if aid in atlas_set
                 ]
 
-                seen[effective_id] = ScenarioSeed(
-                    seed_id=effective_id,
-                    threat_id=sub["threat_id"],
-                    threat_name=sub["threat_name"],
-                    threat_description=sub.get("threat_description", ""),
+                seen[ap_id] = ScenarioSeed(
+                    seed_id=ap_id,
+                    threat_id=threat_id,
+                    threat_name=threat_name,
+                    threat_description=threat_description,
                     mechanism_name=mechanism_name,
                     mechanism_description=mechanism_desc,
-                    owasp_sub_scenario_ref=owasp_ref,
                     risk_card_ref=entry.risk_card,
                     contributing_risk_cards=[entry.risk_card],
                     owasp_llm_ids=entry.owasp_llm_ids,

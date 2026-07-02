@@ -19,7 +19,9 @@ from scenario_forge.models.attack_tree import (
 # ---------------------------------------------------------------------------
 
 
-def _leaf(node_id: str, label: str, zone: str = "input", **extra: Any) -> dict[str, Any]:
+def _leaf(
+    node_id: str, label: str, zone: str = "input", **extra: Any
+) -> dict[str, Any]:
     """Create a minimal LEAF node dict."""
     return {"id": node_id, "label": label, "gate": "LEAF", "zone": zone, **extra}
 
@@ -46,8 +48,8 @@ def _gate(
 def _wrap_tree(root: dict[str, Any]) -> dict[str, Any]:
     """Wrap a root node dict in a minimal AttackTree dict."""
     return {
-        "id": "tree-T1-S1",
-        "seed_id": "T1-S1",
+        "id": "tree-AP-T1-01",
+        "seed_id": "AP-T1-01",
         "goal": "Test goal",
         "root": root,
     }
@@ -263,9 +265,7 @@ class TestRepairAttackTreeDict:
             description="Important child",
             structural_exposure="convergence_point",
         )
-        data = _wrap_tree(
-            _gate("n1", "Parent AND", "AND", [child], zone="input")
-        )
+        data = _wrap_tree(_gate("n1", "Parent AND", "AND", [child], zone="input"))
 
         result = repair_attack_tree_dict(data)
         root = result["root"]

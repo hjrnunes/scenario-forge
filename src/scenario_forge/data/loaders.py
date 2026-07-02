@@ -131,10 +131,7 @@ def load_risk_extraction(path: str | Path) -> list[RiskCard]:
 
 
 _DEFAULT_ATTACK_PATTERNS_DIR = (
-    Path(__file__).resolve().parents[3]
-    / "data"
-    / "taxonomies"
-    / "attack-patterns"
+    Path(__file__).resolve().parents[3] / "data" / "taxonomies" / "attack-patterns"
 )
 
 _DEFAULT_ATTACK_PATTERNS_PATH = _DEFAULT_ATTACK_PATTERNS_DIR / "attack-patterns.yaml"
@@ -231,7 +228,6 @@ def build_pattern_provenance_index(
 
             {
                 "AP-T7-01": {
-                    "owasp-agentic": ["T7-S1"],
                     "laaf": ["S1", "M3"],
                     "mitre-atlas": ["AML.T0054", "AML.T0015", "AML.T0053"],
                 },

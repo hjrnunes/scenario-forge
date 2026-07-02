@@ -12,9 +12,12 @@ Gating categories:
   - HITL-gated (hitl=true): T10
   - Multi-agent-gated (multi_agent=true): T12, T13, T14
 
-Sub-scenario filtering evaluates ``prerequisite_capabilities`` defined
-in each attack pattern to apply additional checks within gated threats
-(e.g. shared writable memory, vector store, tool execution zone).
+Attack-pattern filtering evaluates ``prerequisite_capabilities`` defined
+in each AP-* attack pattern to apply additional checks within gated threats
+(e.g. shared writable memory, vector store, tool execution zone).  Each
+attack pattern carries a ``threat_id`` field linking it to an OWASP threat,
+so patterns are grouped by threat and filtered per-threat against the
+capability profile.
 """
 
 from __future__ import annotations
@@ -24,9 +27,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from scenario_forge.data.loaders import (
-    build_pattern_provenance_index,
+    build_threat_to_patterns_index,
     load_agentic_threats,
-    load_attack_pattern_provenance,
     load_attack_patterns,
 )
 from scenario_forge.models import CapabilityProfile, MemoryScope, MemoryType
@@ -53,9 +55,9 @@ class ThreatScopeEntry(BaseModel):
 
     threat_id: str = Field(description="Threat ID (e.g. 'T2')")
     threat_name: str = Field(description="Human-readable threat name")
-    applicable_sub_scenarios: list[str] = Field(
+    attack_pattern_ids: list[str] = Field(
         default_factory=list,
-        description="Sub-scenario IDs applicable to this system (e.g. ['T2-S1', 'T2-S3'])",
+        description="Attack pattern IDs applicable to this system (e.g. ['AP-T2-01', 'AP-T2-03'])",
     )
     gating_reason: str = Field(
         description="Why this threat is in scope (e.g. 'always in scope', 'has_persistent_memory is true')",
@@ -89,7 +91,7 @@ _MULTI_AGENT_GATED = ["T12", "T13", "T14"]
 
 
 # ---------------------------------------------------------------------------
-# Sub-scenario filtering helpers
+# Attack-pattern filtering helpers
 # ---------------------------------------------------------------------------
 
 
@@ -119,44 +121,20 @@ def _has_vector_store(profile: CapabilityProfile) -> bool:
     populating Stage 2 fields), the function falls back to
     ``has_persistent_memory`` as a conservative proxy: if the system has
     persistent memory at all, a vector store is plausible and we should
-    not silently filter out the sub-scenario.  This avoids the premature-
+    not silently filter out the attack pattern.  This avoids the premature-
     gating bug where ``memory_mechanisms`` was always ``None`` after
     Stage 1, causing ``_has_vector_store()`` to always return ``False``
-    and silently dropping sub-scenarios like T2-S5.
+    and silently dropping attack patterns like AP-T2-05.
     """
     if profile.memory_mechanisms is None:
         # Stage 1 only — no detailed memory data yet.
         # Fall back to the broad has_persistent_memory flag so we don't
-        # prematurely filter sub-scenarios that require a vector store.
+        # prematurely filter attack patterns that require a vector store.
         return profile.has_persistent_memory
     if not profile.memory_mechanisms:
         # Explicitly empty list (Stage 2 said "no memory mechanisms")
         return False
     return any(m.type == MemoryType.vector_store for m in profile.memory_mechanisms)
-
-
-def _build_sub_scenario_to_pattern(
-    patterns: dict[str, dict],
-    prov_index: dict[str, dict[str, list[str]]],
-) -> dict[str, dict]:
-    """Build a reverse lookup from OWASP sub-scenario ID to attack pattern.
-
-    Uses the provenance index to find which pattern maps to each
-    owasp-agentic sub-scenario via ``skos:exactMatch``.
-
-    Returns:
-        Dict mapping sub-scenario IDs (e.g. 'T7-S1') to their
-        corresponding attack pattern dicts.
-    """
-    sub_to_pattern: dict[str, dict] = {}
-    for pid, sources in prov_index.items():
-        owasp_ids = sources.get("owasp-agentic", [])
-        pattern = patterns.get(pid)
-        if pattern is None:
-            continue
-        for sub_id in owasp_ids:
-            sub_to_pattern[sub_id] = pattern
-    return sub_to_pattern
 
 
 def _evaluate_prerequisite_capabilities(
@@ -165,7 +143,7 @@ def _evaluate_prerequisite_capabilities(
 ) -> bool:
     """Evaluate a pattern's prerequisite_capabilities against a profile.
 
-    Each field in prereqs is a gate; ALL must pass for the sub-scenario
+    Each field in prereqs is a gate; ALL must pass for the attack pattern
     to be included.  Unknown fields are silently ignored (forward-compat).
 
     Returns:
@@ -183,7 +161,9 @@ def _evaluate_prerequisite_capabilities(
         return False
 
     # requires_shared_writable_memory
-    if prereqs.get("requires_shared_writable_memory") and not _has_shared_writable_memory(profile):
+    if prereqs.get(
+        "requires_shared_writable_memory"
+    ) and not _has_shared_writable_memory(profile):
         return False
 
     # requires_vector_store
@@ -191,7 +171,10 @@ def _evaluate_prerequisite_capabilities(
         return False
 
     # requires_tool_execution
-    if prereqs.get("requires_tool_execution") and "tool_execution" not in profile.zones_active:
+    if (
+        prereqs.get("requires_tool_execution")
+        and "tool_execution" not in profile.zones_active
+    ):
         return False
 
     # requires_multi_agent
@@ -205,52 +188,46 @@ def _evaluate_prerequisite_capabilities(
     return True
 
 
-def _get_all_sub_scenarios(threat: dict) -> list[str]:
-    """Extract all sub-scenario IDs from a threat dict."""
-    scenarios = threat.get("scenarios", [])
-    return [s["id"] for s in scenarios]
-
-
-def _filter_sub_scenarios(
-    threat_id: str,
-    all_sub_scenarios: list[str],
+def _filter_attack_patterns(
+    patterns: list[dict],
     profile: CapabilityProfile,
-    sub_scenario_to_pattern: dict[str, dict],
 ) -> list[str]:
-    """Apply data-driven sub-scenario gating for a threat.
+    """Filter attack patterns by prerequisite_capabilities against a profile.
 
-    For each sub-scenario that has an associated attack pattern with
-    ``prerequisite_capabilities``, evaluates those capabilities against
-    the profile.  Sub-scenarios whose prerequisites are not met are
-    excluded from the returned list.
+    For each pattern that defines ``prerequisite_capabilities``, evaluates
+    those capabilities against the profile.  Patterns whose prerequisites
+    are not met are excluded from the returned list.  Patterns without
+    prerequisites are always included.
+
+    Args:
+        patterns: List of attack pattern dicts (each must have an ``id`` key).
+        profile: The capability profile to evaluate against.
+
+    Returns:
+        List of surviving pattern IDs (e.g. ``['AP-T7-01', 'AP-T7-03']``).
     """
-    excluded: set[str] = set()
+    surviving: list[str] = []
 
-    for sub_id in all_sub_scenarios:
-        pattern = sub_scenario_to_pattern.get(sub_id)
-        if pattern is None:
-            continue
+    for pattern in patterns:
+        pid = pattern.get("id", "unknown")
         prereqs = pattern.get("prerequisite_capabilities")
         if prereqs is None:
+            surviving.append(pid)
             continue
 
-        if not _evaluate_prerequisite_capabilities(prereqs, profile):
-            excluded.add(sub_id)
-            logger.warning(
-                "Gating FILTERED %s: prerequisite_capabilities "
-                "not met (pattern=%s)",
-                sub_id,
-                pattern.get("id", "unknown"),
+        if _evaluate_prerequisite_capabilities(prereqs, profile):
+            surviving.append(pid)
+            logger.info(
+                "Gating PASSED %s: prerequisite_capabilities satisfied",
+                pid,
             )
         else:
-            logger.info(
-                "Gating PASSED %s: prerequisite_capabilities "
-                "satisfied (pattern=%s)",
-                sub_id,
-                pattern.get("id", "unknown"),
+            logger.warning(
+                "Gating FILTERED %s: prerequisite_capabilities not met",
+                pid,
             )
 
-    return [s for s in all_sub_scenarios if s not in excluded]
+    return surviving
 
 
 # ---------------------------------------------------------------------------
@@ -264,9 +241,9 @@ def determine_threat_scope(
 ) -> ThreatScope:
     """Determine which threats are in scope for a given capability profile.
 
-    Loads the OWASP Agentic Threats YAML to get threat names and
-    sub-scenarios, then applies the gating rules from the capability
-    profile schema.
+    Loads the OWASP Agentic Threats YAML to get threat names, then loads
+    AP-* attack patterns (grouped by ``threat_id``) and filters each
+    group's patterns by ``prerequisite_capabilities`` against the profile.
 
     Args:
         profile: The capability profile to evaluate.
@@ -279,15 +256,13 @@ def determine_threat_scope(
     path = Path(threats_path) if threats_path else _DEFAULT_THREATS_PATH
     threats = load_agentic_threats(path)
 
-    # Load attack patterns and provenance for data-driven gating
+    # Load attack patterns and group by threat_id for data-driven gating
     patterns = load_attack_patterns()
-    prov_mappings = load_attack_pattern_provenance()
-    prov_index = build_pattern_provenance_index(prov_mappings)
-    sub_scenario_to_pattern = _build_sub_scenario_to_pattern(patterns, prov_index)
+    threat_to_patterns = build_threat_to_patterns_index(patterns)
     logger.info(
-        "Loaded %d attack patterns, mapped %d sub-scenarios for data-driven gating",
+        "Loaded %d attack patterns across %d threats for data-driven gating",
         len(patterns),
-        len(sub_scenario_to_pattern),
+        len(threat_to_patterns),
     )
 
     in_scope: list[ThreatScopeEntry] = []
@@ -297,25 +272,25 @@ def determine_threat_scope(
 
     def _add_in_scope(threat_id: str, reason: str) -> None:
         threat = threats[threat_id]
-        all_subs = _get_all_sub_scenarios(threat)
-        filtered_subs = _filter_sub_scenarios(
-            threat_id, all_subs, profile, sub_scenario_to_pattern
-        )
-        dropped = set(all_subs) - set(filtered_subs)
+        # Get AP-* pattern IDs for this threat, resolve to full dicts
+        pattern_ids = threat_to_patterns.get(threat_id, [])
+        all_patterns = [patterns[pid] for pid in pattern_ids if pid in patterns]
+        filtered_ids = _filter_attack_patterns(all_patterns, profile)
+        dropped = set(pattern_ids) - set(filtered_ids)
         logger.info(
-            "Threat %s (%s) IN SCOPE: %s — %d/%d sub-scenarios kept%s",
+            "Threat %s (%s) IN SCOPE: %s — %d/%d attack patterns kept%s",
             threat_id,
             threat["name"],
             reason,
-            len(filtered_subs),
-            len(all_subs),
+            len(filtered_ids),
+            len(pattern_ids),
             f" (dropped: {sorted(dropped)})" if dropped else "",
         )
         in_scope.append(
             ThreatScopeEntry(
                 threat_id=threat_id,
                 threat_name=threat["name"],
-                applicable_sub_scenarios=filtered_subs,
+                attack_pattern_ids=filtered_ids,
                 gating_reason=reason,
             )
         )
@@ -330,7 +305,9 @@ def determine_threat_scope(
 
     # --- Always in scope ---
     for tid in _ALWAYS_IN_SCOPE:
-        _add_in_scope(tid, "always in scope — any LLM/agent system with input and reasoning zones")
+        _add_in_scope(
+            tid, "always in scope — any LLM/agent system with input and reasoning zones"
+        )
 
     # --- Memory-gated ---
     if profile.has_persistent_memory:

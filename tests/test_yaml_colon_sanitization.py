@@ -122,8 +122,8 @@ class TestParseAttackTreeYamlColonHandling:
     def _minimal_tree_yaml(description: str = "Clean description") -> str:
         """Return a minimal valid attack tree YAML string."""
         return (
-            "id: tree-T2-S5\n"
-            "seed_id: T2-S5\n"
+            "id: tree-AP-T2-05\n"
+            "seed_id: AP-T2-05\n"
             "goal: Test goal\n"
             "root:\n"
             "  id: n1\n"
@@ -134,7 +134,7 @@ class TestParseAttackTreeYamlColonHandling:
         )
 
     @staticmethod
-    def _mock_seed(seed_id: str = "T2-S5") -> MagicMock:
+    def _mock_seed(seed_id: str = "AP-T2-05") -> MagicMock:
         seed = MagicMock()
         seed.id = seed_id
         return seed
@@ -161,8 +161,8 @@ class TestParseAttackTreeYamlColonHandling:
 
     def test_colon_in_label_recovered(self) -> None:
         raw = (
-            "id: tree-T2-S5\n"
-            "seed_id: T2-S5\n"
+            "id: tree-AP-T2-05\n"
+            "seed_id: AP-T2-05\n"
             "goal: Test goal\n"
             "root:\n"
             "  id: n1\n"
@@ -177,8 +177,8 @@ class TestParseAttackTreeYamlColonHandling:
         """Markdown code fences should be stripped before sanitization."""
         raw = (
             "```yaml\n"
-            "id: tree-T2-S5\n"
-            "seed_id: T2-S5\n"
+            "id: tree-AP-T2-05\n"
+            "seed_id: AP-T2-05\n"
             "goal: Test goal\n"
             "root:\n"
             "  id: n1\n"
