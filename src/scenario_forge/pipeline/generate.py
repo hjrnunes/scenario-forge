@@ -2251,12 +2251,15 @@ def _call_behavior_spec(
     scenario_tag = f"{seed.seed_id}-{scenario_hash}"
 
     technique_nodes: list[str] = []
+    tree_technique_ids: list[str] = []
 
     def _collect_techniques(node: AttackTreeNode) -> None:
         if node.technique_id:
             technique_nodes.append(
                 f"- {node.label} [{node.technique_id}] (zone: {node.zone})"
             )
+            if node.technique_id not in tree_technique_ids:
+                tree_technique_ids.append(node.technique_id)
         if node.children:
             for child in node.children:
                 _collect_techniques(child)
@@ -2292,10 +2295,11 @@ Steps:
             f"  {step.step_number}. [Zone {step.zone}] {step.action} -> {step.effect}\n"
         )
 
-    technique_context = _build_technique_context_block(seed.atlas_technique_ids)
+    technique_context = _build_technique_context_block(tree_technique_ids)
     technique_framing_3 = (
-        "Annotate Gherkin steps with technique IDs in square brackets where "
-        "the step implements a specific technique, e.g. [AML.T0054].\n"
+        "Annotate Gherkin steps with technique IDs from the attack tree above. "
+        "Use ONLY technique IDs that appear in the attack tree — do not introduce "
+        "new technique IDs. Use square brackets, e.g. [AML.T0054].\n"
         if technique_context
         else ""
     )
