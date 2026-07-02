@@ -3053,6 +3053,43 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
         </div>"""
 
 
+def _build_atlas_techniques_block(scenario: dict[str, Any]) -> str:
+    """Build an ATLAS Techniques section showing technique IDs + names.
+
+    Reads ``faceting.taxonomy_chain.atlas_technique_ids`` and renders each
+    technique as a badge with its MITRE ATLAS name.  Returns empty string
+    when no techniques are present.
+    """
+    faceting = scenario.get("faceting", {})
+    tc = faceting.get("taxonomy_chain", {})
+    technique_ids: list[str] = tc.get("atlas_technique_ids", [])
+
+    if not technique_ids:
+        return ""
+
+    badges = ""
+    for tid in technique_ids:
+        name = _ATLAS_TECHNIQUE_NAMES.get(tid, "")
+        label = f"{tid}: {name}" if name else tid
+        tip = _technique_id_tooltip(tid)
+        badges += (
+            f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;'
+            f"font-size:12px;font-weight:600;background:rgba(249,115,22,0.15);"
+            f"color:#f97316;font-family:'SF Mono','Fira Code',monospace;"
+            f'margin:0 4px 4px 0;"{tip}>{_esc(label)}</span>'
+        )
+
+    return f"""
+        <div class="scenario-section">
+          <details class="expandable" open>
+            <summary>ATLAS Techniques</summary>
+            <div style="padding:12px 0 4px;display:flex;flex-wrap:wrap;">
+              {badges}
+            </div>
+          </details>
+        </div>"""
+
+
 def _build_scenario_card(
     scenario: dict[str, Any],
     feature_files: dict[str, str],
@@ -3105,6 +3142,9 @@ def _build_scenario_card(
 
     # Scenario seed metadata
     seed_metadata_html = _build_seed_metadata_block(scenario)
+
+    # ATLAS techniques section
+    atlas_techniques_html = _build_atlas_techniques_block(scenario)
 
     # LLM call log section
     call_log_html = ""
@@ -3179,6 +3219,7 @@ def _build_scenario_card(
         {_build_actor_profile_block(scenario)}
         {provenance_html}
         {seed_metadata_html}
+        {atlas_techniques_html}
 
         <div class="scenario-section">
           <div class="scenario-section-title">Narrative</div>
