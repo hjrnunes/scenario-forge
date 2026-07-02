@@ -2202,7 +2202,35 @@ The tree id must be "tree-{seed.seed_id}".\
         response_format=None,
     )
 
-    tree = _parse_attack_tree_yaml(result.content, seed)
+    try:
+        tree = _parse_attack_tree_yaml(result.content, seed)
+    except Exception as first_error:
+        # One retry with error feedback — Call 2 produces unstructured YAML
+        # which is the most fragile output format in the pipeline.
+        logger.warning("Attack tree YAML parse failed, retrying: %s", first_error)
+
+        retry_user_prompt = (
+            "Your previous output was not valid YAML. The error was:\n"
+            f"  {first_error}\n\n"
+            "Please produce valid YAML following the same structure "
+            "described in the system prompt. Use the same seed_id, goal, "
+            "and narrative context from the original request.\n\n"
+            f"seed_id={seed.seed_id}, tree id=\"tree-{seed.seed_id}\"."
+        )
+
+        retry_result = client.complete(
+            system_prompt=_CALL2_SYSTEM,
+            user_prompt=retry_user_prompt,
+            response_format=None,
+        )
+
+        try:
+            tree = _parse_attack_tree_yaml(retry_result.content, seed)
+        except Exception:
+            raise first_error
+
+        return tree, retry_result
+
     return tree, result
 
 
