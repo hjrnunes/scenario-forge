@@ -1252,7 +1252,7 @@ Do NOT use ampersands (&), do NOT pluralize inconsistently, do NOT drop words.\
 
 
 def _scenario_hash(seed_id: str, use_case: str) -> str:
-    return hashlib.md5(f"{seed_id}:{use_case}".encode()).hexdigest()[:6]
+    return hashlib.sha256(f"{seed_id}:{use_case}".encode()).hexdigest()[:6]
 
 
 def _call_metadata(call_name: CallName, result: LLMResult) -> CallMetadata:
