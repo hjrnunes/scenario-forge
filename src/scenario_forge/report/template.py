@@ -140,6 +140,19 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
     "AML.T0071": "Embedding Manipulation",
 }
 
+_OWASP_LLM_NAMES: dict[str, str] = {
+    "LLM01": "Prompt Injection",
+    "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain Vulnerabilities",
+    "LLM04": "Data and Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
+}
+
 
 # ---------------------------------------------------------------------------
 # Taxonomy-derived lookup tables (loaded once at import time)
@@ -283,6 +296,47 @@ def _priority_label(composite: float) -> str:
     if composite >= 0.4:
         return "MEDIUM"
     return "LOW"
+
+
+def _node_tip(
+    col_idx: int,
+    node_id: str,
+    risk_tips: dict[str, str] | None = None,
+) -> str:
+    """Return a tooltip string for a Sankey node, based on its column.
+
+    Col 0: risk name + description from *risk_tips* dict.
+    Col 1: OWASP LLM Top 10 ID + name from ``_OWASP_LLM_NAMES``.
+    Col 2: Agentic threat ID + name + description from ``THREAT_NAMES``
+           and ``_THREAT_DESCRIPTIONS``.
+    Col 3: Attack-pattern name + description from ``_ATTACK_PATTERN_INFO``.
+    """
+    if col_idx == 0:
+        name = (risk_tips or {}).get(node_id, "")
+        return f"{node_id}: {name}" if name else node_id
+    if col_idx == 1:
+        name = _OWASP_LLM_NAMES.get(node_id, "")
+        return f"{node_id}: {name}" if name else node_id
+    if col_idx == 2:
+        name = THREAT_NAMES.get(node_id, "")
+        desc = _THREAT_DESCRIPTIONS.get(node_id, "")
+        parts = node_id
+        if name:
+            parts += f": {name}"
+        if desc:
+            parts += f" — {_truncate(desc, 150)}"
+        return parts
+    if col_idx == 3:
+        info = _ATTACK_PATTERN_INFO.get(node_id, {})
+        name = info.get("name", "")
+        desc = info.get("description", "")
+        parts = node_id
+        if name:
+            parts += f": {name}"
+        if desc:
+            parts += f" — {_truncate(desc, 150)}"
+        return parts
+    return node_id
 
 
 # ---------------------------------------------------------------------------
@@ -1966,8 +2020,17 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
           <td>{chain_html}</td>
         </tr>"""
 
+    # Build risk_id -> risk_name lookup for Sankey tooltips
+    risk_tips: dict[str, str] = {}
+    for entry in entries:
+        rc = entry.get("risk_card", {})
+        rid = rc.get("risk_id", "")
+        rname = rc.get("risk_name", "")
+        if rid and rname:
+            risk_tips[rid] = rname
+
     # Option B: Sankey-style SVG
-    sankey_svg = _build_sankey_svg(entries)
+    sankey_svg = _build_sankey_svg(entries, risk_tips=risk_tips)
 
     return f"""
     <div id="sec-threats" class="section">
@@ -2004,13 +2067,36 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
       <div id="view-sankey" class="view-panel">
         <div class="card">
           <div class="sankey-container">{sankey_svg}</div>
+          <div id="sankey-tip" style="display:none;position:absolute;padding:6px 10px;background:#1a1a2e;color:#e0e0e0;border:1px solid #333;border-radius:4px;font-size:0.8rem;max-width:400px;white-space:normal;z-index:1000;pointer-events:none;"></div>
         </div>
       </div>
+
+      <script>
+      (function() {{
+        var tip = document.getElementById('sankey-tip');
+        document.querySelectorAll('.sankey-node[data-tip]').forEach(function(g) {{
+          g.addEventListener('mouseenter', function() {{
+            tip.textContent = g.getAttribute('data-tip');
+            tip.style.display = 'block';
+          }});
+          g.addEventListener('mousemove', function(e) {{
+            tip.style.left = (e.pageX + 12) + 'px';
+            tip.style.top = (e.pageY - 28) + 'px';
+          }});
+          g.addEventListener('mouseleave', function() {{
+            tip.style.display = 'none';
+          }});
+        }});
+      }})();
+      </script>
     </div>
     """
 
 
-def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
+def _build_sankey_svg(
+    entries: list[dict[str, Any]],
+    risk_tips: dict[str, str] | None = None,
+) -> str:
     """Build a pure SVG Sankey-style flow diagram."""
     if not entries:
         return '<p style="color:var(--text-muted);text-align:center;padding:40px;">No actionable entries to visualize.</p>'
@@ -2069,12 +2155,14 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
             node_pos[f"{ci}:{name}"] = (x, y, x + node_w, y + node_h)
 
             truncated = name if len(name) <= 20 else name[:17] + "..."
+            tip = _esc(_node_tip(ci, name, risk_tips))
             svg_nodes += f"""
-            <g class="sankey-node">
+            <g class="sankey-node" data-tip="{tip}">
               <rect x="{x}" y="{y}" width="{node_w}" height="{node_h}"
                     fill="{colors[ci]}" opacity="0.8"/>
               <text x="{x + node_w / 2}" y="{y + node_h / 2 + 4}"
-                    text-anchor="middle" font-size="10" fill="white" font-weight="600">
+                    text-anchor="middle" font-size="10" fill="white" font-weight="600"
+                    pointer-events="none">
                 {_esc(truncated)}
               </text>
             </g>"""
@@ -2360,7 +2448,7 @@ def build_threat_technique_section(
         for tech_id in all_techniques:
             scenario_ids = threat_tech_map.get(tid, {}).get(tech_id, [])
             if scenario_ids:
-                links = ", ".join(
+                links = "<br>".join(
                     f'<a href="#scenario-{_esc(s_id)}"'
                     f'{f""" data-tooltip="{_esc(sid_titles[s_id])}" """ if s_id in sid_titles else ""}'
                     f">{_esc(s_id)}</a>"
@@ -2752,7 +2840,11 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
     cap_tip = _CAPABILITY_TOOLTIPS.get(capability_level, "")
     cap_tip_attr = f' data-tooltip="{_esc(cap_tip)}"' if cap_tip else ""
 
-    resources_str = ", ".join(resources) if resources else "None specified"
+    resources_items = (
+        "".join(f"<li>{_esc(r)}</li>" for r in resources)
+        if resources
+        else "<li>None specified</li>"
+    )
 
     beliefs_items = "".join(f"<li>{_esc(b)}</li>" for b in beliefs)
     desires_items = "".join(f"<li>{_esc(d)}</li>" for d in desires)
@@ -2784,7 +2876,7 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
                 </div>
                 <div style="margin-bottom:8px;">
                   <strong style="color:var(--text-muted);font-size:11px;">RESOURCES:</strong>
-                  <span>{_esc(resources_str)}</span>
+                  <ul {list_style}>{resources_items}</ul>
                 </div>
               </div>
             </div>
