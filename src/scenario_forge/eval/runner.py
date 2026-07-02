@@ -15,7 +15,7 @@ import yaml
 from scenario_forge.eval.consistency import score_consistency
 from scenario_forge.eval.diversity import score_diversity
 from scenario_forge.eval.gherkin import score_gherkin
-from scenario_forge.eval.grounding import score_grounding
+from scenario_forge.eval.grounding import score_grounding, score_technique_agreement
 from scenario_forge.eval.plausibility import score_plausibility
 
 
@@ -114,6 +114,18 @@ def run_evaluation(
     # --- Grounding ---
     grounding_result = score_grounding(scenarios, threats_path)
 
+    # --- Technique Agreement (cross-lens) ---
+    # Build a stem -> gherkin_text mapping keyed by scenario_id
+    # (scenario_id from the YAML, matched to gherkin files by stem)
+    gherkin_by_scenario_id: dict[str, str] = {}
+    for stem, scenario in scenario_items:
+        scenario_id = scenario.get("scenario_id", stem)
+        if stem in gherkin_files:
+            gherkin_by_scenario_id[scenario_id] = gherkin_files[stem]
+    technique_agreement_result = score_technique_agreement(
+        scenarios, gherkin_by_scenario_id
+    )
+
     # --- Load capability profile for context-aware metrics ---
     cap_profile_path = output_dir / "capability-profile.yaml"
     expected_entry_points: int | None = None
@@ -149,6 +161,7 @@ def run_evaluation(
             "consistency": consistency_result,
             "gherkin": gherkin_result,
             "grounding": grounding_result,
+            "technique_agreement": technique_agreement_result,
             "diversity": diversity_result,
             "plausibility": plausibility_result,
         }

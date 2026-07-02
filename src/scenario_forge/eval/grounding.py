@@ -1,15 +1,21 @@
 """Taxonomy grounding metrics for scenario evaluation.
 
 Validates that threat_ids in attack tree nodes reference valid entries
-in the bundled OWASP Agentic Threats data.
+in the bundled OWASP Agentic Threats data.  Also measures cross-lens
+technique agreement across narrative, attack tree, and behavior spec.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+# Regex for ATLAS technique IDs like [AML.T0054] or [AML.T0051.000]
+_TECHNIQUE_RE = re.compile(r"\[AML\.T\d{4}(?:\.\d{3})?\]")
 
 
 # Default path to bundled OWASP agentic threats data
@@ -162,5 +168,136 @@ def score_grounding(
         result["dangling_details"] = dangling
     if ungrounded_techniques:
         result["ungrounded_technique_details"] = ungrounded_techniques
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Cross-lens technique agreement
+# ---------------------------------------------------------------------------
+
+
+def _extract_technique_ids_from_text(text: str) -> set[str]:
+    """Extract ATLAS technique IDs from annotated text.
+
+    Looks for patterns like ``[AML.T0054]`` or ``[AML.T0051.000]`` and
+    returns the IDs *without* surrounding brackets.
+    """
+    return {m.group()[1:-1] for m in _TECHNIQUE_RE.finditer(text)}
+
+
+def _extract_narrative_technique_ids(scenario: dict[str, Any]) -> set[str]:
+    """Extract technique IDs from narrative step action and effect text."""
+    ids: set[str] = set()
+    narrative = scenario.get("narrative", {})
+    for step in narrative.get("steps", []):
+        for field in ("action", "effect"):
+            text = step.get(field, "")
+            if text:
+                ids |= _extract_technique_ids_from_text(text)
+    return ids
+
+
+def _extract_spec_technique_ids(
+    scenario: dict[str, Any],
+    gherkin_text: str | None = None,
+) -> set[str]:
+    """Extract technique IDs from the behavior spec (Gherkin text).
+
+    Uses the ``behavior_spec`` field on the scenario dict first, falling
+    back to the separately-loaded *gherkin_text* if provided.
+    """
+    text = ""
+    bs = scenario.get("behavior_spec")
+    if isinstance(bs, str):
+        text = bs
+    elif gherkin_text:
+        text = gherkin_text
+    if not text:
+        return set()
+    return _extract_technique_ids_from_text(text)
+
+
+def score_technique_agreement(
+    scenarios: list[dict[str, Any]],
+    gherkin_files: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Compute cross-lens technique agreement across narrative, tree, and spec.
+
+    For each scenario, collects the set of ATLAS technique IDs referenced in:
+    1. **Narrative** -- ``[AML.T0054]`` annotations in step action/effect text
+    2. **Attack tree** -- ``technique_id`` fields on tree nodes
+    3. **Behavior spec** -- ``[AML.T0054]`` annotations in Gherkin text
+
+    Agreement is the Jaccard similarity of the three sets (intersection over
+    union).  A score of 1.0 means all three lenses reference exactly the same
+    techniques.
+
+    Args:
+        scenarios: List of scenario dicts (parsed YAML).
+        gherkin_files: Optional dict mapping scenario stem to Gherkin text
+            (used when the scenario dict lacks a ``behavior_spec`` field).
+
+    Returns:
+        Dict with ``mean_technique_agreement`` (float 0-1) and per-scenario
+        details for any scenario with agreement < 1.0.
+    """
+    if gherkin_files is None:
+        gherkin_files = {}
+
+    per_scenario: dict[str, dict[str, Any]] = {}
+    agreements: list[float] = []
+
+    for scenario in scenarios:
+        scenario_id = scenario.get("scenario_id", "unknown")
+
+        narrative_ids = _extract_narrative_technique_ids(scenario)
+
+        tree_root = scenario.get("attack_tree", {}).get("root", {})
+        tree_ids = set(_collect_tree_technique_ids(tree_root))
+
+        gherkin_text = gherkin_files.get(scenario_id)
+        spec_ids = _extract_spec_technique_ids(scenario, gherkin_text)
+
+        # Jaccard similarity of all three sets
+        union = narrative_ids | tree_ids | spec_ids
+        if not union:
+            # Vacuously agree when no techniques in any lens
+            agreement = 1.0
+        else:
+            intersection = narrative_ids & tree_ids & spec_ids
+            agreement = len(intersection) / len(union)
+
+        agreements.append(agreement)
+
+        # Build detail record for imperfect agreement
+        detail: dict[str, Any] = {
+            "technique_agreement": round(agreement, 4),
+            "narrative_techniques": sorted(narrative_ids),
+            "tree_techniques": sorted(tree_ids),
+            "spec_techniques": sorted(spec_ids),
+        }
+
+        missing_from_narrative = (tree_ids | spec_ids) - narrative_ids
+        missing_from_tree = (narrative_ids | spec_ids) - tree_ids
+        missing_from_spec = (narrative_ids | tree_ids) - spec_ids
+
+        if missing_from_narrative:
+            detail["missing_from_narrative"] = sorted(missing_from_narrative)
+        if missing_from_tree:
+            detail["missing_from_tree"] = sorted(missing_from_tree)
+        if missing_from_spec:
+            detail["missing_from_spec"] = sorted(missing_from_spec)
+
+        if agreement < 1.0:
+            per_scenario[scenario_id] = detail
+
+    mean_agreement = sum(agreements) / len(agreements) if agreements else 1.0
+
+    result: dict[str, Any] = {
+        "mean_technique_agreement": round(mean_agreement, 4),
+    }
+    if per_scenario:
+        result["per_scenario"] = per_scenario
 
     return result

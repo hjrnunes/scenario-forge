@@ -3910,6 +3910,15 @@ _SCORECARD_METRIC_TOOLTIPS: dict[str, str] = {
         "Fraction of scenario titles that are unique. Detects "
         "duplicate or near-duplicate generations (1 is best)"
     ),
+    # Technique Agreement group
+    "Technique Agreement": (
+        "Whether narrative, attack tree, and behavior spec reference "
+        "the same set of ATLAS technique IDs"
+    ),
+    "Mean Technique Agreement": (
+        "Average Jaccard similarity of technique ID sets across all "
+        "three lenses (narrative, tree, spec). 1.0 means perfect agreement"
+    ),
     # Plausibility group
     "Plausibility": (
         "Whether attack steps are realistic given the actor's declared capability level"
@@ -4112,6 +4121,63 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         else ""
     )
 
+    # --- Technique Agreement ---
+    technique_agreement = ev.get("technique_agreement", {})
+    technique_agreement_html = ""
+    if technique_agreement:
+        mta = technique_agreement.get("mean_technique_agreement", 0)
+        ta_badges = _scorecard_badge(mta, "Mean Technique Agreement")
+
+        ta_per_scenario = technique_agreement.get("per_scenario", {})
+        ta_detail = ""
+        if ta_per_scenario:
+            ta_rows = ""
+            for sid, detail in ta_per_scenario.items():
+                score = detail.get("technique_agreement", 0)
+                missing_narr = ", ".join(detail.get("missing_from_narrative", []))
+                missing_tree = ", ".join(detail.get("missing_from_tree", []))
+                missing_spec = ", ".join(detail.get("missing_from_spec", []))
+                score_cls = (
+                    "scorecard-badge-green"
+                    if score >= 0.9
+                    else (
+                        "scorecard-badge-yellow"
+                        if score >= 0.7
+                        else "scorecard-badge-red"
+                    )
+                )
+                ta_rows += (
+                    f"<tr>"
+                    f"<td>{_esc(sid)}</td>"
+                    f'<td><span class="scorecard-badge {score_cls}">{score:.2f}</span></td>'
+                    f"<td>{_esc(missing_narr) or '-'}</td>"
+                    f"<td>{_esc(missing_tree) or '-'}</td>"
+                    f"<td>{_esc(missing_spec) or '-'}</td>"
+                    f"</tr>"
+                )
+            ta_detail = f"""
+        <details class="expandable" style="margin-top:10px;">
+          <summary>Per-Scenario Disagreements</summary>
+          <table class="scorecard-detail-table">
+            <thead><tr>
+              <th>Scenario</th>
+              <th>Agreement</th>
+              <th data-tooltip="Technique IDs present in tree/spec but missing from narrative">Missing from Narrative</th>
+              <th data-tooltip="Technique IDs present in narrative/spec but missing from attack tree">Missing from Tree</th>
+              <th data-tooltip="Technique IDs present in narrative/tree but missing from behavior spec">Missing from Spec</th>
+            </tr></thead>
+            <tbody>{ta_rows}</tbody>
+          </table>
+        </details>"""
+
+        ta_tip = _SCORECARD_METRIC_TOOLTIPS.get("Technique Agreement", "")
+        technique_agreement_html = f"""
+    <div class="scorecard-group">
+      <div class="scorecard-group-title" data-tooltip="{_esc(ta_tip)}">Technique Agreement</div>
+      <div class="scorecard-metrics">{ta_badges}</div>
+      {ta_detail}
+    </div>"""
+
     # --- Diversity ---
     diversity = ev.get("diversity", {})
     diversity_badges = ""
@@ -4210,6 +4276,7 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         {consistency_html}
         {gherkin_html}
         {grounding_html}
+        {technique_agreement_html}
         {diversity_html}
         {plausibility_html}
       </div>
