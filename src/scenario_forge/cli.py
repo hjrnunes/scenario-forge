@@ -67,6 +67,11 @@ def generate(
         None,
         help="Path to OWASP agentic threats YAML (defaults to bundled).",
     ),
+    profile_path: Path | None = typer.Option(
+        None,
+        "--profile",
+        help="Path to a capability-profile.yaml (skips Stage 1 inference).",
+    ),
     base_url: str | None = typer.Option(
         None,
         help="LLM endpoint base URL (overrides SCENARIO_FORGE_MODEL_BASE_URL).",
@@ -90,6 +95,8 @@ def generate(
         _validate_file(cross_taxonomy, "cross-taxonomy file")
     if threats_path is not None:
         _validate_file(threats_path, "agentic threats file")
+    if profile_path is not None:
+        _validate_file(profile_path, "capability profile file")
 
     try:
         from scenario_forge.pipeline.runner import run_pipeline
@@ -101,6 +108,7 @@ def generate(
             output_dir=output_dir,
             cross_taxonomy_path=cross_taxonomy,
             threats_path=threats_path,
+            profile_path=profile_path,
             base_url=base_url,
             api_key=api_key,
             model=model,

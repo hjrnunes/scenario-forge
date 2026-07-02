@@ -198,6 +198,7 @@ def run_pipeline(
     output_dir: Path,
     cross_taxonomy_path: Path | None = None,
     threats_path: Path | None = None,
+    profile_path: Path | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
@@ -211,6 +212,7 @@ def run_pipeline(
         output_dir: Directory for all pipeline outputs.
         cross_taxonomy_path: Path to cross-taxonomy-mappings.yaml (defaults to bundled).
         threats_path: Path to OWASP agentic threats YAML (defaults to bundled).
+        profile_path: Path to a pre-built capability-profile.yaml (skips Stage 1 inference).
         base_url: LLM endpoint URL override.
         api_key: LLM API key override.
         model: LLM model name override.
@@ -226,21 +228,26 @@ def run_pipeline(
     client = LLMClient(base_url=base_url, api_key=api_key, model=model)
 
     # --- Stage 1: Capability Profile Inference ---
-    logger.info("[Stage 1] Inferring capability profile...")
-    profile, _llm_result = infer_capability_profile(use_case, client)
+    if profile_path is not None:
+        logger.info("[Stage 1] Loading capability profile from %s", profile_path)
+        profile_data = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+        profile = CapabilityProfile(**profile_data)
+    else:
+        logger.info("[Stage 1] Inferring capability profile...")
+        profile, _llm_result = infer_capability_profile(use_case, client)
     logger.info("  Zones active: %s", profile.zones_active)
     logger.info("  Entry points: %d", len(profile.entry_points))
     logger.info("  Confidence: %s", profile.confidence.value)
 
-    profile_path = output_dir / "capability-profile.yaml"
+    profile_output_path = output_dir / "capability-profile.yaml"
     profile_data = profile.model_dump(mode="json", exclude_none=True)
-    profile_path.write_text(
+    profile_output_path.write_text(
         yaml.dump(
             profile_data, default_flow_style=False, sort_keys=False, allow_unicode=True
         ),
         encoding="utf-8",
     )
-    logger.info("  Written to %s", profile_path)
+    logger.info("  Written to %s", profile_output_path)
 
     # --- Stage 2: Threat Surface Determination ---
     logger.info("[Stage 2] Determining threat surface...")
