@@ -140,6 +140,19 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
     "AML.T0071": "Embedding Manipulation",
 }
 
+_OWASP_LLM_NAMES: dict[str, str] = {
+    "LLM01": "Prompt Injection",
+    "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain Vulnerabilities",
+    "LLM04": "Data and Model Poisoning",
+    "LLM05": "Improper Output Handling",
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption",
+}
+
 
 # ---------------------------------------------------------------------------
 # Taxonomy-derived lookup tables (loaded once at import time)
@@ -283,6 +296,47 @@ def _priority_label(composite: float) -> str:
     if composite >= 0.4:
         return "MEDIUM"
     return "LOW"
+
+
+def _node_tip(
+    col_idx: int,
+    node_id: str,
+    risk_tips: dict[str, str] | None = None,
+) -> str:
+    """Return a tooltip string for a Sankey node, based on its column.
+
+    Col 0: risk name + description from *risk_tips* dict.
+    Col 1: OWASP LLM Top 10 ID + name from ``_OWASP_LLM_NAMES``.
+    Col 2: Agentic threat ID + name + description from ``THREAT_NAMES``
+           and ``_THREAT_DESCRIPTIONS``.
+    Col 3: Attack-pattern name + description from ``_ATTACK_PATTERN_INFO``.
+    """
+    if col_idx == 0:
+        name = (risk_tips or {}).get(node_id, "")
+        return f"{node_id}: {name}" if name else node_id
+    if col_idx == 1:
+        name = _OWASP_LLM_NAMES.get(node_id, "")
+        return f"{node_id}: {name}" if name else node_id
+    if col_idx == 2:
+        name = THREAT_NAMES.get(node_id, "")
+        desc = _THREAT_DESCRIPTIONS.get(node_id, "")
+        parts = node_id
+        if name:
+            parts += f": {name}"
+        if desc:
+            parts += f" — {_truncate(desc, 150)}"
+        return parts
+    if col_idx == 3:
+        info = _ATTACK_PATTERN_INFO.get(node_id, {})
+        name = info.get("name", "")
+        desc = info.get("description", "")
+        parts = node_id
+        if name:
+            parts += f": {name}"
+        if desc:
+            parts += f" — {_truncate(desc, 150)}"
+        return parts
+    return node_id
 
 
 # ---------------------------------------------------------------------------
@@ -1966,8 +2020,17 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
           <td>{chain_html}</td>
         </tr>"""
 
+    # Build risk_id -> risk_name lookup for Sankey tooltips
+    risk_tips: dict[str, str] = {}
+    for entry in entries:
+        rc = entry.get("risk_card", {})
+        rid = rc.get("risk_id", "")
+        rname = rc.get("risk_name", "")
+        if rid and rname:
+            risk_tips[rid] = rname
+
     # Option B: Sankey-style SVG
-    sankey_svg = _build_sankey_svg(entries)
+    sankey_svg = _build_sankey_svg(entries, risk_tips=risk_tips)
 
     return f"""
     <div id="sec-threats" class="section">
@@ -2004,13 +2067,36 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
       <div id="view-sankey" class="view-panel">
         <div class="card">
           <div class="sankey-container">{sankey_svg}</div>
+          <div id="sankey-tip" style="display:none;position:absolute;padding:6px 10px;background:#1a1a2e;color:#e0e0e0;border:1px solid #333;border-radius:4px;font-size:0.8rem;max-width:400px;white-space:normal;z-index:1000;pointer-events:none;"></div>
         </div>
       </div>
+
+      <script>
+      (function() {{
+        var tip = document.getElementById('sankey-tip');
+        document.querySelectorAll('.sankey-node[data-tip]').forEach(function(g) {{
+          g.addEventListener('mouseenter', function() {{
+            tip.textContent = g.getAttribute('data-tip');
+            tip.style.display = 'block';
+          }});
+          g.addEventListener('mousemove', function(e) {{
+            tip.style.left = (e.pageX + 12) + 'px';
+            tip.style.top = (e.pageY - 28) + 'px';
+          }});
+          g.addEventListener('mouseleave', function() {{
+            tip.style.display = 'none';
+          }});
+        }});
+      }})();
+      </script>
     </div>
     """
 
 
-def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
+def _build_sankey_svg(
+    entries: list[dict[str, Any]],
+    risk_tips: dict[str, str] | None = None,
+) -> str:
     """Build a pure SVG Sankey-style flow diagram."""
     if not entries:
         return '<p style="color:var(--text-muted);text-align:center;padding:40px;">No actionable entries to visualize.</p>'
@@ -2069,12 +2155,14 @@ def _build_sankey_svg(entries: list[dict[str, Any]]) -> str:
             node_pos[f"{ci}:{name}"] = (x, y, x + node_w, y + node_h)
 
             truncated = name if len(name) <= 20 else name[:17] + "..."
+            tip = _esc(_node_tip(ci, name, risk_tips))
             svg_nodes += f"""
-            <g class="sankey-node">
+            <g class="sankey-node" data-tip="{tip}">
               <rect x="{x}" y="{y}" width="{node_w}" height="{node_h}"
                     fill="{colors[ci]}" opacity="0.8"/>
               <text x="{x + node_w / 2}" y="{y + node_h / 2 + 4}"
-                    text-anchor="middle" font-size="10" fill="white" font-weight="600">
+                    text-anchor="middle" font-size="10" fill="white" font-weight="600"
+                    pointer-events="none">
                 {_esc(truncated)}
               </text>
             </g>"""
@@ -2360,7 +2448,7 @@ def build_threat_technique_section(
         for tech_id in all_techniques:
             scenario_ids = threat_tech_map.get(tid, {}).get(tech_id, [])
             if scenario_ids:
-                links = ", ".join(
+                links = "<br>".join(
                     f'<a href="#scenario-{_esc(s_id)}"'
                     f'{f""" data-tooltip="{_esc(sid_titles[s_id])}" """ if s_id in sid_titles else ""}'
                     f">{_esc(s_id)}</a>"
@@ -2752,7 +2840,11 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
     cap_tip = _CAPABILITY_TOOLTIPS.get(capability_level, "")
     cap_tip_attr = f' data-tooltip="{_esc(cap_tip)}"' if cap_tip else ""
 
-    resources_str = ", ".join(resources) if resources else "None specified"
+    resources_items = (
+        "".join(f"<li>{_esc(r)}</li>" for r in resources)
+        if resources
+        else "<li>None specified</li>"
+    )
 
     beliefs_items = "".join(f"<li>{_esc(b)}</li>" for b in beliefs)
     desires_items = "".join(f"<li>{_esc(d)}</li>" for d in desires)
@@ -2784,7 +2876,7 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
                 </div>
                 <div style="margin-bottom:8px;">
                   <strong style="color:var(--text-muted);font-size:11px;">RESOURCES:</strong>
-                  <span>{_esc(resources_str)}</span>
+                  <ul {list_style}>{resources_items}</ul>
                 </div>
               </div>
             </div>
@@ -2961,6 +3053,43 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
         </div>"""
 
 
+def _build_atlas_techniques_block(scenario: dict[str, Any]) -> str:
+    """Build an ATLAS Techniques section showing technique IDs + names.
+
+    Reads ``faceting.taxonomy_chain.atlas_technique_ids`` and renders each
+    technique as a badge with its MITRE ATLAS name.  Returns empty string
+    when no techniques are present.
+    """
+    faceting = scenario.get("faceting", {})
+    tc = faceting.get("taxonomy_chain", {})
+    technique_ids: list[str] = tc.get("atlas_technique_ids", [])
+
+    if not technique_ids:
+        return ""
+
+    badges = ""
+    for tid in technique_ids:
+        name = _ATLAS_TECHNIQUE_NAMES.get(tid, "")
+        label = f"{tid}: {name}" if name else tid
+        tip = _technique_id_tooltip(tid)
+        badges += (
+            f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;'
+            f"font-size:12px;font-weight:600;background:rgba(249,115,22,0.15);"
+            f"color:#f97316;font-family:'SF Mono','Fira Code',monospace;"
+            f'margin:0 4px 4px 0;"{tip}>{_esc(label)}</span>'
+        )
+
+    return f"""
+        <div class="scenario-section">
+          <details class="expandable" open>
+            <summary>ATLAS Techniques</summary>
+            <div style="padding:12px 0 4px;display:flex;flex-wrap:wrap;">
+              {badges}
+            </div>
+          </details>
+        </div>"""
+
+
 def _build_scenario_card(
     scenario: dict[str, Any],
     feature_files: dict[str, str],
@@ -3013,6 +3142,9 @@ def _build_scenario_card(
 
     # Scenario seed metadata
     seed_metadata_html = _build_seed_metadata_block(scenario)
+
+    # ATLAS techniques section
+    atlas_techniques_html = _build_atlas_techniques_block(scenario)
 
     # LLM call log section
     call_log_html = ""
@@ -3087,6 +3219,7 @@ def _build_scenario_card(
         {_build_actor_profile_block(scenario)}
         {provenance_html}
         {seed_metadata_html}
+        {atlas_techniques_html}
 
         <div class="scenario-section">
           <div class="scenario-section-title">Narrative</div>
@@ -3684,13 +3817,121 @@ def build_glossary_section() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _scorecard_badge(value: float, label: str, *, invert: bool = False) -> str:
+_SCORECARD_METRIC_TOOLTIPS: dict[str, str] = {
+    # Consistency group
+    "Consistency": (
+        "How well scenario narratives, attack trees, and behavior specs "
+        "agree on zones, entry points, and attack steps"
+    ),
+    "Mean": (
+        "Average consistency score across all scenarios (0-1). "
+        "Combines zone alignment, entry point agreement, and "
+        "step-node correspondence"
+    ),
+    "Zone Alignment": (
+        "Fraction of zones in the narrative zone-sequence that also "
+        "appear in the attack-tree nodes (0-1)"
+    ),
+    "Entry Point Agreement": (
+        "1 if the narrative entry point matches the attack-tree root zone, 0 otherwise"
+    ),
+    "Step-Node Correspondence": (
+        "Fraction of Gherkin steps whose zone tag matches an "
+        "attack-tree node zone (0-1)"
+    ),
+    # Gherkin group
+    "Gherkin Quality": (
+        "Structural quality of generated Gherkin behavior specifications"
+    ),
+    "Parse Success Rate": (
+        "Fraction of generated feature files that parse without syntax errors (0-1)"
+    ),
+    "Mean Step Count": (
+        "Average number of Given/When/Then steps per scenario. Higher "
+        "counts indicate more detailed specifications"
+    ),
+    "Inconsistent Tag Groups": (
+        "Number of scenario groups where Gherkin tags disagree with "
+        "scenario metadata (0 is best)"
+    ),
+    "Background Warnings": (
+        "Feature files missing a Background section that sets up the agent context"
+    ),
+    # Grounding group
+    "Grounding": (
+        "Whether generated IDs and references resolve to real taxonomy entries"
+    ),
+    "Threat ID Validity": (
+        "Fraction of threat IDs in scenarios that match known OWASP "
+        "Agentic Threat IDs (0-1)"
+    ),
+    "Dangling References": (
+        "Number of taxonomy IDs referenced in scenarios that do not "
+        "exist in the source taxonomy (0 is best)"
+    ),
+    "Technique ID Grounding": (
+        "Fraction of ATLAS technique IDs in scenarios that resolve to "
+        "known MITRE ATLAS techniques (0-1)"
+    ),
+    "Ungrounded Technique Refs": (
+        "Number of ATLAS technique references that do not match any "
+        "known technique (0 is best)"
+    ),
+    # Diversity group
+    "Diversity": (
+        "How well scenarios cover different attack surfaces, actor "
+        "types, and entry points"
+    ),
+    "EP Entropy": (
+        "Shannon entropy of entry-point distribution. Higher values "
+        "mean more evenly distributed entry points"
+    ),
+    "EP Coverage": (
+        "Fraction of declared system entry points that appear in at "
+        "least one scenario (0-1)"
+    ),
+    "Active Zone Coverage": (
+        "Fraction of active capability zones that are targeted by at "
+        "least one scenario (0-1)"
+    ),
+    "Zone Violations": (
+        "Scenarios that target zones not declared as active in the "
+        "capability profile (0 is best)"
+    ),
+    "Actor Type Entropy": (
+        "Shannon entropy of actor-type distribution. Higher values "
+        "indicate more diverse attacker personas"
+    ),
+    "Capability Evenness": (
+        "How evenly capability levels (novice to expert) are "
+        "distributed across scenarios (0-1)"
+    ),
+    "Title Uniqueness": (
+        "Fraction of scenario titles that are unique. Detects "
+        "duplicate or near-duplicate generations (1 is best)"
+    ),
+    # Plausibility group
+    "Plausibility": (
+        "Whether attack steps are realistic given the actor's declared capability level"
+    ),
+    "Capability Violations": (
+        "Number of scenarios where attack complexity exceeds the "
+        "actor's capability level (0 is best)"
+    ),
+}
+
+
+def _scorecard_badge(
+    value: float, label: str, *, invert: bool = False, tooltip: str = ""
+) -> str:
     """Return a colored badge for a metric value.
 
     Args:
         value: Numeric metric value (0-1 scale for rates, raw for counts).
         label: Display label for the badge.
         invert: When True, lower values are better (e.g. violation counts).
+        tooltip: Optional tooltip text. If empty, looks up from
+                 ``_SCORECARD_METRIC_TOOLTIPS`` using *label*.
     """
     if invert:
         # For counts: 0 = green, >0 = red
@@ -3706,7 +3947,9 @@ def _scorecard_badge(value: float, label: str, *, invert: bool = False) -> str:
         display = f"{value:.2f}"
     else:
         display = str(int(value))
-    return f'<span class="scorecard-badge {css_cls}">{_esc(label)}: {display}</span>'
+    tip = tooltip or _SCORECARD_METRIC_TOOLTIPS.get(label, "")
+    tip_attr = f' data-tooltip="{_esc(tip)}"' if tip else ""
+    return f'<span class="scorecard-badge {css_cls}"{tip_attr}>{_esc(label)}: {display}</span>'
 
 
 def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
@@ -3749,7 +3992,13 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         stddev = consistency.get("stddev", 0)
         consistency_badges += _scorecard_badge(mean, "Mean")
         consistency_badges += _scorecard_badge(
-            1.0 - stddev, f"Stddev: {stddev:.3f}", invert=False
+            1.0 - stddev,
+            f"Stddev: {stddev:.3f}",
+            invert=False,
+            tooltip=(
+                "Standard deviation of per-scenario consistency scores. "
+                "Lower values mean more uniform quality across scenarios"
+            ),
         )
 
     per_scenario_consistency = consistency.get("per_scenario", {})
@@ -3785,17 +4034,18 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
           <table class="scorecard-detail-table">
             <thead><tr>
               <th>Scenario</th>
-              <th>Zone Alignment</th>
-              <th>Entry Point Agreement</th>
-              <th>Step-Node Correspondence</th>
+              <th data-tooltip="{_esc(_SCORECARD_METRIC_TOOLTIPS.get("Zone Alignment", ""))}">Zone Alignment</th>
+              <th data-tooltip="{_esc(_SCORECARD_METRIC_TOOLTIPS.get("Entry Point Agreement", ""))}">Entry Point Agreement</th>
+              <th data-tooltip="{_esc(_SCORECARD_METRIC_TOOLTIPS.get("Step-Node Correspondence", ""))}">Step-Node Correspondence</th>
             </tr></thead>
             <tbody>{rows}</tbody>
           </table>
         </details>"""
 
+    consistency_tip = _SCORECARD_METRIC_TOOLTIPS.get("Consistency", "")
     consistency_html = f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Consistency</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(consistency_tip)}">Consistency</div>
       <div class="scorecard-metrics">{consistency_badges}</div>
       {consistency_detail}
     </div>"""
@@ -3810,21 +4060,26 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         ig = tag_con.get("inconsistent_groups", 0)
         bm_warnings = gherkin.get("background_missing_warnings", [])
         gherkin_badges += _scorecard_badge(psr, "Parse Success Rate")
+        msc_tip = _SCORECARD_METRIC_TOOLTIPS.get("Mean Step Count", "")
         gherkin_badges += (
-            f'<span class="scorecard-badge scorecard-badge-green">'
+            f'<span class="scorecard-badge scorecard-badge-green"'
+            f' data-tooltip="{_esc(msc_tip)}">'
             f"Mean Step Count: {msc:.1f}</span>"
         )
         gherkin_badges += _scorecard_badge(ig, "Inconsistent Tag Groups", invert=True)
         if bm_warnings:
+            bw_tip = _SCORECARD_METRIC_TOOLTIPS.get("Background Warnings", "")
             gherkin_badges += (
-                f'<span class="scorecard-badge scorecard-badge-yellow">'
+                f'<span class="scorecard-badge scorecard-badge-yellow"'
+                f' data-tooltip="{_esc(bw_tip)}">'
                 f"Background Warnings: {len(bm_warnings)}</span>"
             )
 
+    gherkin_tip = _SCORECARD_METRIC_TOOLTIPS.get("Gherkin Quality", "")
     gherkin_html = (
         f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Gherkin Quality</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(gherkin_tip)}">Gherkin Quality</div>
       <div class="scorecard-metrics">{gherkin_badges}</div>
     </div>"""
         if gherkin_badges
@@ -3846,10 +4101,11 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
             utr, "Ungrounded Technique Refs", invert=True
         )
 
+    grounding_tip = _SCORECARD_METRIC_TOOLTIPS.get("Grounding", "")
     grounding_html = (
         f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Grounding</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(grounding_tip)}">Grounding</div>
       <div class="scorecard-metrics">{grounding_badges}</div>
     </div>"""
         if grounding_badges
@@ -3864,8 +4120,10 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         if isinstance(ep_ent, dict):
             entropy = ep_ent.get("entropy", 0)
             ep_cov = ep_ent.get("entry_point_coverage", 0)
+            ep_ent_tip = _SCORECARD_METRIC_TOOLTIPS.get("EP Entropy", "")
             diversity_badges += (
-                f'<span class="scorecard-badge scorecard-badge-green">'
+                f'<span class="scorecard-badge scorecard-badge-green"'
+                f' data-tooltip="{_esc(ep_ent_tip)}">'
                 f"EP Entropy: {entropy:.2f}</span>"
             )
             diversity_badges += _scorecard_badge(ep_cov, "EP Coverage")
@@ -3892,10 +4150,11 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         if isinstance(tu, (int, float)):
             diversity_badges += _scorecard_badge(tu, "Title Uniqueness")
 
+    diversity_tip = _SCORECARD_METRIC_TOOLTIPS.get("Diversity", "")
     diversity_html = (
         f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Diversity</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(diversity_tip)}">Diversity</div>
       <div class="scorecard-metrics">{diversity_badges}</div>
     </div>"""
         if diversity_badges
@@ -3931,9 +4190,10 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
           </table>
         </details>"""
 
+        plausibility_tip = _SCORECARD_METRIC_TOOLTIPS.get("Plausibility", "")
         plausibility_html = f"""
     <div class="scorecard-group">
-      <div class="scorecard-group-title">Plausibility</div>
+      <div class="scorecard-group-title" data-tooltip="{_esc(plausibility_tip)}">Plausibility</div>
       <div class="scorecard-metrics">{plausibility_badges}</div>
       {violations_detail}
     </div>"""
