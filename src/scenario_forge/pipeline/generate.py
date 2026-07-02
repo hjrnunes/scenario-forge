@@ -630,6 +630,124 @@ _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
+# ATLAS technique descriptions (sourced from MITRE ATLAS / OWASP crosswalk)
+# ---------------------------------------------------------------------------
+
+_ATLAS_TECHNIQUE_DESCRIPTIONS: dict[str, str] = {
+    "AML.T0010": (
+        "Compromising ML supply chain components — datasets, models, "
+        "frameworks — to embed backdoors or malicious functionality"
+    ),
+    "AML.T0015": (
+        "Exploiting overly permissive LLM tool access to perform actions "
+        "beyond intended scope"
+    ),
+    "AML.T0016": (
+        "Acquiring capabilities, tools, or resources needed to carry out "
+        "an attack against AI systems"
+    ),
+    "AML.T0020": (
+        "Injecting malicious data into training pipelines to corrupt "
+        "model behaviour at the data level"
+    ),
+    "AML.T0021": (
+        "Creating accounts or identities to facilitate adversarial "
+        "access to AI systems or services"
+    ),
+    "AML.T0024": (
+        "Extracting sensitive data from AI systems through inference "
+        "API queries, including membership inference and model inversion"
+    ),
+    "AML.T0025": (
+        "Flooding vector stores with adversarial embeddings to degrade "
+        "retrieval quality or cause service degradation"
+    ),
+    "AML.T0029": (
+        "Overloading AI systems with computationally expensive inputs "
+        "to cause service degradation or denial of service"
+    ),
+    "AML.T0031": (
+        "Degrading model integrity through poisoned training data, "
+        "embedding hidden trigger-response patterns"
+    ),
+    "AML.T0034": (
+        "Crafting inputs that maximise token usage or API costs per "
+        "request to impose financial burden on the target"
+    ),
+    "AML.T0040": (
+        "LLM outputs containing serialised payloads executed by "
+        "downstream components via unsafe deserialisation"
+    ),
+    "AML.T0043": (
+        "Crafting adversarial training examples designed to corrupt "
+        "model behaviour or bypass safety controls"
+    ),
+    "AML.T0047": (
+        "Generating high-volume automated content via AI-enabled "
+        "services to shape perception or overwhelm fact-checking"
+    ),
+    "AML.T0048": (
+        "Introducing persistent malicious behaviour into a model "
+        "through supply chain compromise, leading to downstream "
+        "external harms"
+    ),
+    "AML.T0049": (
+        "Using AI to generate highly personalised and convincing "
+        "spearphishing messages targeting specific individuals"
+    ),
+    "AML.T0051.000": (
+        "Attacker directly manipulates user-facing prompt to alter "
+        "model behaviour, bypass safety guardrails, or execute "
+        "unauthorised actions"
+    ),
+    "AML.T0051.001": (
+        "Hidden instructions in content the model processes — "
+        "documents, web pages, RAG chunks — that hijack model "
+        "behaviour without direct user input"
+    ),
+    "AML.T0053": (
+        "LLM autonomously invoking tools or APIs beyond its intended "
+        "access scope, executing unintended or harmful actions"
+    ),
+    "AML.T0054": (
+        "Circumventing model safety guardrails via crafted prompt "
+        "sequences to elicit prohibited outputs or behaviours"
+    ),
+    "AML.T0056": (
+        "Extraction of internal model configuration, instructions, "
+        "or system prompts revealing security controls and "
+        "business logic"
+    ),
+    "AML.T0057": (
+        "Unintended exposure of training data or sensitive context "
+        "through model outputs, including PII, credentials, "
+        "and proprietary information"
+    ),
+    "AML.T0060": (
+        "AI-generated hallucinated content published as fact, "
+        "spreading false information that users or systems act upon"
+    ),
+    "AML.T0066": (
+        "Crafting content specifically designed to rank highly in "
+        "semantic search and influence model outputs via retrieval"
+    ),
+    "AML.T0067": (
+        "Crafting inputs that produce dangerous outputs consumed "
+        "by downstream systems, enabling XSS, command injection, "
+        "or other output-based attacks"
+    ),
+    "AML.T0070": (
+        "Injecting malicious content into RAG knowledge bases to "
+        "manipulate retrieval results and poison model responses"
+    ),
+    "AML.T0071": (
+        "Crafting inputs whose embeddings manipulate similarity "
+        "search results, steering retrieval towards "
+        "attacker-controlled content"
+    ),
+}
+
+# ---------------------------------------------------------------------------
 # OWASP LLM Top 10 v2025 name lookup (for descriptive taxonomy refs)
 # ---------------------------------------------------------------------------
 
@@ -660,6 +778,25 @@ def _format_taxonomy_ids(ids: list[str], name_map: dict[str, str]) -> str:
         else:
             parts.append(tid)
     return ", ".join(parts) if parts else "none"
+
+
+def _build_technique_context_block(technique_ids: list[str]) -> str:
+    """Build a shared ATLAS technique context block for LLM prompts.
+
+    Produces a consistent section containing ID, name, and description
+    for each technique. Returns an empty string when no IDs are provided.
+    """
+    if not technique_ids:
+        return ""
+    lines = ["## ATLAS Technique Context"]
+    for tid in technique_ids:
+        name = _ATLAS_TECHNIQUE_NAMES.get(tid, tid)
+        desc = _ATLAS_TECHNIQUE_DESCRIPTIONS.get(tid, "")
+        entry = f"- **{tid}** — {name}"
+        if desc:
+            entry += f": {desc}"
+        lines.append(entry)
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -1755,6 +1892,9 @@ def _call_actor_profile(
             )
         diversity_section = "\n".join(diversity_lines) + "\n"
 
+    # Build shared ATLAS technique context
+    technique_context = _build_technique_context_block(seed.atlas_technique_ids)
+
     user_prompt = f"""\
 ## Use Case
 {use_case}
@@ -1774,7 +1914,8 @@ Your actor profile must only reference capabilities the system actually has.
 - Has persistent memory across sessions: {profile.has_persistent_memory}
 - Communicates with other AI agents: {profile.multi_agent}
 - Has human approval gates: {profile.hitl}
-{diversity_section}\
+
+{technique_context}{diversity_section}\
 """
 
     result = client.complete(
@@ -1911,7 +2052,8 @@ Your attack narrative must only reference capabilities the system actually has.
 ## Related Taxonomy Entries
 - OWASP LLM: {_format_taxonomy_ids(seed.owasp_llm_ids, _OWASP_LLM_NAMES)}
 - Agentic Threat: {seed.threat_name}
-- ATLAS Techniques: {_format_taxonomy_ids(seed.atlas_technique_ids, _ATLAS_TECHNIQUE_NAMES)}
+
+{_build_technique_context_block(seed.atlas_technique_ids)}\
 {actor_section}{causal_section}{diversity_section}{pattern_section}{structural_section}\
 """
 
@@ -1936,33 +2078,26 @@ def _call_attack_tree(
     client: LLMClient,
     use_case: str,
 ) -> tuple[AttackTree, LLMResult]:
-    # Build technique constraint section with descriptive names
-    technique_section = ""
+    # Build shared technique context + Call 2-specific constraint rules
+    technique_context = _build_technique_context_block(seed.atlas_technique_ids)
     if seed.atlas_technique_ids:
-        ids_with_names = []
-        for tid in seed.atlas_technique_ids:
-            name = _ATLAS_TECHNIQUE_NAMES.get(tid, "")
-            if name:
-                ids_with_names.append(f"- {tid}: {name}")
-            else:
-                ids_with_names.append(f"- {tid}")
-        ids_block = "\n".join(ids_with_names)
-        technique_section = (
-            f"\n## ATLAS Technique Constraint\n"
-            f"Allowed technique_id values:\n{ids_block}\n\n"
-            f"Only assign a technique_id to a node if the technique's "
-            f"description semantically matches the attack action described "
-            f"in the node's label. For example, 'AI Agent Tool Invocation' "
-            f"should only be used for nodes that involve invoking or "
-            f"manipulating tools, not for prompt injection or hallucination "
-            f"steps.\n"
-            f"Use ONLY these technique IDs on leaf nodes. "
-            f"Do NOT invent or hallucinate new technique IDs. "
-            f"If none of these IDs fit a particular node, omit technique_id "
-            f"from that node rather than inventing one.\n"
+        allowed_ids = ", ".join(seed.atlas_technique_ids)
+        technique_constraint = (
+            "\n## ATLAS Technique Constraint\n"
+            f"Allowed technique_id values: {allowed_ids}\n\n"
+            "Only assign a technique_id to a node if the technique's "
+            "description semantically matches the attack action described "
+            "in the node's label. For example, 'AI Agent Tool Invocation' "
+            "should only be used for nodes that involve invoking or "
+            "manipulating tools, not for prompt injection or hallucination "
+            "steps.\n"
+            "Use ONLY these technique IDs on leaf nodes. "
+            "Do NOT invent or hallucinate new technique IDs. "
+            "If none of these IDs fit a particular node, omit technique_id "
+            "from that node rather than inventing one.\n"
         )
     else:
-        technique_section = (
+        technique_constraint = (
             "\n## ATLAS Technique Constraint\n"
             "No ATLAS technique IDs are available for this seed. "
             "Do NOT add technique_id to any node.\n"
@@ -1975,9 +2110,9 @@ instance of this attack mechanism.
 - Mechanism: {seed.mechanism_name}
 - How it works: {seed.mechanism_description}
 - Threat category: {seed.threat_name} — {seed.threat_description}
-- ATLAS Technique IDs: {seed.atlas_technique_ids}
 - Use case: {use_case}
-{technique_section}
+
+{technique_context}{technique_constraint}
 ## Narrative (from Call 1)
 Title: {narrative.title}
 Summary: {narrative.summary}
@@ -2067,6 +2202,8 @@ Steps:
             f"  {step.step_number}. [Zone {step.zone}] {step.action} -> {step.effect}\n"
         )
 
+    technique_context = _build_technique_context_block(seed.atlas_technique_ids)
+
     user_prompt += f"""
 ## Capability Profile
 - Active zones: {profile.zones_active}
@@ -2074,7 +2211,8 @@ Steps:
 - Persistent memory: {profile.has_persistent_memory}
 - Multi-agent: {profile.multi_agent}
 - Human-in-the-loop: {profile.hitl}
-{tree_section}
+
+{technique_context}{tree_section}
 ## Attack Mechanism
 - Mechanism: {seed.mechanism_name}
 - Threat category: {seed.threat_name} — {seed.threat_description}
