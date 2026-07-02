@@ -3053,16 +3053,40 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
         </div>"""
 
 
-def _build_atlas_techniques_block(scenario: dict[str, Any]) -> str:
-    """Build an ATLAS Techniques section showing technique IDs + names.
+def _collect_used_technique_ids(
+    scenario: dict[str, Any], gherkin_text: str
+) -> set[str]:
+    """Collect technique IDs actually referenced in the attack tree and Gherkin."""
+    ids: set[str] = set()
+    _tid_re = re.compile(r"AML\.T\d{4}(?:\.\d{3})?")
 
-    Reads ``faceting.taxonomy_chain.atlas_technique_ids`` and renders each
-    technique as a badge with its MITRE ATLAS name.  Returns empty string
-    when no techniques are present.
+    def _walk_tree(node: dict[str, Any]) -> None:
+        tid = node.get("technique_id")
+        if tid:
+            ids.add(tid)
+        for child in node.get("children") or []:
+            _walk_tree(child)
+
+    root = scenario.get("attack_tree", {}).get("root")
+    if root:
+        _walk_tree(root)
+    ids |= set(_tid_re.findall(gherkin_text))
+    return ids
+
+
+def _build_atlas_techniques_block(
+    scenario: dict[str, Any], gherkin_text: str = ""
+) -> str:
+    """Build an ATLAS Techniques section showing *used* technique IDs + names.
+
+    Intersects the seed's ``atlas_technique_ids`` pool with techniques actually
+    referenced in the attack tree and Gherkin spec.  Returns empty string when
+    no techniques are present.
     """
-    faceting = scenario.get("faceting", {})
-    tc = faceting.get("taxonomy_chain", {})
-    technique_ids: list[str] = tc.get("atlas_technique_ids", [])
+    used = _collect_used_technique_ids(scenario, gherkin_text)
+    if not used:
+        return ""
+    technique_ids = sorted(used)
 
     if not technique_ids:
         return ""
@@ -3144,7 +3168,7 @@ def _build_scenario_card(
     seed_metadata_html = _build_seed_metadata_block(scenario)
 
     # ATLAS techniques section
-    atlas_techniques_html = _build_atlas_techniques_block(scenario)
+    atlas_techniques_html = _build_atlas_techniques_block(scenario, feature_content)
 
     # LLM call log section
     call_log_html = ""
