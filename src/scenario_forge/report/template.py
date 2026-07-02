@@ -16,8 +16,6 @@ from typing import Any
 import yaml
 
 from scenario_forge.data.loaders import (
-    build_pattern_provenance_index,
-    load_attack_pattern_provenance,
     load_attack_patterns,
 )
 from scenario_forge.models.capability_profile import (
@@ -188,7 +186,11 @@ def _load_taxonomy_lookups() -> None:
 
 
 def _load_attack_pattern_lookups() -> None:
-    """Populate _ATTACK_PATTERN_INFO from the attack patterns YAML and SSSOM provenance."""
+    """Populate _ATTACK_PATTERN_INFO from the attack patterns YAML (name/description only).
+
+    SSSOM provenance is no longer loaded here; provenance data is read from
+    scenario seed metadata at render time instead.
+    """
     try:
         patterns = load_attack_patterns()
         for pid, pat in patterns.items():
@@ -199,33 +201,24 @@ def _load_attack_pattern_lookups() -> None:
     except FileNotFoundError:
         pass
 
-    # Enrich with SSSOM provenance (OWASP origin, LAAF, ATLAS correspondences)
-    try:
-        prov_mappings = load_attack_pattern_provenance()
-        prov_index = build_pattern_provenance_index(prov_mappings)
-        for pid, sources in prov_index.items():
-            owasp_ids = sources.get("owasp-agentic", [])
-            laaf_ids = sources.get("laaf", [])
-            atlas_ids = sources.get("mitre-atlas", [])
-            if pid in _ATTACK_PATTERN_INFO:
-                if owasp_ids:
-                    _ATTACK_PATTERN_INFO[pid]["owasp_origin"] = owasp_ids[0]
-                if laaf_ids:
-                    _ATTACK_PATTERN_INFO[pid]["laaf_techniques"] = laaf_ids
-                if atlas_ids:
-                    _ATTACK_PATTERN_INFO[pid]["atlas_techniques"] = atlas_ids
-    except FileNotFoundError:
-        pass
-
-    # Build reverse lookup: OWASP sub-scenario ID -> AP-* pattern ID
-    for pid, info in _ATTACK_PATTERN_INFO.items():
-        owasp_origin = info.get("owasp_origin")
-        if owasp_origin:
-            _OWASP_TO_PATTERN[owasp_origin] = pid
-
 
 _load_taxonomy_lookups()
 _load_attack_pattern_lookups()
+
+
+def populate_owasp_to_pattern(scenarios: list[dict[str, Any]]) -> None:
+    """Build _OWASP_TO_PATTERN from scenario seed metadata (no SSSOM loading).
+
+    Must be called before building report sections that use the reverse
+    lookup (threat surface sankey, scenario tooltips).
+    """
+    _OWASP_TO_PATTERN.clear()
+    for sc in scenarios:
+        meta = sc.get("scenario_seed_metadata") or {}
+        seed_id = meta.get("seed_id", "")
+        owasp_origin = meta.get("owasp_origin")
+        if owasp_origin and seed_id.startswith("AP-"):
+            _OWASP_TO_PATTERN[owasp_origin] = seed_id
 
 
 def _truncate(text: str, max_len: int = 200) -> str:
@@ -271,16 +264,25 @@ def _threat_id_tooltip(tid: str) -> str:
     return f' data-tooltip="{_esc(base)} — {_esc(name)}"'
 
 
-def _sub_scenario_tooltip(sid: str) -> str:
-    """Return a data-tooltip attribute for a sub-scenario ID like 'T2-S1' or 'AP-T7-01'."""
+def _sub_scenario_tooltip(sid: str, seed_meta: dict[str, Any] | None = None) -> str:
+    """Return a data-tooltip attribute for a sub-scenario ID like 'T2-S1' or 'AP-T7-01'.
+
+    When *seed_meta* (scenario_seed_metadata dict) is provided, provenance
+    data is read from it instead of from the module-level _ATTACK_PATTERN_INFO.
+    """
     if sid.startswith("AP-") and sid in _ATTACK_PATTERN_INFO:
         info = _ATTACK_PATTERN_INFO[sid]
         name = _esc(info["name"])
         desc = _truncate(_esc(info["description"]), 200)
-        owasp_origin = info.get("owasp_origin", "")
+        # Provenance comes from seed metadata when available
+        owasp_origin = ""
+        laaf: list[str] = []
+        atlas: list[str] = []
+        if seed_meta:
+            owasp_origin = seed_meta.get("owasp_origin") or ""
+            laaf = seed_meta.get("laaf_technique_ids") or []
+            atlas = seed_meta.get("atlas_provenance_ids") or []
         origin_suffix = f" (derived from {_esc(owasp_origin)})" if owasp_origin else ""
-        laaf = info.get("laaf_techniques", [])
-        atlas = info.get("atlas_techniques", [])
         prov_parts: list[str] = []
         if laaf:
             prov_parts.append(f"LAAF: {', '.join(_esc(t) for t in laaf)}")
@@ -2837,22 +2839,24 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
         </div>"""
 
 
-def _build_provenance_block(scenario_seed: str) -> str:
+def _build_provenance_block(scenario: dict[str, Any]) -> str:
     """Build a Provenance section for AP-* scenario seeds.
 
-    Returns an HTML block showing the SSSOM provenance chain (OWASP origin,
-    LAAF correspondences, ATLAS correspondences) for the given attack pattern.
+    Reads provenance data (OWASP origin, LAAF correspondences, ATLAS
+    correspondences) from the scenario's ``scenario_seed_metadata`` dict
+    instead of from the module-level SSSOM-loaded lookup tables.
+
     Returns empty string for non-AP seeds or when no provenance data exists.
     """
+    meta = scenario.get("scenario_seed_metadata") or {}
+    scenario_seed = meta.get("seed_id", "")
+
     if not scenario_seed or not scenario_seed.startswith("AP-"):
         return ""
-    info = _ATTACK_PATTERN_INFO.get(scenario_seed)
-    if not info:
-        return ""
 
-    owasp_origin = info.get("owasp_origin", "")
-    laaf = info.get("laaf_techniques", [])
-    atlas = info.get("atlas_techniques", [])
+    owasp_origin = meta.get("owasp_origin") or ""
+    laaf = meta.get("laaf_technique_ids") or []
+    atlas = meta.get("atlas_provenance_ids") or []
 
     if not owasp_origin and not laaf and not atlas:
         return ""
@@ -3051,9 +3055,8 @@ def _build_scenario_card(
     signals = scenario.get("priority", {}).get("signals", {})
     signals_html = _build_priority_signals(signals)
 
-    # SSSOM provenance for AP-* scenario seeds
-    scenario_seed = tc.get("scenario_seed", "")
-    provenance_html = _build_provenance_block(scenario_seed)
+    # SSSOM provenance for AP-* scenario seeds (read from seed metadata)
+    provenance_html = _build_provenance_block(scenario)
 
     # Scenario seed metadata
     seed_metadata_html = _build_seed_metadata_block(scenario)

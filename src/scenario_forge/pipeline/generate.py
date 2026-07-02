@@ -2170,6 +2170,9 @@ def _assemble_envelope(
         "mechanism_name": seed.mechanism_name,
         "mechanism_description": seed.mechanism_description,
         "owasp_sub_scenario_ref": seed.owasp_sub_scenario_ref,
+        "owasp_origin": seed.owasp_origin,
+        "laaf_technique_ids": seed.laaf_technique_ids,
+        "atlas_provenance_ids": seed.atlas_provenance_ids,
     }
 
     return ScenarioEnvelope(
