@@ -45,6 +45,10 @@ class ScenarioSeed(BaseModel):
     owasp_llm_ids: list[str]
     agentic_threat_ids: list[str]
     atlas_technique_ids: list[str] = Field(default_factory=list)
+    # SSSOM provenance fields (populated from attack-pattern provenance)
+    owasp_origin: str | None = None
+    laaf_technique_ids: list[str] = Field(default_factory=list)
+    atlas_provenance_ids: list[str] = Field(default_factory=list)
 
 
 def _build_sub_scenario_lookup(
@@ -87,6 +91,7 @@ def expand_seeds(
     patterns = load_attack_patterns(attack_patterns_path)
     # Build reverse lookup: owasp_sub_scenario_id -> pattern via SSSOM provenance
     owasp_to_pattern: dict[str, dict] = {}
+    prov_index: dict[str, dict[str, list[str]]] = {}
     try:
         prov_mappings = load_attack_pattern_provenance()
         prov_index = build_pattern_provenance_index(prov_mappings)
@@ -122,6 +127,12 @@ def expand_seeds(
                 mechanism_desc = sub["description"]
                 owasp_ref = None
 
+            # Extract SSSOM provenance for this pattern (if available)
+            pattern_prov = prov_index.get(effective_id, {})
+            prov_owasp_ids = pattern_prov.get("owasp-agentic", [])
+            prov_laaf_ids = pattern_prov.get("laaf", [])
+            prov_atlas_ids = pattern_prov.get("mitre-atlas", [])
+
             if effective_id in seen:
                 # Merge: union taxonomy IDs, collect contributing risk cards
                 existing = seen[effective_id]
@@ -144,15 +155,28 @@ def expand_seeds(
                 if entry.risk_card.risk_id not in known_ids:
                     new_contribs.append(entry.risk_card)
 
+                # Re-filter atlas_provenance_ids against the merged atlas set
+                filtered_atlas_prov = [
+                    aid for aid in prov_atlas_ids if aid in set(merged_atlas)
+                ]
+
                 seen[effective_id] = existing.model_copy(
                     update={
                         "owasp_llm_ids": merged_owasp,
                         "agentic_threat_ids": merged_agentic,
                         "atlas_technique_ids": merged_atlas,
                         "contributing_risk_cards": new_contribs,
+                        "atlas_provenance_ids": filtered_atlas_prov,
                     }
                 )
             else:
+                # Filter ATLAS provenance: only include IDs that survived
+                # zone-3 gating (i.e. present in entry.atlas_technique_ids)
+                atlas_set = set(entry.atlas_technique_ids)
+                filtered_atlas_prov = [
+                    aid for aid in prov_atlas_ids if aid in atlas_set
+                ]
+
                 seen[effective_id] = ScenarioSeed(
                     seed_id=effective_id,
                     threat_id=sub["threat_id"],
@@ -166,6 +190,9 @@ def expand_seeds(
                     owasp_llm_ids=entry.owasp_llm_ids,
                     agentic_threat_ids=entry.agentic_threat_ids,
                     atlas_technique_ids=entry.atlas_technique_ids,
+                    owasp_origin=prov_owasp_ids[0] if prov_owasp_ids else None,
+                    laaf_technique_ids=prov_laaf_ids,
+                    atlas_provenance_ids=filtered_atlas_prov,
                 )
 
     return list(seen.values())
