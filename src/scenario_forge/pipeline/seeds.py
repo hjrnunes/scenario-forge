@@ -117,29 +117,34 @@ def expand_seeds(
                         existing.agentic_threat_ids + entry.agentic_threat_ids
                     )
                 )
-                merged_atlas = list(
-                    dict.fromkeys(
-                        existing.atlas_technique_ids + entry.atlas_technique_ids
-                    )
-                )
                 # Add the new risk card to contributing list (dedup by risk_id)
                 known_ids = {r.risk_id for r in existing.contributing_risk_cards}
                 new_contribs = list(existing.contributing_risk_cards)
                 if entry.risk_card.risk_id not in known_ids:
                     new_contribs.append(entry.risk_card)
 
-                # Re-filter atlas_provenance_ids against the merged atlas set
+                # Filter this entry's ATLAS provenance against zone-3 gating
+                # (entry.atlas_technique_ids is the broad risk-level pool)
+                atlas_pool_set = set(entry.atlas_technique_ids)
                 filtered_atlas_prov = [
-                    aid for aid in prov_atlas_ids if aid in set(merged_atlas)
+                    aid for aid in prov_atlas_ids if aid in atlas_pool_set
                 ]
+
+                # atlas_technique_ids = union of curated provenance across
+                # contributing risk cards (not the broad risk-level pool)
+                merged_prov = list(
+                    dict.fromkeys(
+                        existing.atlas_technique_ids + filtered_atlas_prov
+                    )
+                )
 
                 seen[ap_id] = existing.model_copy(
                     update={
                         "owasp_llm_ids": merged_owasp,
                         "agentic_threat_ids": merged_agentic,
-                        "atlas_technique_ids": merged_atlas,
+                        "atlas_technique_ids": merged_prov,
                         "contributing_risk_cards": new_contribs,
-                        "atlas_provenance_ids": filtered_atlas_prov,
+                        "atlas_provenance_ids": merged_prov,
                     }
                 )
             else:
@@ -161,7 +166,7 @@ def expand_seeds(
                     contributing_risk_cards=[entry.risk_card],
                     owasp_llm_ids=entry.owasp_llm_ids,
                     agentic_threat_ids=entry.agentic_threat_ids,
-                    atlas_technique_ids=entry.atlas_technique_ids,
+                    atlas_technique_ids=filtered_atlas_prov,
                     owasp_origin=prov_owasp_ids[0] if prov_owasp_ids else None,
                     laaf_technique_ids=prov_laaf_ids,
                     atlas_provenance_ids=filtered_atlas_prov,

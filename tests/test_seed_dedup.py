@@ -122,7 +122,11 @@ class TestSeedDeduplication:
         assert "AP-T1-02" in seed_ids
 
     def test_merged_taxonomy_ids_are_unioned(self):
-        """Merged seed has the union of owasp, agentic, and atlas IDs."""
+        """Merged seed has the union of owasp and agentic IDs.
+
+        atlas_technique_ids comes from SSSOM provenance (not the broad risk
+        pool), so without provenance data it is empty.
+        """
         entry_a = _make_entry(
             "risk-a", ["LLM01"], ["T1"], ["AP-T1-01"], atlas_technique_ids=["AML.T0051"]
         )
@@ -139,7 +143,9 @@ class TestSeedDeduplication:
         merged = next(s for s in seeds if s.seed_id == "AP-T1-01")
         assert merged.owasp_llm_ids == ["LLM01", "LLM02"]
         assert merged.agentic_threat_ids == ["T1", "T2"]
-        assert merged.atlas_technique_ids == ["AML.T0051", "AML.T0054"]
+        # No SSSOM provenance loaded in _run_expand, so atlas_technique_ids
+        # is empty (provenance-sourced, not from the broad risk pool).
+        assert merged.atlas_technique_ids == []
 
     def test_contributing_risk_cards_preserved(self):
         """Merged seed lists all contributing risk cards."""
