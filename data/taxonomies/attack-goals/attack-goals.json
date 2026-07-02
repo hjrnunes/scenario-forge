@@ -1,0 +1,199 @@
+{
+  "version": "1.0",
+  "categories": [
+    {
+      "id": "availability",
+      "name": "Availability Disruption",
+      "description": "Attacks that degrade or deny the AI system's ability to function.",
+      "source": "NIST AI 100-2e2023 §3.4.1",
+      "sub_goals": [
+        {
+          "id": "AV-1",
+          "name": "Service Denial",
+          "description": "Render the model or service unusable through overwhelming inputs or resource exhaustion.",
+          "sources": ["NIST AI 100-2e2023 §3.4.1", "OWASP Agentic T4", "MAESTRO L4", "MITRE ATT&CK"]
+        },
+        {
+          "id": "AV-2",
+          "name": "Capability Inhibition",
+          "description": "Selectively disable specific system capabilities (APIs, search, tool access) while leaving others functional.",
+          "sources": ["NIST AI 100-2e2023 §3.4.1"]
+        },
+        {
+          "id": "AV-3",
+          "name": "Performance Degradation",
+          "description": "Cause the model to perform unusually slowly via energy-latency attacks or background task injection.",
+          "sources": ["NIST AI 100-2e2023 §3.4.1", "OWASP Agentic T4"]
+        },
+        {
+          "id": "AV-4",
+          "name": "Alert/Response Saturation",
+          "description": "Overwhelm human-in-the-loop reviewers with excessive AI-generated alerts or requests, causing security fatigue.",
+          "sources": ["OWASP Agentic T10", "OWASP Agentic T14"]
+        },
+        {
+          "id": "AV-5",
+          "name": "Cascading System Failure",
+          "description": "Trigger failures that propagate across interconnected agents or system components.",
+          "sources": ["OWASP Agentic T5", "MAESTRO cross-layer"]
+        }
+      ]
+    },
+    {
+      "id": "integrity",
+      "name": "Integrity Violation",
+      "description": "Attacks targeting the correctness and trustworthiness of the AI system's outputs.",
+      "source": "NIST AI 100-2e2023 §3.4.2",
+      "sub_goals": [
+        {
+          "id": "IN-1",
+          "name": "Output Manipulation",
+          "description": "Cause the system to produce adversarially chosen or arbitrarily wrong outputs (summaries, decisions, recommendations).",
+          "sources": ["NIST AI 100-2e2023 §3.4.2", "OWASP LLM01"]
+        },
+        {
+          "id": "IN-2",
+          "name": "Disinformation Propagation",
+          "description": "Use the system as a vector to spread misinformation, propaganda, or factually unsound content.",
+          "sources": ["NIST AI 100-2e2023 §3.4.2", "OWASP LLM09"]
+        },
+        {
+          "id": "IN-3",
+          "name": "Decision Corruption",
+          "description": "Alter the system's autonomous decisions (approvals, classifications, routing) to produce attacker-desired outcomes.",
+          "sources": ["OWASP Agentic T6", "OWASP Agentic T7", "MAESTRO L3"]
+        },
+        {
+          "id": "IN-4",
+          "name": "Goal/Intent Manipulation",
+          "description": "Redirect the agent's operational objectives so it pursues attacker goals while appearing to function normally.",
+          "sources": ["OWASP Agentic T6", "MAESTRO L3"]
+        },
+        {
+          "id": "IN-5",
+          "name": "Memory/State Poisoning",
+          "description": "Corrupt the agent's persistent memory, context, or learned patterns to influence future behavior across sessions.",
+          "sources": ["OWASP Agentic T1", "LAAF AV-2"]
+        },
+        {
+          "id": "IN-6",
+          "name": "Trust Relationship Exploitation",
+          "description": "Exploit implicit trust between agents, between agent and user, or between agent and tools to bypass verification.",
+          "sources": ["OWASP Agentic T13", "OWASP Agentic T16"]
+        },
+        {
+          "id": "IN-7",
+          "name": "Supply Chain Compromise",
+          "description": "Introduce backdoors or poisoned components through upstream dependencies (plugins, data sources, models, tools).",
+          "sources": ["NIST AI 100-2e2023 §3.2", "OWASP Agentic T17", "OWASP LLM05", "MAESTRO L7", "MITRE ATT&CK"]
+        }
+      ]
+    },
+    {
+      "id": "privacy",
+      "name": "Privacy Compromise",
+      "description": "Attacks aimed at learning information about the training data, the model, the system prompt, or user data.",
+      "source": "NIST AI 100-2e2023 §3.3.1",
+      "sub_goals": [
+        {
+          "id": "PR-1",
+          "name": "Data Exfiltration",
+          "description": "Extract sensitive user data, training data, or contextual information from the system.",
+          "sources": ["NIST AI 100-2e2023 §3.3.1", "OWASP LLM06", "OWASP Agentic T2", "EARMS TG-02"]
+        },
+        {
+          "id": "PR-2",
+          "name": "System Prompt / IP Theft",
+          "description": "Extract system prompts, configuration, proprietary instructions, or other intellectual property.",
+          "sources": ["NIST AI 100-2e2023 §3.3.1", "OWASP LLM10"]
+        },
+        {
+          "id": "PR-3",
+          "name": "Model Extraction",
+          "description": "Steal or reconstruct the model's parameters, architecture, or decision boundaries.",
+          "sources": ["NIST AI 100-2e2023 §2.4.3", "OWASP LLM10"]
+        },
+        {
+          "id": "PR-4",
+          "name": "Membership/Property Inference",
+          "description": "Determine whether specific data was in the training set, or infer properties about the training data distribution.",
+          "sources": ["NIST AI 100-2e2023 §2.4.2", "NIST AI 100-2e2023 §2.4.4"]
+        },
+        {
+          "id": "PR-5",
+          "name": "Cross-Session Data Leakage",
+          "description": "Exploit shared memory, context, or state to access data from other users' sessions.",
+          "sources": ["OWASP Agentic T1", "OWASP Agentic T3"]
+        },
+        {
+          "id": "PR-6",
+          "name": "Credential/Identity Theft",
+          "description": "Extract authentication credentials, API keys, or identity tokens through the AI system.",
+          "sources": ["OWASP LLM02", "OWASP Agentic T9"]
+        }
+      ]
+    },
+    {
+      "id": "abuse",
+      "name": "Abuse (GenAI-Specific)",
+      "description": "Repurposing a GenAI system's intended use to achieve the attacker's own objectives.",
+      "source": "NIST AI 100-2e2023 §3.3",
+      "sub_goals": [
+        {
+          "id": "AB-1",
+          "name": "Safety Bypass / Jailbreak",
+          "description": "Circumvent safety guardrails to make the system produce prohibited content (harmful, violent, sexual, discriminatory).",
+          "sources": ["NIST AI 100-2e2023 §3.3", "OWASP LLM01", "OWASP GenAI Red Teaming"]
+        },
+        {
+          "id": "AB-2",
+          "name": "Malware Generation / Distribution",
+          "description": "Use the system to create, improve, or distribute malicious code, exploits, or offensive tools.",
+          "sources": ["NIST AI 100-2e2023 §3.4.4", "OWASP LLM09"]
+        },
+        {
+          "id": "AB-3",
+          "name": "Fraud Facilitation",
+          "description": "Exploit the system for financial fraud — unauthorized transactions, invoice manipulation, identity fraud.",
+          "sources": ["NIST AI 100-2e2023 §3.4.4", "OWASP Agentic T2"]
+        },
+        {
+          "id": "AB-4",
+          "name": "Social Engineering / Phishing",
+          "description": "Weaponize the system to create convincing phishing content, scam communications, or manipulative messages.",
+          "sources": ["NIST AI 100-2e2023 §3.4.4", "OWASP LLM09"]
+        },
+        {
+          "id": "AB-5",
+          "name": "Human Manipulation",
+          "description": "Abuse the user's trust in the AI to manipulate humans into taking harmful actions (clicking malicious links, providing credentials, approving fraudulent transactions).",
+          "sources": ["OWASP Agentic T15"]
+        },
+        {
+          "id": "AB-6",
+          "name": "Privilege Escalation",
+          "description": "Exploit the system to gain elevated access, bypass authorization, or perform unauthorized actions under the system's identity.",
+          "sources": ["OWASP Agentic T3", "OWASP LLM08", "MITRE ATT&CK"]
+        },
+        {
+          "id": "AB-7",
+          "name": "Impersonation / Identity Abuse",
+          "description": "Use the agent's capabilities to masquerade as a legitimate user or system while performing unauthorized actions.",
+          "sources": ["OWASP Agentic T9"]
+        },
+        {
+          "id": "AB-8",
+          "name": "Evidence Destruction / Anti-Forensics",
+          "description": "Manipulate logs, audit trails, or decision records to prevent detection and investigation of attacks.",
+          "sources": ["OWASP Agentic T8", "LAAF S6"]
+        },
+        {
+          "id": "AB-9",
+          "name": "Resource Hijacking / Cost Amplification",
+          "description": "Exploit the system's computational resources for the attacker's purposes (cryptomining, wallet attacks) or cause excessive costs.",
+          "sources": ["OWASP LLM04"]
+        }
+      ]
+    }
+  ]
+}

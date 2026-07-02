@@ -22,10 +22,14 @@ from scenario_forge.pipeline.generate import (
     compute_entry_point_affinity,
     extract_narrative_keywords,
     extract_structural_pattern,
+    filter_sub_goals_by_zones,
     generate_scenario,
+    get_all_sub_goals,
     get_overused_entry_points,
     get_overused_patterns,
     get_overused_structural_patterns,
+    load_attack_goals_taxonomy,
+    select_attack_goal,
     write_call_log,
     write_scenario_outputs,
 )
@@ -309,8 +313,33 @@ def run_pipeline(
     actor_type_usage: Counter[str] = Counter()
     # Track capability level usage for capability diversity enforcement.
     capability_level_usage: Counter[str] = Counter()
+    # Track attack goal usage for goal diversity enforcement.
+    goal_usage: Counter[str] = Counter()
     total_seeds = len(seeds)
     num_actor_types = len(ACTOR_TYPES)
+
+    # Load attack goals taxonomy and filter to system-relevant sub-goals.
+    try:
+        attack_goals_taxonomy = load_attack_goals_taxonomy()
+        all_sub_goals = get_all_sub_goals(attack_goals_taxonomy)
+        available_goals = filter_sub_goals_by_zones(
+            all_sub_goals,
+            zones_active=profile.zones_active,
+            has_persistent_memory=profile.has_persistent_memory,
+            hitl=profile.hitl,
+            multi_agent=profile.multi_agent,
+        )
+        logger.info(
+            "  Attack goals taxonomy: %d/%d sub-goals available for this system",
+            len(available_goals),
+            len(all_sub_goals),
+        )
+    except Exception as exc:
+        logger.warning(
+            "  Failed to load attack goals taxonomy: %s — proceeding without goal diversity",
+            exc,
+        )
+        available_goals = []
 
     for i, seed in enumerate(seeds, 1):
         label = f"{seed.seed_id}: {seed.mechanism_name}"
@@ -348,6 +377,18 @@ def run_pipeline(
         _CAP_LEVELS = ("novice", "intermediate", "advanced", "expert")
         preferred_cap = min(_CAP_LEVELS, key=lambda c: capability_level_usage.get(c, 0))
 
+        # Select an attack goal for this seed using fair-share diversity.
+        selected_goal = None
+        if available_goals:
+            try:
+                selected_goal = select_attack_goal(
+                    available_goals,
+                    goal_usage,
+                    total_seeds,
+                )
+            except ValueError:
+                pass  # No goals available — proceed without goal diversity
+
         try:
             envelope, call_log_entries = generate_scenario(
                 seed,
@@ -361,6 +402,7 @@ def run_pipeline(
                 preferred_actor_type=preferred_actor,
                 excluded_actor_types=excluded_actors,
                 preferred_capability_level=preferred_cap,
+                attack_goal=selected_goal,
             )
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             write_call_log(call_log_entries, scenarios_dir)
@@ -373,6 +415,9 @@ def run_pipeline(
             if envelope.actor_profile is not None:
                 actor_type_usage[envelope.actor_profile.actor_type] += 1
                 capability_level_usage[envelope.actor_profile.capability_level] += 1
+                # Track goal category usage for goal diversity enforcement.
+                if envelope.actor_profile.goal_category is not None:
+                    goal_usage[envelope.actor_profile.goal_category] += 1
 
             # Track attack pattern keywords for diversity enforcement.
             keywords = extract_narrative_keywords(

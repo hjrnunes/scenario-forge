@@ -15,12 +15,13 @@ import hashlib
 import json
 import logging
 import math
+import random
 import re
 import unicodedata
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -593,6 +594,185 @@ def _format_structural_exclusions(patterns: list[str]) -> str:
         "  - Data exfiltration via side channels\n"
         "Vary the structural attack approach — do not repeat the same "
         "sequence of attack phases.\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Attack Goals Taxonomy
+# ---------------------------------------------------------------------------
+
+_ATTACK_GOALS_TAXONOMY_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "attack-goals"
+    / "attack-goals.json"
+)
+
+# Cache the loaded taxonomy to avoid re-reading the file per scenario.
+_attack_goals_cache: dict[str, Any] | None = None
+
+
+def load_attack_goals_taxonomy(
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """Load the attack goals taxonomy JSON file.
+
+    Returns the parsed taxonomy dict with 'version' and 'categories' keys.
+    Uses a module-level cache after the first load.
+    """
+    global _attack_goals_cache
+    if _attack_goals_cache is not None and path is None:
+        return _attack_goals_cache
+
+    taxonomy_path = path or _ATTACK_GOALS_TAXONOMY_PATH
+    with open(taxonomy_path) as f:
+        data = json.load(f)
+
+    if path is None:
+        _attack_goals_cache = data
+    return data
+
+
+def get_all_sub_goals(
+    taxonomy: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return a flat list of all sub-goals across all categories.
+
+    Each sub-goal dict is augmented with 'category_id', 'category_name',
+    and 'category_description' from its parent category.
+    """
+    sub_goals: list[dict[str, Any]] = []
+    for category in taxonomy["categories"]:
+        for sg in category["sub_goals"]:
+            enriched = dict(sg)
+            enriched["category_id"] = category["id"]
+            enriched["category_name"] = category["name"]
+            enriched["category_description"] = category["description"]
+            sub_goals.append(enriched)
+    return sub_goals
+
+
+# Sub-goals that require specific zones to be active in the target system.
+# If a zone is listed here but not in the profile's zones_active, the
+# sub-goal is filtered out as irrelevant.
+_GOAL_ZONE_REQUIREMENTS: dict[str, list[str]] = {
+    "AV-4": ["reasoning"],       # Alert saturation needs HITL (checked separately)
+    "AV-5": ["inter_agent"],     # Cascading failure needs multi-agent
+    "IN-3": ["tool_execution"],  # Decision corruption needs tool execution
+    "IN-4": ["reasoning"],       # Goal manipulation needs reasoning (usually present)
+    "IN-5": ["memory"],          # Memory poisoning needs persistent memory
+    "IN-6": ["inter_agent"],     # Trust exploitation needs inter-agent or tool_execution
+    "PR-5": ["memory"],          # Cross-session leakage needs persistent memory
+    "AB-3": ["tool_execution"],  # Fraud facilitation needs tool execution
+    "AB-6": ["tool_execution"],  # Privilege escalation needs tool execution
+    "AB-7": ["inter_agent"],     # Impersonation needs inter-agent
+    "AB-8": ["tool_execution"],  # Evidence destruction needs tool execution
+}
+
+# Sub-goals that specifically require HITL to be true.
+_GOAL_HITL_REQUIREMENTS: set[str] = {"AV-4"}
+
+
+def filter_sub_goals_by_zones(
+    sub_goals: list[dict[str, Any]],
+    zones_active: list[str],
+    has_persistent_memory: bool,
+    hitl: bool,
+    multi_agent: bool,
+) -> list[dict[str, Any]]:
+    """Filter sub-goals to those relevant for the target system's capabilities.
+
+    Removes sub-goals whose zone requirements are not met by the system's
+    active zones, memory, HITL, and multi-agent settings.
+
+    Returns the filtered list (may be empty if very few zones are active).
+    """
+    active_set = set(zones_active)
+    filtered: list[dict[str, Any]] = []
+
+    for sg in sub_goals:
+        sg_id = sg["id"]
+
+        # Check zone requirements
+        required_zones = _GOAL_ZONE_REQUIREMENTS.get(sg_id)
+        if required_zones:
+            if not any(z in active_set for z in required_zones):
+                continue
+
+        # Check memory requirement (IN-5, PR-5 need persistent memory)
+        if sg_id in ("IN-5", "PR-5") and not has_persistent_memory:
+            continue
+
+        # Check HITL requirement
+        if sg_id in _GOAL_HITL_REQUIREMENTS and not hitl:
+            continue
+
+        # Check multi-agent requirement (AV-5, IN-6, AB-7)
+        if sg_id in ("AV-5", "AB-7") and not multi_agent:
+            # IN-6 can work with tool_execution too, so it's handled by zone check
+            continue
+
+        filtered.append(sg)
+
+    return filtered
+
+
+def select_attack_goal(
+    sub_goals: list[dict[str, Any]],
+    usage_counts: Counter[str],
+    total_seeds: int,
+) -> dict[str, Any]:
+    """Select an attack goal sub-goal using fair-share diversity tracking.
+
+    Picks the least-used sub-goal from the available list, breaking ties
+    randomly. This mirrors the actor_type diversity pattern used elsewhere
+    in the pipeline.
+
+    Args:
+        sub_goals: Filtered list of available sub-goals.
+        usage_counts: Counter tracking how many times each sub-goal ID
+            has been selected so far in this batch.
+        total_seeds: Total number of seeds in the batch (for fair-share calc).
+
+    Returns:
+        The selected sub-goal dict.
+
+    Raises:
+        ValueError: If sub_goals is empty.
+    """
+    if not sub_goals:
+        raise ValueError("No attack goal sub-goals available after filtering")
+
+    # Find the minimum usage count among available sub-goals
+    min_count = min(usage_counts.get(sg["id"], 0) for sg in sub_goals)
+
+    # Collect all sub-goals at the minimum count
+    candidates = [
+        sg for sg in sub_goals if usage_counts.get(sg["id"], 0) == min_count
+    ]
+
+    # Break ties randomly for uniform spread
+    return random.choice(candidates)
+
+
+def _build_attack_goal_context_block(sub_goal: dict[str, Any]) -> str:
+    """Build a prompt context block describing the assigned attack goal.
+
+    Provides enough context for the LLM to orient the actor's desires
+    and intentions toward the specified goal category.
+    """
+    return (
+        "\n## Attack Goal Category (MANDATORY)\n"
+        f"**Category:** {sub_goal['category_name']} — "
+        f"{sub_goal['category_description']}\n"
+        f"**Specific Goal:** {sub_goal['id']}: {sub_goal['name']} — "
+        f"{sub_goal['description']}\n\n"
+        "The actor's desires and intentions should be oriented toward this "
+        "attack goal. The goal describes WHAT the attacker wants to achieve; "
+        "the desires/intentions describe HOW they plan to achieve it in this "
+        "specific system. The desires MUST be concrete instantiations of the "
+        "assigned goal — do not drift to unrelated goal types.\n"
     )
 
 
@@ -1869,6 +2049,7 @@ def _call_actor_profile(
     preferred_actor_type: str | None = None,
     excluded_actor_types: list[str] | None = None,
     preferred_capability_level: str | None = None,
+    attack_goal: dict[str, Any] | None = None,
 ) -> tuple[ActorProfile, LLMResult]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
@@ -1881,6 +2062,9 @@ def _call_actor_profile(
         excluded_actor_types: Actor types to avoid (already overused in this batch).
         preferred_capability_level: Suggested capability level for diversity
             (hint, not enforced).
+        attack_goal: Selected attack goal sub-goal dict from the taxonomy.
+            When provided, the goal context is injected into the prompt to
+            orient the actor's desires.
 
     Returns:
         Tuple of (ActorProfile, LLMResult).
@@ -1915,6 +2099,11 @@ def _call_actor_profile(
         else ""
     )
 
+    # Build attack goal context block
+    goal_section = ""
+    if attack_goal is not None:
+        goal_section = _build_attack_goal_context_block(attack_goal)
+
     user_prompt = f"""\
 ## Use Case
 {use_case}
@@ -1939,6 +2128,7 @@ beliefs and intentions. Use `entry_points` to ground the actor's access vectors.
 
 {technique_context}\
 {technique_framing_0}\
+{goal_section}\
 {diversity_section}\
 """
 
@@ -2448,6 +2638,7 @@ def generate_scenario(
     preferred_actor_type: str | None = None,
     excluded_actor_types: list[str] | None = None,
     preferred_capability_level: str | None = None,
+    attack_goal: dict[str, Any] | None = None,
 ) -> tuple[ScenarioEnvelope, list[dict]]:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -2478,6 +2669,8 @@ def generate_scenario(
         excluded_actor_types: Actor types to avoid (already overused in this batch).
         preferred_capability_level: Suggested capability level for diversity
             (hint, not enforced).
+        attack_goal: Selected attack goal sub-goal dict from the taxonomy.
+            When provided, orients the actor's desires toward this goal category.
     """
     call_metas: list[CallMetadata] = []
     scenario_hash = _scenario_hash(seed.seed_id, use_case)
@@ -2491,7 +2684,13 @@ def generate_scenario(
         preferred_actor_type=preferred_actor_type,
         excluded_actor_types=excluded_actor_types,
         preferred_capability_level=preferred_capability_level,
+        attack_goal=attack_goal,
     )
+
+    # Store the selected goal category on the actor profile (Step 5).
+    if attack_goal is not None:
+        actor_profile.goal_category = attack_goal["id"]
+
     call_metas.append(_call_metadata(CallName.actor_profile, result0))
 
     # --- Call 1: Narrative ---

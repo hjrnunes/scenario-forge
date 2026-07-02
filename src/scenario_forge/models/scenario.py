@@ -190,6 +190,10 @@ class ActorProfile(BaseModel):
     resources: list[str] = Field(
         description="What the actor has access to (e.g. 'open-source tools', 'insider credentials').",
     )
+    goal_category: str | None = Field(
+        default=None,
+        description="Attack goal sub-category ID from the attack goals taxonomy.",
+    )
 
 
 # ---------------------------------------------------------------------------
