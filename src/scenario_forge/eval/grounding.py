@@ -2,7 +2,7 @@
 
 Validates that threat_ids in attack tree nodes reference valid entries
 in the bundled OWASP Agentic Threats data.  Also measures cross-lens
-technique agreement across narrative, attack tree, and behavior spec.
+technique agreement between attack tree and behavior spec.
 """
 
 from __future__ import annotations
@@ -222,16 +222,20 @@ def score_technique_agreement(
     scenarios: list[dict[str, Any]],
     gherkin_files: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Compute cross-lens technique agreement across narrative, tree, and spec.
+    """Compute cross-lens technique agreement between attack tree and spec.
 
     For each scenario, collects the set of ATLAS technique IDs referenced in:
-    1. **Narrative** -- ``[AML.T0054]`` annotations in step action/effect text
-    2. **Attack tree** -- ``technique_id`` fields on tree nodes
-    3. **Behavior spec** -- ``[AML.T0054]`` annotations in Gherkin text
+    1. **Attack tree** -- ``technique_id`` fields on tree nodes
+    2. **Behavior spec** -- ``[AML.T0054]`` annotations in Gherkin text
 
-    Agreement is the Jaccard similarity of the three sets (intersection over
-    union).  A score of 1.0 means all three lenses reference exactly the same
+    Agreement is the Jaccard similarity of the two sets (intersection over
+    union).  A score of 1.0 means both lenses reference exactly the same
     techniques.
+
+    Narrative technique IDs are still extracted and reported in per-scenario
+    details for informational purposes, but they do not affect the score
+    (narrative prose is free-form and rarely contains ``[AML.T0054]``-style
+    annotations).
 
     Args:
         scenarios: List of scenario dicts (parsed YAML).
@@ -259,13 +263,13 @@ def score_technique_agreement(
         gherkin_text = gherkin_files.get(scenario_id)
         spec_ids = _extract_spec_technique_ids(scenario, gherkin_text)
 
-        # Jaccard similarity of all three sets
-        union = narrative_ids | tree_ids | spec_ids
+        # Jaccard similarity of tree and spec sets only
+        union = tree_ids | spec_ids
         if not union:
-            # Vacuously agree when no techniques in any lens
+            # Vacuously agree when no techniques in either lens
             agreement = 1.0
         else:
-            intersection = narrative_ids & tree_ids & spec_ids
+            intersection = tree_ids & spec_ids
             agreement = len(intersection) / len(union)
 
         agreements.append(agreement)
@@ -278,12 +282,9 @@ def score_technique_agreement(
             "spec_techniques": sorted(spec_ids),
         }
 
-        missing_from_narrative = (tree_ids | spec_ids) - narrative_ids
-        missing_from_tree = (narrative_ids | spec_ids) - tree_ids
-        missing_from_spec = (narrative_ids | tree_ids) - spec_ids
+        missing_from_tree = spec_ids - tree_ids
+        missing_from_spec = tree_ids - spec_ids
 
-        if missing_from_narrative:
-            detail["missing_from_narrative"] = sorted(missing_from_narrative)
         if missing_from_tree:
             detail["missing_from_tree"] = sorted(missing_from_tree)
         if missing_from_spec:

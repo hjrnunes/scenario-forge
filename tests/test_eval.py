@@ -547,16 +547,9 @@ class TestScoreGrounding:
 class TestScoreTechniqueAgreement:
     """Cross-lens technique agreement metric."""
 
-    def test_all_lenses_identical(self):
-        """All 3 lenses have the same technique set -> agreement 1.0."""
+    def test_tree_and_spec_identical(self):
+        """Tree and spec have the same technique set -> agreement 1.0."""
         scenario = _make_scenario(scenario_id="s1")
-        # Add technique annotations to narrative steps
-        scenario["narrative"]["steps"][0]["action"] = (
-            "Craft a jailbreak [AML.T0054] targeting the agent"
-        )
-        scenario["narrative"]["steps"][1]["effect"] = (
-            "Agent processes injected instructions [AML.T0051.000]"
-        )
         # Add technique_ids to attack tree nodes
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0054"
         scenario["attack_tree"]["root"]["children"][1]["technique_id"] = "AML.T0051.000"
@@ -572,36 +565,33 @@ class TestScoreTechniqueAgreement:
         assert result["mean_technique_agreement"] == 1.0
         assert "per_scenario" not in result
 
-    def test_narrative_has_extra_technique(self):
-        """Narrative has an extra technique -> agreement < 1.0."""
+    def test_narrative_extra_technique_ignored(self):
+        """Narrative extras don't affect tree-vs-spec agreement."""
         scenario = _make_scenario(scenario_id="s1")
-        # Narrative has 2 techniques
+        # Narrative has 2 techniques (ignored for score)
         scenario["narrative"]["steps"][0]["action"] = (
             "Exploit via [AML.T0054] and [AML.T0051.000]"
         )
         # Tree has 1 technique
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0054"
-        # Spec has 1 technique
+        # Spec has 1 technique -- same as tree
         scenario["behavior_spec"] = "When [AML.T0054] is used"
 
         result = score_technique_agreement([scenario])
-        assert result["mean_technique_agreement"] < 1.0
-        assert "s1" in result["per_scenario"]
-        detail = result["per_scenario"]["s1"]
-        assert "AML.T0051.000" in detail.get("missing_from_tree", [])
-        assert "AML.T0051.000" in detail.get("missing_from_spec", [])
+        # Tree {AML.T0054} vs spec {AML.T0054} -> Jaccard 1.0
+        assert result["mean_technique_agreement"] == 1.0
+        assert "per_scenario" not in result
 
     def test_tree_missing_technique(self):
-        """Tree is missing a technique that narrative and spec have."""
+        """Tree is missing a technique that spec has -> agreement < 1.0."""
         scenario = _make_scenario(scenario_id="s1")
-        # Narrative has technique
-        scenario["narrative"]["steps"][0]["action"] = "Use [AML.T0054]"
         # Tree has NO technique_id
         # Spec has technique
         scenario["behavior_spec"] = "When [AML.T0054] is applied"
 
         result = score_technique_agreement([scenario])
-        assert result["mean_technique_agreement"] < 1.0
+        # Tree {} vs spec {AML.T0054} -> Jaccard 0.0
+        assert result["mean_technique_agreement"] == 0.0
         detail = result["per_scenario"]["s1"]
         assert "AML.T0054" in detail.get("missing_from_tree", [])
 
@@ -617,38 +607,33 @@ class TestScoreTechniqueAgreement:
     def test_gherkin_files_fallback(self):
         """Uses gherkin_files dict when behavior_spec is absent."""
         scenario = _make_scenario(scenario_id="s1")
-        scenario["narrative"]["steps"][0]["action"] = "Attack [AML.T0054]"
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0054"
-        # No behavior_spec on scenario dict
+        # No behavior_spec on scenario dict -- falls back to gherkin_files
 
         gherkin_files = {"s1": "When the attacker uses [AML.T0054]"}
         result = score_technique_agreement([scenario], gherkin_files)
+        # Tree {AML.T0054} vs spec {AML.T0054} -> Jaccard 1.0
         assert result["mean_technique_agreement"] == 1.0
 
     def test_multiple_scenarios_mean(self):
         """Mean is averaged across scenarios."""
-        # Scenario 1: perfect agreement (1.0)
+        # Scenario 1: perfect tree-spec agreement (1.0)
         s1 = _make_scenario(scenario_id="s1")
-        s1["narrative"]["steps"][0]["action"] = "Use [AML.T0054]"
         s1["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0054"
         s1["behavior_spec"] = "When [AML.T0054]"
 
-        # Scenario 2: no overlap at all (0.0)
+        # Scenario 2: no tree-spec overlap (0.0)
         s2 = _make_scenario(scenario_id="s2")
-        s2["narrative"]["steps"][0]["action"] = "Use [AML.T0054]"
         s2["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
         s2["behavior_spec"] = "When [AML.T0053]"
 
         result = score_technique_agreement([s1, s2])
-        # s1 = 1.0, s2 = 0.0 (three disjoint singletons -> intersection 0 / union 3)
+        # s1 = 1.0, s2 = 0.0 (two disjoint singletons -> intersection 0 / union 2)
         assert result["mean_technique_agreement"] == 0.5
 
     def test_subtechnique_pattern(self):
         """Subtechnique IDs like AML.T0051.000 are extracted correctly."""
         scenario = _make_scenario(scenario_id="s1")
-        scenario["narrative"]["steps"][0]["action"] = (
-            "Direct prompt injection [AML.T0051.000]"
-        )
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
         scenario["behavior_spec"] = "When [AML.T0051.000] is used"
 
