@@ -3103,6 +3103,197 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
         </div>"""
 
 
+def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
+    """Build a Generation Inputs expandable section showing every datum
+    that participates in scenario generation, organized by LLM call.
+
+    Returns an HTML block with four grouped sub-tables (one per LLM call)
+    in vertical key-value layout.
+    """
+    meta = scenario.get("scenario_seed_metadata") or {}
+    actor = scenario.get("actor_profile") or {}
+    narrative = scenario.get("narrative") or {}
+    attack_tree = scenario.get("attack_tree") or {}
+    faceting = scenario.get("faceting") or {}
+    tc = faceting.get("taxonomy_chain") or {}
+    cp = faceting.get("capability_profile") or {}
+
+    # --- helpers ---
+    def _val(v: Any, join_sep: str = "; ") -> str:
+        """Format a value for display. Lists are joined; None/empty -> em dash."""
+        if v is None:
+            return "—"
+        if isinstance(v, list):
+            if not v:
+                return "—"
+            return join_sep.join(str(item) for item in v)
+        s = str(v)
+        return s if s else "—"
+
+    def _row(label: str, value: str, *, hint: bool = False,
+             tooltip: str = "") -> str:
+        """Build a single table row. hint=True renders italic/muted label."""
+        tip_attr = f' data-tooltip="{_esc(tooltip)}"' if tooltip else ""
+        if hint:
+            label_html = (
+                f'<td style="white-space:nowrap;padding:4px 12px 4px 0;'
+                f'font-size:12px;color:var(--text-muted);font-style:italic;'
+                f'vertical-align:top;"{tip_attr}>{_esc(label)}</td>'
+            )
+        else:
+            label_html = (
+                f'<td style="white-space:nowrap;padding:4px 12px 4px 0;'
+                f'font-size:12px;font-weight:600;color:var(--text-muted);'
+                f'vertical-align:top;"{tip_attr}>{_esc(label)}</td>'
+            )
+        val_html = (
+            f'<td style="padding:4px 0;font-size:12px;'
+            f'color:var(--text-secondary);word-break:break-word;">'
+            f'{value}</td>'
+        )
+        return f"<tr>{label_html}{val_html}</tr>"
+
+    def _enriched_threat(tid: str, tname: str) -> str:
+        """Threat ID with tooltip and name."""
+        if not tid:
+            return "—"
+        tip = _threat_id_tooltip(tid)
+        label = f"{_esc(tid)} — {_esc(tname)}" if tname else _esc(tid)
+        return f"<span{tip}>{label}</span>"
+
+    def _enriched_techniques(ids: list[str] | None) -> str:
+        """ATLAS technique IDs with tooltips."""
+        if not ids:
+            return "—"
+        parts = []
+        for tid in ids:
+            tip = _technique_id_tooltip(tid)
+            parts.append(f"<span{tip}>{_esc(tid)}</span>")
+        return "; ".join(parts)
+
+    def _call_header(idx: int, name: str) -> str:
+        return (
+            f'<div style="font-size:11px;font-weight:700;'
+            f'color:var(--text-muted);text-transform:uppercase;'
+            f'letter-spacing:0.5px;margin:14px 0 4px;'
+            f'padding-bottom:3px;border-bottom:1px solid var(--border);">'
+            f'Call {idx}: {_esc(name)}</div>'
+        )
+
+    def _table(rows: str) -> str:
+        return (
+            f'<table style="width:100%;border-collapse:collapse;'
+            f'margin-bottom:4px;">{rows}</table>'
+        )
+
+    # --- shared values ---
+    mechanism = _val(meta.get("mechanism_name"))
+    mechanism_desc = _val(meta.get("mechanism_description"))
+    threat_html = _enriched_threat(
+        meta.get("threat_id", ""), meta.get("threat_name", "")
+    )
+    zones_html = _val(cp.get("zones_traversed"))
+    atlas_html = _enriched_techniques(tc.get("atlas_technique_ids"))
+    goal_cat = actor.get("goal_category", "")
+    goal_name = actor.get("goal_category_name", "")
+    goal_parent = actor.get("goal_category_parent", "")
+    goal_display = (
+        f"{_esc(goal_name)} ({_esc(goal_cat)})" if goal_name else _val(goal_cat)
+    )
+
+    # ---- Call 0: Actor Profile ----
+    call0_rows = "".join([
+        _row("Mechanism", mechanism),
+        _row("Mechanism description", mechanism_desc),
+        _row("Threat", threat_html),
+        _row("System zones", zones_html),
+        _row("ATLAS techniques", atlas_html),
+        _row("Attack goal", goal_display),
+        _row("Attack goal category", _val(goal_parent)),
+        _row("Diversity hint: preferred actor type",
+             "<span style=\"color:var(--text-muted);font-style:italic;\">"
+             "not captured in output</span>",
+             hint=True),
+        _row("Diversity hint: excluded actor types",
+             "<span style=\"color:var(--text-muted);font-style:italic;\">"
+             "not captured in output</span>",
+             hint=True),
+    ])
+
+    # ---- Call 1: Narrative ----
+    owasp_html = _val(tc.get("owasp_llm_ids"))
+    call1_rows = "".join([
+        _row("Mechanism", mechanism),
+        _row("Mechanism description", mechanism_desc),
+        _row("Threat", threat_html),
+        _row("System zones", zones_html),
+        _row("Entry point", _val(cp.get("entry_point"))),
+        _row("OWASP LLM IDs", owasp_html),
+        _row("ATLAS techniques", atlas_html),
+        _row("Actor type", _val(actor.get("actor_type"))),
+        _row("Capability level", _val(actor.get("capability_level"))),
+        _row("Beliefs", _val(actor.get("beliefs"))),
+        _row("Desires", _val(actor.get("desires"))),
+        _row("Intentions", _val(actor.get("intentions"))),
+        _row("Resources", _val(actor.get("resources"))),
+        _row("Attack goal", goal_display),
+        _row("Attack goal category", _val(goal_parent)),
+        _row("Diversity hint: preferred entry point",
+             "<span style=\"color:var(--text-muted);font-style:italic;\">"
+             "not captured in output</span>",
+             hint=True),
+        _row("Diversity hint: excluded patterns",
+             "<span style=\"color:var(--text-muted);font-style:italic;\">"
+             "not captured in output</span>",
+             hint=True),
+    ])
+
+    # ---- Call 2: Attack Tree ----
+    call2_rows = "".join([
+        _row("Mechanism", mechanism),
+        _row("Threat", threat_html),
+        _row("System zones", zones_html),
+        _row("ATLAS techniques", atlas_html),
+        _row("Actor type", _val(actor.get("actor_type"))),
+        _row("Capability level", _val(actor.get("capability_level"))),
+        _row("Narrative title", _val(narrative.get("title"))),
+        _row("Narrative summary", _val(narrative.get("summary"))),
+        _row("Entry point", _val(narrative.get("entry_point"))),
+        _row("Zone sequence", _val(narrative.get("zone_sequence"))),
+    ])
+
+    # ---- Call 3: Behavior Spec ----
+    call3_rows = "".join([
+        _row("Narrative title", _val(narrative.get("title"))),
+        _row("Entry point", _val(narrative.get("entry_point"))),
+        _row("Zone sequence", _val(narrative.get("zone_sequence"))),
+        _row("Attack tree goal", _val(attack_tree.get("goal"))),
+        _row("Actor type", _val(actor.get("actor_type"))),
+        _row("Capability level", _val(actor.get("capability_level"))),
+    ])
+
+    content = (
+        _call_header(0, "Actor Profile")
+        + _table(call0_rows)
+        + _call_header(1, "Narrative")
+        + _table(call1_rows)
+        + _call_header(2, "Attack Tree")
+        + _table(call2_rows)
+        + _call_header(3, "Behavior Spec")
+        + _table(call3_rows)
+    )
+
+    return f"""
+        <div class="scenario-section">
+          <details class="expandable">
+            <summary>Generation Inputs</summary>
+            <div style="padding:12px 0 4px;">
+              {content}
+            </div>
+          </details>
+        </div>"""
+
+
 def _collect_used_technique_ids(
     scenario: dict[str, Any], gherkin_text: str
 ) -> set[str]:
@@ -3211,11 +3402,8 @@ def _build_scenario_card(
     signals = scenario.get("priority", {}).get("signals", {})
     signals_html = _build_priority_signals(signals)
 
-    # SSSOM provenance for AP-* scenario seeds (read from seed metadata)
-    provenance_html = _build_provenance_block(scenario)
-
-    # Scenario seed metadata
-    seed_metadata_html = _build_seed_metadata_block(scenario)
+    # Generation inputs: per-call grouped sub-tables
+    generation_inputs_html = _build_generation_inputs_block(scenario)
 
     # ATLAS techniques section
     atlas_techniques_html = _build_atlas_techniques_block(scenario, feature_content)
@@ -3291,8 +3479,7 @@ def _build_scenario_card(
       </div>
       <div class="scenario-body">
         {_build_actor_profile_block(scenario)}
-        {provenance_html}
-        {seed_metadata_html}
+        {generation_inputs_html}
         {atlas_techniques_html}
 
         <div class="scenario-section">
