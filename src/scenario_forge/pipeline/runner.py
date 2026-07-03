@@ -104,6 +104,8 @@ def _remediate_coverage_gaps(
     client: LLMClient,
     use_case: str,
     scenarios_dir: Path,
+    available_goals: list[dict] | None = None,
+    goal_usage: Counter | None = None,
 ) -> tuple[list[ScenarioEnvelope], list[str]]:
     """Generate additional scenarios for entry points that received none.
 
@@ -119,6 +121,8 @@ def _remediate_coverage_gaps(
         client: LLM client for generation calls.
         use_case: Free-text description of the AI system under assessment.
         scenarios_dir: Directory for scenario output files.
+        available_goals: Filtered attack goal sub-goals for diversity.
+        goal_usage: Counter tracking goal usage across the batch.
 
     Returns:
         Tuple of (remediation_scenarios, generation_notes).
@@ -151,6 +155,17 @@ def _remediate_coverage_gaps(
             seed.mechanism_name,
         )
 
+        selected_goal = None
+        if available_goals and goal_usage is not None:
+            try:
+                selected_goal = select_attack_goal(
+                    available_goals,
+                    goal_usage,
+                    total_seeds=len(uncovered),
+                )
+            except ValueError:
+                pass
+
         try:
             envelope, call_log_entries = generate_scenario(
                 seed,
@@ -158,10 +173,14 @@ def _remediate_coverage_gaps(
                 client,
                 use_case,
                 preferred_entry_point=ep,
+                attack_goal=selected_goal,
             )
             write_scenario_outputs(envelope, scenarios_dir)
             write_call_log(call_log_entries, scenarios_dir)
             remediation_scenarios.append(envelope)
+            if goal_usage is not None and envelope.actor_profile is not None:
+                if envelope.actor_profile.goal_category is not None:
+                    goal_usage[envelope.actor_profile.goal_category] += 1
             logger.info(
                 "    Remediation scenario generated: %s (entry point: %s)",
                 envelope.scenario_id,
@@ -452,6 +471,8 @@ def run_pipeline(
             client,
             use_case,
             scenarios_dir,
+            available_goals=available_goals,
+            goal_usage=goal_usage,
         )
         scenarios.extend(remediation_scenarios)
         generation_notes.extend(remediation_notes)
