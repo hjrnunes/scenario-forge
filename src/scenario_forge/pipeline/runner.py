@@ -152,7 +152,7 @@ def _remediate_coverage_gaps(
             "  Remediating entry point '%s' with seed %s (%s)...",
             ep,
             seed.seed_id,
-            seed.mechanism_name,
+            seed.attack_pattern_name,
         )
 
         selected_goal = None
@@ -362,7 +362,7 @@ def run_pipeline(
         available_goals = []
 
     for i, seed in enumerate(seeds, 1):
-        label = f"{seed.seed_id}: {seed.mechanism_name}"
+        label = f"{seed.seed_id}: {seed.attack_pattern_name}"
         logger.info("  [%d/%d] %s...", i, len(seeds), label)
 
         # Determine entry point hint for this seed based on affinity + diversity.
@@ -442,7 +442,7 @@ def run_pipeline(
 
             # Track attack pattern keywords for diversity enforcement.
             keywords = extract_narrative_keywords(
-                envelope.narrative, mechanism_name=seed.mechanism_name
+                envelope.narrative, attack_pattern_name=seed.attack_pattern_name
             )
             pattern_usage.update(keywords)
 

@@ -3072,7 +3072,7 @@ def _build_provenance_block(scenario: dict[str, Any]) -> str:
 def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
     """Build a Scenario Seed section from scenario_seed_metadata.
 
-    Returns an HTML block showing the seed's mechanism name, description,
+    Returns an HTML block showing the seed's attack pattern name, description,
     threat context, and OWASP origin. Returns empty string when metadata
     is absent.
     """
@@ -3080,14 +3080,14 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
     if not meta:
         return ""
 
-    mechanism_name = meta.get("mechanism_name", "")
-    mechanism_description = meta.get("mechanism_description", "")
+    attack_pattern_name = meta.get("attack_pattern_name", "")
+    attack_pattern_description = meta.get("attack_pattern_description", "")
     seed_id = meta.get("seed_id", "")
     threat_id = meta.get("threat_id", "")
     threat_name = meta.get("threat_name", "")
     owasp_origin = meta.get("owasp_origin", "")
 
-    if not mechanism_name and not seed_id:
+    if not attack_pattern_name and not seed_id:
         return ""
 
     # Threat span with tooltip
@@ -3121,21 +3121,21 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
         item for item in [seed_html, threat_html, origin_html] if item
     )
 
-    # Mechanism description (truncated for display)
+    # Attack pattern description (truncated for display)
     desc_html = ""
-    if mechanism_description:
+    if attack_pattern_description:
         desc_html = (
             f'<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">'
-            f"{_esc(mechanism_description)}"
+            f"{_esc(attack_pattern_description)}"
             f"</div>"
         )
 
-    # Mechanism name
+    # Attack pattern name
     name_html = ""
-    if mechanism_name:
+    if attack_pattern_name:
         name_html = (
             f'<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">'
-            f"{_esc(mechanism_name)}"
+            f"{_esc(attack_pattern_name)}"
             f"</div>"
         )
 
@@ -3237,8 +3237,8 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
         )
 
     # --- shared values ---
-    mechanism = _val(meta.get("mechanism_name"))
-    mechanism_desc = _val(meta.get("mechanism_description"))
+    attack_pattern = _val(meta.get("attack_pattern_name"))
+    attack_pattern_desc = _val(meta.get("attack_pattern_description"))
     threat_html = _enriched_threat(
         meta.get("threat_id", ""), meta.get("threat_name", "")
     )
@@ -3254,8 +3254,8 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
     # ---- Call 0: Actor Profile ----
     call0_rows = "".join(
         [
-            _row("Mechanism", mechanism),
-            _row("Mechanism description", mechanism_desc),
+            _row("Attack pattern", attack_pattern),
+            _row("Attack pattern description", attack_pattern_desc),
             _row("Threat", threat_html),
             _row("System zones", zones_html),
             _row("ATLAS techniques", atlas_html),
@@ -3280,8 +3280,8 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
     owasp_html = _val(tc.get("owasp_llm_ids"))
     call1_rows = "".join(
         [
-            _row("Mechanism", mechanism),
-            _row("Mechanism description", mechanism_desc),
+            _row("Attack pattern", attack_pattern),
+            _row("Attack pattern description", attack_pattern_desc),
             _row("Threat", threat_html),
             _row("System zones", zones_html),
             _row("Entry point", _val(cp.get("entry_point"))),
@@ -3313,7 +3313,7 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
     # ---- Call 2: Attack Tree ----
     call2_rows = "".join(
         [
-            _row("Mechanism", mechanism),
+            _row("Attack pattern", attack_pattern),
             _row("Threat", threat_html),
             _row("System zones", zones_html),
             _row("ATLAS techniques", atlas_html),
@@ -3977,6 +3977,25 @@ def build_glossary_section() -> str:
           <tbody>"""
         + threat_rows
         + """</tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Domain Terms</div>
+        <table class="flags-table">
+          <thead><tr><th>Term</th><th>Definition</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Scenario Seed</strong></td><td>An abstract attack pattern (AP-*) selected for scenario generation, carrying threat provenance and taxonomy chain references</td></tr>
+            <tr><td><strong>Attack Pattern</strong></td><td>A domain-agnostic attack technique derived from an OWASP Agentic Threat (T1&ndash;T17). Each pattern specifies prerequisites and maps to ATLAS/LAAF techniques via SSSOM provenance</td></tr>
+            <tr><td><strong>Threat Surface</strong></td><td>The set of IBM AI Risk Atlas risks applicable to the target system, mapped to OWASP agentic threats and attack patterns</td></tr>
+            <tr><td><strong>Capability Profile</strong></td><td>A Schneider 5-zone decomposition of the target system&rsquo;s capabilities, entry points, and architecture</td></tr>
+            <tr><td><strong>Actor Profile</strong></td><td>A BDI (Beliefs, Desires, Intentions) threat actor model generated for each scenario, with type, capability level, and attack goal</td></tr>
+            <tr><td><strong>Attack Goal</strong></td><td>One of 27 sub-goals across 4 categories (availability, integrity, privacy, abuse) assigned to each actor to direct the scenario&rsquo;s intent</td></tr>
+            <tr><td><strong>Narrative</strong></td><td>A zone-annotated attack story describing the step-by-step attack path through the system</td></tr>
+            <tr><td><strong>Attack Tree</strong></td><td>An AND/OR decomposition of the attack into individual steps with zone, technique, and control-point annotations</td></tr>
+            <tr><td><strong>Behavior Spec</strong></td><td>A Gherkin feature specification for each scenario, enabling tool-neutral test automation</td></tr>
+            <tr><td><strong>Priority Signals</strong></td><td>Composite scoring across technique maturity, risk impact, likelihood, attack complexity, architecture match, and structural exposure</td></tr>
+          </tbody>
         </table>
       </div>
 
