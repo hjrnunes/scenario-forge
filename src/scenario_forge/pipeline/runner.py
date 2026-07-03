@@ -162,6 +162,7 @@ def _remediate_coverage_gaps(
                     available_goals,
                     goal_usage,
                     total_seeds=len(uncovered),
+                    threat_id=seed.threat_id,
                 )
             except ValueError:
                 pass
@@ -404,6 +405,7 @@ def run_pipeline(
                     available_goals,
                     goal_usage,
                     total_seeds,
+                    threat_id=seed.threat_id,
                 )
             except ValueError:
                 pass  # No goals available — proceed without goal diversity

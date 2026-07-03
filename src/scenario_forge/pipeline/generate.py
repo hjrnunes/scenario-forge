@@ -625,6 +625,44 @@ def load_attack_goals_taxonomy(
     return data
 
 
+# ---------------------------------------------------------------------------
+# Threat-goal affinity map
+# ---------------------------------------------------------------------------
+
+_THREAT_GOAL_AFFINITY_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "attack-goals"
+    / "threat-goal-affinity.yaml"
+)
+
+_threat_goal_affinity_cache: dict[str, dict[str, list[str]]] | None = None
+
+
+def load_threat_goal_affinity(
+    path: Path | None = None,
+) -> dict[str, dict[str, list[str]]]:
+    """Load the threat-goal affinity YAML map.
+
+    Returns a dict keyed by threat ID (e.g. 'T1') whose values are dicts
+    with keys 'primary', 'secondary', 'excluded' — each a list of category IDs.
+    Uses a module-level cache after the first load.
+    """
+    global _threat_goal_affinity_cache
+    if _threat_goal_affinity_cache is not None and path is None:
+        return _threat_goal_affinity_cache
+
+    affinity_path = path or _THREAT_GOAL_AFFINITY_PATH
+    with open(affinity_path) as f:
+        data = yaml.safe_load(f)
+
+    affinities: dict[str, dict[str, list[str]]] = data["affinities"]
+    if path is None:
+        _threat_goal_affinity_cache = affinities
+    return affinities
+
+
 def get_all_sub_goals(
     taxonomy: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -648,16 +686,16 @@ def get_all_sub_goals(
 # If a zone is listed here but not in the profile's zones_active, the
 # sub-goal is filtered out as irrelevant.
 _GOAL_ZONE_REQUIREMENTS: dict[str, list[str]] = {
-    "AV-4": ["reasoning"],       # Alert saturation needs HITL (checked separately)
-    "AV-5": ["inter_agent"],     # Cascading failure needs multi-agent
+    "AV-4": ["reasoning"],  # Alert saturation needs HITL (checked separately)
+    "AV-5": ["inter_agent"],  # Cascading failure needs multi-agent
     "IN-3": ["tool_execution"],  # Decision corruption needs tool execution
-    "IN-4": ["reasoning"],       # Goal manipulation needs reasoning (usually present)
-    "IN-5": ["memory"],          # Memory poisoning needs persistent memory
-    "IN-6": ["inter_agent"],     # Trust exploitation needs inter-agent or tool_execution
-    "PR-5": ["memory"],          # Cross-session leakage needs persistent memory
+    "IN-4": ["reasoning"],  # Goal manipulation needs reasoning (usually present)
+    "IN-5": ["memory"],  # Memory poisoning needs persistent memory
+    "IN-6": ["inter_agent"],  # Trust exploitation needs inter-agent or tool_execution
+    "PR-5": ["memory"],  # Cross-session leakage needs persistent memory
     "AB-3": ["tool_execution"],  # Fraud facilitation needs tool execution
     "AB-6": ["tool_execution"],  # Privilege escalation needs tool execution
-    "AB-7": ["inter_agent"],     # Impersonation needs inter-agent
+    "AB-7": ["inter_agent"],  # Impersonation needs inter-agent
     "AB-8": ["tool_execution"],  # Evidence destruction needs tool execution
 }
 
@@ -709,22 +747,44 @@ def filter_sub_goals_by_zones(
     return filtered
 
 
+def _fair_share_pick(
+    pool: list[dict[str, Any]],
+    usage_counts: Counter[str],
+) -> dict[str, Any] | None:
+    """Pick the least-used sub-goal from *pool*, breaking ties randomly.
+
+    Returns ``None`` when *pool* is empty.
+    """
+    if not pool:
+        return None
+    min_count = min(usage_counts.get(sg["id"], 0) for sg in pool)
+    candidates = [sg for sg in pool if usage_counts.get(sg["id"], 0) == min_count]
+    return random.choice(candidates)
+
+
 def select_attack_goal(
     sub_goals: list[dict[str, Any]],
     usage_counts: Counter[str],
     total_seeds: int,
+    threat_id: str | None = None,
 ) -> dict[str, Any]:
-    """Select an attack goal sub-goal using fair-share diversity tracking.
+    """Select an attack goal sub-goal using affinity-aware fair-share diversity.
 
-    Picks the least-used sub-goal from the available list, breaking ties
-    randomly. This mirrors the actor_type diversity pattern used elsewhere
-    in the pipeline.
+    When *threat_id* is provided and found in the threat-goal affinity map,
+    goals are partitioned into primary / secondary / excluded tiers.  Selection
+    prefers primary-affinity goals via fair-share, falling back to secondary
+    when primary goals are exhausted (all above fair-share ceiling), and finally
+    to the full non-excluded pool.
+
+    When *threat_id* is ``None`` or not present in the affinity map, the
+    original unweighted fair-share logic is used (backwards-compatible).
 
     Args:
         sub_goals: Filtered list of available sub-goals.
         usage_counts: Counter tracking how many times each sub-goal ID
             has been selected so far in this batch.
         total_seeds: Total number of seeds in the batch (for fair-share calc).
+        threat_id: Optional OWASP Agentic Threat ID (e.g. 'T1').
 
     Returns:
         The selected sub-goal dict.
@@ -735,16 +795,53 @@ def select_attack_goal(
     if not sub_goals:
         raise ValueError("No attack goal sub-goals available after filtering")
 
-    # Find the minimum usage count among available sub-goals
-    min_count = min(usage_counts.get(sg["id"], 0) for sg in sub_goals)
+    # --- affinity-unaware path (original behaviour) ---
+    if threat_id is None:
+        result = _fair_share_pick(sub_goals, usage_counts)
+        assert result is not None  # sub_goals is non-empty
+        return result
 
-    # Collect all sub-goals at the minimum count
-    candidates = [
-        sg for sg in sub_goals if usage_counts.get(sg["id"], 0) == min_count
-    ]
+    affinity_map = load_threat_goal_affinity()
+    if threat_id not in affinity_map:
+        result = _fair_share_pick(sub_goals, usage_counts)
+        assert result is not None
+        return result
 
-    # Break ties randomly for uniform spread
-    return random.choice(candidates)
+    # --- affinity-aware path ---
+    entry = affinity_map[threat_id]
+    primary_cats = set(entry.get("primary", []))
+    excluded_cats = set(entry.get("excluded", []))
+
+    # Remove excluded goals
+    allowed = [sg for sg in sub_goals if sg["category_id"] not in excluded_cats]
+    if not allowed:
+        # If exclusions removed everything, fall back to full list
+        allowed = list(sub_goals)
+
+    primary_pool = [sg for sg in allowed if sg["category_id"] in primary_cats]
+    secondary_pool = [sg for sg in allowed if sg["category_id"] not in primary_cats]
+
+    # Fair-share ceiling: each goal can be used at most ceil(total_seeds / n).
+    # When all primary goals exceed this, we fall back to secondary.
+    if primary_pool:
+        n_primary = len(primary_pool)
+        fair_ceiling = math.ceil(total_seeds / n_primary) if n_primary else 1
+        min_primary = min(usage_counts.get(sg["id"], 0) for sg in primary_pool)
+        if min_primary < fair_ceiling:
+            picked = _fair_share_pick(primary_pool, usage_counts)
+            assert picked is not None
+            return picked
+
+    # Primary exhausted (or empty) — try secondary
+    if secondary_pool:
+        picked = _fair_share_pick(secondary_pool, usage_counts)
+        assert picked is not None
+        return picked
+
+    # Everything exhausted — full allowed pool
+    picked = _fair_share_pick(allowed, usage_counts)
+    assert picked is not None
+    return picked
 
 
 def _build_attack_goal_context_block(sub_goal: dict[str, Any]) -> str:
@@ -2345,7 +2442,7 @@ The tree id must be "tree-{seed.seed_id}".\
             "Please produce valid YAML following the same structure "
             "described in the system prompt. Use the same seed_id, goal, "
             "and narrative context from the original request.\n\n"
-            f"seed_id={seed.seed_id}, tree id=\"tree-{seed.seed_id}\"."
+            f'seed_id={seed.seed_id}, tree id="tree-{seed.seed_id}".'
         )
 
         retry_result = client.complete(
