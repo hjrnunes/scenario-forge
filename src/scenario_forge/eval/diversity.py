@@ -186,6 +186,18 @@ def zone_coverage(
     }
 
 
+def goal_category_entropy(scenarios: list[dict[str, Any]]) -> float:
+    """Shannon entropy of goal categories across scenarios (normalized)."""
+    goal_categories = []
+    for s in scenarios:
+        ap = s.get("actor_profile")
+        if ap and isinstance(ap, dict):
+            gc = ap.get("goal_category", "")
+            if gc:
+                goal_categories.append(gc)
+    return round(_shannon_entropy(goal_categories), 4)
+
+
 def actor_type_entropy(scenarios: list[dict[str, Any]]) -> float:
     """Shannon entropy of actor types across scenarios (normalized)."""
     actor_types = []
@@ -273,6 +285,7 @@ def score_diversity(
         ),
         "zone_coverage": zone_coverage(scenarios, active_zones=active_zones),
         "actor_type_entropy": actor_type_entropy(scenarios),
+        "goal_category_entropy": goal_category_entropy(scenarios),
         "capability_level_evenness": capability_level_evenness(scenarios),
         "title_uniqueness": title_uniqueness(scenarios),
     }

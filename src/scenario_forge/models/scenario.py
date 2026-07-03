@@ -194,6 +194,10 @@ class ActorProfile(BaseModel):
         default=None,
         description="Attack goal sub-category ID from the attack goals taxonomy.",
     )
+    goal_category_name: str | None = Field(
+        default=None,
+        description="Human-readable attack goal name from the attack goals taxonomy.",
+    )
 
 
 # ---------------------------------------------------------------------------

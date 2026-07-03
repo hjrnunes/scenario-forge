@@ -2649,6 +2649,52 @@ def build_attacker_diversity_section(scenarios: list[dict[str, Any]]) -> str:
 
     unique_types = len(model_counts)
 
+    # --- Goal category distribution ---
+    _GOAL_COLORS: dict[str, str] = {
+        "availability": "#ef4444",
+        "integrity": "#f59e0b",
+        "privacy": "#8b5cf6",
+        "abuse": "#0d9488",
+    }
+    goal_counts: dict[str, int] = {}
+    for s in scenarios:
+        actor_profile = s.get("actor_profile")
+        if actor_profile and isinstance(actor_profile, dict):
+            gcn = actor_profile.get("goal_category_name", "")
+            if gcn:
+                goal_counts[gcn] = goal_counts.get(gcn, 0) + 1
+
+    goal_section_html = ""
+    if goal_counts:
+        goal_total = sum(goal_counts.values())
+        goal_bars_html = ""
+        for goal, count in sorted(
+            goal_counts.items(), key=lambda x: x[1], reverse=True
+        ):
+            pct = (count / goal_total * 100) if goal_total > 0 else 0
+            color = _GOAL_COLORS.get(goal.lower(), "#6b7280")
+            display_name = goal.replace("-", " ").replace("_", " ").title()
+            goal_bars_html += f"""
+        <div class="diversity-bar-row">
+          <span class="diversity-bar-label">{_esc(display_name)}</span>
+          <div class="diversity-bar-track">
+            <div class="diversity-bar-fill" style="width:{pct:.0f}%;background:{color};">
+              {count}
+            </div>
+          </div>
+          <span class="diversity-bar-count">{pct:.0f}%</span>
+        </div>"""
+        unique_goals = len(goal_counts)
+        goal_section_html = f"""
+      <div style="margin-top:20px;">
+        <h3 style="font-size:15px;font-weight:600;margin:0 0 10px;">Goal Category Distribution
+          <span class="badge" style="margin-left:8px;">{unique_goals} categor{"ies" if unique_goals != 1 else "y"}</span>
+        </h3>
+        <div class="card">
+          <div class="diversity-bar-chart">{goal_bars_html}</div>
+        </div>
+      </div>"""
+
     return f"""
     <div id="sec-diversity" class="section">
       <div class="section-header">
@@ -2661,6 +2707,8 @@ def build_attacker_diversity_section(scenarios: list[dict[str, Any]]) -> str:
       <div class="card">
         <div class="diversity-bar-chart">{bars_html}</div>
       </div>
+
+      {goal_section_html}
     </div>
     """
 
@@ -2827,6 +2875,7 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
 
     actor_type = actor_profile.get("actor_type", "unknown")
     capability_level = actor_profile.get("capability_level", "")
+    goal_category_name = actor_profile.get("goal_category_name", "")
     beliefs = actor_profile.get("beliefs", [])
     desires = actor_profile.get("desires", [])
     intentions = actor_profile.get("intentions", [])
@@ -2860,6 +2909,7 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
                 <span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(type_color)},0.15);color:{type_color};">{_esc(type_display)}</span>
                 {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};"{cap_tip_attr}>{_esc(cap_display)}</span>' if cap_display else ""}
+                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css("#0d9488")},0.15);color:#0d9488;">{_esc(goal_category_name.replace("-", " ").replace("_", " ").title())}</span>' if goal_category_name else ""}
               </div>
               <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
                 <div style="margin-bottom:8px;">

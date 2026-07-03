@@ -172,6 +172,7 @@ class AttackerDiversityResult:
     """Result of actor profile diversity analysis."""
 
     model_counts: dict[str, int] = field(default_factory=dict)
+    goal_counts: dict[str, int] = field(default_factory=dict)
     dominant_model: str | None = None
     dominant_fraction: float = 0.0
     is_flagged: bool = False
@@ -179,6 +180,7 @@ class AttackerDiversityResult:
     def to_dict(self) -> dict:
         return {
             "model_counts": self.model_counts,
+            "goal_counts": self.goal_counts,
             "dominant_model": self.dominant_model,
             "dominant_fraction": round(self.dominant_fraction, 3),
             "is_flagged": self.is_flagged,
@@ -206,6 +208,7 @@ def analyze_attacker_diversity(
         return AttackerDiversityResult()
 
     model_counts: dict[str, int] = {}
+    goal_counts: dict[str, int] = {}
     for envelope in scenarios:
         actor_type = (
             envelope.actor_profile.actor_type
@@ -213,6 +216,14 @@ def analyze_attacker_diversity(
             else "unknown"
         )
         model_counts[actor_type] = model_counts.get(actor_type, 0) + 1
+
+        goal_category = (
+            envelope.actor_profile.goal_category_name
+            if envelope.actor_profile is not None
+            and envelope.actor_profile.goal_category_name
+            else "uncategorized"
+        )
+        goal_counts[goal_category] = goal_counts.get(goal_category, 0) + 1
 
     # Find the dominant actor type.
     dominant_model = max(model_counts, key=model_counts.get)  # type: ignore[arg-type]
@@ -231,6 +242,7 @@ def analyze_attacker_diversity(
 
     return AttackerDiversityResult(
         model_counts=model_counts,
+        goal_counts=goal_counts,
         dominant_model=dominant_model,
         dominant_fraction=dominant_fraction,
         is_flagged=is_flagged,
