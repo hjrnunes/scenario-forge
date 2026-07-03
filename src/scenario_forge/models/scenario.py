@@ -109,22 +109,6 @@ class NarrativeStep(BaseModel):
     )
 
 
-class CausalChainReframed(BaseModel):
-    """The risk card causal chain reframed from policy-voice to adversarial-voice."""
-
-    threat: str = Field(description="The threat reframed in adversarial voice.")
-    threat_source: str = Field(
-        description="The threat source reframed in adversarial voice."
-    )
-    vulnerability: str = Field(
-        description="The vulnerability reframed in adversarial voice."
-    )
-    consequence: str = Field(
-        description="The consequence reframed in adversarial voice."
-    )
-    impact: str = Field(description="The impact reframed in adversarial voice.")
-
-
 class NarrativeLayer(BaseModel):
     """Layer 1: Schneider-style attack narrative with structured steps."""
 
@@ -142,10 +126,6 @@ class NarrativeLayer(BaseModel):
     steps: list[NarrativeStep] = Field(
         description="Ordered sequence of attack steps.",
         min_length=1,
-    )
-    causal_chain_reframed: Optional[CausalChainReframed] = Field(
-        default=None,
-        description="Risk card causal chain reframed to adversarial voice.",
     )
 
 
