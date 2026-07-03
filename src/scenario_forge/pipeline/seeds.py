@@ -33,8 +33,8 @@ class ScenarioSeed(BaseModel):
     threat_id: str = Field(description="Parent threat ID, e.g. 'T7'.")
     threat_name: str
     threat_description: str = ""
-    mechanism_name: str
-    mechanism_description: str
+    attack_pattern_name: str
+    attack_pattern_description: str
     risk_card_ref: RiskCardRef
     contributing_risk_cards: list[RiskCardRef] = Field(
         default_factory=list,
@@ -97,8 +97,8 @@ def expand_seeds(
             threat_name = threat["name"] if threat else ""
             threat_description = threat.get("description", "").strip() if threat else ""
 
-            mechanism_name = pattern["name"]
-            mechanism_desc = pattern["description"].strip()
+            attack_pattern_name = pattern["name"]
+            attack_pattern_desc = pattern["description"].strip()
 
             # Extract SSSOM provenance for this pattern
             pattern_prov = prov_index.get(ap_id, {})
@@ -160,8 +160,8 @@ def expand_seeds(
                     threat_id=threat_id,
                     threat_name=threat_name,
                     threat_description=threat_description,
-                    mechanism_name=mechanism_name,
-                    mechanism_description=mechanism_desc,
+                    attack_pattern_name=attack_pattern_name,
+                    attack_pattern_description=attack_pattern_desc,
                     risk_card_ref=entry.risk_card,
                     contributing_risk_cards=[entry.risk_card],
                     owasp_llm_ids=entry.owasp_llm_ids,

@@ -165,8 +165,8 @@ class TestSeedProvenanceFields:
             "AML.T0053",
         }
 
-    def test_mechanism_name_from_pattern(self):
-        """Seeds should get mechanism_name and mechanism_description from
+    def test_attack_pattern_name_from_pattern(self):
+        """Seeds should get attack_pattern_name and attack_pattern_description from
         the AP-* pattern dict."""
         entry = _make_entry(
             "risk-a",
@@ -177,8 +177,8 @@ class TestSeedProvenanceFields:
         seeds = _run_expand([entry], patterns=_FAKE_PATTERNS, prov=_FAKE_PROV)
 
         seed = next(s for s in seeds if s.seed_id == "AP-T7-01")
-        assert seed.mechanism_name == "Constraint bypass via goal-priority conflict"
-        assert seed.mechanism_description == "Agent bypasses constraints"
+        assert seed.attack_pattern_name == "Constraint bypass via goal-priority conflict"
+        assert seed.attack_pattern_description == "Agent bypasses constraints"
 
     def test_atlas_provenance_filtered_by_zone3_gating(self):
         """atlas_provenance_ids should only include ATLAS IDs that are present
@@ -253,8 +253,8 @@ class TestSeedProvenanceFields:
             seed_id="AP-T1-01",
             threat_id="T1",
             threat_name="Test",
-            mechanism_name="Sub",
-            mechanism_description="Desc",
+            attack_pattern_name="Sub",
+            attack_pattern_description="Desc",
             risk_card_ref=_make_ref("risk-1"),
             owasp_llm_ids=["LLM01"],
             agentic_threat_ids=["T1"],

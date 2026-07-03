@@ -371,7 +371,7 @@ class ScenarioEnvelope(BaseModel):
         default=None,
         description=(
             "Rich metadata from the scenario seed: seed_id, threat_id, "
-            "threat_name, mechanism_name, mechanism_description."
+            "threat_name, attack_pattern_name, attack_pattern_description."
         ),
     )
 
