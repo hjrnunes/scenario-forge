@@ -1729,6 +1729,64 @@ details.expandable[open] > summary::before {
   max-height: 400px;
   overflow-y: auto;
 }
+
+/* CSS-only scenario tabs */
+.scenario-tabs > input[type="radio"] {
+  display: none;
+}
+
+.scenario-tabs > label {
+  display: inline-block;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.scenario-tabs > label:hover {
+  color: var(--text-primary);
+}
+
+.scenario-tabs > .tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  background: var(--bg-card);
+}
+
+.tab-panels > .tab-panel {
+  display: none;
+  padding: 24px;
+}
+
+.scenario-tabs > input:nth-of-type(1):checked ~ .tab-panels > .tab-panel:nth-child(1),
+.scenario-tabs > input:nth-of-type(2):checked ~ .tab-panels > .tab-panel:nth-child(2),
+.scenario-tabs > input:nth-of-type(3):checked ~ .tab-panels > .tab-panel:nth-child(3),
+.scenario-tabs > input:nth-of-type(4):checked ~ .tab-panels > .tab-panel:nth-child(4),
+.scenario-tabs > input:nth-of-type(5):checked ~ .tab-panels > .tab-panel:nth-child(5),
+.scenario-tabs > input:nth-of-type(6):checked ~ .tab-panels > .tab-panel:nth-child(6),
+.scenario-tabs > input:nth-of-type(7):checked ~ .tab-panels > .tab-panel:nth-child(7),
+.scenario-tabs > input:nth-of-type(8):checked ~ .tab-panels > .tab-panel:nth-child(8) {
+  display: block;
+}
+
+.scenario-tabs > input:nth-of-type(1):checked ~ .tab-bar > label:nth-child(1),
+.scenario-tabs > input:nth-of-type(2):checked ~ .tab-bar > label:nth-child(2),
+.scenario-tabs > input:nth-of-type(3):checked ~ .tab-bar > label:nth-child(3),
+.scenario-tabs > input:nth-of-type(4):checked ~ .tab-bar > label:nth-child(4),
+.scenario-tabs > input:nth-of-type(5):checked ~ .tab-bar > label:nth-child(5),
+.scenario-tabs > input:nth-of-type(6):checked ~ .tab-bar > label:nth-child(6),
+.scenario-tabs > input:nth-of-type(7):checked ~ .tab-bar > label:nth-child(7),
+.scenario-tabs > input:nth-of-type(8):checked ~ .tab-bar > label:nth-child(8) {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
 </style>
 """
 
@@ -2902,36 +2960,29 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
     list_style = 'style="margin:4px 0 0 16px;padding:0;font-size:13px;color:var(--text-secondary);line-height:1.6;"'
 
     return f"""
-        <div class="scenario-section">
-          <details class="expandable" open>
-            <summary>Actor Profile</summary>
-            <div style="padding:12px 0 4px;">
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-                <span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(type_color)},0.15);color:{type_color};">{_esc(type_display)}</span>
-                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};"{cap_tip_attr}>{_esc(cap_display)}</span>' if cap_display else ""}
-                {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css("#0d9488")},0.15);color:#0d9488;">{_esc(goal_category_name.replace("-", " ").replace("_", " ").title())}</span>' if goal_category_name else ""}
-              </div>
-              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
-                <div style="margin-bottom:8px;">
-                  <strong style="color:var(--text-muted);font-size:11px;">BELIEFS:</strong>
-                  <ul {list_style}>{beliefs_items}</ul>
-                </div>
-                <div style="margin-bottom:8px;">
-                  <strong style="color:var(--text-muted);font-size:11px;">DESIRES:</strong>
-                  <ul {list_style}>{desires_items}</ul>
-                </div>
-                <div style="margin-bottom:8px;">
-                  <strong style="color:var(--text-muted);font-size:11px;">INTENTIONS:</strong>
-                  <ul {list_style}>{intentions_items}</ul>
-                </div>
-                <div style="margin-bottom:8px;">
-                  <strong style="color:var(--text-muted);font-size:11px;">RESOURCES:</strong>
-                  <ul {list_style}>{resources_items}</ul>
-                </div>
-              </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+              <span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(type_color)},0.15);color:{type_color};">{_esc(type_display)}</span>
+              {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(cap_color)},0.15);color:{cap_color};"{cap_tip_attr}>{_esc(cap_display)}</span>' if cap_display else ""}
+              {f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css("#0d9488")},0.15);color:#0d9488;">{_esc(goal_category_name.replace("-", " ").replace("_", " ").title())}</span>' if goal_category_name else ""}
             </div>
-          </details>
-        </div>"""
+            <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
+              <div style="margin-bottom:8px;">
+                <strong style="color:var(--text-muted);font-size:11px;">BELIEFS:</strong>
+                <ul {list_style}>{beliefs_items}</ul>
+              </div>
+              <div style="margin-bottom:8px;">
+                <strong style="color:var(--text-muted);font-size:11px;">DESIRES:</strong>
+                <ul {list_style}>{desires_items}</ul>
+              </div>
+              <div style="margin-bottom:8px;">
+                <strong style="color:var(--text-muted);font-size:11px;">INTENTIONS:</strong>
+                <ul {list_style}>{intentions_items}</ul>
+              </div>
+              <div style="margin-bottom:8px;">
+                <strong style="color:var(--text-muted);font-size:11px;">RESOURCES:</strong>
+                <ul {list_style}>{resources_items}</ul>
+              </div>
+            </div>"""
 
 
 def _build_provenance_block(scenario: dict[str, Any]) -> str:
@@ -3130,26 +3181,25 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
         s = str(v)
         return s if s else "—"
 
-    def _row(label: str, value: str, *, hint: bool = False,
-             tooltip: str = "") -> str:
+    def _row(label: str, value: str, *, hint: bool = False, tooltip: str = "") -> str:
         """Build a single table row. hint=True renders italic/muted label."""
         tip_attr = f' data-tooltip="{_esc(tooltip)}"' if tooltip else ""
         if hint:
             label_html = (
                 f'<td style="white-space:nowrap;padding:4px 12px 4px 0;'
-                f'font-size:12px;color:var(--text-muted);font-style:italic;'
+                f"font-size:12px;color:var(--text-muted);font-style:italic;"
                 f'vertical-align:top;"{tip_attr}>{_esc(label)}</td>'
             )
         else:
             label_html = (
                 f'<td style="white-space:nowrap;padding:4px 12px 4px 0;'
-                f'font-size:12px;font-weight:600;color:var(--text-muted);'
+                f"font-size:12px;font-weight:600;color:var(--text-muted);"
                 f'vertical-align:top;"{tip_attr}>{_esc(label)}</td>'
             )
         val_html = (
             f'<td style="padding:4px 0;font-size:12px;'
             f'color:var(--text-secondary);word-break:break-word;">'
-            f'{value}</td>'
+            f"{value}</td>"
         )
         return f"<tr>{label_html}{val_html}</tr>"
 
@@ -3174,10 +3224,10 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
     def _call_header(idx: int, name: str) -> str:
         return (
             f'<div style="font-size:11px;font-weight:700;'
-            f'color:var(--text-muted);text-transform:uppercase;'
-            f'letter-spacing:0.5px;margin:14px 0 4px;'
+            f"color:var(--text-muted);text-transform:uppercase;"
+            f"letter-spacing:0.5px;margin:14px 0 4px;"
             f'padding-bottom:3px;border-bottom:1px solid var(--border);">'
-            f'Call {idx}: {_esc(name)}</div>'
+            f"Call {idx}: {_esc(name)}</div>"
         )
 
     def _table(rows: str) -> str:
@@ -3202,75 +3252,91 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
     )
 
     # ---- Call 0: Actor Profile ----
-    call0_rows = "".join([
-        _row("Mechanism", mechanism),
-        _row("Mechanism description", mechanism_desc),
-        _row("Threat", threat_html),
-        _row("System zones", zones_html),
-        _row("ATLAS techniques", atlas_html),
-        _row("Attack goal", goal_display),
-        _row("Attack goal category", _val(goal_parent)),
-        _row("Diversity hint: preferred actor type",
-             "<span style=\"color:var(--text-muted);font-style:italic;\">"
-             "not captured in output</span>",
-             hint=True),
-        _row("Diversity hint: excluded actor types",
-             "<span style=\"color:var(--text-muted);font-style:italic;\">"
-             "not captured in output</span>",
-             hint=True),
-    ])
+    call0_rows = "".join(
+        [
+            _row("Mechanism", mechanism),
+            _row("Mechanism description", mechanism_desc),
+            _row("Threat", threat_html),
+            _row("System zones", zones_html),
+            _row("ATLAS techniques", atlas_html),
+            _row("Attack goal", goal_display),
+            _row("Attack goal category", _val(goal_parent)),
+            _row(
+                "Diversity hint: preferred actor type",
+                '<span style="color:var(--text-muted);font-style:italic;">'
+                "not captured in output</span>",
+                hint=True,
+            ),
+            _row(
+                "Diversity hint: excluded actor types",
+                '<span style="color:var(--text-muted);font-style:italic;">'
+                "not captured in output</span>",
+                hint=True,
+            ),
+        ]
+    )
 
     # ---- Call 1: Narrative ----
     owasp_html = _val(tc.get("owasp_llm_ids"))
-    call1_rows = "".join([
-        _row("Mechanism", mechanism),
-        _row("Mechanism description", mechanism_desc),
-        _row("Threat", threat_html),
-        _row("System zones", zones_html),
-        _row("Entry point", _val(cp.get("entry_point"))),
-        _row("OWASP LLM IDs", owasp_html),
-        _row("ATLAS techniques", atlas_html),
-        _row("Actor type", _val(actor.get("actor_type"))),
-        _row("Capability level", _val(actor.get("capability_level"))),
-        _row("Beliefs", _val(actor.get("beliefs"))),
-        _row("Desires", _val(actor.get("desires"))),
-        _row("Intentions", _val(actor.get("intentions"))),
-        _row("Resources", _val(actor.get("resources"))),
-        _row("Attack goal", goal_display),
-        _row("Attack goal category", _val(goal_parent)),
-        _row("Diversity hint: preferred entry point",
-             "<span style=\"color:var(--text-muted);font-style:italic;\">"
-             "not captured in output</span>",
-             hint=True),
-        _row("Diversity hint: excluded patterns",
-             "<span style=\"color:var(--text-muted);font-style:italic;\">"
-             "not captured in output</span>",
-             hint=True),
-    ])
+    call1_rows = "".join(
+        [
+            _row("Mechanism", mechanism),
+            _row("Mechanism description", mechanism_desc),
+            _row("Threat", threat_html),
+            _row("System zones", zones_html),
+            _row("Entry point", _val(cp.get("entry_point"))),
+            _row("OWASP LLM IDs", owasp_html),
+            _row("ATLAS techniques", atlas_html),
+            _row("Actor type", _val(actor.get("actor_type"))),
+            _row("Capability level", _val(actor.get("capability_level"))),
+            _row("Beliefs", _val(actor.get("beliefs"))),
+            _row("Desires", _val(actor.get("desires"))),
+            _row("Intentions", _val(actor.get("intentions"))),
+            _row("Resources", _val(actor.get("resources"))),
+            _row("Attack goal", goal_display),
+            _row("Attack goal category", _val(goal_parent)),
+            _row(
+                "Diversity hint: preferred entry point",
+                '<span style="color:var(--text-muted);font-style:italic;">'
+                "not captured in output</span>",
+                hint=True,
+            ),
+            _row(
+                "Diversity hint: excluded patterns",
+                '<span style="color:var(--text-muted);font-style:italic;">'
+                "not captured in output</span>",
+                hint=True,
+            ),
+        ]
+    )
 
     # ---- Call 2: Attack Tree ----
-    call2_rows = "".join([
-        _row("Mechanism", mechanism),
-        _row("Threat", threat_html),
-        _row("System zones", zones_html),
-        _row("ATLAS techniques", atlas_html),
-        _row("Actor type", _val(actor.get("actor_type"))),
-        _row("Capability level", _val(actor.get("capability_level"))),
-        _row("Narrative title", _val(narrative.get("title"))),
-        _row("Narrative summary", _val(narrative.get("summary"))),
-        _row("Entry point", _val(narrative.get("entry_point"))),
-        _row("Zone sequence", _val(narrative.get("zone_sequence"))),
-    ])
+    call2_rows = "".join(
+        [
+            _row("Mechanism", mechanism),
+            _row("Threat", threat_html),
+            _row("System zones", zones_html),
+            _row("ATLAS techniques", atlas_html),
+            _row("Actor type", _val(actor.get("actor_type"))),
+            _row("Capability level", _val(actor.get("capability_level"))),
+            _row("Narrative title", _val(narrative.get("title"))),
+            _row("Narrative summary", _val(narrative.get("summary"))),
+            _row("Entry point", _val(narrative.get("entry_point"))),
+            _row("Zone sequence", _val(narrative.get("zone_sequence"))),
+        ]
+    )
 
     # ---- Call 3: Behavior Spec ----
-    call3_rows = "".join([
-        _row("Narrative title", _val(narrative.get("title"))),
-        _row("Entry point", _val(narrative.get("entry_point"))),
-        _row("Zone sequence", _val(narrative.get("zone_sequence"))),
-        _row("Attack tree goal", _val(attack_tree.get("goal"))),
-        _row("Actor type", _val(actor.get("actor_type"))),
-        _row("Capability level", _val(actor.get("capability_level"))),
-    ])
+    call3_rows = "".join(
+        [
+            _row("Narrative title", _val(narrative.get("title"))),
+            _row("Entry point", _val(narrative.get("entry_point"))),
+            _row("Zone sequence", _val(narrative.get("zone_sequence"))),
+            _row("Attack tree goal", _val(attack_tree.get("goal"))),
+            _row("Actor type", _val(actor.get("actor_type"))),
+            _row("Capability level", _val(actor.get("capability_level"))),
+        ]
+    )
 
     content = (
         _call_header(0, "Actor Profile")
@@ -3283,15 +3349,7 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
         + _table(call3_rows)
     )
 
-    return f"""
-        <div class="scenario-section">
-          <details class="expandable">
-            <summary>Generation Inputs</summary>
-            <div style="padding:12px 0 4px;">
-              {content}
-            </div>
-          </details>
-        </div>"""
+    return f'<div style="padding:12px 0 4px;">{content}</div>'
 
 
 def _collect_used_technique_ids(
@@ -3345,14 +3403,9 @@ def _build_atlas_techniques_block(
         )
 
     return f"""
-        <div class="scenario-section">
-          <details class="expandable" open>
-            <summary>ATLAS Techniques</summary>
-            <div style="padding:12px 0 4px;display:flex;flex-wrap:wrap;">
+            <div style="display:flex;flex-wrap:wrap;">
               {badges}
-            </div>
-          </details>
-        </div>"""
+            </div>"""
 
 
 def _build_scenario_card(
@@ -3408,7 +3461,7 @@ def _build_scenario_card(
     # ATLAS techniques section
     atlas_techniques_html = _build_atlas_techniques_block(scenario, feature_content)
 
-    # LLM call log section
+    # LLM call log section (inner content only, no <details> wrapper)
     call_log_html = ""
     _logs = (call_logs or {}).get(sid, [])
     if _logs:
@@ -3446,15 +3499,10 @@ def _build_scenario_card(
                 <pre class="call-log-pre">{response_text}</pre>
               </div>
             </details>"""
-        call_log_html = f"""
-        <div class="scenario-section">
-          <details class="expandable">
-            <summary>LLM Calls ({len(_logs)})</summary>
-            <div style="padding:8px 0;">
-              {call_items}
-            </div>
-          </details>
-        </div>"""
+        call_log_html = call_items
+
+    # Sanitised scenario ID for unique radio input IDs
+    safe_sid = re.sub(r"[^a-zA-Z0-9_-]", "_", sid)
 
     return f"""
     <div class="scenario-card" id="scenario-{_esc(sid)}" data-scenario="{_esc(sid)}"
@@ -3477,44 +3525,61 @@ def _build_scenario_card(
           </span>
         </div>
       </div>
-      <div class="scenario-body">
-        {_build_actor_profile_block(scenario)}
-        {generation_inputs_html}
-        {atlas_techniques_html}
-
-        <div class="scenario-section">
-          <div class="scenario-section-title">Narrative</div>
-          <p class="scenario-summary">{_esc(summary)}</p>
-          <div style="margin-top:12px;font-size:13px;color:var(--text-secondary);">
-            <strong style="color:var(--text-muted);font-size:11px;">ENTRY POINT:</strong> {_esc(entry_point)}
-          </div>
-          <div style="margin-top:8px;">
-            <strong style="color:var(--text-muted);font-size:11px;">ZONE SEQUENCE:</strong>
-            <div class="zone-breadcrumb">{breadcrumb}</div>
-          </div>
+      <div class="scenario-tabs">
+        <input type="radio" id="tab-{safe_sid}-gen" name="tabs-{safe_sid}" checked>
+        <input type="radio" id="tab-{safe_sid}-actor" name="tabs-{safe_sid}">
+        <input type="radio" id="tab-{safe_sid}-atlas" name="tabs-{safe_sid}">
+        <input type="radio" id="tab-{safe_sid}-narr" name="tabs-{safe_sid}">
+        <input type="radio" id="tab-{safe_sid}-tree" name="tabs-{safe_sid}">
+        <input type="radio" id="tab-{safe_sid}-bspec" name="tabs-{safe_sid}">
+        <input type="radio" id="tab-{safe_sid}-prio" name="tabs-{safe_sid}">
+        <input type="radio" id="tab-{safe_sid}-llm" name="tabs-{safe_sid}">
+        <div class="tab-bar">
+          <label for="tab-{safe_sid}-gen">Generation Inputs</label>
+          <label for="tab-{safe_sid}-actor">Actor Profile</label>
+          <label for="tab-{safe_sid}-atlas">ATLAS Techniques</label>
+          <label for="tab-{safe_sid}-narr">Narrative</label>
+          <label for="tab-{safe_sid}-tree">Attack Tree</label>
+          <label for="tab-{safe_sid}-bspec">Behavior Spec</label>
+          <label for="tab-{safe_sid}-prio">Priority Signals</label>
+          <label for="tab-{safe_sid}-llm">LLM Calls</label>
         </div>
-
-        <div class="scenario-section">
-          <div class="scenario-section-title">Attack Tree</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;font-style:italic;">
-            Goal: {_esc(tree_goal)}
+        <div class="tab-panels">
+          <div class="tab-panel">
+            {generation_inputs_html}
           </div>
-          <div class="attack-tree">{attack_tree_html}</div>
-        </div>
-
-        <div class="scenario-section">
-          <div class="scenario-section-title">Behavior Specification</div>
-          <div class="feature-spec">{behavior_html}</div>
-        </div>
-
-        <div class="scenario-section">
-          <details class="expandable">
-            <summary>Priority Signals</summary>
+          <div class="tab-panel">
+            {_build_actor_profile_block(scenario)}
+          </div>
+          <div class="tab-panel">
+            {atlas_techniques_html}
+          </div>
+          <div class="tab-panel">
+            <p class="scenario-summary">{_esc(summary)}</p>
+            <div style="margin-top:12px;font-size:13px;color:var(--text-secondary);">
+              <strong style="color:var(--text-muted);font-size:11px;">ENTRY POINT:</strong> {_esc(entry_point)}
+            </div>
+            <div style="margin-top:8px;">
+              <strong style="color:var(--text-muted);font-size:11px;">ZONE SEQUENCE:</strong>
+              <div class="zone-breadcrumb">{breadcrumb}</div>
+            </div>
+          </div>
+          <div class="tab-panel">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;font-style:italic;">
+              Goal: {_esc(tree_goal)}
+            </div>
+            <div class="attack-tree">{attack_tree_html}</div>
+          </div>
+          <div class="tab-panel">
+            <div class="feature-spec">{behavior_html}</div>
+          </div>
+          <div class="tab-panel">
             {signals_html}
-          </details>
+          </div>
+          <div class="tab-panel">
+            {call_log_html}
+          </div>
         </div>
-
-        {call_log_html}
       </div>
     </div>
     """
