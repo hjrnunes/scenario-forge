@@ -15,7 +15,6 @@ from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateTy
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import (
     AttackComplexity,
-    CausalChainReframed,
     NarrativeLayer,
     NarrativeStep,
     RiskCardRef,
@@ -81,7 +80,6 @@ def _make_narrative(
     *,
     title: str = "Test Scenario",
     summary: str = "A test summary.",
-    causal_chain: CausalChainReframed | None = None,
 ) -> NarrativeLayer:
     """Create a NarrativeLayer for testing."""
     return NarrativeLayer(
@@ -97,7 +95,6 @@ def _make_narrative(
                 effect="effect 1",
             ),
         ],
-        causal_chain_reframed=causal_chain,
     )
 
 
@@ -388,28 +385,8 @@ class TestHeuristicRiskImpact:
 class TestExtractNarrativeKeywords:
     """Tests for extract_narrative_keywords()."""
 
-    def test_extracts_from_causal_chain_when_available(self):
-        """Should prefer causal chain fields over title/summary."""
-        causal = CausalChainReframed(
-            threat="I exploit the compliance engine poisoning vulnerability",
-            threat_source="I am a sophisticated attacker",
-            vulnerability="compliance engine poisoning through data manipulation",
-            consequence="reviewer fatigue leads to approval of tainted data",
-            impact="data integrity breach across the system",
-        )
-        narrative = _make_narrative(
-            title="Something Completely Different",
-            summary="An unrelated summary about cats",
-            causal_chain=causal,
-        )
-        keywords = extract_narrative_keywords(narrative)
-        assert len(keywords) > 0
-        assert len(keywords) <= 3
-        # Should extract from vulnerability/consequence, not title
-        assert "cats" not in keywords
-
-    def test_falls_back_to_title_summary_without_causal_chain(self):
-        """When no causal chain, should extract from title/summary."""
+    def test_extracts_from_title_summary(self):
+        """Should extract keywords from title/summary."""
         narrative = _make_narrative(
             title="RAG Poisoning via SharePoint Integration",
             summary="I exploit the SharePoint integration to poison RAG data stores",

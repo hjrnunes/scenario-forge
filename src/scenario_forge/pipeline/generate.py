@@ -41,7 +41,6 @@ from scenario_forge.models.scenario import (
     CallMetadata,
     CallName,
     CapabilityProfileRef,
-    CausalChainReframed,
     FacetingMetadata,
     GenerationMetadata,
     NarrativeLayer,
@@ -143,7 +142,6 @@ def _sanitize_narrative(narrative: NarrativeLayer) -> NarrativeLayer:
             entry_point=narrative.entry_point,
             zone_sequence=narrative.zone_sequence,
             steps=new_steps,
-            causal_chain_reframed=narrative.causal_chain_reframed,
         )
     return narrative
 
@@ -356,7 +354,7 @@ def extract_narrative_keywords(
     seeds). Falls back to narrative text when the mechanism name yields
     fewer than *max_keywords* after stop-word filtering.
 
-    Uses the causal_chain_reframed fields and the narrative title/summary to
+    Uses the narrative title/summary to
     identify the dominant attack archetype. Returns up to *max_keywords*
     descriptive words, lowercased and deduplicated.
 
@@ -381,14 +379,7 @@ def extract_narrative_keywords(
     if mechanism_name:
         text_parts.append(mechanism_name)
 
-    # Prefer causal chain fields — they are more specific than the title.
-    if narrative.causal_chain_reframed is not None:
-        cc = narrative.causal_chain_reframed
-        text_parts.extend([cc.vulnerability, cc.consequence])
-
-    # Fall back to title + summary if no causal chain.
-    if not text_parts or (len(text_parts) == 1 and mechanism_name):
-        text_parts.extend([narrative.title, narrative.summary])
+    text_parts.extend([narrative.title, narrative.summary])
 
     combined = " ".join(text_parts).lower()
 
@@ -1003,21 +994,12 @@ class Call1Step(BaseModel):
     control_point: Optional[str] = None
 
 
-class Call1CausalChain(BaseModel):
-    threat: str
-    threat_source: str
-    vulnerability: str
-    consequence: str
-    impact: str
-
-
 class Call1Response(BaseModel):
     title: str
     summary: str
     entry_point: str
     zone_sequence: list[str] = Field(min_length=1)
     steps: list[Call1Step] = Field(min_length=1)
-    causal_chain_reframed: Optional[Call1CausalChain] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1218,13 +1200,6 @@ When the attack involves bypassing human-in-the-loop review, describe the \
 specific failure mechanism (e.g., reviewer fatigue, volume overwhelming the \
 reviewer, UI that buries alerts, time pressure) rather than simply asserting \
 "the attacker bypasses review."
-
-## Causal Chain Reframing
-If a causal chain is provided (threat, threat_source, vulnerability, \
-consequence, impact), reframe each field from policy-voice to adversarial-voice. \
-Policy voice: "Unauthorized access to sensitive data may occur." \
-Adversarial voice: "I gain unauthorized access to sensitive data by exploiting..." \
-If no causal chain is provided, omit causal_chain_reframed.
 
 ## Actor Profile Grounding
 If an actor profile is provided, ground the narrative in that actor. The \
@@ -1491,23 +1466,12 @@ def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
         )
         for s in resp.steps
     ]
-    causal = None
-    if resp.causal_chain_reframed is not None:
-        c = resp.causal_chain_reframed
-        causal = CausalChainReframed(
-            threat=c.threat,
-            threat_source=c.threat_source,
-            vulnerability=c.vulnerability,
-            consequence=c.consequence,
-            impact=c.impact,
-        )
     return NarrativeLayer(
         title=resp.title,
         summary=resp.summary,
         entry_point=resp.entry_point,
         zone_sequence=resp.zone_sequence,
         steps=steps,
-        causal_chain_reframed=causal,
     )
 
 
