@@ -198,6 +198,10 @@ class ActorProfile(BaseModel):
         default=None,
         description="Human-readable attack goal name from the attack goals taxonomy.",
     )
+    goal_category_parent: str | None = Field(
+        default=None,
+        description="Top-level attack goal category (availability, integrity, privacy, abuse).",
+    )
 
 
 # ---------------------------------------------------------------------------

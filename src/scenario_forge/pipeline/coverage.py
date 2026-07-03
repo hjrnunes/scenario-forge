@@ -218,9 +218,9 @@ def analyze_attacker_diversity(
         model_counts[actor_type] = model_counts.get(actor_type, 0) + 1
 
         goal_category = (
-            envelope.actor_profile.goal_category_name
+            envelope.actor_profile.goal_category_parent
             if envelope.actor_profile is not None
-            and envelope.actor_profile.goal_category_name
+            and envelope.actor_profile.goal_category_parent
             else "uncategorized"
         )
         goal_counts[goal_category] = goal_counts.get(goal_category, 0) + 1

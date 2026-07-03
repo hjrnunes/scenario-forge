@@ -2660,9 +2660,9 @@ def build_attacker_diversity_section(scenarios: list[dict[str, Any]]) -> str:
     for s in scenarios:
         actor_profile = s.get("actor_profile")
         if actor_profile and isinstance(actor_profile, dict):
-            gcn = actor_profile.get("goal_category_name", "")
-            if gcn:
-                goal_counts[gcn] = goal_counts.get(gcn, 0) + 1
+            gcp = actor_profile.get("goal_category_parent", "")
+            if gcp:
+                goal_counts[gcp] = goal_counts.get(gcp, 0) + 1
 
     goal_section_html = ""
     if goal_counts:

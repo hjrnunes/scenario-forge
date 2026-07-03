@@ -2691,6 +2691,7 @@ def generate_scenario(
     if attack_goal is not None:
         actor_profile.goal_category = attack_goal["id"]
         actor_profile.goal_category_name = attack_goal["name"]
+        actor_profile.goal_category_parent = attack_goal["category_name"]
 
     call_metas.append(_call_metadata(CallName.actor_profile, result0))
 
