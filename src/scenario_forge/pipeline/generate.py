@@ -2133,30 +2133,6 @@ def _call_narrative(
     excluded_patterns: list[str] | None = None,
     excluded_structural_patterns: list[str] | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
-    causal_section = ""
-    risk_ref = seed.risk_card_ref
-    if risk_ref:
-        lines = [
-            f"- Risk: {risk_ref.risk_name} ({risk_ref.risk_id})",
-            f"- Taxonomy: {risk_ref.taxonomy}",
-        ]
-        # Include causal chain fields when available (reframe, do not copy verbatim)
-        for label, field in [
-            ("Threat", "threat"),
-            ("Threat source", "threat_source"),
-            ("Vulnerability", "vulnerability"),
-            ("Consequence", "consequence"),
-            ("Impact", "impact"),
-        ]:
-            value = getattr(risk_ref, field, None)
-            if value is not None:
-                lines.append(f"- {label}: {value}")
-        causal_section = (
-            "\n## Causal Chain (reframe from policy-voice to adversarial-voice, do not copy verbatim)\n"
-            + "\n".join(lines)
-            + "\n"
-        )
-
     # Build entry point diversity guidance section
     diversity_section = ""
     if preferred_entry_point or excluded_entry_points:
@@ -2248,7 +2224,7 @@ is a specific instance of these broader threat categories.
 
 {technique_context_1}\
 {technique_framing_1}\
-{actor_section}{causal_section}{diversity_section}{pattern_section}{structural_section}\
+{actor_section}{diversity_section}{pattern_section}{structural_section}\
 """
 
     result = client.complete(
