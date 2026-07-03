@@ -2,6 +2,7 @@
 
 Covers:
 - m86: Integrate attack goals taxonomy for actor profile diversity.
+- scenario-forge-smd: Threat-goal affinity weighted selection.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from scenario_forge.pipeline.generate import (
     filter_sub_goals_by_zones,
     get_all_sub_goals,
     load_attack_goals_taxonomy,
+    load_threat_goal_affinity,
     select_attack_goal,
 )
 
@@ -117,7 +119,13 @@ class TestFilterSubGoalsByZones:
         """A system with all zones, memory, HITL, and multi-agent keeps all goals."""
         filtered = filter_sub_goals_by_zones(
             all_sub_goals,
-            zones_active=["input", "reasoning", "tool_execution", "memory", "inter_agent"],
+            zones_active=[
+                "input",
+                "reasoning",
+                "tool_execution",
+                "memory",
+                "inter_agent",
+            ],
             has_persistent_memory=True,
             hitl=True,
             multi_agent=True,
@@ -170,7 +178,9 @@ class TestFilterSubGoalsByZones:
         assert "IN-5" in filtered_ids
         assert "PR-5" in filtered_ids
 
-    def test_memory_zone_without_persistent_memory(self, all_sub_goals: list[dict]) -> None:
+    def test_memory_zone_without_persistent_memory(
+        self, all_sub_goals: list[dict]
+    ) -> None:
         """Memory zone without has_persistent_memory=True still filters memory-dependent goals."""
         filtered = filter_sub_goals_by_zones(
             all_sub_goals,
@@ -216,15 +226,30 @@ class TestSelectAttackGoal:
     @pytest.fixture()
     def sample_goals(self) -> list[dict]:
         return [
-            {"id": "AV-1", "name": "Service Denial", "description": "...",
-             "category_id": "availability", "category_name": "Availability Disruption",
-             "category_description": "..."},
-            {"id": "IN-1", "name": "Output Manipulation", "description": "...",
-             "category_id": "integrity", "category_name": "Integrity Violation",
-             "category_description": "..."},
-            {"id": "PR-1", "name": "Data Exfiltration", "description": "...",
-             "category_id": "privacy", "category_name": "Privacy Compromise",
-             "category_description": "..."},
+            {
+                "id": "AV-1",
+                "name": "Service Denial",
+                "description": "...",
+                "category_id": "availability",
+                "category_name": "Availability Disruption",
+                "category_description": "...",
+            },
+            {
+                "id": "IN-1",
+                "name": "Output Manipulation",
+                "description": "...",
+                "category_id": "integrity",
+                "category_name": "Integrity Violation",
+                "category_description": "...",
+            },
+            {
+                "id": "PR-1",
+                "name": "Data Exfiltration",
+                "description": "...",
+                "category_id": "privacy",
+                "category_name": "Privacy Compromise",
+                "category_description": "...",
+            },
         ]
 
     def test_selects_unused_first(self, sample_goals: list[dict]) -> None:
@@ -313,3 +338,244 @@ class TestBuildAttackGoalContextBlock:
         }
         block = _build_attack_goal_context_block(sub_goal)
         assert len(block) > 100  # Should be substantial
+
+
+# ---------------------------------------------------------------------------
+# Threat-goal affinity map
+# ---------------------------------------------------------------------------
+
+
+class TestLoadThreatGoalAffinity:
+    """Test loading and validation of the threat-goal affinity YAML."""
+
+    def test_loads_successfully(self) -> None:
+        affinity = load_threat_goal_affinity()
+        assert isinstance(affinity, dict)
+        assert len(affinity) == 17  # T1 through T17
+
+    def test_all_threat_ids_present(self) -> None:
+        affinity = load_threat_goal_affinity()
+        for i in range(1, 18):
+            assert f"T{i}" in affinity, f"Missing threat ID T{i}"
+
+    def test_entries_have_required_keys(self) -> None:
+        affinity = load_threat_goal_affinity()
+        for tid, entry in affinity.items():
+            assert "primary" in entry, f"{tid} missing 'primary'"
+            assert "secondary" in entry, f"{tid} missing 'secondary'"
+            assert "excluded" in entry, f"{tid} missing 'excluded'"
+
+    def test_category_ids_are_valid(self) -> None:
+        """All category IDs in the affinity map reference real categories."""
+        valid_cats = {"availability", "integrity", "privacy", "abuse"}
+        affinity = load_threat_goal_affinity()
+        for tid, entry in affinity.items():
+            for tier in ("primary", "secondary", "excluded"):
+                for cat in entry[tier]:
+                    assert cat in valid_cats, (
+                        f"{tid}.{tier} references unknown category '{cat}'"
+                    )
+
+    def test_every_threat_has_at_least_one_primary(self) -> None:
+        affinity = load_threat_goal_affinity()
+        for tid, entry in affinity.items():
+            assert len(entry["primary"]) > 0, f"{tid} has no primary categories"
+
+    def test_no_overlap_between_primary_and_excluded(self) -> None:
+        affinity = load_threat_goal_affinity()
+        for tid, entry in affinity.items():
+            overlap = set(entry["primary"]) & set(entry["excluded"])
+            assert not overlap, (
+                f"{tid} has overlap between primary and excluded: {overlap}"
+            )
+
+    def test_custom_path(self, tmp_path: Path) -> None:
+        """Loading from a custom path works."""
+        import yaml as _yaml
+
+        custom = {
+            "version": "test",
+            "affinities": {
+                "T99": {
+                    "primary": ["integrity"],
+                    "secondary": ["abuse"],
+                    "excluded": ["availability"],
+                },
+            },
+        }
+        path = tmp_path / "test-affinity.yaml"
+        path.write_text(_yaml.dump(custom))
+
+        result = load_threat_goal_affinity(path)
+        assert "T99" in result
+        assert result["T99"]["primary"] == ["integrity"]
+
+
+# ---------------------------------------------------------------------------
+# Affinity-aware goal selection
+# ---------------------------------------------------------------------------
+
+
+class TestSelectAttackGoalWithAffinity:
+    """Test that threat_id steers goal selection toward affinity tiers."""
+
+    @pytest.fixture()
+    def mixed_goals(self) -> list[dict]:
+        """Goals spanning all four categories."""
+        return [
+            {
+                "id": "AV-1",
+                "name": "Service Denial",
+                "description": "...",
+                "category_id": "availability",
+                "category_name": "Availability Disruption",
+                "category_description": "...",
+            },
+            {
+                "id": "IN-1",
+                "name": "Output Manipulation",
+                "description": "...",
+                "category_id": "integrity",
+                "category_name": "Integrity Violation",
+                "category_description": "...",
+            },
+            {
+                "id": "IN-5",
+                "name": "Memory/State Poisoning",
+                "description": "...",
+                "category_id": "integrity",
+                "category_name": "Integrity Violation",
+                "category_description": "...",
+            },
+            {
+                "id": "PR-1",
+                "name": "Data Exfiltration",
+                "description": "...",
+                "category_id": "privacy",
+                "category_name": "Privacy Compromise",
+                "category_description": "...",
+            },
+            {
+                "id": "AB-1",
+                "name": "Safety Bypass",
+                "description": "...",
+                "category_id": "abuse",
+                "category_name": "Abuse",
+                "category_description": "...",
+            },
+        ]
+
+    def test_picks_from_primary_for_T1(self, mixed_goals: list[dict]) -> None:
+        """T1 (Memory Poisoning): primary=[integrity], excluded=[availability].
+        Should pick from integrity goals, never availability."""
+        usage: Counter[str] = Counter()
+        selected_cats = set()
+        for _ in range(20):
+            goal = select_attack_goal(
+                mixed_goals, usage, total_seeds=20, threat_id="T1"
+            )
+            selected_cats.add(goal["category_id"])
+            usage[goal["id"]] += 1
+
+        # Must never pick availability (excluded for T1)
+        assert "availability" not in selected_cats
+        # Must have picked integrity at least once (primary)
+        assert "integrity" in selected_cats
+
+    def test_never_picks_excluded_for_T4(self, mixed_goals: list[dict]) -> None:
+        """T4 (Resource Overload): excluded=[integrity, privacy].
+        Should only pick availability or abuse."""
+        usage: Counter[str] = Counter()
+        for _ in range(30):
+            goal = select_attack_goal(
+                mixed_goals, usage, total_seeds=30, threat_id="T4"
+            )
+            assert goal["category_id"] not in ("integrity", "privacy"), (
+                f"T4 should never pick {goal['category_id']} goal {goal['id']}"
+            )
+            usage[goal["id"]] += 1
+
+    def test_none_threat_id_preserves_original_behavior(
+        self, mixed_goals: list[dict]
+    ) -> None:
+        """With threat_id=None, all goals are eligible (backwards-compatible)."""
+        usage: Counter[str] = Counter()
+        selected_cats = set()
+        for _ in range(50):
+            goal = select_attack_goal(
+                mixed_goals, usage, total_seeds=50, threat_id=None
+            )
+            selected_cats.add(goal["category_id"])
+            usage[goal["id"]] += 1
+
+        # All four categories should appear
+        assert selected_cats == {"availability", "integrity", "privacy", "abuse"}
+
+    def test_unknown_threat_id_preserves_original_behavior(
+        self, mixed_goals: list[dict]
+    ) -> None:
+        """An unknown threat_id falls back to unweighted fair-share."""
+        usage: Counter[str] = Counter()
+        selected_cats = set()
+        for _ in range(50):
+            goal = select_attack_goal(
+                mixed_goals, usage, total_seeds=50, threat_id="T99"
+            )
+            selected_cats.add(goal["category_id"])
+            usage[goal["id"]] += 1
+
+        assert selected_cats == {"availability", "integrity", "privacy", "abuse"}
+
+    def test_falls_back_to_secondary_when_primary_exhausted(self) -> None:
+        """When primary goals are above fair-share ceiling, secondary goals are used."""
+        # T8: primary=[abuse], secondary=[integrity], excluded=[availability, privacy]
+        goals = [
+            {
+                "id": "AB-1",
+                "name": "Safety Bypass",
+                "description": "...",
+                "category_id": "abuse",
+                "category_name": "Abuse",
+                "category_description": "...",
+            },
+            {
+                "id": "IN-1",
+                "name": "Output Manipulation",
+                "description": "...",
+                "category_id": "integrity",
+                "category_name": "Integrity Violation",
+                "category_description": "...",
+            },
+            {
+                "id": "AV-1",
+                "name": "Service Denial",
+                "description": "...",
+                "category_id": "availability",
+                "category_name": "Availability Disruption",
+                "category_description": "...",
+            },
+            {
+                "id": "PR-1",
+                "name": "Data Exfiltration",
+                "description": "...",
+                "category_id": "privacy",
+                "category_name": "Privacy Compromise",
+                "category_description": "...",
+            },
+        ]
+
+        # Pre-load usage so AB-1 is above fair-share ceiling
+        # total_seeds=4, 1 primary goal → ceiling = ceil(4/1) = 4
+        # Set AB-1 to 4 uses to trigger fallback
+        usage: Counter[str] = Counter({"AB-1": 4})
+
+        goal = select_attack_goal(goals, usage, total_seeds=4, threat_id="T8")
+        # Should pick from secondary (integrity), not excluded (availability/privacy)
+        assert goal["category_id"] == "integrity", (
+            f"Expected secondary fallback to integrity, got {goal['category_id']}"
+        )
+
+    def test_empty_sub_goals_raises_with_threat_id(self) -> None:
+        """Empty sub-goals list raises ValueError even with threat_id."""
+        with pytest.raises(ValueError, match="No attack goal sub-goals available"):
+            select_attack_goal([], Counter(), total_seeds=10, threat_id="T1")

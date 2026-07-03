@@ -1,0 +1,92 @@
+version: "1.0"
+description: >
+  Maps OWASP Agentic Threat IDs to attack goal category affinities.
+  primary: natural fit, strongly preferred.
+  secondary: plausible but not the first association.
+  excluded: implausible combination, never assign.
+
+affinities:
+  T1:   # Memory Poisoning
+    primary: [integrity]
+    secondary: [privacy, abuse]
+    excluded: [availability]
+
+  T2:   # Tool Misuse
+    primary: [abuse, integrity]
+    secondary: [availability, privacy]
+    excluded: []
+
+  T3:   # Privilege Compromise
+    primary: [abuse, privacy]
+    secondary: [integrity]
+    excluded: [availability]
+
+  T4:   # Resource Overload
+    primary: [availability]
+    secondary: [abuse]
+    excluded: [integrity, privacy]
+
+  T5:   # Cascading Hallucination Attacks
+    primary: [integrity]
+    secondary: [abuse]
+    excluded: [availability, privacy]
+
+  T6:   # Intent Breaking & Goal Manipulation
+    primary: [integrity]
+    secondary: [abuse]
+    excluded: [availability, privacy]
+
+  T7:   # Misaligned & Deceptive Behaviors
+    primary: [integrity, abuse]
+    secondary: [privacy]
+    excluded: [availability]
+
+  T8:   # Repudiation & Untraceability
+    primary: [abuse]
+    secondary: [integrity]
+    excluded: [availability, privacy]
+
+  T9:   # Identity Spoofing & Impersonation
+    primary: [abuse, privacy]
+    secondary: [integrity]
+    excluded: [availability]
+
+  T10:  # Overwhelming Human in the Loop
+    primary: [availability]
+    secondary: [integrity, abuse]
+    excluded: [privacy]
+
+  T11:  # Unexpected RCE and Code Attacks
+    primary: [abuse, integrity]
+    secondary: [privacy, availability]
+    excluded: []
+
+  T12:  # Agent Communication Poisoning
+    primary: [integrity]
+    secondary: [availability, abuse]
+    excluded: [privacy]
+
+  T13:  # Rogue Agents in Multi-Agent Systems
+    primary: [integrity, abuse]
+    secondary: [availability, privacy]
+    excluded: []
+
+  T14:  # Human Attacks on Multi-Agent Systems
+    primary: [integrity, abuse]
+    secondary: [availability]
+    excluded: [privacy]
+
+  T15:  # Human Manipulation
+    primary: [abuse]
+    secondary: [integrity, privacy]
+    excluded: [availability]
+
+  T16:  # Insecure Inter-Agent Protocol Abuse
+    primary: [integrity]
+    secondary: [privacy, availability, abuse]
+    excluded: []
+
+  T17:  # Supply Chain Compromise
+    primary: [integrity]
+    secondary: [abuse, privacy]
+    excluded: [availability]
