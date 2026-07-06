@@ -1,18 +1,23 @@
-"""Candidate filtering pipeline models.
+"""Candidate expansion and filtering pipeline.
 
-Defines the contract between seed expansion (cross-product of seeds with
-entry points and ATLAS techniques), the LLM batch filter stage, and
-downstream scenario generation.
+Cross-products scenario seeds with entry points and ATLAS techniques to
+produce CandidateTriple objects, then defines models for the LLM batch
+filter stage and downstream scenario generation.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from scenario_forge.data.atlas import ATLAS_TECHNIQUE_DESCRIPTIONS, ATLAS_TECHNIQUE_NAMES
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.seeds import ScenarioSeed
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -102,3 +107,75 @@ class FilteredSeed(ScenarioSeed):
         default_factory=list,
         description="Sibling candidates that were rejected (for provenance tab).",
     )
+
+
+# ---------------------------------------------------------------------------
+# Candidate expansion: cross-product seeds x entry_points x techniques
+# ---------------------------------------------------------------------------
+
+
+def expand_candidates(
+    seeds: list[ScenarioSeed],
+    profile: CapabilityProfile,
+) -> list[CandidateTriple]:
+    """Cross-product each seed with all entry points and ATLAS techniques.
+
+    For every ScenarioSeed, produces one CandidateTriple per
+    (entry_point, atlas_technique) combination, carrying full context
+    needed by the downstream LLM filter stage.
+
+    Args:
+        seeds: Output of ``expand_seeds()`` (Stage 3).
+        profile: Capability profile with ``entry_points`` list.
+
+    Returns:
+        Flat list of CandidateTriple, one per combination.
+    """
+    if not profile.entry_points:
+        logger.warning("Profile has no entry points — returning empty candidate list")
+        return []
+
+    candidates: list[CandidateTriple] = []
+
+    for seed in seeds:
+        if not seed.atlas_technique_ids:
+            logger.warning(
+                "Seed %s has no ATLAS technique IDs — skipping", seed.seed_id
+            )
+            continue
+
+        for entry_point in profile.entry_points:
+            for tech_id in seed.atlas_technique_ids:
+                candidates.append(
+                    CandidateTriple(
+                        seed_id=seed.seed_id,
+                        threat_id=seed.threat_id,
+                        threat_name=seed.threat_name,
+                        attack_pattern_name=seed.attack_pattern_name,
+                        attack_pattern_description=seed.attack_pattern_description,
+                        entry_point=entry_point,
+                        atlas_technique_id=tech_id,
+                        atlas_technique_name=ATLAS_TECHNIQUE_NAMES.get(
+                            tech_id, tech_id
+                        ),
+                        atlas_technique_description=ATLAS_TECHNIQUE_DESCRIPTIONS.get(
+                            tech_id, ""
+                        ),
+                        risk_card_ref=seed.risk_card_ref,
+                        owasp_llm_ids=seed.owasp_llm_ids,
+                    )
+                )
+
+    # Log expansion summary
+    if seeds:
+        tech_counts = [len(s.atlas_technique_ids) for s in seeds if s.atlas_technique_ids]
+        avg_techniques = sum(tech_counts) / len(tech_counts) if tech_counts else 0.0
+        logger.info(
+            "%d seeds x %d entry points x avg %.1f techniques = %d candidates",
+            len(seeds),
+            len(profile.entry_points),
+            avg_techniques,
+            len(candidates),
+        )
+
+    return candidates
