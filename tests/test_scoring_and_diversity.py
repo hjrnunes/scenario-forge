@@ -21,8 +21,6 @@ from scenario_forge.models.scenario import (
     SeverityLevel,
 )
 from scenario_forge.pipeline.generate import (
-    _CALL1_SYSTEM,
-    _CALL2_SYSTEM,
     _heuristic_attack_complexity,
     _heuristic_risk_impact,
     extract_narrative_keywords,
@@ -30,6 +28,7 @@ from scenario_forge.pipeline.generate import (
     get_overused_patterns,
     get_overused_structural_patterns,
 )
+from scenario_forge.prompts import render_prompt
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
 
@@ -109,17 +108,18 @@ class TestScoringCalibrationRubric:
 
     def test_call2_contains_tree_calibration(self):
         """Call 2 system prompt must have Tree Complexity Calibration section."""
-        assert "Tree Complexity Calibration" in _CALL2_SYSTEM
+        prompt = render_prompt("call2_system.j2")
+        assert "Tree Complexity Calibration" in prompt
 
     def test_call2_mentions_depth_ranges(self):
         """Call 2 calibration should mention specific depth ranges."""
-        prompt_lower = _CALL2_SYSTEM.lower()
+        prompt_lower = render_prompt("call2_system.j2").lower()
         assert "depth 2-3" in prompt_lower or "depth 2" in prompt_lower
         assert "depth 4-5" in prompt_lower or "depth 4" in prompt_lower
 
     def test_call2_warns_against_uniform_depth(self):
         """Call 2 should warn against same depth for every scenario."""
-        prompt_lower = _CALL2_SYSTEM.lower()
+        prompt_lower = render_prompt("call2_system.j2").lower()
         assert "do not default" in prompt_lower
 
 

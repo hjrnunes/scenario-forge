@@ -1,0 +1,18 @@
+## Attack Pattern (the tree must formalize this)
+The attack tree must formalize the narrative below, which is a concrete instance of this attack pattern.
+- Attack pattern: {{ seed.attack_pattern_name }}
+- How it works: {{ seed.attack_pattern_description }}
+- Threat category: {{ seed.threat_name }} — {{ seed.threat_description }}
+- Use case: {{ use_case }}
+{{ arch_section }}{{ actor_section }}
+{{ technique_context }}{{ technique_constraint }}
+## Narrative (from Call 1)
+Title: {{ narrative.title }}
+Summary: {{ narrative.summary }}
+Entry point: {{ narrative.entry_point }}
+Zone sequence: {{ narrative.zone_sequence }}
+
+Steps:
+{% for step in narrative.steps %}  {{ step.step_number }}. [{{ step.zone }}] {{ step.action }} -> {{ step.effect }}{% if step.control_point %} (control: {{ step.control_point }}){% endif %}
+{% endfor %}
+Produce the attack tree YAML for seed_id={{ seed.seed_id }}. The tree id must be "tree-{{ seed.seed_id }}".
