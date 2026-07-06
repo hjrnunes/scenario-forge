@@ -458,6 +458,16 @@ def run_pipeline(
                 pinned_technique_id=fseed.pinned_technique_id,
                 pinned_technique_name=fseed.pinned_technique_name,
             )
+            # Attach candidate filter provenance data to the envelope.
+            envelope.candidate_filter = {
+                "pinned_entry_point": fseed.pinned_entry_point,
+                "pinned_technique_id": fseed.pinned_technique_id,
+                "pinned_technique_name": fseed.pinned_technique_name,
+                "rejection_rationales": [
+                    v.model_dump() for v in fseed.rejection_rationales
+                ],
+            }
+
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             write_call_log(call_log_entries, scenarios_dir)
             scenarios.append(envelope)

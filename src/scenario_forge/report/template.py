@@ -2118,6 +2118,56 @@ details.expandable[open] > summary::before {
   user-select: none;
 }
 
+/* Candidate filter results in provenance chain */
+.prov-filter-results {
+  width: 100%;
+  max-width: 660px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  background: var(--bg-secondary);
+}
+
+.prov-filter-results summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.prov-filter-results summary:hover {
+  color: var(--text-secondary);
+}
+
+.prov-accepted-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(34,197,94,0.15);
+  color: #4ade80;
+  margin: 2px 3px 2px 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.prov-rejected-row {
+  opacity: 0.6;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(45,51,72,0.5);
+}
+
+.prov-rejected-row:last-child {
+  border-bottom: none;
+}
+
+.prov-rationale {
+  font-style: italic;
+  color: #888;
+  font-size: 0.85em;
+  margin-top: 2px;
+}
+
 /* CSS-only scenario tabs */
 .scenario-tabs > input[type="radio"] {
   display: none;
@@ -4427,6 +4477,59 @@ def _build_provenance_chain(
         f'</div></div>'
     )
 
+    # --- Candidate Filter Results (optional, between parallel and converge) ---
+    candidate_filter = scenario.get("candidate_filter") or {}
+    filter_html = ""
+    if candidate_filter:
+        pinned_ep = candidate_filter.get("pinned_entry_point", "")
+        pinned_tid = candidate_filter.get("pinned_technique_id", "")
+        pinned_tname = candidate_filter.get("pinned_technique_name", "")
+        rejections = candidate_filter.get("rejection_rationales", [])
+
+        # Accepted combination badges
+        accepted_html = (
+            f'<div style="margin-bottom:8px;">'
+            f'<span style="font-size:11px;font-weight:600;color:var(--text-muted);">'
+            f'Accepted:</span> '
+            f'<span class="prov-accepted-badge">{_esc(pinned_ep)}</span> '
+            f'<span class="prov-accepted-badge">'
+            f'{_esc(pinned_tid)}{": " + _esc(pinned_tname) if pinned_tname else ""}'
+            f'</span>'
+            f'</div>'
+        )
+
+        # Rejected combinations collapsible
+        rejected_html = ""
+        reject_count = len(rejections)
+        if reject_count > 0:
+            reject_items = ""
+            for rv in rejections:
+                rv_ep = rv.get("entry_point", "")
+                rv_tid = rv.get("atlas_technique_id", "")
+                rv_rationale = rv.get("rationale", "")
+                reject_items += (
+                    f'<div class="prov-rejected-row">'
+                    f'<span class="prov-badge prov-badge-muted">{_esc(rv_ep)}</span> '
+                    f'<span class="prov-badge prov-badge-muted">{_esc(rv_tid)}</span>'
+                    f'<div class="prov-rationale">{_esc(rv_rationale)}</div>'
+                    f'</div>'
+                )
+            rejected_html = (
+                f'<details style="margin-top:6px;">'
+                f'<summary>Rejected combinations ({reject_count})</summary>'
+                f'<div style="margin-top:6px;">{reject_items}</div>'
+                f'</details>'
+            )
+
+        filter_html = (
+            f'<div class="prov-filter-results">'
+            f'<div class="prov-step-label">Candidate Filter Results</div>'
+            f'<div class="prov-step-content">'
+            f'{accepted_html}'
+            f'{rejected_html}'
+            f'</div></div>'
+        )
+
     # Assemble with arrows -- steps 0-2 vertical, 3-5 parallel, 6-7 vertical
     parts: list[str] = []
 
@@ -4448,6 +4551,11 @@ def _build_provenance_chain(
         f"{steps[3]}{steps[4]}{steps[5]}"
         f"</div>"
     )
+
+    # Candidate filter results (if available)
+    if filter_html:
+        parts.append(arrow)
+        parts.append(filter_html)
 
     # Merge arrow
     parts.append(
