@@ -1052,6 +1052,229 @@ body {
 .heatmap-cell:hover .tooltip { display: block; }
 
 /* Filter controls */
+/* Dashboard stats bar */
+.stats-bar {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 4px solid var(--accent);
+}
+
+.stat-card .stat-number {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-card .stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.severity-donut {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.severity-donut::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-card);
+}
+
+.coverage-gap-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 4px solid var(--text-muted);
+  min-width: 140px;
+}
+
+.coverage-gap-card .stat-number {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.coverage-gap-card .stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+/* Coverage heatmap matrix */
+.coverage-matrix {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 24px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.matrix-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 8px 6px;
+  text-align: center;
+  color: var(--text-primary);
+  border-radius: 4px;
+}
+
+.matrix-row-label {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.matrix-cell {
+  padding: 8px 6px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  min-width: 48px;
+  color: var(--text-primary);
+}
+
+.matrix-cell:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  z-index: 1;
+}
+
+.matrix-cell.empty {
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.matrix-cell.empty:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Chip/tag filters */
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.chip-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.filter-chip:hover {
+  opacity: 0.85;
+}
+
+.filter-chip.active {
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+/* Expand/collapse toggle */
+.toggle-all-btn {
+  padding: 4px 12px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 8px;
+}
+
+.toggle-all-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.scenario-card .scenario-header {
+  cursor: pointer;
+}
+
+.scenario-card.collapsed .scenario-tabs {
+  display: none;
+}
+
+.scenario-header .collapse-indicator {
+  font-size: 14px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  margin-left: 4px;
+}
+
+.scenario-card.collapsed .collapse-indicator {
+  transform: rotate(-90deg);
+}
+
 .filter-bar {
   display: flex;
   gap: 12px;
@@ -1827,40 +2050,126 @@ function copyToClipboard(elementId) {
   });
 }
 
-// Scenario filtering
+// Scenario filtering — chip-based multi-select
 function filterScenarios() {
-  const threatFilter = document.getElementById('filter-threat').value.toLowerCase();
-  const zoneFilter = document.getElementById('filter-zone').value;
-  const priorityFilter = document.getElementById('filter-priority').value;
+  var activeThreats = [];
+  var activeZones = [];
+  var activePriorities = [];
+  document.querySelectorAll('.filter-chip.active[data-filter-type="threat"]').forEach(function(c) {
+    activeThreats.push(c.getAttribute('data-filter-value'));
+  });
+  document.querySelectorAll('.filter-chip.active[data-filter-type="zone"]').forEach(function(c) {
+    activeZones.push(c.getAttribute('data-filter-value'));
+  });
+  document.querySelectorAll('.filter-chip.active[data-filter-type="priority"]').forEach(function(c) {
+    activePriorities.push(c.getAttribute('data-filter-value'));
+  });
 
-  document.querySelectorAll('.scenario-card[data-scenario]').forEach(card => {
-    let show = true;
+  document.querySelectorAll('.scenario-card[data-scenario]').forEach(function(card) {
+    var show = true;
 
-    if (threatFilter && !card.dataset.threats.toLowerCase().includes(threatFilter)) {
-      show = false;
+    if (activeThreats.length > 0) {
+      var cardThreats = card.dataset.threats.toLowerCase().split(',');
+      var matchesThreat = activeThreats.some(function(t) {
+        return cardThreats.some(function(ct) { return ct.indexOf(t.toLowerCase()) >= 0; });
+      });
+      if (!matchesThreat) show = false;
     }
-    if (zoneFilter && !card.dataset.zones.includes(zoneFilter)) {
-      show = false;
+    if (activeZones.length > 0) {
+      var cardZones = card.dataset.zones.split(',');
+      var matchesZone = activeZones.some(function(z) {
+        return cardZones.indexOf(z) >= 0;
+      });
+      if (!matchesZone) show = false;
     }
-    if (priorityFilter && card.dataset.priority !== priorityFilter) {
-      show = false;
+    if (activePriorities.length > 0) {
+      if (activePriorities.indexOf(card.dataset.priority) < 0) show = false;
     }
 
     card.style.display = show ? '' : 'none';
   });
 
   // Update visible count
-  const visible = document.querySelectorAll('.scenario-card[data-scenario]:not([style*="display: none"])').length;
-  const total = document.querySelectorAll('.scenario-card[data-scenario]').length;
-  const counter = document.getElementById('scenario-counter');
+  var visible = document.querySelectorAll('.scenario-card[data-scenario]:not([style*="display: none"])').length;
+  var total = document.querySelectorAll('.scenario-card[data-scenario]').length;
+  var counter = document.getElementById('scenario-counter');
   if (counter) counter.textContent = visible + ' / ' + total;
 }
 
-function resetFilters() {
-  document.getElementById('filter-threat').value = '';
-  document.getElementById('filter-zone').value = '';
-  document.getElementById('filter-priority').value = '';
+function toggleChip(el) {
+  el.classList.toggle('active');
+  // Update filled/outline style
+  if (el.classList.contains('active')) {
+    el.style.background = el.getAttribute('data-active-bg');
+    el.style.color = el.getAttribute('data-active-color');
+  } else {
+    el.style.background = 'transparent';
+    el.style.color = el.getAttribute('data-active-color');
+  }
   filterScenarios();
+}
+
+function resetFilters() {
+  document.querySelectorAll('.filter-chip.active').forEach(function(c) {
+    c.classList.remove('active');
+    c.style.background = 'transparent';
+    c.style.color = c.getAttribute('data-active-color');
+  });
+  filterScenarios();
+}
+
+// Coverage matrix: click a cell to filter by threat + zone
+function filterByCell(threatId, zone) {
+  // Clear all chips first
+  document.querySelectorAll('.filter-chip.active').forEach(function(c) {
+    c.classList.remove('active');
+    c.style.background = 'transparent';
+    c.style.color = c.getAttribute('data-active-color');
+  });
+  // Activate matching threat chip
+  document.querySelectorAll('.filter-chip[data-filter-type="threat"]').forEach(function(c) {
+    if (c.getAttribute('data-filter-value') === threatId) {
+      c.classList.add('active');
+      c.style.background = c.getAttribute('data-active-bg');
+      c.style.color = c.getAttribute('data-active-color');
+    }
+  });
+  // Activate matching zone chip
+  document.querySelectorAll('.filter-chip[data-filter-type="zone"]').forEach(function(c) {
+    if (c.getAttribute('data-filter-value') === zone) {
+      c.classList.add('active');
+      c.style.background = c.getAttribute('data-active-bg');
+      c.style.color = c.getAttribute('data-active-color');
+    }
+  });
+  filterScenarios();
+}
+
+// Expand/collapse all scenario cards
+function toggleAllCards() {
+  var btn = document.getElementById('toggle-all-btn');
+  var cards = document.querySelectorAll('.scenario-card[data-scenario]');
+  var allCollapsed = true;
+  cards.forEach(function(c) { if (!c.classList.contains('collapsed')) allCollapsed = false; });
+  if (allCollapsed) {
+    cards.forEach(function(c) { c.classList.remove('collapsed'); });
+    if (btn) btn.textContent = 'Collapse All';
+  } else {
+    cards.forEach(function(c) { c.classList.add('collapsed'); });
+    if (btn) btn.textContent = 'Expand All';
+  }
+}
+
+function toggleCard(cardEl) {
+  cardEl.classList.toggle('collapsed');
+  // Update global button text
+  var btn = document.getElementById('toggle-all-btn');
+  if (btn) {
+    var cards = document.querySelectorAll('.scenario-card[data-scenario]');
+    var allCollapsed = true;
+    cards.forEach(function(c) { if (!c.classList.contains('collapsed')) allCollapsed = false; });
+    btn.textContent = allCollapsed ? 'Expand All' : 'Collapse All';
+  }
 }
 </script>
 """
@@ -2782,9 +3091,111 @@ def build_scenarios_section(
     call_logs: dict[str, list[dict]] | None = None,
 ) -> str:
     if not scenarios:
-        return '<div id="sec-scenarios" class="section"><div class="section-header"><h2>Scenarios</h2></div><p style="color:var(--text-muted);">No scenarios generated.</p></div>'
+        return (
+            '<div id="sec-scenarios" class="section">'
+            '<div class="section-header"><h2>Scenarios</h2></div>'
+            '<p style="color:var(--text-muted);">No scenarios generated.</p>'
+            "</div>"
+        )
 
-    # Heatmap
+    # ------------------------------------------------------------------
+    # Pre-compute priority counts for dashboard header (Bead 1)
+    # ------------------------------------------------------------------
+    total_count = len(scenarios)
+    high_count = 0
+    medium_count = 0
+    low_count = 0
+    for s in scenarios:
+        composite = s.get("priority", {}).get("composite", 0)
+        label = _priority_label(composite)
+        if label == "HIGH":
+            high_count += 1
+        elif label == "MEDIUM":
+            medium_count += 1
+        else:
+            low_count += 1
+
+    # Donut gradient
+    high_pct = (high_count / total_count * 100) if total_count else 0
+    medium_pct = (medium_count / total_count * 100) if total_count else 0
+    donut_gradient = (
+        f"conic-gradient("
+        f"var(--high) 0% {high_pct:.1f}%, "
+        f"var(--medium) {high_pct:.1f}% {high_pct + medium_pct:.1f}%, "
+        f"var(--low) {high_pct + medium_pct:.1f}% 100%"
+        f")"
+    )
+
+    # ------------------------------------------------------------------
+    # Collect all threat IDs, zones, and build coverage matrix (Bead 2)
+    # ------------------------------------------------------------------
+    all_threat_ids: list[str] = []
+    all_zones: set[str] = set()
+    # Per-scenario threat-zone pairs for coverage matrix
+    coverage_counts: dict[tuple[str, str], int] = {}
+    for s in scenarios:
+        fac = s.get("faceting", {})
+        tc = fac.get("taxonomy_chain", {})
+        cp = fac.get("capability_profile", {})
+        scenario_threats = tc.get("agentic_threat_ids", [])
+        scenario_zones = [
+            _normalize_zone(z) for z in cp.get("zones_traversed", [])
+        ]
+        for tid in scenario_threats:
+            if tid not in all_threat_ids:
+                all_threat_ids.append(tid)
+        for z in scenario_zones:
+            all_zones.add(z)
+        # Build coverage matrix counts
+        for tid in scenario_threats:
+            for z in scenario_zones:
+                coverage_counts[(tid, z)] = coverage_counts.get((tid, z), 0) + 1
+
+    sorted_threats = sorted(all_threat_ids)
+    # Use canonical zone order, filtered to zones present in scenarios
+    canonical_zones = [
+        z for z in ZONE_COLORS if z in all_zones
+    ]
+
+    # Coverage gap: threat x zone combos with 0 scenarios
+    total_combos = len(sorted_threats) * len(canonical_zones) if canonical_zones else 0
+    covered_combos = sum(
+        1 for t in sorted_threats for z in canonical_zones if coverage_counts.get((t, z), 0) > 0
+    )
+    coverage_gaps = total_combos - covered_combos
+
+    # ------------------------------------------------------------------
+    # Dashboard header HTML (Bead 1)
+    # ------------------------------------------------------------------
+    dashboard_html = f"""
+      <div class="stats-bar">
+        <div class="stat-card" style="border-left-color:var(--accent);">
+          <span class="stat-number">{total_count}</span>
+          <span class="stat-label">Total Scenarios</span>
+        </div>
+        <div class="stat-card" style="border-left-color:var(--high);">
+          <span class="stat-number">{high_count}</span>
+          <span class="stat-label">High Priority</span>
+        </div>
+        <div class="stat-card" style="border-left-color:var(--medium);">
+          <span class="stat-number">{medium_count}</span>
+          <span class="stat-label">Medium Priority</span>
+        </div>
+        <div class="stat-card" style="border-left-color:var(--low);">
+          <span class="stat-number">{low_count}</span>
+          <span class="stat-label">Low Priority</span>
+        </div>
+        <div class="severity-donut" style="background:{donut_gradient};" data-tooltip="High: {high_count} | Medium: {medium_count} | Low: {low_count}"></div>
+        <div class="coverage-gap-card">
+          <span class="stat-number">{coverage_gaps}</span>
+          <span class="stat-label">Coverage Gaps</span>
+        </div>
+      </div>
+    """
+
+    # ------------------------------------------------------------------
+    # Composite score heatmap (existing)
+    # ------------------------------------------------------------------
     heatmap_cells = ""
     for s in scenarios:
         sid = s.get("scenario_id", "")
@@ -2799,7 +3210,65 @@ def build_scenarios_section(
             f"</div>"
         )
 
-    # Entry point distribution
+    # ------------------------------------------------------------------
+    # Coverage heatmap matrix (Bead 2)
+    # ------------------------------------------------------------------
+    matrix_html = ""
+    if sorted_threats and canonical_zones:
+        max_count = max(coverage_counts.values()) if coverage_counts else 1
+        matrix_html += (
+            f'<div class="scenario-section-title" style="margin-top:24px;"'
+            f' data-tooltip="Click a cell to filter scenarios by that threat'
+            f' and zone combination">Threat x Zone Coverage</div>'
+            f'<div class="coverage-matrix" style="grid-template-columns:'
+            f" 140px repeat({len(canonical_zones)}, 1fr);\">"
+        )
+        # Header row: empty corner + zone names
+        matrix_html += '<div class="matrix-header"></div>'
+        for z in canonical_zones:
+            zcolor = ZONE_COLORS.get(z, "#666")
+            display = ZONE_DISPLAY_NAMES.get(z, z)
+            matrix_html += (
+                f'<div class="matrix-header"'
+                f' style="background:rgba({_hex_to_rgb_css(zcolor)},0.15);'
+                f'color:{zcolor};">{_esc(display)}</div>'
+            )
+        # Data rows
+        for tid in sorted_threats:
+            tname = THREAT_NAMES.get(tid, "")
+            row_label = f"{tid}" if not tname else f"{tid}"
+            row_tooltip = f"{tid} — {tname}" if tname else tid
+            matrix_html += (
+                f'<div class="matrix-row-label"'
+                f' data-tooltip="{_esc(row_tooltip)}">{_esc(row_label)}</div>'
+            )
+            for z in canonical_zones:
+                count = coverage_counts.get((tid, z), 0)
+                zcolor = ZONE_COLORS.get(z, "#666")
+                if count > 0:
+                    opacity = 0.2 + 0.8 * (count / max_count)
+                    matrix_html += (
+                        f'<div class="matrix-cell"'
+                        f" onclick=\"filterByCell('{_esc(tid)}','{_esc(z)}')\""
+                        f' style="background:rgba({_hex_to_rgb_css(zcolor)},'
+                        f'{opacity:.2f});"'
+                        f' data-tooltip="{_esc(tid)} x'
+                        f' {_esc(ZONE_DISPLAY_NAMES.get(z, z))}:'
+                        f' {count} scenario{"s" if count != 1 else ""}">'
+                        f"{count}</div>"
+                    )
+                else:
+                    matrix_html += (
+                        f'<div class="matrix-cell empty"'
+                        f' data-tooltip="{_esc(tid)} x'
+                        f" {_esc(ZONE_DISPLAY_NAMES.get(z, z))}:"
+                        f' no scenarios">0</div>'
+                    )
+        matrix_html += "</div>"
+
+    # ------------------------------------------------------------------
+    # Entry point distribution (existing)
+    # ------------------------------------------------------------------
     ep_counts: dict[str, int] = {}
     for s in scenarios:
         ep = s.get("narrative", {}).get("entry_point", "")
@@ -2812,7 +3281,8 @@ def build_scenarios_section(
     ):
         ep_dist_items += (
             f'<div class="ep-dist-item">'
-            f'<span class="ep-dist-name" data-tooltip="{_esc(ep_name)}">{_esc(ep_name)}</span>'
+            f'<span class="ep-dist-name" data-tooltip="{_esc(ep_name)}">'
+            f"{_esc(ep_name)}</span>"
             f'<span class="ep-dist-count">{ep_count}</span>'
             f"</div>"
         )
@@ -2825,31 +3295,75 @@ def build_scenarios_section(
         <div class="ep-dist-grid">{ep_dist_items}</div>
       </div>"""
 
-    # Collect all threat IDs and zones for filters
-    all_threat_ids: list[str] = []
-    all_zones: set[str] = set()
-    for s in scenarios:
-        fac = s.get("faceting", {})
-        tc = fac.get("taxonomy_chain", {})
-        for tid in tc.get("agentic_threat_ids", []):
-            if tid not in all_threat_ids:
-                all_threat_ids.append(tid)
-        cp = fac.get("capability_profile", {})
-        for z in cp.get("zones_traversed", []):
-            all_zones.add(_normalize_zone(z))
-
-    threat_options = '<option value="">All</option>'
-    for tid in sorted(all_threat_ids):
+    # ------------------------------------------------------------------
+    # Chip/tag filters (Bead 3) — replaces the old <select> dropdowns
+    # ------------------------------------------------------------------
+    threat_chips = ""
+    for tid in sorted_threats:
         tname = THREAT_NAMES.get(tid, "")
-        opt_label = f"{tid} — {tname}" if tname else tid
-        threat_options += f'<option value="{_esc(tid)}">{_esc(opt_label)}</option>'
+        chip_label = f"{tid} — {tname}" if tname else tid
+        threat_chips += (
+            f'<span class="filter-chip" onclick="toggleChip(this)"'
+            f' data-filter-type="threat" data-filter-value="{_esc(tid)}"'
+            f' data-active-bg="rgba({_hex_to_rgb_css("#6366f1")},0.25)"'
+            f' data-active-color="#6366f1"'
+            f' style="border-color:#6366f1;color:#6366f1;background:transparent;">'
+            f"{_esc(chip_label)}</span>"
+        )
 
-    zone_options = '<option value="">All</option>'
-    for z in sorted(all_zones):
+    zone_chips = ""
+    for z in canonical_zones:
+        zcolor = ZONE_COLORS.get(z, "#666")
         display = ZONE_DISPLAY_NAMES.get(z, z)
-        zone_options += f'<option value="{_esc(z)}">{_esc(display)}</option>'
+        zone_chips += (
+            f'<span class="filter-chip" onclick="toggleChip(this)"'
+            f' data-filter-type="zone" data-filter-value="{_esc(z)}"'
+            f' data-active-bg="rgba({_hex_to_rgb_css(zcolor)},0.25)"'
+            f' data-active-color="{zcolor}"'
+            f' style="border-color:{zcolor};color:{zcolor};background:transparent;">'
+            f"{_esc(display)}</span>"
+        )
 
-    # Scenario cards
+    priority_chip_data = [
+        ("high", "High", "#ef4444"),
+        ("medium", "Medium", "#f59e0b"),
+        ("low", "Low", "#22c55e"),
+    ]
+    priority_chips = ""
+    for pval, plabel, pcolor in priority_chip_data:
+        priority_chips += (
+            f'<span class="filter-chip" onclick="toggleChip(this)"'
+            f' data-filter-type="priority" data-filter-value="{pval}"'
+            f' data-active-bg="rgba({_hex_to_rgb_css(pcolor)},0.25)"'
+            f' data-active-color="{pcolor}"'
+            f' style="border-color:{pcolor};color:{pcolor};background:transparent;">'
+            f"{plabel}</span>"
+        )
+
+    filter_html = f"""
+      <div class="filter-bar" style="margin-top:24px;flex-direction:column;align-items:flex-start;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between;">
+          <span style="font-size:12px;font-weight:600;color:var(--text-primary);">Filters</span>
+          <button class="filter-btn" onclick="resetFilters()">Clear All</button>
+        </div>
+        <div class="chip-group">
+          <span class="chip-group-label">Threats</span>
+          {threat_chips}
+        </div>
+        <div class="chip-group">
+          <span class="chip-group-label">Zones</span>
+          {zone_chips}
+        </div>
+        <div class="chip-group">
+          <span class="chip-group-label">Priority</span>
+          {priority_chips}
+        </div>
+      </div>
+    """
+
+    # ------------------------------------------------------------------
+    # Scenario cards (existing + Bead 4: collapse indicator)
+    # ------------------------------------------------------------------
     _call_logs = call_logs or {}
     cards_html = ""
     for s in scenarios:
@@ -2860,7 +3374,10 @@ def build_scenarios_section(
       <div class="section-header">
         <h2>Scenarios</h2>
         <span class="badge" id="scenario-counter">{len(scenarios)} / {len(scenarios)}</span>
+        <button class="toggle-all-btn" id="toggle-all-btn" onclick="toggleAllCards()">Collapse All</button>
       </div>
+
+      {dashboard_html}
 
       <div class="scenario-section-title" data-tooltip="Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a single 0-1 score">Composite Score Heatmap</div>
       <div class="heatmap-grid">{heatmap_cells}</div>
@@ -2871,32 +3388,11 @@ def build_scenarios_section(
         <span class="legend-item" style="margin-left:8px;font-style:italic;">Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a 0&ndash;1 score.</span>
       </div>
 
+      {matrix_html}
+
       {ep_dist_html}
 
-      <div class="filter-bar" style="margin-top:24px;">
-        <div class="filter-group">
-          <span class="filter-label">Threat ID</span>
-          <select id="filter-threat" class="filter-select" onchange="filterScenarios()">
-            {threat_options}
-          </select>
-        </div>
-        <div class="filter-group">
-          <span class="filter-label">Zone Traversed</span>
-          <select id="filter-zone" class="filter-select" onchange="filterScenarios()">
-            {zone_options}
-          </select>
-        </div>
-        <div class="filter-group">
-          <span class="filter-label">Priority Level</span>
-          <select id="filter-priority" class="filter-select" onchange="filterScenarios()">
-            <option value="">All</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-        </div>
-        <button class="filter-btn" onclick="resetFilters()">Reset</button>
-      </div>
+      {filter_html}
 
       {cards_html}
     </div>
@@ -3508,8 +4004,9 @@ def _build_scenario_card(
     <div class="scenario-card" id="scenario-{_esc(sid)}" data-scenario="{_esc(sid)}"
          data-threats="{_esc(threats)}" data-zones="{_esc(zones)}"
          data-priority="{_esc(priority_label.lower())}">
-      <div class="scenario-header">
+      <div class="scenario-header" onclick="toggleCard(this.parentElement)">
         <div class="scenario-header-left">
+          <span class="collapse-indicator">&#9660;</span>
           <span class="scenario-id">{_esc(sid)}</span>
           <span class="scenario-title">{_esc(title)}</span>
         </div>
