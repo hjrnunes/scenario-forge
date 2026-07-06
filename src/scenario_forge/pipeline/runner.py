@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib.metadata
 import logging
 import math
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -251,6 +254,29 @@ def run_pipeline(
 
     client = LLMClient(base_url=base_url, api_key=api_key, model=model)
 
+    # --- Write run manifest (start) ---
+    manifest = {
+        "version": importlib.metadata.version("scenario-forge"),
+        "timestamp_start": datetime.now(timezone.utc).isoformat(),
+        "inputs": {
+            "use_case_hash": hashlib.sha256(use_case.encode()).hexdigest(),
+            "risk_extraction_hash": hashlib.sha256(
+                risk_extraction_path.read_bytes()
+            ).hexdigest(),
+            "sssom_hash": hashlib.sha256(sssom_path.read_bytes()).hexdigest(),
+        },
+        "config": {
+            "model": client.model,
+            "temperature": client.temperature,
+            "max_completion_tokens": client.max_completion_tokens,
+        },
+    }
+    manifest_path = output_dir / "run-manifest.yaml"
+    manifest_path.write_text(
+        yaml.dump(manifest, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+
     # --- Stage 1: Capability Profile Inference ---
     if profile_path is not None:
         logger.info("[Stage 1] Loading capability profile from %s", profile_path)
@@ -322,6 +348,7 @@ def run_pipeline(
     logger.info("[Stage 4] Generating %d scenarios...", len(seeds))
     scenarios_dir = output_dir / "scenarios"
     scenarios: list[ScenarioEnvelope] = []
+    failed_count = 0
 
     # Track entry point usage across the batch for diversity enforcement.
     entry_point_usage: Counter[str] = Counter()
@@ -456,6 +483,7 @@ def run_pipeline(
             msg = f"Generation failed for {seed.seed_id}: {exc}"
             logger.error("    %s", msg)
             generation_notes.append(msg)
+            failed_count += 1
 
     logger.info("  %d/%d scenarios generated successfully", len(scenarios), len(seeds))
     if generation_notes:
@@ -493,6 +521,16 @@ def run_pipeline(
         logger.info("Report written to %s", report_path)
     except Exception as exc:
         logger.warning("Report generation failed: %s", exc)
+
+    # --- Update run manifest (end) ---
+    manifest["timestamp_end"] = datetime.now(timezone.utc).isoformat()
+    manifest["seeds_generated"] = len(seeds)
+    manifest["scenarios_generated"] = len(scenarios)
+    manifest["scenarios_failed"] = failed_count
+    manifest_path.write_text(
+        yaml.dump(manifest, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
 
     return PipelineResult(
         capability_profile=profile,
