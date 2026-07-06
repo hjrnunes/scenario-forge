@@ -1,43 +1,51 @@
 # Mayor Dashboard
 
-**Updated**: 2026-07-06T12:30
+**Updated**: 2026-07-06T19:55
 **Resume**: `You are the mayor for this repository.`
 
 ## Needs operator now
 
-- **Untracked file**: `ai/data-flow-diagrams.md` — commit, gitignore, or discard?
-- **Awaiting approval**: `scenario-forge-i6t` (Jinja templates) — dispatch worker?
+- **Brainstorm ready**: HTML report improvements at `ai/findings/html-report-brainstorm.md` — remaining tiers (1a-1e quick wins, 2a attack tree viz, 2f dual severity encoding, 3a-3e larger features).
+- **Design decision**: Attack Flow STIX export — file a bead or discuss scope first?
 
 ## In-flight work
 
-| Worker | Bead | Surface | Worktree |
-|--------|------|---------|----------|
-| a8561972b | `0q1` Run manifest | `pipeline/runner.py` | `agent-a8561972b0d9b37e6` |
+None — all workers completed.
 
 ### Open beads
 
-- `scenario-forge-i6t` P2 — Extract prompts to Jinja templates *(open, not dispatched)*
+0 open / 169 closed — quiescent.
 
 ### Open PRs
 
-None (expecting PR from `0q1` worker).
+None.
 
-### Recent commits
+### Recent commits / merges
 
-- `eebe23b` fix(report): tab-bar CSS selector + mechanism→attack_pattern fallbacks *(this session, unpushed)*
-- `0c1b500` PR #77 — Rename mechanism → attack_pattern + glossary
-- `87cf91d` PR #76 — Goal-threat affinity weighted selection
-- `4f93f40` PR #75 — Tabbed scenario cards
-- `3d937a1` PR #74 — Per-call Generation Inputs tables
+- `ae43a1d` PR #83 — Provenance steps 4-6 as parallel inputs layout *(merged this session)*
+- `23255ce` PR #82 — Show attack pattern selection in provenance tab *(merged this session)*
+- `daff510` PR #81 — Provenance chain tab with input derivation flowchart *(merged this session)*
+- `fbba989` PR #80 — Dashboard stats, coverage heatmap, chip filters, card collapse *(merged this session)*
+- `3adf099` PR #79 — Jinja templates *(merged this session)*
+
+### Findings (gitignored, for operator review)
+
+- `ai/findings/html-report-brainstorm.md` — Improvement roadmap (4 tiers, recommended sprints)
+- `ai/findings/taxonomy-browser-research.md` — ATT&CK Navigator, D3FEND, STRIDE/LINDDUN patterns
+- `ai/findings/attack-flow-stix-research.md` — Attack Flow STIX data model mapping
+- `ai/findings/kill-chain-visualization-research.md` — Kill chain viz patterns
+- `ai/findings/bloom-petri-pattern-analysis.md` — Bloom + Petri framework analysis
+- `ai/data-flow-diagrams.md` — Current architecture data flow (13 sections, 815 lines) *(updated this session)*
 
 ## Posture
 
 - **Stance**: Pre-alpha, correctness-first. Iterating on prompt quality and evaluation metrics.
-- **Latest commit**: `eebe23b` on master (unpushed; `0c1b500` pushed)
-- **Uncommitted**: `ai/data-flow-diagrams.md` (untracked), `dashboard.md`, `.beads/interactions.jsonl`
-- **Worktrees**: 1 (manifest worker)
+- **Latest pushed**: `ae43a1d` (PR #83 merge)
+- **Local-only commits**: 2 (chore: dashboard + CSS fix — unpushed)
+- **Uncommitted**: `ai/data-flow-diagrams.md` (untracked)
+- **Worktrees**: 0 (clean)
 - **Open PRs**: 0
-- **Tracker**: 1 open, 1 in-progress
+- **Tracker**: 0 open, quiescent
 
 ## Loops (session-only, 7d auto-expire)
 
