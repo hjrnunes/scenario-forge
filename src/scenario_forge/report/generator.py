@@ -190,7 +190,13 @@ def generate_report(output_dir: Path) -> Path:
 
     scorecard_html = build_scorecard_section(scorecard_data) if scorecard_data else ""
 
-    scenarios_html = build_scenarios_section(scenarios, feature_files, call_logs)
+    scenarios_html = build_scenarios_section(
+        scenarios,
+        feature_files,
+        call_logs,
+        threat_surface=ts_data,
+        capability_profile=profile_data,
+    )
     raw_html = build_raw_data_section(raw_files)
 
     # --- Assemble full page ---
