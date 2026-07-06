@@ -18,6 +18,10 @@ import yaml
 from scenario_forge.data.loaders import (
     load_attack_patterns,
 )
+from scenario_forge.pipeline.generate import (
+    load_attack_goals_taxonomy,
+    load_threat_goal_affinity,
+)
 from scenario_forge.models.capability_profile import (
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES as _ZONE_NAMES_TUPLE,
@@ -1953,6 +1957,136 @@ details.expandable[open] > summary::before {
   overflow-y: auto;
 }
 
+/* Provenance chain flowchart */
+.prov-chain {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 8px 0;
+}
+
+.prov-step {
+  width: 100%;
+  max-width: 660px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  background: var(--bg-secondary);
+}
+
+.prov-step-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-variant: small-caps;
+}
+
+.prov-step-content {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.prov-arrow {
+  font-size: 18px;
+  color: var(--text-muted);
+  line-height: 1;
+  padding: 2px 0;
+  user-select: none;
+}
+
+.prov-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 2px 3px 2px 0;
+}
+
+.prov-badge-accent {
+  background: rgba(99,102,241,0.15);
+  color: var(--accent);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.prov-badge-blue {
+  background: rgba(59,130,246,0.15);
+  color: #60a5fa;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.prov-badge-orange {
+  background: rgba(249,115,22,0.15);
+  color: #f97316;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.prov-badge-green {
+  background: rgba(34,197,94,0.15);
+  color: #22c55e;
+}
+
+.prov-badge-amber {
+  background: rgba(245,158,11,0.15);
+  color: #f59e0b;
+}
+
+.prov-badge-red {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+}
+
+.prov-badge-muted {
+  background: rgba(107,114,128,0.10);
+  color: var(--text-muted);
+}
+
+.prov-highlight {
+  border: 2px solid var(--accent);
+  background: rgba(99,102,241,0.08);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin: 2px 3px 2px 0;
+  display: inline-block;
+}
+
+.prov-dim {
+  opacity: 0.45;
+}
+
+.prov-item-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.prov-kv {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.prov-kv-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.prov-kv-value {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
 /* CSS-only scenario tabs */
 .scenario-tabs > input[type="radio"] {
   display: none;
@@ -1995,7 +2129,8 @@ details.expandable[open] > summary::before {
 .scenario-tabs > input:nth-of-type(5):checked ~ .tab-panels > .tab-panel:nth-child(5),
 .scenario-tabs > input:nth-of-type(6):checked ~ .tab-panels > .tab-panel:nth-child(6),
 .scenario-tabs > input:nth-of-type(7):checked ~ .tab-panels > .tab-panel:nth-child(7),
-.scenario-tabs > input:nth-of-type(8):checked ~ .tab-panels > .tab-panel:nth-child(8) {
+.scenario-tabs > input:nth-of-type(8):checked ~ .tab-panels > .tab-panel:nth-child(8),
+.scenario-tabs > input:nth-of-type(9):checked ~ .tab-panels > .tab-panel:nth-child(9) {
   display: block;
 }
 
@@ -2006,7 +2141,8 @@ details.expandable[open] > summary::before {
 .scenario-tabs > input:nth-of-type(5):checked ~ .tab-bar > label:nth-child(5),
 .scenario-tabs > input:nth-of-type(6):checked ~ .tab-bar > label:nth-child(6),
 .scenario-tabs > input:nth-of-type(7):checked ~ .tab-bar > label:nth-child(7),
-.scenario-tabs > input:nth-of-type(8):checked ~ .tab-bar > label:nth-child(8) {
+.scenario-tabs > input:nth-of-type(8):checked ~ .tab-bar > label:nth-child(8),
+.scenario-tabs > input:nth-of-type(9):checked ~ .tab-bar > label:nth-child(9) {
   color: var(--text-primary);
   border-bottom-color: var(--accent);
 }
@@ -3089,6 +3225,8 @@ def build_scenarios_section(
     scenarios: list[dict[str, Any]],
     feature_files: dict[str, str],
     call_logs: dict[str, list[dict]] | None = None,
+    threat_surface: dict[str, Any] | None = None,
+    capability_profile: dict[str, Any] | None = None,
 ) -> str:
     if not scenarios:
         return (
@@ -3367,7 +3505,13 @@ def build_scenarios_section(
     _call_logs = call_logs or {}
     cards_html = ""
     for s in scenarios:
-        cards_html += _build_scenario_card(s, feature_files, _call_logs)
+        cards_html += _build_scenario_card(
+            s,
+            feature_files,
+            _call_logs,
+            threat_surface=threat_surface,
+            capability_profile=capability_profile,
+        )
 
     return f"""
     <div id="sec-scenarios" class="section">
@@ -3904,10 +4048,336 @@ def _build_atlas_techniques_block(
             </div>"""
 
 
+def _build_provenance_chain(
+    scenario: dict[str, Any],
+    threat_surface: dict[str, Any] | None = None,
+    capability_profile: dict[str, Any] | None = None,
+) -> str:
+    """Build a vertical flowchart showing the full input derivation chain.
+
+    Eight steps from risk card down to zone sequence, with CSS arrows between
+    boxes. Uses lazy-loaded taxonomy data for attack goals and affinities.
+    """
+    faceting = scenario.get("faceting", {})
+    rc = faceting.get("risk_card", {})
+    tc = faceting.get("taxonomy_chain", {})
+    cp = faceting.get("capability_profile", {})
+    meta = scenario.get("scenario_seed_metadata") or {}
+    actor = scenario.get("actor_profile") or {}
+
+    arrow = '<div class="prov-arrow">&#9660;</div>'
+    steps: list[str] = []
+
+    # --- Step 1: Risk Card ---
+    risk_id = rc.get("risk_id", "")
+    risk_name = rc.get("risk_name", "")
+    taxonomy = rc.get("taxonomy", "")
+    confidence = rc.get("confidence", 0)
+    conf_display = f"{confidence:.2f}" if isinstance(confidence, (int, float)) else str(confidence)
+    taxonomy_badge = (
+        f'<span class="prov-badge prov-badge-accent">{_esc(taxonomy)}</span>'
+        if taxonomy
+        else ""
+    )
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">1. Risk Card</div>'
+        f'<div class="prov-step-content">'
+        f'<div class="prov-kv"><span class="prov-kv-label">Risk ID</span>'
+        f'<span class="prov-kv-value" style="font-family:\'SF Mono\',\'Fira Code\',monospace;">{_esc(risk_id)}</span></div>'
+        f'<div class="prov-kv"><span class="prov-kv-label">Risk Name</span>'
+        f'<span class="prov-kv-value">{_esc(risk_name)}</span></div>'
+        f'<div class="prov-kv"><span class="prov-kv-label">Taxonomy</span>'
+        f'<span class="prov-kv-value">{taxonomy_badge}</span></div>'
+        f'<div class="prov-kv"><span class="prov-kv-label">Confidence</span>'
+        f'<span class="prov-kv-value">{_esc(conf_display)}</span></div>'
+        f'</div></div>'
+    )
+
+    # --- Step 2: OWASP LLM IDs ---
+    owasp_ids = tc.get("owasp_llm_ids", [])
+    owasp_badges = "".join(
+        f'<span class="prov-badge prov-badge-blue"'
+        f' data-tooltip="{_esc(_OWASP_LLM_NAMES.get(lid, ""))}"'
+        f'>{_esc(lid)}</span>'
+        for lid in owasp_ids
+    ) if owasp_ids else '<span class="prov-badge prov-badge-muted">none</span>'
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">2. OWASP LLM IDs &mdash; SSSOM Mapping</div>'
+        f'<div class="prov-step-content">'
+        f'<div class="prov-item-row">{owasp_badges}</div>'
+        f'</div></div>'
+    )
+
+    # --- Step 3: Agentic Threats ---
+    threat_ids = tc.get("agentic_threat_ids", [])
+    threat_badges = "".join(
+        f'<span class="prov-badge prov-badge-orange"'
+        f'{_threat_id_tooltip(tid)}>'
+        f'{_esc(tid)} &mdash; {_esc(THREAT_NAMES.get(tid, ""))}</span>'
+        for tid in threat_ids
+    ) if threat_ids else '<span class="prov-badge prov-badge-muted">none</span>'
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">3. Agentic Threats (surviving)</div>'
+        f'<div class="prov-step-content">'
+        f'<div class="prov-item-row">{threat_badges}</div>'
+        f'</div></div>'
+    )
+
+    # --- Step 4: Attack Pattern ---
+    seed_id = meta.get("seed_id", "")
+    ap_name = meta.get("attack_pattern_name", "")
+    ap_desc = meta.get("attack_pattern_description", "")
+    seed_threat_id = meta.get("threat_id", "")
+    seed_threat_name = meta.get("threat_name", "")
+    ap_desc_html = (
+        f'<div class="prov-kv"><span class="prov-kv-label">Description</span>'
+        f'<span class="prov-kv-value" style="font-size:12px;color:var(--text-muted);">'
+        f'{_esc(_truncate(ap_desc, 300))}</span></div>'
+        if ap_desc
+        else ""
+    )
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">4. Attack Pattern</div>'
+        f'<div class="prov-step-content">'
+        f'<div class="prov-kv"><span class="prov-kv-label">Seed ID</span>'
+        f'<span class="prov-kv-value" style="font-family:\'SF Mono\',\'Fira Code\',monospace;">{_esc(seed_id)}</span></div>'
+        f'<div class="prov-kv"><span class="prov-kv-label">Name</span>'
+        f'<span class="prov-kv-value" style="font-weight:600;">{_esc(ap_name)}</span></div>'
+        f'{ap_desc_html}'
+        f'<div class="prov-kv"><span class="prov-kv-label">Threat</span>'
+        f'<span class="prov-kv-value"><span{_threat_id_tooltip(seed_threat_id)}>'
+        f'{_esc(seed_threat_id)} &mdash; {_esc(seed_threat_name)}</span></span></div>'
+        f'</div></div>'
+    )
+
+    # --- Step 5: Attack Goal ---
+    goal_cat = actor.get("goal_category", "")
+    goal_name = actor.get("goal_category_name", "")
+    goal_parent = actor.get("goal_category_parent", "")
+
+    # Load affinity and taxonomy data
+    affinity_html = ""
+    goals_grid_html = ""
+    try:
+        affinity_map = load_threat_goal_affinity()
+        goals_taxonomy = load_attack_goals_taxonomy()
+        categories = goals_taxonomy.get("categories", [])
+
+        # Show affinity map for this scenario's threat
+        if seed_threat_id and seed_threat_id in affinity_map:
+            aff = affinity_map[seed_threat_id]
+            primary = ", ".join(aff.get("primary", []))
+            secondary = ", ".join(aff.get("secondary", []))
+            excluded = ", ".join(aff.get("excluded", []))
+            excluded_badge = (
+                f'<span class="prov-badge prov-badge-red">excluded: {_esc(excluded)}</span>'
+                if excluded
+                else ""
+            )
+            affinity_html = (
+                f'<div style="margin:6px 0 8px;padding:8px 12px;background:var(--bg-primary);'
+                f'border-radius:6px;border:1px solid var(--border);font-size:12px;">'
+                f'<strong style="color:var(--text-muted);">{_esc(seed_threat_id)} affinity:</strong> '
+                f'<span class="prov-badge prov-badge-green">primary: {_esc(primary)}</span> '
+                f'<span class="prov-badge prov-badge-amber">secondary: {_esc(secondary)}</span> '
+                f'{excluded_badge}'
+                f'</div>'
+            )
+
+        # Build goal category badges showing all sub-goals with selection highlight
+        # Build a lookup: sub-goal id -> tier
+        tier_lookup: dict[str, str] = {}
+        if seed_threat_id and seed_threat_id in affinity_map:
+            aff = affinity_map[seed_threat_id]
+            for cat_id in aff.get("primary", []):
+                for cat in categories:
+                    if cat.get("id") == cat_id:
+                        for sg in cat.get("sub_goals", []):
+                            tier_lookup[sg["id"]] = "primary"
+            for cat_id in aff.get("secondary", []):
+                for cat in categories:
+                    if cat.get("id") == cat_id:
+                        for sg in cat.get("sub_goals", []):
+                            tier_lookup[sg["id"]] = "secondary"
+            for cat_id in aff.get("excluded", []):
+                for cat in categories:
+                    if cat.get("id") == cat_id:
+                        for sg in cat.get("sub_goals", []):
+                            tier_lookup[sg["id"]] = "excluded"
+
+        goal_items = ""
+        for cat in categories:
+            cat_id = cat.get("id", "")
+            cat_name = cat.get("name", "")
+            for sg in cat.get("sub_goals", []):
+                sg_id = sg.get("id", "")
+                sg_name = sg.get("name", "")
+                tier = tier_lookup.get(sg_id, "")
+                is_selected = sg_id == goal_cat
+
+                # Tier badge
+                tier_badge = ""
+                if tier == "primary":
+                    tier_badge = '<span class="prov-badge prov-badge-green" style="font-size:9px;padding:1px 5px;">PRIMARY</span>'
+                elif tier == "secondary":
+                    tier_badge = '<span class="prov-badge prov-badge-amber" style="font-size:9px;padding:1px 5px;">SECONDARY</span>'
+                elif tier == "excluded":
+                    tier_badge = '<span class="prov-badge prov-badge-red prov-dim" style="font-size:9px;padding:1px 5px;">EXCLUDED</span>'
+
+                if is_selected:
+                    goal_items += (
+                        f'<span class="prov-highlight" data-tooltip="{_esc(cat_name)}: {_esc(sg_name)}">'
+                        f'<span style="font-family:\'SF Mono\',\'Fira Code\',monospace;font-size:11px;font-weight:700;'
+                        f'color:var(--accent);">{_esc(sg_id)}</span> '
+                        f'{tier_badge}'
+                        f'</span>'
+                    )
+                else:
+                    dim_cls = ' prov-dim' if tier == "excluded" else ""
+                    goal_items += (
+                        f'<span class="prov-badge prov-badge-muted{dim_cls}"'
+                        f' data-tooltip="{_esc(cat_name)}: {_esc(sg_name)}">'
+                        f'{_esc(sg_id)} {tier_badge}</span>'
+                    )
+        if goal_items:
+            goals_grid_html = f'<div class="prov-item-row" style="margin-top:6px;">{goal_items}</div>'
+    except Exception:
+        pass  # Taxonomy files not available; skip enrichment
+
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">5. Attack Goal</div>'
+        f'<div class="prov-step-content">'
+        f'<div class="prov-kv"><span class="prov-kv-label">Selected</span>'
+        f'<span class="prov-kv-value" style="font-weight:600;">'
+        f'{_esc(goal_cat)} &mdash; {_esc(goal_name)}</span></div>'
+        f'<div class="prov-kv"><span class="prov-kv-label">Category</span>'
+        f'<span class="prov-kv-value">{_esc(goal_parent)}</span></div>'
+        f'{affinity_html}'
+        f'{goals_grid_html}'
+        f'</div></div>'
+    )
+
+    # --- Step 6: ATLAS Techniques ---
+    selected_atlas = set(meta.get("atlas_provenance_ids") or [])
+    # Get all available techniques from threat surface entry matching this risk card
+    all_atlas: list[str] = []
+    if threat_surface:
+        for entry in threat_surface.get("entries", []):
+            entry_rc = entry.get("risk_card", {})
+            if entry_rc.get("risk_id") == risk_id:
+                all_atlas = entry.get("atlas_technique_ids", [])
+                break
+
+    if all_atlas or selected_atlas:
+        # Merge to get a complete set
+        all_ids = list(dict.fromkeys(list(all_atlas) + list(selected_atlas)))
+        atlas_items = ""
+        for tid in all_ids:
+            name = _ATLAS_TECHNIQUE_NAMES.get(tid, "")
+            tip = f' data-tooltip="MITRE ATLAS: {_esc(tid)} &mdash; {_esc(name)}"' if name else ""
+            if tid in selected_atlas:
+                atlas_items += (
+                    f'<span class="prov-highlight"{tip}>'
+                    f'<span style="font-family:\'SF Mono\',\'Fira Code\',monospace;font-size:11px;'
+                    f'font-weight:700;color:#f97316;">{_esc(tid)}</span></span>'
+                )
+            else:
+                atlas_items += (
+                    f'<span class="prov-badge prov-badge-muted prov-dim"{tip}>'
+                    f'{_esc(tid)}</span>'
+                )
+        atlas_body = f'<div class="prov-item-row">{atlas_items}</div>'
+    else:
+        atlas_body = '<span class="prov-badge prov-badge-muted">none</span>'
+
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">6. ATLAS Techniques '
+        f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
+        f'(highlighted = selected for this seed)</span></div>'
+        f'<div class="prov-step-content">{atlas_body}</div></div>'
+    )
+
+    # --- Step 7: Entry Point ---
+    selected_ep = cp.get("entry_point", "")
+    all_eps: list[str] = []
+    if capability_profile:
+        all_eps = capability_profile.get("entry_points", [])
+
+    if all_eps:
+        ep_items = ""
+        for ep in all_eps:
+            if ep == selected_ep:
+                ep_items += (
+                    f'<span class="prov-highlight">'
+                    f'<span style="font-size:12px;font-weight:600;color:var(--accent);">'
+                    f'{_esc(ep)}</span></span>'
+                )
+            else:
+                ep_items += (
+                    f'<span class="prov-badge prov-badge-muted prov-dim">'
+                    f'{_esc(ep)}</span>'
+                )
+        ep_body = f'<div class="prov-item-row">{ep_items}</div>'
+    elif selected_ep:
+        ep_body = (
+            f'<span class="prov-badge prov-badge-accent">{_esc(selected_ep)}</span>'
+        )
+    else:
+        ep_body = '<span class="prov-badge prov-badge-muted">none</span>'
+
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">7. Entry Point '
+        f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
+        f'(highlighted = selected)</span></div>'
+        f'<div class="prov-step-content">{ep_body}</div></div>'
+    )
+
+    # --- Step 8: Zone Sequence ---
+    zones_traversed = cp.get("zones_traversed", [])
+    zone_crumbs = ""
+    for i, z in enumerate(zones_traversed):
+        zn = _normalize_zone(z)
+        color = ZONE_COLORS.get(zn, "#666")
+        bg = ZONE_BG_COLORS.get(zn, "#333")
+        display = ZONE_DISPLAY_NAMES.get(zn, zn)
+        zone_crumbs += (
+            f'<span class="zone-crumb" style="background:{bg};color:{color};"'
+            f' data-tooltip="{_esc(display)}">{_esc(zn)}</span>'
+        )
+        if i < len(zones_traversed) - 1:
+            zone_crumbs += '<span class="zone-crumb-arrow">&rarr;</span>'
+
+    steps.append(
+        f'<div class="prov-step">'
+        f'<div class="prov-step-label">8. Zone Sequence</div>'
+        f'<div class="prov-step-content">'
+        f'<div class="zone-breadcrumb">{zone_crumbs}</div>'
+        f'</div></div>'
+    )
+
+    # Assemble with arrows
+    parts: list[str] = []
+    for i, step in enumerate(steps):
+        parts.append(step)
+        if i < len(steps) - 1:
+            parts.append(arrow)
+
+    return f'<div class="prov-chain">{"".join(parts)}</div>'
+
+
 def _build_scenario_card(
     scenario: dict[str, Any],
     feature_files: dict[str, str],
     call_logs: dict[str, list[dict]] | None = None,
+    threat_surface: dict[str, Any] | None = None,
+    capability_profile: dict[str, Any] | None = None,
 ) -> str:
     sid = scenario.get("scenario_id", "")
     narrative = scenario.get("narrative", {})
@@ -3953,6 +4423,11 @@ def _build_scenario_card(
 
     # Generation inputs: per-call grouped sub-tables
     generation_inputs_html = _build_generation_inputs_block(scenario)
+
+    # Provenance chain flowchart
+    provenance_chain_html = _build_provenance_chain(
+        scenario, threat_surface=threat_surface, capability_profile=capability_profile
+    )
 
     # ATLAS techniques section
     atlas_techniques_html = _build_atlas_techniques_block(scenario, feature_content)
@@ -4023,7 +4498,8 @@ def _build_scenario_card(
         </div>
       </div>
       <div class="scenario-tabs">
-        <input type="radio" id="tab-{safe_sid}-gen" name="tabs-{safe_sid}" checked>
+        <input type="radio" id="tab-{safe_sid}-prov" name="tabs-{safe_sid}" checked>
+        <input type="radio" id="tab-{safe_sid}-gen" name="tabs-{safe_sid}">
         <input type="radio" id="tab-{safe_sid}-actor" name="tabs-{safe_sid}">
         <input type="radio" id="tab-{safe_sid}-atlas" name="tabs-{safe_sid}">
         <input type="radio" id="tab-{safe_sid}-narr" name="tabs-{safe_sid}">
@@ -4032,6 +4508,7 @@ def _build_scenario_card(
         <input type="radio" id="tab-{safe_sid}-prio" name="tabs-{safe_sid}">
         <input type="radio" id="tab-{safe_sid}-llm" name="tabs-{safe_sid}">
         <div class="tab-bar">
+          <label for="tab-{safe_sid}-prov">Provenance</label>
           <label for="tab-{safe_sid}-gen">Generation Inputs</label>
           <label for="tab-{safe_sid}-actor">Actor Profile</label>
           <label for="tab-{safe_sid}-atlas">ATLAS Techniques</label>
@@ -4042,6 +4519,9 @@ def _build_scenario_card(
           <label for="tab-{safe_sid}-llm">LLM Calls</label>
         </div>
         <div class="tab-panels">
+          <div class="tab-panel">
+            {provenance_chain_html}
+          </div>
           <div class="tab-panel">
             {generation_inputs_html}
           </div>
