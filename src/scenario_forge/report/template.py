@@ -4139,9 +4139,39 @@ def _build_provenance_chain(
         if ap_desc
         else ""
     )
+    # Collect all attack pattern IDs from threat surface entries matching this threat
+    all_ap_ids: list[str] = []
+    if threat_surface and seed_threat_id:
+        for entry in threat_surface.get("entries", []):
+            if seed_threat_id in entry.get("agentic_threat_ids", []):
+                all_ap_ids.extend(entry.get("attack_pattern_ids", []))
+        # Deduplicate while preserving order
+        all_ap_ids = list(dict.fromkeys(all_ap_ids))
+
+    ap_selection_html = ""
+    if all_ap_ids:
+        ap_items = ""
+        for ap_id in all_ap_ids:
+            ap_tip_name = _ATTACK_PATTERN_INFO.get(ap_id, {}).get("name", "")
+            tip = f' data-tooltip="{_esc(ap_tip_name)}"' if ap_tip_name else ""
+            if ap_id == seed_id:
+                ap_items += (
+                    f'<span class="prov-highlight"{tip}>'
+                    f'<span style="font-family:\'SF Mono\',\'Fira Code\',monospace;font-size:11px;'
+                    f'font-weight:700;color:var(--accent);">{_esc(ap_id)}</span></span>'
+                )
+            else:
+                ap_items += (
+                    f'<span class="prov-badge prov-badge-muted prov-dim"{tip}>'
+                    f'{_esc(ap_id)}</span>'
+                )
+        ap_selection_html = f'<div class="prov-item-row" style="margin-top:6px;">{ap_items}</div>'
+
     steps.append(
         f'<div class="prov-step">'
-        f'<div class="prov-step-label">4. Attack Pattern</div>'
+        f'<div class="prov-step-label">4. Attack Pattern '
+        f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
+        f'(highlighted = selected for this seed)</span></div>'
         f'<div class="prov-step-content">'
         f'<div class="prov-kv"><span class="prov-kv-label">Seed ID</span>'
         f'<span class="prov-kv-value" style="font-family:\'SF Mono\',\'Fira Code\',monospace;">{_esc(seed_id)}</span></div>'
@@ -4151,6 +4181,7 @@ def _build_provenance_chain(
         f'<div class="prov-kv"><span class="prov-kv-label">Threat</span>'
         f'<span class="prov-kv-value"><span{_threat_id_tooltip(seed_threat_id)}>'
         f'{_esc(seed_threat_id)} &mdash; {_esc(seed_threat_name)}</span></span></div>'
+        f'{ap_selection_html}'
         f'</div></div>'
     )
 
