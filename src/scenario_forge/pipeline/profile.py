@@ -5,37 +5,7 @@ from __future__ import annotations
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models import CapabilityProfile
 from scenario_forge.models.capability_profile import Stage1Profile
-
-_SYSTEM_PROMPT = """\
-You are a security architect analysing an AI/LLM system description.
-Extract a capability profile that captures the system's structural properties.
-
-## Schneider zones (use these exact string identifiers)
-- "input" (Input Surfaces): always active — every system has user/data inputs.
-- "reasoning" (Planning & Reasoning): always active — every LLM system reasons.
-- "tool_execution" (Tool Execution): active if the system can invoke tools, \
-APIs, external actions, run code, or interact with external services.
-- "memory" (Memory & State): active if the system has persistent memory, \
-session state, databases, knowledge graphs, or vector stores. \
-When "memory" is active, has_persistent_memory MUST be true.
-- "inter_agent" (Inter-Agent Communication): active if multiple AI agents \
-coordinate or communicate. When "inter_agent" is active, multi_agent MUST \
-be true.
-
-## Rules
-- zones_active must always include "input" and "reasoning".
-- has_persistent_memory: true if the system stores state across sessions \
-or interactions (implies "memory" should be active).
-- multi_agent: true if multiple AI agents coordinate (implies "inter_agent").
-- hitl: true if humans review, approve, or intervene in the workflow.
-- entry_points: list of attack surfaces as short strings, each annotated \
-with its zone, e.g. "user prompts via chat widget (input)".
-- confidence: "high" if the description is detailed, "medium" if moderate, \
-"low" if vague or minimal.
-
-Return a valid CapabilityProfile with only the Stage 1 fields. \
-Do NOT populate Stage 2 fields (tool_types, data_flows, etc.).\
-"""
+from scenario_forge.prompts import render_prompt
 
 
 def infer_capability_profile(
@@ -52,8 +22,8 @@ def infer_capability_profile(
         Tuple of (parsed CapabilityProfile, LLMResult with telemetry).
     """
     result = client.complete(
-        system_prompt=_SYSTEM_PROMPT,
-        user_prompt=use_case,
+        system_prompt=render_prompt("profile_system.j2"),
+        user_prompt=render_prompt("profile_user.j2", use_case=use_case),
         response_format=Stage1Profile,
     )
     profile = result.content.to_capability_profile()

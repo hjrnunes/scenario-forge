@@ -540,6 +540,7 @@ class TestEdgeCases:
 
     def test_system_prompt_mentions_overuse_avoidance(self):
         """The system prompt for Call 1 includes instructions about exclusion lists."""
-        from scenario_forge.pipeline.generate import _CALL1_SYSTEM
+        from scenario_forge.prompts import render_prompt
 
-        assert "exclusion list" in _CALL1_SYSTEM.lower()
+        prompt = render_prompt("call1_system.j2")
+        assert "exclusion list" in prompt.lower()

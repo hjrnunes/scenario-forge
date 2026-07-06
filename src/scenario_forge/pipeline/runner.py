@@ -43,6 +43,7 @@ from scenario_forge.pipeline.coverage import (
     write_coverage_report,
 )
 from scenario_forge.pipeline.profile import infer_capability_profile
+from scenario_forge.prompts import hash_prompt_templates
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
 
@@ -269,6 +270,7 @@ def run_pipeline(
             "model": client.model,
             "temperature": client.temperature,
             "max_completion_tokens": client.max_completion_tokens,
+            "prompt_template_hashes": hash_prompt_templates(),
         },
     }
     manifest_path = output_dir / "run-manifest.yaml"
