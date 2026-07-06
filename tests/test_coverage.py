@@ -928,10 +928,10 @@ class TestRemediateCoverageGaps:
         assert len(scenarios) == 2
         assert mock_generate.call_count == 2
 
-        # Verify each call used the correct preferred_entry_point.
+        # Verify each call used the correct pinned_entry_point (hard constraint).
         for i, ep in enumerate(uncovered):
             call_kwargs = mock_generate.call_args_list[i]
-            assert call_kwargs.kwargs.get("preferred_entry_point") == ep
+            assert call_kwargs.kwargs.get("pinned_entry_point") == ep
 
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
@@ -988,4 +988,4 @@ class TestRemediateCoverageGaps:
         assert call_args.args[1] is profile  # profile
         assert call_args.args[2] is client  # client
         assert call_args.args[3] == "my use case"  # use_case
-        assert call_args.kwargs["preferred_entry_point"] == "api gateway (zone 3)"
+        assert call_args.kwargs["pinned_entry_point"] == "api gateway (zone 3)"

@@ -1557,6 +1557,7 @@ def _call_actor_profile(
     excluded_actor_types: list[str] | None = None,
     preferred_capability_level: str | None = None,
     attack_goal: dict[str, Any] | None = None,
+    pinned_technique_id: str | None = None,
 ) -> tuple[ActorProfile, LLMResult]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
@@ -1596,15 +1597,25 @@ def _call_actor_profile(
             )
         diversity_section = "\n".join(diversity_lines) + "\n"
 
-    # Build shared ATLAS technique context
-    technique_context = _build_technique_context_block(seed.atlas_technique_ids)
-    technique_framing_0 = (
-        "Use these techniques to inform the actor's intentions and resource "
-        "selection — the actor should have plausible knowledge and tools for "
-        "these techniques.\n"
-        if technique_context
-        else ""
+    # Build shared ATLAS technique context — pin to single technique if set
+    tech_ids_for_context = (
+        [pinned_technique_id] if pinned_technique_id else seed.atlas_technique_ids
     )
+    technique_context = _build_technique_context_block(tech_ids_for_context)
+    if pinned_technique_id:
+        technique_framing_0 = (
+            "You MUST use this ATLAS technique to inform the actor's intentions "
+            "and resource selection — the actor should have plausible knowledge "
+            "and tools for this technique. This is a hard constraint.\n"
+        )
+    else:
+        technique_framing_0 = (
+            "Use these techniques to inform the actor's intentions and resource "
+            "selection — the actor should have plausible knowledge and tools for "
+            "these techniques.\n"
+            if technique_context
+            else ""
+        )
 
     # Build attack goal context block
     goal_section = ""
@@ -1658,10 +1669,19 @@ def _call_narrative(
     excluded_entry_points: list[str] | None = None,
     excluded_patterns: list[str] | None = None,
     excluded_structural_patterns: list[str] | None = None,
+    pinned_entry_point: str | None = None,
+    pinned_technique_id: str | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     # Build entry point diversity guidance section
     diversity_section = ""
-    if preferred_entry_point or excluded_entry_points:
+    if pinned_entry_point:
+        # Hard constraint from candidate filter — overrides soft hints
+        diversity_section = (
+            "\n## Entry Point Guidance\n"
+            f"- You MUST use this entry point: {pinned_entry_point}. "
+            "This is a hard constraint, not a suggestion.\n"
+        )
+    elif preferred_entry_point or excluded_entry_points:
         diversity_lines = ["\n## Entry Point Guidance"]
         if preferred_entry_point:
             diversity_lines.append(
@@ -1711,14 +1731,25 @@ def _call_narrative(
             + f"- Resources: {resources_str}\n"
         )
 
-    technique_context_1 = _build_technique_context_block(seed.atlas_technique_ids)
-    technique_framing_1 = (
-        "Reference these techniques in narrative step actions where applicable. "
-        "Annotate technique usage with the ID in square brackets, "
-        "e.g. [AML.T0054].\n"
-        if seed.atlas_technique_ids
-        else ""
+    # Build technique context — pin to single technique if set
+    tech_ids_for_narrative = (
+        [pinned_technique_id] if pinned_technique_id else seed.atlas_technique_ids
     )
+    technique_context_1 = _build_technique_context_block(tech_ids_for_narrative)
+    if pinned_technique_id:
+        technique_framing_1 = (
+            "You MUST use this ATLAS technique in the narrative. "
+            "Reference it in narrative step actions and annotate with the ID "
+            "in square brackets, e.g. [AML.T0054]. This is a hard constraint.\n"
+        )
+    else:
+        technique_framing_1 = (
+            "Reference these techniques in narrative step actions where applicable. "
+            "Annotate technique usage with the ID in square brackets, "
+            "e.g. [AML.T0054].\n"
+            if seed.atlas_technique_ids
+            else ""
+        )
 
     owasp_llm_formatted = _format_taxonomy_ids(seed.owasp_llm_ids, _OWASP_LLM_NAMES)
 
@@ -1758,25 +1789,43 @@ def _call_attack_tree(
     use_case: str,
     profile: CapabilityProfile | None = None,
     actor_profile: ActorProfile | None = None,
+    pinned_technique_id: str | None = None,
 ) -> tuple[AttackTree, LLMResult]:
     # Build shared technique context + Call 2-specific constraint rules
-    technique_context = _build_technique_context_block(seed.atlas_technique_ids)
-    if seed.atlas_technique_ids:
-        allowed_ids = ", ".join(seed.atlas_technique_ids)
-        technique_constraint = (
-            "\n## ATLAS Technique Constraint\n"
-            f"Allowed technique_id values: {allowed_ids}\n\n"
-            "Only assign a technique_id to a node if the technique's "
-            "description semantically matches the attack action described "
-            "in the node's label. For example, 'AI Agent Tool Invocation' "
-            "should only be used for nodes that involve invoking or "
-            "manipulating tools, not for prompt injection or hallucination "
-            "steps.\n"
-            "Use ONLY these technique IDs on leaf nodes. "
-            "Do NOT invent or hallucinate new technique IDs. "
-            "If none of these IDs fit a particular node, omit technique_id "
-            "from that node rather than inventing one.\n"
-        )
+    # Pin to single technique if set
+    tech_ids_for_tree = (
+        [pinned_technique_id] if pinned_technique_id else seed.atlas_technique_ids
+    )
+    technique_context = _build_technique_context_block(tech_ids_for_tree)
+    if tech_ids_for_tree:
+        allowed_ids = ", ".join(tech_ids_for_tree)
+        if pinned_technique_id:
+            technique_constraint = (
+                "\n## ATLAS Technique Constraint\n"
+                f"You MUST use this ATLAS technique: {allowed_ids}\n\n"
+                "Only assign a technique_id to a node if the technique's "
+                "description semantically matches the attack action described "
+                "in the node's label.\n"
+                "Use ONLY this technique ID on leaf nodes. "
+                "Do NOT invent or hallucinate new technique IDs. "
+                "If the ID does not fit a particular node, omit technique_id "
+                "from that node rather than inventing one.\n"
+            )
+        else:
+            technique_constraint = (
+                "\n## ATLAS Technique Constraint\n"
+                f"Allowed technique_id values: {allowed_ids}\n\n"
+                "Only assign a technique_id to a node if the technique's "
+                "description semantically matches the attack action described "
+                "in the node's label. For example, 'AI Agent Tool Invocation' "
+                "should only be used for nodes that involve invoking or "
+                "manipulating tools, not for prompt injection or hallucination "
+                "steps.\n"
+                "Use ONLY these technique IDs on leaf nodes. "
+                "Do NOT invent or hallucinate new technique IDs. "
+                "If none of these IDs fit a particular node, omit technique_id "
+                "from that node rather than inventing one.\n"
+            )
     else:
         technique_constraint = (
             "\n## ATLAS Technique Constraint\n"
@@ -1868,6 +1917,7 @@ def _call_behavior_spec(
     client: LLMClient,
     use_case: str,
     scenario_hash: str,
+    pinned_technique_id: str | None = None,
 ) -> tuple[str, LLMResult]:
     scenario_tag = f"{seed.seed_id}-{scenario_hash}"
 
@@ -1899,14 +1949,25 @@ Root: {attack_tree.root.label} (gate={attack_tree.root.gate.value}, zone={attack
 
     system_prompt = render_prompt("call3_system.j2", scenario_tag=scenario_tag)
 
-    technique_context = _build_technique_context_block(tree_technique_ids)
-    technique_framing_3 = (
-        "Annotate Gherkin steps with technique IDs from the attack tree above. "
-        "Use ONLY technique IDs that appear in the attack tree — do not introduce "
-        "new technique IDs. Use square brackets, e.g. [AML.T0054].\n"
-        if technique_context
-        else ""
+    # Pin to single technique if set; otherwise use tree-derived IDs
+    tech_ids_for_spec = (
+        [pinned_technique_id] if pinned_technique_id else tree_technique_ids
     )
+    technique_context = _build_technique_context_block(tech_ids_for_spec)
+    if pinned_technique_id:
+        technique_framing_3 = (
+            "You MUST use this ATLAS technique in the Gherkin steps. "
+            "Annotate steps with the technique ID in square brackets, "
+            "e.g. [AML.T0054]. This is a hard constraint.\n"
+        )
+    else:
+        technique_framing_3 = (
+            "Annotate Gherkin steps with technique IDs from the attack tree above. "
+            "Use ONLY technique IDs that appear in the attack tree — do not introduce "
+            "new technique IDs. Use square brackets, e.g. [AML.T0054].\n"
+            if technique_context
+            else ""
+        )
 
     suggested_violation_category = "-".join(seed.threat_name.lower().split()[:3])
 
@@ -2046,6 +2107,9 @@ def generate_scenario(
     excluded_actor_types: list[str] | None = None,
     preferred_capability_level: str | None = None,
     attack_goal: dict[str, Any] | None = None,
+    pinned_entry_point: str | None = None,
+    pinned_technique_id: str | None = None,
+    pinned_technique_name: str | None = None,
 ) -> tuple[ScenarioEnvelope, list[dict]]:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -2078,6 +2142,12 @@ def generate_scenario(
             (hint, not enforced).
         attack_goal: Selected attack goal sub-goal dict from the taxonomy.
             When provided, orients the actor's desires toward this goal category.
+        pinned_entry_point: Hard-constrained entry point from the candidate filter.
+            When set, overrides preferred_entry_point and excluded_entry_points.
+        pinned_technique_id: Hard-constrained ATLAS technique ID from the candidate
+            filter. When set, only this technique is passed to prompt context.
+        pinned_technique_name: Human-readable name of the pinned technique, for
+            context in prompts.
     """
     call_metas: list[CallMetadata] = []
     scenario_hash = _scenario_hash(seed.seed_id, use_case)
@@ -2092,6 +2162,7 @@ def generate_scenario(
         excluded_actor_types=excluded_actor_types,
         preferred_capability_level=preferred_capability_level,
         attack_goal=attack_goal,
+        pinned_technique_id=pinned_technique_id,
     )
 
     # Store the selected goal category on the actor profile (Step 5).
@@ -2113,6 +2184,8 @@ def generate_scenario(
         excluded_entry_points=excluded_entry_points,
         excluded_patterns=excluded_patterns,
         excluded_structural_patterns=excluded_structural_patterns,
+        pinned_entry_point=pinned_entry_point,
+        pinned_technique_id=pinned_technique_id,
     )
     call_metas.append(_call_metadata(CallName.narrative, result1))
 
@@ -2124,6 +2197,7 @@ def generate_scenario(
         use_case,
         profile=profile,
         actor_profile=actor_profile,
+        pinned_technique_id=pinned_technique_id,
     )
     call_metas.append(_call_metadata(CallName.attack_tree, result2))
 
@@ -2136,6 +2210,7 @@ def generate_scenario(
         client,
         use_case,
         scenario_hash,
+        pinned_technique_id=pinned_technique_id,
     )
     call_metas.append(_call_metadata(CallName.behavior_spec, result3))
 
