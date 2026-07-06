@@ -2459,7 +2459,7 @@ details.call-anomaly {
   display: none;
 }
 
-.scenario-tabs > label {
+.tab-bar > label {
   display: inline-block;
   padding: 8px 14px;
   font-size: 12px;
@@ -2471,7 +2471,7 @@ details.call-anomaly {
   user-select: none;
 }
 
-.scenario-tabs > label:hover {
+.tab-bar > label:hover {
   color: var(--text-primary);
 }
 
@@ -4397,8 +4397,8 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
     if not meta:
         return ""
 
-    attack_pattern_name = meta.get("attack_pattern_name", "")
-    attack_pattern_description = meta.get("attack_pattern_description", "")
+    attack_pattern_name = meta.get("attack_pattern_name") or meta.get("mechanism_name", "")
+    attack_pattern_description = meta.get("attack_pattern_description") or meta.get("mechanism_description", "")
     seed_id = meta.get("seed_id", "")
     threat_id = meta.get("threat_id", "")
     threat_name = meta.get("threat_name", "")
@@ -4554,8 +4554,8 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
         )
 
     # --- shared values ---
-    attack_pattern = _val(meta.get("attack_pattern_name"))
-    attack_pattern_desc = _val(meta.get("attack_pattern_description"))
+    attack_pattern = _val(meta.get("attack_pattern_name") or meta.get("mechanism_name"))
+    attack_pattern_desc = _val(meta.get("attack_pattern_description") or meta.get("mechanism_description"))
     threat_html = _enriched_threat(
         meta.get("threat_id", ""), meta.get("threat_name", "")
     )
