@@ -1,0 +1,19 @@
+## Attack pattern under assessment
+
+- **Name:** {{ attack_pattern_name }}
+- **Description:** {{ attack_pattern_description }}
+- **Parent threat:** {{ threat_id }} — {{ threat_name }}
+- **OWASP LLM Top-10 categories:** {{ owasp_llm_ids | join(", ") }}
+- **Risk card:** {{ risk_card_ref.risk_name }} — {{ risk_card_ref.risk_description }}
+
+## Candidates to judge
+
+For each numbered candidate below, decide whether the (entry_point, technique) combination is a plausible attack vector for the attack pattern described above against the target system.
+
+{% for c in candidates %}
+{{ loop.index }}. **Entry point:** {{ c.entry_point }}
+   **Technique:** {{ c.atlas_technique_id }} — {{ c.atlas_technique_name }}
+   **Technique description:** {{ c.atlas_technique_description }}
+{% endfor %}
+
+Return a structured response with the seed_id "{{ seed_id }}" and one verdict per candidate above. Each verdict must include the entry_point text, the atlas_technique_id, a verdict of "accept" or "reject", and a rationale explaining why.
