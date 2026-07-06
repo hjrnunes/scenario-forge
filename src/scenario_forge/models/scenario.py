@@ -412,6 +412,16 @@ class ScenarioEnvelope(BaseModel):
         description="Priority signals for human navigation.",
     )
 
+    # --- Candidate Filter Results ---
+
+    candidate_filter: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Candidate filter results: pinned_entry_point, pinned_technique_id, "
+            "pinned_technique_name, rejection_rationales."
+        ),
+    )
+
     # --- Generation Metadata ---
 
     generation: GenerationMetadata = Field(
