@@ -2087,6 +2087,37 @@ details.expandable[open] > summary::before {
   color: var(--text-primary);
 }
 
+/* Provenance chain parallel layout */
+.prov-parallel-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 660px;
+}
+
+.prov-parallel-row .prov-step {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.prov-parallel-row .prov-kv {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prov-parallel-row .prov-kv-label {
+  min-width: unset;
+}
+
+.prov-fork-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+  padding: 2px 0;
+  user-select: none;
+}
+
 /* CSS-only scenario tabs */
 .scenario-tabs > input[type="radio"] {
   display: none;
@@ -4053,10 +4084,13 @@ def _build_provenance_chain(
     threat_surface: dict[str, Any] | None = None,
     capability_profile: dict[str, Any] | None = None,
 ) -> str:
-    """Build a vertical flowchart showing the full input derivation chain.
+    """Build a flowchart showing the full input derivation chain.
 
-    Eight steps from risk card down to zone sequence, with CSS arrows between
-    boxes. Uses lazy-loaded taxonomy data for attack goals and affinities.
+    Steps 1-3 (Risk Card -> OWASP LLM IDs -> Agentic Threats) flow vertically,
+    then steps 4a/4b/4c (Attack Pattern, Attack Goal, ATLAS Techniques) fan
+    out as three parallel inputs that converge before step 5 (Entry Point)
+    and step 6 (Zone Sequence). Uses lazy-loaded taxonomy data for attack
+    goals and affinities.
     """
     faceting = scenario.get("faceting", {})
     rc = faceting.get("risk_card", {})
@@ -4169,7 +4203,7 @@ def _build_provenance_chain(
 
     steps.append(
         f'<div class="prov-step">'
-        f'<div class="prov-step-label">4. Attack Pattern '
+        f'<div class="prov-step-label">4a. Attack Pattern '
         f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
         f'(highlighted = selected for this seed)</span></div>'
         f'<div class="prov-step-content">'
@@ -4281,7 +4315,7 @@ def _build_provenance_chain(
 
     steps.append(
         f'<div class="prov-step">'
-        f'<div class="prov-step-label">5. Attack Goal</div>'
+        f'<div class="prov-step-label">4b. Attack Goal</div>'
         f'<div class="prov-step-content">'
         f'<div class="prov-kv"><span class="prov-kv-label">Selected</span>'
         f'<span class="prov-kv-value" style="font-weight:600;">'
@@ -4328,13 +4362,13 @@ def _build_provenance_chain(
 
     steps.append(
         f'<div class="prov-step">'
-        f'<div class="prov-step-label">6. ATLAS Techniques '
+        f'<div class="prov-step-label">4c. ATLAS Techniques '
         f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
         f'(highlighted = selected for this seed)</span></div>'
         f'<div class="prov-step-content">{atlas_body}</div></div>'
     )
 
-    # --- Step 7: Entry Point ---
+    # --- Step 5: Entry Point ---
     selected_ep = cp.get("entry_point", "")
     all_eps: list[str] = []
     if capability_profile:
@@ -4364,13 +4398,13 @@ def _build_provenance_chain(
 
     steps.append(
         f'<div class="prov-step">'
-        f'<div class="prov-step-label">7. Entry Point '
+        f'<div class="prov-step-label">5. Entry Point '
         f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
         f'(highlighted = selected)</span></div>'
         f'<div class="prov-step-content">{ep_body}</div></div>'
     )
 
-    # --- Step 8: Zone Sequence ---
+    # --- Step 6: Zone Sequence ---
     zones_traversed = cp.get("zones_traversed", [])
     zone_crumbs = ""
     for i, z in enumerate(zones_traversed):
@@ -4387,18 +4421,45 @@ def _build_provenance_chain(
 
     steps.append(
         f'<div class="prov-step">'
-        f'<div class="prov-step-label">8. Zone Sequence</div>'
+        f'<div class="prov-step-label">6. Zone Sequence</div>'
         f'<div class="prov-step-content">'
         f'<div class="zone-breadcrumb">{zone_crumbs}</div>'
         f'</div></div>'
     )
 
-    # Assemble with arrows
+    # Assemble with arrows -- steps 0-2 vertical, 3-5 parallel, 6-7 vertical
     parts: list[str] = []
-    for i, step in enumerate(steps):
-        parts.append(step)
-        if i < len(steps) - 1:
-            parts.append(arrow)
+
+    # Steps 0-2: vertical chain with arrows
+    for i in range(3):
+        parts.append(steps[i])
+        parts.append(arrow)
+
+    # Fork label
+    parts.append(
+        '<div class="prov-fork-label">'
+        "&#9662; parallel inputs to generation"
+        "</div>"
+    )
+
+    # Steps 3-5: parallel row (Attack Pattern, Attack Goal, ATLAS Techniques)
+    parts.append(
+        f'<div class="prov-parallel-row">'
+        f"{steps[3]}{steps[4]}{steps[5]}"
+        f"</div>"
+    )
+
+    # Merge arrow
+    parts.append(
+        '<div class="prov-fork-label">'
+        "&#9662; converge"
+        "</div>"
+    )
+
+    # Steps 6-7: vertical chain with arrow between them
+    parts.append(steps[6])
+    parts.append(arrow)
+    parts.append(steps[7])
 
     return f'<div class="prov-chain">{"".join(parts)}</div>'
 
