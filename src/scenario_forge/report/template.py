@@ -2712,10 +2712,30 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
+def build_threat_surface_section(
+    threat_surface: dict[str, Any],
+    scenarios: list[dict] | None = None,
+) -> str:
     entries = threat_surface.get("entries", [])
     governance = threat_surface.get("governance_only", [])
     all_entries = entries + governance
+
+    # Build per-threat-ID scenario index sets for deduplication across entries.
+    # Each scenario may reference multiple threat IDs; an entry may list
+    # multiple threat IDs.  We want *distinct* scenario counts per entry.
+    _tid_to_scenarios: dict[str, list[tuple[int, str]]] = {}
+    if scenarios:
+        for idx, sc in enumerate(scenarios):
+            tids = (
+                sc.get("faceting", {})
+                .get("taxonomy_chain", {})
+                .get("agentic_threat_ids", [])
+            )
+            composite = sc.get("priority", {}).get("composite", 0)
+            label = _priority_label(composite).lower()
+            for tid in tids:
+                _tid_to_scenarios.setdefault(tid, []).append((idx, label))
+    has_outcomes = bool(_tid_to_scenarios)
 
     # Option A: Table
     table_rows = ""
@@ -2788,6 +2808,49 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
         conf = rc.get("confidence", 0)
         conf_display = f"{conf:.2f}" if isinstance(conf, (int, float)) else str(conf)
 
+        # Outcomes cell — unique scenarios across this entry's agentic threat IDs
+        outcomes_cell = ""
+        if has_outcomes:
+            seen: dict[int, str] = {}  # scenario_idx -> priority label
+            for tid in raw_tids:
+                for idx, label in _tid_to_scenarios.get(tid, []):
+                    if idx not in seen:
+                        seen[idx] = label
+            total = len(seen)
+            h = sum(1 for lbl in seen.values() if lbl == "high")
+            m = sum(1 for lbl in seen.values() if lbl == "medium")
+            lo = sum(1 for lbl in seen.values() if lbl == "low")
+            if total:
+                parts: list[str] = []
+                if h:
+                    parts.append(
+                        f'<span style="background:var(--high);color:#fff;'
+                        f'padding:1px 6px;border-radius:9px;font-size:.8em;">'
+                        f"{h} high</span>"
+                    )
+                if m:
+                    parts.append(
+                        f'<span style="background:var(--medium);color:#fff;'
+                        f'padding:1px 6px;border-radius:9px;font-size:.8em;">'
+                        f"{m} med</span>"
+                    )
+                if lo:
+                    parts.append(
+                        f'<span style="background:var(--low);color:#fff;'
+                        f'padding:1px 6px;border-radius:9px;font-size:.8em;">'
+                        f"{lo} low</span>"
+                    )
+                badge_html = " ".join(parts)
+                outcomes_cell = (
+                    f'<td data-tooltip="Scenarios generated from this entry\'s'
+                    f' threat IDs">{total} scenarios {badge_html}</td>'
+                )
+            else:
+                outcomes_cell = (
+                    '<td style="color:var(--muted);">'
+                    '<span style="opacity:.5;">0 scenarios</span></td>'
+                )
+
         table_rows += f"""
         <tr>
           <td{risk_id_tip}>{_esc(risk_id)}</td>
@@ -2797,6 +2860,7 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
           <td>{llm_spans}</td>
           <td>{tid_spans}</td>
           <td>{sub_spans}</td>
+          {outcomes_cell}
           <td>{chain_html}</td>
         </tr>"""
 
@@ -2811,6 +2875,8 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
 
     # Option B: Sankey-style SVG
     sankey_svg = _build_sankey_svg(entries, risk_tips=risk_tips)
+
+    outcomes_th = "<th>Outcomes</th>" if has_outcomes else ""
 
     return f"""
     <div id="sec-threats" class="section">
@@ -2836,6 +2902,7 @@ def build_threat_surface_section(threat_surface: dict[str, Any]) -> str:
                 <th>LLM Top 10</th>
                 <th>Agentic Threats</th>
                 <th>Attack Patterns</th>
+                {outcomes_th}
                 <th>Chain</th>
               </tr>
             </thead>
