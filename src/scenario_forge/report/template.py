@@ -2860,7 +2860,7 @@ def build_threat_surface_section(
                     )
                 badge_html = " ".join(parts)
                 outcomes_cell = (
-                    f'<td data-tooltip="Scenarios generated from this entry\'s'
+                    f"<td data-tooltip=\"Scenarios generated from this entry's"
                     f' threat IDs">{total} scenarios {badge_html}</td>'
                 )
             else:
@@ -3289,6 +3289,20 @@ def build_threat_technique_section(
         actor_type = actor_profile.get("actor_type", "")
         capability_level = actor_profile.get("capability_level", "")
 
+        # Extract pinned technique from candidate_filter
+        candidate_filter = s.get("candidate_filter", {}) or {}
+        pinned_technique_id = candidate_filter.get("pinned_technique_id", "")
+        pinned_technique_name = candidate_filter.get("pinned_technique_name", "")
+
+        # Extract parent threat from scenario_seed (e.g. "AP-T10-01" -> "T10")
+        parent_threat = ""
+        if scenario_seed:
+            parts = scenario_seed.split("-")
+            if len(parts) >= 2:
+                parent_threat = parts[1]
+        if not parent_threat and threat_ids:
+            parent_threat = threat_ids[0]
+
         # Populate cross-reference map
         for tid in threat_ids:
             base_tid = tid.split("-")[0] if "-" in tid else tid
@@ -3306,8 +3320,11 @@ def build_threat_technique_section(
         roster_rows.append(
             {
                 "scenario_id": sid,
+                "threat": parent_threat,
                 "threat_ids": threat_ids,
                 "attack_pattern": scenario_seed,
+                "pinned_technique_id": pinned_technique_id,
+                "pinned_technique_name": pinned_technique_name,
                 "technique_ids": technique_ids,
                 "actor_type": actor_type,
                 "capability_level": capability_level,
@@ -3379,14 +3396,35 @@ def build_threat_technique_section(
     roster_body = ""
     for row in roster_rows:
         sid = row["scenario_id"]
-        threat_spans = ", ".join(
-            f"<span{_threat_id_tooltip(t)}>{_esc(t)}</span>" for t in row["threat_ids"]
-        )
+        # Threat column: show parent threat with tooltip of full agentic_threat_ids
+        parent_threat = row["threat"]
+        if parent_threat:
+            full_threats = ", ".join(row["threat_ids"]) if row["threat_ids"] else ""
+            threat_tip = f' data-tooltip="{_esc(full_threats)}"' if full_threats else ""
+            threat_spans = (
+                f"<span{_threat_id_tooltip(parent_threat)}>{_esc(parent_threat)}</span>"
+                if not threat_tip
+                else f"<span{threat_tip}>{_esc(parent_threat)}</span>"
+            )
+        else:
+            # Fallback: show all threat_ids
+            threat_spans = ", ".join(
+                f"<span{_threat_id_tooltip(t)}>{_esc(t)}</span>"
+                for t in row["threat_ids"]
+            )
         sub = row["attack_pattern"]
-        tech_spans = ", ".join(
-            f"<span{_technique_id_tooltip(t)}>{_esc(t)}</span>"
-            for t in row["technique_ids"]
-        )
+        # Technique column: show pinned technique with tooltip of name
+        pinned_id = row["pinned_technique_id"]
+        if pinned_id:
+            pinned_name = row["pinned_technique_name"]
+            tech_tip = f' data-tooltip="{_esc(pinned_name)}"' if pinned_name else ""
+            tech_spans = f"<span{tech_tip}>{_esc(pinned_id)}</span>"
+        else:
+            # Fallback: show all technique_ids
+            tech_spans = ", ".join(
+                f"<span{_technique_id_tooltip(t)}>{_esc(t)}</span>"
+                for t in row["technique_ids"]
+            )
         actor_display = (
             row["actor_type"].replace("-", " ").replace("_", " ").title()
             if row["actor_type"]
@@ -3428,9 +3466,9 @@ def build_threat_technique_section(
           <thead>
             <tr>
               <th>Scenario ID</th>
-              <th>Threat IDs</th>
+              <th>Threat</th>
               <th>Attack Pattern</th>
-              <th>Technique IDs</th>
+              <th>Technique</th>
               <th>Actor Type</th>
               <th>Capability</th>
               <th>Zones Traversed</th>
@@ -3667,9 +3705,7 @@ def build_scenarios_section(
         tc = fac.get("taxonomy_chain", {})
         cp = fac.get("capability_profile", {})
         scenario_threats = tc.get("agentic_threat_ids", [])
-        scenario_zones = [
-            _normalize_zone(z) for z in cp.get("zones_traversed", [])
-        ]
+        scenario_zones = [_normalize_zone(z) for z in cp.get("zones_traversed", [])]
         for tid in scenario_threats:
             if tid not in all_threat_ids:
                 all_threat_ids.append(tid)
@@ -3682,14 +3718,15 @@ def build_scenarios_section(
 
     sorted_threats = sorted(all_threat_ids)
     # Use canonical zone order, filtered to zones present in scenarios
-    canonical_zones = [
-        z for z in ZONE_COLORS if z in all_zones
-    ]
+    canonical_zones = [z for z in ZONE_COLORS if z in all_zones]
 
     # Coverage gap: threat x zone combos with 0 scenarios
     total_combos = len(sorted_threats) * len(canonical_zones) if canonical_zones else 0
     covered_combos = sum(
-        1 for t in sorted_threats for z in canonical_zones if coverage_counts.get((t, z), 0) > 0
+        1
+        for t in sorted_threats
+        for z in canonical_zones
+        if coverage_counts.get((t, z), 0) > 0
     )
     coverage_gaps = total_combos - covered_combos
 
@@ -3749,9 +3786,7 @@ def build_scenarios_section(
             mapping = _SIGNAL_NUMERIC.get(sig_key, {})
             numeric = mapping.get(raw_val, 0.0)
             total_numeric += numeric
-            segment_values.append(
-                (sig_key, sig_color, sig_label, numeric, raw_val)
-            )
+            segment_values.append((sig_key, sig_color, sig_label, numeric, raw_val))
 
         # Normalise segment widths so total bar fills proportional to
         # composite score — each segment is (numeric / total) * 100% of
@@ -3809,7 +3844,7 @@ def build_scenarios_section(
             f' data-tooltip="Click a cell to filter scenarios by that threat'
             f' and zone combination">Threat x Zone Coverage</div>'
             f'<div class="coverage-matrix" style="grid-template-columns:'
-            f" 140px repeat({len(canonical_zones)}, 1fr);\">"
+            f' 140px repeat({len(canonical_zones)}, 1fr);">'
         )
         # Header row: empty corner + zone names
         matrix_html += '<div class="matrix-header"></div>'
@@ -3841,7 +3876,7 @@ def build_scenarios_section(
                         f' style="background:rgba({_hex_to_rgb_css(zcolor)},'
                         f'{opacity:.2f});"'
                         f' data-tooltip="{_esc(tid)} x'
-                        f' {_esc(ZONE_DISPLAY_NAMES.get(z, z))}:'
+                        f" {_esc(ZONE_DISPLAY_NAMES.get(z, z))}:"
                         f' {count} scenario{"s" if count != 1 else ""}">'
                         f"{count}</div>"
                     )
@@ -3964,6 +3999,7 @@ def build_scenarios_section(
             all_completion_tokens.append(float(_e.get("completion_tokens", 0)))
 
     if len(all_durations) >= 3:
+
         def _mean_std(vals: list[float]) -> tuple[float, float]:
             n = len(vals)
             m = sum(vals) / n
@@ -4554,7 +4590,9 @@ def _build_provenance_chain(
     risk_name = rc.get("risk_name", "")
     taxonomy = rc.get("taxonomy", "")
     confidence = rc.get("confidence", 0)
-    conf_display = f"{confidence:.2f}" if isinstance(confidence, (int, float)) else str(confidence)
+    conf_display = (
+        f"{confidence:.2f}" if isinstance(confidence, (int, float)) else str(confidence)
+    )
     taxonomy_badge = (
         f'<span class="prov-badge prov-badge-accent">{_esc(taxonomy)}</span>'
         if taxonomy
@@ -4565,46 +4603,54 @@ def _build_provenance_chain(
         f'<div class="prov-step-label">1. Risk Card</div>'
         f'<div class="prov-step-content">'
         f'<div class="prov-kv"><span class="prov-kv-label">Risk ID</span>'
-        f'<span class="prov-kv-value" style="font-family:\'SF Mono\',\'Fira Code\',monospace;">{_esc(risk_id)}</span></div>'
+        f"<span class=\"prov-kv-value\" style=\"font-family:'SF Mono','Fira Code',monospace;\">{_esc(risk_id)}</span></div>"
         f'<div class="prov-kv"><span class="prov-kv-label">Risk Name</span>'
         f'<span class="prov-kv-value">{_esc(risk_name)}</span></div>'
         f'<div class="prov-kv"><span class="prov-kv-label">Taxonomy</span>'
         f'<span class="prov-kv-value">{taxonomy_badge}</span></div>'
         f'<div class="prov-kv"><span class="prov-kv-label">Confidence</span>'
         f'<span class="prov-kv-value">{_esc(conf_display)}</span></div>'
-        f'</div></div>'
+        f"</div></div>"
     )
 
     # --- Step 2: OWASP LLM IDs ---
     owasp_ids = tc.get("owasp_llm_ids", [])
-    owasp_badges = "".join(
-        f'<span class="prov-badge prov-badge-blue"'
-        f' data-tooltip="{_esc(_OWASP_LLM_NAMES.get(lid, ""))}"'
-        f'>{_esc(lid)}</span>'
-        for lid in owasp_ids
-    ) if owasp_ids else '<span class="prov-badge prov-badge-muted">none</span>'
+    owasp_badges = (
+        "".join(
+            f'<span class="prov-badge prov-badge-blue"'
+            f' data-tooltip="{_esc(_OWASP_LLM_NAMES.get(lid, ""))}"'
+            f">{_esc(lid)}</span>"
+            for lid in owasp_ids
+        )
+        if owasp_ids
+        else '<span class="prov-badge prov-badge-muted">none</span>'
+    )
     steps.append(
         f'<div class="prov-step">'
         f'<div class="prov-step-label">2. OWASP LLM IDs &mdash; SSSOM Mapping</div>'
         f'<div class="prov-step-content">'
         f'<div class="prov-item-row">{owasp_badges}</div>'
-        f'</div></div>'
+        f"</div></div>"
     )
 
     # --- Step 3: Agentic Threats ---
     threat_ids = tc.get("agentic_threat_ids", [])
-    threat_badges = "".join(
-        f'<span class="prov-badge prov-badge-orange"'
-        f'{_threat_id_tooltip(tid)}>'
-        f'{_esc(tid)} &mdash; {_esc(THREAT_NAMES.get(tid, ""))}</span>'
-        for tid in threat_ids
-    ) if threat_ids else '<span class="prov-badge prov-badge-muted">none</span>'
+    threat_badges = (
+        "".join(
+            f'<span class="prov-badge prov-badge-orange"'
+            f"{_threat_id_tooltip(tid)}>"
+            f"{_esc(tid)} &mdash; {_esc(THREAT_NAMES.get(tid, ''))}</span>"
+            for tid in threat_ids
+        )
+        if threat_ids
+        else '<span class="prov-badge prov-badge-muted">none</span>'
+    )
     steps.append(
         f'<div class="prov-step">'
         f'<div class="prov-step-label">3. Agentic Threats (surviving)</div>'
         f'<div class="prov-step-content">'
         f'<div class="prov-item-row">{threat_badges}</div>'
-        f'</div></div>'
+        f"</div></div>"
     )
 
     # --- Step 4: Attack Pattern ---
@@ -4616,7 +4662,7 @@ def _build_provenance_chain(
     ap_desc_html = (
         f'<div class="prov-kv"><span class="prov-kv-label">Description</span>'
         f'<span class="prov-kv-value" style="font-size:12px;color:var(--text-muted);">'
-        f'{_esc(_truncate(ap_desc, 300))}</span></div>'
+        f"{_esc(_truncate(ap_desc, 300))}</span></div>"
         if ap_desc
         else ""
     )
@@ -4638,32 +4684,34 @@ def _build_provenance_chain(
             if ap_id == seed_id:
                 ap_items += (
                     f'<span class="prov-highlight"{tip}>'
-                    f'<span style="font-family:\'SF Mono\',\'Fira Code\',monospace;font-size:11px;'
+                    f"<span style=\"font-family:'SF Mono','Fira Code',monospace;font-size:11px;"
                     f'font-weight:700;color:var(--accent);">{_esc(ap_id)}</span></span>'
                 )
             else:
                 ap_items += (
                     f'<span class="prov-badge prov-badge-muted prov-dim"{tip}>'
-                    f'{_esc(ap_id)}</span>'
+                    f"{_esc(ap_id)}</span>"
                 )
-        ap_selection_html = f'<div class="prov-item-row" style="margin-top:6px;">{ap_items}</div>'
+        ap_selection_html = (
+            f'<div class="prov-item-row" style="margin-top:6px;">{ap_items}</div>'
+        )
 
     steps.append(
         f'<div class="prov-step">'
         f'<div class="prov-step-label">4a. Attack Pattern '
         f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
-        f'(highlighted = selected for this seed)</span></div>'
+        f"(highlighted = selected for this seed)</span></div>"
         f'<div class="prov-step-content">'
         f'<div class="prov-kv"><span class="prov-kv-label">Seed ID</span>'
-        f'<span class="prov-kv-value" style="font-family:\'SF Mono\',\'Fira Code\',monospace;">{_esc(seed_id)}</span></div>'
+        f"<span class=\"prov-kv-value\" style=\"font-family:'SF Mono','Fira Code',monospace;\">{_esc(seed_id)}</span></div>"
         f'<div class="prov-kv"><span class="prov-kv-label">Name</span>'
         f'<span class="prov-kv-value" style="font-weight:600;">{_esc(ap_name)}</span></div>'
-        f'{ap_desc_html}'
+        f"{ap_desc_html}"
         f'<div class="prov-kv"><span class="prov-kv-label">Threat</span>'
         f'<span class="prov-kv-value"><span{_threat_id_tooltip(seed_threat_id)}>'
-        f'{_esc(seed_threat_id)} &mdash; {_esc(seed_threat_name)}</span></span></div>'
-        f'{ap_selection_html}'
-        f'</div></div>'
+        f"{_esc(seed_threat_id)} &mdash; {_esc(seed_threat_name)}</span></span></div>"
+        f"{ap_selection_html}"
+        f"</div></div>"
     )
 
     # --- Step 5: Attack Goal ---
@@ -4696,8 +4744,8 @@ def _build_provenance_chain(
                 f'<strong style="color:var(--text-muted);">{_esc(seed_threat_id)} affinity:</strong> '
                 f'<span class="prov-badge prov-badge-green">primary: {_esc(primary)}</span> '
                 f'<span class="prov-badge prov-badge-amber">secondary: {_esc(secondary)}</span> '
-                f'{excluded_badge}'
-                f'</div>'
+                f"{excluded_badge}"
+                f"</div>"
             )
 
         # Build goal category badges showing all sub-goals with selection highlight
@@ -4743,20 +4791,22 @@ def _build_provenance_chain(
                 if is_selected:
                     goal_items += (
                         f'<span class="prov-highlight" data-tooltip="{_esc(cat_name)}: {_esc(sg_name)}">'
-                        f'<span style="font-family:\'SF Mono\',\'Fira Code\',monospace;font-size:11px;font-weight:700;'
+                        f"<span style=\"font-family:'SF Mono','Fira Code',monospace;font-size:11px;font-weight:700;"
                         f'color:var(--accent);">{_esc(sg_id)}</span> '
-                        f'{tier_badge}'
-                        f'</span>'
+                        f"{tier_badge}"
+                        f"</span>"
                     )
                 else:
-                    dim_cls = ' prov-dim' if tier == "excluded" else ""
+                    dim_cls = " prov-dim" if tier == "excluded" else ""
                     goal_items += (
                         f'<span class="prov-badge prov-badge-muted{dim_cls}"'
                         f' data-tooltip="{_esc(cat_name)}: {_esc(sg_name)}">'
-                        f'{_esc(sg_id)} {tier_badge}</span>'
+                        f"{_esc(sg_id)} {tier_badge}</span>"
                     )
         if goal_items:
-            goals_grid_html = f'<div class="prov-item-row" style="margin-top:6px;">{goal_items}</div>'
+            goals_grid_html = (
+                f'<div class="prov-item-row" style="margin-top:6px;">{goal_items}</div>'
+            )
     except Exception:
         pass  # Taxonomy files not available; skip enrichment
 
@@ -4766,12 +4816,12 @@ def _build_provenance_chain(
         f'<div class="prov-step-content">'
         f'<div class="prov-kv"><span class="prov-kv-label">Selected</span>'
         f'<span class="prov-kv-value" style="font-weight:600;">'
-        f'{_esc(goal_cat)} &mdash; {_esc(goal_name)}</span></div>'
+        f"{_esc(goal_cat)} &mdash; {_esc(goal_name)}</span></div>"
         f'<div class="prov-kv"><span class="prov-kv-label">Category</span>'
         f'<span class="prov-kv-value">{_esc(goal_parent)}</span></div>'
-        f'{affinity_html}'
-        f'{goals_grid_html}'
-        f'</div></div>'
+        f"{affinity_html}"
+        f"{goals_grid_html}"
+        f"</div></div>"
     )
 
     # --- Step 6: ATLAS Techniques ---
@@ -4791,17 +4841,21 @@ def _build_provenance_chain(
         atlas_items = ""
         for tid in all_ids:
             name = _ATLAS_TECHNIQUE_NAMES.get(tid, "")
-            tip = f' data-tooltip="MITRE ATLAS: {_esc(tid)} &mdash; {_esc(name)}"' if name else ""
+            tip = (
+                f' data-tooltip="MITRE ATLAS: {_esc(tid)} &mdash; {_esc(name)}"'
+                if name
+                else ""
+            )
             if tid in selected_atlas:
                 atlas_items += (
                     f'<span class="prov-highlight"{tip}>'
-                    f'<span style="font-family:\'SF Mono\',\'Fira Code\',monospace;font-size:11px;'
+                    f"<span style=\"font-family:'SF Mono','Fira Code',monospace;font-size:11px;"
                     f'font-weight:700;color:#f97316;">{_esc(tid)}</span></span>'
                 )
             else:
                 atlas_items += (
                     f'<span class="prov-badge prov-badge-muted prov-dim"{tip}>'
-                    f'{_esc(tid)}</span>'
+                    f"{_esc(tid)}</span>"
                 )
         atlas_body = f'<div class="prov-item-row">{atlas_items}</div>'
     else:
@@ -4811,7 +4865,7 @@ def _build_provenance_chain(
         f'<div class="prov-step">'
         f'<div class="prov-step-label">4c. ATLAS Techniques '
         f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
-        f'(highlighted = selected for this seed)</span></div>'
+        f"(highlighted = selected for this seed)</span></div>"
         f'<div class="prov-step-content">{atlas_body}</div></div>'
     )
 
@@ -4828,12 +4882,12 @@ def _build_provenance_chain(
                 ep_items += (
                     f'<span class="prov-highlight">'
                     f'<span style="font-size:12px;font-weight:600;color:var(--accent);">'
-                    f'{_esc(ep)}</span></span>'
+                    f"{_esc(ep)}</span></span>"
                 )
             else:
                 ep_items += (
                     f'<span class="prov-badge prov-badge-muted prov-dim">'
-                    f'{_esc(ep)}</span>'
+                    f"{_esc(ep)}</span>"
                 )
         ep_body = f'<div class="prov-item-row">{ep_items}</div>'
     elif selected_ep:
@@ -4847,7 +4901,7 @@ def _build_provenance_chain(
         f'<div class="prov-step">'
         f'<div class="prov-step-label">5. Entry Point '
         f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
-        f'(highlighted = selected)</span></div>'
+        f"(highlighted = selected)</span></div>"
         f'<div class="prov-step-content">{ep_body}</div></div>'
     )
 
@@ -4871,7 +4925,7 @@ def _build_provenance_chain(
         f'<div class="prov-step-label">6. Zone Sequence</div>'
         f'<div class="prov-step-content">'
         f'<div class="zone-breadcrumb">{zone_crumbs}</div>'
-        f'</div></div>'
+        f"</div></div>"
     )
 
     # --- Candidate Filter Results (optional, between parallel and converge) ---
@@ -4887,12 +4941,12 @@ def _build_provenance_chain(
         accepted_html = (
             f'<div style="margin-bottom:8px;">'
             f'<span style="font-size:11px;font-weight:600;color:var(--text-muted);">'
-            f'Accepted:</span> '
+            f"Accepted:</span> "
             f'<span class="prov-accepted-badge">{_esc(pinned_ep)}</span> '
             f'<span class="prov-accepted-badge">'
-            f'{_esc(pinned_tid)}{": " + _esc(pinned_tname) if pinned_tname else ""}'
-            f'</span>'
-            f'</div>'
+            f"{_esc(pinned_tid)}{': ' + _esc(pinned_tname) if pinned_tname else ''}"
+            f"</span>"
+            f"</div>"
         )
 
         # Rejected combinations collapsible
@@ -4909,22 +4963,22 @@ def _build_provenance_chain(
                     f'<span class="prov-badge prov-badge-muted">{_esc(rv_ep)}</span> '
                     f'<span class="prov-badge prov-badge-muted">{_esc(rv_tid)}</span>'
                     f'<div class="prov-rationale">{_esc(rv_rationale)}</div>'
-                    f'</div>'
+                    f"</div>"
                 )
             rejected_html = (
                 f'<details style="margin-top:6px;">'
-                f'<summary>Rejected combinations ({reject_count})</summary>'
+                f"<summary>Rejected combinations ({reject_count})</summary>"
                 f'<div style="margin-top:6px;">{reject_items}</div>'
-                f'</details>'
+                f"</details>"
             )
 
         filter_html = (
             f'<div class="prov-filter-results">'
             f'<div class="prov-step-label">Candidate Filter Results</div>'
             f'<div class="prov-step-content">'
-            f'{accepted_html}'
-            f'{rejected_html}'
-            f'</div></div>'
+            f"{accepted_html}"
+            f"{rejected_html}"
+            f"</div></div>"
         )
 
     # Assemble with arrows -- steps 0-2 vertical, 3-5 parallel, 6-7 vertical
@@ -4937,17 +4991,11 @@ def _build_provenance_chain(
 
     # Fork label
     parts.append(
-        '<div class="prov-fork-label">'
-        "&#9662; parallel inputs to generation"
-        "</div>"
+        '<div class="prov-fork-label">&#9662; parallel inputs to generation</div>'
     )
 
     # Steps 3-5: parallel row (Attack Pattern, Attack Goal, ATLAS Techniques)
-    parts.append(
-        f'<div class="prov-parallel-row">'
-        f"{steps[3]}{steps[4]}{steps[5]}"
-        f"</div>"
-    )
+    parts.append(f'<div class="prov-parallel-row">{steps[3]}{steps[4]}{steps[5]}</div>')
 
     # Candidate filter results (if available)
     if filter_html:
@@ -4955,11 +5003,7 @@ def _build_provenance_chain(
         parts.append(filter_html)
 
     # Merge arrow
-    parts.append(
-        '<div class="prov-fork-label">'
-        "&#9662; converge"
-        "</div>"
-    )
+    parts.append('<div class="prov-fork-label">&#9662; converge</div>')
 
     # Steps 6-7: vertical chain with arrow between them
     parts.append(steps[6])
@@ -5065,12 +5109,10 @@ def _build_scenario_card(
                 _threshold = 2.0
                 if (
                     call_stats["dur_std"] > 0
-                    and dur > call_stats["dur_mean"] + _threshold * call_stats["dur_std"]
+                    and dur
+                    > call_stats["dur_mean"] + _threshold * call_stats["dur_std"]
                 ):
-                    anomaly_badges += (
-                        '<span class="call-anomaly-badge">'
-                        "⚠ slow</span>"
-                    )
+                    anomaly_badges += '<span class="call-anomaly-badge">⚠ slow</span>'
                     is_anomaly = True
                 if (
                     call_stats["pt_std"] > 0
@@ -5082,8 +5124,7 @@ def _build_scenario_card(
                     > call_stats["ct_mean"] + _threshold * call_stats["ct_std"]
                 ):
                     anomaly_badges += (
-                        '<span class="call-anomaly-badge">'
-                        "⚠ high tokens</span>"
+                        '<span class="call-anomaly-badge">⚠ high tokens</span>'
                     )
                     is_anomaly = True
 
@@ -5117,21 +5158,17 @@ def _build_scenario_card(
         step_count = sum(
             1
             for line in feature_content.splitlines()
-            if re.match(
-                r"\s*(Given|When|Then|And|But)\b", line
-            )
+            if re.match(r"\s*(Given|When|Then|And|But)\b", line)
         )
-        bspec_badge = (
-            f'<span class="tab-quality-badge">{step_count} steps</span>'
-        )
+        bspec_badge = f'<span class="tab-quality-badge">{step_count} steps</span>'
 
     if scorecard_data:
         eval_block = scorecard_data.get("evaluation", {})
 
         # Attack Tree badge: consistency metrics below 1.0
-        consistency = eval_block.get("consistency", {}).get(
-            "per_scenario", {}
-        ).get(sid, {})
+        consistency = (
+            eval_block.get("consistency", {}).get("per_scenario", {}).get(sid, {})
+        )
         tree_badge_parts: list[str] = []
         zone_align = consistency.get("zone_alignment")
         if zone_align is not None and zone_align < 1.0:
@@ -5148,14 +5185,14 @@ def _build_scenario_card(
         tree_badge = "".join(tree_badge_parts)
 
         # Narrative badge: plausibility violations
-        plausibility = eval_block.get("plausibility", {}).get(
-            "per_scenario", {}
-        ).get(sid)
+        plausibility = (
+            eval_block.get("plausibility", {}).get("per_scenario", {}).get(sid)
+        )
         if plausibility:
             n_violations = len(plausibility)
             narr_badge = (
                 f'<span class="tab-quality-badge tab-fail">'
-                f'{n_violations} violation{"s" if n_violations != 1 else ""}'
+                f"{n_violations} violation{'s' if n_violations != 1 else ''}"
                 f"</span>"
             )
 
@@ -5648,9 +5685,7 @@ def build_run_summary_section(
     failed = manifest.get("scenarios_failed", 0)
 
     # Rejection rate
-    rejection_rate = (
-        f"{rejected / expanded * 100:.1f}%" if expanded > 0 else "N/A"
-    )
+    rejection_rate = f"{rejected / expanded * 100:.1f}%" if expanded > 0 else "N/A"
 
     # Config
     config = manifest.get("config", {})
@@ -6217,7 +6252,14 @@ def _collect_scorecard_outliers(
         epa = metrics.get("entry_point_agreement", 1)
         if epa < 1:
             outliers.append(
-                ("red", sid, "Consistency", "Entry Point Agreement", epa, "scorecard-badge-red")
+                (
+                    "red",
+                    sid,
+                    "Consistency",
+                    "Entry Point Agreement",
+                    epa,
+                    "scorecard-badge-red",
+                )
             )
         snc = metrics.get("step_node_correspondence", 1.0)
         if snc < 0.9:
@@ -6282,9 +6324,7 @@ def _collect_scorecard_outliers(
     if isinstance(tu, (int, float)) and tu < 0.7:
         css = "scorecard-badge-red" if tu < 0.5 else "scorecard-badge-yellow"
         sev = "red" if tu < 0.5 else "yellow"
-        outliers.append(
-            (sev, "(aggregate)", "Diversity", "Title Uniqueness", tu, css)
-        )
+        outliers.append((sev, "(aggregate)", "Diversity", "Title Uniqueness", tu, css))
 
     ep_ent = diversity.get("entry_point_entropy", {})
     if isinstance(ep_ent, dict):
