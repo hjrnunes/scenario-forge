@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -2125,6 +2126,23 @@ details.expandable[open] > summary::before {
   overflow-y: auto;
 }
 
+details.call-anomaly {
+  border-left: 3px solid #e67e22;
+  padding-left: 6px;
+}
+
+.call-anomaly-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  background: #5a3600;
+  color: #f5b041;
+  vertical-align: middle;
+}
+
 /* Provenance chain flowchart */
 .prov-chain {
   display: flex;
@@ -3932,9 +3950,41 @@ def build_scenarios_section(
     """
 
     # ------------------------------------------------------------------
-    # Scenario cards (existing + Bead 4: collapse indicator)
+    # Pre-compute LLM call stats for anomaly detection
     # ------------------------------------------------------------------
     _call_logs = call_logs or {}
+    call_stats: dict[str, float] | None = None
+    all_durations: list[float] = []
+    all_prompt_tokens: list[float] = []
+    all_completion_tokens: list[float] = []
+    for _entries in _call_logs.values():
+        for _e in _entries:
+            all_durations.append(float(_e.get("duration_ms", 0)))
+            all_prompt_tokens.append(float(_e.get("prompt_tokens", 0)))
+            all_completion_tokens.append(float(_e.get("completion_tokens", 0)))
+
+    if len(all_durations) >= 3:
+        def _mean_std(vals: list[float]) -> tuple[float, float]:
+            n = len(vals)
+            m = sum(vals) / n
+            variance = sum((v - m) ** 2 for v in vals) / n
+            return m, math.sqrt(variance)
+
+        dur_mean, dur_std = _mean_std(all_durations)
+        pt_mean, pt_std = _mean_std(all_prompt_tokens)
+        ct_mean, ct_std = _mean_std(all_completion_tokens)
+        call_stats = {
+            "dur_mean": dur_mean,
+            "dur_std": dur_std,
+            "pt_mean": pt_mean,
+            "pt_std": pt_std,
+            "ct_mean": ct_mean,
+            "ct_std": ct_std,
+        }
+
+    # ------------------------------------------------------------------
+    # Scenario cards (existing + Bead 4: collapse indicator)
+    # ------------------------------------------------------------------
     cards_html = ""
     for s in scenarios:
         cards_html += _build_scenario_card(
@@ -3944,6 +3994,7 @@ def build_scenarios_section(
             threat_surface=threat_surface,
             capability_profile=capability_profile,
             scorecard_data=scorecard_data,
+            call_stats=call_stats,
         )
 
     return f"""
@@ -4925,6 +4976,7 @@ def _build_scenario_card(
     threat_surface: dict[str, Any] | None = None,
     capability_profile: dict[str, Any] | None = None,
     scorecard_data: dict[str, Any] | None = None,
+    call_stats: dict[str, float] | None = None,
 ) -> str:
     sid = scenario.get("scenario_id", "")
     narrative = scenario.get("narrative", {})
@@ -5005,9 +5057,40 @@ def _build_scenario_card(
                 )
             else:
                 response_text = _esc(str(response_raw))
+
+            # Anomaly detection badges
+            anomaly_badges = ""
+            is_anomaly = False
+            if call_stats is not None:
+                _threshold = 2.0
+                if (
+                    call_stats["dur_std"] > 0
+                    and dur > call_stats["dur_mean"] + _threshold * call_stats["dur_std"]
+                ):
+                    anomaly_badges += (
+                        '<span class="call-anomaly-badge">'
+                        "⚠ slow</span>"
+                    )
+                    is_anomaly = True
+                if (
+                    call_stats["pt_std"] > 0
+                    and ptokens
+                    > call_stats["pt_mean"] + _threshold * call_stats["pt_std"]
+                ) or (
+                    call_stats["ct_std"] > 0
+                    and ctokens
+                    > call_stats["ct_mean"] + _threshold * call_stats["ct_std"]
+                ):
+                    anomaly_badges += (
+                        '<span class="call-anomaly-badge">'
+                        "⚠ high tokens</span>"
+                    )
+                    is_anomaly = True
+
+            detail_cls = "expandable call-anomaly" if is_anomaly else "expandable"
             call_items += f"""
-            <details class="expandable">
-              <summary>Call {idx}: {_esc(display_name)} ({ptokens} prompt / {ctokens} completion tokens, {dur}ms)</summary>
+            <details class="{detail_cls}">
+              <summary>Call {idx}: {_esc(display_name)} ({ptokens} prompt / {ctokens} completion tokens, {dur}ms){anomaly_badges}</summary>
               <div style="padding:8px 0;">
                 <h4 style="margin:8px 0 4px;font-size:12px;color:var(--text-muted);">System Prompt</h4>
                 <pre class="call-log-pre">{sys_prompt}</pre>
