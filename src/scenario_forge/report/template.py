@@ -1556,6 +1556,20 @@ details.expandable[open] > summary::before {
   color: var(--text-secondary);
 }
 
+.coverage-reason {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  background: rgba(245,158,11,0.12);
+  color: #f59e0b;
+  vertical-align: middle;
+}
+
 .coverage-empty {
   padding: 12px;
   text-align: center;
@@ -2897,6 +2911,22 @@ def _coverage_status(count: int) -> tuple[str, str]:
     return "coverage-status-red", f"{count} gaps"
 
 
+# Human-readable labels for pipeline funnel-stage attribution codes.
+_GAP_REASON_LABELS: dict[str, str] = {
+    "no_seed": "no seed generated",
+    "no_candidate": "no candidate expanded",
+    "rejected": "filtered out",
+    "generation_failed": "generation failed",
+    "out_of_scope": "out of scope",
+}
+
+
+def _attribution_span(reason: str) -> str:
+    """Return an HTML span with a human-readable attribution label."""
+    label = _GAP_REASON_LABELS.get(reason, reason)
+    return f' <span class="coverage-reason">{_esc(label)}</span>'
+
+
 def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     """Build the Coverage Gaps section from loaded coverage-gaps.json data.
 
@@ -2910,13 +2940,20 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     uncovered_eps = gaps.get("uncovered_entry_points", [])
     uncovered_zones = gaps.get("uncovered_zones", [])
     uncovered_threats = gaps.get("uncovered_threats", [])
+    attributions = gaps.get("gap_attributions", {})
+    ep_attributions = attributions.get("entry_points", {})
+    zone_attributions = attributions.get("zones", {})
+    threat_attributions = attributions.get("threats", {})
 
     total_gaps = len(uncovered_eps) + len(uncovered_zones) + len(uncovered_threats)
 
     # Entry points card
     ep_cls, ep_label = _coverage_status(len(uncovered_eps))
     if uncovered_eps:
-        ep_items = "".join(f"<li>{_esc(ep)}</li>" for ep in uncovered_eps)
+        ep_items = "".join(
+            f"<li>{_esc(ep)}{_attribution_span(ep_attributions[ep]) if ep in ep_attributions else ''}</li>"
+            for ep in uncovered_eps
+        )
         ep_body = f'<ul class="coverage-list">{ep_items}</ul>'
     else:
         ep_body = (
@@ -2927,7 +2964,8 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     z_cls, z_label = _coverage_status(len(uncovered_zones))
     if uncovered_zones:
         z_items = "".join(
-            f"<li>{_esc(ZONE_DISPLAY_NAMES.get(_normalize_zone(z), str(z)))}</li>"
+            f"<li>{_esc(ZONE_DISPLAY_NAMES.get(_normalize_zone(z), str(z)))}"
+            f"{_attribution_span(zone_attributions[z]) if z in zone_attributions else ''}</li>"
             for z in uncovered_zones
         )
         z_body = f'<ul class="coverage-list">{z_items}</ul>'
@@ -2937,7 +2975,10 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     # Threats card
     t_cls, t_label = _coverage_status(len(uncovered_threats))
     if uncovered_threats:
-        t_items = "".join(f"<li>{_esc(t)}</li>" for t in uncovered_threats)
+        t_items = "".join(
+            f"<li>{_esc(t)}{_attribution_span(threat_attributions[t]) if t in threat_attributions else ''}</li>"
+            for t in uncovered_threats
+        )
         t_body = f'<ul class="coverage-list">{t_items}</ul>'
     else:
         t_body = '<div class="coverage-empty">All in-scope threats have scenario coverage.</div>'
