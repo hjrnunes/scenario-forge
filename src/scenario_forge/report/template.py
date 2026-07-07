@@ -5016,7 +5016,9 @@ def _build_provenance_chain(
     )
 
     # --- Step 6: ATLAS Techniques ---
-    selected_atlas = set(meta.get("atlas_provenance_ids") or [])
+    cf = scenario.get("candidate_filter", {}) or {}
+    pinned_id = cf.get("pinned_technique_id", "")
+    selected_atlas = {pinned_id} if pinned_id else set()
     # Get all available techniques from threat surface entry matching this risk card
     all_atlas: list[str] = []
     if threat_surface:
@@ -5056,7 +5058,7 @@ def _build_provenance_chain(
         f'<div class="prov-step">'
         f'<div class="prov-step-label">4c. ATLAS Techniques '
         f'<span style="font-size:9px;color:var(--text-muted);font-variant:normal;">'
-        f"(highlighted = selected for this seed)</span></div>"
+        f"(highlighted = pinned for this scenario)</span></div>"
         f'<div class="prov-step-content">{atlas_body}</div></div>'
     )
 
