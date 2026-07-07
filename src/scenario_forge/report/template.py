@@ -683,6 +683,7 @@ body {
 .risk-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .risk-table th {
@@ -1823,6 +1824,8 @@ details.expandable[open] > summary::before {
 .roster-table td {
   overflow-wrap: break-word;
   word-break: break-word;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 /* CSS tooltips (replace unreliable native title= tooltips) */
@@ -2100,7 +2103,15 @@ details.expandable[open] > summary::before {
 .roster-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
+.roster-table th:nth-child(1) { width: 16%; }
+.roster-table th:nth-child(2) { width: 6%; }
+.roster-table th:nth-child(3) { width: 16%; }
+.roster-table th:nth-child(4) { width: 16%; }
+.roster-table th:nth-child(5) { width: 16%; }
+.roster-table th:nth-child(6) { width: 10%; }
+.roster-table th:nth-child(7) { width: 20%; }
 
 .roster-table th {
   text-align: left;
@@ -2940,7 +2951,13 @@ def build_threat_surface_section(
     # Option B: Sankey-style SVG
     sankey_svg = _build_sankey_svg(entries, risk_tips=risk_tips)
 
-    outcomes_th = "<th>Outcomes</th>" if has_outcomes else ""
+    # Column widths for fixed table layout — vary with/without Outcomes column
+    if has_outcomes:
+        _rw = ["12%", "16%", "8%", "7%", "8%", "10%", "12%", "13%", "14%"]
+        outcomes_th = f'<th style="width:{_rw[7]}">Outcomes</th>'
+    else:
+        _rw = ["13%", "18%", "9%", "8%", "9%", "11%", "14%", "", "18%"]
+        outcomes_th = ""
 
     return f"""
     <div id="sec-threats" class="section">
@@ -2959,15 +2976,15 @@ def build_threat_surface_section(
           <table class="risk-table">
             <thead>
               <tr>
-                <th>Risk ID</th>
-                <th>Risk Name</th>
-                <th>Status</th>
-                <th>Confidence</th>
-                <th>LLM Top 10</th>
-                <th>Agentic Threats</th>
-                <th>Attack Patterns</th>
+                <th style="width:{_rw[0]}">Risk ID</th>
+                <th style="width:{_rw[1]}">Risk Name</th>
+                <th style="width:{_rw[2]}">Status</th>
+                <th style="width:{_rw[3]}">Confidence</th>
+                <th style="width:{_rw[4]}">LLM Top 10</th>
+                <th style="width:{_rw[5]}">Agentic Threats</th>
+                <th style="width:{_rw[6]}">Attack Patterns</th>
                 {outcomes_th}
-                <th>Chain</th>
+                <th style="width:{_rw[8]}">Chain</th>
               </tr>
             </thead>
             <tbody>{table_rows}</tbody>
