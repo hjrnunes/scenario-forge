@@ -30,12 +30,37 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class GapAttributions:
+    """Funnel-stage attribution for each coverage gap.
+
+    Each dict maps an uncovered item name to one of:
+      - ``"no_seed"``: no seed was generated for this item
+      - ``"no_candidate"``: seed existed but no candidate was expanded
+      - ``"rejected"``: candidate existed but was rejected at filtering
+      - ``"generation_failed"``: filtered seed existed but scenario generation failed
+      - ``"out_of_scope"``: threat gated out before seed expansion
+    """
+
+    entry_points: dict[str, str] = field(default_factory=dict)
+    zones: dict[str, str] = field(default_factory=dict)
+    threats: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "entry_points": self.entry_points,
+            "zones": self.zones,
+            "threats": self.threats,
+        }
+
+
+@dataclass
 class CoverageGaps:
     """Structured result of coverage gap analysis."""
 
     uncovered_entry_points: list[str] = field(default_factory=list)
     uncovered_zones: list[str] = field(default_factory=list)
     uncovered_threats: list[str] = field(default_factory=list)
+    gap_attributions: GapAttributions = field(default_factory=GapAttributions)
 
     @property
     def has_gaps(self) -> bool:
@@ -46,11 +71,15 @@ class CoverageGaps:
         )
 
     def to_dict(self) -> dict:
-        return {
+        result: dict = {
             "uncovered_entry_points": self.uncovered_entry_points,
             "uncovered_zones": self.uncovered_zones,
             "uncovered_threats": self.uncovered_threats,
         }
+        # Only include attributions if there are any gaps.
+        if self.has_gaps:
+            result["gap_attributions"] = self.gap_attributions.to_dict()
+        return result
 
 
 def _normalize_entry_point(ep: str) -> str:

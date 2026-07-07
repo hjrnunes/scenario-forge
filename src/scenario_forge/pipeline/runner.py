@@ -21,6 +21,7 @@ from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import ACTOR_TYPES, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
+    CandidateTriple,
     FilteredSeed,
     expand_candidates,
     filter_candidates,
@@ -41,6 +42,8 @@ from scenario_forge.pipeline.generate import (
 )
 from scenario_forge.pipeline.coverage import (
     CoverageGaps,
+    GapAttributions,
+    _normalize_entry_point,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
     write_coverage_report,
@@ -67,6 +70,92 @@ class PipelineResult(BaseModel):
     scenarios: list[ScenarioEnvelope]
     governance_only_count: int
     generation_notes: list[str]
+
+
+def _compute_gap_attributions(
+    coverage_gaps: CoverageGaps,
+    seeds: list[ScenarioSeed],
+    candidates: list[CandidateTriple],
+    filtered_seeds: list[FilteredSeed],
+    scenarios: list[ScenarioEnvelope],
+) -> GapAttributions:
+    """Attribute each coverage gap to the pipeline funnel stage where it fell out.
+
+    For each uncovered threat/entry-point/zone, walks the funnel backwards
+    to determine WHY it is uncovered:
+
+      1. ``"no_seed"`` -- no seed was generated for this item
+      2. ``"no_candidate"`` -- seed existed but candidate expansion produced nothing
+      3. ``"rejected"`` -- candidate existed but the LLM filter rejected it
+      4. ``"generation_failed"`` -- filtered seed existed but scenario generation failed
+      5. ``"out_of_scope"`` -- threat gated out before seed expansion
+    """
+    # Pre-compute lookup sets for each funnel stage.
+    seed_threat_ids: set[str] = {s.threat_id for s in seeds}
+    candidate_threat_ids: set[str] = {c.threat_id for c in candidates}
+    filtered_threat_ids: set[str] = {f.threat_id for f in filtered_seeds}
+    scenario_threat_ids: set[str] = set()
+    for env in scenarios:
+        scenario_threat_ids.update(env.faceting.taxonomy_chain.agentic_threat_ids)
+
+    # Normalized entry-point lookup sets.
+    # Note: seeds don't carry entry points; candidates are the first stage
+    # that pairs seeds with entry points.
+    candidate_entry_points_norm: set[str] = {
+        _normalize_entry_point(c.entry_point) for c in candidates
+    }
+    filtered_entry_points_norm: set[str] = {
+        _normalize_entry_point(f.pinned_entry_point) for f in filtered_seeds
+    }
+
+    # Zone lookup sets (zones only exist in generated scenarios).
+    scenario_zones: set[str] = set()
+    for env in scenarios:
+        scenario_zones.update(env.narrative.zone_sequence)
+
+    # --- Threat attribution ---
+    threat_attrs: dict[str, str] = {}
+    for tid in coverage_gaps.uncovered_threats:
+        if tid not in seed_threat_ids:
+            threat_attrs[tid] = "no_seed"
+        elif tid not in candidate_threat_ids:
+            threat_attrs[tid] = "no_candidate"
+        elif tid not in filtered_threat_ids:
+            threat_attrs[tid] = "rejected"
+        else:
+            # Filtered seed existed but no scenario was produced
+            threat_attrs[tid] = "generation_failed"
+
+    # --- Entry-point attribution ---
+    ep_attrs: dict[str, str] = {}
+    for ep in coverage_gaps.uncovered_entry_points:
+        ep_norm = _normalize_entry_point(ep)
+        if ep_norm not in candidate_entry_points_norm:
+            # Seeds don't track entry points; candidates are the first stage
+            # that does. If no candidate has this entry point, it means all
+            # seeds for this entry point were skipped (e.g. no ATLAS techniques).
+            ep_attrs[ep] = "no_candidate"
+        elif ep_norm not in filtered_entry_points_norm:
+            ep_attrs[ep] = "rejected"
+        else:
+            ep_attrs[ep] = "generation_failed"
+
+    # --- Zone attribution ---
+    zone_attrs: dict[str, str] = {}
+    for z in coverage_gaps.uncovered_zones:
+        # Zones are only produced during scenario generation (zone_sequence).
+        # Seeds/candidates don't track zone traversal. If scenarios exist but
+        # none traversed this zone, the generation stage didn't target it.
+        if not scenarios:
+            zone_attrs[z] = "generation_failed"
+        else:
+            zone_attrs[z] = "no_seed"
+
+    return GapAttributions(
+        entry_points=ep_attrs,
+        zones=zone_attrs,
+        threats=threat_attrs,
+    )
 
 
 def _pick_best_seed_for_entry_point(
@@ -529,6 +618,12 @@ def run_pipeline(
     logger.info("[Post-Generation] Analyzing coverage gaps...")
     coverage_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
     attacker_diversity = analyze_attacker_diversity(scenarios)
+
+    # --- Funnel-stage attribution for coverage gaps ---
+    if coverage_gaps.has_gaps:
+        coverage_gaps.gap_attributions = _compute_gap_attributions(
+            coverage_gaps, seeds, candidates, filtered_seeds, scenarios,
+        )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
     # --- Auto-generate HTML report ---
