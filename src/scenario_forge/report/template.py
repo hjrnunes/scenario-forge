@@ -2038,7 +2038,7 @@ details.expandable[open] > summary::before {
 
 /* Threat-Technique Matrix */
 .matrix-table {
-  width: 100%;
+  width: max-content;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -2055,14 +2055,54 @@ details.expandable[open] > summary::before {
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3;
   white-space: nowrap;
 }
 
 .matrix-table th.matrix-col-header {
   text-align: center;
-  min-width: 80px;
-  writing-mode: horizontal-tb;
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  padding: 6px 2px;
+  height: 130px;
+  vertical-align: bottom;
+}
+
+.matrix-col-header-text {
+  writing-mode: vertical-lr;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  font-size: 10px;
+  display: inline-block;
+  max-height: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sticky first two columns (Threat ID + Name) */
+.matrix-table th.matrix-sticky-col {
+  position: sticky;
+  z-index: 4;
+  background: var(--bg-secondary);
+}
+.matrix-table th.matrix-sticky-col-0 { left: 0; }
+.matrix-table th.matrix-sticky-col-1 { left: 60px; }
+
+.matrix-table td.matrix-sticky-col {
+  position: sticky;
+  z-index: 2;
+  background: var(--bg-card);
+}
+.matrix-table td.matrix-sticky-col-0 { left: 0; }
+.matrix-table td.matrix-sticky-col-1 { left: 60px; }
+
+.matrix-table tr:hover td.matrix-sticky-col {
+  background: var(--bg-card-hover);
+}
+
+.matrix-table tr.matrix-row-greyed td.matrix-sticky-col {
+  background: var(--bg-card);
 }
 
 .matrix-table td {
@@ -2087,6 +2127,29 @@ details.expandable[open] > summary::before {
   text-align: center;
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 11px;
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  padding: 6px 2px;
+}
+
+.matrix-count-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: help;
+}
+
+.matrix-count-link:hover {
+  background: rgba(99, 102, 241, 0.35);
 }
 
 .matrix-table td.matrix-cell a {
@@ -3402,11 +3465,14 @@ def build_threat_technique_section(
     all_threat_ids = [f"T{i}" for i in range(1, 18)]
 
     # --- Build Table 1: Cross-reference matrix ---
-    # Column headers
+    # Column headers (rotated)
     tech_headers = ""
     for tech_id in all_techniques:
         tech_tip = _technique_id_tooltip(tech_id)
-        tech_headers += f'<th class="matrix-col-header"{tech_tip}>{_esc(tech_id)}</th>'
+        tech_headers += (
+            f'<th class="matrix-col-header"{tech_tip}>'
+            f'<span class="matrix-col-header-text">{_esc(tech_id)}</span></th>'
+        )
 
     # Rows
     matrix_rows = ""
@@ -3420,20 +3486,31 @@ def build_threat_technique_section(
         for tech_id in all_techniques:
             scenario_ids = threat_tech_map.get(tid, {}).get(tech_id, [])
             if scenario_ids:
-                links = "<br>".join(
-                    f'<a href="#scenario-{_esc(s_id)}"'
-                    f'{f""" data-tooltip="{_esc(sid_titles[s_id])}" """ if s_id in sid_titles else ""}'
-                    f">{_esc(s_id)}</a>"
+                count = len(scenario_ids)
+                tooltip_lines = ", ".join(
+                    f"{_esc(s_id)}: {_esc(sid_titles.get(s_id, ''))}"
+                    if s_id in sid_titles
+                    else _esc(s_id)
                     for s_id in scenario_ids
                 )
-                cells += f'<td class="matrix-cell">{links}</td>'
+                # Link to the first scenario for click convenience
+                first_sid = scenario_ids[0]
+                cells += (
+                    f'<td class="matrix-cell">'
+                    f'<a class="matrix-count-link" '
+                    f'href="#scenario-{_esc(first_sid)}" '
+                    f'data-tooltip="{tooltip_lines}">'
+                    f"{count}</a></td>"
+                )
             else:
                 cells += '<td class="matrix-cell"></td>'
 
         matrix_rows += (
             f'<tr class="{row_cls.strip()}">'
-            f"<td{tip}><strong>{_esc(tid)}</strong></td>"
-            f"<td>{_esc(threat_name)}</td>"
+            f'<td class="matrix-sticky-col matrix-sticky-col-0"{tip}>'
+            f"<strong>{_esc(tid)}</strong></td>"
+            f'<td class="matrix-sticky-col matrix-sticky-col-1">'
+            f"{_esc(threat_name)}</td>"
             f"{cells}"
             f"</tr>"
         )
@@ -3444,8 +3521,8 @@ def build_threat_technique_section(
         <table class="matrix-table">
           <thead>
             <tr>
-              <th>Threat</th>
-              <th>Name</th>
+              <th class="matrix-sticky-col matrix-sticky-col-0">Threat</th>
+              <th class="matrix-sticky-col matrix-sticky-col-1">Name</th>
               {tech_headers}
             </tr>
           </thead>
