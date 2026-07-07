@@ -3308,6 +3308,7 @@ def build_scenarios_section(
     call_logs: dict[str, list[dict]] | None = None,
     threat_surface: dict[str, Any] | None = None,
     capability_profile: dict[str, Any] | None = None,
+    scenarios_generated: int | None = None,
 ) -> str:
     if not scenarios:
         return (
@@ -3390,7 +3391,8 @@ def build_scenarios_section(
       <div class="stats-bar">
         <div class="stat-card" style="border-left-color:var(--accent);">
           <span class="stat-number">{total_count}</span>
-          <span class="stat-label">Total Scenarios</span>
+          <span class="stat-label">In Report</span>
+          {"" if scenarios_generated is None or scenarios_generated == total_count else f'<span class="stat-sublabel" style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">of {scenarios_generated} generated</span>'}
         </div>
         <div class="stat-card" style="border-left-color:var(--high);">
           <span class="stat-number">{high_count}</span>
