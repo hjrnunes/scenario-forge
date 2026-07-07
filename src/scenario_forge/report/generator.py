@@ -231,7 +231,7 @@ def generate_report(output_dir: Path) -> Path:
     )
     use_case_html = build_use_case_section(use_case_text) if use_case_text else ""
     profile_html = build_capability_profile_section(profile_data)
-    threats_html = build_threat_surface_section(ts_data)
+    threats_html = build_threat_surface_section(ts_data, scenarios=scenarios)
 
     coverage_html = ""
     if coverage_data:
