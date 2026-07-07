@@ -5130,12 +5130,24 @@ def _highlight_gherkin(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_run_summary_section(manifest: dict[str, Any], scenarios_in_report: int) -> str:
+def build_run_summary_section(
+    manifest: dict[str, Any],
+    scenarios_in_report: int,
+    *,
+    high_count: int = 0,
+    medium_count: int = 0,
+    low_count: int = 0,
+    coverage_gaps: int | None = None,
+) -> str:
     """Build a Run Summary section showing pipeline funnel metrics.
 
     Args:
         manifest: Parsed ``run-manifest.yaml`` dict.
         scenarios_in_report: Count of scenarios actually rendered in the report.
+        high_count: Number of HIGH priority scenarios (composite >= 0.7).
+        medium_count: Number of MEDIUM priority scenarios (0.4 <= composite < 0.7).
+        low_count: Number of LOW priority scenarios (composite < 0.4).
+        coverage_gaps: Total coverage gaps count, or *None* if unavailable.
 
     Returns:
         HTML string for the run summary section, or empty string if manifest
@@ -5240,6 +5252,48 @@ def build_run_summary_section(manifest: dict[str, Any], scenarios_in_report: int
             "</div>"
         )
 
+    # Priority breakdown row
+    total_priority = high_count + medium_count + low_count
+    high_pct = (high_count / total_priority * 100) if total_priority else 0
+    medium_pct = (medium_count / total_priority * 100) if total_priority else 0
+    donut_gradient = (
+        f"conic-gradient("
+        f"var(--high) 0% {high_pct:.1f}%, "
+        f"var(--medium) {high_pct:.1f}% {high_pct + medium_pct:.1f}%, "
+        f"var(--low) {high_pct + medium_pct:.1f}% 100%"
+        f")"
+    )
+    coverage_card = ""
+    if coverage_gaps is not None:
+        coverage_card = (
+            '<div class="coverage-gap-card">'
+            f'<span class="stat-number">{coverage_gaps}</span>'
+            '<span class="stat-label">Coverage Gaps</span>'
+            "</div>"
+        )
+
+    priority_html = f"""
+      <div class="card">
+        <div class="scenario-section-title">Outcome Summary</div>
+        <div class="stats-bar">
+          <div class="stat-card" style="border-left-color:var(--high);">
+            <span class="stat-number">{high_count}</span>
+            <span class="stat-label">High Priority</span>
+          </div>
+          <div class="stat-card" style="border-left-color:var(--medium);">
+            <span class="stat-number">{medium_count}</span>
+            <span class="stat-label">Medium Priority</span>
+          </div>
+          <div class="stat-card" style="border-left-color:var(--low);">
+            <span class="stat-number">{low_count}</span>
+            <span class="stat-label">Low Priority</span>
+          </div>
+          <div class="severity-donut" style="background:{donut_gradient};" data-tooltip="High: {high_count} | Medium: {medium_count} | Low: {low_count}"></div>
+          {coverage_card}
+        </div>
+      </div>
+    """
+
     return f"""
     <div id="sec-run-summary" class="section">
       <div class="section-header">
@@ -5252,6 +5306,8 @@ def build_run_summary_section(manifest: dict[str, Any], scenarios_in_report: int
           {funnel_html}
         </div>
       </div>
+
+      {priority_html}
 
       <div class="stats-bar">
         <div class="stat-card" style="border-left-color:#ef4444;">

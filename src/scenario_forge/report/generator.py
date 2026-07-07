@@ -193,9 +193,39 @@ def generate_report(output_dir: Path) -> Path:
             "use-case.txt not found in %s (skipping use case section)", output_dir
         )
 
+    # --- Compute priority breakdown for run summary ---
+    high_count = 0
+    medium_count = 0
+    low_count = 0
+    for s in scenarios:
+        composite = s.get("priority", {}).get("composite", 0)
+        if composite >= 0.7:
+            high_count += 1
+        elif composite >= 0.4:
+            medium_count += 1
+        else:
+            low_count += 1
+
+    # Coverage gaps count (from coverage-gaps.json if available)
+    coverage_gaps_count: int | None = None
+    if coverage_data:
+        gaps = coverage_data.get("coverage_gaps", {})
+        coverage_gaps_count = (
+            len(gaps.get("uncovered_entry_points", []))
+            + len(gaps.get("uncovered_zones", []))
+            + len(gaps.get("uncovered_threats", []))
+        )
+
     # --- Build HTML sections ---
     run_summary_html = (
-        build_run_summary_section(manifest_data, len(scenarios))
+        build_run_summary_section(
+            manifest_data,
+            len(scenarios),
+            high_count=high_count,
+            medium_count=medium_count,
+            low_count=low_count,
+            coverage_gaps=coverage_gaps_count,
+        )
         if manifest_data
         else ""
     )
