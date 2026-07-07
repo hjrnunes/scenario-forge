@@ -417,8 +417,8 @@ class ScenarioEnvelope(BaseModel):
     candidate_filter: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Candidate filter results: pinned_entry_point, pinned_technique_id, "
-            "pinned_technique_name, rejection_rationales."
+            "Candidate filter results: pinned_entry_point, pinned_technique_ids, "
+            "pinned_technique_names, rejection_rationales."
         ),
     )
 

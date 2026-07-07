@@ -544,14 +544,14 @@ def run_pipeline(
                 preferred_capability_level=preferred_cap,
                 attack_goal=selected_goal,
                 pinned_entry_point=fseed.pinned_entry_point,
-                pinned_technique_id=fseed.pinned_technique_id,
-                pinned_technique_name=fseed.pinned_technique_name,
+                pinned_technique_ids=list(fseed.pinned_technique_ids),
+                pinned_technique_names=list(fseed.pinned_technique_names),
             )
             # Attach candidate filter provenance data to the envelope.
             envelope.candidate_filter = {
                 "pinned_entry_point": fseed.pinned_entry_point,
-                "pinned_technique_id": fseed.pinned_technique_id,
-                "pinned_technique_name": fseed.pinned_technique_name,
+                "pinned_technique_ids": list(fseed.pinned_technique_ids),
+                "pinned_technique_names": list(fseed.pinned_technique_names),
                 "rejection_rationales": [
                     v.model_dump() for v in fseed.rejection_rationales
                 ],
