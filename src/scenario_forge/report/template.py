@@ -115,6 +115,59 @@ _SIGNAL_TOOLTIPS: dict[str, str] = {
     ),
 }
 
+# ---------------------------------------------------------------------------
+# Signal → numeric mapping for bar-chart decomposition
+# ---------------------------------------------------------------------------
+
+_SIGNAL_NUMERIC: dict[str, dict[str, float]] = {
+    "technique_maturity": {
+        "theoretical": 0.17,
+        "feasible": 0.33,
+        "demonstrated": 0.67,
+        "realized": 1.0,
+    },
+    "risk_impact": {
+        "low": 0.25,
+        "medium": 0.5,
+        "high": 0.75,
+        "critical": 1.0,
+    },
+    "risk_likelihood": {
+        "low": 0.33,
+        "medium": 0.67,
+        "high": 1.0,
+    },
+    "attack_complexity": {
+        # INVERTED — high complexity = harder = lower score contribution
+        "high": 0.33,
+        "medium": 0.67,
+        "low": 1.0,
+    },
+    "architecture_match": {
+        "none": 0.0,
+        "inferred": 0.5,
+        "implicit": 0.5,
+        "explicit": 1.0,
+    },
+    "structural_exposure": {
+        "none": 0.0,
+        "defense_in_depth_claim": 0.25,
+        "probabilistic_control": 0.5,
+        "convergence_point": 0.75,
+        "single_point_of_failure": 1.0,
+    },
+}
+
+# Ordered list of signals and their display colors
+_SIGNAL_COLORS: list[tuple[str, str, str]] = [
+    ("technique_maturity", "#6366f1", "Technique Maturity"),
+    ("risk_impact", "#ef4444", "Risk Impact"),
+    ("risk_likelihood", "#f59e0b", "Risk Likelihood"),
+    ("attack_complexity", "#06b6d4", "Attack Complexity"),
+    ("architecture_match", "#8b5cf6", "Architecture Match"),
+    ("structural_exposure", "#ec4899", "Structural Exposure"),
+]
+
 _ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
     "AML.T0010": "AI Supply Chain Compromise",
     "AML.T0015": "LLM Capability Escalation",
@@ -1007,34 +1060,47 @@ body {
   color: var(--text-primary);
 }
 
-/* Heatmap */
-.heatmap-grid {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+/* Signal decomposition chart */
+.signal-chart {
   margin-bottom: 24px;
 }
-
-.heatmap-cell {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
+.signal-bar-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 12px;
+  gap: 8px;
+  margin-bottom: 4px;
+  height: 28px;
+}
+.signal-bar-label {
+  width: 60px;
+  font-size: 11px;
   font-weight: 700;
-  color: white;
-  cursor: default;
+  color: var(--text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signal-bar-track {
+  flex: 1;
+  display: flex;
+  height: 20px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+.signal-segment {
+  height: 100%;
   position: relative;
-  transition: transform 0.15s ease;
+  cursor: default;
+  transition: opacity 0.15s ease;
+  min-width: 2px;
 }
-
-.heatmap-cell:hover {
-  transform: scale(1.1);
+.signal-segment:hover {
+  opacity: 0.8;
 }
-
-.heatmap-cell .tooltip {
+.signal-segment .tooltip {
   display: none;
   position: absolute;
   bottom: 100%;
@@ -1052,8 +1118,34 @@ body {
   margin-bottom: 6px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
-
-.heatmap-cell:hover .tooltip { display: block; }
+.signal-segment:hover .tooltip { display: block; }
+.signal-bar-score {
+  width: 40px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: left;
+  flex-shrink: 0;
+}
+.signal-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.signal-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.signal-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
 
 /* Filter controls */
 /* Dashboard stats bar */
@@ -3547,21 +3639,79 @@ def build_scenarios_section(
     """
 
     # ------------------------------------------------------------------
-    # Composite score heatmap (existing)
+    # Priority signal decomposition chart
     # ------------------------------------------------------------------
-    heatmap_cells = ""
-    for s in scenarios:
+    sorted_scenarios = sorted(
+        scenarios,
+        key=lambda sc: sc.get("priority", {}).get("composite", 0),
+        reverse=True,
+    )
+
+    signal_rows = ""
+    for s in sorted_scenarios:
         sid = s.get("scenario_id", "")
-        composite = s.get("priority", {}).get("composite", 0)
-        color = _priority_color(composite)
-        title = s.get("narrative", {}).get("title", sid)
+        priority = s.get("priority", {})
+        composite = priority.get("composite", 0)
+        signals = priority.get("signals", {})
         short_id = sid.split("-")[-1][:6] if "-" in sid else sid[:6]
-        heatmap_cells += (
-            f'<div class="heatmap-cell" style="background:{color};">'
-            f'<span class="tooltip">{_esc(title)} ({composite:.2f})</span>'
-            f"{_esc(short_id)}"
+
+        # Build stacked segments
+        segments = ""
+        total_numeric = 0.0
+        segment_values: list[tuple[str, str, str, float, str]] = []
+        for sig_key, sig_color, sig_label in _SIGNAL_COLORS:
+            raw_val = str(signals.get(sig_key, ""))
+            mapping = _SIGNAL_NUMERIC.get(sig_key, {})
+            numeric = mapping.get(raw_val, 0.0)
+            total_numeric += numeric
+            segment_values.append(
+                (sig_key, sig_color, sig_label, numeric, raw_val)
+            )
+
+        # Normalise segment widths so total bar fills proportional to
+        # composite score — each segment is (numeric / total) * 100% of
+        # the bar track, and the track itself is scaled by composite.
+        for sig_key, sig_color, sig_label, numeric, raw_val in segment_values:
+            if total_numeric > 0 and numeric > 0:
+                pct = (numeric / total_numeric) * 100
+                display_val = raw_val.replace("_", " ") if raw_val else "n/a"
+                segments += (
+                    f'<div class="signal-segment"'
+                    f' style="width:{pct:.1f}%;background:{sig_color};">'
+                    f'<span class="tooltip">'
+                    f"{_esc(sig_label)}: {_esc(display_val)}"
+                    f"</span>"
+                    f"</div>"
+                )
+
+        bar_width_pct = composite * 100
+
+        signal_rows += (
+            f'<div class="signal-bar-row">'
+            f'<div class="signal-bar-label"'
+            f' title="{_esc(s.get("narrative", {}).get("title", sid))}">'
+            f"{_esc(short_id)}</div>"
+            f'<div class="signal-bar-track"'
+            f' style="max-width:{bar_width_pct:.0f}%;">'
+            f"{segments}</div>"
+            f'<div class="signal-bar-score">{composite:.2f}</div>'
             f"</div>"
         )
+
+    # Build signal legend
+    signal_legend_items = ""
+    for _key, color, label in _SIGNAL_COLORS:
+        signal_legend_items += (
+            f'<span class="signal-legend-item">'
+            f'<span class="signal-legend-dot"'
+            f' style="background:{color};"></span>'
+            f"{_esc(label)}</span>"
+        )
+
+    signal_chart_html = (
+        f'<div class="signal-chart">{signal_rows}</div>'
+        f'<div class="signal-legend">{signal_legend_items}</div>'
+    )
 
     # ------------------------------------------------------------------
     # Coverage heatmap matrix (Bead 2)
@@ -3739,14 +3889,8 @@ def build_scenarios_section(
 
       {dashboard_html}
 
-      <div class="scenario-section-title" data-tooltip="Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a single 0-1 score">Composite Score Heatmap</div>
-      <div class="heatmap-grid">{heatmap_cells}</div>
-      <div class="legend">
-        <span class="legend-item"><span class="legend-dot" style="background:var(--high);"></span> High (&ge;0.7)</span>
-        <span class="legend-item"><span class="legend-dot" style="background:var(--medium);"></span> Medium (0.4-0.7)</span>
-        <span class="legend-item"><span class="legend-dot" style="background:var(--low);"></span> Low (&lt;0.4)</span>
-        <span class="legend-item" style="margin-left:8px;font-style:italic;">Composite score combines technique maturity, architecture match, attack complexity, risk impact, and risk likelihood into a 0&ndash;1 score.</span>
-      </div>
+      <div class="scenario-section-title" data-tooltip="Each bar decomposes a scenario's composite priority score into its 6 contributing signals. Bar width is proportional to the composite score.">Priority Signal Decomposition</div>
+      {signal_chart_html}
 
       {matrix_html}
 
