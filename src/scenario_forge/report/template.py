@@ -53,6 +53,15 @@ ZONE_BG_COLORS: dict[str, str] = {
     "inter_agent": "#5c1111",
 }
 
+# Abbreviated zone labels for compact table cells
+ZONE_ABBREVS: dict[str, str] = {
+    "input": "INP",
+    "reasoning": "RSN",
+    "tool_execution": "TXE",
+    "memory": "MEM",
+    "inter_agent": "IPC",
+}
+
 # Legacy int-to-string mapping for backward compatibility with old data
 _INT_TO_ZONE_NAME: dict[int, str] = dict(enumerate(_ZONE_NAMES_TUPLE, 1))
 
@@ -1796,6 +1805,26 @@ details.expandable[open] > summary::before {
   border-radius: 3px;
 }
 
+/* Count badges for compact AP/threat lists */
+.count-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent);
+  cursor: help;
+  white-space: nowrap;
+}
+
+/* Overflow safety for wide table cells */
+.risk-table td,
+.roster-table td {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
 /* CSS tooltips (replace unreliable native title= tooltips) */
 [data-tooltip] {
   position: relative;
@@ -2779,18 +2808,28 @@ def build_threat_surface_section(
         else:
             llm_spans = "-"
 
-        # Build agentic threat IDs with tooltips
+        # Build agentic threat IDs with tooltips (count badge for 3+)
         raw_tids = entry.get("agentic_threat_ids", [])
-        if raw_tids:
+        if not raw_tids:
+            tid_spans = "-"
+        elif len(raw_tids) <= 2:
             tid_spans = ", ".join(
                 f"<span{_threat_id_tooltip(tid)}>{_esc(tid)}</span>" for tid in raw_tids
             )
         else:
-            tid_spans = "-"
+            tid_tooltip_lines = "&#10;".join(
+                f"{_esc(tid)} — {_esc(THREAT_NAMES.get(tid, ''))}" for tid in raw_tids
+            )
+            tid_spans = (
+                f'<span class="count-badge" data-tooltip="{tid_tooltip_lines}">'
+                f"{len(raw_tids)} threats</span>"
+            )
 
-        # Build attack pattern IDs with tooltips
+        # Build attack pattern IDs with tooltips (count badge for 3+)
         raw_aps = entry.get("attack_pattern_ids", [])
-        if raw_aps:
+        if not raw_aps:
+            sub_spans = "-"
+        elif len(raw_aps) <= 2:
             ap_parts: list[str] = []
             for ap_id in raw_aps:
                 ap_parts.append(
@@ -2798,7 +2837,14 @@ def build_threat_surface_section(
                 )
             sub_spans = ", ".join(ap_parts)
         else:
-            sub_spans = "-"
+            ap_tooltip_lines = "&#10;".join(
+                f"{_esc(ap_id)}: {_esc(_ATTACK_PATTERN_INFO.get(ap_id, {}).get('name', ''))}"
+                for ap_id in raw_aps
+            )
+            sub_spans = (
+                f'<span class="count-badge" data-tooltip="{ap_tooltip_lines}">'
+                f"{len(raw_aps)} patterns</span>"
+            )
 
         # Risk ID tooltip for atlas-* IDs
         risk_id = rc.get("risk_id", "")
@@ -3437,9 +3483,10 @@ def build_threat_technique_section(
             zc = ZONE_COLORS.get(z, "#666")
             zbg = ZONE_BG_COLORS.get(z, "#333")
             zname = ZONE_DISPLAY_NAMES.get(z, z)
+            zabbr = ZONE_ABBREVS.get(z, z)
             zone_badges += (
                 f'<span class="zone-badge" style="background:{zbg};'
-                f'color:{zc};">{_esc(zname)}</span>'
+                f'color:{zc};" data-tooltip="{_esc(zname)}">{_esc(zabbr)}</span>'
             )
 
         sid_tip = (
