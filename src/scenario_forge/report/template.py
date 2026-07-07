@@ -2685,7 +2685,52 @@ function toggleCard(cardEl) {
 
 
 # ---------------------------------------------------------------------------
-# Section 0: Use Case
+# Section 0a: Pipeline Methodology
+# ---------------------------------------------------------------------------
+
+
+def build_methodology_section() -> str:
+    """Return HTML for a collapsible card explaining the scenario generation pipeline.
+
+    The content is static -- it describes the five pipeline stages so readers
+    can cross-reference the funnel numbers shown in the Run Summary.
+    """
+    return """
+    <div id="sec-methodology" class="section">
+      <div class="section-header">
+        <h2>Pipeline Methodology</h2>
+      </div>
+
+      <details open class="card" style="background:var(--bg-secondary);border-left:4px solid var(--accent);cursor:default;">
+        <summary style="font-weight:600;font-size:14px;cursor:pointer;color:var(--text-primary);margin-bottom:8px;">
+          How scenarios are generated
+        </summary>
+        <div style="font-size:14px;line-height:1.8;color:var(--text-secondary);">
+          <ol style="margin:0;padding-left:1.4em;">
+            <li><strong>Seeds</strong> &mdash; Attack patterns are enumerated from every
+            in-scope threat surface entry, producing the initial seed set.</li>
+            <li><strong>Candidate expansion</strong> &mdash; Each seed is crossed with
+            the system&rsquo;s entry points and relevant ATLAS techniques to build the
+            full candidate pool (shown as <em>Candidates</em> in the Run Summary
+            funnel).</li>
+            <li><strong>LLM filtering</strong> &mdash; An LLM evaluates each candidate
+            for plausibility and relevance, accepting or rejecting it with a
+            rationale (shown as <em>Accepted</em> in the funnel).</li>
+            <li><strong>Scenario generation</strong> &mdash; One LLM call per accepted
+            candidate produces an attack tree, narrative, and behavior
+            specification (<em>Scenarios Generated</em>).</li>
+            <li><strong>Coverage analysis</strong> &mdash; Uncovered threat / zone
+            combinations are identified so the assessment can be extended in
+            follow-up runs.</li>
+          </ol>
+        </div>
+      </details>
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
+# Section 0b: Use Case
 # ---------------------------------------------------------------------------
 
 
@@ -6897,12 +6942,16 @@ def build_full_page(
     scorecard_html: str = "",
     threat_technique_html: str = "",
     run_summary_html: str = "",
+    methodology_html: str = "",
     title: str = "Scenario Forge Report",
 ) -> str:
     # Conditionally add sidebar links for optional sections
     run_summary_nav = ""
     if run_summary_html:
         run_summary_nav = '<a href="#sec-run-summary"><span class="nav-icon">&#9654;</span> Run Summary</a>'
+    methodology_nav = ""
+    if methodology_html:
+        methodology_nav = '<a href="#sec-methodology"><span class="nav-icon">&#9881;</span> Methodology</a>'
     use_case_nav = ""
     if use_case_html:
         use_case_nav = (
@@ -6939,6 +6988,7 @@ def build_full_page(
     </div>
     <nav>
       {run_summary_nav}
+      {methodology_nav}
       {use_case_nav}
       <a href="#sec-profile"><span class="nav-icon">&#9670;</span> Capability Profile</a>
       <a href="#sec-threats"><span class="nav-icon">&#9888;</span> Threat Surface</a>
@@ -6954,6 +7004,7 @@ def build_full_page(
 
   <main class="main-content">
     {run_summary_html}
+    {methodology_html}
     {use_case_html}
     {profile_html}
     {threats_html}
