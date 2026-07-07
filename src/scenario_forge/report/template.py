@@ -2310,7 +2310,13 @@ function filterScenarios() {
   var visible = document.querySelectorAll('.scenario-card[data-scenario]:not([style*="display: none"])').length;
   var total = document.querySelectorAll('.scenario-card[data-scenario]').length;
   var counter = document.getElementById('scenario-counter');
-  if (counter) counter.textContent = visible + ' / ' + total;
+  if (counter) {
+    if (visible === total) {
+      counter.textContent = 'Showing all ' + total;
+    } else {
+      counter.textContent = 'Showing ' + visible + ' of ' + total;
+    }
+  }
 }
 
 function toggleChip(el) {
@@ -3600,7 +3606,7 @@ def build_scenarios_section(
     <div id="sec-scenarios" class="section">
       <div class="section-header">
         <h2>Scenarios</h2>
-        <span class="badge" id="scenario-counter">{len(scenarios)} / {len(scenarios)}</span>
+        <span class="badge" id="scenario-counter">Showing all {len(scenarios)}</span>
         <button class="toggle-all-btn" id="toggle-all-btn" onclick="toggleAllCards()">Collapse All</button>
       </div>
 
