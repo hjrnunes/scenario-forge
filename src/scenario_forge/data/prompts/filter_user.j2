@@ -8,12 +8,13 @@
 
 ## Candidates to judge
 
-For each numbered candidate below, decide whether the (entry_point, technique) combination is a plausible attack vector for the attack pattern described above against the target system.
+For each numbered candidate below, decide whether the (entry_point, technique combo) combination is a plausible attack vector for the attack pattern described above against the target system.
 
 {% for c in candidates %}
 {{ loop.index }}. **Entry point:** {{ c.entry_point }}
-   **Technique:** {{ c.atlas_technique_id }} — {{ c.atlas_technique_name }}
-   **Technique description:** {{ c.atlas_technique_description }}
+   **Technique(s):** {{ c.atlas_technique_ids | join(" + ") }}{% for name in c.atlas_technique_names %} — {{ name }}{% endfor %}
+   {% for desc in c.atlas_technique_descriptions %}{% if desc %}**Technique description:** {{ desc }}
+   {% endif %}{% endfor %}
 {% endfor %}
 
-Return a structured response with the seed_id "{{ seed_id }}" and one verdict per candidate above. Each verdict must include the entry_point text, the atlas_technique_id, a verdict of "accept" or "reject", and a rationale explaining why.
+Return a structured response with the seed_id "{{ seed_id }}" and one verdict per candidate above. Each verdict must include the entry_point text, the atlas_technique_ids (as a list of technique IDs matching the combo), a verdict of "accept" or "reject", and a rationale explaining why.

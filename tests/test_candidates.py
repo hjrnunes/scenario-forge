@@ -4,9 +4,12 @@ Covers:
   - Data model validation for CandidateTriple, FilterVerdict,
     BatchFilterResponse, and FilteredSeed.
   - expand_candidates() cross-product logic (skipped if not yet available).
+  - Multi-technique combo expansion (max_techniques parameter).
 """
 
 from __future__ import annotations
+
+import math
 
 import pytest
 from pydantic import ValidationError
@@ -76,7 +79,7 @@ class TestCandidateTriple:
     """CandidateTriple model validation."""
 
     def test_candidate_triple_creation(self):
-        """CandidateTriple accepts all required fields."""
+        """CandidateTriple accepts all required fields with tuple technique fields."""
         ct = CandidateTriple(
             seed_id="AP-T7-01",
             threat_id="T7",
@@ -84,9 +87,9 @@ class TestCandidateTriple:
             attack_pattern_name="Constraint bypass",
             attack_pattern_description="Agent bypasses constraints",
             entry_point="user prompts (input)",
-            atlas_technique_id="AML.T0051",
-            atlas_technique_name="LLM Prompt Injection",
-            atlas_technique_description="Crafting inputs to manipulate LLM behavior",
+            atlas_technique_ids=("AML.T0051",),
+            atlas_technique_names=("LLM Prompt Injection",),
+            atlas_technique_descriptions=("Crafting inputs to manipulate LLM behavior",),
             risk_card_ref=_make_ref(),
             owasp_llm_ids=["LLM01", "LLM06"],
         )
@@ -96,11 +99,29 @@ class TestCandidateTriple:
         assert ct.attack_pattern_name == "Constraint bypass"
         assert ct.attack_pattern_description == "Agent bypasses constraints"
         assert ct.entry_point == "user prompts (input)"
-        assert ct.atlas_technique_id == "AML.T0051"
-        assert ct.atlas_technique_name == "LLM Prompt Injection"
-        assert ct.atlas_technique_description == "Crafting inputs to manipulate LLM behavior"
+        assert ct.atlas_technique_ids == ("AML.T0051",)
+        assert ct.atlas_technique_names == ("LLM Prompt Injection",)
+        assert ct.atlas_technique_descriptions == ("Crafting inputs to manipulate LLM behavior",)
         assert ct.risk_card_ref.risk_id == "risk-1"
         assert ct.owasp_llm_ids == ["LLM01", "LLM06"]
+
+    def test_candidate_triple_multi_technique(self):
+        """CandidateTriple with multiple techniques in a combo."""
+        ct = CandidateTriple(
+            seed_id="AP-T7-01",
+            threat_id="T7",
+            threat_name="Misaligned Behaviors",
+            attack_pattern_name="Constraint bypass",
+            attack_pattern_description="Agent bypasses constraints",
+            entry_point="user prompts (input)",
+            atlas_technique_ids=("AML.T0051", "AML.T0054"),
+            atlas_technique_names=("LLM Prompt Injection", "LLM Jailbreak"),
+            atlas_technique_descriptions=("Crafting inputs", "Bypassing guardrails"),
+            risk_card_ref=_make_ref(),
+            owasp_llm_ids=["LLM01"],
+        )
+        assert len(ct.atlas_technique_ids) == 2
+        assert ct.atlas_technique_ids == ("AML.T0051", "AML.T0054")
 
 
 class TestFilterVerdict:
@@ -110,7 +131,7 @@ class TestFilterVerdict:
         """FilterVerdict with verdict='accept' and a rationale."""
         v = FilterVerdict(
             entry_point="user prompts (input)",
-            atlas_technique_id="AML.T0051",
+            atlas_technique_ids=("AML.T0051",),
             verdict="accept",
             rationale="Entry point directly exposes the LLM to user-crafted input.",
         )
@@ -121,20 +142,20 @@ class TestFilterVerdict:
         """FilterVerdict with verdict='reject' and a rationale."""
         v = FilterVerdict(
             entry_point="internal API (tool_execution)",
-            atlas_technique_id="AML.T0054",
+            atlas_technique_ids=("AML.T0054",),
             verdict="reject",
             rationale="No plausible path from this entry point to the technique.",
         )
         assert v.verdict == "reject"
         assert v.entry_point == "internal API (tool_execution)"
-        assert v.atlas_technique_id == "AML.T0054"
+        assert v.atlas_technique_ids == ("AML.T0054",)
 
     def test_filter_verdict_invalid_verdict(self):
         """verdict must be 'accept' or 'reject', not 'maybe'."""
         with pytest.raises(ValidationError) as exc_info:
             FilterVerdict(
                 entry_point="user prompts (input)",
-                atlas_technique_id="AML.T0051",
+                atlas_technique_ids=("AML.T0051",),
                 verdict="maybe",
                 rationale="Uncertain.",
             )
@@ -142,6 +163,16 @@ class TestFilterVerdict:
         errors = exc_info.value.errors()
         assert len(errors) >= 1
         assert any("verdict" in str(e.get("loc", "")) for e in errors)
+
+    def test_filter_verdict_multi_technique(self):
+        """FilterVerdict with a multi-technique combo."""
+        v = FilterVerdict(
+            entry_point="user prompts (input)",
+            atlas_technique_ids=("AML.T0051", "AML.T0054"),
+            verdict="accept",
+            rationale="Both techniques are plausible in combination.",
+        )
+        assert len(v.atlas_technique_ids) == 2
 
 
 class TestBatchFilterResponse:
@@ -151,13 +182,13 @@ class TestBatchFilterResponse:
         """BatchFilterResponse with seed_id and list of verdicts."""
         v1 = FilterVerdict(
             entry_point="user prompts (input)",
-            atlas_technique_id="AML.T0051",
+            atlas_technique_ids=("AML.T0051",),
             verdict="accept",
             rationale="Direct exposure.",
         )
         v2 = FilterVerdict(
             entry_point="internal API (tool_execution)",
-            atlas_technique_id="AML.T0054",
+            atlas_technique_ids=("AML.T0054",),
             verdict="reject",
             rationale="No path.",
         )
@@ -183,8 +214,8 @@ class TestFilteredSeed:
             owasp_llm_ids=["LLM01"],
             agentic_threat_ids=["T7"],
             pinned_entry_point="user prompts (input)",
-            pinned_technique_id="AML.T0051",
-            pinned_technique_name="LLM Prompt Injection",
+            pinned_technique_ids=("AML.T0051",),
+            pinned_technique_names=("LLM Prompt Injection",),
         )
         # ScenarioSeed fields present
         assert fs.seed_id == "AP-T7-01"
@@ -197,8 +228,8 @@ class TestFilteredSeed:
         assert fs.agentic_threat_ids == ["T7"]
         # Pinned fields
         assert fs.pinned_entry_point == "user prompts (input)"
-        assert fs.pinned_technique_id == "AML.T0051"
-        assert fs.pinned_technique_name == "LLM Prompt Injection"
+        assert fs.pinned_technique_ids == ("AML.T0051",)
+        assert fs.pinned_technique_names == ("LLM Prompt Injection",)
         # Inherits from ScenarioSeed
         assert isinstance(fs, ScenarioSeed)
 
@@ -214,11 +245,29 @@ class TestFilteredSeed:
             owasp_llm_ids=["LLM01"],
             agentic_threat_ids=["T7"],
             pinned_entry_point="user prompts (input)",
-            pinned_technique_id="AML.T0051",
-            pinned_technique_name="LLM Prompt Injection",
+            pinned_technique_ids=("AML.T0051",),
+            pinned_technique_names=("LLM Prompt Injection",),
         )
         assert fs.rejection_rationales == []
         assert isinstance(fs.rejection_rationales, list)
+
+    def test_filtered_seed_multi_technique(self):
+        """FilteredSeed with multiple pinned techniques."""
+        fs = FilteredSeed(
+            seed_id="AP-T7-01",
+            threat_id="T7",
+            threat_name="Misaligned Behaviors",
+            attack_pattern_name="Constraint bypass",
+            attack_pattern_description="Agent bypasses constraints",
+            risk_card_ref=_make_ref(),
+            owasp_llm_ids=["LLM01"],
+            agentic_threat_ids=["T7"],
+            pinned_entry_point="user prompts (input)",
+            pinned_technique_ids=("AML.T0051", "AML.T0054"),
+            pinned_technique_names=("LLM Prompt Injection", "LLM Jailbreak"),
+        )
+        assert len(fs.pinned_technique_ids) == 2
+        assert len(fs.pinned_technique_names) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +306,7 @@ class TestExpandCandidates:
 
     def test_expand_candidates_carries_full_context(self):
         """Each CandidateTriple has attack_pattern_name, description,
-        technique name, technique description, and entry point text."""
+        technique name(s), technique description(s), and entry point text."""
         seeds = [
             _make_seed("AP-T7-01", "T7", atlas_technique_ids=["AML.T0051"]),
         ]
@@ -268,8 +317,9 @@ class TestExpandCandidates:
         # Full context carried (not empty / not just IDs)
         assert c.attack_pattern_name != ""
         assert c.attack_pattern_description != ""
-        assert c.atlas_technique_name != ""
-        assert c.atlas_technique_description != ""
+        assert len(c.atlas_technique_names) >= 1
+        assert c.atlas_technique_names[0] != ""
+        assert len(c.atlas_technique_descriptions) >= 1
         assert c.entry_point != ""
 
     def test_expand_candidates_empty_techniques(self):
@@ -298,3 +348,62 @@ class TestExpandCandidates:
         profile.entry_points = []
         candidates = _expand_candidates(seeds, profile)
         assert len(candidates) == 0
+
+    def test_expand_candidates_max_techniques_1_default(self):
+        """Default max_techniques=1 produces only single-technique candidates."""
+        seeds = [
+            _make_seed("AP-T7-01", "T7", atlas_technique_ids=["AML.T0051", "AML.T0054", "AML.T0053"]),
+        ]
+        profile = _make_profile(entry_points=["user prompts (input)"])
+        candidates = _expand_candidates(seeds, profile)
+        # 1 seed x 1 entry_point x C(3,1)=3 single combos = 3
+        assert len(candidates) == 3
+        # Each candidate should have exactly 1 technique
+        for c in candidates:
+            assert len(c.atlas_technique_ids) == 1
+
+    def test_expand_candidates_max_techniques_2(self):
+        """max_techniques=2 produces C(N,1)+C(N,2) candidates per seed x entry_point."""
+        n_techniques = 4
+        technique_ids = [f"AML.T00{i}" for i in range(n_techniques)]
+        seeds = [
+            _make_seed("AP-T7-01", "T7", atlas_technique_ids=technique_ids),
+        ]
+        profile = _make_profile(entry_points=["user prompts (input)"])
+        candidates = _expand_candidates(seeds, profile, max_techniques=2)
+        # Expected: C(4,1) + C(4,2) = 4 + 6 = 10
+        expected = math.comb(n_techniques, 1) + math.comb(n_techniques, 2)
+        assert len(candidates) == expected
+
+        # Verify we have both single and pair combos
+        singles = [c for c in candidates if len(c.atlas_technique_ids) == 1]
+        pairs = [c for c in candidates if len(c.atlas_technique_ids) == 2]
+        assert len(singles) == math.comb(n_techniques, 1)
+        assert len(pairs) == math.comb(n_techniques, 2)
+
+    def test_expand_candidates_max_techniques_3(self):
+        """max_techniques=3 with 3 techniques produces C(3,1)+C(3,2)+C(3,3)=7."""
+        n_techniques = 3
+        technique_ids = ["AML.T0051", "AML.T0054", "AML.T0053"]
+        seeds = [
+            _make_seed("AP-T7-01", "T7", atlas_technique_ids=technique_ids),
+        ]
+        profile = _make_profile(entry_points=["ep1"])
+        candidates = _expand_candidates(seeds, profile, max_techniques=3)
+        # C(3,1) + C(3,2) + C(3,3) = 3 + 3 + 1 = 7
+        expected = sum(math.comb(n_techniques, k) for k in range(1, 4))
+        assert len(candidates) == expected
+
+    def test_expand_candidates_max_techniques_2_multiple_seeds_and_entry_points(self):
+        """Combinatorial count with 2 seeds x 2 entry points x max_techniques=2."""
+        seeds = [
+            _make_seed("AP-T7-01", "T7", atlas_technique_ids=["AML.T0051", "AML.T0054"]),
+            _make_seed("AP-T2-01", "T2", atlas_technique_ids=["AML.T0051", "AML.T0054"]),
+        ]
+        profile = _make_profile(
+            entry_points=["user prompts (input)", "API calls (tool_execution)"],
+        )
+        candidates = _expand_candidates(seeds, profile, max_techniques=2)
+        # 2 seeds x 2 entry_points x (C(2,1) + C(2,2)) = 2 x 2 x 3 = 12
+        combos_per_seed_ep = math.comb(2, 1) + math.comb(2, 2)  # 3
+        assert len(candidates) == 2 * 2 * combos_per_seed_ep

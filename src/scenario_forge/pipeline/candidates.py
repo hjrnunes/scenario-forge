@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from itertools import combinations
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class CandidateTriple(BaseModel):
-    """One (attack_pattern, entry_point, atlas_technique) candidate before filtering."""
+    """One (attack_pattern, entry_point, atlas_technique_combo) candidate before filtering."""
 
     seed_id: str = Field(description="Attack pattern ID, e.g. 'AP-T7-01'.")
     threat_id: str = Field(description="Parent threat ID, e.g. 'T7'.")
@@ -41,14 +42,14 @@ class CandidateTriple(BaseModel):
     entry_point: str = Field(
         description="Entry point text, e.g. 'natural language customer queries via Klarna app (input)'.",
     )
-    atlas_technique_id: str = Field(
-        description="ATLAS technique ID, e.g. 'AML.T0051'."
+    atlas_technique_ids: tuple[str, ...] = Field(
+        description="ATLAS technique ID(s), e.g. ('AML.T0051',) or ('AML.T0051', 'AML.T0054')."
     )
-    atlas_technique_name: str = Field(
-        description="Human-readable ATLAS technique name."
+    atlas_technique_names: tuple[str, ...] = Field(
+        description="Human-readable ATLAS technique name(s)."
     )
-    atlas_technique_description: str = Field(
-        description="Full description of the ATLAS technique."
+    atlas_technique_descriptions: tuple[str, ...] = Field(
+        description="Full description(s) of the ATLAS technique(s)."
     )
     risk_card_ref: RiskCardRef = Field(
         description="Back-reference to the originating risk card."
@@ -67,7 +68,9 @@ class FilterVerdict(BaseModel):
     """Structured output for one entry in the LLM batch filter response."""
 
     entry_point: str = Field(description="The entry point being judged.")
-    atlas_technique_id: str = Field(description="The technique being judged.")
+    atlas_technique_ids: tuple[str, ...] = Field(
+        description="The technique combo being judged (e.g. ('AML.T0051',) or ('AML.T0051', 'AML.T0054'))."
+    )
     verdict: Literal["accept", "reject"] = Field(
         description="Whether this candidate should proceed to generation."
     )
@@ -100,11 +103,11 @@ class FilteredSeed(ScenarioSeed):
     pinned_entry_point: str = Field(
         description="The accepted entry point (hard constraint for generation).",
     )
-    pinned_technique_id: str = Field(
-        description="The accepted ATLAS technique ID (hard constraint for generation).",
+    pinned_technique_ids: tuple[str, ...] = Field(
+        description="The accepted ATLAS technique ID(s) (hard constraint for generation).",
     )
-    pinned_technique_name: str = Field(
-        description="Human-readable name of the pinned technique, for report display.",
+    pinned_technique_names: tuple[str, ...] = Field(
+        description="Human-readable name(s) of the pinned technique(s), for report display.",
     )
     rejection_rationales: list[FilterVerdict] = Field(
         default_factory=list,
@@ -120,16 +123,23 @@ class FilteredSeed(ScenarioSeed):
 def expand_candidates(
     seeds: list[ScenarioSeed],
     profile: CapabilityProfile,
+    max_techniques: int = 1,
 ) -> list[CandidateTriple]:
-    """Cross-product each seed with all entry points and ATLAS techniques.
+    """Cross-product each seed with all entry points and ATLAS technique combos.
 
     For every ScenarioSeed, produces one CandidateTriple per
-    (entry_point, atlas_technique) combination, carrying full context
+    (entry_point, technique_combo) combination, carrying full context
     needed by the downstream LLM filter stage.
+
+    When ``max_techniques=1`` (the default), behaviour is equivalent to the
+    original per-technique expansion.  With ``max_techniques=2``, both
+    single-technique and two-technique combos are generated (C(N,1)+C(N,2)
+    per seed x entry_point).
 
     Args:
         seeds: Output of ``expand_seeds()`` (Stage 3).
         profile: Capability profile with ``entry_points`` list.
+        max_techniques: Maximum number of techniques in a combo (default 1).
 
     Returns:
         Flat list of CandidateTriple, one per combination.
@@ -148,36 +158,40 @@ def expand_candidates(
             continue
 
         for entry_point in profile.entry_points:
-            for tech_id in seed.atlas_technique_ids:
-                candidates.append(
-                    CandidateTriple(
-                        seed_id=seed.seed_id,
-                        threat_id=seed.threat_id,
-                        threat_name=seed.threat_name,
-                        attack_pattern_name=seed.attack_pattern_name,
-                        attack_pattern_description=seed.attack_pattern_description,
-                        entry_point=entry_point,
-                        atlas_technique_id=tech_id,
-                        atlas_technique_name=ATLAS_TECHNIQUE_NAMES.get(
-                            tech_id, tech_id
-                        ),
-                        atlas_technique_description=ATLAS_TECHNIQUE_DESCRIPTIONS.get(
-                            tech_id, ""
-                        ),
-                        risk_card_ref=seed.risk_card_ref,
-                        owasp_llm_ids=seed.owasp_llm_ids,
+            for combo_size in range(1, max_techniques + 1):
+                for tech_combo in combinations(seed.atlas_technique_ids, combo_size):
+                    candidates.append(
+                        CandidateTriple(
+                            seed_id=seed.seed_id,
+                            threat_id=seed.threat_id,
+                            threat_name=seed.threat_name,
+                            attack_pattern_name=seed.attack_pattern_name,
+                            attack_pattern_description=seed.attack_pattern_description,
+                            entry_point=entry_point,
+                            atlas_technique_ids=tech_combo,
+                            atlas_technique_names=tuple(
+                                ATLAS_TECHNIQUE_NAMES.get(t, t) for t in tech_combo
+                            ),
+                            atlas_technique_descriptions=tuple(
+                                ATLAS_TECHNIQUE_DESCRIPTIONS.get(t, "")
+                                for t in tech_combo
+                            ),
+                            risk_card_ref=seed.risk_card_ref,
+                            owasp_llm_ids=seed.owasp_llm_ids,
+                        )
                     )
-                )
 
     # Log expansion summary
     if seeds:
         tech_counts = [len(s.atlas_technique_ids) for s in seeds if s.atlas_technique_ids]
         avg_techniques = sum(tech_counts) / len(tech_counts) if tech_counts else 0.0
         logger.info(
-            "%d seeds x %d entry points x avg %.1f techniques = %d candidates",
+            "%d seeds x %d entry points x avg %.1f techniques "
+            "(max_techniques=%d) = %d candidates",
             len(seeds),
             len(profile.entry_points),
             avg_techniques,
+            max_techniques,
             len(candidates),
         )
 
@@ -268,8 +282,9 @@ def filter_candidates(
                 rejected_verdicts.append(v)
 
         # Build a technique-name lookup from the candidates
-        tech_name_lookup: dict[str, str] = {
-            c.atlas_technique_id: c.atlas_technique_name
+        # Maps each technique combo (tuple) to its names tuple
+        tech_names_lookup: dict[tuple[str, ...], tuple[str, ...]] = {
+            c.atlas_technique_ids: c.atlas_technique_names
             for c in seed_candidates
         }
 
@@ -304,9 +319,10 @@ def filter_candidates(
                     atlas_provenance_ids=original_seed.atlas_provenance_ids,
                     # Pinned fields from the accepted verdict
                     pinned_entry_point=verdict.entry_point,
-                    pinned_technique_id=verdict.atlas_technique_id,
-                    pinned_technique_name=tech_name_lookup.get(
-                        verdict.atlas_technique_id, verdict.atlas_technique_id
+                    pinned_technique_ids=verdict.atlas_technique_ids,
+                    pinned_technique_names=tech_names_lookup.get(
+                        verdict.atlas_technique_ids,
+                        verdict.atlas_technique_ids,
                     ),
                     # Sibling rejections for provenance display
                     rejection_rationales=rejected_verdicts,

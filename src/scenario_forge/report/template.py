@@ -3418,10 +3418,21 @@ def build_threat_technique_section(
         actor_type = actor_profile.get("actor_type", "")
         capability_level = actor_profile.get("capability_level", "")
 
-        # Extract pinned technique from candidate_filter
+        # Extract pinned technique(s) from candidate_filter
+        # Support both plural (new) and singular (old YAML) field names
         candidate_filter = s.get("candidate_filter", {}) or {}
-        pinned_technique_id = candidate_filter.get("pinned_technique_id", "")
-        pinned_technique_name = candidate_filter.get("pinned_technique_name", "")
+        pinned_technique_ids = candidate_filter.get("pinned_technique_ids") or []
+        if not pinned_technique_ids:
+            # Backward compat: old YAML has singular field
+            old_id = candidate_filter.get("pinned_technique_id", "")
+            pinned_technique_ids = [old_id] if old_id else []
+        pinned_technique_names = candidate_filter.get("pinned_technique_names") or []
+        if not pinned_technique_names:
+            old_name = candidate_filter.get("pinned_technique_name", "")
+            pinned_technique_names = [old_name] if old_name else []
+        # For display: first ID for compact view, full list for tooltip
+        pinned_technique_id = pinned_technique_ids[0] if pinned_technique_ids else ""
+        pinned_technique_name = ", ".join(pinned_technique_names) if pinned_technique_names else ""
 
         # Extract parent threat from scenario_seed (e.g. "AP-T10-01" -> "T10")
         parent_threat = ""
@@ -3452,8 +3463,8 @@ def build_threat_technique_section(
                 "threat": parent_threat,
                 "threat_ids": threat_ids,
                 "attack_pattern": scenario_seed,
-                "pinned_technique_id": pinned_technique_id,
-                "pinned_technique_name": pinned_technique_name,
+                "pinned_technique_ids": pinned_technique_ids,
+                "pinned_technique_names": pinned_technique_names,
                 "technique_ids": technique_ids,
                 "actor_type": actor_type,
                 "capability_level": capability_level,
@@ -3556,12 +3567,20 @@ def build_threat_technique_section(
                 for t in row["threat_ids"]
             )
         sub = row["attack_pattern"]
-        # Technique column: show pinned technique with tooltip of name
-        pinned_id = row["pinned_technique_id"]
-        if pinned_id:
-            pinned_name = row["pinned_technique_name"]
-            tech_tip = f' data-tooltip="{_esc(pinned_name)}"' if pinned_name else ""
-            tech_spans = f"<span{tech_tip}>{_esc(pinned_id)}</span>"
+        # Technique column: show pinned technique(s) with tooltip of name(s)
+        pinned_ids = row["pinned_technique_ids"]
+        if pinned_ids:
+            pinned_names_list = row["pinned_technique_names"]
+            if len(pinned_ids) == 1:
+                pinned_name_display = pinned_names_list[0] if pinned_names_list else ""
+                tech_tip = f' data-tooltip="{_esc(pinned_name_display)}"' if pinned_name_display else ""
+                tech_spans = f"<span{tech_tip}>{_esc(pinned_ids[0])}</span>"
+            else:
+                # Multi-technique: show count badge with tooltip of all IDs
+                combo_display = " + ".join(pinned_ids)
+                names_display = ", ".join(pinned_names_list) if pinned_names_list else combo_display
+                tech_tip = f' data-tooltip="{_esc(names_display)}"'
+                tech_spans = f'<span class="count-badge"{tech_tip}>{len(pinned_ids)} techniques</span>'
         else:
             # Fallback: show all technique_ids
             tech_spans = ", ".join(
@@ -5017,8 +5036,12 @@ def _build_provenance_chain(
 
     # --- Step 6: ATLAS Techniques ---
     cf = scenario.get("candidate_filter", {}) or {}
-    pinned_id = cf.get("pinned_technique_id", "")
-    selected_atlas = {pinned_id} if pinned_id else set()
+    # Support both plural (new) and singular (old YAML) field names
+    pinned_ids_raw = cf.get("pinned_technique_ids") or []
+    if not pinned_ids_raw:
+        old_id = cf.get("pinned_technique_id", "")
+        pinned_ids_raw = [old_id] if old_id else []
+    selected_atlas = set(pinned_ids_raw)
     # Get all available techniques from threat surface entry matching this risk card
     all_atlas: list[str] = []
     if threat_surface:
@@ -5126,18 +5149,27 @@ def _build_provenance_chain(
     filter_html = ""
     if candidate_filter:
         pinned_ep = candidate_filter.get("pinned_entry_point", "")
-        pinned_tid = candidate_filter.get("pinned_technique_id", "")
-        pinned_tname = candidate_filter.get("pinned_technique_name", "")
+        # Support both plural (new) and singular (old YAML) field names
+        pinned_tids = candidate_filter.get("pinned_technique_ids") or []
+        if not pinned_tids:
+            old_tid = candidate_filter.get("pinned_technique_id", "")
+            pinned_tids = [old_tid] if old_tid else []
+        pinned_tnames = candidate_filter.get("pinned_technique_names") or []
+        if not pinned_tnames:
+            old_tname = candidate_filter.get("pinned_technique_name", "")
+            pinned_tnames = [old_tname] if old_tname else []
         rejections = candidate_filter.get("rejection_rationales", [])
 
         # Accepted combination badges
+        pinned_tid_display = " + ".join(pinned_tids) if pinned_tids else ""
+        pinned_tname_display = ", ".join(pinned_tnames) if pinned_tnames else ""
         accepted_html = (
             f'<div style="margin-bottom:8px;">'
             f'<span style="font-size:11px;font-weight:600;color:var(--text-muted);">'
             f"Accepted:</span> "
             f'<span class="prov-accepted-badge">{_esc(pinned_ep)}</span> '
             f'<span class="prov-accepted-badge">'
-            f"{_esc(pinned_tid)}{': ' + _esc(pinned_tname) if pinned_tname else ''}"
+            f"{_esc(pinned_tid_display)}{': ' + _esc(pinned_tname_display) if pinned_tname_display else ''}"
             f"</span>"
             f"</div>"
         )
@@ -5149,12 +5181,17 @@ def _build_provenance_chain(
             reject_items = ""
             for rv in rejections:
                 rv_ep = rv.get("entry_point", "")
-                rv_tid = rv.get("atlas_technique_id", "")
+                # Support both plural (new) and singular (old YAML) for rejection verdicts
+                rv_tids = rv.get("atlas_technique_ids") or []
+                if not rv_tids:
+                    old_rv_tid = rv.get("atlas_technique_id", "")
+                    rv_tids = [old_rv_tid] if old_rv_tid else []
+                rv_tid_display = " + ".join(rv_tids)
                 rv_rationale = rv.get("rationale", "")
                 reject_items += (
                     f'<div class="prov-rejected-row">'
                     f'<span class="prov-badge prov-badge-muted">{_esc(rv_ep)}</span> '
-                    f'<span class="prov-badge prov-badge-muted">{_esc(rv_tid)}</span>'
+                    f'<span class="prov-badge prov-badge-muted">{_esc(rv_tid_display)}</span>'
                     f'<div class="prov-rationale">{_esc(rv_rationale)}</div>'
                     f"</div>"
                 )
