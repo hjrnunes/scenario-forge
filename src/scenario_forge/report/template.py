@@ -1803,17 +1803,12 @@ details.expandable[open] > summary::before {
   overflow: hidden;
 }
 
-/* CSS tooltips (replace unreliable native title= tooltips) */
+/* CSS tooltips — JS-positioned fixed overlay (immune to overflow clipping) */
 [data-tooltip] {
-  position: relative;
   cursor: help;
 }
-[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
+#tooltip-overlay {
+  position: fixed;
   padding: 6px 10px;
   background: #1a1a2e;
   color: #e0e0e0;
@@ -1821,20 +1816,12 @@ details.expandable[open] > summary::before {
   border-radius: 4px;
   font-size: 0.8rem;
   max-width: 400px;
-  white-space: normal;
-  z-index: 1000;
+  white-space: pre-line;
+  z-index: 10000;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s;
-  margin-bottom: 4px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
-[data-tooltip]:hover::after {
-  opacity: 1;
-}
-.tree-meta[data-tooltip]::after {
-  left: 0;
-  transform: none;
 }
 
 /* Scorecard */
@@ -2225,14 +2212,13 @@ details.call-anomaly {
 .prov-chain {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 0;
   padding: 8px 0;
 }
 
 .prov-step {
   width: 100%;
-  max-width: 660px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px 18px;
@@ -2260,6 +2246,7 @@ details.call-anomaly {
   color: var(--text-muted);
   line-height: 1;
   padding: 2px 0;
+  text-align: center;
   user-select: none;
 }
 
@@ -2356,7 +2343,6 @@ details.call-anomaly {
   display: flex;
   gap: 12px;
   width: 100%;
-  max-width: 660px;
 }
 
 .prov-parallel-row .prov-step {
@@ -2379,6 +2365,7 @@ details.call-anomaly {
   color: var(--text-muted);
   letter-spacing: 0.3px;
   padding: 2px 0;
+  text-align: center;
   user-select: none;
 }
 
@@ -2525,6 +2512,31 @@ details.call-anomaly {
 def build_js() -> str:
     return """
 <script>
+// Tooltip overlay — fixed positioning immune to overflow clipping
+(function() {
+  var tip = document.createElement('div');
+  tip.id = 'tooltip-overlay';
+  document.body.appendChild(tip);
+  document.addEventListener('mouseover', function(e) {
+    var el = e.target.closest('[data-tooltip]');
+    if (!el) { tip.style.opacity = '0'; return; }
+    tip.textContent = el.getAttribute('data-tooltip');
+    tip.style.opacity = '1';
+    var rect = el.getBoundingClientRect();
+    var tipRect = tip.getBoundingClientRect();
+    var left = rect.left + rect.width / 2 - tipRect.width / 2;
+    var top = rect.top - tipRect.height - 6;
+    if (top < 4) top = rect.bottom + 6;
+    if (left < 4) left = 4;
+    if (left + tipRect.width > window.innerWidth - 4) left = window.innerWidth - tipRect.width - 4;
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  });
+  document.addEventListener('mouseout', function(e) {
+    if (e.target.closest('[data-tooltip]')) tip.style.opacity = '0';
+  });
+})();
+
 // View toggle
 function toggleView(viewId, btn) {
   document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
@@ -2752,15 +2764,16 @@ def build_use_case_section(use_case_text: str) -> str:
 
     return f"""
     <div id="sec-use-case" class="section">
-      <div class="section-header">
-        <h2>System Under Assessment</h2>
-      </div>
-
-      <div class="card" style="background:var(--bg-secondary);border-left:4px solid var(--accent);">
-        <div style="font-size:14px;line-height:1.8;color:var(--text-secondary);">
-          {formatted}
+      <details class="expandable">
+        <summary class="section-header" style="cursor:pointer;">
+          <h2 style="display:inline;">System Under Assessment</h2>
+        </summary>
+        <div class="card" style="background:var(--bg-secondary);border-left:4px solid var(--accent);margin-top:12px;">
+          <div style="font-size:14px;line-height:1.8;color:var(--text-secondary);">
+            {formatted}
+          </div>
         </div>
-      </div>
+      </details>
     </div>
     """
 
@@ -2884,7 +2897,7 @@ def build_threat_surface_section(
         rc = entry.get("risk_card", {})
         gov = entry.get("governance_only", False)
         status_cls = "status-governance" if gov else "status-actionable"
-        status_text = "Governance" if gov else "Actionable"
+        status_text = "GOV" if gov else "ACT"
         status_tip = (
             "Governance: maps to organizational controls, not directly testable"
             if gov
@@ -3501,7 +3514,7 @@ def build_threat_technique_section(
             scenario_ids = threat_tech_map.get(tid, {}).get(tech_id, [])
             if scenario_ids:
                 count = len(scenario_ids)
-                tooltip_lines = ", ".join(
+                tooltip_lines = "&#10;".join(
                     f"{_esc(s_id)}: {_esc(sid_titles.get(s_id, ''))}"
                     if s_id in sid_titles
                     else _esc(s_id)
@@ -3553,7 +3566,7 @@ def build_threat_technique_section(
         # Threat column: show parent threat with tooltip of full agentic_threat_ids
         parent_threat = row["threat"]
         if parent_threat:
-            full_threats = ", ".join(row["threat_ids"]) if row["threat_ids"] else ""
+            full_threats = "&#10;".join(row["threat_ids"]) if row["threat_ids"] else ""
             threat_tip = f' data-tooltip="{_esc(full_threats)}"' if full_threats else ""
             threat_spans = (
                 f"<span{_threat_id_tooltip(parent_threat)}>{_esc(parent_threat)}</span>"
@@ -6180,11 +6193,11 @@ def build_glossary_section() -> str:
           <thead><tr><th>Badge</th><th>Meaning</th></tr></thead>
           <tbody>
             <tr>
-              <td><span class="status-badge status-actionable">Actionable</span></td>
-              <td>Maps to testable agentic threat scenarios</td>
+              <td><span class="status-badge status-actionable">ACT</span></td>
+              <td>Actionable — maps to testable agentic threat scenarios</td>
             </tr>
             <tr>
-              <td><span class="status-badge status-governance">Governance</span></td>
+              <td><span class="status-badge status-governance">GOV</span></td>
               <td>Maps to organizational controls, not directly testable</td>
             </tr>
           </tbody>
