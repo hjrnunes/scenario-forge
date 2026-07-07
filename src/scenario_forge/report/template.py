@@ -722,31 +722,6 @@ body {
 .status-actionable { background: rgba(34,197,94,0.15); color: #22c55e; }
 .status-governance { background: rgba(245,158,11,0.15); color: #f59e0b; }
 
-/* Chain diagram */
-.chain-diagram {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.chain-hop {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  background: var(--bg-secondary);
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.chain-arrow {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 /* Sankey flow */
 .sankey-container {
   position: relative;
@@ -2928,21 +2903,6 @@ def build_threat_surface_section(
                 ' data-tooltip="IBM AI Risk Atlas — standardized AI risk identifier"'
             )
 
-        # Chain diagram for actionable entries
-        chain_html = ""
-        if not gov and entry.get("owasp_llm_ids"):
-            llm_ids_plain = ", ".join(raw_llm)
-            t_ids_plain = ", ".join(raw_tids)
-            chain_html = (
-                '<div class="chain-diagram">'
-                f'<span class="chain-hop"{risk_id_tip}>{_esc(risk_id)}</span>'
-                '<span class="chain-arrow">&rarr;</span>'
-                f'<span class="chain-hop">{_esc(llm_ids_plain)}</span>'
-                '<span class="chain-arrow">&rarr;</span>'
-                f'<span class="chain-hop">{_esc(t_ids_plain)}</span>'
-                "</div>"
-            )
-
         conf = rc.get("confidence", 0)
         conf_display = f"{conf:.2f}" if isinstance(conf, (int, float)) else str(conf)
 
@@ -2999,7 +2959,6 @@ def build_threat_surface_section(
           <td>{tid_spans}</td>
           <td>{sub_spans}</td>
           {outcomes_cell}
-          <td>{chain_html}</td>
         </tr>"""
 
     # Build risk_id -> risk_name lookup for Sankey tooltips
@@ -3016,10 +2975,10 @@ def build_threat_surface_section(
 
     # Column widths for fixed table layout — vary with/without Outcomes column
     if has_outcomes:
-        _rw = ["12%", "16%", "8%", "7%", "8%", "10%", "12%", "13%", "14%"]
+        _rw = ["14%", "18%", "9%", "8%", "9%", "11%", "14%", "17%"]
         outcomes_th = f'<th style="width:{_rw[7]}">Outcomes</th>'
     else:
-        _rw = ["13%", "18%", "9%", "8%", "9%", "11%", "14%", "", "18%"]
+        _rw = ["15%", "21%", "10%", "9%", "10%", "13%", "22%"]
         outcomes_th = ""
 
     return f"""
@@ -3047,7 +3006,6 @@ def build_threat_surface_section(
                 <th style="width:{_rw[5]}">Agentic Threats</th>
                 <th style="width:{_rw[6]}">Attack Patterns</th>
                 {outcomes_th}
-                <th style="width:{_rw[8]}">Chain</th>
               </tr>
             </thead>
             <tbody>{table_rows}</tbody>
