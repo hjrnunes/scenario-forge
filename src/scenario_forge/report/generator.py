@@ -250,6 +250,7 @@ def generate_report(output_dir: Path) -> Path:
         threat_surface=ts_data,
         capability_profile=profile_data,
         scenarios_generated=manifest_data.get("scenarios_generated") if manifest_data else None,
+        scorecard_data=scorecard_data,
     )
     raw_html = build_raw_data_section(raw_files)
 

@@ -2244,6 +2244,28 @@ details.expandable[open] > summary::before {
   margin-top: 2px;
 }
 
+/* Quality badges on tab headers */
+.tab-quality-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(34,197,94,0.12);
+  color: #22c55e;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+.tab-quality-badge.tab-warn {
+  background: rgba(245,158,11,0.15);
+  color: #f59e0b;
+}
+.tab-quality-badge.tab-fail {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+}
+
 /* CSS-only scenario tabs */
 .scenario-tabs > input[type="radio"] {
   display: none;
@@ -3418,6 +3440,7 @@ def build_scenarios_section(
     threat_surface: dict[str, Any] | None = None,
     capability_profile: dict[str, Any] | None = None,
     scenarios_generated: int | None = None,
+    scorecard_data: dict[str, Any] | None = None,
 ) -> str:
     if not scenarios:
         return (
@@ -3703,6 +3726,7 @@ def build_scenarios_section(
             _call_logs,
             threat_surface=threat_surface,
             capability_profile=capability_profile,
+            scorecard_data=scorecard_data,
         )
 
     return f"""
@@ -4689,6 +4713,7 @@ def _build_scenario_card(
     call_logs: dict[str, list[dict]] | None = None,
     threat_surface: dict[str, Any] | None = None,
     capability_profile: dict[str, Any] | None = None,
+    scorecard_data: dict[str, Any] | None = None,
 ) -> str:
     sid = scenario.get("scenario_id", "")
     narrative = scenario.get("narrative", {})
@@ -4786,6 +4811,60 @@ def _build_scenario_card(
     # Sanitised scenario ID for unique radio input IDs
     safe_sid = re.sub(r"[^a-zA-Z0-9_-]", "_", sid)
 
+    # ------------------------------------------------------------------
+    # Quality badges for tab headers (from eval scorecard)
+    # ------------------------------------------------------------------
+    bspec_badge = ""
+    tree_badge = ""
+    narr_badge = ""
+
+    # Behavior Spec badge: step count from feature content
+    if feature_content:
+        step_count = sum(
+            1
+            for line in feature_content.splitlines()
+            if re.match(
+                r"\s*(Given|When|Then|And|But)\b", line
+            )
+        )
+        bspec_badge = (
+            f'<span class="tab-quality-badge">{step_count} steps</span>'
+        )
+
+    if scorecard_data:
+        eval_block = scorecard_data.get("evaluation", {})
+
+        # Attack Tree badge: consistency metrics below 1.0
+        consistency = eval_block.get("consistency", {}).get(
+            "per_scenario", {}
+        ).get(sid, {})
+        tree_badge_parts: list[str] = []
+        zone_align = consistency.get("zone_alignment")
+        if zone_align is not None and zone_align < 1.0:
+            tree_badge_parts.append(
+                f'<span class="tab-quality-badge tab-warn">'
+                f"zones: {zone_align:.2f}</span>"
+            )
+        step_node = consistency.get("step_node_correspondence")
+        if step_node is not None and step_node < 1.0:
+            tree_badge_parts.append(
+                f'<span class="tab-quality-badge tab-warn">'
+                f"step-node: {step_node:.2f}</span>"
+            )
+        tree_badge = "".join(tree_badge_parts)
+
+        # Narrative badge: plausibility violations
+        plausibility = eval_block.get("plausibility", {}).get(
+            "per_scenario", {}
+        ).get(sid)
+        if plausibility:
+            n_violations = len(plausibility)
+            narr_badge = (
+                f'<span class="tab-quality-badge tab-fail">'
+                f'{n_violations} violation{"s" if n_violations != 1 else ""}'
+                f"</span>"
+            )
+
     return f"""
     <div class="scenario-card" id="scenario-{_esc(sid)}" data-scenario="{_esc(sid)}"
          data-threats="{_esc(threats)}" data-zones="{_esc(zones)}"
@@ -4823,9 +4902,9 @@ def _build_scenario_card(
           <label for="tab-{safe_sid}-gen">Generation Inputs</label>
           <label for="tab-{safe_sid}-actor">Actor Profile</label>
           <label for="tab-{safe_sid}-atlas">ATLAS Techniques</label>
-          <label for="tab-{safe_sid}-narr">Narrative</label>
-          <label for="tab-{safe_sid}-tree">Attack Tree</label>
-          <label for="tab-{safe_sid}-bspec">Behavior Spec</label>
+          <label for="tab-{safe_sid}-narr">Narrative{narr_badge}</label>
+          <label for="tab-{safe_sid}-tree">Attack Tree{tree_badge}</label>
+          <label for="tab-{safe_sid}-bspec">Behavior Spec{bspec_badge}</label>
           <label for="tab-{safe_sid}-prio">Priority Signals</label>
           <label for="tab-{safe_sid}-llm">LLM Calls</label>
         </div>
