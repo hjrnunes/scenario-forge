@@ -4826,24 +4826,71 @@ def _build_provenance_chain(
         goals_taxonomy = load_attack_goals_taxonomy()
         categories = goals_taxonomy.get("categories", [])
 
-        # Show affinity map for this scenario's threat
+        # Show affinity explanation for this scenario's threat
         if seed_threat_id and seed_threat_id in affinity_map:
             aff = affinity_map[seed_threat_id]
-            primary = ", ".join(aff.get("primary", []))
-            secondary = ", ".join(aff.get("secondary", []))
-            excluded = ", ".join(aff.get("excluded", []))
-            excluded_badge = (
-                f'<span class="prov-badge prov-badge-red">excluded: {_esc(excluded)}</span>'
-                if excluded
-                else ""
-            )
+            primary_cats = aff.get("primary", [])
+            secondary_cats = aff.get("secondary", [])
+
+            # Find which category the selected goal belongs to
+            selected_cat_id = ""
+            for cat in categories:
+                for sg in cat.get("sub_goals", []):
+                    if sg.get("id") == goal_cat:
+                        selected_cat_id = cat.get("id", "")
+                        break
+                if selected_cat_id:
+                    break
+
+            # Build plain-language explanation
+            if selected_cat_id and selected_cat_id in primary_cats:
+                tier_badge = '<span class="prov-badge prov-badge-green">primary</span>'
+                other_primary = [c for c in primary_cats if c != selected_cat_id]
+                context_parts: list[str] = []
+                if other_primary:
+                    context_parts.append(f"also primary: {', '.join(other_primary)}")
+                if secondary_cats:
+                    context_parts.append(f"secondary: {', '.join(secondary_cats)}")
+                context_span = (
+                    f' <span style="color:var(--text-muted);">'
+                    f"({' | '.join(context_parts)})</span>"
+                    if context_parts
+                    else ""
+                )
+            elif selected_cat_id and selected_cat_id in secondary_cats:
+                tier_badge = (
+                    '<span class="prov-badge prov-badge-amber">secondary</span>'
+                )
+                other_secondary = [c for c in secondary_cats if c != selected_cat_id]
+                context_parts = []
+                if primary_cats:
+                    context_parts.append(f"primary: {', '.join(primary_cats)}")
+                if other_secondary:
+                    context_parts.append(
+                        f"also secondary: {', '.join(other_secondary)}"
+                    )
+                context_span = (
+                    f' <span style="color:var(--text-muted);">'
+                    f"({' | '.join(context_parts)})</span>"
+                    if context_parts
+                    else ""
+                )
+            else:
+                # Fallback: could not determine tier
+                tier_badge = ""
+                primary_str = ", ".join(primary_cats)
+                secondary_str = ", ".join(secondary_cats)
+                context_span = (
+                    f' <span style="color:var(--text-muted);">'
+                    f"(primary: {_esc(primary_str)} | secondary: {_esc(secondary_str)})</span>"
+                )
+
             affinity_html = (
                 f'<div style="margin:6px 0 8px;padding:8px 12px;background:var(--bg-primary);'
                 f'border-radius:6px;border:1px solid var(--border);font-size:12px;">'
-                f'<strong style="color:var(--text-muted);">{_esc(seed_threat_id)} affinity:</strong> '
-                f'<span class="prov-badge prov-badge-green">primary: {_esc(primary)}</span> '
-                f'<span class="prov-badge prov-badge-amber">secondary: {_esc(secondary)}</span> '
-                f"{excluded_badge}"
+                f"&lsquo;{_esc(selected_cat_id or goal_parent)}&rsquo; &mdash; "
+                f"{tier_badge} affinity for {_esc(seed_threat_id)}"
+                f"{context_span}"
                 f"</div>"
             )
 
