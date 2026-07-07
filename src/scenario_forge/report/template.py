@@ -5126,6 +5126,174 @@ def _highlight_gherkin(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Run Summary
+# ---------------------------------------------------------------------------
+
+
+def build_run_summary_section(manifest: dict[str, Any], scenarios_in_report: int) -> str:
+    """Build a Run Summary section showing pipeline funnel metrics.
+
+    Args:
+        manifest: Parsed ``run-manifest.yaml`` dict.
+        scenarios_in_report: Count of scenarios actually rendered in the report.
+
+    Returns:
+        HTML string for the run summary section, or empty string if manifest
+        is empty/None.
+    """
+    if not manifest:
+        return ""
+
+    seeds = manifest.get("seeds_generated", 0)
+    expanded = manifest.get("candidates_expanded", 0)
+    accepted = manifest.get("candidates_accepted", 0)
+    rejected = manifest.get("candidates_rejected", 0)
+    generated = manifest.get("scenarios_generated", 0)
+    failed = manifest.get("scenarios_failed", 0)
+
+    # Rejection rate
+    rejection_rate = (
+        f"{rejected / expanded * 100:.1f}%" if expanded > 0 else "N/A"
+    )
+
+    # Config
+    config = manifest.get("config", {})
+    model_name = _esc(str(config.get("model", "unknown")))
+    temperature = config.get("temperature", "N/A")
+
+    # Timestamps & duration
+    ts_start = manifest.get("timestamp_start", "")
+    ts_end = manifest.get("timestamp_end", "")
+    duration_str = ""
+    if ts_start and ts_end:
+        try:
+            from datetime import datetime
+
+            fmt_options = [
+                "%Y-%m-%dT%H:%M:%S.%f%z",
+                "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S.%f",
+                "%Y-%m-%dT%H:%M:%S",
+            ]
+            dt_start = dt_end = None
+            for fmt in fmt_options:
+                try:
+                    dt_start = datetime.strptime(str(ts_start), fmt)
+                    break
+                except ValueError:
+                    continue
+            for fmt in fmt_options:
+                try:
+                    dt_end = datetime.strptime(str(ts_end), fmt)
+                    break
+                except ValueError:
+                    continue
+            if dt_start and dt_end:
+                delta = dt_end - dt_start
+                total_secs = int(delta.total_seconds())
+                mins, secs = divmod(abs(total_secs), 60)
+                hours, mins = divmod(mins, 60)
+                if hours > 0:
+                    duration_str = f"{hours}h {mins}m {secs}s"
+                else:
+                    duration_str = f"{mins}m {secs}s"
+        except Exception:
+            pass
+
+    # Format timestamps for display (strip microseconds)
+    display_start = str(ts_start).split(".")[0] if ts_start else "N/A"
+    display_end = str(ts_end).split(".")[0] if ts_end else "N/A"
+
+    # Build funnel steps
+    funnel_steps = [
+        ("Seeds Generated", seeds, "#3b82f6"),
+        ("Candidates Expanded", expanded, "#8b5cf6"),
+        ("Candidates Accepted", accepted, "#22c55e"),
+        ("Scenarios Generated", generated, "#f59e0b"),
+        ("In Report", scenarios_in_report, "#6366f1"),
+    ]
+
+    funnel_html = ""
+    for i, (label, count, color) in enumerate(funnel_steps):
+        arrow = (
+            '<span style="color:var(--text-muted);font-size:18px;'
+            'margin:0 4px;">&#8594;</span>'
+            if i < len(funnel_steps) - 1
+            else ""
+        )
+        funnel_html += (
+            f'<div class="stat-card" style="border-left-color:{color};">'
+            f'<span class="stat-number">{count}</span>'
+            f'<span class="stat-label">{_esc(label)}</span>'
+            f"</div>"
+            f"{arrow}"
+        )
+
+    # Secondary stats
+    duration_card = ""
+    if duration_str:
+        duration_card = (
+            '<div class="stat-card" style="border-left-color:#6b7280;">'
+            f'<span class="stat-number" style="font-size:20px;">'
+            f"{_esc(duration_str)}</span>"
+            '<span class="stat-label">Duration</span>'
+            "</div>"
+        )
+
+    return f"""
+    <div id="sec-run-summary" class="section">
+      <div class="section-header">
+        <h2>Run Summary</h2>
+      </div>
+
+      <div class="card">
+        <div class="scenario-section-title">Pipeline Funnel</div>
+        <div class="stats-bar" style="align-items:center;">
+          {funnel_html}
+        </div>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat-card" style="border-left-color:#ef4444;">
+          <span class="stat-number">{failed}</span>
+          <span class="stat-label">Failed</span>
+        </div>
+        <div class="stat-card" style="border-left-color:#f97316;">
+          <span class="stat-number">{rejected}</span>
+          <span class="stat-label">Rejected</span>
+        </div>
+        <div class="stat-card" style="border-left-color:#f97316;">
+          <span class="stat-number" style="font-size:20px;">{rejection_rate}</span>
+          <span class="stat-label">Rejection Rate</span>
+        </div>
+        {duration_card}
+      </div>
+
+      <div class="card" style="background:var(--bg-secondary);">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;font-size:13px;">
+          <div>
+            <span style="color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Model</span>
+            <div style="color:var(--text-primary);font-weight:600;margin-top:4px;font-family:'SF Mono','Fira Code',monospace;">{model_name}</div>
+          </div>
+          <div>
+            <span style="color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Temperature</span>
+            <div style="color:var(--text-primary);font-weight:600;margin-top:4px;font-family:'SF Mono','Fira Code',monospace;">{temperature}</div>
+          </div>
+          <div>
+            <span style="color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Start</span>
+            <div style="color:var(--text-primary);font-weight:600;margin-top:4px;font-family:'SF Mono','Fira Code',monospace;">{_esc(display_start)}</div>
+          </div>
+          <div>
+            <span style="color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">End</span>
+            <div style="color:var(--text-primary);font-weight:600;margin-top:4px;font-family:'SF Mono','Fira Code',monospace;">{_esc(display_end)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+
+
+# ---------------------------------------------------------------------------
 # Section 5: Glossary appendix
 # ---------------------------------------------------------------------------
 
@@ -5821,9 +5989,13 @@ def build_full_page(
     use_case_html: str = "",
     scorecard_html: str = "",
     threat_technique_html: str = "",
+    run_summary_html: str = "",
     title: str = "Scenario Forge Report",
 ) -> str:
-    # Conditionally add sidebar links for use case, coverage, and diversity sections
+    # Conditionally add sidebar links for optional sections
+    run_summary_nav = ""
+    if run_summary_html:
+        run_summary_nav = '<a href="#sec-run-summary"><span class="nav-icon">&#9654;</span> Run Summary</a>'
     use_case_nav = ""
     if use_case_html:
         use_case_nav = (
@@ -5859,6 +6031,7 @@ def build_full_page(
       <div class="subtitle">Red-Team Report</div>
     </div>
     <nav>
+      {run_summary_nav}
       {use_case_nav}
       <a href="#sec-profile"><span class="nav-icon">&#9670;</span> Capability Profile</a>
       <a href="#sec-threats"><span class="nav-icon">&#9888;</span> Threat Surface</a>
@@ -5873,6 +6046,7 @@ def build_full_page(
   </aside>
 
   <main class="main-content">
+    {run_summary_html}
     {use_case_html}
     {profile_html}
     {threats_html}

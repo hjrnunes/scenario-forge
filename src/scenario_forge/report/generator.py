@@ -14,6 +14,7 @@ from scenario_forge.report.template import (
     build_coverage_section,
     build_full_page,
     build_raw_data_section,
+    build_run_summary_section,
     build_scenarios_section,
     build_scorecard_section,
     build_threat_surface_section,
@@ -158,6 +159,23 @@ def generate_report(output_dir: Path) -> Path:
             output_dir,
         )
 
+    # --- Load run manifest ---
+    manifest_path = output_dir / "run-manifest.yaml"
+    manifest_data: dict = {}
+    if manifest_path.exists():
+        try:
+            manifest_data = (
+                yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+            )
+            logger.info("Loaded run manifest from %s", manifest_path)
+        except Exception as exc:
+            logger.warning("Failed to load %s: %s", manifest_path, exc)
+    else:
+        logger.info(
+            "run-manifest.yaml not found in %s (skipping run summary section)",
+            output_dir,
+        )
+
     # Sort scenarios by priority (descending)
     scenarios.sort(
         key=lambda s: s.get("priority", {}).get("composite", 0),
@@ -176,6 +194,11 @@ def generate_report(output_dir: Path) -> Path:
         )
 
     # --- Build HTML sections ---
+    run_summary_html = (
+        build_run_summary_section(manifest_data, len(scenarios))
+        if manifest_data
+        else ""
+    )
     use_case_html = build_use_case_section(use_case_text) if use_case_text else ""
     profile_html = build_capability_profile_section(profile_data)
     threats_html = build_threat_surface_section(ts_data)
@@ -210,6 +233,7 @@ def generate_report(output_dir: Path) -> Path:
         use_case_html=use_case_html,
         scorecard_html=scorecard_html,
         threat_technique_html=threat_technique_html,
+        run_summary_html=run_summary_html,
     )
 
     # --- Write output ---
