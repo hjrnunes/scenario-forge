@@ -1835,6 +1835,68 @@ details.expandable[open] > summary::before {
   color: var(--text-primary);
 }
 
+/* Scorecard Outliers Panel */
+.scorecard-outliers {
+  margin-bottom: 20px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(245,158,11,0.35);
+  background: rgba(245,158,11,0.06);
+}
+
+.scorecard-outliers-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f59e0b;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scorecard-outliers-clear {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(34,197,94,0.25);
+  background: rgba(34,197,94,0.06);
+  font-size: 13px;
+  font-weight: 600;
+  color: #22c55e;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scorecard-outliers table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.scorecard-outliers th {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.scorecard-outliers td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.scorecard-outliers td:first-child {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
 /* Threat-Technique Matrix */
 .matrix-table {
   width: 100%;
@@ -5715,6 +5777,182 @@ def _scorecard_badge(
     return f'<span class="scorecard-badge {css_cls}"{tip_attr}>{_esc(label)}: {display}</span>'
 
 
+def _collect_scorecard_outliers(
+    ev: dict[str, Any],
+) -> list[tuple[str, str, str, float | int | str, str]]:
+    """Scan scorecard evaluation data and return outlier rows.
+
+    Each row is ``(severity, scenario_id, group, metric, value, css_cls)``
+    where *severity* is ``"red"`` or ``"yellow"`` (for sort ordering) and
+    *css_cls* is the badge CSS class.
+
+    Returns:
+        Sorted list: red items first, then yellow, each alphabetical by
+        scenario ID within its severity tier.
+    """
+    outliers: list[tuple[str, str, str, str, float | int | str, str]] = []
+
+    # --- Per-scenario consistency ---
+    per_scenario_c = ev.get("consistency", {}).get("per_scenario", {})
+    for sid, metrics in per_scenario_c.items():
+        za = metrics.get("zone_alignment", 1.0)
+        if za < 0.9:
+            css = "scorecard-badge-red" if za < 0.7 else "scorecard-badge-yellow"
+            sev = "red" if za < 0.7 else "yellow"
+            outliers.append((sev, sid, "Consistency", "Zone Alignment", za, css))
+        epa = metrics.get("entry_point_agreement", 1)
+        if epa < 1:
+            outliers.append(
+                ("red", sid, "Consistency", "Entry Point Agreement", epa, "scorecard-badge-red")
+            )
+        snc = metrics.get("step_node_correspondence", 1.0)
+        if snc < 0.9:
+            css = "scorecard-badge-red" if snc < 0.7 else "scorecard-badge-yellow"
+            sev = "red" if snc < 0.7 else "yellow"
+            outliers.append(
+                (sev, sid, "Consistency", "Step-Node Correspondence", snc, css)
+            )
+
+    # --- Per-scenario technique agreement ---
+    ta = ev.get("technique_agreement", {})
+    per_scenario_ta = ta.get("per_scenario", {})
+    for sid, detail in per_scenario_ta.items():
+        score = detail.get("technique_agreement", 1.0)
+        missing_narr = detail.get("missing_from_narrative", [])
+        missing_tree = detail.get("missing_from_tree", [])
+        missing_spec = detail.get("missing_from_spec", [])
+        if score < 0.9:
+            css = "scorecard-badge-red" if score < 0.7 else "scorecard-badge-yellow"
+            sev = "red" if score < 0.7 else "yellow"
+            outliers.append(
+                (sev, sid, "Technique Agreement", "Technique Agreement", score, css)
+            )
+        elif missing_narr or missing_tree or missing_spec:
+            parts = []
+            if missing_narr:
+                parts.append(f"narrative: {', '.join(missing_narr)}")
+            if missing_tree:
+                parts.append(f"tree: {', '.join(missing_tree)}")
+            if missing_spec:
+                parts.append(f"spec: {', '.join(missing_spec)}")
+            outliers.append(
+                (
+                    "yellow",
+                    sid,
+                    "Technique Agreement",
+                    "Missing Techniques",
+                    "; ".join(parts),
+                    "scorecard-badge-yellow",
+                )
+            )
+
+    # --- Per-scenario plausibility ---
+    per_scenario_p = ev.get("plausibility", {}).get("per_scenario", {})
+    for sid, issues in per_scenario_p.items():
+        if issues and isinstance(issues, list):
+            for issue in issues:
+                outliers.append(
+                    (
+                        "red",
+                        sid,
+                        "Plausibility",
+                        "Capability Violation",
+                        str(issue),
+                        "scorecard-badge-red",
+                    )
+                )
+
+    # --- Aggregate diversity outliers ---
+    diversity = ev.get("diversity", {})
+    tu = diversity.get("title_uniqueness", 1.0)
+    if isinstance(tu, (int, float)) and tu < 0.7:
+        css = "scorecard-badge-red" if tu < 0.5 else "scorecard-badge-yellow"
+        sev = "red" if tu < 0.5 else "yellow"
+        outliers.append(
+            (sev, "(aggregate)", "Diversity", "Title Uniqueness", tu, css)
+        )
+
+    ep_ent = diversity.get("entry_point_entropy", {})
+    if isinstance(ep_ent, dict):
+        ep_cov = ep_ent.get("entry_point_coverage", 1.0)
+        if ep_cov < 0.7:
+            css = "scorecard-badge-red" if ep_cov < 0.5 else "scorecard-badge-yellow"
+            sev = "red" if ep_cov < 0.5 else "yellow"
+            outliers.append(
+                (sev, "(aggregate)", "Diversity", "EP Coverage", ep_cov, css)
+            )
+
+    # --- Aggregate plausibility ---
+    violation_count = ev.get("plausibility", {}).get(
+        "capability_complexity_violation_count", 0
+    )
+    if violation_count > 0:
+        outliers.append(
+            (
+                "red",
+                "(aggregate)",
+                "Plausibility",
+                "Capability Violations",
+                violation_count,
+                "scorecard-badge-red",
+            )
+        )
+
+    # Sort: red first, then yellow; within each tier, alphabetical by scenario
+    severity_order = {"red": 0, "yellow": 1}
+    outliers.sort(key=lambda r: (severity_order.get(r[0], 2), r[1]))
+    return outliers
+
+
+def _build_outliers_panel(
+    outliers: list[tuple[str, str, str, str, float | int | str, str]],
+) -> str:
+    """Render the outliers summary panel HTML.
+
+    Args:
+        outliers: Rows from :func:`_collect_scorecard_outliers`.
+
+    Returns:
+        HTML string for the outliers panel.
+    """
+    if not outliers:
+        return (
+            '<div class="scorecard-outliers-clear">'
+            "✅ All scenarios pass quality checks"
+            "</div>"
+        )
+
+    rows = ""
+    for _sev, sid, group, metric, value, css in outliers:
+        if isinstance(value, float):
+            display = f"{value:.2f}"
+        elif isinstance(value, int):
+            display = str(value)
+        else:
+            display = str(value)
+        rows += (
+            f"<tr>"
+            f"<td>{_esc(sid)}</td>"
+            f"<td>{_esc(group)}</td>"
+            f"<td>{_esc(metric)}</td>"
+            f'<td><span class="scorecard-badge {css}">{_esc(display)}</span></td>'
+            f"</tr>"
+        )
+
+    return (
+        '<div class="scorecard-outliers">'
+        '<div class="scorecard-outliers-title">'
+        "⚠ Quality Outliers</div>"
+        "<table>"
+        "<thead><tr>"
+        "<th>Scenario</th><th>Group</th><th>Metric</th><th>Value</th>"
+        "</tr></thead>"
+        f"<tbody>{rows}</tbody>"
+        "</table>"
+        "</div>"
+    )
+
+
 def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
     """Build the Eval Scorecard HTML section from parsed YAML data.
 
@@ -5746,6 +5984,10 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
         <div class="scorecard-stat-label">Feature Files</div>
       </div>
     </div>"""
+
+    # --- Outliers panel (rendered after summary, before metric groups) ---
+    outliers = _collect_scorecard_outliers(ev)
+    outliers_html = _build_outliers_panel(outliers)
 
     # --- Consistency ---
     consistency = ev.get("consistency", {})
@@ -6027,6 +6269,7 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
 
       <div class="card">
         {summary_html}
+        {outliers_html}
         {consistency_html}
         {gherkin_html}
         {grounding_html}
