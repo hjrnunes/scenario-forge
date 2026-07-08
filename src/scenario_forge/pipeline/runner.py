@@ -642,16 +642,7 @@ def run_pipeline(
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
-    # --- Auto-generate HTML report ---
-    try:
-        from scenario_forge.report.generator import generate_report
-
-        report_path = generate_report(output_dir)
-        logger.info("Report written to %s", report_path)
-    except Exception as exc:
-        logger.warning("Report generation failed: %s", exc)
-
-    # --- Update run manifest (end) ---
+    # --- Update run manifest (end) — before report so it can read stats ---
     manifest["timestamp_end"] = datetime.now(timezone.utc).isoformat()
     manifest["seeds_generated"] = len(seeds)
     manifest["candidates_expanded"] = candidates_expanded
@@ -663,6 +654,15 @@ def run_pipeline(
         yaml.dump(manifest, default_flow_style=False, sort_keys=False),
         encoding="utf-8",
     )
+
+    # --- Auto-generate HTML report ---
+    try:
+        from scenario_forge.report.generator import generate_report
+
+        report_path = generate_report(output_dir)
+        logger.info("Report written to %s", report_path)
+    except Exception as exc:
+        logger.warning("Report generation failed: %s", exc)
 
     return PipelineResult(
         capability_profile=profile,
