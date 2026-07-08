@@ -962,10 +962,17 @@ class Call1Response(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _scenario_hash(seed_id: str, use_case: str, pinned_technique_ids: tuple[str, ...] | list[str] | None = None) -> str:
+def _scenario_hash(
+    seed_id: str,
+    use_case: str,
+    pinned_technique_ids: tuple[str, ...] | list[str] | None = None,
+    pinned_entry_point: str | None = None,
+) -> str:
     key = f"{seed_id}:{use_case}"
     if pinned_technique_ids:
         key += ":" + ",".join(pinned_technique_ids)
+    if pinned_entry_point:
+        key += ":" + pinned_entry_point
     return hashlib.sha256(key.encode()).hexdigest()[:6]
 
 
@@ -2030,8 +2037,9 @@ def _assemble_envelope(
     notes: list[str],
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
+    pinned_entry_point: str | None = None,
 ) -> ScenarioEnvelope:
-    scenario_hash = _scenario_hash(seed.seed_id, use_case, pinned_technique_ids)
+    scenario_hash = _scenario_hash(seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point)
     scenario_id = f"{seed.seed_id}-{scenario_hash}"
 
     maestro_layers: set[int] = set()
@@ -2157,7 +2165,7 @@ def generate_scenario(
             context in prompts.
     """
     call_metas: list[CallMetadata] = []
-    scenario_hash = _scenario_hash(seed.seed_id, use_case, pinned_technique_ids)
+    scenario_hash = _scenario_hash(seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point)
 
     # --- Call 0: Actor Profile ---
     actor_profile, result0 = _call_actor_profile(
@@ -2233,6 +2241,7 @@ def generate_scenario(
         notes=[],
         actor_profile=actor_profile,
         pinned_technique_ids=pinned_technique_ids,
+        pinned_entry_point=pinned_entry_point,
     )
 
     # Build call log entries for JSONL output.
