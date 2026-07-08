@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import combinations
 from typing import Literal
 
@@ -245,12 +246,11 @@ def filter_candidates(
         profile=profile,
     )
 
-    total_accepted = 0
-    total_rejected = 0
-    results: list[FilteredSeed] = []
-
-    for seed_id, seed_candidates in groups.items():
-        # Use first candidate for seed-level metadata (all share the same seed)
+    def _filter_one_seed(
+        seed_id: str,
+        seed_candidates: list[CandidateTriple],
+    ) -> tuple[list[FilteredSeed], int, int]:
+        """Filter candidates for a single seed. Returns (accepted, n_accepted, n_rejected)."""
         first = seed_candidates[0]
 
         user_prompt = render_prompt(
@@ -272,7 +272,6 @@ def filter_candidates(
         )
         batch_response: BatchFilterResponse = llm_result.content
 
-        # Partition verdicts
         accepted_verdicts: list[FilterVerdict] = []
         rejected_verdicts: list[FilterVerdict] = []
         for v in batch_response.verdicts:
@@ -281,14 +280,11 @@ def filter_candidates(
             else:
                 rejected_verdicts.append(v)
 
-        # Build a technique-name lookup from the candidates
-        # Maps each technique combo (tuple) to its names tuple
         tech_names_lookup: dict[tuple[str, ...], tuple[str, ...]] = {
             c.atlas_technique_ids: c.atlas_technique_names
             for c in seed_candidates
         }
 
-        # Get original seed for full field set
         original_seed = seed_lookup.get(seed_id)
         if original_seed is None:
             logger.warning(
@@ -296,13 +292,12 @@ def filter_candidates(
                 seed_id,
                 len(accepted_verdicts),
             )
-            total_rejected += len(seed_candidates)
-            continue
+            return [], 0, len(seed_candidates)
 
+        seed_results: list[FilteredSeed] = []
         for verdict in accepted_verdicts:
-            results.append(
+            seed_results.append(
                 FilteredSeed(
-                    # ScenarioSeed fields from original seed
                     seed_id=original_seed.seed_id,
                     threat_id=original_seed.threat_id,
                     threat_name=original_seed.threat_name,
@@ -317,29 +312,46 @@ def filter_candidates(
                     owasp_origin=original_seed.owasp_origin,
                     laaf_technique_ids=original_seed.laaf_technique_ids,
                     atlas_provenance_ids=original_seed.atlas_provenance_ids,
-                    # Pinned fields from the accepted verdict
                     pinned_entry_point=verdict.entry_point,
                     pinned_technique_ids=verdict.atlas_technique_ids,
                     pinned_technique_names=tech_names_lookup.get(
                         verdict.atlas_technique_ids,
                         verdict.atlas_technique_ids,
                     ),
-                    # Sibling rejections for provenance display
                     rejection_rationales=rejected_verdicts,
                 )
             )
 
         seed_accepted = len(accepted_verdicts)
         seed_total = len(seed_candidates)
-        total_accepted += seed_accepted
-        total_rejected += seed_total - seed_accepted
-
         logger.info(
             "Seed %s: %d/%d candidates accepted",
             seed_id,
             seed_accepted,
             seed_total,
         )
+        return seed_results, seed_accepted, seed_total - seed_accepted
+
+    total_accepted = 0
+    total_rejected = 0
+    results: list[FilteredSeed] = []
+
+    max_workers = min(8, len(groups))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_filter_one_seed, sid, cands): sid
+            for sid, cands in groups.items()
+        }
+        for future in as_completed(futures):
+            seed_id = futures[future]
+            try:
+                seed_results, n_acc, n_rej = future.result()
+                results.extend(seed_results)
+                total_accepted += n_acc
+                total_rejected += n_rej
+            except Exception:
+                logger.exception("Filter failed for seed %s", seed_id)
+                total_rejected += len(groups[seed_id])
 
     logger.info(
         "Filter: %d/%d candidates survived (%d rejected)",

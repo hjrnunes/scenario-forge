@@ -84,6 +84,14 @@ def generate(
         None,
         help="LLM model name (overrides SCENARIO_FORGE_MODEL_NAME).",
     ),
+    max_scenario_techniques: int = typer.Option(
+        1,
+        help="Max ATLAS techniques per candidate combo (1=single, 2=pairs+singles, etc.).",
+    ),
+    zones: str | None = typer.Option(
+        None,
+        help="Comma-separated zone filter (e.g. 'input,reasoning,tool_execution'). Overrides profile.",
+    ),
 ) -> None:
     """Run the full scenario generation pipeline (stages 1-4)."""
     typer.echo(f"\nscenario-forge v{_VERSION} — generate\n{'=' * 40}")
@@ -112,6 +120,8 @@ def generate(
             base_url=base_url,
             api_key=api_key,
             model=model,
+            max_techniques=max_scenario_techniques,
+            zones=zones,
         )
 
         typer.echo("\nPipeline complete.")

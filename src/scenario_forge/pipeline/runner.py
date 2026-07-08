@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 from scenario_forge.data.loaders import load_risk_extraction
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import ZONE_NAMES, CapabilityProfile
 from scenario_forge.models.scenario import ACTOR_TYPES, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
@@ -323,6 +323,8 @@ def run_pipeline(
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    max_techniques: int = 1,
+    zones: str | None = None,
 ) -> PipelineResult:
     """Run the full scenario-forge pipeline (stages 1-4).
 
@@ -380,6 +382,20 @@ def run_pipeline(
     else:
         logger.info("[Stage 1] Inferring capability profile...")
         profile, _llm_result = infer_capability_profile(use_case, client)
+    if zones is not None:
+        requested = [z.strip() for z in zones.split(",")]
+        invalid = [z for z in requested if z not in ZONE_NAMES]
+        if invalid:
+            raise ValueError(f"Unknown zone(s): {', '.join(invalid)}. Valid: {', '.join(ZONE_NAMES)}")
+        filtered = [z for z in requested if z in profile.zones_active]
+        updates: dict = {"zones_active": filtered}
+        if "memory" not in filtered:
+            updates["has_persistent_memory"] = False
+        if "inter_agent" not in filtered:
+            updates["multi_agent"] = False
+        profile = profile.model_copy(update=updates)
+        logger.info("  Zone filter applied: %s", filtered)
+
     logger.info("  Zones active: %s", profile.zones_active)
     logger.info("  Entry points: %d", len(profile.entry_points))
     logger.info("  Confidence: %s", profile.confidence.value)
@@ -441,7 +457,7 @@ def run_pipeline(
 
     # --- Stage 3.5: Candidate Expansion + Filtering ---
     logger.info("[Stage 3.5] Expanding and filtering candidates...")
-    candidates = expand_candidates(seeds, profile)
+    candidates = expand_candidates(seeds, profile, max_techniques=max_techniques)
     filtered_seeds = filter_candidates(candidates, seeds, client, use_case, profile)
     candidates_expanded = len(candidates)
     candidates_accepted = len(filtered_seeds)
