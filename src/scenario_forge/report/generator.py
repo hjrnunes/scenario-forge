@@ -43,6 +43,28 @@ def generate_report(output_dir: Path) -> Path:
     """
     output_dir = Path(output_dir)
 
+    # --- Check eval scorecard status ---
+    _scorecard_path = output_dir / "eval-scorecard.yaml"
+    _scenarios_dir = output_dir / "scenarios"
+    if not _scorecard_path.exists():
+        logger.warning(
+            "No eval scorecard found in %s. Run "
+            "'scenario-forge eval --output-dir %s' before generating "
+            "the report to embed quality metrics.",
+            output_dir,
+            output_dir,
+        )
+    elif _scenarios_dir.is_dir():
+        scenario_yamls = list(_scenarios_dir.glob("*.yaml"))
+        if scenario_yamls:
+            newest_scenario = max(f.stat().st_mtime for f in scenario_yamls)
+            if _scorecard_path.stat().st_mtime < newest_scenario:
+                logger.warning(
+                    "Eval scorecard is older than scenario files. Re-run "
+                    "'scenario-forge eval --output-dir %s' to refresh.",
+                    output_dir,
+                )
+
     # --- Load capability profile ---
     profile_path = output_dir / "capability-profile.yaml"
     if profile_path.exists():
