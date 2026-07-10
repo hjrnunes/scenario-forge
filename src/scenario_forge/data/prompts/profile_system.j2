@@ -16,4 +16,57 @@ Extract a capability profile that captures the system's structural properties.
 - entry_points: list of attack surfaces as short strings, each annotated with its zone, e.g. "user prompts via chat widget (input)".
 - confidence: "high" if the description is detailed, "medium" if moderate, "low" if vague or minimal.
 
+## OWASP KC Sub-Codes
+
+In addition to zones, identify which OWASP Key Component (KC) sub-codes describe this system's capabilities. Select ALL that apply based on the use-case description.
+
+### KC1 — Language Models (select at least one)
+- KC1.1: Large Language Model (LLM) — standard text-based LLM
+- KC1.2: Multimodal LLM (MLLM) — processes images, audio, or video
+- KC1.3: Small Language Model (SLM) — lightweight or edge-deployed model
+- KC1.4: Domain-specific or fine-tuned model
+
+### KC2 — Orchestration
+- KC2.1: Predefined workflows — fixed sequence of steps
+- KC2.2: Hierarchical planning — dynamic sub-task delegation, orchestrator/router
+- KC2.3: Multi-agent collaboration — multiple agents coordinating
+
+### KC3 — Reasoning / Planning
+- KC3.1: Structured planning (ReWoo, Plan-and-Execute) — plan then execute
+- KC3.2: ReAct — interleaved reasoning and action
+- KC3.3: Chain of Thought (CoT) — step-by-step reasoning
+- KC3.4: Tree of Thoughts (ToT) — branching exploration of alternatives
+
+### KC4 — Memory (2x3 sharing scope matrix)
+- KC4.1: In-agent, session-only memory
+- KC4.2: Cross-agent, session-only memory (shared within session)
+- KC4.3: In-agent, cross-session memory (persists across sessions)
+- KC4.4: Cross-agent, cross-session memory
+- KC4.5: In-agent, cross-user memory (shared state across users)
+- KC4.6: Cross-agent, cross-user memory (maximum blast radius)
+
+### KC5 — Tool Integration Framework
+- KC5.1: Flexible libraries / SDK (LangChain, CrewAI, MCP client)
+- KC5.2: Managed platform (AWS Bedrock, Azure AI, Google Vertex)
+- KC5.3: Managed API (OpenAI Assistants API, Anthropic tool use)
+
+### KC6 — Operational Environment
+- KC6.1.1: Limited API access — LLM fills parameters for predefined API calls
+- KC6.1.2: Extensive API access — LLM generates arbitrary API calls
+- KC6.2.1: Limited code execution — sandboxed, parameterized code
+- KC6.2.2: Extensive code execution — LLM-generated code runs with broad permissions
+- KC6.3.1: Database read-only — parameterized queries only
+- KC6.3.2: Database full CRUD — can create, update, delete records
+- KC6.3.3: RAG context data sources — retrieval-augmented generation
+- KC6.4: Web / browser access — can fetch or interact with web content
+- KC6.5: PC / filesystem operations — local file and OS access
+- KC6.6: Critical systems (SCADA, ICS) — safety-critical infrastructure
+- KC6.7: IoT device control — physical-world actuators
+
+### KC selection guidelines
+- Always include at least one KC1.* sub-code. Default to KC1.1 if the model type is unspecified.
+- For KC4, select the MOST CAPABLE memory scope described. If the system has cross-session persistence, use KC4.3 (not KC4.1). If memory is shared across agents AND sessions, use KC4.4.
+- For KC6, distinguish "limited" vs "extensive": limited means the LLM fills parameters for predefined operations; extensive means the LLM generates the operation itself.
+- Only include sub-codes supported by the use-case description. Do NOT speculate.
+
 Return a valid CapabilityProfile with only the Stage 1 fields. Do NOT populate Stage 2 fields (tool_types, data_flows, etc.).
