@@ -58,6 +58,32 @@ def load_cross_taxonomy_mappings(path: str | Path) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
+_DEFAULT_KC_THREAT_MAPPING_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "mappings"
+    / "kc-threat-mapping.yaml"
+)
+
+
+def load_kc_threat_mapping(
+    path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Load KC sub-code to threat mapping YAML.
+
+    Args:
+        path: Path to kc-threat-mapping.yaml. Defaults to the bundled file.
+
+    Returns:
+        The full parsed YAML as a dict with keys: metadata,
+        kc_subcodes, kc_to_threats, threat_to_kc_subcodes, hitl.
+    """
+    p = Path(path) if path is not None else _DEFAULT_KC_THREAT_MAPPING_PATH
+    with open(p) as f:
+        return yaml.safe_load(f)
+
+
 def _parse_evidence(raw: dict) -> EvidenceSpan:
     """Convert a policy-mapper evidence dict to an EvidenceSpan.
 

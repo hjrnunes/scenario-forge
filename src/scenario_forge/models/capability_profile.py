@@ -18,7 +18,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Zone constants
@@ -31,6 +31,21 @@ ZONE_NAMES: tuple[str, ...] = (
     "memory",
     "inter_agent",
 )
+
+# ---------------------------------------------------------------------------
+# OWASP KC sub-code constants
+# ---------------------------------------------------------------------------
+
+VALID_KC_SUBCODES: frozenset[str] = frozenset({
+    "KC1.1", "KC1.2", "KC1.3", "KC1.4",
+    "KC2.1", "KC2.2", "KC2.3",
+    "KC3.1", "KC3.2", "KC3.3", "KC3.4",
+    "KC4.1", "KC4.2", "KC4.3", "KC4.4", "KC4.5", "KC4.6",
+    "KC5.1", "KC5.2", "KC5.3",
+    "KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2",
+    "KC6.3.1", "KC6.3.2", "KC6.3.3",
+    "KC6.4", "KC6.5", "KC6.6", "KC6.7",
+})
 
 ZONE_DISPLAY_NAMES: dict[str, str] = {
     "input": "Input Surfaces",
@@ -227,6 +242,26 @@ class Stage1Profile(BaseModel):
     confidence: ConfidenceLevel = Field(
         description="How well the use-case description supported Stage 1 inferences.",
     )
+    kc_subcodes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "OWASP KC (Key Component) sub-codes identifying the system's "
+            "granular capabilities. E.g. ['KC1.1', 'KC4.1', 'KC6.1.1']."
+        ),
+    )
+
+    @field_validator("kc_subcodes")
+    @classmethod
+    def validate_kc_subcodes(cls, v: list[str]) -> list[str]:
+        if not v:
+            return v
+        invalid = [code for code in v if code not in VALID_KC_SUBCODES]
+        if invalid:
+            raise ValueError(
+                f"Invalid KC sub-code(s): {invalid}. "
+                f"Valid codes: {sorted(VALID_KC_SUBCODES)}"
+            )
+        return sorted(set(v))
 
     def to_capability_profile(self) -> CapabilityProfile:
         """Promote to a full CapabilityProfile (Stage 2 fields left as None)."""
@@ -270,6 +305,13 @@ class CapabilityProfile(BaseModel):
     confidence: ConfidenceLevel = Field(
         description="How well the use-case description supported Stage 1 inferences.",
     )
+    kc_subcodes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "OWASP KC (Key Component) sub-codes identifying the system's "
+            "granular capabilities. E.g. ['KC1.1', 'KC4.1', 'KC6.1.1']."
+        ),
+    )
 
     # --- Stage 2 (optional) ---
 
@@ -295,6 +337,19 @@ class CapabilityProfile(BaseModel):
     )
 
     # --- Validation ---
+
+    @field_validator("kc_subcodes")
+    @classmethod
+    def validate_kc_subcodes(cls, v: list[str]) -> list[str]:
+        if not v:
+            return v
+        invalid = [code for code in v if code not in VALID_KC_SUBCODES]
+        if invalid:
+            raise ValueError(
+                f"Invalid KC sub-code(s): {invalid}. "
+                f"Valid codes: {sorted(VALID_KC_SUBCODES)}"
+            )
+        return sorted(set(v))
 
     @model_validator(mode="after")
     def validate_zones_and_flags(self) -> CapabilityProfile:

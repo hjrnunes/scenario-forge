@@ -132,6 +132,28 @@ stage_1:
         low:    Use case text is vague or minimal; inferences are
                 largely based on common patterns for the domain
 
+  kc_subcodes:
+    type: list[string]
+    required: false
+    default: []
+    valid_pattern: "^KC[1-6]\\.[0-9]+(\\.[0-9]+)?$"
+    description: >
+      OWASP KC (Key Component) sub-codes from the Securing Agentic
+      Applications Guide v1.0. Provide granular capability identification
+      beyond the five Schneider zones. Each sub-code maps to specific
+      threats via data/taxonomies/mappings/kc-threat-mapping.yaml.
+
+      KC1.* = Language Models (always present for any LLM system)
+      KC2.* = Orchestration (workflows, hierarchical, multi-agent)
+      KC3.* = Reasoning/Planning (ReWoo, ReAct, CoT, ToT)
+      KC4.* = Memory (2x3 matrix: in-agent/cross-agent x session/cross-session/cross-user)
+      KC5.* = Tool Integration Framework (libraries, platforms, APIs)
+      KC6.* = Operational Environment (API, code exec, DB, web, filesystem, critical, IoT)
+    threat_gating: >
+      Phase 2 will use KC sub-codes for fine-grained threat gating,
+      replacing the current coarse zone-based gating. Until then,
+      existing zone-based gating controls threat scope.
+
 # ═══════════════════════════════════════════════════════════════════
 # Stage 2 Fields (optional)
 #

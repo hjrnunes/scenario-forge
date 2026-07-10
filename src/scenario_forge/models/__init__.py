@@ -23,6 +23,7 @@ from scenario_forge.models.capability_profile import (
     MemoryType,
     ToolType,
     TrustBoundary,
+    VALID_KC_SUBCODES,
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "MemoryType",
     "ToolType",
     "TrustBoundary",
+    "VALID_KC_SUBCODES",
     "ZONE_DISPLAY_NAMES",
     "ZONE_NAMES",
     # risk_card

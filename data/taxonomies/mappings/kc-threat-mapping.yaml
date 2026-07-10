@@ -1,0 +1,209 @@
+# KC Sub-Code → Threat Mapping
+#
+# Maps OWASP KC (Key Component) sub-codes from the Securing Agentic
+# Applications Guide v1.0 to OWASP Agentic Threats (T1-T17).
+#
+# Used by threat gating to determine which threats apply to a system
+# based on its granular capabilities.
+
+metadata:
+  version: "1.0.0"
+  source: "OWASP Securing Agentic Applications Guide v1.0"
+  threats_version: "OWASP Top 10 for Agentic AI v1.1"
+
+# Detailed sub-code definitions with threat mappings
+kc_subcodes:
+  # KC1 — Language Models (baseline, always present)
+  - kc_subcode: "KC1.1"
+    description: "Large Language Model (LLM)"
+    category: "Language Models"
+    threat_ids: [T5, T6, T7, T15]
+  - kc_subcode: "KC1.2"
+    description: "Multimodal LLM (MLLM)"
+    category: "Language Models"
+    threat_ids: [T5, T6, T7, T15]
+  - kc_subcode: "KC1.3"
+    description: "Small Language Model (SLM)"
+    category: "Language Models"
+    threat_ids: [T5, T6, T7, T15]
+  - kc_subcode: "KC1.4"
+    description: "Domain-specific / fine-tuned model"
+    category: "Language Models"
+    threat_ids: [T5, T6, T7, T15]
+
+  # KC2 — Orchestration
+  - kc_subcode: "KC2.1"
+    description: "Predefined workflows"
+    category: "Orchestration"
+    threat_ids: [T6, T8]
+  - kc_subcode: "KC2.2"
+    description: "Hierarchical planning / orchestrator-router"
+    category: "Orchestration"
+    threat_ids: [T6, T8, T9, T10]
+  - kc_subcode: "KC2.3"
+    description: "Multi-agent collaboration"
+    category: "Orchestration"
+    threat_ids: [T6, T8, T9, T10, T12, T13, T14, T16]
+
+  # KC3 — Reasoning / Planning
+  - kc_subcode: "KC3.1"
+    description: "Structured planning (ReWoo, Plan-and-Execute)"
+    category: "Reasoning"
+    threat_ids: [T5, T6, T7, T8, T15]
+  - kc_subcode: "KC3.2"
+    description: "ReAct (Reason + Act)"
+    category: "Reasoning"
+    threat_ids: [T5, T6, T7, T8, T15]
+  - kc_subcode: "KC3.3"
+    description: "Chain of Thought (CoT)"
+    category: "Reasoning"
+    threat_ids: [T5, T6, T7, T15]
+  - kc_subcode: "KC3.4"
+    description: "Tree of Thoughts (ToT)"
+    category: "Reasoning"
+    threat_ids: [T5, T6, T7, T8, T15]
+
+  # KC4 — Memory (2x3 sharing scope matrix)
+  - kc_subcode: "KC4.1"
+    description: "In-agent, session-only memory"
+    category: "Memory"
+    threat_ids: [T5, T6]
+  - kc_subcode: "KC4.2"
+    description: "Cross-agent, session-only memory"
+    category: "Memory"
+    threat_ids: [T5, T6, T12]
+  - kc_subcode: "KC4.3"
+    description: "In-agent, cross-session memory"
+    category: "Memory"
+    threat_ids: [T1, T5, T6, T8]
+  - kc_subcode: "KC4.4"
+    description: "Cross-agent, cross-session memory"
+    category: "Memory"
+    threat_ids: [T1, T3, T5, T6, T8, T12]
+  - kc_subcode: "KC4.5"
+    description: "In-agent, cross-user memory"
+    category: "Memory"
+    threat_ids: [T1, T3, T5, T6, T8]
+  - kc_subcode: "KC4.6"
+    description: "Cross-agent, cross-user memory"
+    category: "Memory"
+    threat_ids: [T1, T3, T5, T6, T8, T12]
+
+  # KC5 — Tool Integration Framework
+  - kc_subcode: "KC5.1"
+    description: "Flexible libraries / SDK (LangChain, CrewAI, MCP)"
+    category: "Tool Integration"
+    threat_ids: [T2, T6, T7, T8, T17]
+  - kc_subcode: "KC5.2"
+    description: "Managed platform (AWS Bedrock, Azure AI)"
+    category: "Tool Integration"
+    threat_ids: [T2, T6, T7, T8]
+  - kc_subcode: "KC5.3"
+    description: "Managed API (OpenAI Assistants, Anthropic tool use)"
+    category: "Tool Integration"
+    threat_ids: [T2, T6, T7, T8]
+
+  # KC6 — Operational Environment
+  - kc_subcode: "KC6.1.1"
+    description: "Limited API access — LLM fills params for predefined calls"
+    category: "Operational Environment"
+    threat_ids: [T2]
+  - kc_subcode: "KC6.1.2"
+    description: "Extensive API access — LLM generates arbitrary API calls"
+    category: "Operational Environment"
+    threat_ids: [T2, T3, T4, T9]
+  - kc_subcode: "KC6.2.1"
+    description: "Limited code execution — sandboxed, parameterized"
+    category: "Operational Environment"
+    threat_ids: [T2]
+  - kc_subcode: "KC6.2.2"
+    description: "Extensive code execution — LLM-generated code runs"
+    category: "Operational Environment"
+    threat_ids: [T2, T3, T4, T6, T11]
+  - kc_subcode: "KC6.3.1"
+    description: "Database read-only / parameterized queries"
+    category: "Operational Environment"
+    threat_ids: [T2]
+  - kc_subcode: "KC6.3.2"
+    description: "Database full CRUD"
+    category: "Operational Environment"
+    threat_ids: [T1, T2, T3]
+  - kc_subcode: "KC6.3.3"
+    description: "RAG context data sources"
+    category: "Operational Environment"
+    threat_ids: [T1, T5]
+  - kc_subcode: "KC6.4"
+    description: "Web / browser access"
+    category: "Operational Environment"
+    threat_ids: [T2, T3, T6, T7, T11, T17]
+  - kc_subcode: "KC6.5"
+    description: "PC / filesystem operations"
+    category: "Operational Environment"
+    threat_ids: [T2, T3, T11]
+  - kc_subcode: "KC6.6"
+    description: "Critical systems (SCADA, ICS)"
+    category: "Operational Environment"
+    threat_ids: [T2, T3, T4, T6, T7]
+  - kc_subcode: "KC6.7"
+    description: "IoT device control"
+    category: "Operational Environment"
+    threat_ids: [T2, T3, T4]
+
+# Compact forward index: KC sub-code → threat IDs
+kc_to_threats:
+  KC1.1: [T5, T6, T7, T15]
+  KC1.2: [T5, T6, T7, T15]
+  KC1.3: [T5, T6, T7, T15]
+  KC1.4: [T5, T6, T7, T15]
+  KC2.1: [T6, T8]
+  KC2.2: [T6, T8, T9, T10]
+  KC2.3: [T6, T8, T9, T10, T12, T13, T14, T16]
+  KC3.1: [T5, T6, T7, T8, T15]
+  KC3.2: [T5, T6, T7, T8, T15]
+  KC3.3: [T5, T6, T7, T15]
+  KC3.4: [T5, T6, T7, T8, T15]
+  KC4.1: [T5, T6]
+  KC4.2: [T5, T6, T12]
+  KC4.3: [T1, T5, T6, T8]
+  KC4.4: [T1, T3, T5, T6, T8, T12]
+  KC4.5: [T1, T3, T5, T6, T8]
+  KC4.6: [T1, T3, T5, T6, T8, T12]
+  KC5.1: [T2, T6, T7, T8, T17]
+  KC5.2: [T2, T6, T7, T8]
+  KC5.3: [T2, T6, T7, T8]
+  KC6.1.1: [T2]
+  KC6.1.2: [T2, T3, T4, T9]
+  KC6.2.1: [T2]
+  KC6.2.2: [T2, T3, T4, T6, T11]
+  KC6.3.1: [T2]
+  KC6.3.2: [T1, T2, T3]
+  KC6.3.3: [T1, T5]
+  KC6.4: [T2, T3, T6, T7, T11, T17]
+  KC6.5: [T2, T3, T11]
+  KC6.6: [T2, T3, T4, T6, T7]
+  KC6.7: [T2, T3, T4]
+
+# Reverse index: threat ID → KC sub-codes that enable it
+threat_to_kc_subcodes:
+  T1: [KC4.3, KC4.4, KC4.5, KC4.6, KC6.3.2, KC6.3.3]
+  T2: [KC5.1, KC5.2, KC5.3, KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+  T3: [KC4.4, KC4.5, KC4.6, KC6.1.2, KC6.2.2, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+  T4: [KC6.1.2, KC6.2.2, KC6.6, KC6.7]
+  T5: [KC1.1, KC1.2, KC1.3, KC1.4, KC3.1, KC3.2, KC3.3, KC3.4, KC4.1, KC4.2, KC4.3, KC4.4, KC4.5, KC4.6, KC6.3.3]
+  T6: [KC1.1, KC1.2, KC1.3, KC1.4, KC2.1, KC2.2, KC2.3, KC3.1, KC3.2, KC3.3, KC3.4, KC4.1, KC4.2, KC4.3, KC4.4, KC4.5, KC4.6, KC5.1, KC5.2, KC5.3, KC6.2.2, KC6.4, KC6.6]
+  T7: [KC1.1, KC1.2, KC1.3, KC1.4, KC3.1, KC3.2, KC3.3, KC3.4, KC5.1, KC5.2, KC5.3, KC6.4, KC6.6]
+  T8: [KC2.1, KC2.2, KC2.3, KC3.1, KC3.2, KC3.4, KC4.3, KC4.4, KC4.5, KC4.6, KC5.1, KC5.2, KC5.3]
+  T9: [KC2.2, KC2.3, KC6.1.2]
+  T10: [KC2.2, KC2.3]
+  T11: [KC6.2.2, KC6.4, KC6.5]
+  T12: [KC2.3, KC4.2, KC4.4, KC4.6]
+  T13: [KC2.3]
+  T14: [KC2.3]
+  T15: [KC1.1, KC1.2, KC1.3, KC1.4, KC3.1, KC3.2, KC3.3, KC3.4]
+  T16: [KC2.3]
+  T17: [KC5.1, KC6.4]
+
+# Cross-cutting: HITL is a design pattern, not a KC sub-code
+hitl:
+  description: "Human-in-the-loop present in workflow"
+  threat_ids: [T10]
