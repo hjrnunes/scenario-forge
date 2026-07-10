@@ -263,8 +263,9 @@ patterns:
       attacker_knowledge: "black_box"
       learning_stage: "deployment"
     prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "tool_execution"]
+      min_zones: ["input", "reasoning", "tool_execution", "inter_agent"]
       requires_tool_execution: true
+      requires_multi_agent: true
 
   # ═══════════════════════════════════════════════════════════════════
   # T4 — Resource Overload (4 patterns)

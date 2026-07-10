@@ -149,9 +149,51 @@ def expand_candidates(
         logger.warning("Profile has no entry points — returning empty candidate list")
         return []
 
+    # Pre-filter: reject seeds whose required_capabilities are not met
+    eligible_seeds: list[ScenarioSeed] = []
+    for seed in seeds:
+        if seed.required_capabilities:
+            skip = False
+            for cap in seed.required_capabilities:
+                if cap == "multi_agent" and not profile.multi_agent:
+                    logger.warning(
+                        "Skipping seed %s: requires %s but profile does not support it",
+                        seed.seed_id,
+                        cap,
+                    )
+                    skip = True
+                    break
+                if cap == "persistent_memory" and not profile.has_persistent_memory:
+                    logger.warning(
+                        "Skipping seed %s: requires %s but profile does not support it",
+                        seed.seed_id,
+                        cap,
+                    )
+                    skip = True
+                    break
+                if cap == "tool_execution" and "tool_execution" not in profile.zones_active:
+                    logger.warning(
+                        "Skipping seed %s: requires %s but profile does not support it",
+                        seed.seed_id,
+                        cap,
+                    )
+                    skip = True
+                    break
+            if skip:
+                continue
+        eligible_seeds.append(seed)
+
+    if len(eligible_seeds) < len(seeds):
+        logger.info(
+            "Seed capability filter: %d/%d seeds eligible (rejected %d)",
+            len(eligible_seeds),
+            len(seeds),
+            len(seeds) - len(eligible_seeds),
+        )
+
     candidates: list[CandidateTriple] = []
 
-    for seed in seeds:
+    for seed in eligible_seeds:
         if not seed.atlas_technique_ids:
             logger.warning(
                 "Seed %s has no ATLAS technique IDs — skipping", seed.seed_id
@@ -183,13 +225,13 @@ def expand_candidates(
                     )
 
     # Log expansion summary
-    if seeds:
-        tech_counts = [len(s.atlas_technique_ids) for s in seeds if s.atlas_technique_ids]
+    if eligible_seeds:
+        tech_counts = [len(s.atlas_technique_ids) for s in eligible_seeds if s.atlas_technique_ids]
         avg_techniques = sum(tech_counts) / len(tech_counts) if tech_counts else 0.0
         logger.info(
             "%d seeds x %d entry points x avg %.1f techniques "
             "(max_techniques=%d) = %d candidates",
-            len(seeds),
+            len(eligible_seeds),
             len(profile.entry_points),
             avg_techniques,
             max_techniques,

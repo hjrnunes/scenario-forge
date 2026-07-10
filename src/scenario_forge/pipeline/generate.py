@@ -1913,6 +1913,22 @@ def _call_actor_profile(
     actor_type = _normalize_actor_type(resp.actor_type)
     capability_level = _normalize_capability_level(resp.capability_level)
     capability_level = _enforce_capability_floor(actor_type, capability_level)
+    # Enforce seed-level min_complexity constraint
+    if seed.min_complexity and seed.min_complexity in _CAPABILITY_ORDER:
+        seed_floor_idx = _CAPABILITY_ORDER.index(seed.min_complexity)
+        current_idx = (
+            _CAPABILITY_ORDER.index(capability_level)
+            if capability_level in _CAPABILITY_ORDER
+            else 1
+        )
+        if current_idx < seed_floor_idx:
+            logger.warning(
+                "Seed min_complexity floor: %s requires '%s', actor had '%s' — bumped",
+                seed.seed_id,
+                seed.min_complexity,
+                capability_level,
+            )
+            capability_level = seed.min_complexity
     actor_profile = ActorProfile(
         actor_type=actor_type,
         capability_level=capability_level,
