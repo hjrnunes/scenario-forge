@@ -1765,6 +1765,56 @@ def _enforce_capability_floor(actor_type: str, capability_level: str) -> str:
     return capability_level
 
 
+# Keywords in intentions that indicate adversarial (non-negligent) behaviour.
+_ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
+    "exploit",
+    "extract",
+    "bypass",
+    "fraud",
+    "inject",
+    "jailbreak",
+    "manipulate",
+    "exfiltrate",
+    "compromise",
+    "steal",
+    "hijack",
+}
+
+
+def _validate_actor_type(actor_profile: ActorProfile) -> ActorProfile:
+    """Validate that a negligent-insider's BDI profile is non-adversarial.
+
+    If the actor_type is ``negligent-insider`` but the intentions list contains
+    adversarial keywords (e.g. "exploit", "jailbreak"), the actor is
+    reassigned to ``adversarial-user`` and a warning is logged.  This is a
+    defence-in-depth check behind the prompt reinforcement in
+    ``call0_system.j2``.
+
+    Returns the (possibly corrected) actor profile.
+    """
+    if actor_profile.actor_type != "negligent-insider":
+        return actor_profile
+
+    matched: list[str] = []
+    for intention in actor_profile.intentions:
+        intention_lower = intention.lower()
+        for keyword in _ADVERSARIAL_INTENTION_KEYWORDS:
+            if keyword in intention_lower:
+                matched.append(keyword)
+
+    if matched:
+        unique_matches = sorted(set(matched))
+        logger.warning(
+            "BDI validation: negligent-insider intentions contain adversarial "
+            "keywords %s — reassigning to adversarial-user",
+            unique_matches,
+        )
+        actor_profile = actor_profile.model_copy(
+            update={"actor_type": "adversarial-user"},
+        )
+    return actor_profile
+
+
 def _call_actor_profile(
     seed: ScenarioSeed,
     profile: CapabilityProfile,
@@ -2395,6 +2445,7 @@ def generate_scenario(
         attack_goal=attack_goal,
         pinned_technique_ids=pinned_technique_ids,
     )
+    actor_profile = _validate_actor_type(actor_profile)
 
     # Store the selected goal category on the actor profile (Step 5).
     if attack_goal is not None:

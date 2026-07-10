@@ -39,6 +39,13 @@ The actor_type field must be EXACTLY one of the values listed below (e.g. "cyber
 - adversarial-user vs cybercriminal: adversarial-user has no special access or resources — they use the system as any end-user would, but with hostile intent (jailbreaking, prompt injection). cybercriminal operates from outside with dedicated tools and infrastructure.
 - nation-state vs advanced cybercriminal: nation-state actors have strategic (not financial) objectives: intelligence collection, disruption of critical infrastructure, geopolitical advantage. A financially motivated actor with advanced capabilities is still a cybercriminal.
 
+### negligent-insider: Critical Guardrails
+A negligent-insider is an employee or authorized user who ACCIDENTALLY causes harm through carelessness, lack of training, or poor security hygiene. They have NO malicious intent whatsoever.
+- CORRECT examples: accidentally pasting API keys into a public chat, misconfiguring access controls out of ignorance, failing to apply security patches, clicking a phishing link, sharing sensitive data without realizing its classification.
+- WRONG — do NOT use negligent-insider for any of these: prompt injection, jailbreaking, deliberate data exfiltration, financial fraud, social engineering attacks, bypassing security controls on purpose, manipulating system outputs for personal gain, or any scenario where the actor INTENDS to cause harm or exploit the system.
+- If the attack pattern involves deliberate exploitation, prompt injection, jailbreaking, or fraud, the actor MUST NOT be negligent-insider. Use adversarial-user or malicious-insider instead.
+- Self-check: if ANY intention uses words like "exploit", "extract", "bypass", "inject", "jailbreak", "manipulate", "exfiltrate", "compromise", "steal", or "hijack", the actor is NOT a negligent-insider.
+
 ## Capability Levels
 Set the capability level based on the MINIMUM skill required for this specific attack:
 - novice: The attack uses pre-built tools or known prompts with no adaptation. Simple jailbreaks, copy-pasted prompt injections, basic social engineering. If a non-technical person could follow a tutorial to do this, it's novice.
