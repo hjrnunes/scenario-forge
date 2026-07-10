@@ -47,6 +47,62 @@ class ScenarioSeed(BaseModel):
     owasp_origin: str | None = None
     laaf_technique_ids: list[str] = Field(default_factory=list)
     atlas_provenance_ids: list[str] = Field(default_factory=list)
+    # Seed-level constraints (populated from attack-pattern YAML)
+    min_complexity: str | None = Field(
+        default=None,
+        description=(
+            "Minimum actor capability level for this seed. "
+            "One of 'novice', 'intermediate', 'advanced', 'expert'. "
+            "When set, actors below this level are bumped up."
+        ),
+    )
+    required_capabilities: list[str] | None = Field(
+        default=None,
+        description=(
+            "Capability requirements for this seed, e.g. 'multi_agent', "
+            "'persistent_memory', 'tool_execution'. When set, seeds are "
+            "rejected during candidate filtering if the profile does not "
+            "meet the requirements."
+        ),
+    )
+
+
+def _extract_seed_constraints(
+    pattern: dict,
+) -> tuple[str | None, list[str] | None]:
+    """Extract min_complexity and required_capabilities from a pattern dict.
+
+    Reads ``prerequisite_capabilities`` from the attack-pattern YAML and maps
+    boolean flags to a list of capability requirement strings.  Also reads
+    the top-level ``min_complexity`` field if present.
+
+    Returns:
+        (min_complexity, required_capabilities) — either may be None.
+    """
+    min_complexity: str | None = pattern.get("min_complexity")
+    prereqs = pattern.get("prerequisite_capabilities") or {}
+
+    caps: list[str] = []
+    if prereqs.get("requires_multi_agent"):
+        caps.append("multi_agent")
+    if prereqs.get("requires_persistent_memory"):
+        caps.append("persistent_memory")
+    if prereqs.get("requires_shared_writable_memory"):
+        # Shared writable memory implies multi-agent coordination
+        caps.append("multi_agent")
+        caps.append("persistent_memory")
+    if prereqs.get("requires_tool_execution"):
+        caps.append("tool_execution")
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for c in caps:
+        if c not in seen:
+            seen.add(c)
+            deduped.append(c)
+
+    return min_complexity, deduped if deduped else None
 
 
 def expand_seeds(
@@ -105,6 +161,11 @@ def expand_seeds(
             prov_owasp_ids = pattern_prov.get("owasp-agentic", [])
             prov_laaf_ids = pattern_prov.get("laaf", [])
             prov_atlas_ids = pattern_prov.get("mitre-atlas", [])
+
+            # Extract seed-level constraints from YAML
+            seed_min_complexity, seed_required_caps = _extract_seed_constraints(
+                pattern
+            )
 
             if ap_id in seen:
                 # Merge: union taxonomy IDs, collect contributing risk cards
@@ -170,6 +231,8 @@ def expand_seeds(
                     owasp_origin=prov_owasp_ids[0] if prov_owasp_ids else None,
                     laaf_technique_ids=prov_laaf_ids,
                     atlas_provenance_ids=filtered_atlas_prov,
+                    min_complexity=seed_min_complexity,
+                    required_capabilities=seed_required_caps,
                 )
 
     return list(seen.values())
