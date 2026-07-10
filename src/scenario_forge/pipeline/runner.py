@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import logging
 import math
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -393,6 +394,26 @@ def run_pipeline(
             updates["has_persistent_memory"] = False
         if "inter_agent" not in filtered:
             updates["multi_agent"] = False
+        # Strip zone tags from entry points whose zone is excluded.
+        _zone_alts = "|".join(re.escape(z) for z in ZONE_NAMES)
+        _zone_tag_re = re.compile(
+            r"\s*\((" + _zone_alts + r")\)\s*$",
+        )
+        cleaned_entry_points: list[str] = []
+        for ep in profile.entry_points:
+            m = _zone_tag_re.search(ep)
+            if m and m.group(1) not in filtered:
+                cleaned = ep[: m.start()].rstrip()
+                logger.warning(
+                    "Stripped zone tag from entry point: '%s' -> '%s'",
+                    ep,
+                    cleaned,
+                )
+                cleaned_entry_points.append(cleaned)
+            else:
+                cleaned_entry_points.append(ep)
+        if cleaned_entry_points != list(profile.entry_points):
+            updates["entry_points"] = cleaned_entry_points
         profile = profile.model_copy(update=updates)
         logger.info("  Zone filter applied: %s", filtered)
 
