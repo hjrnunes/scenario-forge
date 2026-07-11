@@ -33,6 +33,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T8-02:
     id: "AP-T8-02"
@@ -51,6 +53,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T8-03:
     id: "AP-T8-03"
@@ -69,6 +73,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   # ═══════════════════════════════════════════════════════════════════
   # T9 — Identity Spoofing & Impersonation (6 patterns)
@@ -91,6 +97,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC2.2, KC2.3, KC6.1.2]
 
   AP-T9-02:
     id: "AP-T9-02"
@@ -111,6 +119,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T9-03:
     id: "AP-T9-03"
@@ -129,6 +139,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC2.2, KC2.3, KC6.1.2]
 
   AP-T9-04:
     id: "AP-T9-04"
@@ -148,6 +160,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T9-05:
     id: "AP-T9-05"
@@ -165,6 +179,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC2.2, KC2.3, KC6.1.2]
 
   AP-T9-06:
     id: "AP-T9-06"
@@ -184,6 +200,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   # ═══════════════════════════════════════════════════════════════════
   # T10 — Overwhelming Human in the Loop (3 patterns)
@@ -272,6 +290,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T14-02:
     id: "AP-T14-02"
@@ -292,6 +312,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T14-03:
     id: "AP-T14-03"
@@ -311,6 +333,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T14-04:
     id: "AP-T14-04"
@@ -331,6 +355,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   # ═══════════════════════════════════════════════════════════════════
   # T16 — Insecure Inter-Agent Protocol Abuse (3 patterns)
@@ -354,6 +380,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T16-02:
     id: "AP-T16-02"
@@ -374,6 +402,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T16-03:
     id: "AP-T16-03"
@@ -395,3 +425,5 @@ patterns:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
       requires_tool_execution: true
+      kc_requires:
+        any: [KC2.3]

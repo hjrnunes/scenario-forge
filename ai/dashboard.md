@@ -1,58 +1,47 @@
 # Mayor Dashboard
 
-**Updated**: 2026-07-07T14:30
+**Updated**: 2026-07-11T01:15
 **Resume**: `You are the mayor for this repository.`
 
 ## Needs operator now
 
-- **Unpushed commits**: 3 local-only commits (checkpoint + dashboard + CSS fix) — push when ready.
-- **Unstaged fixes** in `template.py`: tooltip overflow (JS overlay), ACT/GOV labels, multi-line tooltips, provenance full-width, arrow centering.
-- **Operator decision**: File beads for (A) affinity explanation in provenance tab, (B) pipeline methodology section? Both surfaced from session Q&A.
+**KC taxonomy Phase 2 — complete, uncommitted.** All code + tests done, 493/493 tests pass. Needs commit + PR.
+
+Changes:
+- `threat_gating.py`: hardcoded 6-gate system replaced with KC→T lookup (`_compute_kc_enabled_threats`)
+- `threats.py`: removed `_matches_profile_directly`, simplified `_resolve_direct_threats` to 2-arg, ATLAS gating uses KC6 sub-codes
+- `cross-taxonomy-mappings.yaml`: `profile_match` removed from all 7 t_direct entries
+- 5 AP YAML files: all 58 attack patterns annotated with `kc_requires`
+- Tests rewritten for KC-based gating (55 tests across 2 files)
+
+Still uncommitted from before Phase 2: `template.py` (operator edits), `ai/extended-context/quality-assessment-checklist.md`.
+
+**Next phase** (not started):
+- Phase 3: migrate prompts/templates/output from zones to KC sub-codes
+
+**Housekeeping**: 130 `__pycache__` dirs — consider cleanup.
 
 ## In-flight work
 
 None.
 
-### Open beads (0 open / 197 closed)
+### Open beads: 0 / 208 closed
 
-All clear.
+### Open PRs: 0
 
-### Open PRs
+## Recent merges
 
-None.
-
-### Session merges (25 PRs)
-
-- `78fcfb1` PR #104 — Remove redundant Chain column
-- `b33cc3b` PR #103 — Matrix: rotated headers, count cells, sticky columns
-- `f1dd2e0` PR #102 — Fixed column widths for risk and roster tables
-- `a97e108` PR #101 — Counter badges + zone abbreviations
-- `afd54b4` PR #100 — Roster: show pinned technique + parent threat
-- `6ef1cb3` PR #99 — Highlight anomalous LLM calls
-- `9e0dbcc` PR #98 — Annotate threat surface with generation outcomes
-- `84414d8` PR #97 — Priority signal decomposition chart
-- `d26ab6f` PR #96 — Inline quality badges on scenario tab headers
-- `94f466e` PR #95 — Connect coverage gaps to pipeline funnel stages
-- `2bbbeb5` PR #94 — Scorecard outliers panel
-- `17a0293` PR #93 — Label filter counter, show "(all)" when unfiltered
-- `b42a244` PR #92 — Distinguish pipeline vs in-report scenario count
-- `40abff4` PR #91 — Priority breakdown in Run Summary hero card
-- `ab78999` PR #90 — Run Summary section with pipeline funnel
-- `133e120` PR #89 — Rejection rationales in provenance tab
-- `1295de8` PR #88 — Wire candidate filter into runner
-- `a1dc314` PR #87 — LLM batch filter accept/reject with rationale
-- `055c2cd` PR #85 — Candidate expansion + filter tests
-- `ddfc31c` PR #86 — Candidate expansion cross-product
-- `8740eb1` PR #84 — Candidate triple and filter verdict data models
-- `ae43a1d` PR #83 — Provenance steps 4-6 as parallel inputs layout
-- `23255ce` PR #82 — Show attack pattern selection in provenance tab
-- `daff510` PR #81 — Provenance chain tab with input derivation flowchart
-- `fbba989` PR #80 — Dashboard stats, coverage heatmap, chip filters, card collapse
+- `57434e3` **PR #115** feat(models): add OWASP KC sub-code taxonomy (Phase 1)
+- `e3f1a5b` **PR #114** feat(pipeline): seed-level min_complexity and required_capabilities
+- `b8aa8d7` **PR #113** fix(pipeline): negligent-insider prompt reinforcement + BDI validation
+- `2373dc6` **PR #112** fix(pipeline): technique semantic constraints in Call 2 prompt
+- `a19fb7c` **PR #111** feat(report): warn if eval scorecard missing or stale
 
 ## Posture
 
-- **Stance**: Pre-alpha, correctness-first.
-- **Latest pushed**: `78fcfb1` (PR #104 merge)
-- **Local-only commits**: 3 (checkpoint + dashboard + CSS fix)
-- **Worktrees**: 0 (clean)
-- **Tracker**: 0 open, 197 closed.
+- **Stance**: Pre-alpha, correctness-first. Merge-on-green.
+- **Latest pushed**: `57434e3`
+- **Local-only commits**: 0 (Phase 2 changes uncommitted)
+- **Worktrees**: 0
+- **Tracker**: 0 open, 208 closed
+- **Uncommitted files**: `threat_gating.py`, `threats.py`, `cross-taxonomy-mappings.yaml`, 5 AP YAMLs, 2 test files, `template.py`, `ai/dashboard.md`, `ai/extended-context/quality-assessment-checklist.md`
