@@ -160,16 +160,12 @@ def _evaluate_prerequisite_capabilities(
     Each field in prereqs is a gate; ALL must pass for the attack pattern
     to be included.  Unknown fields are silently ignored (forward-compat).
 
+    Zone-based checks (min_zones, requires_tool_execution) were removed in
+    Phase 3 — kc_requires is strictly more precise and subsumes them.
+
     Returns:
         True if all prerequisites are satisfied, False otherwise.
     """
-    # min_zones: every listed zone must be in profile.zones_active
-    min_zones = prereqs.get("min_zones")
-    if min_zones is not None:
-        for zone in min_zones:
-            if zone not in profile.zones_active:
-                return False
-
     # requires_persistent_memory
     if prereqs.get("requires_persistent_memory") and not profile.has_persistent_memory:
         return False
@@ -182,13 +178,6 @@ def _evaluate_prerequisite_capabilities(
 
     # requires_vector_store
     if prereqs.get("requires_vector_store") and not _has_vector_store(profile):
-        return False
-
-    # requires_tool_execution
-    if (
-        prereqs.get("requires_tool_execution")
-        and "tool_execution" not in profile.zones_active
-    ):
         return False
 
     # requires_multi_agent

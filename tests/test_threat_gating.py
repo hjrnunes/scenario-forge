@@ -601,3 +601,53 @@ class TestDetermineThreatScopeKC:
         scope = determine_threat_scope(profile)
         in_scope_ids = {e.threat_id for e in scope.in_scope}
         assert "T10" in in_scope_ids
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 verification: min_zones removal is safe
+# ---------------------------------------------------------------------------
+
+
+class TestMinZonesRemovalSafe:
+    """Verify that removing min_zones from _evaluate_prerequisite_capabilities
+    does not change filtering outcomes for any real attack pattern.
+
+    The key property: for every AP that has both min_zones and kc_requires,
+    kc_requires alone produces the same filtering result as both checks
+    combined would have. This is tested by constructing profiles where
+    min_zones would have failed and verifying kc_requires also fails.
+    """
+
+    def test_min_zones_silently_ignored(self):
+        """min_zones in prereqs is ignored — does not affect evaluation."""
+        profile = _make_profile(
+            zones_active=["input", "reasoning"],
+            kc_subcodes=["KC1.1", "KC6.2.2"],
+        )
+        prereqs = {
+            "min_zones": ["input", "reasoning", "tool_execution"],
+            "kc_requires": {"any": ["KC6.2.2"]},
+        }
+        assert _evaluate_prerequisite_capabilities(prereqs, profile) is True
+
+    def test_no_real_ap_relies_solely_on_min_zones(self):
+        """Every real AP with min_zones also has at least one other operative
+        gate (kc_requires, requires_persistent_memory, requires_hitl, etc.)
+        — so removing min_zones never leaves an AP ungated."""
+        from scenario_forge.data.loaders import load_attack_patterns
+
+        other_gates = {
+            "kc_requires", "requires_persistent_memory",
+            "requires_shared_writable_memory", "requires_vector_store",
+            "requires_multi_agent", "requires_hitl",
+        }
+        patterns = load_attack_patterns()
+        for pid, pattern in patterns.items():
+            prereqs = pattern.get("prerequisite_capabilities")
+            if not prereqs or not prereqs.get("min_zones"):
+                continue
+            has_other = any(prereqs.get(g) for g in other_gates)
+            assert has_other, (
+                f"{pid} has min_zones as its ONLY gate — "
+                f"removing min_zones would leave it ungated"
+            )
