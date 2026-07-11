@@ -27,6 +27,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T7-02:
     id: "AP-T7-02"
@@ -44,6 +46,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T7-03:
     id: "AP-T7-03"
@@ -61,6 +65,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T7-04:
     id: "AP-T7-04"
@@ -78,6 +84,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T7-05:
     id: "AP-T7-05"
@@ -95,3 +103,5 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]

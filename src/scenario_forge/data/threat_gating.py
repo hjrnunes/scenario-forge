@@ -1,20 +1,16 @@
 """Threat gating logic for scenario-forge.
 
 Determines which OWASP Agentic Threats are in scope for a given
-capability profile, based on the threat_scope_mapping rules defined
-in data/schemas/capability-profile.yaml.
+capability profile, based on the profile's KC (Key Component) sub-codes
+mapped to threats via data/taxonomies/mappings/kc-threat-mapping.yaml.
 
-Gating categories:
-  - Always in scope: T6, T7, T8, T15
-  - Memory-gated (has_persistent_memory): T1, T5
-  - Tool-execution-gated (tool_execution zone active): T2, T3, T4, T11, T16, T17
-  - Auth-gated (tool_execution zone active): T9
-  - HITL-gated (hitl=true): T10
-  - Multi-agent-gated (multi_agent=true): T12, T13, T14
+A threat is in scope if the profile has at least one KC sub-code that
+maps to that threat.  HITL (T10) is cross-cutting — enabled when
+profile.hitl is True.
 
 Attack-pattern filtering evaluates ``prerequisite_capabilities`` defined
 in each AP-* attack pattern to apply additional checks within gated threats
-(e.g. shared writable memory, vector store, tool execution zone).  Each
+(e.g. kc_requires, shared writable memory, vector store).  Each
 attack pattern carries a ``threat_id`` field linking it to an OWASP threat,
 so patterns are grouped by threat and filtered per-threat against the
 capability profile.
@@ -30,6 +26,7 @@ from scenario_forge.data.loaders import (
     build_threat_to_patterns_index,
     load_agentic_threats,
     load_attack_patterns,
+    load_kc_threat_mapping,
 )
 from scenario_forge.models import CapabilityProfile, MemoryScope, MemoryType
 
@@ -79,15 +76,32 @@ class ThreatScope(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Gating categories
+# KC-based threat gating
 # ---------------------------------------------------------------------------
 
-_ALWAYS_IN_SCOPE = ["T6", "T7", "T8", "T15"]
-_MEMORY_GATED = ["T1", "T5"]
-_TOOL_EXECUTION_GATED = ["T2", "T3", "T4", "T11", "T16", "T17"]
-_AUTH_GATED = ["T9"]
-_HITL_GATED = ["T10"]
-_MULTI_AGENT_GATED = ["T12", "T13", "T14"]
+_ALL_THREAT_IDS = [f"T{i}" for i in range(1, 18)]
+
+
+def _compute_kc_enabled_threats(
+    profile: CapabilityProfile,
+    kc_mapping: dict,
+) -> dict[str, str]:
+    """Return {threat_id: gating_reason} for all threats enabled by the profile's KC sub-codes."""
+    kc_to_threats = kc_mapping["kc_to_threats"]
+    enabled: dict[str, set[str]] = {}
+
+    for kc in profile.kc_subcodes:
+        for tid in kc_to_threats.get(kc, []):
+            enabled.setdefault(tid, set()).add(kc)
+
+    if profile.hitl:
+        for tid in kc_mapping["hitl"]["threat_ids"]:
+            enabled.setdefault(tid, set()).add("hitl")
+
+    return {
+        tid: f"enabled by KC sub-codes: {sorted(kcs)}"
+        for tid, kcs in enabled.items()
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +199,17 @@ def _evaluate_prerequisite_capabilities(
     if prereqs.get("requires_hitl") and not profile.hitl:
         return False
 
+    # kc_requires: {any: [...], all: [...]}
+    kc_req = prereqs.get("kc_requires")
+    if kc_req is not None:
+        profile_kcs = set(profile.kc_subcodes)
+        any_kcs = kc_req.get("any")
+        if any_kcs and not profile_kcs.intersection(any_kcs):
+            return False
+        all_kcs = kc_req.get("all")
+        if all_kcs and not set(all_kcs).issubset(profile_kcs):
+            return False
+
     return True
 
 
@@ -241,9 +266,9 @@ def determine_threat_scope(
 ) -> ThreatScope:
     """Determine which threats are in scope for a given capability profile.
 
-    Loads the OWASP Agentic Threats YAML to get threat names, then loads
-    AP-* attack patterns (grouped by ``threat_id``) and filters each
-    group's patterns by ``prerequisite_capabilities`` against the profile.
+    Uses KC sub-codes from the profile mapped to threats via
+    kc-threat-mapping.yaml. A threat is in scope if any of the profile's
+    KC sub-codes maps to it. HITL (T10) is cross-cutting.
 
     Args:
         profile: The capability profile to evaluate.
@@ -256,6 +281,10 @@ def determine_threat_scope(
     path = Path(threats_path) if threats_path else _DEFAULT_THREATS_PATH
     threats = load_agentic_threats(path)
 
+    # Load KC→T mapping
+    kc_mapping = load_kc_threat_mapping()
+    enabled = _compute_kc_enabled_threats(profile, kc_mapping)
+
     # Load attack patterns and group by threat_id for data-driven gating
     patterns = load_attack_patterns()
     threat_to_patterns = build_threat_to_patterns_index(patterns)
@@ -266,20 +295,26 @@ def determine_threat_scope(
     )
 
     in_scope: list[ThreatScopeEntry] = []
-    out_of_scope_groups: dict[str, list[str]] = {}
+    out_of_scope_ids: list[str] = []
 
-    zone_3_active = "tool_execution" in profile.zones_active
+    for tid in _ALL_THREAT_IDS:
+        if tid not in threats:
+            continue
 
-    def _add_in_scope(threat_id: str, reason: str) -> None:
-        threat = threats[threat_id]
-        # Get AP-* pattern IDs for this threat, resolve to full dicts
-        pattern_ids = threat_to_patterns.get(threat_id, [])
+        threat = threats[tid]
+        reason = enabled.get(tid)
+
+        if reason is None:
+            out_of_scope_ids.append(tid)
+            continue
+
+        pattern_ids = threat_to_patterns.get(tid, [])
         all_patterns = [patterns[pid] for pid in pattern_ids if pid in patterns]
         filtered_ids = _filter_attack_patterns(all_patterns, profile)
         dropped = set(pattern_ids) - set(filtered_ids)
         logger.info(
             "Threat %s (%s) IN SCOPE: %s — %d/%d attack patterns kept%s",
-            threat_id,
+            tid,
             threat["name"],
             reason,
             len(filtered_ids),
@@ -288,81 +323,24 @@ def determine_threat_scope(
         )
         in_scope.append(
             ThreatScopeEntry(
-                threat_id=threat_id,
+                threat_id=tid,
                 threat_name=threat["name"],
                 attack_pattern_ids=filtered_ids,
                 gating_reason=reason,
             )
         )
 
-    def _add_out_of_scope(threat_ids: list[str], reason: str) -> None:
+    out_of_scope: list[OutOfScopeEntry] = []
+    if out_of_scope_ids:
         logger.warning(
-            "Threats %s OUT OF SCOPE: %s",
-            threat_ids,
-            reason,
+            "Threats %s OUT OF SCOPE: no KC sub-codes in profile map to these threats",
+            out_of_scope_ids,
         )
-        out_of_scope_groups[reason] = threat_ids
-
-    # --- Always in scope ---
-    for tid in _ALWAYS_IN_SCOPE:
-        _add_in_scope(
-            tid, "always in scope — any LLM/agent system with input and reasoning zones"
+        out_of_scope.append(
+            OutOfScopeEntry(
+                threat_ids=out_of_scope_ids,
+                reason="no KC sub-codes in profile map to these threats",
+            )
         )
-
-    # --- Memory-gated ---
-    if profile.has_persistent_memory:
-        for tid in _MEMORY_GATED:
-            _add_in_scope(tid, "has_persistent_memory is true")
-    else:
-        _add_out_of_scope(
-            _MEMORY_GATED,
-            "has_persistent_memory is false — no memory to poison or cascade hallucinations into",
-        )
-
-    # --- Tool-execution-gated ---
-    if zone_3_active:
-        for tid in _TOOL_EXECUTION_GATED:
-            _add_in_scope(tid, "tool_execution zone is active")
-    else:
-        _add_out_of_scope(
-            _TOOL_EXECUTION_GATED,
-            "tool_execution zone not active — no tool execution capability",
-        )
-
-    # --- Auth-gated (T9 — separated for future auth-awareness refinement) ---
-    if zone_3_active:
-        for tid in _AUTH_GATED:
-            _add_in_scope(tid, "tool_execution zone is active — auth-gated threat")
-    else:
-        _add_out_of_scope(
-            _AUTH_GATED,
-            "tool_execution zone not active — no tool execution for auth-related threats",
-        )
-
-    # --- HITL-gated ---
-    if profile.hitl:
-        for tid in _HITL_GATED:
-            _add_in_scope(tid, "hitl is true — human-in-the-loop checkpoints exist")
-    else:
-        _add_out_of_scope(
-            _HITL_GATED,
-            "hitl is false — no human-in-the-loop to overwhelm",
-        )
-
-    # --- Multi-agent-gated ---
-    if profile.multi_agent:
-        for tid in _MULTI_AGENT_GATED:
-            _add_in_scope(tid, "multi_agent is true — inter-agent communication exists")
-    else:
-        _add_out_of_scope(
-            _MULTI_AGENT_GATED,
-            "multi_agent is false — no inter-agent communication",
-        )
-
-    # Build out_of_scope list
-    out_of_scope = [
-        OutOfScopeEntry(threat_ids=ids, reason=reason)
-        for reason, ids in out_of_scope_groups.items()
-    ]
 
     return ThreatScope(in_scope=in_scope, out_of_scope=out_of_scope)

@@ -37,15 +37,21 @@ logger = logging.getLogger(__name__)
 # specific capabilities.  Techniques in this set are filtered from the seed
 # list when the required capability is absent.
 
-_ZONE3_GATED_TECHNIQUES: frozenset[str] = frozenset(
+_KC6_GATED_TECHNIQUES: frozenset[str] = frozenset(
     {
-        "AML.T0053",  # AI Agent Tool Invocation — requires tool execution
+        "AML.T0053",  # AI Agent Tool Invocation — requires operational environment
         "AML.T0070",  # RAG Poisoning — requires retrieval tools
         "AML.T0066",  # Retrieval Content Crafting — requires retrieval tools
         "AML.T0071",  # Embedding Manipulation — requires retrieval/embedding
         "AML.T0025",  # Resource Exhaustion via Embedding — requires retrieval/embedding
     }
 )
+
+_KC6_SUBCODES: frozenset[str] = frozenset({
+    "KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2",
+    "KC6.3.1", "KC6.3.2", "KC6.3.3",
+    "KC6.4", "KC6.5", "KC6.6", "KC6.7",
+})
 
 
 class ThreatSurfaceEntry(BaseModel):
@@ -102,71 +108,28 @@ def _build_direct_t_mappings(
     return list(cross_taxonomy.get("t_direct", []))
 
 
-def _matches_profile_directly(
-    mapping: dict[str, Any],
-    profile: CapabilityProfile,
-) -> bool:
-    """Check if a direct T-threat mapping matches the capability profile.
-
-    Evaluates the profile_match conditions:
-      - min_zones: all listed zones must be in profile.zones_active
-      - requires_hitl: profile.hitl must be true
-      - requires_multi_agent: profile.multi_agent must be true
-
-    Args:
-        mapping: A single t_direct entry from cross-taxonomy-mappings.yaml.
-        profile: The system capability profile.
-
-    Returns:
-        True if the profile satisfies all conditions in the mapping.
-    """
-    match_spec = mapping.get("profile_match", {})
-
-    # Check minimum zones requirement
-    min_zones = match_spec.get("min_zones", [])
-    if min_zones:
-        active_zones = set(profile.zones_active)
-        if not set(min_zones).issubset(active_zones):
-            return False
-
-    # Check HITL requirement
-    if match_spec.get("requires_hitl", False) and not profile.hitl:
-        return False
-
-    # Check multi-agent requirement
-    if match_spec.get("requires_multi_agent", False) and not profile.multi_agent:
-        return False
-
-    return True
-
-
 def _resolve_direct_threats(
     cross_taxonomy: dict[str, Any],
-    profile: CapabilityProfile,
     in_scope_ids: set[str],
 ) -> set[str]:
     """Resolve T-threats reachable via the direct path.
 
     Returns the set of T-threat IDs that:
       1. Have a t_direct mapping in cross-taxonomy-mappings.yaml
-      2. Match the capability profile's features
-      3. Pass threat gating (are in in_scope_ids)
+      2. Pass threat gating (are in in_scope_ids — already KC-filtered)
+
+    Profile matching is no longer needed here — ``determine_threat_scope``
+    already uses KC sub-codes to decide which threats are in scope.
 
     Args:
         cross_taxonomy: Parsed cross-taxonomy-mappings.yaml.
-        profile: The system capability profile.
         in_scope_ids: Set of threat IDs that passed gating.
 
     Returns:
         Set of T-threat IDs reachable via the direct path.
     """
     direct_mappings = _build_direct_t_mappings(cross_taxonomy)
-    direct_ids: set[str] = set()
-    for mapping in direct_mappings:
-        t_id = mapping["source"]
-        if t_id in in_scope_ids and _matches_profile_directly(mapping, profile):
-            direct_ids.add(t_id)
-    return direct_ids
+    return {m["source"] for m in direct_mappings if m["source"] in in_scope_ids}
 
 
 def _make_risk_card_ref(card: RiskCard) -> RiskCardRef:
@@ -230,7 +193,7 @@ def determine_threat_surface(
     }
 
     # --- Direct path: T-threats reachable without LLM hop ---
-    direct_t_ids = _resolve_direct_threats(cross_taxonomy, profile, in_scope_ids)
+    direct_t_ids = _resolve_direct_threats(cross_taxonomy, in_scope_ids)
 
     # Track which direct-path threats were already reached via the LLM hop
     # so we can detect truly unreachable threats
@@ -298,19 +261,19 @@ def determine_threat_surface(
                     all_atlas.append(atlas_id)
 
         # Filter capability-gated ATLAS techniques
-        zone_3_active = "tool_execution" in profile.zones_active
-        if not zone_3_active:
-            gated = [aid for aid in all_atlas if aid in _ZONE3_GATED_TECHNIQUES]
+        has_kc6 = bool(_KC6_SUBCODES.intersection(profile.kc_subcodes))
+        if not has_kc6:
+            gated = [aid for aid in all_atlas if aid in _KC6_GATED_TECHNIQUES]
             if gated:
                 logger.warning(
-                    "ATLAS technique filter: removing zone-3-gated techniques %s "
-                    "for risk %s (zones_active=%s)",
+                    "ATLAS technique filter: removing KC6-gated techniques %s "
+                    "for risk %s (kc_subcodes=%s)",
                     gated,
                     card.risk_id,
-                    profile.zones_active,
+                    profile.kc_subcodes,
                 )
                 all_atlas = [
-                    aid for aid in all_atlas if aid not in _ZONE3_GATED_TECHNIQUES
+                    aid for aid in all_atlas if aid not in _KC6_GATED_TECHNIQUES
                 ]
 
         entries.append(

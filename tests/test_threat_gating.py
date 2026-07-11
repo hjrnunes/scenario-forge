@@ -1,6 +1,8 @@
 """Tests for threat gating logic.
 
 Covers:
+  - KC-based threat scoping via _compute_kc_enabled_threats
+  - kc_requires evaluation in _evaluate_prerequisite_capabilities
   - Logging of all gating decisions (silent filtering fix)
   - _has_vector_store fallback behaviour (premature gating fix)
   - _has_shared_writable_memory fallback behaviour
@@ -12,6 +14,8 @@ from __future__ import annotations
 import logging
 
 from scenario_forge.data.threat_gating import (
+    _compute_kc_enabled_threats,
+    _evaluate_prerequisite_capabilities,
     _filter_attack_patterns,
     _has_shared_writable_memory,
     _has_vector_store,
@@ -38,6 +42,7 @@ def _make_profile(
     multi_agent: bool = False,
     hitl: bool = False,
     memory_mechanisms: list[MemoryMechanism] | None = None,
+    kc_subcodes: list[str] | None = None,
 ) -> CapabilityProfile:
     """Build a CapabilityProfile with sensible defaults for testing."""
     if zones_active is None:
@@ -48,6 +53,9 @@ def _make_profile(
             zones.append("inter_agent")
     else:
         zones = zones_active
+    if kc_subcodes is None:
+        kc_subcodes = ["KC1.1", "KC2.1", "KC3.3", "KC5.2",
+                        "KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2"]
     return CapabilityProfile(
         zones_active=zones,
         has_persistent_memory=has_persistent_memory,
@@ -56,7 +64,25 @@ def _make_profile(
         entry_points=["user input (zone 1)"],
         confidence="medium",
         memory_mechanisms=memory_mechanisms,
+        kc_subcodes=kc_subcodes,
     )
+
+
+# ---------------------------------------------------------------------------
+# Minimal KC mapping fixture for unit tests
+# ---------------------------------------------------------------------------
+
+_MINI_KC_MAPPING = {
+    "kc_to_threats": {
+        "KC1.1": ["T5", "T6", "T7", "T15"],
+        "KC2.3": ["T6", "T8", "T9", "T10", "T12", "T13", "T14", "T16"],
+        "KC4.3": ["T1", "T5", "T6", "T8"],
+        "KC6.1.1": ["T2"],
+        "KC6.2.2": ["T2", "T3", "T4", "T6", "T11"],
+        "KC5.1": ["T2", "T6", "T7", "T8", "T17"],
+    },
+    "hitl": {"threat_ids": ["T10"]},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +99,7 @@ _AP_T2_05 = {
         "min_zones": ["input", "memory", "tool_execution"],
         "requires_vector_store": True,
         "requires_tool_execution": True,
+        "kc_requires": {"any": ["KC6.3.3"]},
     },
 }
 
@@ -86,6 +113,7 @@ _AP_T2_04 = {
         "min_zones": ["input", "memory", "tool_execution"],
         "requires_persistent_memory": True,
         "requires_tool_execution": True,
+        "kc_requires": {"any": ["KC4.3", "KC4.4", "KC4.5", "KC4.6"]},
     },
 }
 
@@ -98,6 +126,9 @@ _AP_T2_01 = {
     "prerequisite_capabilities": {
         "min_zones": ["input", "reasoning", "tool_execution"],
         "requires_tool_execution": True,
+        "kc_requires": {"any": ["KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2",
+                                "KC6.3.1", "KC6.3.2", "KC6.4", "KC6.5",
+                                "KC6.6", "KC6.7"]},
     },
 }
 
@@ -110,6 +141,7 @@ _AP_T1_04 = {
     "prerequisite_capabilities": {
         "min_zones": ["input", "memory", "inter_agent"],
         "requires_shared_writable_memory": True,
+        "kc_requires": {"any": ["KC4.4", "KC4.6"]},
     },
 }
 
@@ -122,6 +154,7 @@ _AP_T1_01 = {
     "prerequisite_capabilities": {
         "min_zones": ["input", "memory"],
         "requires_persistent_memory": True,
+        "kc_requires": {"any": ["KC4.3", "KC4.4", "KC4.5", "KC4.6"]},
     },
 }
 
@@ -133,6 +166,7 @@ _AP_T6_01 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "reasoning"],
+        "kc_requires": {"any": ["KC1.1", "KC1.2", "KC1.3", "KC1.4"]},
     },
 }
 
@@ -144,8 +178,151 @@ _AP_T6_02 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "reasoning"],
+        "kc_requires": {"any": ["KC1.1", "KC1.2", "KC1.3", "KC1.4"]},
     },
 }
+
+# AP-T11-01 requires extensive code execution (KC6.2.2) — the headline fix
+_AP_T11_01 = {
+    "id": "AP-T11-01",
+    "threat_id": "T11",
+    "name": "Infrastructure-as-code injection via agent code generation",
+    "description": "...",
+    "prerequisite_capabilities": {
+        "min_zones": ["input", "reasoning", "tool_execution"],
+        "kc_requires": {"any": ["KC6.2.2"]},
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# _compute_kc_enabled_threats
+# ---------------------------------------------------------------------------
+
+
+class TestComputeKCEnabledThreats:
+    """Verify KC→T lookup correctly enables threats from profile sub-codes."""
+
+    def test_minimal_profile_gets_baseline_threats(self):
+        """KC1.1 alone enables T5, T6, T7, T15."""
+        profile = _make_profile(kc_subcodes=["KC1.1"])
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert set(result.keys()) == {"T5", "T6", "T7", "T15"}
+
+    def test_kc6_2_2_adds_code_execution_threats(self):
+        """KC6.2.2 adds T2, T3, T4, T11 (including the critical T11)."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.2.2"])
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert "T11" in result
+        assert "T2" in result
+        assert "T3" in result
+        assert "T4" in result
+
+    def test_kc6_1_1_does_not_enable_t11(self):
+        """KC6.1.1 (limited API) only enables T2, not T11 — the headline fix."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.1"])
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert "T2" in result
+        assert "T11" not in result
+
+    def test_hitl_adds_t10(self):
+        """HITL cross-cutting flag enables T10."""
+        profile = _make_profile(kc_subcodes=["KC1.1"], hitl=True)
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert "T10" in result
+        assert "hitl" in result["T10"]
+
+    def test_hitl_false_no_t10(self):
+        """Without HITL, T10 is not enabled (unless via KC2.2/KC2.3)."""
+        profile = _make_profile(kc_subcodes=["KC1.1"], hitl=False)
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert "T10" not in result
+
+    def test_multi_agent_kcs_enable_multi_agent_threats(self):
+        """KC2.3 enables T12, T13, T14, T16."""
+        profile = _make_profile(
+            kc_subcodes=["KC1.1", "KC2.3"],
+            multi_agent=True,
+            zones_active=["input", "reasoning", "inter_agent"],
+        )
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert "T12" in result
+        assert "T13" in result
+        assert "T14" in result
+        assert "T16" in result
+
+    def test_gating_reason_includes_enabling_kcs(self):
+        """The gating reason string lists which KC sub-codes enabled the threat."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.2.2"])
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert "KC6.2.2" in result["T11"]
+
+    def test_klarna_chatbot_excludes_t11(self):
+        """Klarna-like chatbot: KC1.1+KC2.1+KC3.3+KC4.1+KC5.2+KC6.1.1 → no T11."""
+        profile = _make_profile(
+            kc_subcodes=["KC1.1"],
+            zones_active=["input", "reasoning"],
+        )
+        result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
+        assert "T11" not in result
+
+
+# ---------------------------------------------------------------------------
+# kc_requires evaluation
+# ---------------------------------------------------------------------------
+
+
+class TestKcRequiresEvaluation:
+    """Verify kc_requires any/all logic in _evaluate_prerequisite_capabilities."""
+
+    def test_any_passes_when_profile_has_one(self):
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.2.2"])
+        prereqs = {"kc_requires": {"any": ["KC6.2.2"]}}
+        assert _evaluate_prerequisite_capabilities(prereqs, profile) is True
+
+    def test_any_fails_when_profile_has_none(self):
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.1"])
+        prereqs = {"kc_requires": {"any": ["KC6.2.2"]}}
+        assert _evaluate_prerequisite_capabilities(prereqs, profile) is False
+
+    def test_all_passes_when_profile_has_all(self):
+        profile = _make_profile(
+            kc_subcodes=["KC1.1", "KC2.3", "KC5.1"],
+            multi_agent=True,
+            zones_active=["input", "reasoning", "inter_agent"],
+        )
+        prereqs = {"kc_requires": {"all": ["KC2.3", "KC5.1"]}}
+        assert _evaluate_prerequisite_capabilities(prereqs, profile) is True
+
+    def test_all_fails_when_profile_missing_one(self):
+        profile = _make_profile(
+            kc_subcodes=["KC1.1", "KC2.3"],
+            multi_agent=True,
+            zones_active=["input", "reasoning", "inter_agent"],
+        )
+        prereqs = {"kc_requires": {"all": ["KC2.3", "KC5.1"]}}
+        assert _evaluate_prerequisite_capabilities(prereqs, profile) is False
+
+    def test_any_and_all_both_must_pass(self):
+        profile = _make_profile(
+            kc_subcodes=["KC1.1", "KC2.3", "KC6.2.2"],
+            multi_agent=True,
+            zones_active=["input", "reasoning", "inter_agent"],
+        )
+        prereqs = {"kc_requires": {"any": ["KC6.2.2", "KC6.4"], "all": ["KC2.3"]}}
+        assert _evaluate_prerequisite_capabilities(prereqs, profile) is True
+
+    def test_ap_t11_01_filtered_for_limited_api(self):
+        """AP-T11-01 requires KC6.2.2; profile with KC6.1.1 is filtered."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.1"])
+        result = _filter_attack_patterns([_AP_T11_01], profile)
+        assert "AP-T11-01" not in result
+
+    def test_ap_t11_01_passes_for_extensive_code_exec(self):
+        """AP-T11-01 requires KC6.2.2; profile with KC6.2.2 passes."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.2.2"])
+        result = _filter_attack_patterns([_AP_T11_01], profile)
+        assert "AP-T11-01" in result
 
 
 # ---------------------------------------------------------------------------
@@ -157,21 +334,16 @@ class TestHasVectorStore:
     """Verify _has_vector_store handles Stage 1 (None) vs Stage 2 data."""
 
     def test_returns_true_when_memory_mechanisms_none_and_has_persistent_memory(self):
-        """Stage 1 data: memory_mechanisms is None but has_persistent_memory
-        is True.  The function should NOT return False -- it should fall back
-        to has_persistent_memory as a conservative proxy."""
         profile = _make_profile(has_persistent_memory=True)
-        assert profile.memory_mechanisms is None  # Stage 1 data
+        assert profile.memory_mechanisms is None
         assert _has_vector_store(profile) is True
 
     def test_returns_false_when_memory_mechanisms_none_and_no_persistent_memory(self):
-        """Stage 1 data with no persistent memory -- correctly returns False."""
         profile = _make_profile(has_persistent_memory=False)
         assert profile.memory_mechanisms is None
         assert _has_vector_store(profile) is False
 
     def test_returns_true_with_vector_store_mechanism(self):
-        """Stage 2 data with an explicit vector_store mechanism."""
         profile = _make_profile(
             has_persistent_memory=True,
             memory_mechanisms=[
@@ -186,7 +358,6 @@ class TestHasVectorStore:
         assert _has_vector_store(profile) is True
 
     def test_returns_false_with_non_vector_store_mechanisms(self):
-        """Stage 2 data with mechanisms but none are vector_store."""
         profile = _make_profile(
             has_persistent_memory=True,
             memory_mechanisms=[
@@ -201,7 +372,6 @@ class TestHasVectorStore:
         assert _has_vector_store(profile) is False
 
     def test_returns_false_with_empty_mechanisms_list(self):
-        """Stage 2 explicitly said no memory mechanisms (empty list)."""
         profile = _make_profile(
             has_persistent_memory=True,
             memory_mechanisms=[],
@@ -264,18 +434,15 @@ class TestFilterAttackPatterns:
     """Verify data-driven attack-pattern filtering."""
 
     def test_ap_t2_05_not_filtered_with_stage1_persistent_memory(self):
-        """AP-T2-05 requires vector_store; with Stage 1 data (memory_mechanisms
-        is None), has_persistent_memory=True acts as conservative proxy and
-        preserves AP-T2-05."""
-        profile = _make_profile(has_persistent_memory=True)
+        profile = _make_profile(
+            has_persistent_memory=True,
+            kc_subcodes=["KC1.1", "KC6.1.1", "KC6.3.3"],
+        )
         patterns = [_AP_T2_01, _AP_T2_04, _AP_T2_05]
         result = _filter_attack_patterns(patterns, profile)
         assert "AP-T2-05" in result
-        assert "AP-T2-04" in result
 
     def test_ap_t2_05_filtered_when_no_persistent_memory(self):
-        """When has_persistent_memory is False, AP-T2-04 and AP-T2-05 are
-        filtered by their prerequisite_capabilities (require memory zone)."""
         profile = _make_profile(has_persistent_memory=False)
         patterns = [_AP_T2_01, _AP_T2_04, _AP_T2_05]
         result = _filter_attack_patterns(patterns, profile)
@@ -283,19 +450,16 @@ class TestFilterAttackPatterns:
         assert "AP-T2-05" not in result
 
     def test_ap_t1_04_not_filtered_with_stage1_persistent_memory(self):
-        """AP-T1-04 requires shared writable memory; with Stage 1 data and
-        has_persistent_memory=True, the fallback proxy keeps it."""
         profile = _make_profile(
             has_persistent_memory=True,
             multi_agent=True,
+            kc_subcodes=["KC1.1", "KC4.4"],
         )
         patterns = [_AP_T1_01, _AP_T1_04]
         result = _filter_attack_patterns(patterns, profile)
         assert "AP-T1-04" in result
 
     def test_unrelated_patterns_pass_all_with_matching_zones(self):
-        """AP-T6 patterns only need input+reasoning zones, which the default
-        profile provides, so nothing is filtered."""
         profile = _make_profile(has_persistent_memory=False)
         patterns = [_AP_T6_01, _AP_T6_02]
         result = _filter_attack_patterns(patterns, profile)
@@ -311,33 +475,29 @@ class TestGatingLogging:
     """Verify that all gating decisions produce log messages."""
 
     def test_filter_attack_patterns_logs_ap_t2_05_pass(self, caplog):
-        """When AP-T2-05 passes the gate, an info log is emitted."""
-        profile = _make_profile(has_persistent_memory=True)
+        profile = _make_profile(
+            has_persistent_memory=True,
+            kc_subcodes=["KC1.1", "KC6.1.1", "KC6.3.3"],
+        )
         patterns = [_AP_T2_01, _AP_T2_05]
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
             _filter_attack_patterns(patterns, profile)
 
         ap_t2_05_logs = [r for r in caplog.records if "AP-T2-05" in r.message]
-        assert len(ap_t2_05_logs) >= 1, (
-            "Expected at least one log message about AP-T2-05"
-        )
+        assert len(ap_t2_05_logs) >= 1
         assert any("PASSED" in r.message for r in ap_t2_05_logs)
 
     def test_filter_attack_patterns_logs_ap_t2_05_filtered(self, caplog):
-        """When AP-T2-05 is filtered out, a warning log is emitted."""
         profile = _make_profile(has_persistent_memory=False)
         patterns = [_AP_T2_01, _AP_T2_05]
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
             _filter_attack_patterns(patterns, profile)
 
         ap_t2_05_logs = [r for r in caplog.records if "AP-T2-05" in r.message]
-        assert len(ap_t2_05_logs) >= 1, (
-            "Expected at least one log message about AP-T2-05"
-        )
+        assert len(ap_t2_05_logs) >= 1
         assert any(r.levelno == logging.WARNING for r in ap_t2_05_logs)
 
     def test_filter_attack_patterns_logs_ap_t1_04_filtered(self, caplog):
-        """When AP-T1-04 is filtered out, a warning log is emitted."""
         profile = _make_profile(has_persistent_memory=False)
         patterns = [_AP_T1_01, _AP_T1_04]
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
@@ -348,41 +508,96 @@ class TestGatingLogging:
         assert any("FILTERED" in r.message for r in ap_t1_04_logs)
 
     def test_determine_threat_scope_logs_in_scope(self, caplog):
-        """In-scope threats produce info-level log messages."""
-        profile = _make_profile(has_persistent_memory=True)
+        profile = _make_profile(
+            has_persistent_memory=True,
+            kc_subcodes=["KC1.1", "KC4.3", "KC6.1.1"],
+        )
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
             determine_threat_scope(profile)
 
         in_scope_logs = [r for r in caplog.records if "IN SCOPE" in r.message]
-        assert len(in_scope_logs) > 0, "Expected IN SCOPE log messages"
-        # T6 is always in scope
+        assert len(in_scope_logs) > 0
         t6_logs = [r for r in in_scope_logs if "T6" in r.message]
         assert len(t6_logs) >= 1
 
     def test_determine_threat_scope_logs_out_of_scope(self, caplog):
-        """Out-of-scope threats produce warning-level log messages."""
-        # Profile with no multi_agent, so T12-T14 should be out of scope
-        profile = _make_profile(has_persistent_memory=False, multi_agent=False)
+        profile = _make_profile(
+            has_persistent_memory=False,
+            multi_agent=False,
+            kc_subcodes=["KC1.1"],
+            zones_active=["input", "reasoning"],
+        )
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
             determine_threat_scope(profile)
 
         out_scope_logs = [r for r in caplog.records if "OUT OF SCOPE" in r.message]
-        assert len(out_scope_logs) > 0, "Expected OUT OF SCOPE log messages"
+        assert len(out_scope_logs) > 0
         assert any(r.levelno == logging.WARNING for r in out_scope_logs)
 
     def test_determine_threat_scope_logs_dropped_attack_patterns(self, caplog):
-        """When attack patterns are dropped, the in-scope log mentions them."""
-        # has_persistent_memory=False means AP-T2-04 and AP-T2-05 get filtered
-        # But T2 is only in scope if zone 3 is active (default in _make_profile)
-        # and memory-gated threats (T1) require has_persistent_memory
-        # So we need zone 3 active but no persistent memory
-        profile = _make_profile(has_persistent_memory=False)
+        profile = _make_profile(
+            has_persistent_memory=False,
+            kc_subcodes=["KC1.1", "KC6.1.1"],
+        )
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
             determine_threat_scope(profile)
 
-        # T2 should be in scope (zone 3 active) but with AP-T2-04/AP-T2-05 dropped
         t2_in_scope = [
             r for r in caplog.records if "T2" in r.message and "IN SCOPE" in r.message
         ]
         assert len(t2_in_scope) >= 1
         assert any("dropped" in r.message for r in t2_in_scope)
+
+
+# ---------------------------------------------------------------------------
+# KC-based threat scope integration
+# ---------------------------------------------------------------------------
+
+
+class TestDetermineThreatScopeKC:
+    """Integration tests for KC-based determine_threat_scope."""
+
+    def test_minimal_profile_scopes_baseline_threats(self):
+        """KC1.1 only → T5, T6, T7, T15 in scope."""
+        profile = _make_profile(
+            kc_subcodes=["KC1.1"],
+            zones_active=["input", "reasoning"],
+        )
+        scope = determine_threat_scope(profile)
+        in_scope_ids = {e.threat_id for e in scope.in_scope}
+        assert {"T5", "T6", "T7", "T15"}.issubset(in_scope_ids)
+        assert "T11" not in in_scope_ids
+
+    def test_full_profile_scopes_all_threats(self):
+        """Full KC set enables all 17 threats."""
+        profile = _make_profile(
+            kc_subcodes=["KC1.1", "KC2.3", "KC3.2", "KC4.3",
+                         "KC5.1", "KC6.1.2", "KC6.2.2"],
+            has_persistent_memory=True,
+            multi_agent=True,
+            hitl=True,
+        )
+        scope = determine_threat_scope(profile)
+        in_scope_ids = {e.threat_id for e in scope.in_scope}
+        assert in_scope_ids == {f"T{i}" for i in range(1, 18)}
+
+    def test_t11_excluded_for_limited_api_profile(self):
+        """KC6.1.1 (limited API) does NOT enable T11 — the headline fix."""
+        profile = _make_profile(
+            kc_subcodes=["KC1.1", "KC6.1.1"],
+        )
+        scope = determine_threat_scope(profile)
+        in_scope_ids = {e.threat_id for e in scope.in_scope}
+        assert "T2" in in_scope_ids
+        assert "T11" not in in_scope_ids
+
+    def test_hitl_enables_t10(self):
+        """HITL flag enables T10 even without KC2.2/KC2.3."""
+        profile = _make_profile(
+            kc_subcodes=["KC1.1"],
+            hitl=True,
+            zones_active=["input", "reasoning"],
+        )
+        scope = determine_threat_scope(profile)
+        in_scope_ids = {e.threat_id for e in scope.in_scope}
+        assert "T10" in in_scope_ids

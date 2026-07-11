@@ -33,6 +33,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
       requires_persistent_memory: true
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T5-02:
     id: "AP-T5-02"
@@ -52,6 +54,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
       requires_persistent_memory: true
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T5-03:
     id: "AP-T5-03"
@@ -71,6 +75,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
       requires_persistent_memory: true
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T5-04:
     id: "AP-T5-04"
@@ -90,6 +96,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
       requires_persistent_memory: true
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   # ═══════════════════════════════════════════════════════════════════
   # T6 — Intent Breaking & Goal Manipulation (5 patterns)
@@ -112,6 +120,8 @@ patterns:
       attack_class: "genai.direct_prompt_injection.jailbreak"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T6-02:
     id: "AP-T6-02"
@@ -130,6 +140,8 @@ patterns:
       attack_class: "genai.direct_prompt_injection.jailbreak"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T6-03:
     id: "AP-T6-03"
@@ -148,6 +160,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T6-04:
     id: "AP-T6-04"
@@ -166,6 +180,8 @@ patterns:
       attack_class: "genai.direct_prompt_injection.jailbreak"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T6-05:
     id: "AP-T6-05"
@@ -184,6 +200,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   # ═══════════════════════════════════════════════════════════════════
   # T11 — Unexpected RCE and Code Attacks (3 patterns)
@@ -207,6 +225,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.abuse_violations"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
+      kc_requires:
+        any: [KC6.2.2]
 
   AP-T11-02:
     id: "AP-T11-02"
@@ -225,6 +245,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.abuse_violations"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
+      kc_requires:
+        any: [KC6.2.2]
 
   AP-T11-03:
     id: "AP-T11-03"
@@ -244,6 +266,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.abuse_violations"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
+      kc_requires:
+        any: [KC6.2.2, KC6.4]
 
   # ═══════════════════════════════════════════════════════════════════
   # T13 — Rogue Agents in Multi-Agent Systems (4 patterns)
@@ -266,6 +290,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T13-02:
     id: "AP-T13-02"
@@ -285,6 +311,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T13-03:
     id: "AP-T13-03"
@@ -303,6 +331,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T13-04:
     id: "AP-T13-04"
@@ -322,3 +352,5 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]

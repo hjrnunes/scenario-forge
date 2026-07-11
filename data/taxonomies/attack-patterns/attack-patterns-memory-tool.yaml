@@ -33,6 +33,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "memory"]
       requires_persistent_memory: true
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T1-02:
     id: "AP-T1-02"
@@ -50,6 +52,8 @@ patterns:
       attack_class: "poisoning.targeted_poisoning"
     prerequisite_capabilities:
       min_zones: ["input", "memory"]
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T1-03:
     id: "AP-T1-03"
@@ -68,6 +72,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "memory"]
       requires_persistent_memory: true
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T1-04:
     id: "AP-T1-04"
@@ -87,6 +93,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "memory", "inter_agent"]
       requires_shared_writable_memory: true
+      kc_requires:
+        any: [KC4.4, KC4.6]
 
   # ═══════════════════════════════════════════════════════════════════
   # T2 — Tool Misuse (6 patterns)
@@ -110,6 +118,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "tool_execution"]
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
 
   AP-T2-02:
     id: "AP-T2-02"
@@ -129,6 +139,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
 
   AP-T2-03:
     id: "AP-T2-03"
@@ -148,6 +160,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "tool_execution"]
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
 
   AP-T2-04:
     id: "AP-T2-04"
@@ -168,6 +182,8 @@ patterns:
       min_zones: ["input", "memory", "tool_execution"]
       requires_persistent_memory: true
       requires_tool_execution: true
+      kc_requires:
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T2-05:
     id: "AP-T2-05"
@@ -188,6 +204,8 @@ patterns:
       min_zones: ["input", "memory", "tool_execution"]
       requires_vector_store: true
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.3.3]
 
   AP-T2-06:
     id: "AP-T2-06"
@@ -207,6 +225,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
 
   # ═══════════════════════════════════════════════════════════════════
   # T3 — Privilege Compromise (3 patterns)
@@ -229,6 +249,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.1.2, KC6.2.2, KC6.3.2, KC6.5]
 
   AP-T3-02:
     id: "AP-T3-02"
@@ -247,6 +269,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.1.2, KC6.2.2, KC6.5]
 
   AP-T3-03:
     id: "AP-T3-03"
@@ -266,6 +290,8 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution", "inter_agent"]
       requires_tool_execution: true
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   # ═══════════════════════════════════════════════════════════════════
   # T4 — Resource Overload (4 patterns)
@@ -286,6 +312,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC6.1.2, KC6.2.2, KC6.6, KC6.7]
 
   AP-T4-02:
     id: "AP-T4-02"
@@ -304,6 +332,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
       requires_multi_agent: true
+      kc_requires:
+        any: [KC2.3]
 
   AP-T4-03:
     id: "AP-T4-03"
@@ -322,6 +352,8 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "tool_execution"]
       requires_tool_execution: true
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
 
   AP-T4-04:
     id: "AP-T4-04"
@@ -338,3 +370,5 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
+      kc_requires:
+        any: [KC6.1.2, KC6.2.2, KC6.6, KC6.7]
