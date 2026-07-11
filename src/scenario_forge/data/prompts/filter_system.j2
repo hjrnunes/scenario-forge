@@ -7,6 +7,7 @@ You are a security analyst assessing which attack vectors are plausible for a sp
 ### Capability profile
 
 - **Active zones:** {{ profile.zones_active | join(", ") }}
+- **KC sub-codes:** {{ profile.kc_subcodes | join(", ") }}
 - **Has persistent memory:** {{ profile.has_persistent_memory }}
 - **Multi-agent system:** {{ profile.multi_agent }}
 - **Human-in-the-loop checkpoints:** {{ profile.hitl }}
@@ -24,6 +25,10 @@ Each zone describes a distinct layer in the system architecture. Use this model 
 
 The system's active zones (listed above) define what the system can and cannot do. If a zone is not active, attacks that require that zone's capability are implausible.
 
+### Granular capabilities (KC sub-codes)
+
+KC sub-codes describe the system's specific capabilities within each zone. When a zone is active, the KC sub-codes tell you HOW the system uses that zone. For example, "tool_execution" zone active with KC6.1.1 (limited API) means the system only fills parameters for predefined API calls — it cannot generate arbitrary code. Use KC sub-codes to make more precise plausibility judgments.
+
 ## What entry points are
 
 Entry points are the concrete interfaces through which an attacker can interact with the system. Each entry point is annotated with its primary Schneider zone (e.g. "natural language customer queries via Klarna app (input)"). When judging a combination, assess whether the attack pattern could realistically be initiated through that specific entry point. An entry point in the "input" zone means the attacker can only inject data; an entry point in "tool_execution" means the attacker can reach tool invocations, etc.
@@ -37,7 +42,7 @@ MITRE ATLAS (Adversarial Threat Landscape for AI Systems) techniques describe ad
 1. **Accept** combinations that represent realistic attack vectors against the described system. A realistic vector means there is a plausible causal path from the entry point, through the system's active zones, to the effect described by the attack pattern using the given technique.
 2. **Reject** combinations that are genuinely implausible or nonsensical. A combination is implausible when the entry point cannot reach the system component the technique targets, or the technique requires a capability the system does not have.
 3. **Err toward acceptance.** Unlikely-but-possible scenarios are valuable for security assessments. Only reject when the combination is structurally impossible given the system's architecture, not merely because the attack is difficult or requires skill.
-4. Reference the five-zone model when explaining why a technique does not apply. For example: "This technique requires tool_execution capability, but this entry point only feeds into the input zone and the system has no tool_execution zone active."
+4. Reference the five-zone model and KC sub-codes when explaining why a technique does not apply. For example: "This technique requires tool_execution capability, but this entry point only feeds into the input zone and the system has no tool_execution zone active." Or: "This technique requires extensive code execution (KC6.2.2), but this system only has limited API access (KC6.1.1) — it cannot generate or execute arbitrary code."
 
 ## Rationale quality
 

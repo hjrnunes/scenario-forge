@@ -16,6 +16,7 @@ from typing import Any
 
 import yaml
 
+from scenario_forge.data.atlas import ATLAS_TECHNIQUE_DESCRIPTIONS
 from scenario_forge.data.loaders import (
     load_attack_patterns,
 )
@@ -23,6 +24,7 @@ from scenario_forge.pipeline.generate import (
     load_attack_goals_taxonomy,
     load_threat_goal_affinity,
 )
+from scenario_forge.data.loaders import load_kc_threat_mapping
 from scenario_forge.models.capability_profile import (
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES as _ZONE_NAMES_TUPLE,
@@ -943,6 +945,28 @@ body {
   font-weight: 700;
   color: white;
 }
+.kc-subcodes-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kc-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  cursor: default;
+}
+.kc-badge[data-cat="KC1"] { background: #5b8def; }
+.kc-badge[data-cat="KC2"] { background: #9b59b6; }
+.kc-badge[data-cat="KC3"] { background: #27ae60; }
+.kc-badge[data-cat="KC4"] { background: #e67e22; }
+.kc-badge[data-cat="KC5"] { background: #16a085; }
+.kc-badge[data-cat="KC6"] { background: #c0392b; }
 
 .tree-label { color: var(--text-primary); }
 
@@ -2783,6 +2807,21 @@ def build_use_case_section(use_case_text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _build_kc_descriptions() -> dict[str, str]:
+    """Load KC sub-code → description mapping for report tooltips."""
+    mapping = load_kc_threat_mapping()
+    return {
+        sc["kc_subcode"]: sc["description"]
+        for sc in mapping.get("kc_subcodes", [])
+    }
+
+
+def _kc_category(kc: str) -> str:
+    """Extract category prefix from a KC sub-code (e.g. 'KC6.2.2' → 'KC6')."""
+    parts = kc.split(".")
+    return parts[0] if parts else kc
+
+
 def build_capability_profile_section(profile: dict[str, Any]) -> str:
     raw_zones_active = profile.get("zones_active", [])
     zones_active = {_normalize_zone(z) for z in raw_zones_active}
@@ -2829,6 +2868,26 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
     eps = profile.get("entry_points", [])
     ep_items = "".join(f"<li>{_esc(ep)}</li>" for ep in eps)
 
+    # KC sub-codes
+    kc_subcodes = profile.get("kc_subcodes", [])
+    kc_html = ""
+    if kc_subcodes:
+        kc_descs = _build_kc_descriptions()
+        kc_badges = []
+        for kc in sorted(kc_subcodes):
+            cat = _kc_category(kc)
+            desc = _esc(kc_descs.get(kc, ""))
+            kc_badges.append(
+                f'<span class="kc-badge" data-cat="{cat}" title="{desc}">{_esc(kc)}</span>'
+            )
+        kc_html = f"""
+      <div class="card">
+        <div class="scenario-section-title">System Capabilities (KC Sub-Codes)</div>
+        <div class="kc-subcodes-grid">
+          {"".join(kc_badges)}
+        </div>
+      </div>"""
+
     return f"""
     <div id="sec-profile" class="section">
       <div class="section-header">
@@ -2857,6 +2916,7 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
         <div class="scenario-section-title">Entry Points</div>
         <ul class="entry-point-list">{ep_items}</ul>
       </div>
+      {kc_html}
     </div>
     """
 
@@ -3374,9 +3434,12 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
 def _technique_id_tooltip(technique_id: str) -> str:
     """Return a data-tooltip attribute for an ATLAS technique ID."""
     name = _ATLAS_TECHNIQUE_NAMES.get(technique_id, "")
-    if name:
-        return f' data-tooltip="MITRE ATLAS: {_esc(technique_id)} — {_esc(name)}"'
-    return ""
+    if not name:
+        return ""
+    desc = ATLAS_TECHNIQUE_DESCRIPTIONS.get(technique_id, "")
+    if desc:
+        return f' data-tooltip="{_esc(technique_id)} — {_esc(name)}&#10;{_esc(desc)}"'
+    return f' data-tooltip="MITRE ATLAS: {_esc(technique_id)} — {_esc(name)}"'
 
 
 def build_threat_technique_section(
@@ -4815,7 +4878,7 @@ def _build_provenance_chain(
         "".join(
             f'<span class="prov-badge prov-badge-orange"'
             f"{_threat_id_tooltip(tid)}>"
-            f"{_esc(tid)} &mdash; {_esc(THREAT_NAMES.get(tid, ''))}</span>"
+            f"{_esc(tid)}</span>"
             for tid in threat_ids
         )
         if threat_ids
@@ -6263,6 +6326,9 @@ def build_glossary_section() -> str:
             <li><strong>Memory &amp; State:</strong> Persistent storage, context windows, and state management</li>
             <li><strong>Inter-Agent Communication:</strong> Message passing between agents in multi-agent systems</li>
           </ul>
+          <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">
+            <strong>KC Sub-Codes</strong> from the OWASP Securing Agentic Applications Guide describe granular capabilities within each zone (e.g. KC6.1.1 limited API vs KC6.2.2 extensive code execution), enabling precise threat gating beyond the coarse zone model.
+          </p>
         </div>
 
         <div style="margin-bottom:18px;">
