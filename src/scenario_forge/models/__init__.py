@@ -26,6 +26,7 @@ from scenario_forge.models.capability_profile import (
     VALID_KC_SUBCODES,
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES,
+    derive_zones_from_kc,
 )
 from scenario_forge.models.risk_card import (
     EvidenceSpan,
@@ -61,6 +62,7 @@ __all__ = [
     "GateType",
     "StructuralExposure",
     # capability_profile
+    "derive_zones_from_kc",
     "AuthMethod",
     "BoundaryConfidence",
     "CapabilityProfile",
