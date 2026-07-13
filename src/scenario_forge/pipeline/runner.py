@@ -358,6 +358,7 @@ def run_pipeline(
     model: str | None = None,
     max_techniques: int = 1,
     zones: str | None = None,
+    eval: bool = True,
 ) -> PipelineResult:
     """Run the full scenario-forge pipeline (stages 1-4).
 
@@ -372,6 +373,7 @@ def run_pipeline(
         base_url: LLM endpoint URL override.
         api_key: LLM API key override.
         model: LLM model name override.
+        eval: Whether to run deterministic eval metrics after generation (default True).
 
     Returns:
         PipelineResult with all artifacts from the pipeline run.
@@ -714,6 +716,29 @@ def run_pipeline(
         yaml.dump(manifest, default_flow_style=False, sort_keys=False),
         encoding="utf-8",
     )
+
+    # --- Auto-evaluate scenarios (deterministic metrics) ---
+    if eval:
+        try:
+            from scenario_forge.eval.runner import run_evaluation
+
+            logger.info("[Eval] Running deterministic quality metrics...")
+            scorecard = run_evaluation(output_dir, threats_path=threats_path)
+            scorecard_path = output_dir / "eval-scorecard.yaml"
+            scorecard_path.write_text(
+                yaml.dump(
+                    scorecard,
+                    default_flow_style=False,
+                    sort_keys=False,
+                    allow_unicode=True,
+                ),
+                encoding="utf-8",
+            )
+            logger.info("  Scorecard written to %s", scorecard_path)
+        except Exception as exc:
+            logger.warning("Eval scorecard generation failed: %s", exc)
+    else:
+        logger.info("[Eval] Skipped (--no-eval). Run 'scenario-forge eval --output-dir %s' to generate.", output_dir)
 
     # --- Auto-generate HTML report ---
     try:

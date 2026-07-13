@@ -92,6 +92,11 @@ def generate(
         None,
         help="Comma-separated zone filter (e.g. 'input,reasoning,tool_execution'). Overrides profile.",
     ),
+    eval: bool = typer.Option(
+        True,
+        "--eval/--no-eval",
+        help="Run deterministic eval metrics after generation (default: enabled).",
+    ),
 ) -> None:
     """Run the full scenario generation pipeline (stages 1-4)."""
     typer.echo(f"\nscenario-forge v{_VERSION} — generate\n{'=' * 40}")
@@ -122,6 +127,7 @@ def generate(
             model=model,
             max_techniques=max_scenario_techniques,
             zones=zones,
+            eval=eval,
         )
 
         typer.echo("\nPipeline complete.")
