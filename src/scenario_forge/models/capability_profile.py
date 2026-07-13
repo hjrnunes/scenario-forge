@@ -87,6 +87,29 @@ def derive_zones_from_kc(kc_subcodes: list[str]) -> list[str]:
     return sorted(zones)
 
 
+# KC4 sub-codes that imply cross-session persistence (not session-only)
+_KC4_PERSISTENT: frozenset[str] = frozenset({"KC4.3", "KC4.4", "KC4.5", "KC4.6"})
+
+
+def derive_flags_from_kc(kc_subcodes: list[str]) -> dict[str, bool]:
+    """Derive boolean capability flags from KC sub-codes.
+
+    Returns a dict of flags that should be forced True based on KC evidence:
+    - has_persistent_memory: True if any KC4.3+ (cross-session memory)
+    - multi_agent: True if KC2.3 (multi-agent communication)
+
+    Only returns keys that should be set True; absent keys mean the KC
+    sub-codes provide no evidence for that flag (leave it as-is).
+    """
+    flags: dict[str, bool] = {}
+    for kc in kc_subcodes:
+        if kc in _KC4_PERSISTENT:
+            flags["has_persistent_memory"] = True
+        elif kc == "KC2.3":
+            flags["multi_agent"] = True
+    return flags
+
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -293,10 +316,17 @@ class Stage1Profile(BaseModel):
     def to_capability_profile(self) -> CapabilityProfile:
         """Promote to a full CapabilityProfile (Stage 2 fields left as None).
 
-        zones_active is derived from kc_subcodes rather than LLM-inferred.
+        zones_active and boolean flags are derived from kc_subcodes rather
+        than trusting LLM-inferred values.
         """
         data = self.model_dump()
         data["zones_active"] = derive_zones_from_kc(self.kc_subcodes)
+        # Derive boolean flags — KC evidence upgrades False→True, never downgrades
+        flags = derive_flags_from_kc(self.kc_subcodes)
+        if flags.get("has_persistent_memory"):
+            data["has_persistent_memory"] = True
+        if flags.get("multi_agent"):
+            data["multi_agent"] = True
         return CapabilityProfile(**data)
 
 
@@ -387,13 +417,20 @@ class CapabilityProfile(BaseModel):
     def validate_zones_and_flags(self) -> CapabilityProfile:
         """Cross-field validation for zone/flag consistency.
 
-        When kc_subcodes is populated, zones_active is derived from them,
-        overriding any explicitly provided value.  When kc_subcodes is empty
-        (e.g. profile loaded from YAML via --profile), explicit zones are kept.
+        When kc_subcodes is populated, zones_active and boolean flags are
+        derived from them, overriding any explicitly provided value.  When
+        kc_subcodes is empty (e.g. profile loaded from YAML via --profile),
+        explicit zones and flags are kept as-is.
         """
-        # Derive zones from KC sub-codes when available
+        # Derive zones and flags from KC sub-codes when available
         if self.kc_subcodes:
             self.zones_active = derive_zones_from_kc(self.kc_subcodes)
+            # Derive boolean flags — KC evidence upgrades False→True, never downgrades
+            flags = derive_flags_from_kc(self.kc_subcodes)
+            if flags.get("has_persistent_memory"):
+                self.has_persistent_memory = True
+            if flags.get("multi_agent"):
+                self.multi_agent = True
 
         zones = set(self.zones_active)
 
