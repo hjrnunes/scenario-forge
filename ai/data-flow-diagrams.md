@@ -7,9 +7,10 @@
                     ============================          ====================================          ============================
 
                      use-case.txt                          Stage 1: Capability Profiling                 capability-profile.yaml
-                     (plain text)           ──────────────►  (1 LLM call)              ──────────────►   zones_active: [1, 2]
+                     (plain text)           ──────────────►  (1 LLM call)              ──────────────►   zones_active: [input, reasoning]
                      "A stateless LLM-                       infer_capability_profile()                  has_persistent_memory: false
                       powered chatbot..."                                                                multi_agent: false
+                                                                                                         kc_subcodes: [KC1.1, KC3.3]
                                                                     │                                    entry_points: [...]
                                                                     │ CapabilityProfile
                                                                     ▼
@@ -26,14 +27,19 @@
                        mappings.yaml                                │
                                                                     │ List[ScenarioSeed]
                      OWASP / ATLAS /                                ▼
-                       NIST taxonomies     ──────────────► Stage 4: Scenario Generation                  scenarios/AP-T7-01-f088b5.yaml
-                     (reference data)                        (4 LLM calls per seed)    ──────────────►   scenarios/AP-T7-01-f088b5.feature
-                                                             x N seeds in parallel                       ... (one pair per seed)
-                     attack-goals.json     ──────┐               │
-                     threat-goal-           ──────┤   attack goal selection                              run-manifest.yaml
-                       affinity.yaml               │   (deterministic, per seed)                           (pipeline metadata)
-                                                   │        │
-                                                   └────────▼
+                       NIST taxonomies     ──────────────► Stage 3.5: Candidate Filtering                (in-memory filtered seeds)
+                     (reference data)                        (1 LLM call per seed)     ──────────────►   [FilteredSeed(AP-T7-01,
+                                                             expand_candidates() +                        entry_point=...,
+                     kc-threat-mapping     ──────┐           filter_candidates()                           technique_ids=...), ...]
+                       .yaml                     │                  │
+                                                  │                 │ List[FilteredSeed]
+                                                  │                 ▼
+                                                  └──────► Stage 4: Scenario Generation                  scenarios/AP-T7-01-f088b5.yaml
+                     attack-goals.json     ──────┐           (4 LLM calls per seed)    ──────────────►   scenarios/AP-T7-01-f088b5.feature
+                     threat-goal-           ──────┤   attack goal selection                               ... (one pair per seed)
+                       affinity.yaml               │   (deterministic, per seed)
+                                                   │        │                                            run-manifest.yaml
+                                                   └────────▼                                              (pipeline metadata)
                                                                     │ List[ScenarioEnvelope]
                                                                     ▼
                                                            Post: Coverage & Eval                         coverage-gaps.json
@@ -108,6 +114,8 @@
 │                    │         │           conflict"                               │
 │                    │         │     prerequisite_capabilities:                    │
 │                    │         │       min_zones: [input, reasoning]               │
+│                    │         │       kc_requires:                                │
+│                    │         │         any: [KC1.1, KC1.2, KC1.3, KC1.4]         │
 │                    │         │                                                   │
 ├────────────────────┼─────────┼───────────────────────────────────────────────────┤
 │                    │         │                                                   │
@@ -122,6 +130,18 @@
 │ data/taxonomies/   │         │   - dimension: attacker_goal                      │
 │  nist-ai-100-2/    │         │     values: [integrity, availability,             │
 │                    │         │              confidentiality, abuse]              │
+│                    │         │                                                   │
+├────────────────────┼─────────┼───────────────────────────────────────────────────┤
+│                    │         │                                                   │
+│ KC Threat Mapping  │ .yaml   │ kc_to_threats:                                    │
+│ data/taxonomies/   │         │   KC1.1: [T5, T6, T7, T15]                       │
+│  mappings/         │         │   KC2.1: [T6, T8]                                │
+│  kc-threat-        │         │   KC4.3: [T1, T5, T6, T8]                        │
+│  mapping.yaml      │         │   KC6.1.2: [T2, T3, T4, T9]                      │
+│                    │         │ threat_to_kc_subcodes:                            │
+│                    │         │   T1: [KC4.3, KC4.4, KC4.5, ...]                  │
+│                    │         │ hitl:                                              │
+│                    │         │   threat_ids: [T10]                                │
 │                    │         │                                                   │
 ├────────────────────┼─────────┼───────────────────────────────────────────────────┤
 │                    │         │                                                   │
@@ -156,7 +176,15 @@
     └────────┬─────────┘         │   T0020           │         │ LLM01 ──► AML.T0051   │
              │                   └─────────┬─────────┘         └──────────┬────────────┘
              │                             │                              │
-             ▼                             ▼                              ▼
+             │                             │                              │
+             │    kc-threat-mapping.yaml    │                              │
+             │    ┌──────────────────────┐  │                              │
+             │    │ KC1.1 ──► [T5,T6,..]│  │                              │
+             │    │ KC4.3 ──► [T1,T5,..]│  │                              │
+             │    │ KC6.1.2 ──► [T2,T3.]│  │                              │
+             │    └──────────┬───────────┘  │                              │
+             │               │              │                              │
+             ▼               ▼              ▼                              ▼
     ┌────────────────────────────────────────────────────────────────────────────────┐
     │                                                                                │
     │   HOP 1: Risk Atlas ID ──────────────────────────► OWASP LLM Top 10 IDs        │
@@ -167,17 +195,25 @@
     │          [LLM09, LLM02]                            [T15, T7, T8]               │
     │          (via cross-taxonomy-mappings.yaml)                                    │
     │                                                         │                      │
-    │   HOP 3: Agentic Threats ────────────────────────► Filtered by Capability      │
-    │          [T15, T7, T8]                              Profile zones_active       │
-    │          (via threat_gating.py)                     [T15, T7, T8] ✓            │
+    │   HOP 3: Agentic Threats ────────────────────────► Filtered by KC sub-codes    │
+    │          [T15, T7, T8]                              from capability profile    │
+    │          (via threat_gating.py +                    [T15, T7, T8] ✓            │
+    │           kc-threat-mapping.yaml)                                              │
+    │          A threat is in scope if ANY of the profile's                           │
+    │          kc_subcodes maps to it in kc_to_threats.                               │
+    │          HITL (T10) is cross-cutting (enabled by profile.hitl).                 │
     │                                                         │                      │
     │   DIRECT PATH (agentic-only threats T7-T10, T14-T16):   │                      │
-    │          T-threats ──────────────────────────────► Capability filter only      │
+    │          T-threats ──────────────────────────────► KC sub-code filter only     │
     │          (bypasses LLM hop)                                                    │
     │                                                         │                      │
     │   ATTACK PATTERNS:                                      │                      │
     │          In-scope T-threats ──────────────────────► AP-* IDs resolved          │
     │          (from threat_gating, attack_pattern_ids)   [AP-T7-01, AP-T15-01, ...]│
+    │          Per-AP kc_requires gate: {any: [...],                                 │
+    │            all: [...]} checked against profile.kc_subcodes.                    │
+    │          (min_zones is still present in data but                               │
+    │           no longer checked in code — kc_requires subsumes it)                 │
     │                                                         │                      │
     │   ATLAS TECHNIQUES:                                     │                      │
     │          In-scope T-threats ──────────────────────► ATLAS IDs resolved         │
@@ -202,6 +238,57 @@
                                     │    atlas_technique_ids│
                                     │      [AML.T0051, ...] │
                                     └───────────────────────┘
+```
+
+---
+
+## 3b. Stage 3.5: Candidate Expansion + Filtering
+
+```
+  ScenarioSeeds (from Stage 3)    CapabilityProfile (from Stage 1)
+  ┌─────────────────────────┐     ┌─────────────────────────────┐
+  │ [ScenarioSeed(AP-T7-01),│     │ entry_points: [...]         │
+  │  ScenarioSeed(AP-T15-01)│     │ zones_active: [input, ...]  │
+  │  ...]                   │     │ kc_subcodes: [KC1.1, ...]   │
+  └────────────┬────────────┘     └──────────────┬──────────────┘
+               │                                  │
+               ▼                                  ▼
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │                                                                          │
+  │  Step 1: expand_candidates()   (deterministic)                           │
+  │     Cross-product: seed x entry_point x ATLAS_technique_combo            │
+  │     e.g. 5 seeds x 4 entry_points x 2 techniques = 40 CandidateTriples  │
+  │     (max_techniques controls combo size: 1 = singles, 2 = pairs too)     │
+  │                                            │                             │
+  │  Step 2: filter_candidates()   (1 LLM call per seed, parallelized)      │
+  │     For each seed, renders filter_system.j2 + filter_user.j2             │
+  │     Prompt includes: use_case, profile (zones, kc_subcodes, entry_pts),  │
+  │       attack_pattern details, candidate list                             │
+  │     LLM returns: BatchFilterResponse with per-candidate accept/reject    │
+  │                  verdict + rationale                                      │
+  │                                            │                             │
+  │  Step 3: Build FilteredSeed objects from accepted verdicts               │
+  │     Each FilteredSeed carries pinned_entry_point, pinned_technique_ids,  │
+  │     pinned_technique_names, and rejection_rationales (for provenance)     │
+  │                                                                          │
+  └─────────────────────────────────────┬────────────────────────────────────┘
+                                        │
+                                        ▼
+                             List[FilteredSeed]
+                             ┌───────────────────────────────┐
+                             │ FilteredSeed(                 │
+                             │   seed_id: AP-T7-01,          │
+                             │   pinned_entry_point:         │
+                             │     "user chat input",        │
+                             │   pinned_technique_ids:       │
+                             │     (AML.T0051,),             │
+                             │   pinned_technique_names:     │
+                             │     ("LLM Prompt Injection",),│
+                             │   rejection_rationales: [...] │
+                             │ )                             │
+                             │ ──► Hard constraints for      │
+                             │     Stage 4 generation        │
+                             └───────────────────────────────┘
 ```
 
 ---
@@ -311,14 +398,14 @@
     │  │  persona generator..."          │    │  actor_type: nation-state       │ │
     │  │ User: seed context + threat     │──►│  capability_level: intermediate │ │
     │  │  description + use-case         │    │  beliefs: "..."                 │ │
-    │  │  + attack_goal context block    │    │  desires: "..."                 │ │
-    │  │  + actor type diversity hints   │    │  intentions: "..."              │ │
-    │  │  + ATLAS technique context      │    │  resources: [...]               │ │
-    │  │                                 │    │  goal_category: "IN-3"          │ │
-    │  │ Structured output (Pydantic)    │    │  goal_category_name: "Decision  │ │
-    │  │                                 │    │    Corruption"                  │ │
+    │  │  + profile.zones_active         │    │  desires: "..."                 │ │
+    │  │  + profile.kc_subcodes          │    │  intentions: "..."              │ │
+    │  │  + profile.entry_points         │    │  resources: [...]               │ │
+    │  │  + attack_goal context block    │    │  goal_category: "IN-3"          │ │
+    │  │  + actor type diversity hints   │    │  goal_category_name: "Decision  │ │
+    │  │  + ATLAS technique context      │    │    Corruption"                  │ │
     │  │                                 │    │  goal_category_parent:          │ │
-    │  └─────────────────────────────────┘    │    "Integrity Violation"        │ │
+    │  │ Structured output (Pydantic)    │    │    "Integrity Violation"        │ │
     │                                         └────────────┬────────────────────┘ │
     │                                                      │                      │
     │  CALL 1: Narrative                                   │                      │
@@ -326,11 +413,13 @@
     │  │ System: "You are a red-team     │    │ NarrativeLayer (Pydantic)       │ │
     │  │  scenario writer..."            │    │  title: "Subverting Class..."   │ │
     │  │ User: actor_profile +           │──►│  entry_point: "user prompts..."  │ │
-    │  │  seed context + zones_active    │    │  zone_sequence: [1, 2]          │ │
+    │  │  seed context + zones_active    │    │  zone_sequence: [input,          │ │
+    │  │  + profile.kc_subcodes          │    │                  reasoning]     │ │
     │  │  + entry point diversity hints  │    │  steps:                         │ │
-    │  │  + pattern exclusions           │    │   - step: 1, zone: 1,           │ │
-    │  │                                 │    │     action: "Craft prompt..."   │ │
-    │  │ Structured output (Pydantic)    │    │     control_point: "..."        │ │
+    │  │  + pattern exclusions           │    │   - step: 1, zone: input,       │ │
+    │  │  + ATLAS technique context      │    │     action: "Craft prompt..."   │ │
+    │  │                                 │    │     control_point: "..."        │ │
+    │  │ Structured output (Pydantic)    │    │                                 │ │
     │  └─────────────────────────────────┘    └────────────┬────────────────────┘ │
     │                                                      │                      │
     │  CALL 2: Attack Tree                                 │                      │
@@ -416,8 +505,10 @@ risk-extraction.json───┤               ├─ nist-ai-100-2/            
                        │               │  └─ threat-goal-            │
                        │               │     affinity.yaml ──────────┤
                        │               └─ mappings/                  │
-                       │                  └─ cross-taxonomy-         │
-                       │                     mappings.yaml ──────────┘
+                       │                  ├─ cross-taxonomy-         │
+                       │                  │  mappings.yaml ──────────┤
+                       │                  └─ kc-threat-              │
+                       │                     mapping.yaml ───────────┘
                        │
                        │
                        │         PIPELINE STAGES                          OUTPUT DIRECTORY
@@ -438,8 +529,13 @@ risk-extraction.json───┤               ├─ nist-ai-100-2/            
                        │    [deterministic]                               │  ├─ calls.jsonl
                        │         │                                        │  └─ ... (one pair per seed)
                        │         ▼                                        ├─ coverage-gaps.json
-                       ├──► Attack Goal Selection ─── (in memory)         ├─ eval-scorecard.yaml
-                       │    [deterministic, per seed]                      └─ report.html
+                       ├──► Stage 3.5 (candidates.py) ─ (in memory)      ├─ eval-scorecard.yaml
+                       │    [1 LLM call per seed]                         └─ report.html
+                       │    expand_candidates() + filter_candidates()
+                       │         │
+                       │         ▼
+                       ├──► Attack Goal Selection ─── (in memory)
+                       │    [deterministic, per seed]
                        │         │
                        │         ▼
                        └──► Stage 4 (generate.py) ────────────────────►
@@ -502,6 +598,10 @@ risk-extraction.json───┤               ├─ nist-ai-100-2/            
 │ Stage 1 │ infer_capability_profile()    │ Structured         │ ~500 / ~100                  │
 │         │                               │ (Stage1Profile)    │                              │
 ├─────────┼───────────────────────────────┼────────────────────┼──────────────────────────────┤
+│ Stage   │ filter_candidates()           │ Structured         │ varies per seed              │
+│ 3.5     │ (1 call per seed)             │ (BatchFilter-      │ (depends on candidate count) │
+│         │                               │  Response)         │                              │
+├─────────┼───────────────────────────────┼────────────────────┼──────────────────────────────┤
 │ Stage 4 │ _call_actor_profile()         │ Structured         │ ~950 / ~320                  │
 │ Call 0  │                               │ (ActorProfile)     │                              │
 ├─────────┼───────────────────────────────┼────────────────────┼──────────────────────────────┤
@@ -515,8 +615,8 @@ risk-extraction.json───┤               ├─ nist-ai-100-2/            
 │ Call 3  │                               │ (raw Gherkin text) │                              │
 ├─────────┼───────────────────────────────┼────────────────────┼──────────────────────────────┤
 │         │                               │                    │                              │
-│ TOTAL   │ 1 + (4 x N seeds)             │                    │ ~6k in + ~2k out per seed    │
-│         │ e.g. 10 seeds = 41 calls      │                    │ + ~500 in / ~100 out for S1  │
+│ TOTAL   │ 1 + N_seeds(filter) +          │                    │ ~6k in + ~2k out per seed    │
+│         │ (4 x N_filtered_seeds)         │                    │ + filter + profiling calls   │
 └─────────┴───────────────────────────────┴────────────────────┴──────────────────────────────┘
 
 LLM Client Config:
@@ -555,9 +655,23 @@ LLM Client Config:
                     └──────────────────────────────────────────────┘
 
 The capability profile determines which zones are active (e.g. a
-stateless chatbot only has zones [1, 2]). Stage 4 narratives and
-attack trees annotate every step/node with its zone. The eval
-scorecard checks zone alignment across all layers.
+stateless chatbot only has zones [input, reasoning]). Stage 4
+narratives and attack trees annotate every step/node with its zone.
+The eval scorecard checks zone alignment across all layers.
+
+KC Sub-Codes: 27 granular capabilities (KC1.1-KC6.7) decompose
+what the system can do WITHIN each zone. They are inferred by
+Stage 1, stored in the capability profile as kc_subcodes, and
+used by:
+  - threat_gating.py: KC sub-codes determine which threats are
+    in scope (via kc-threat-mapping.yaml: KC -> T-threats)
+  - _evaluate_prerequisite_capabilities(): per-AP kc_requires
+    gate checks {any: [...], all: [...]} against profile
+  - LLM prompts (Calls 0-1): passed as "System capabilities
+    (KC sub-codes)" so the LLM constrains scenarios to actual
+    system capabilities
+  - filter_system.j2: candidate filter prompt includes KC
+    sub-codes for plausibility judgment
 ```
 
 ---
@@ -583,6 +697,10 @@ scorecard checks zone alignment across all layers.
   │   temperature: 0.7                  # sampling temperature        │
   │   max_completion_tokens: null       # token limit (or null)       │
   │   prompt_template_hashes:           # SHA-256 per template file   │
+  │     profile_system.j2: "sha256:..."                                │
+  │     profile_user.j2: "sha256:..."                                  │
+  │     filter_system.j2: "sha256:..."                                 │
+  │     filter_user.j2: "sha256:..."                                   │
   │     call0_system.j2: "sha256:..."                                  │
   │     call0_user.j2: "sha256:..."                                    │
   │     call1_system.j2: "sha256:..."                                  │
@@ -590,6 +708,9 @@ scorecard checks zone alignment across all layers.
   │     ...                                                            │
   │                                                                    │
   │ seeds_generated: 12                 # total seeds expanded        │
+  │ candidates_expanded: 48             # total candidates generated  │
+  │ candidates_accepted: 10             # candidates passing filter   │
+  │ candidates_rejected: 38             # candidates rejected         │
   │ scenarios_generated: 10             # successful scenario count   │
   │ scenarios_failed: 2                 # failed generation count     │
   └────────────────────────────────────────────────────────────────────┘
