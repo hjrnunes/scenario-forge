@@ -1,14 +1,15 @@
-"""Tests for derive_zones_from_kc() and mismatch validation.
+"""Tests for derive_zones_from_kc() and zone derivation on models.
 
 Covers:
-  - Zone derivation from KC sub-codes
-  - Mismatch validation logging on CapabilityProfile and Stage1Profile
+  - Zone derivation from KC sub-codes (pure function)
+  - Zone derivation on Stage1Profile.to_capability_profile()
+  - Zone derivation on CapabilityProfile (model_validator)
+  - Backward compatibility: explicit zones kept when kc_subcodes is empty
   - Consistency with kc-threat-mapping.yaml taxonomy data
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import yaml
@@ -211,106 +212,183 @@ class TestDeriveZonesMatchesRealData:
 
 
 # ---------------------------------------------------------------------------
-# Mismatch validation logging
+# Stage1Profile zone derivation
 # ---------------------------------------------------------------------------
 
 
-class TestMismatchValidationCapabilityProfile:
-    """Verify CapabilityProfile logs a warning on zones_active mismatch."""
+class TestStage1ProfileZoneDerivation:
+    """Stage1Profile.to_capability_profile() derives zones from kc_subcodes."""
 
-    def test_matching_zones_no_warning(self, caplog):
-        """No warning when zones_active matches KC-derived zones."""
-        with caplog.at_level(logging.WARNING, logger="scenario_forge.models.capability_profile"):
-            CapabilityProfile(
-                zones_active=["input", "reasoning", "tool_execution"],
-                has_persistent_memory=False,
-                multi_agent=False,
-                hitl=False,
-                entry_points=["user input (zone 1)"],
-                confidence="medium",
-                kc_subcodes=["KC1.1", "KC5.1"],
-            )
-        mismatch_logs = [r for r in caplog.records if "mismatch" in r.message]
-        assert len(mismatch_logs) == 0
+    def test_basic_kc_produces_baseline_zones(self):
+        """KC1.1 only -> zones_active=['input', 'reasoning']."""
+        s = Stage1Profile(
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=["KC1.1"],
+        )
+        p = s.to_capability_profile()
+        assert p.zones_active == ["input", "reasoning"]
 
-    def test_mismatched_zones_warns(self, caplog):
-        """Warning logged when zones_active differs from KC-derived zones."""
-        with caplog.at_level(logging.WARNING, logger="scenario_forge.models.capability_profile"):
-            CapabilityProfile(
-                zones_active=["input", "memory", "reasoning", "tool_execution"],
-                has_persistent_memory=True,
-                multi_agent=False,
-                hitl=False,
-                entry_points=["user input (zone 1)"],
-                confidence="medium",
-                # KC5.1 -> tool_execution, but no KC4.3+ for memory
-                kc_subcodes=["KC1.1", "KC5.1"],
-            )
-        mismatch_logs = [r for r in caplog.records if "mismatch" in r.message]
-        assert len(mismatch_logs) == 1
-        assert "memory" in mismatch_logs[0].message
+    def test_tool_kc_activates_tool_execution(self):
+        """KC5.1 -> zones_active includes 'tool_execution'."""
+        s = Stage1Profile(
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC5.1"],
+        )
+        p = s.to_capability_profile()
+        assert p.zones_active == ["input", "reasoning", "tool_execution"]
 
-    def test_no_warning_when_kc_subcodes_empty(self, caplog):
-        """No mismatch check when kc_subcodes is empty."""
-        with caplog.at_level(logging.WARNING, logger="scenario_forge.models.capability_profile"):
-            CapabilityProfile(
-                zones_active=["input", "memory", "reasoning"],
-                has_persistent_memory=True,
-                multi_agent=False,
-                hitl=False,
-                entry_points=["user input (zone 1)"],
-                confidence="medium",
-                kc_subcodes=[],
-            )
-        mismatch_logs = [r for r in caplog.records if "mismatch" in r.message]
-        assert len(mismatch_logs) == 0
+    def test_memory_kc_activates_memory_zone(self):
+        """KC4.3 -> zones_active includes 'memory'."""
+        s = Stage1Profile(
+            has_persistent_memory=True,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC4.3"],
+        )
+        p = s.to_capability_profile()
+        assert "memory" in p.zones_active
 
-    def test_mismatch_does_not_raise(self):
-        """Mismatch is observation-only -- no exception raised."""
-        # Should succeed without error despite mismatch
-        profile = CapabilityProfile(
+    def test_inter_agent_kc_activates_inter_agent_zone(self):
+        """KC2.3 -> zones_active includes 'inter_agent'."""
+        s = Stage1Profile(
+            has_persistent_memory=False,
+            multi_agent=True,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC2.3"],
+        )
+        p = s.to_capability_profile()
+        assert "inter_agent" in p.zones_active
+
+    def test_all_zones_from_full_kc_set(self):
+        """All optional zones activated by appropriate KC codes."""
+        s = Stage1Profile(
+            has_persistent_memory=True,
+            multi_agent=True,
+            hitl=True,
+            entry_points=["user input (input)"],
+            confidence="high",
+            kc_subcodes=["KC1.1", "KC2.3", "KC4.4", "KC5.1"],
+        )
+        p = s.to_capability_profile()
+        assert p.zones_active == [
+            "input", "inter_agent", "memory", "reasoning", "tool_execution",
+        ]
+
+    def test_empty_kc_subcodes_produces_baseline(self):
+        """Empty kc_subcodes -> baseline zones ['input', 'reasoning']."""
+        s = Stage1Profile(
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=[],
+        )
+        p = s.to_capability_profile()
+        assert p.zones_active == ["input", "reasoning"]
+
+
+# ---------------------------------------------------------------------------
+# CapabilityProfile zone derivation
+# ---------------------------------------------------------------------------
+
+
+class TestCapabilityProfileZoneDerivation:
+    """CapabilityProfile derives zones_active from kc_subcodes when present."""
+
+    def test_zones_derived_from_kc_subcodes(self):
+        """When kc_subcodes is populated, zones_active is derived."""
+        p = CapabilityProfile(
+            zones_active=["input", "reasoning"],  # will be overridden
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC5.1"],
+        )
+        assert p.zones_active == ["input", "reasoning", "tool_execution"]
+
+    def test_explicit_zones_overridden_by_kc_derivation(self):
+        """Explicit zones_active is replaced by KC-derived zones."""
+        p = CapabilityProfile(
+            zones_active=["input", "memory", "reasoning"],  # wrong for these KCs
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC5.1"],  # derives tool_execution, not memory
+        )
+        # memory should be gone, tool_execution should be present
+        assert "memory" not in p.zones_active
+        assert "tool_execution" in p.zones_active
+
+    def test_backward_compat_explicit_zones_kept_without_kc(self):
+        """When kc_subcodes is empty, explicit zones_active is preserved."""
+        p = CapabilityProfile(
             zones_active=["input", "memory", "reasoning", "tool_execution"],
             has_persistent_memory=True,
             multi_agent=False,
             hitl=False,
-            entry_points=["user input (zone 1)"],
+            entry_points=["user input (input)"],
             confidence="medium",
-            kc_subcodes=["KC1.1", "KC5.1"],  # KC-derived: no memory
+            kc_subcodes=[],
         )
-        assert "memory" in profile.zones_active
+        assert p.zones_active == ["input", "memory", "reasoning", "tool_execution"]
 
+    def test_backward_compat_no_kc_field(self):
+        """Profile without kc_subcodes field (default empty) keeps explicit zones."""
+        p = CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user input (input)"],
+            confidence="medium",
+        )
+        assert p.zones_active == ["input", "reasoning", "tool_execution"]
 
-class TestMismatchValidationStage1Profile:
-    """Verify Stage1Profile logs a warning on zones_active mismatch."""
+    def test_all_zones_derived(self):
+        """Full KC set derives all five zones."""
+        p = CapabilityProfile(
+            zones_active=["input", "reasoning"],  # will be overridden
+            has_persistent_memory=True,
+            multi_agent=True,
+            hitl=True,
+            entry_points=["user input (input)"],
+            confidence="high",
+            kc_subcodes=["KC1.1", "KC2.3", "KC4.4", "KC5.1"],
+        )
+        assert p.zones_active == [
+            "input", "inter_agent", "memory", "reasoning", "tool_execution",
+        ]
 
-    def test_matching_zones_no_warning(self, caplog):
-        """No warning when zones_active matches KC-derived zones."""
-        with caplog.at_level(logging.WARNING, logger="scenario_forge.models.capability_profile"):
-            Stage1Profile(
+    def test_cross_field_validation_still_applies(self):
+        """Zone derivation still triggers cross-field validation errors."""
+        import pytest
+        from pydantic import ValidationError
+
+        # KC4.3 derives memory zone, but has_persistent_memory=False -> error
+        with pytest.raises(ValidationError, match="has_persistent_memory"):
+            CapabilityProfile(
                 zones_active=["input", "reasoning"],
                 has_persistent_memory=False,
                 multi_agent=False,
                 hitl=False,
-                entry_points=["user input (zone 1)"],
+                entry_points=["user input (input)"],
                 confidence="medium",
-                kc_subcodes=["KC1.1"],
+                kc_subcodes=["KC1.1", "KC4.3"],
             )
-        mismatch_logs = [r for r in caplog.records if "mismatch" in r.message]
-        assert len(mismatch_logs) == 0
-
-    def test_mismatched_zones_warns(self, caplog):
-        """Warning logged when zones_active differs from KC-derived zones."""
-        with caplog.at_level(logging.WARNING, logger="scenario_forge.models.capability_profile"):
-            Stage1Profile(
-                zones_active=["input", "reasoning", "tool_execution"],
-                has_persistent_memory=False,
-                multi_agent=False,
-                hitl=False,
-                entry_points=["user input (zone 1)"],
-                confidence="medium",
-                # KC1.1 only -> no tool_execution zone
-                kc_subcodes=["KC1.1"],
-            )
-        mismatch_logs = [r for r in caplog.records if "mismatch" in r.message]
-        assert len(mismatch_logs) == 1
-        assert "tool_execution" in mismatch_logs[0].message
