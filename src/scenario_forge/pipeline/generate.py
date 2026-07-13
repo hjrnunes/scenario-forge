@@ -375,6 +375,60 @@ def _enforce_zones_attack_tree(
 
 
 # ---------------------------------------------------------------------------
+# Post-generation threat_id cross-reference validation
+# ---------------------------------------------------------------------------
+
+
+def _collect_threat_ids_from_tree(node: AttackTreeNode) -> list[str | None]:
+    """Collect all threat_id values from an attack tree (depth-first)."""
+    ids: list[str | None] = [node.threat_id]
+    if node.children:
+        for child in node.children:
+            ids.extend(_collect_threat_ids_from_tree(child))
+    return ids
+
+
+def _warn_dominant_threat_id_crossref(
+    tree: AttackTree,
+    parent_threat_id: str,
+    scenario_id: str,
+) -> None:
+    """Log a warning if a dominant cross-ref threat_id differs from the parent.
+
+    Flags trees where >50% of nodes share the same threat_id AND that
+    threat_id differs from the scenario's parent threat. This catches the
+    "everything is T1" pattern where the LLM defaults to tagging most
+    nodes with T1 regardless of the actual threat context.
+
+    This is warning-level only -- it does NOT reject or modify the tree.
+    """
+    all_ids = _collect_threat_ids_from_tree(tree.root)
+    # Only consider nodes that actually have a threat_id set
+    non_null_ids = [tid for tid in all_ids if tid is not None]
+
+    if not non_null_ids:
+        return
+
+    counts = Counter(non_null_ids)
+    dominant_id, dominant_count = counts.most_common(1)[0]
+
+    total_with_id = len(non_null_ids)
+    ratio = dominant_count / total_with_id
+
+    if ratio > 0.5 and dominant_id != parent_threat_id:
+        logger.warning(
+            "threat_id cross-ref anomaly in %s: %.0f%% of nodes (%d/%d) "
+            "tagged as %s but parent threat is %s",
+            scenario_id,
+            ratio * 100,
+            dominant_count,
+            total_with_id,
+            dominant_id,
+            parent_threat_id,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Entry point diversity helpers
 # ---------------------------------------------------------------------------
 
@@ -2605,6 +2659,9 @@ def generate_scenario(
     call_log_entries.append(
         _call_log_entry(CallName.attack_tree, result2, partial_scenario_id)
     )
+
+    # --- Post-generation threat_id cross-ref validation ---
+    _warn_dominant_threat_id_crossref(attack_tree, seed.threat_id, partial_scenario_id)
 
     # --- Call 3: Behavior Spec ---
     try:
