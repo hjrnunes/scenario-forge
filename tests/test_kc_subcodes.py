@@ -27,15 +27,26 @@ def _base_profile_data(**overrides) -> dict:
 
 
 def _base_stage1_data(**overrides) -> dict:
-    """Minimal valid Stage1Profile payload."""
-    return _base_profile_data(**overrides)
+    """Minimal valid Stage1Profile payload (no zones_active field)."""
+    data = {
+        "has_persistent_memory": False,
+        "multi_agent": False,
+        "hitl": True,
+        "entry_points": ["user input (input)"],
+        "confidence": "high",
+    }
+    data.update(overrides)
+    return data
 
 
 class TestKCSubcodesValidation:
 
     def test_valid_kc_subcodes_accepted(self):
         codes = ["KC1.1", "KC4.3", "KC6.1.1"]
-        p = CapabilityProfile(**_base_profile_data(kc_subcodes=codes))
+        p = CapabilityProfile(**_base_profile_data(
+            kc_subcodes=codes,
+            has_persistent_memory=True,  # KC4.3 derives memory zone
+        ))
         assert set(p.kc_subcodes) == set(codes)
 
     def test_invalid_kc_subcode_rejected(self):
@@ -57,7 +68,11 @@ class TestKCSubcodesValidation:
 
     def test_all_valid_subcodes_accepted(self):
         p = CapabilityProfile(
-            **_base_profile_data(kc_subcodes=list(VALID_KC_SUBCODES))
+            **_base_profile_data(
+                kc_subcodes=list(VALID_KC_SUBCODES),
+                has_persistent_memory=True,  # KC4.3+ derives memory zone
+                multi_agent=True,            # KC2.3 derives inter_agent zone
+            )
         )
         assert set(p.kc_subcodes) == VALID_KC_SUBCODES
 
@@ -77,7 +92,10 @@ class TestStage1ProfileKCSubcodes:
 
     def test_stage1_to_capability_profile_preserves_kc_subcodes(self):
         codes = ["KC1.1", "KC4.3", "KC6.2.2"]
-        s = Stage1Profile(**_base_stage1_data(kc_subcodes=codes))
+        s = Stage1Profile(**_base_stage1_data(
+            kc_subcodes=codes,
+            has_persistent_memory=True,  # KC4.3 derives memory zone
+        ))
         p = s.to_capability_profile()
         assert p.kc_subcodes == sorted(codes)
 
@@ -102,7 +120,10 @@ class TestBackwardCompatibility:
 
     def test_serialization_roundtrip(self):
         codes = ["KC1.1", "KC2.3", "KC6.4"]
-        p = CapabilityProfile(**_base_profile_data(kc_subcodes=codes))
+        p = CapabilityProfile(**_base_profile_data(
+            kc_subcodes=codes,
+            multi_agent=True,  # KC2.3 derives inter_agent zone
+        ))
         dumped = p.model_dump(mode="json")
         p2 = CapabilityProfile(**dumped)
         assert p2.kc_subcodes == p.kc_subcodes

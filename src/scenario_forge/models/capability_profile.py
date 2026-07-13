@@ -248,15 +248,11 @@ class Stage1Profile(BaseModel):
 
     Excludes Stage 2 sub-models so the schema stays small and the model
     doesn't generate runaway output trying to fill optional nested fields.
+
+    zones_active is NOT an LLM-inferred field — it is derived from
+    kc_subcodes in to_capability_profile().
     """
 
-    zones_active: list[str] = Field(
-        description=(
-            "Schneider zones active in the system. "
-            "Minimum ['input', 'reasoning']. "
-            "Other zones: 'tool_execution', 'memory', 'inter_agent'."
-        ),
-    )
     has_persistent_memory: bool = Field(
         description="Whether the system maintains state across sessions or interactions.",
     )
@@ -294,23 +290,14 @@ class Stage1Profile(BaseModel):
             )
         return sorted(set(v))
 
-    @model_validator(mode="after")
-    def validate_zones_kc_consistency(self) -> Stage1Profile:
-        """Log a warning if zones_active differs from KC-derived zones."""
-        if not self.kc_subcodes:
-            return self
-        derived = derive_zones_from_kc(self.kc_subcodes)
-        if sorted(self.zones_active) != derived:
-            logger.warning(
-                "zones_active mismatch: LLM-inferred %s vs KC-derived %s",
-                sorted(self.zones_active),
-                derived,
-            )
-        return self
-
     def to_capability_profile(self) -> CapabilityProfile:
-        """Promote to a full CapabilityProfile (Stage 2 fields left as None)."""
-        return CapabilityProfile(**self.model_dump())
+        """Promote to a full CapabilityProfile (Stage 2 fields left as None).
+
+        zones_active is derived from kc_subcodes rather than LLM-inferred.
+        """
+        data = self.model_dump()
+        data["zones_active"] = derive_zones_from_kc(self.kc_subcodes)
+        return CapabilityProfile(**data)
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +385,16 @@ class CapabilityProfile(BaseModel):
 
     @model_validator(mode="after")
     def validate_zones_and_flags(self) -> CapabilityProfile:
-        """Cross-field validation for zone/flag consistency."""
+        """Cross-field validation for zone/flag consistency.
+
+        When kc_subcodes is populated, zones_active is derived from them,
+        overriding any explicitly provided value.  When kc_subcodes is empty
+        (e.g. profile loaded from YAML via --profile), explicit zones are kept.
+        """
+        # Derive zones from KC sub-codes when available
+        if self.kc_subcodes:
+            self.zones_active = derive_zones_from_kc(self.kc_subcodes)
+
         zones = set(self.zones_active)
 
         # Every LLM system must have input and reasoning
@@ -429,15 +425,5 @@ class CapabilityProfile(BaseModel):
                 "Zone 'inter_agent' (Inter-Agent Communication) active "
                 "implies multi_agent must be true"
             )
-
-        # Warn if zones_active differs from KC-derived zones (observation only)
-        if self.kc_subcodes:
-            derived = derive_zones_from_kc(self.kc_subcodes)
-            if sorted(self.zones_active) != derived:
-                logger.warning(
-                    "zones_active mismatch: LLM-inferred %s vs KC-derived %s",
-                    sorted(self.zones_active),
-                    derived,
-                )
 
         return self
