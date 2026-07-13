@@ -1834,6 +1834,16 @@ _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
     "compromise",
     "steal",
     "hijack",
+    "confuse",
+    "trick",
+    "probe",
+    "probing",
+    "deceive",
+    "fool",
+    "subvert",
+    "circumvent",
+    "coerce",
+    "impersonate",
 }
 
 
