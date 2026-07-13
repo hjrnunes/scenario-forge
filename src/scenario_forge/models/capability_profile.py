@@ -15,10 +15,13 @@ Architecture model: Schneider's five-zone model
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Zone constants
@@ -54,6 +57,34 @@ ZONE_DISPLAY_NAMES: dict[str, str] = {
     "memory": "Memory & State",
     "inter_agent": "Inter-Agent Communication",
 }
+
+
+# ---------------------------------------------------------------------------
+# Zone derivation from KC sub-codes
+# ---------------------------------------------------------------------------
+
+
+def derive_zones_from_kc(kc_subcodes: list[str]) -> list[str]:
+    """Derive zones_active from KC sub-codes.
+
+    Mapping logic:
+    - KC1.*/KC3.* -> input + reasoning (always present since KC1.* is mandatory)
+    - KC2.1/KC2.2 -> reasoning (already covered by default)
+    - KC2.3 -> inter_agent
+    - KC4.1/KC4.2 -> NO zone activation (session-only memory, not persistent)
+    - KC4.3-KC4.6 -> memory (cross-session persistence)
+    - KC5.* -> tool_execution
+    - KC6.* -> tool_execution
+    """
+    zones: set[str] = {"input", "reasoning"}  # always present (KC1.* is mandatory)
+    for kc in kc_subcodes:
+        if kc.startswith("KC4.") and kc not in ("KC4.1", "KC4.2"):
+            zones.add("memory")
+        elif kc.startswith("KC5.") or kc.startswith("KC6."):
+            zones.add("tool_execution")
+        elif kc == "KC2.3":
+            zones.add("inter_agent")
+    return sorted(zones)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +294,20 @@ class Stage1Profile(BaseModel):
             )
         return sorted(set(v))
 
+    @model_validator(mode="after")
+    def validate_zones_kc_consistency(self) -> Stage1Profile:
+        """Log a warning if zones_active differs from KC-derived zones."""
+        if not self.kc_subcodes:
+            return self
+        derived = derive_zones_from_kc(self.kc_subcodes)
+        if sorted(self.zones_active) != derived:
+            logger.warning(
+                "zones_active mismatch: LLM-inferred %s vs KC-derived %s",
+                sorted(self.zones_active),
+                derived,
+            )
+        return self
+
     def to_capability_profile(self) -> CapabilityProfile:
         """Promote to a full CapabilityProfile (Stage 2 fields left as None)."""
         return CapabilityProfile(**self.model_dump())
@@ -384,5 +429,15 @@ class CapabilityProfile(BaseModel):
                 "Zone 'inter_agent' (Inter-Agent Communication) active "
                 "implies multi_agent must be true"
             )
+
+        # Warn if zones_active differs from KC-derived zones (observation only)
+        if self.kc_subcodes:
+            derived = derive_zones_from_kc(self.kc_subcodes)
+            if sorted(self.zones_active) != derived:
+                logger.warning(
+                    "zones_active mismatch: LLM-inferred %s vs KC-derived %s",
+                    sorted(self.zones_active),
+                    derived,
+                )
 
         return self
