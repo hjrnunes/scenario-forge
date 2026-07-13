@@ -62,6 +62,25 @@ logger = logging.getLogger(__name__)
 _GENERATOR_VERSION = "0.1.0"
 
 
+class GenerationError(Exception):
+    """Raised when scenario generation fails.
+
+    Carries partial ``call_log_entries`` for any LLM calls that completed
+    before the failure, plus a synthetic error entry for the failing call,
+    so callers can persist them to ``calls.jsonl``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        call_log_entries: list[dict] | None = None,
+        seed_id: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.call_log_entries: list[dict] = call_log_entries or []
+        self.seed_id = seed_id
+
+
 # ---------------------------------------------------------------------------
 # Non-Latin script sanitization
 # ---------------------------------------------------------------------------
@@ -1215,6 +1234,43 @@ def _call_log_entry(
     }
 
 
+def _call_log_entry_error(
+    call_name: CallName,
+    result: LLMResult | None,
+    scenario_id: str,
+    error: str,
+) -> dict:
+    """Build a JSON-serialisable log entry for a *failed* LLM call.
+
+    When ``result`` is available (e.g. the LLM returned text that failed
+    parsing/validation), its prompts and raw response are preserved.  When
+    ``result`` is ``None`` (e.g. the LLM call itself raised), only the
+    error message is recorded.
+    """
+    if result is not None:
+        raw_content = result.content
+        if hasattr(raw_content, "model_dump"):
+            raw_content = raw_content.model_dump(mode="json")
+        elif not isinstance(raw_content, str):
+            raw_content = str(raw_content)
+        return {
+            "scenario_id": scenario_id,
+            "call": call_name.value,
+            "system_prompt": result.system_prompt,
+            "user_prompt": result.user_prompt,
+            "response": raw_content,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "duration_ms": result.duration_ms,
+            "error": error,
+        }
+    return {
+        "scenario_id": scenario_id,
+        "call": call_name.value,
+        "error": error,
+    }
+
+
 def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
     steps = [
         NarrativeStep(
@@ -1778,6 +1834,16 @@ _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
     "compromise",
     "steal",
     "hijack",
+    "confuse",
+    "trick",
+    "probe",
+    "probing",
+    "deceive",
+    "fool",
+    "subvert",
+    "circumvent",
+    "coerce",
+    "impersonate",
 }
 
 
@@ -2449,18 +2515,33 @@ def generate_scenario(
     call_metas: list[CallMetadata] = []
     scenario_hash = _scenario_hash(seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point)
 
+    # Partial scenario_id for error logging (before envelope is assembled).
+    partial_scenario_id = f"{seed.seed_id}-{scenario_hash}"
+
+    # Collect call log entries incrementally so that failures still produce
+    # a trace in calls.jsonl.
+    call_log_entries: list[dict] = []
+    results: dict[CallName, LLMResult] = {}
+
     # --- Call 0: Actor Profile ---
-    actor_profile, result0 = _call_actor_profile(
-        seed,
-        profile,
-        client,
-        use_case,
-        preferred_actor_type=preferred_actor_type,
-        excluded_actor_types=excluded_actor_types,
-        preferred_capability_level=preferred_capability_level,
-        attack_goal=attack_goal,
-        pinned_technique_ids=pinned_technique_ids,
-    )
+    try:
+        actor_profile, result0 = _call_actor_profile(
+            seed,
+            profile,
+            client,
+            use_case,
+            preferred_actor_type=preferred_actor_type,
+            excluded_actor_types=excluded_actor_types,
+            preferred_capability_level=preferred_capability_level,
+            attack_goal=attack_goal,
+            pinned_technique_ids=pinned_technique_ids,
+        )
+    except Exception as exc:
+        call_log_entries.append(
+            _call_log_entry_error(CallName.actor_profile, None, partial_scenario_id, str(exc))
+        )
+        raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
+
     actor_profile = _validate_actor_type(actor_profile)
 
     # Store the selected goal category on the actor profile (Step 5).
@@ -2470,47 +2551,84 @@ def generate_scenario(
         actor_profile.goal_category_parent = attack_goal["category_name"]
 
     call_metas.append(_call_metadata(CallName.actor_profile, result0))
+    results[CallName.actor_profile] = result0
+    call_log_entries.append(
+        _call_log_entry(CallName.actor_profile, result0, partial_scenario_id)
+    )
 
     # --- Call 1: Narrative ---
-    narrative, result1 = _call_narrative(
-        seed,
-        profile,
-        client,
-        use_case,
-        actor_profile=actor_profile,
-        preferred_entry_point=preferred_entry_point,
-        excluded_entry_points=excluded_entry_points,
-        excluded_patterns=excluded_patterns,
-        excluded_structural_patterns=excluded_structural_patterns,
-        pinned_entry_point=pinned_entry_point,
-        pinned_technique_ids=pinned_technique_ids,
-    )
+    try:
+        narrative, result1 = _call_narrative(
+            seed,
+            profile,
+            client,
+            use_case,
+            actor_profile=actor_profile,
+            preferred_entry_point=preferred_entry_point,
+            excluded_entry_points=excluded_entry_points,
+            excluded_patterns=excluded_patterns,
+            excluded_structural_patterns=excluded_structural_patterns,
+            pinned_entry_point=pinned_entry_point,
+            pinned_technique_ids=pinned_technique_ids,
+        )
+    except Exception as exc:
+        call_log_entries.append(
+            _call_log_entry_error(CallName.narrative, None, partial_scenario_id, str(exc))
+        )
+        raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
+
     call_metas.append(_call_metadata(CallName.narrative, result1))
+    results[CallName.narrative] = result1
+    call_log_entries.append(
+        _call_log_entry(CallName.narrative, result1, partial_scenario_id)
+    )
 
     # --- Call 2: Attack Tree ---
-    attack_tree, result2 = _call_attack_tree(
-        seed,
-        narrative,
-        client,
-        use_case,
-        profile=profile,
-        actor_profile=actor_profile,
-        pinned_technique_ids=pinned_technique_ids,
-    )
+    try:
+        attack_tree, result2 = _call_attack_tree(
+            seed,
+            narrative,
+            client,
+            use_case,
+            profile=profile,
+            actor_profile=actor_profile,
+            pinned_technique_ids=pinned_technique_ids,
+        )
+    except Exception as exc:
+        call_log_entries.append(
+            _call_log_entry_error(CallName.attack_tree, None, partial_scenario_id, str(exc))
+        )
+        raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
+
     call_metas.append(_call_metadata(CallName.attack_tree, result2))
+    results[CallName.attack_tree] = result2
+    call_log_entries.append(
+        _call_log_entry(CallName.attack_tree, result2, partial_scenario_id)
+    )
 
     # --- Call 3: Behavior Spec ---
-    behavior_spec, result3 = _call_behavior_spec(
-        seed,
-        narrative,
-        attack_tree,
-        profile,
-        client,
-        use_case,
-        scenario_hash,
-        pinned_technique_ids=pinned_technique_ids,
-    )
+    try:
+        behavior_spec, result3 = _call_behavior_spec(
+            seed,
+            narrative,
+            attack_tree,
+            profile,
+            client,
+            use_case,
+            scenario_hash,
+            pinned_technique_ids=pinned_technique_ids,
+        )
+    except Exception as exc:
+        call_log_entries.append(
+            _call_log_entry_error(CallName.behavior_spec, None, partial_scenario_id, str(exc))
+        )
+        raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
+
     call_metas.append(_call_metadata(CallName.behavior_spec, result3))
+    results[CallName.behavior_spec] = result3
+    call_log_entries.append(
+        _call_log_entry(CallName.behavior_spec, result3, partial_scenario_id)
+    )
 
     envelope = _assemble_envelope(
         seed=seed,
@@ -2527,13 +2645,9 @@ def generate_scenario(
         pinned_entry_point=pinned_entry_point,
     )
 
-    # Build call log entries for JSONL output.
-    call_log_entries = [
-        _call_log_entry(CallName.actor_profile, result0, envelope.scenario_id),
-        _call_log_entry(CallName.narrative, result1, envelope.scenario_id),
-        _call_log_entry(CallName.attack_tree, result2, envelope.scenario_id),
-        _call_log_entry(CallName.behavior_spec, result3, envelope.scenario_id),
-    ]
+    # Update call log entries with the final scenario_id (replacing partial).
+    for entry in call_log_entries:
+        entry["scenario_id"] = envelope.scenario_id
 
     return envelope, call_log_entries
 

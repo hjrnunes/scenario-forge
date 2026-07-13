@@ -16,6 +16,9 @@ Your scenario MUST be consistent with the system's declared capabilities:
 - If human-in-the-loop is false, your scenario MUST NOT rely on bypassing human review or approval steps that don't exist.
 Cross-check every attack step against these constraints before finalizing. If an attack step contradicts a declared capability, revise the step or choose a different attack vector.
 
+### Tool & API Grounding Constraint (MANDATORY)
+Only reference tools, APIs, endpoints, and system capabilities that are explicitly described in the use case or capability profile. Do NOT invent, assume, or fabricate additional system features, API methods, tool names, or integration points that are not mentioned. If the use case describes a "payment API," you may reference that payment API — but do not invent a "session token endpoint" or "elevated privilege API" unless the use case explicitly describes one. Every tool or API mentioned in the narrative must be traceable to the use case or capability profile text.
+
 ## Five-Zone Model
 This model divides an AI system into architectural layers an attack may traverse: input surfaces (where external data enters), planning & reasoning (the LLM's internal processing), tool execution (external actions the system can take), memory & state (persistent data the system maintains), and inter-agent communication (messages between AI agents).
 

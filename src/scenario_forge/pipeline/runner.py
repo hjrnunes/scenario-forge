@@ -28,6 +28,7 @@ from scenario_forge.pipeline.candidates import (
     filter_candidates,
 )
 from scenario_forge.pipeline.generate import (
+    GenerationError,
     compute_entry_point_affinity,
     extract_narrative_keywords,
     extract_structural_pattern,
@@ -285,6 +286,15 @@ def _remediate_coverage_gaps(
                 envelope.scenario_id,
                 envelope.narrative.entry_point,
             )
+        except GenerationError as exc:
+            if exc.call_log_entries:
+                write_call_log(exc.call_log_entries, scenarios_dir)
+            note = (
+                f"Remediation generation failed for entry point '{ep}' "
+                f"with seed {seed.seed_id}: {exc}"
+            )
+            logger.error("    %s", note)
+            generation_notes.append(note)
         except Exception as exc:
             note = (
                 f"Remediation generation failed for entry point '{ep}' "
@@ -621,6 +631,13 @@ def run_pipeline(
 
             notes = envelope.generation.notes or []
             generation_notes.extend(notes)
+        except GenerationError as exc:
+            if exc.call_log_entries:
+                write_call_log(exc.call_log_entries, scenarios_dir)
+            msg = f"Generation failed for {fseed.seed_id}: {exc}"
+            logger.error("    %s", msg)
+            generation_notes.append(msg)
+            failed_count += 1
         except Exception as exc:
             msg = f"Generation failed for {fseed.seed_id}: {exc}"
             logger.error("    %s", msg)
