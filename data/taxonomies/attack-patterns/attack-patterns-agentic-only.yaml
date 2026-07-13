@@ -426,4 +426,5 @@ patterns:
       requires_multi_agent: true
       requires_tool_execution: true
       kc_requires:
-        any: [KC2.3]
+        all: [KC2.3]
+        any: [KC5.1, KC5.2, KC5.3, KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
