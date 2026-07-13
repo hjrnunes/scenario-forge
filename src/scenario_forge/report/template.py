@@ -3341,12 +3341,14 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     uncovered_eps = gaps.get("uncovered_entry_points", [])
     uncovered_zones = gaps.get("uncovered_zones", [])
     uncovered_threats = gaps.get("uncovered_threats", [])
+    uncovered_aps = gaps.get("uncovered_attack_patterns", [])
     attributions = gaps.get("gap_attributions", {})
     ep_attributions = attributions.get("entry_points", {})
     zone_attributions = attributions.get("zones", {})
     threat_attributions = attributions.get("threats", {})
+    ap_attributions = attributions.get("attack_patterns", {})
 
-    total_gaps = len(uncovered_eps) + len(uncovered_zones) + len(uncovered_threats)
+    total_gaps = len(uncovered_eps) + len(uncovered_zones) + len(uncovered_threats) + len(uncovered_aps)
 
     # Entry points card
     ep_cls, ep_label = _coverage_status(len(uncovered_eps))
@@ -3384,6 +3386,17 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     else:
         t_body = '<div class="coverage-empty">All in-scope threats have scenario coverage.</div>'
 
+    # Attack patterns card
+    ap_cls, ap_label = _coverage_status(len(uncovered_aps))
+    if uncovered_aps:
+        ap_items = "".join(
+            f"<li>{_esc(ap)}{_attribution_span(ap_attributions[ap]) if ap in ap_attributions else ''}</li>"
+            for ap in uncovered_aps
+        )
+        ap_body = f'<ul class="coverage-list">{ap_items}</ul>'
+    else:
+        ap_body = '<div class="coverage-empty">All in-scope attack patterns have scenario coverage.</div>'
+
     # Overall status badge
     if total_gaps == 0:
         badge_text = "Full Coverage"
@@ -3420,6 +3433,14 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
             <span class="coverage-status {t_cls}">{t_label}</span>
           </div>
           {t_body}
+        </div>
+
+        <div class="coverage-card">
+          <div class="coverage-card-header">
+            <span class="coverage-card-title">Attack Patterns</span>
+            <span class="coverage-status {ap_cls}">{ap_label}</span>
+          </div>
+          {ap_body}
         </div>
       </div>
     </div>
