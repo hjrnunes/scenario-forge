@@ -41,7 +41,28 @@ root:
 - Each node needs: id, label (action-oriented, max 120 chars), gate (AND/OR/LEAF), zone (one of: input, reasoning, tool_execution, memory, inter_agent).
 - LEAF nodes must have NO children. AND/OR nodes must have >= 2 children.
 - Add optional fields where appropriate:
-  - threat_id: OWASP Agentic Threat ID (T1-T17)
+  - threat_id: OWASP Agentic Threat ID. Use ONLY these values:
+      T1:  Memory Poisoning — corrupting short/long-term agent memory across sessions
+      T2:  Tool Misuse — manipulating the agent into abusing its authorized tools
+      T3:  Privilege Compromise — exploiting dynamic permission inheritance to escalate access
+      T4:  Resource Overload — exhausting compute, memory, or API quotas
+      T5:  Cascading Hallucination Attacks — false info propagating and amplifying across systems
+      T6:  Intent Breaking & Goal Manipulation — prompt injection or data that alters agent goals
+      T7:  Misaligned & Deceptive Behaviors — agent bypasses constraints to achieve objectives
+      T8:  Repudiation & Untraceability — operating without sufficient logging or audit trails
+      T9:  Identity Spoofing & Impersonation — impersonating agents, users, or services
+      T10: Overwhelming Human in the Loop — decision fatigue from excessive intervention requests
+      T11: Unexpected RCE & Code Attacks — exploiting AI-generated code execution
+      T12: Agent Communication Poisoning — injecting false data into inter-agent channels
+      T13: Rogue Agents — compromised agents infiltrating multi-agent architectures
+      T14: Human Attacks on Multi-Agent Systems — exploiting inter-agent delegation and trust
+      T15: Human Manipulation — using AI trust to mislead human decision-making
+      T16: Insecure Inter-Agent Protocol Abuse — abusing MCP/A2A protocol trust
+      T17: Supply Chain Compromise — malicious components in models, libraries, or tools
+    Prefer omitting threat_id over guessing. Only assign a threat_id when the node's
+    attack action clearly maps to one of the threat categories above. Do NOT default
+    to T1 for prompt injection — prompt injection that alters agent goals is T6, not T1.
+    T1 is strictly about corrupting the agent's persistent or session memory stores.
   - technique_id: see Technique ID Constraint above
   - maestro_layer: MAESTRO architectural layer (1-7)
   - control_point: the defensive control that should block or detect this step
