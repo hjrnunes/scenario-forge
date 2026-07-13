@@ -44,12 +44,14 @@ class GapAttributions:
     entry_points: dict[str, str] = field(default_factory=dict)
     zones: dict[str, str] = field(default_factory=dict)
     threats: dict[str, str] = field(default_factory=dict)
+    attack_patterns: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "entry_points": self.entry_points,
             "zones": self.zones,
             "threats": self.threats,
+            "attack_patterns": self.attack_patterns,
         }
 
 
@@ -60,6 +62,7 @@ class CoverageGaps:
     uncovered_entry_points: list[str] = field(default_factory=list)
     uncovered_zones: list[str] = field(default_factory=list)
     uncovered_threats: list[str] = field(default_factory=list)
+    uncovered_attack_patterns: list[str] = field(default_factory=list)
     gap_attributions: GapAttributions = field(default_factory=GapAttributions)
 
     @property
@@ -68,6 +71,7 @@ class CoverageGaps:
             self.uncovered_entry_points
             or self.uncovered_zones
             or self.uncovered_threats
+            or self.uncovered_attack_patterns
         )
 
     def to_dict(self) -> dict:
@@ -75,6 +79,7 @@ class CoverageGaps:
             "uncovered_entry_points": self.uncovered_entry_points,
             "uncovered_zones": self.uncovered_zones,
             "uncovered_threats": self.uncovered_threats,
+            "uncovered_attack_patterns": self.uncovered_attack_patterns,
         }
         # Only include attributions if there are any gaps.
         if self.has_gaps:
@@ -130,6 +135,7 @@ def analyze_coverage_gaps(
     used_entry_points_normalized: set[str] = set()
     traversed_zones: set[str] = set()
     covered_threat_ids: set[str] = set()
+    covered_attack_pattern_ids: set[str] = set()
 
     for envelope in scenarios:
         used_entry_points_normalized.add(
@@ -137,6 +143,7 @@ def analyze_coverage_gaps(
         )
         traversed_zones.update(envelope.narrative.zone_sequence)
         covered_threat_ids.update(envelope.faceting.taxonomy_chain.agentic_threat_ids)
+        covered_attack_pattern_ids.add(envelope.faceting.taxonomy_chain.scenario_seed)
 
     # 1. Uncovered entry points — compare using normalized strings.
     uncovered_entry_points = [
@@ -152,17 +159,25 @@ def analyze_coverage_gaps(
 
     # 3. Uncovered in-scope threats
     in_scope_threat_ids: set[str] = set()
+    in_scope_attack_pattern_ids: set[str] = set()
     for entry in threat_surface.entries:
         in_scope_threat_ids.update(entry.agentic_threat_ids)
+        in_scope_attack_pattern_ids.update(entry.attack_pattern_ids)
 
     uncovered_threats = sorted(
         t for t in in_scope_threat_ids if t not in covered_threat_ids
+    )
+
+    # 4. Uncovered in-scope attack patterns
+    uncovered_attack_patterns = sorted(
+        ap for ap in in_scope_attack_pattern_ids if ap not in covered_attack_pattern_ids
     )
 
     gaps = CoverageGaps(
         uncovered_entry_points=uncovered_entry_points,
         uncovered_zones=uncovered_zones,
         uncovered_threats=uncovered_threats,
+        uncovered_attack_patterns=uncovered_attack_patterns,
     )
 
     # Log warnings for any gaps found.
@@ -183,6 +198,12 @@ def analyze_coverage_gaps(
             "Coverage gap: %d in-scope threat(s) with zero scenarios: %s",
             len(gaps.uncovered_threats),
             gaps.uncovered_threats,
+        )
+    if gaps.uncovered_attack_patterns:
+        logger.warning(
+            "Coverage gap: %d attack pattern(s) with zero scenarios: %s",
+            len(gaps.uncovered_attack_patterns),
+            gaps.uncovered_attack_patterns,
         )
 
     return gaps

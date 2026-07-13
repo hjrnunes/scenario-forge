@@ -92,6 +92,7 @@ def _make_envelope(
     entry_point: str = "user prompts (zone 1)",
     zone_sequence: list[str] | None = None,
     agentic_threat_ids: list[str] | None = None,
+    scenario_seed: str = "AP-T1-01",
     summary: str = "The attacker exploits user prompts to inject malicious instructions.",
     step_actions: list[str] | None = None,
     actor_type: str | None = "adversarial-user",
@@ -147,7 +148,7 @@ def _make_envelope(
         taxonomy_chain=TaxonomyChain(
             owasp_llm_ids=["LLM01"],
             agentic_threat_ids=agentic_threat_ids,
-            scenario_seed="AP-T1-01",
+            scenario_seed=scenario_seed,
         ),
         capability_profile=CapabilityProfileRef(
             zones_traversed=zone_sequence,
@@ -193,7 +194,7 @@ def _make_envelope(
         )
 
     return ScenarioEnvelope(
-        scenario_id="AP-T1-01-abc123",
+        scenario_id=f"{scenario_seed}-abc123",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         actor_profile=actor_profile,
@@ -230,18 +231,31 @@ def _make_profile(
 
 def _make_threat_surface(
     threat_ids: list[list[str]] | None = None,
+    attack_pattern_ids: list[list[str]] | None = None,
 ) -> ThreatSurface:
-    """Build a ThreatSurface with the given threat IDs per entry."""
+    """Build a ThreatSurface with the given threat IDs per entry.
+
+    Args:
+        threat_ids: Per-entry lists of agentic threat IDs.
+        attack_pattern_ids: Per-entry lists of attack pattern IDs.
+            When ``None``, defaults to ``["AP-{t}-01" for t in ids]`` for
+            each entry.
+    """
     if threat_ids is None:
         threat_ids = [["T1", "T2"]]
     entries = []
     for i, ids in enumerate(threat_ids):
+        ap_ids = (
+            attack_pattern_ids[i]
+            if attack_pattern_ids is not None
+            else [f"AP-{t}-01" for t in ids]
+        )
         entries.append(
             ThreatSurfaceEntry(
                 risk_card=_make_risk_card_ref(f"risk-{i}"),
                 owasp_llm_ids=["LLM01"],
                 agentic_threat_ids=ids,
-                attack_pattern_ids=[f"AP-{t}-01" for t in ids],
+                attack_pattern_ids=ap_ids,
             )
         )
     return ThreatSurface(entries=entries, governance_only=[])
@@ -351,7 +365,7 @@ class TestCoverageGaps:
         assert set(gaps.uncovered_threats) == {"T2", "T3"}
 
     def test_empty_scenarios_flags_everything(self):
-        """With no scenarios, all entry points, zones, and threats are gaps."""
+        """With no scenarios, all entry points, zones, threats, and APs are gaps."""
         profile = _make_profile(
             entry_points=["ep-a (zone 1)"],
             zones_active=["input", "reasoning"],
@@ -362,6 +376,7 @@ class TestCoverageGaps:
         assert gaps.uncovered_entry_points == ["ep-a (zone 1)"]
         assert gaps.uncovered_zones == ["input", "reasoning"]
         assert gaps.uncovered_threats == ["T1"]
+        assert gaps.uncovered_attack_patterns == ["AP-T1-01"]
         assert gaps.has_gaps
 
     def test_zones_across_multiple_scenarios(self):
@@ -395,11 +410,13 @@ class TestCoverageGaps:
             uncovered_entry_points=["ep-a"],
             uncovered_zones=["tool_execution"],
             uncovered_threats=["T5"],
+            uncovered_attack_patterns=["AP-T5-01"],
         )
         d = gaps.to_dict()
         assert d["uncovered_entry_points"] == ["ep-a"]
         assert d["uncovered_zones"] == ["tool_execution"]
         assert d["uncovered_threats"] == ["T5"]
+        assert d["uncovered_attack_patterns"] == ["AP-T5-01"]
 
     def test_has_gaps_false_when_empty(self):
         """No gaps means has_gaps is False."""
@@ -417,6 +434,87 @@ class TestCoverageGaps:
     def test_has_gaps_true_for_threats(self):
         gaps = CoverageGaps(uncovered_threats=["T5"])
         assert gaps.has_gaps
+
+    def test_has_gaps_true_for_attack_patterns(self):
+        gaps = CoverageGaps(uncovered_attack_patterns=["AP-T5-01"])
+        assert gaps.has_gaps
+
+    # --- Per-attack-pattern coverage tests (scenario-forge-4kfz) ---
+
+    def test_all_attack_patterns_covered(self):
+        """When every in-scope AP has at least one scenario, no AP gaps."""
+        threat_surface = _make_threat_surface(
+            [["T1"]],
+            attack_pattern_ids=[["AP-T1-01", "AP-T1-02"]],
+        )
+        profile = _make_profile()
+        scenarios = [
+            _make_envelope(
+                agentic_threat_ids=["T1"], scenario_seed="AP-T1-01"
+            ),
+            _make_envelope(
+                agentic_threat_ids=["T1"], scenario_seed="AP-T1-02"
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert gaps.uncovered_attack_patterns == []
+
+    def test_some_attack_patterns_uncovered(self):
+        """APs with no scenario appear as gaps even when threat is covered."""
+        threat_surface = _make_threat_surface(
+            [["T9"]],
+            attack_pattern_ids=[["AP-T9-01", "AP-T9-03", "AP-T9-05"]],
+        )
+        profile = _make_profile()
+        # Only AP-T9-03 produces a scenario; AP-T9-01 and AP-T9-05 have none.
+        scenarios = [
+            _make_envelope(
+                agentic_threat_ids=["T9"], scenario_seed="AP-T9-03"
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        # T9 is covered at threat level (has at least one scenario)
+        assert gaps.uncovered_threats == []
+        # But two individual APs are uncovered
+        assert gaps.uncovered_attack_patterns == ["AP-T9-01", "AP-T9-05"]
+
+    def test_all_aps_uncovered_when_threat_fully_rejected(self):
+        """When all APs for a threat are rejected, both threat and AP gaps appear."""
+        threat_surface = _make_threat_surface(
+            [["T8"]],
+            attack_pattern_ids=[["AP-T8-01", "AP-T8-02", "AP-T8-03"]],
+        )
+        profile = _make_profile()
+        # No scenarios at all for T8
+        scenarios: list[ScenarioEnvelope] = []
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert gaps.uncovered_threats == ["T8"]
+        assert gaps.uncovered_attack_patterns == [
+            "AP-T8-01", "AP-T8-02", "AP-T8-03"
+        ]
+
+    def test_attack_patterns_across_multiple_entries(self):
+        """AP coverage checks span all threat surface entries."""
+        threat_surface = _make_threat_surface(
+            [["T1"], ["T2"]],
+            attack_pattern_ids=[["AP-T1-01"], ["AP-T2-01", "AP-T2-02"]],
+        )
+        profile = _make_profile()
+        scenarios = [
+            _make_envelope(
+                agentic_threat_ids=["T1"], scenario_seed="AP-T1-01"
+            ),
+            _make_envelope(
+                agentic_threat_ids=["T2"], scenario_seed="AP-T2-01"
+            ),
+        ]
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        assert gaps.uncovered_threats == []
+        assert gaps.uncovered_attack_patterns == ["AP-T2-02"]
 
 
 # ---------------------------------------------------------------------------

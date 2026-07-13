@@ -99,6 +99,14 @@ def _compute_gap_attributions(
     for env in scenarios:
         scenario_threat_ids.update(env.faceting.taxonomy_chain.agentic_threat_ids)
 
+    # Attack pattern lookup sets (seed_id IS the attack pattern ID).
+    seed_ap_ids: set[str] = {s.seed_id for s in seeds}
+    candidate_ap_ids: set[str] = {c.seed_id for c in candidates}
+    filtered_ap_ids: set[str] = {f.seed_id for f in filtered_seeds}
+    scenario_ap_ids: set[str] = {
+        env.faceting.taxonomy_chain.scenario_seed for env in scenarios
+    }
+
     # Normalized entry-point lookup sets.
     # Note: seeds don't carry entry points; candidates are the first stage
     # that pairs seeds with entry points.
@@ -126,6 +134,19 @@ def _compute_gap_attributions(
         else:
             # Filtered seed existed but no scenario was produced
             threat_attrs[tid] = "generation_failed"
+
+    # --- Attack pattern attribution ---
+    ap_attrs: dict[str, str] = {}
+    for ap_id in coverage_gaps.uncovered_attack_patterns:
+        if ap_id not in seed_ap_ids:
+            ap_attrs[ap_id] = "no_seed"
+        elif ap_id not in candidate_ap_ids:
+            ap_attrs[ap_id] = "no_candidate"
+        elif ap_id not in filtered_ap_ids:
+            ap_attrs[ap_id] = "rejected"
+        else:
+            # Filtered seed existed but no scenario was produced
+            ap_attrs[ap_id] = "generation_failed"
 
     # --- Entry-point attribution ---
     ep_attrs: dict[str, str] = {}
@@ -156,6 +177,7 @@ def _compute_gap_attributions(
         entry_points=ep_attrs,
         zones=zone_attrs,
         threats=threat_attrs,
+        attack_patterns=ap_attrs,
     )
 
 
