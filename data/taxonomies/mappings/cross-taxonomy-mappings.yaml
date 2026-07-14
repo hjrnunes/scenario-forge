@@ -682,13 +682,14 @@ t_to_atlas:
 
   - source: T3
     source_name: "Privilege Compromise"
-    targets: [AML.T0015, AML.T0053]
+    targets: [AML.T0015, AML.T0053, AML.T0073]
     target_names:
       - "LLM Capability Escalation"
       - "AI Agent Tool Invocation"
+      - "Impersonation"
     predicate: extends
     confidence: 0.8
-    notes: "via T→LLM→ATLAS: T3→LLM06→{AML.T0015,AML.T0053}. Privilege escalation amplified by dynamic role delegation in agentic systems."
+    notes: "via T→LLM→ATLAS: T3→LLM06→{AML.T0015,AML.T0053}. AML.T0073 added via SSSOM provenance (crosswalk-asi-atlas). Privilege escalation amplified by dynamic role delegation in agentic systems."
 
   - source: T4
     source_name: "Resource Overload"
@@ -785,24 +786,28 @@ t_to_atlas:
 
   - source: T8
     source_name: "Repudiation & Untraceability"
-    targets: [AML.T0056, AML.T0057]
+    targets: [AML.T0056, AML.T0057, AML.T0068, AML.T0081, AML.T0092]
     target_names:
       - "Extract LLM System Prompt"
       - "LLM Data Leakage"
+      - "LLM Prompt Obfuscation"
+      - "AI Agent Goal Manipulation"
+      - "Exploit Agentic Workflow Vulnerabilities"
     predicate: related_match
     confidence: 0.6
-    notes: "direct T→ATLAS. System prompt extraction enables evasion of logging controls; data leakage via unlogged channels supports repudiation. Weakest mapping — ATLAS lacks a dedicated auditability technique. No LLM predecessor."
+    notes: "direct T→ATLAS. System prompt extraction enables evasion of logging controls; data leakage via unlogged channels supports repudiation. AML.T0068, AML.T0081, AML.T0092 added via SSSOM provenance (crosswalk-asi-atlas). Weakest mapping — ATLAS lacks a dedicated auditability technique. No LLM predecessor."
 
   - source: T9
     source_name: "Identity Spoofing & Impersonation"
-    targets: [AML.T0021, AML.T0016, AML.T0024]
+    targets: [AML.T0021, AML.T0016, AML.T0024, AML.T0073]
     target_names:
       - "Establish Accounts"
       - "Obtain Capabilities"
       - "Exfiltration via AI Inference API"
+      - "Impersonation"
     predicate: related_match
     confidence: 0.8
-    notes: "direct T→ATLAS via ASI03 (Identity & Privilege Abuse). Agent identity spoofing maps to account establishment and capability acquisition techniques. No LLM predecessor."
+    notes: "direct T→ATLAS via ASI03 (Identity & Privilege Abuse). AML.T0073 added via SSSOM provenance (crosswalk-asi-atlas). Agent identity spoofing maps to account establishment and capability acquisition techniques. No LLM predecessor."
 
   - source: T10
     source_name: "Overwhelming Human in the Loop"
@@ -817,7 +822,7 @@ t_to_atlas:
 
   - source: T14
     source_name: "Human Attacks on Multi-Agent Systems"
-    targets: [AML.T0021, AML.T0016, AML.T0024, AML.T0060, AML.T0047, AML.T0049]
+    targets: [AML.T0021, AML.T0016, AML.T0024, AML.T0060, AML.T0047, AML.T0049, AML.T0073]
     target_names:
       - "Establish Accounts"
       - "Obtain Capabilities"
@@ -825,28 +830,31 @@ t_to_atlas:
       - "Publish Hallucinated Entities"
       - "AI-Enabled Product or Service"
       - "Spearphishing via AI"
+      - "Impersonation"
     predicate: related_match
     confidence: 0.65
-    notes: "direct T→ATLAS via ASI03 + ASI09. Human adversaries exploit inter-agent delegation using identity/privilege techniques and trust manipulation. No LLM predecessor."
+    notes: "direct T→ATLAS via ASI03 + ASI09. AML.T0073 added via SSSOM provenance (crosswalk-asi-atlas). Human adversaries exploit inter-agent delegation using identity/privilege techniques and trust manipulation. No LLM predecessor."
 
   - source: T15
     source_name: "Human Manipulation"
-    targets: [AML.T0060, AML.T0047, AML.T0049]
+    targets: [AML.T0060, AML.T0047, AML.T0049, AML.T0052]
     target_names:
       - "Publish Hallucinated Entities"
       - "AI-Enabled Product or Service"
       - "Spearphishing via AI"
+      - "Phishing"
     predicate: related_match
     confidence: 0.75
-    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). AI-mediated social engineering maps to hallucinated entity publication and spearphishing. No LLM predecessor."
+    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). AML.T0052 added via SSSOM provenance (crosswalk-asi-atlas). AI-mediated social engineering maps to hallucinated entity publication and spearphishing. No LLM predecessor."
 
   - source: T16
     source_name: "Insecure Inter-Agent Protocol Abuse"
-    targets: [AML.T0043, AML.T0021, AML.T0016]
+    targets: [AML.T0043, AML.T0021, AML.T0016, AML.T0073]
     target_names:
       - "Craft Adversarial Data"
       - "Establish Accounts"
       - "Obtain Capabilities"
+      - "Impersonation"
     predicate: related_match
     confidence: 0.7
-    notes: "direct T→ATLAS via ASI07 (Insecure Inter-Agent Communications). MCP/A2A protocol abuse maps to adversarial data crafting and agent account compromise. No LLM predecessor."
+    notes: "direct T→ATLAS via ASI07 (Insecure Inter-Agent Communications). AML.T0073 added via SSSOM provenance (crosswalk-asi-atlas). MCP/A2A protocol abuse maps to adversarial data crafting and agent account compromise. No LLM predecessor."
