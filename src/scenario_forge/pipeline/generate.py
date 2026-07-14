@@ -2384,8 +2384,6 @@ Root: {attack_tree.root.label} (gate={attack_tree.root.gate.value}, zone={attack
             else ""
         )
 
-    suggested_violation_category = "-".join(seed.threat_name.lower().split()[:3])
-
     user_prompt = render_prompt(
         "call3_user.j2",
         use_case=use_case,
@@ -2395,7 +2393,6 @@ Root: {attack_tree.root.label} (gate={attack_tree.root.gate.value}, zone={attack
         technique_framing=technique_framing_3,
         tree_section=tree_section,
         seed=seed,
-        suggested_violation_category=suggested_violation_category,
         scenario_tag=scenario_tag,
     )
 
