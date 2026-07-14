@@ -24,6 +24,7 @@ from scenario_forge.models.scenario import ACTOR_TYPES, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
     FilteredSeed,
+    cap_scenarios_per_pattern,
     expand_candidates,
     filter_candidates,
 )
@@ -357,6 +358,7 @@ def run_pipeline(
     api_key: str | None = None,
     model: str | None = None,
     max_techniques: int = 1,
+    max_scenarios_per_pattern: int | None = None,
     zones: str | None = None,
     eval: bool = True,
 ) -> PipelineResult:
@@ -373,6 +375,7 @@ def run_pipeline(
         base_url: LLM endpoint URL override.
         api_key: LLM API key override.
         model: LLM model name override.
+        max_scenarios_per_pattern: Cap on scenarios per attack pattern (None = no cap).
         eval: Whether to run deterministic eval metrics after generation (default True).
 
     Returns:
@@ -523,6 +526,23 @@ def run_pipeline(
         candidates_accepted,
         candidates_rejected,
     )
+
+    # Apply per-pattern cap if requested.
+    candidates_capped = 0
+    if max_scenarios_per_pattern is not None:
+        pre_cap_count = len(filtered_seeds)
+        filtered_seeds = cap_scenarios_per_pattern(
+            filtered_seeds, max_scenarios_per_pattern
+        )
+        candidates_capped = pre_cap_count - len(filtered_seeds)
+        if candidates_capped > 0:
+            logger.info(
+                "  Per-pattern cap (%d): %d -> %d filtered seeds (%d capped)",
+                max_scenarios_per_pattern,
+                pre_cap_count,
+                len(filtered_seeds),
+                candidates_capped,
+            )
 
     # --- Stage 4: Scenario Generation ---
     logger.info("[Stage 4] Generating %d scenarios...", len(filtered_seeds))
@@ -710,6 +730,9 @@ def run_pipeline(
     manifest["candidates_expanded"] = candidates_expanded
     manifest["candidates_accepted"] = candidates_accepted
     manifest["candidates_rejected"] = candidates_rejected
+    if max_scenarios_per_pattern is not None:
+        manifest["max_scenarios_per_pattern"] = max_scenarios_per_pattern
+        manifest["candidates_capped"] = candidates_capped
     manifest["scenarios_generated"] = len(scenarios)
     manifest["scenarios_failed"] = failed_count
     manifest_path.write_text(

@@ -11,7 +11,7 @@ import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import combinations
-from typing import Literal
+from typing import Literal, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -403,3 +403,70 @@ def filter_candidates(
     )
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Post-filter: cap scenarios per attack pattern
+# ---------------------------------------------------------------------------
+
+
+def cap_scenarios_per_pattern(
+    filtered_seeds: Sequence[FilteredSeed],
+    max_per_pattern: int,
+) -> list[FilteredSeed]:
+    """Cap the number of filtered seeds per attack pattern (seed_id).
+
+    When a group exceeds ``max_per_pattern``, seeds are prioritised by
+    entry-point diversity: one seed per unique ``pinned_entry_point`` is
+    selected first (in encounter order), then remaining slots are filled
+    from the leftovers (also in encounter order).
+
+    A warning is logged for every capped group.
+
+    Args:
+        filtered_seeds: Output of :func:`filter_candidates`.
+        max_per_pattern: Maximum number of seeds to keep per ``seed_id``.
+
+    Returns:
+        A new list of :class:`FilteredSeed` with groups truncated as needed.
+    """
+    if max_per_pattern < 1:
+        raise ValueError("max_per_pattern must be >= 1")
+
+    # Group by seed_id (attack pattern), preserving encounter order.
+    groups: dict[str, list[FilteredSeed]] = defaultdict(list)
+    for fs in filtered_seeds:
+        groups[fs.seed_id].append(fs)
+
+    result: list[FilteredSeed] = []
+    for seed_id, group in groups.items():
+        if len(group) <= max_per_pattern:
+            result.extend(group)
+            continue
+
+        # Prioritise entry-point diversity: pick first occurrence of each
+        # unique pinned_entry_point, then fill remaining slots.
+        seen_entry_points: set[str] = set()
+        diverse: list[FilteredSeed] = []
+        remainder: list[FilteredSeed] = []
+        for fs in group:
+            if fs.pinned_entry_point not in seen_entry_points:
+                seen_entry_points.add(fs.pinned_entry_point)
+                diverse.append(fs)
+            else:
+                remainder.append(fs)
+
+        selected = diverse[:max_per_pattern]
+        if len(selected) < max_per_pattern:
+            slots_left = max_per_pattern - len(selected)
+            selected.extend(remainder[:slots_left])
+
+        logger.warning(
+            "Capped %s from %d to %d scenarios (--max-scenarios-per-pattern)",
+            seed_id,
+            len(group),
+            len(selected),
+        )
+        result.extend(selected)
+
+    return result
