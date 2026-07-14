@@ -131,12 +131,17 @@ def generate(
         )
 
         typer.echo("\nPipeline complete.")
-        typer.echo(f"  Scenarios generated: {len(result.scenarios)}/{len(result.seeds)}")
+        typer.echo(
+            f"  Scenarios generated: {len(result.scenarios)}/{len(result.seeds)}"
+        )
         typer.echo(f"  Governance-only:     {result.governance_only_count}")
         typer.echo(f"  Output directory:    {output_dir}")
 
     except Exception as exc:
-        typer.echo(f"\nError: {exc}", err=True)
+        msg = f"\nError: {exc}"
+        if exc.__cause__:
+            msg += f"\n  Caused by: {exc.__cause__}"
+        typer.echo(msg, err=True)
         raise typer.Exit(code=1)
 
 
@@ -161,7 +166,10 @@ def report(
         typer.echo(f"\nReport written to {report_path}")
 
     except Exception as exc:
-        typer.echo(f"\nError: {exc}", err=True)
+        msg = f"\nError: {exc}"
+        if exc.__cause__:
+            msg += f"\n  Caused by: {exc.__cause__}"
+        typer.echo(msg, err=True)
         raise typer.Exit(code=1)
 
 
@@ -225,7 +233,10 @@ def profile(
         )
 
     except Exception as exc:
-        typer.echo(f"\nError: {exc}", err=True)
+        msg = f"\nError: {exc}"
+        if exc.__cause__:
+            msg += f"\n  Caused by: {exc.__cause__}"
+        typer.echo(msg, err=True)
         raise typer.Exit(code=1)
 
 
@@ -273,5 +284,8 @@ def eval_cmd(
         typer.echo(f"Scorecard written to {scorecard_path}")
 
     except Exception as exc:
-        typer.echo(f"\nError: {exc}", err=True)
+        msg = f"\nError: {exc}"
+        if exc.__cause__:
+            msg += f"\n  Caused by: {exc.__cause__}"
+        typer.echo(msg, err=True)
         raise typer.Exit(code=1)
