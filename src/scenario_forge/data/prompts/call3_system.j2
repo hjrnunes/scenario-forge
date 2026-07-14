@@ -82,13 +82,21 @@ Feature: Long-term Sentiment & Product Data Corruption via Memory Injection
 Use EXACTLY one of these tags for @violation-category based on the threat being modeled:
 - T1 (Uncontrolled Autonomy): @uncontrolled-autonomy
 - T2 (Insufficient Access Controls): @insufficient-access-controls
+- T3 (Privilege Compromise): @privilege-compromise
+- T4 (Resource Overload): @resource-overload
 - T5 (Memory & State Attacks): @memory-integrity-breach
+- T6 (Intent Breaking & Goal Manipulation): @goal-manipulation
 - T7 (Misaligned & Deceptive Behavior): @misaligned-and-deceptive-behavior
 - T8 (Repudiation & Untraceability): @repudiation-and-untraceability
 - T9 (Improper Output Handling): @improper-output-handling
 - T10 (HITL Bypass): @hitl-bypass
+- T11 (Unexpected RCE and Code Attacks): @unexpected-code-execution
+- T12 (Agent Communication Poisoning): @agent-communication-poisoning
+- T13 (Rogue Agents in Multi-Agent Systems): @rogue-agent
+- T14 (Human Attacks on Multi-Agent Systems): @human-attack-on-multi-agent
 - T15 (Human Manipulation): @human-manipulation
+- T16 (Insecure Inter-Agent Protocol Abuse): @insecure-inter-agent-protocol
 - T17 (Insufficient Logging): @insufficient-logging
 
-If the threat ID does not appear above, derive a kebab-case tag from the threat name.
+If the threat does not appear above, use the closest matching tag.
 Do NOT use ampersands (&), do NOT pluralize inconsistently, do NOT drop words.
