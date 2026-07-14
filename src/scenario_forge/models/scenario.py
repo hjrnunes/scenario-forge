@@ -379,6 +379,14 @@ class ScenarioEnvelope(BaseModel):
         ),
     )
 
+    legitimate_task: str | None = Field(
+        default=None,
+        description=(
+            "One-line description of the agent's legitimate task — "
+            "the honest job the system performs when not under attack."
+        ),
+    )
+
     # --- Actor Profile ---
 
     actor_profile: ActorProfile | None = Field(
