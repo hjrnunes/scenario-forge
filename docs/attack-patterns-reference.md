@@ -53,8 +53,8 @@ An attacker repeatedly reinforces a false operational rule in the agent's persis
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0020` -- Poison Training Data
 - ATLAS `AML.T0043` -- Craft Adversarial Data
+- ATLAS `AML.T0070` -- RAG Poisoning
 - LAAF: `L2`, `S3`
 
 ---
@@ -94,8 +94,8 @@ An attacker incrementally alters the agent's stored threat definitions or classi
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0020` -- Poison Training Data
 - ATLAS `AML.T0031` -- Erode AI Model Integrity
+- ATLAS `AML.T0070` -- RAG Poisoning
 - LAAF: `L2`, `T5`
 
 ---
@@ -141,7 +141,7 @@ An attacker crafts input that causes the agent to invoke a tool with inflated, m
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
+- ATLAS `AML.T0051.000` -- Direct
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `S4`, `S8`
 
@@ -162,7 +162,6 @@ An attacker manipulates the agent into chaining two or more authorized tools in 
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0048` -- External Harms
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `L1`, `L3`
@@ -249,7 +248,7 @@ An attacker injects adversarial instructions into user input or an external data
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
+- ATLAS `AML.T0051.001` -- Indirect
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `M3`, `S8`
 
@@ -273,7 +272,7 @@ An attacker manipulates the agent into requesting temporary elevated privileges 
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
+- ATLAS `AML.T0012` -- Valid Accounts
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `L1`, `M2`
 
@@ -293,7 +292,6 @@ An attacker leverages the agent's authorized access to one system to escalate pr
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `L1`, `S6`
 
@@ -313,8 +311,8 @@ An attacker exploits weak provisioning controls to instantiate an unauthorized a
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
+- ATLAS `AML.T0073` -- Impersonation
 - LAAF: `M1`, `M2`
 
 ---
@@ -420,7 +418,7 @@ An attacker injects subtly false information into an agent's responses, which th
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
+- ATLAS `AML.T0031` -- Erode AI Model Integrity
 - ATLAS `AML.T0060` -- Publish Hallucinated Entities
 - LAAF: `S3`, `T8`
 
@@ -441,7 +439,7 @@ An attacker introduces references to fictitious external endpoints into the agen
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0060` -- Publish Hallucinated Entities
 - LAAF: `M8`, `S8`
 
@@ -462,8 +460,8 @@ An attacker plants a false factual claim into an agent's reasoning context. As t
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
-- ATLAS `AML.T0060` -- Publish Hallucinated Entities
+- ATLAS `AML.T0031` -- Erode AI Model Integrity
+- ATLAS `AML.T0043` -- Craft Adversarial Data
 - LAAF: `L1`, `T8`
 
 ---
@@ -483,8 +481,8 @@ An attacker injects false quantitative reference data into an agent's context, c
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
-- ATLAS `AML.T0060` -- Publish Hallucinated Entities
+- ATLAS `AML.T0043` -- Craft Adversarial Data
+- ATLAS `AML.T0070` -- RAG Poisoning
 - LAAF: `M8`, `T5`
 
 ---
@@ -610,7 +608,7 @@ The agent encounters a situation where satisfying its primary objective conflict
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
+- ATLAS `AML.T0051.000` -- Direct
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0054` -- LLM Jailbreak
 - LAAF: `M3`, `S1`
@@ -630,7 +628,6 @@ The agent manipulates its own operational parameters or reporting metrics to res
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0054` -- LLM Jailbreak
 - LAAF: `M1`, `T1`
@@ -650,7 +647,6 @@ The agent encounters a verification control it cannot pass directly (e.g. a huma
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0054` -- LLM Jailbreak
 - LAAF: `M5`, `S3`
@@ -670,7 +666,6 @@ The agent interprets a human override, abort, or correction command as an obstac
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0054` -- LLM Jailbreak
 - LAAF: `M2`, `S1`
@@ -690,7 +685,6 @@ The agent has access to privileged or sensitive information through its operatio
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0054` -- LLM Jailbreak
 - LAAF: `L1`, `M4`
@@ -714,8 +708,8 @@ An attacker exploits gaps or weaknesses in an AI agent's logging infrastructure 
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0056` -- Extract LLM System Prompt
-- ATLAS `AML.T0057` -- LLM Data Leakage
+- ATLAS `AML.T0081` -- AI Agent Goal Manipulation
+- ATLAS `AML.T0092` -- Exploit Agentic Workflow Vulnerabilities
 - LAAF: `S6`, `T5`
 
 ---
@@ -733,8 +727,8 @@ An attacker designs interactions that cause the agent to take security-relevant 
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0056` -- Extract LLM System Prompt
-- ATLAS `AML.T0057` -- LLM Data Leakage
+- ATLAS `AML.T0068` -- LLM Prompt Obfuscation
+- ATLAS `AML.T0092` -- Exploit Agentic Workflow Vulnerabilities
 - LAAF: `S2`, `T1`
 
 ---
@@ -752,8 +746,8 @@ An agent operating in a regulated context produces incomplete or inconsistent au
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0056` -- Extract LLM System Prompt
-- ATLAS `AML.T0057` -- LLM Data Leakage
+- ATLAS `AML.T0081` -- AI Agent Goal Manipulation
+- ATLAS `AML.T0092` -- Exploit Agentic Workflow Vulnerabilities
 - LAAF: `M7`, `S6`
 
 ---
@@ -775,8 +769,8 @@ An attacker injects instructions into an agent that has delegated action capabil
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0021` -- Establish Accounts
-- ATLAS `AML.T0024` -- Exfiltration via AI Inference API
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
+- ATLAS `AML.T0073` -- Impersonation
 - LAAF: `M1`, `M2`
 
 ---
@@ -853,8 +847,8 @@ An attacker exploits weak authentication controls to perform sensitive or prohib
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0016` -- Obtain Capabilities
-- ATLAS `AML.T0024` -- Exfiltration via AI Inference API
+- ATLAS `AML.T0012` -- Valid Accounts
+- ATLAS `AML.T0073` -- Impersonation
 - LAAF: `EX1`, `M2`
 
 ---
@@ -897,8 +891,8 @@ An attacker compromises the interface between an AI agent and its human overseer
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
 - ATLAS `AML.T0060` -- Publish Hallucinated Entities
+- ATLAS `AML.T0067` -- LLM Trusted Output Components Manipulation
 - LAAF: `M5`, `S3`
 
 ---
@@ -917,8 +911,8 @@ An attacker overwhelms human reviewers with a high volume of approval requests, 
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0049` -- Exploit Public-Facing Application
-- ATLAS `AML.T0060` -- Publish Hallucinated Entities
+- ATLAS `AML.T0029` -- Denial of AI Service
+- ATLAS `AML.T0031` -- Erode AI Model Integrity
 - LAAF: `M5`, `T3`
 
 ---
@@ -937,8 +931,8 @@ An attacker gradually introduces subtle inconsistencies into an agent's outputs 
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
-- ATLAS `AML.T0049` -- Exploit Public-Facing Application
+- ATLAS `AML.T0029` -- Denial of AI Service
+- ATLAS `AML.T0031` -- Erode AI Model Integrity
 - LAAF: `M5`, `T5`
 
 ---
@@ -961,8 +955,8 @@ An attacker manipulates an agent with code-generation capabilities into producin
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0040` -- AI Model Inference API Access
 - ATLAS `AML.T0051.001` -- Indirect
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0067` -- LLM Trusted Output Components Manipulation
 - LAAF: `L3`, `S8`
 
@@ -982,8 +976,8 @@ An agent responsible for generating or modifying automation workflows is manipul
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0040` -- AI Model Inference API Access
-- ATLAS `AML.T0054` -- LLM Jailbreak
+- ATLAS `AML.T0051.001` -- Indirect
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - ATLAS `AML.T0067` -- LLM Trusted Output Components Manipulation
 - LAAF: `L3`, `T2`
 
@@ -1004,7 +998,6 @@ An attacker crafts natural-language input containing deliberate ambiguities that
 **Mapped Techniques:**
 
 - ATLAS `AML.T0051.000` -- Direct
-- ATLAS `AML.T0054` -- LLM Jailbreak
 - ATLAS `AML.T0067` -- LLM Trusted Output Components Manipulation
 - LAAF: `S4`, `S6`
 
@@ -1093,8 +1086,8 @@ An attacker exploits vulnerabilities in the transport or protocol layer of inter
 
 **Mapped Techniques:**
 
+- ATLAS `AML.T0029` -- Denial of AI Service
 - ATLAS `AML.T0043` -- Craft Adversarial Data
-- ATLAS `AML.T0071` -- False RAG Entry Injection
 - LAAF: `L5`, `S8`
 
 ---
@@ -1138,7 +1131,7 @@ A compromised or malicious agent exploits inter-agent trust mechanisms to inject
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
+- ATLAS `AML.T0051.001` -- Indirect
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `M2`, `M5`
 
@@ -1158,7 +1151,6 @@ A rogue agent manipulates the orchestration layer of a multi-agent system by rou
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
 - ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `L5`, `M3`
 
@@ -1178,8 +1170,7 @@ Multiple compromised agents simultaneously generate excessive task requests targ
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
-- ATLAS `AML.T0053` -- AI Agent Tool Invocation
+- ATLAS `AML.T0029` -- Denial of AI Service
 - LAAF: `L5`, `T1`
 
 ---
@@ -1198,8 +1189,8 @@ A single compromised agent embeds malicious logic within its reasoning chain out
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0015` -- Evade AI Model
-- ATLAS `AML.T0053` -- AI Agent Tool Invocation
+- ATLAS `AML.T0043` -- Craft Adversarial Data
+- ATLAS `AML.T0070` -- RAG Poisoning
 - LAAF: `L4`, `T8`
 
 ---
@@ -1222,9 +1213,8 @@ An attacker compromises the identity verification chain across multiple cooperat
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0016` -- Obtain Capabilities
-- ATLAS `AML.T0021` -- Establish Accounts
-- ATLAS `AML.T0060` -- Publish Hallucinated Entities
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
+- ATLAS `AML.T0073` -- Impersonation
 - LAAF: `L1`, `M2`
 
 ---
@@ -1243,8 +1233,8 @@ An attacker repeatedly escalates a request between interdependent agents, exploi
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0024` -- Exfiltration via AI Inference API
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
+- ATLAS `AML.T0029` -- Denial of AI Service
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `L1`, `L4`
 
 ---
@@ -1263,8 +1253,8 @@ An attacker floods a multi-agent system with continuous high-priority task reque
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0049` -- Exploit Public-Facing Application
-- ATLAS `AML.T0060` -- Publish Hallucinated Entities
+- ATLAS `AML.T0029` -- Denial of AI Service
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `T3`, `T8`
 
 ---
@@ -1283,9 +1273,8 @@ An attacker exploits inconsistencies between multiple agents that each perform p
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0016` -- Obtain Capabilities
-- ATLAS `AML.T0021` -- Establish Accounts
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
+- ATLAS `AML.T0073` -- Impersonation
 - LAAF: `L3`, `S6`
 
 ---
@@ -1309,8 +1298,8 @@ An attacker uses indirect prompt injection to manipulate an AI assistant into su
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0047` -- AI-Enabled Product or Service
-- ATLAS `AML.T0049` -- Exploit Public-Facing Application
+- ATLAS `AML.T0051.001` -- Indirect
+- ATLAS `AML.T0067` -- LLM Trusted Output Components Manipulation
 - LAAF: `M2`, `M5`
 
 ---
@@ -1330,8 +1319,8 @@ An attacker compromises an AI assistant's output generation through indirect pro
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0049` -- Exploit Public-Facing Application
-- ATLAS `AML.T0060` -- Publish Hallucinated Entities
+- ATLAS `AML.T0051.001` -- Indirect
+- ATLAS `AML.T0052` -- Phishing
 - LAAF: `EX1`, `M5`
 
 ---
@@ -1354,8 +1343,8 @@ An attacker crafts a malicious agent or endpoint that participates in an inter-a
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0021` -- Establish Accounts
-- ATLAS `AML.T0043` -- Craft Adversarial Data
+- ATLAS `AML.T0051.001` -- Indirect
+- ATLAS `AML.T0073` -- Impersonation
 - LAAF: `M3`, `S1`
 
 ---
@@ -1374,8 +1363,8 @@ An attacker intercepts or crafts a server-side response within an inter-agent pr
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0016` -- Obtain Capabilities
 - ATLAS `AML.T0043` -- Craft Adversarial Data
+- ATLAS `AML.T0051.001` -- Indirect
 - LAAF: `L4`, `S8`
 
 ---
@@ -1394,8 +1383,8 @@ An attacker embeds misleading, overly broad, or adversarially crafted tool descr
 
 **Mapped Techniques:**
 
-- ATLAS `AML.T0021` -- Establish Accounts
 - ATLAS `AML.T0043` -- Craft Adversarial Data
+- ATLAS `AML.T0070` -- RAG Poisoning
 - LAAF: `M3`, `S8`
 
 ---
@@ -1440,7 +1429,7 @@ An autonomous code-generating agent, operating without adequate environment sepa
 
 - ATLAS `AML.T0010` -- AI Supply Chain Compromise
 - ATLAS `AML.T0048` -- External Harms
-- ATLAS `AML.T0056` -- Extract LLM System Prompt
+- ATLAS `AML.T0053` -- AI Agent Tool Invocation
 - LAAF: `S1`, `T1`
 
 ---
