@@ -52,6 +52,7 @@ from scenario_forge.pipeline.coverage import (
     write_coverage_report,
 )
 from scenario_forge.pipeline.profile import infer_capability_profile
+from scenario_forge.pipeline.validation import validate_phantom_capabilities
 from scenario_forge.prompts import hash_prompt_templates
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
@@ -424,7 +425,9 @@ def run_pipeline(
         requested = [z.strip() for z in zones.split(",")]
         invalid = [z for z in requested if z not in ZONE_NAMES]
         if invalid:
-            raise ValueError(f"Unknown zone(s): {', '.join(invalid)}. Valid: {', '.join(ZONE_NAMES)}")
+            raise ValueError(
+                f"Unknown zone(s): {', '.join(invalid)}. Valid: {', '.join(ZONE_NAMES)}"
+            )
         filtered = [z for z in requested if z in profile.zones_active]
         updates: dict = {"zones_active": filtered}
         if "memory" not in filtered:
@@ -598,7 +601,9 @@ def run_pipeline(
         # Compute actor type diversity hints.
         # Pick the least-used actor type as preferred; exclude types over
         # their fair share (ceil(total_seeds / num_actor_types)).
-        actor_fair_share = math.ceil(total_seeds / num_actor_types) if total_seeds else 1
+        actor_fair_share = (
+            math.ceil(total_seeds / num_actor_types) if total_seeds else 1
+        )
         preferred_actor = min(ACTOR_TYPES, key=lambda t: actor_type_usage.get(t, 0))
         excluded_actors = [
             t for t in ACTOR_TYPES if actor_type_usage.get(t, 0) > actor_fair_share
@@ -694,6 +699,30 @@ def run_pipeline(
     if generation_notes:
         logger.info("  %d note(s) recorded", len(generation_notes))
 
+    # --- Phantom Capability Validation Pass ---
+    logger.info("[Validation] Checking for phantom capabilities...")
+    validation_result = validate_phantom_capabilities(scenarios, profile)
+    if validation_result.flagged_count:
+        for flagged_scenario, violations in validation_result.flagged_scenarios:
+            for v in violations:
+                logger.warning(
+                    "  Phantom capability in %s step %d (%s): [%s] %s",
+                    flagged_scenario.scenario_id,
+                    v.step_number,
+                    v.field,
+                    v.category,
+                    v.matched_text,
+                )
+        logger.info(
+            "  %d/%d scenarios passed validation, %d flagged and dropped",
+            validation_result.valid_count,
+            len(scenarios),
+            validation_result.flagged_count,
+        )
+        scenarios = validation_result.valid_scenarios
+    else:
+        logger.info("  All %d scenarios passed validation", len(scenarios))
+
     # --- Coverage Remediation Pass ---
     # Check for uncovered entry points and generate additional scenarios
     # to fill gaps, before running the final coverage analysis.
@@ -720,7 +749,11 @@ def run_pipeline(
     # --- Funnel-stage attribution for coverage gaps ---
     if coverage_gaps.has_gaps:
         coverage_gaps.gap_attributions = _compute_gap_attributions(
-            coverage_gaps, seeds, candidates, filtered_seeds, scenarios,
+            coverage_gaps,
+            seeds,
+            candidates,
+            filtered_seeds,
+            scenarios,
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
@@ -735,6 +768,10 @@ def run_pipeline(
         manifest["candidates_capped"] = candidates_capped
     manifest["scenarios_generated"] = len(scenarios)
     manifest["scenarios_failed"] = failed_count
+    manifest["phantom_validation"] = {
+        "flagged_count": validation_result.flagged_count,
+        "violation_categories": validation_result.violation_categories,
+    }
     manifest_path.write_text(
         yaml.dump(manifest, default_flow_style=False, sort_keys=False),
         encoding="utf-8",
@@ -761,7 +798,10 @@ def run_pipeline(
         except Exception as exc:
             logger.warning("Eval scorecard generation failed: %s", exc)
     else:
-        logger.info("[Eval] Skipped (--no-eval). Run 'scenario-forge eval --output-dir %s' to generate.", output_dir)
+        logger.info(
+            "[Eval] Skipped (--no-eval). Run 'scenario-forge eval --output-dir %s' to generate.",
+            output_dir,
+        )
 
     # --- Auto-generate HTML report ---
     try:

@@ -1,0 +1,601 @@
+"""Tests for phantom capability validation pass.
+
+Covers:
+- Clean scenarios pass validation
+- Privilege escalation detection (flagged when profile lacks admin KC)
+- Code execution detection (flagged when KC6.2.2/KC6.5 absent)
+- Credential exposure detection (flagged when KC6.1.2 absent)
+- No false positives when profile declares relevant capabilities
+- Integration point in runner.py
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from scenario_forge.models.attack_tree import (
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+)
+from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.scenario import (
+    ArchitectureMatch,
+    AttackComplexity,
+    CallMetadata,
+    CallName,
+    CapabilityProfileRef,
+    FacetingMetadata,
+    GenerationMetadata,
+    LikelihoodLevel,
+    NarrativeLayer,
+    NarrativeStep,
+    Priority,
+    PrioritySignals,
+    RiskCardRef,
+    ScenarioEnvelope,
+    SeverityLevel,
+    StructuralExposureSignal,
+    TaxonomyChain,
+    TechniqueMaturity,
+)
+from scenario_forge.pipeline.validation import (
+    validate_phantom_capabilities,
+)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures: helpers to build minimal valid objects
+# ---------------------------------------------------------------------------
+
+
+def _make_envelope(
+    step_actions: list[str] | None = None,
+    step_effects: list[str] | None = None,
+    scenario_id: str = "AP-T1-01-abc123",
+) -> ScenarioEnvelope:
+    """Build a minimal valid ScenarioEnvelope for testing."""
+    if step_actions is None:
+        step_actions = ["I craft a malicious prompt to inject commands."]
+    if step_effects is None:
+        step_effects = ["The system processes the input."] * len(step_actions)
+
+    # Ensure actions and effects are the same length
+    while len(step_effects) < len(step_actions):
+        step_effects.append("The system processes the input.")
+
+    steps = [
+        NarrativeStep(
+            step_number=i + 1,
+            zone="input",
+            action=action,
+            effect=step_effects[i],
+        )
+        for i, action in enumerate(step_actions)
+    ]
+
+    narrative = NarrativeLayer(
+        title="Test Scenario",
+        summary="Test summary.",
+        entry_point="user prompts (zone 1)",
+        zone_sequence=["input", "reasoning"],
+        steps=steps,
+    )
+
+    attack_tree = AttackTree(
+        id="tree-AP-T1-01",
+        seed_id="AP-T1-01",
+        goal="Compromise the system",
+        root=AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                ),
+                AttackTreeNode(
+                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                ),
+            ],
+        ),
+    )
+
+    faceting = FacetingMetadata(
+        risk_card=RiskCardRef(
+            risk_id="test-risk",
+            risk_name="Test Risk",
+            risk_description="A test risk.",
+            taxonomy="ibm-risk-atlas",
+            confidence=0.9,
+            grounding_confidence="high",
+        ),
+        taxonomy_chain=TaxonomyChain(
+            owasp_llm_ids=["LLM01"],
+            agentic_threat_ids=["T1"],
+            scenario_seed="AP-T1-01",
+        ),
+        capability_profile=CapabilityProfileRef(
+            zones_traversed=["input", "reasoning"],
+            architecture_match=ArchitectureMatch.explicit,
+            entry_point="user prompts (zone 1)",
+        ),
+        maestro_layers=[1, 2],
+    )
+
+    priority = Priority(
+        composite=0.7,
+        signals=PrioritySignals(
+            technique_maturity=TechniqueMaturity.feasible,
+            risk_impact=SeverityLevel.high,
+            risk_likelihood=LikelihoodLevel.medium,
+            attack_complexity=AttackComplexity.medium,
+            architecture_match=ArchitectureMatch.explicit,
+            structural_exposure=StructuralExposureSignal.none,
+        ),
+    )
+
+    generation = GenerationMetadata(
+        model="test-model",
+        call_metadata=[
+            CallMetadata(
+                call=CallName.narrative,
+                prompt_tokens=100,
+                completion_tokens=200,
+                duration_ms=1000,
+            ),
+        ],
+    )
+
+    return ScenarioEnvelope(
+        scenario_id=scenario_id,
+        generated_at=datetime.now(),
+        generator_version="0.1.0",
+        narrative=narrative,
+        attack_tree=attack_tree,
+        behavior_spec={},
+        faceting=faceting,
+        priority=priority,
+        generation=generation,
+    )
+
+
+def _make_profile(
+    kc_subcodes: list[str] | None = None,
+    entry_points: list[str] | None = None,
+) -> CapabilityProfile:
+    """Build a minimal CapabilityProfile for testing."""
+    if entry_points is None:
+        entry_points = ["user prompts (zone 1)"]
+    return CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        has_persistent_memory=False,
+        multi_agent=False,
+        hitl=False,
+        entry_points=entry_points,
+        confidence="high",
+        kc_subcodes=kc_subcodes or [],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: clean scenarios pass validation
+# ---------------------------------------------------------------------------
+
+
+class TestCleanScenariosPass:
+    """Scenarios with benign narrative steps should pass validation."""
+
+    def test_benign_steps_pass(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=["I send a carefully crafted prompt."],
+                step_effects=["The system responds with sensitive data."],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+        assert result.valid_scenarios == scenarios
+
+    def test_multiple_clean_scenarios(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=["I probe the system with edge-case inputs."],
+                scenario_id="s1",
+            ),
+            _make_envelope(
+                step_actions=["I manipulate the conversation context."],
+                scenario_id="s2",
+            ),
+            _make_envelope(
+                step_actions=["I exploit a reasoning flaw."],
+                scenario_id="s3",
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 3
+        assert result.flagged_count == 0
+
+    def test_empty_scenarios_list(self) -> None:
+        result = validate_phantom_capabilities([], _make_profile())
+        assert result.valid_count == 0
+        assert result.flagged_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: privilege escalation detection
+# ---------------------------------------------------------------------------
+
+
+class TestPrivilegeEscalation:
+    """Scenarios referencing privilege escalation should be flagged
+    when the profile lacks admin/role-management capabilities."""
+
+    def test_elevated_privileges_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I escalate privileges to gain admin access to the system."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        assert result.valid_count == 0
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "privilege_escalation" for v in violations)
+
+    def test_tiered_privilege_levels_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=["I leverage tiered privilege tokens to move laterally."],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "privilege_escalation" for v in violations)
+
+    def test_role_escalation_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=["I perform role escalation to obtain elevated access."],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_admin_token_in_effect_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=["I probe the system."],
+                step_effects=[
+                    "The system issues an elevated token granting admin access."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.field == "effect" for v in violations)
+
+    def test_privilege_escalation_passes_with_admin_entry_point(self) -> None:
+        """No false positive when profile has admin entry points."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I escalate privileges to gain admin access to the system."
+                ],
+            ),
+        ]
+        profile = _make_profile(
+            entry_points=["user prompts (zone 1)", "admin console (zone 2)"],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+    def test_privilege_escalation_passes_with_kc64(self) -> None:
+        """No false positive when profile has KC6.4 (identity/auth management)."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I escalate privileges to gain admin access to the system."
+                ],
+            ),
+        ]
+        profile = _make_profile(kc_subcodes=["KC6.4"])
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: code execution detection
+# ---------------------------------------------------------------------------
+
+
+class TestCodeExecution:
+    """Scenarios referencing code execution should be flagged
+    when KC6.2.2/KC6.5 are absent from the profile."""
+
+    def test_python_script_execution_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I trick the assistant into generating a Python script "
+                    "that exfiltrates data."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_shell_command_execution_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=["The agent executes shell commands on the host system."],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_arbitrary_code_execution_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system executes arbitrary code provided in the prompt."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_code_execution_passes_with_kc622(self) -> None:
+        """No false positive when profile has KC6.2.2 (code execution)."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I trick the assistant into generating a Python script "
+                    "that exfiltrates data."
+                ],
+            ),
+        ]
+        profile = _make_profile(kc_subcodes=["KC6.2.2"])
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+    def test_code_execution_passes_with_kc65(self) -> None:
+        """No false positive when profile has KC6.5 (filesystem operations)."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I trick the assistant into generating a Python script "
+                    "that exfiltrates data."
+                ],
+            ),
+        ]
+        profile = _make_profile(kc_subcodes=["KC6.5"])
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+    def test_runs_python_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=["The assistant runs the python payload on the server."],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: credential exposure detection
+# ---------------------------------------------------------------------------
+
+
+class TestCredentialExposure:
+    """Scenarios referencing credential exposure should be flagged
+    when the profile lacks API/HTTP capabilities."""
+
+    def test_auth_header_exposure_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The LLM outputs the authorization header containing "
+                    "the bearer token in its response."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "credential_exposure" for v in violations)
+
+    def test_api_key_leak_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=["The system exposes the API key in the chat output."],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_infrastructure_credential_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I extract infrastructure credentials from the model output."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_credential_exposure_passes_with_kc612(self) -> None:
+        """No false positive when profile has KC6.1.2 (extensive API access)."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The LLM outputs the authorization header containing "
+                    "the bearer token in its response."
+                ],
+            ),
+        ]
+        profile = _make_profile(kc_subcodes=["KC6.1.2"])
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+    def test_credential_exposure_passes_with_api_entry_point(self) -> None:
+        """No false positive when profile has API entry points."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The LLM outputs the authorization header containing "
+                    "the bearer token in its response."
+                ],
+            ),
+        ]
+        profile = _make_profile(
+            entry_points=["user prompts (zone 1)", "API gateway (zone 1)"],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: mixed scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestMixedScenarios:
+    """Test batches with a mix of valid and invalid scenarios."""
+
+    def test_mixed_batch_separates_valid_from_flagged(self) -> None:
+        clean = _make_envelope(
+            step_actions=["I craft a carefully designed prompt."],
+            scenario_id="clean-1",
+        )
+        phantom = _make_envelope(
+            step_actions=[
+                "I escalate privileges to gain elevated access to the admin role."
+            ],
+            scenario_id="phantom-1",
+        )
+        profile = _make_profile()
+        result = validate_phantom_capabilities([clean, phantom], profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 1
+        assert result.valid_scenarios[0].scenario_id == "clean-1"
+        assert result.flagged_scenarios[0][0].scenario_id == "phantom-1"
+
+    def test_multiple_violations_in_single_scenario(self) -> None:
+        """A scenario with multiple phantom categories gets all violations."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I escalate privileges to gain admin access.",
+                    "I trick the system into generating a Python script.",
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        categories = {v.category for v in violations}
+        assert "privilege_escalation" in categories
+        assert "code_execution" in categories
+
+    def test_violation_categories_property(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=["I escalate privileges to gain admin access."],
+                scenario_id="s1",
+            ),
+            _make_envelope(
+                step_effects=["The system exposes the API key in plain text."],
+                scenario_id="s2",
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 2
+        cats = result.violation_categories
+        assert "credential_exposure" in cats
+        assert "privilege_escalation" in cats
+
+
+# ---------------------------------------------------------------------------
+# Tests: runner.py integration
+# ---------------------------------------------------------------------------
+
+
+class TestRunnerIntegration:
+    """Verify that validate_phantom_capabilities is wired into runner.py."""
+
+    def test_validation_import_exists(self) -> None:
+        """The runner imports validate_phantom_capabilities."""
+        from scenario_forge.pipeline import runner
+
+        assert hasattr(runner, "validate_phantom_capabilities")
+
+    def test_validation_called_in_pipeline(self) -> None:
+        """validate_phantom_capabilities is called after generation
+        and before coverage remediation in run_pipeline()."""
+        import inspect
+
+        from scenario_forge.pipeline import runner
+
+        source = inspect.getsource(runner.run_pipeline)
+        # Validation call should appear in the source
+        assert "validate_phantom_capabilities" in source
+        # Validation should appear before coverage remediation
+        val_pos = source.index("validate_phantom_capabilities")
+        cov_pos = source.index("Coverage Remediation Pass")
+        assert val_pos < cov_pos, (
+            "Validation pass should run before coverage remediation"
+        )
