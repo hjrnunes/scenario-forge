@@ -26,7 +26,10 @@ from typing import Any, Optional
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from scenario_forge.data.atlas import ATLAS_TECHNIQUE_DESCRIPTIONS, ATLAS_TECHNIQUE_NAMES
+from scenario_forge.data.atlas import (
+    ATLAS_TECHNIQUE_DESCRIPTIONS,
+    ATLAS_TECHNIQUE_NAMES,
+)
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.prompts import render_prompt
 from scenario_forge.models.attack_tree import (
@@ -195,8 +198,7 @@ def _enforce_zones_narrative(
     removed_all = removed_zs | removed_step_zones
     if removed_all:
         logger.warning(
-            "Stripped disallowed zones from narrative: %s "
-            "(zones_active=%s)",
+            "Stripped disallowed zones from narrative: %s (zones_active=%s)",
             sorted(removed_all),
             zones_active,
         )
@@ -208,7 +210,8 @@ def _enforce_zones_narrative(
         logger.warning(
             "Zone enforcement would leave narrative with empty %s; "
             "keeping original narrative unchanged (zones_active=%s)",
-            "zone_sequence and steps" if (not filtered_zs and not filtered_steps)
+            "zone_sequence and steps"
+            if (not filtered_zs and not filtered_steps)
             else ("zone_sequence" if not filtered_zs else "steps"),
             zones_active,
         )
@@ -341,8 +344,7 @@ def _enforce_zones_attack_tree(
         return tree
 
     logger.warning(
-        "Stripped disallowed zones from attack tree: %s "
-        "(zones_active=%s)",
+        "Stripped disallowed zones from attack tree: %s (zones_active=%s)",
         sorted(disallowed),
         zones_active,
     )
@@ -1325,6 +1327,26 @@ def _call_log_entry_error(
     }
 
 
+def _derive_zone_sequence(steps: list[Call1Step] | list[NarrativeStep]) -> list[str]:
+    """Derive zone_sequence from step zone fields.
+
+    Preserves traversal order including revisitations (non-consecutive
+    duplicates), but collapses consecutive duplicate zones.
+
+    Example:
+        [input, input, reasoning, reasoning, tool_execution]
+        -> [input, reasoning, tool_execution]
+
+        [input, reasoning, tool_execution, reasoning]
+        -> [input, reasoning, tool_execution, reasoning]  (revisit preserved)
+    """
+    sequence: list[str] = []
+    for step in steps:
+        if not sequence or sequence[-1] != step.zone:
+            sequence.append(step.zone)
+    return sequence
+
+
 def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
     steps = [
         NarrativeStep(
@@ -1336,11 +1358,14 @@ def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
         )
         for s in resp.steps
     ]
+    # Derive zone_sequence from step zones rather than using the LLM's
+    # zone_sequence field, which tends to collapse return traversals.
+    zone_sequence = _derive_zone_sequence(resp.steps)
     return NarrativeLayer(
         title=resp.title,
         summary=resp.summary,
         entry_point=resp.entry_point,
-        zone_sequence=resp.zone_sequence,
+        zone_sequence=zone_sequence,
         steps=steps,
     )
 
@@ -2438,7 +2463,9 @@ def _assemble_envelope(
     pinned_technique_ids: list[str] | None = None,
     pinned_entry_point: str | None = None,
 ) -> ScenarioEnvelope:
-    scenario_hash = _scenario_hash(seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point)
+    scenario_hash = _scenario_hash(
+        seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point
+    )
     scenario_id = f"{seed.seed_id}-{scenario_hash}"
 
     maestro_layers: set[int] = set()
@@ -2566,7 +2593,9 @@ def generate_scenario(
             context in prompts.
     """
     call_metas: list[CallMetadata] = []
-    scenario_hash = _scenario_hash(seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point)
+    scenario_hash = _scenario_hash(
+        seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point
+    )
 
     # Partial scenario_id for error logging (before envelope is assembled).
     partial_scenario_id = f"{seed.seed_id}-{scenario_hash}"
@@ -2591,7 +2620,9 @@ def generate_scenario(
         )
     except Exception as exc:
         call_log_entries.append(
-            _call_log_entry_error(CallName.actor_profile, None, partial_scenario_id, str(exc))
+            _call_log_entry_error(
+                CallName.actor_profile, None, partial_scenario_id, str(exc)
+            )
         )
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
 
@@ -2626,7 +2657,9 @@ def generate_scenario(
         )
     except Exception as exc:
         call_log_entries.append(
-            _call_log_entry_error(CallName.narrative, None, partial_scenario_id, str(exc))
+            _call_log_entry_error(
+                CallName.narrative, None, partial_scenario_id, str(exc)
+            )
         )
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
 
@@ -2649,7 +2682,9 @@ def generate_scenario(
         )
     except Exception as exc:
         call_log_entries.append(
-            _call_log_entry_error(CallName.attack_tree, None, partial_scenario_id, str(exc))
+            _call_log_entry_error(
+                CallName.attack_tree, None, partial_scenario_id, str(exc)
+            )
         )
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
 
@@ -2676,7 +2711,9 @@ def generate_scenario(
         )
     except Exception as exc:
         call_log_entries.append(
-            _call_log_entry_error(CallName.behavior_spec, None, partial_scenario_id, str(exc))
+            _call_log_entry_error(
+                CallName.behavior_spec, None, partial_scenario_id, str(exc)
+            )
         )
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
 
