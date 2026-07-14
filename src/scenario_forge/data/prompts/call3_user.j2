@@ -23,6 +23,6 @@ Use active zones to determine which Background Given steps to include. Only refe
 - Attack pattern: {{ seed.attack_pattern_name }}
 - Threat category: {{ seed.threat_name }} — {{ seed.threat_description }}
 - Pattern ID: {{ seed.seed_id }}
-- Suggested violation category: derive a kebab-case tag from the threat name (e.g. "{{ suggested_violation_category }}")
+- Threat ID: {{ seed.threat_id }}
 
 Produce the Gherkin .feature file with @id:{{ scenario_tag }}.
