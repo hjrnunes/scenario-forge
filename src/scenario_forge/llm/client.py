@@ -34,7 +34,9 @@ class LLMClient:
         max_completion_tokens: int | None = None,
         temperature: float | None = None,
     ) -> None:
-        self.base_url = base_url or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL", "")
+        self.base_url = (
+            base_url or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL") or None
+        )
         self.api_key = api_key or os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
         self.model = model or os.environ.get(
             "SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it"
@@ -50,6 +52,12 @@ class LLMClient:
             self.temperature = float(env_temp)
         else:
             self.temperature = self.DEFAULT_TEMPERATURE
+
+        if not self.base_url:
+            raise ValueError(
+                "No LLM endpoint configured."
+                " Set SCENARIO_FORGE_MODEL_BASE_URL or pass --base-url."
+            )
         self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
     def complete(

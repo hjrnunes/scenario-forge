@@ -131,7 +131,9 @@ def generate(
         )
 
         typer.echo("\nPipeline complete.")
-        typer.echo(f"  Scenarios generated: {len(result.scenarios)}/{len(result.seeds)}")
+        typer.echo(
+            f"  Scenarios generated: {len(result.scenarios)}/{len(result.seeds)}"
+        )
         typer.echo(f"  Governance-only:     {result.governance_only_count}")
         typer.echo(f"  Output directory:    {output_dir}")
 
