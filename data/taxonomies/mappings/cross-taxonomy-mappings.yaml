@@ -811,14 +811,16 @@ t_to_atlas:
 
   - source: T10
     source_name: "Overwhelming Human in the Loop"
-    targets: [AML.T0060, AML.T0047, AML.T0049]
+    targets: [AML.T0060, AML.T0047, AML.T0049, AML.T0029, AML.T0031]
     target_names:
       - "Publish Hallucinated Entities"
       - "AI-Enabled Product or Service"
       - "Spearphishing via AI"
+      - "Denial of AI Service"
+      - "Erode AI Model Integrity"
     predicate: related_match
     confidence: 0.7
-    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). HITL overwhelm leverages hallucinated content and AI-generated persuasion to induce decision fatigue. No LLM predecessor."
+    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). AML.T0029 and AML.T0031 added via SSSOM provenance (attack-patterns-agentic-only): approval-request flooding parallels denial-of-service mechanisms, and incremental inconsistency injection erodes model integrity to degrade human oversight. HITL overwhelm leverages hallucinated content and AI-generated persuasion to induce decision fatigue. No LLM predecessor."
 
   - source: T14
     source_name: "Human Attacks on Multi-Agent Systems"
@@ -837,15 +839,17 @@ t_to_atlas:
 
   - source: T15
     source_name: "Human Manipulation"
-    targets: [AML.T0060, AML.T0047, AML.T0049, AML.T0052]
+    targets: [AML.T0060, AML.T0047, AML.T0049, AML.T0052, AML.T0051.001, AML.T0067]
     target_names:
       - "Publish Hallucinated Entities"
       - "AI-Enabled Product or Service"
       - "Spearphishing via AI"
       - "Phishing"
+      - "LLM Prompt Injection: Indirect"
+      - "LLM Trusted Output Components Manipulation"
     predicate: related_match
     confidence: 0.75
-    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). AML.T0052 added via SSSOM provenance (crosswalk-asi-atlas). AI-mediated social engineering maps to hallucinated entity publication and spearphishing. No LLM predecessor."
+    notes: "direct T→ATLAS via ASI09 (Human-Agent Trust Exploitation). AML.T0052 added via SSSOM provenance (crosswalk-asi-atlas). AML.T0051.001 and AML.T0067 added via SSSOM provenance (attack-patterns-comms-human-supply): indirect prompt injection enables trust-exploiting content substitution, and trusted output manipulation is the core ATLAS technique for AI-mediated social engineering. No LLM predecessor."
 
   - source: T16
     source_name: "Insecure Inter-Agent Protocol Abuse"
