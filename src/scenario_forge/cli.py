@@ -88,6 +88,10 @@ def generate(
         1,
         help="Max ATLAS techniques per candidate combo (1=single, 2=pairs+singles, etc.).",
     ),
+    max_scenarios_per_pattern: int | None = typer.Option(
+        None,
+        help="Max scenarios per attack pattern. Caps popular patterns; prioritises entry-point diversity.",
+    ),
     zones: str | None = typer.Option(
         None,
         help="Comma-separated zone filter (e.g. 'input,reasoning,tool_execution'). Overrides profile.",
@@ -126,6 +130,7 @@ def generate(
             api_key=api_key,
             model=model,
             max_techniques=max_scenario_techniques,
+            max_scenarios_per_pattern=max_scenarios_per_pattern,
             zones=zones,
             eval=eval,
         )
