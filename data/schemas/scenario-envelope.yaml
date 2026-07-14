@@ -282,6 +282,12 @@ fields:
             required: true
             description: "OWASP Agentic Threat IDs. Example: [T2]."
             min_items: 1
+          owasp_asi_ids:
+            type: list[str]
+            required: false
+            description: >
+              OWASP ASI Top 10 entry IDs. Example: [ASI02, ASI06].
+              May be empty if no ASI category maps for this threat (e.g. T8).
           atlas_technique_ids:
             type: list[str]
             required: false
@@ -642,6 +648,7 @@ example:
     taxonomy_chain:
       owasp_llm_ids: ["LLM06", "LLM03"]
       agentic_threat_ids: ["T2"]
+      owasp_asi_ids: ["ASI02"]
       atlas_technique_ids: ["AML.T0054", "AML.T0051"]
       scenario_seed: "T2-S1"
 

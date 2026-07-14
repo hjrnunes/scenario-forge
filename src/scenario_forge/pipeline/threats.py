@@ -60,6 +60,7 @@ class ThreatSurfaceEntry(BaseModel):
     agentic_threat_ids: list[str]
     atlas_technique_ids: list[str] = Field(default_factory=list)
     attack_pattern_ids: list[str] = Field(default_factory=list)
+    owasp_asi_ids: list[str] = Field(default_factory=list)
     governance_only: bool = False
 
 
@@ -94,6 +95,25 @@ def _build_t_to_atlas_index(
         for atlas_id in mapping.get("targets", []):
             if atlas_id not in index[t_id]:
                 index[t_id].append(atlas_id)
+    return dict(index)
+
+
+def _build_t_to_asi_index(
+    cross_taxonomy: dict[str, Any],
+) -> dict[str, list[str]]:
+    """Build T-threat ID -> list of OWASP ASI Top 10 IDs from t_to_asi.
+
+    Each t_to_asi entry has 'source' (T-threat ID) and 'target'
+    (a single ASI ID string, or null for no match). Multiple entries
+    for the same T-threat are merged with deduplication. Entries where
+    target is null are skipped.
+    """
+    index: dict[str, list[str]] = defaultdict(list)
+    for mapping in cross_taxonomy.get("t_to_asi", []):
+        t_id = mapping["source"]
+        asi_id = mapping.get("target")
+        if asi_id is not None and asi_id not in index[t_id]:
+            index[t_id].append(asi_id)
     return dict(index)
 
 
@@ -184,6 +204,9 @@ def determine_threat_surface(
     # --- ATLAS technique lookup: T-threat -> ATLAS technique IDs ---
     t_to_atlas = _build_t_to_atlas_index(cross_taxonomy)
 
+    # --- ASI lookup: T-threat -> OWASP ASI Top 10 IDs ---
+    t_to_asi = _build_t_to_asi_index(cross_taxonomy)
+
     # --- Hop 3: Filter by capability profile ---
     threat_scope = determine_threat_scope(profile, threats_path)
     in_scope_ids = {e.threat_id for e in threat_scope.in_scope}
@@ -268,6 +291,13 @@ def determine_threat_surface(
                 if atlas_id not in all_atlas:
                     all_atlas.append(atlas_id)
 
+        # Collect OWASP ASI Top 10 IDs for all in-scope T-threats
+        all_asi: list[str] = []
+        for t_id in scoped_t_ids:
+            for asi_id in t_to_asi.get(t_id, []):
+                if asi_id not in all_asi:
+                    all_asi.append(asi_id)
+
         # Filter capability-gated ATLAS techniques
         has_kc6 = bool(_KC6_SUBCODES.intersection(profile.kc_subcodes))
         if not has_kc6:
@@ -291,6 +321,7 @@ def determine_threat_surface(
                 agentic_threat_ids=scoped_t_ids,
                 atlas_technique_ids=all_atlas,
                 attack_pattern_ids=all_ap_ids,
+                owasp_asi_ids=all_asi,
             )
         )
 

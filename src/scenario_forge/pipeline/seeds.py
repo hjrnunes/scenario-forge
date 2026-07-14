@@ -43,6 +43,7 @@ class ScenarioSeed(BaseModel):
     owasp_llm_ids: list[str]
     agentic_threat_ids: list[str]
     atlas_technique_ids: list[str] = Field(default_factory=list)
+    owasp_asi_ids: list[str] = Field(default_factory=list)
     # SSSOM provenance fields (populated from attack-pattern provenance)
     owasp_origin: str | None = None
     laaf_technique_ids: list[str] = Field(default_factory=list)
@@ -199,11 +200,18 @@ def expand_seeds(
                     )
                 )
 
+                merged_asi = list(
+                    dict.fromkeys(
+                        existing.owasp_asi_ids + entry.owasp_asi_ids
+                    )
+                )
+
                 seen[ap_id] = existing.model_copy(
                     update={
                         "owasp_llm_ids": merged_owasp,
                         "agentic_threat_ids": merged_agentic,
                         "atlas_technique_ids": merged_prov,
+                        "owasp_asi_ids": merged_asi,
                         "contributing_risk_cards": new_contribs,
                         "atlas_provenance_ids": merged_prov,
                     }
@@ -228,6 +236,7 @@ def expand_seeds(
                     owasp_llm_ids=entry.owasp_llm_ids,
                     agentic_threat_ids=entry.agentic_threat_ids,
                     atlas_technique_ids=filtered_atlas_prov,
+                    owasp_asi_ids=entry.owasp_asi_ids,
                     owasp_origin=prov_owasp_ids[0] if prov_owasp_ids else None,
                     laaf_technique_ids=prov_laaf_ids,
                     atlas_provenance_ids=filtered_atlas_prov,

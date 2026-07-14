@@ -226,6 +226,10 @@ class TaxonomyChain(BaseModel):
         description="OWASP Agentic Threat IDs (e.g. ['T2']).",
         min_length=1,
     )
+    owasp_asi_ids: list[str] = Field(
+        default_factory=list,
+        description="OWASP ASI Top 10 entry IDs (e.g. ['ASI02', 'ASI06']).",
+    )
     atlas_technique_ids: Optional[list[str]] = Field(
         default=None,
         description="MITRE ATLAS technique IDs (e.g. ['AML.T0051']). May be empty.",
