@@ -229,10 +229,18 @@ def determine_threat_surface(
         scoped_t_ids = [t for t in all_t_ids if t in in_scope_ids]
         llm_reached_t_ids.update(scoped_t_ids)
 
-        # Append direct-path threats that aren't already in the list
+        # Append direct-path threats only when they share at least one
+        # ATLAS technique with the three-hop threats already on this card.
+        # This prevents broadcasting every direct threat to every risk card,
+        # keeping agentic_threat_ids specific to each scenario.
+        card_atlas: set[str] = set()
+        for t_id in scoped_t_ids:
+            card_atlas.update(t_to_atlas.get(t_id, []))
         for dt_id in sorted(direct_t_ids):
             if dt_id not in scoped_t_ids:
-                scoped_t_ids.append(dt_id)
+                dt_atlas = set(t_to_atlas.get(dt_id, []))
+                if card_atlas & dt_atlas:
+                    scoped_t_ids.append(dt_id)
 
         if not scoped_t_ids:
             governance_only.append(
