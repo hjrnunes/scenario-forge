@@ -2494,6 +2494,7 @@ def _assemble_envelope(
         generated_at=datetime.now(UTC),
         generator_version=_GENERATOR_VERSION,
         scenario_seed_metadata=scenario_seed_metadata,
+        legitimate_task=use_case,
         actor_profile=actor_profile,
         narrative=narrative,
         attack_tree=attack_tree,

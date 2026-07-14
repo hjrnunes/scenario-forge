@@ -74,6 +74,15 @@ fields:
     required: true
     description: "Version of the scenario-forge pipeline that produced this scenario."
 
+  legitimate_task:
+    type: str
+    required: false
+    description: >
+      One-line description of the agent's legitimate task — the honest job the
+      system performs when not under attack. Populated from the use-case
+      description provided to the pipeline.
+    example: "Klarna's AI-powered customer service agent that handles refunds, account inquiries, and payment processing."
+
   # ===================================================================
   # Layer 1: Narrative
   # ===================================================================
@@ -498,6 +507,7 @@ example:
   version: 1
   generated_at: "2026-06-24T14:30:00Z"
   generator_version: "0.1.0"
+  legitimate_task: "AI-powered travel booking agent that handles flight and hotel reservations, itinerary changes, and loyalty program inquiries."
 
   # -- Layer 1: Narrative --
 
