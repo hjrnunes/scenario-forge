@@ -2457,6 +2457,7 @@ def _assemble_envelope(
         taxonomy_chain=TaxonomyChain(
             owasp_llm_ids=seed.owasp_llm_ids,
             agentic_threat_ids=seed.agentic_threat_ids,
+            owasp_asi_ids=seed.owasp_asi_ids,
             atlas_technique_ids=seed.atlas_technique_ids or None,
             scenario_seed=seed.seed_id,
         ),
