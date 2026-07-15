@@ -2546,13 +2546,25 @@ def _assemble_envelope(
     if not maestro_layers:
         maestro_layers = {3}
 
+    # Derive atlas_technique_ids from the actual attack tree content,
+    # not from seed metadata.  The seed's atlas_technique_ids reflects
+    # upstream provenance; the tree may legitimately drop techniques
+    # (e.g. the candidate filter pins fewer).  Using tree-derived IDs
+    # prevents orphan claims in the taxonomy chain.
+    if attack_tree is not None:
+        tree_technique_ids = attack_tree.collect_technique_ids()
+        reconciled_technique_ids = tree_technique_ids if tree_technique_ids else None
+    else:
+        # No tree — fall back to seed metadata (best available).
+        reconciled_technique_ids = seed.atlas_technique_ids or None
+
     faceting = FacetingMetadata(
         risk_card=seed.risk_card_ref,
         taxonomy_chain=TaxonomyChain(
             owasp_llm_ids=seed.owasp_llm_ids,
             agentic_threat_ids=seed.agentic_threat_ids,
             owasp_asi_ids=seed.owasp_asi_ids,
-            atlas_technique_ids=seed.atlas_technique_ids or None,
+            atlas_technique_ids=reconciled_technique_ids,
             scenario_seed=seed.seed_id,
         ),
         capability_profile=CapabilityProfileRef(
