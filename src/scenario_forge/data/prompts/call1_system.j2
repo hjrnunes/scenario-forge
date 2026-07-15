@@ -89,3 +89,7 @@ Real attacks traverse zones non-linearly. The zone_sequence and the zone annotat
 DO NOT produce a simple linear progression like [input, reasoning, tool_execution] unless the attack genuinely has no return paths. Most realistic attacks will revisit at least one zone.
 
 Each step's zone annotation must reflect WHERE that step actually occurs, even if it returns to a previously visited zone. The zone_sequence is derived from these step annotations, so annotate every step with the correct zone.
+
+### Zone Edge Cases
+- **Output-as-attack-vector**: When the assistant generates output that serves as the attack vector (e.g., a deceptive message, misleading recommendation, or social engineering payload delivered to a human), annotate that step as zone "output" — the assistant is producing an output, not receiving an input. Do NOT zone the delivery of a social engineering payload as "input" simply because a human receives it; the system is emitting output.
+- **RAG / knowledge-base injection**: When an attacker injects or modifies data in a RAG knowledge base, retrieval index, or grounding system, annotate that step as zone "input" — external data is entering the system through an input surface, even though the data will later influence reasoning. Do NOT zone data ingestion into a retrieval store as "reasoning"; the poisoned data crosses an input boundary before it reaches the reasoning layer.
