@@ -63,10 +63,16 @@ In addition to the fields above, identify which OWASP Key Component (KC) sub-cod
 - KC6.6: Critical systems (SCADA, ICS) — safety-critical infrastructure
 - KC6.7: IoT device control — physical-world actuators
 
+### KCX — scenario-forge extensions (NOT from OWASP)
+These custom sub-codes gate attack patterns that require structural privilege infrastructure most AI systems lack. Only assign them when the use-case description provides clear evidence.
+- KCX-PRIV: System has dynamic privilege tiers or permission escalation paths — e.g. the agent can request, receive, and hold elevated permissions that change over time
+- KCX-XAUTH: System has cross-boundary credential propagation between trust domains — e.g. credentials or trust relationships carry over from one system/domain to another without independent scope enforcement
+
 ### KC selection guidelines
 - Always include at least one KC1.* sub-code. Default to KC1.1 if the model type is unspecified.
 - For KC4, select the MOST CAPABLE memory scope described. If the system has cross-session persistence, use KC4.3 (not KC4.1). If memory is shared across agents AND sessions, use KC4.4.
 - For KC6, distinguish "limited" vs "extensive": limited means the LLM fills parameters for predefined operations; extensive means the LLM generates the operation itself.
+- For KCX, only assign when the description explicitly describes the structural capability. Most systems will NOT have KCX-PRIV or KCX-XAUTH — that is the intended gating behavior.
 - Only include sub-codes supported by the use-case description. Do NOT speculate.
 
 Return a valid CapabilityProfile with only the Stage 1 fields. Do NOT populate Stage 2 fields (tool_types, data_flows, etc.).

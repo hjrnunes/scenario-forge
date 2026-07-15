@@ -250,7 +250,7 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       requires_tool_execution: true
       kc_requires:
-        any: [KC6.1.2, KC6.2.2, KC6.3.2, KC6.5]
+        any: [KC6.1.2, KC6.2.2, KC6.3.2, KC6.5, KCX-PRIV]
 
   AP-T3-02:
     id: "AP-T3-02"
@@ -270,7 +270,7 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       requires_tool_execution: true
       kc_requires:
-        any: [KC6.1.2, KC6.2.2, KC6.5]
+        any: [KC6.1.2, KC6.2.2, KC6.5, KCX-XAUTH]
 
   AP-T3-03:
     id: "AP-T3-03"
@@ -292,7 +292,7 @@ patterns:
       requires_multi_agent: true
       kc_requires:
         all: [KC2.3]
-        any: [KC5.1, KC5.2, KC5.3, KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+        any: [KC5.1, KC5.2, KC5.3, KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7, KCX-XAUTH]
 
   # ═══════════════════════════════════════════════════════════════════
   # T4 — Resource Overload (4 patterns)
