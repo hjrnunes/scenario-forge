@@ -996,8 +996,8 @@ class TestMixedScenarios:
         assert "credential_exposure" in cats
         assert "privilege_escalation" in cats
 
-    def test_all_six_categories_detected(self) -> None:
-        """Integration: all 6 sub-patterns fire on a reactive profile."""
+    def test_all_seven_categories_detected(self) -> None:
+        """Integration: all 7 sub-patterns fire on a reactive profile."""
         scenarios = [
             _make_envelope(
                 step_actions=["I escalate privileges to gain admin access."],
@@ -1034,11 +1034,18 @@ class TestMixedScenarios:
                 ],
                 scenario_id="s6",
             ),
+            _make_envelope(
+                step_actions=[
+                    "The attacker triggers a Policy Audit tool invocation "
+                    "to extract internal compliance data."
+                ],
+                scenario_id="s7",
+            ),
         ]
         profile = _make_profile()
         result = validate_phantom_capabilities(scenarios, profile)
 
-        assert result.flagged_count == 6
+        assert result.flagged_count == 7
         cats = result.violation_categories
         assert "privilege_escalation" in cats
         assert "credential_exposure" in cats
@@ -1046,6 +1053,610 @@ class TestMixedScenarios:
         assert "mass_broadcasting" in cats
         assert "cross_session_access" in cats
         assert "audit_monitoring_write" in cats
+        assert "phantom_tool_invocation" in cats
+
+
+# ---------------------------------------------------------------------------
+# Tests: v17 escapee patterns — new phrasing variants
+# ---------------------------------------------------------------------------
+
+
+class TestV17EscapeePrivilegeEscalation:
+    """v16 escapee phrasing that v17 patterns must now catch."""
+
+    def test_emergency_administrative_debugging_mode(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker activates the Emergency Administrative "
+                    "Debugging Mode to access restricted functions."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "privilege_escalation" for v in violations)
+
+    def test_self_permission_elevation(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The compromised agent performs self-permission elevation "
+                    "to bypass access controls."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "privilege_escalation" for v in violations)
+
+    def test_dynamic_privilege_request(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system processes a dynamic privilege request "
+                    "granting elevated access."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "privilege_escalation" for v in violations)
+
+
+class TestV17EscapeeCredentialExposure:
+    """v16 escapee phrasing for credential exposure."""
+
+    def test_error_messages_containing_tokens(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "API error messages containing active session tokens "
+                    "and API credentials are exposed to the attacker."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "credential_exposure" for v in violations)
+
+    def test_diagnostic_messages_leaking_secrets(self) -> None:
+        """Non-escapee variant to test pattern breadth."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "Debug messages reveal the session token used for "
+                    "backend authentication."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "credential_exposure" for v in violations)
+
+
+class TestV17EscapeeCodeExecution:
+    """v16 escapee phrasing for code execution."""
+
+    def test_execute_distribute_malicious_payloads(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker tricks the agent to execute and distribute "
+                    "malicious financial payloads to downstream systems."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_deploy_malicious_payload(self) -> None:
+        """Variant: deploy instead of execute."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system deploys a malicious update payload "
+                    "across the infrastructure."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+
+class TestV17EscapeeMassBroadcasting:
+    """v16 escapee phrasing for mass broadcasting."""
+
+    def test_mass_phishing_message_distribution(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The attacker initiates mass phishing message "
+                    "distribution to all account holders."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "mass_broadcasting" for v in violations)
+
+    def test_mass_distribution_variant(self) -> None:
+        """Test the mass + distribution pattern specifically."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent begins mass distribution of fraudulent "
+                    "account alerts to customers."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "mass_broadcasting" for v in violations)
+
+
+class TestV17EscapeeCrossSessionAccess:
+    """v16 escapee phrasing for cross-session access."""
+
+    def test_feedback_loop_across_sessions(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The attacker establishes a feedback loop across "
+                    "thousands of sessions to amplify the attack."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "cross_session_access" for v in violations)
+
+    def test_across_sessions_variant(self) -> None:
+        """Simple 'across sessions' reference."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent propagates corrupted data across sessions."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "cross_session_access" for v in violations)
+
+
+class TestV17EscapeeAuditMonitoringWrite:
+    """v16 escapee phrasing for audit/monitoring write access."""
+
+    def test_session_history_reset(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent performs a session history reset to "
+                    "eliminate evidence of the manipulation."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+    def test_generate_deceptive_success_reports(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker instructs the agent to generate deceptive "
+                    "success reports to conceal the failed transactions."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+    def test_transaction_description_modification(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The compromised agent carries out transaction "
+                    "description modification to disguise the fraud."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+    def test_overwrite_audit_logs(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker uses the agent to overwrite audit "
+                    "log entries covering the intrusion."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+    def test_clear_session_history(self) -> None:
+        """Verb-before-noun order for session history."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent clears the session history to remove "
+                    "traces of the interaction."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+    def test_modify_transaction_records(self) -> None:
+        """Verb-before-noun order for transaction records."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The compromised agent modifies transaction records "
+                    "to conceal unauthorized transfers."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# Tests: phantom tool invocation detection (new v17 checker)
+# ---------------------------------------------------------------------------
+
+
+class TestPhantomToolInvocation:
+    """Scenarios referencing tools/APIs/endpoints not in the profile's
+    entry_points should be flagged."""
+
+    def test_named_tool_not_in_profile_flagged(self) -> None:
+        """'Policy Audit tool' is not in entry_points."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker triggers a Policy Audit tool invocation "
+                    "to extract internal compliance data."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "phantom_tool_invocation" for v in violations)
+
+    def test_named_api_not_in_profile_flagged(self) -> None:
+        """'Transaction Override API' is not in entry_points."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system connects to the Transaction Override API "
+                    "to reverse completed payments."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "phantom_tool_invocation" for v in violations)
+
+    def test_named_endpoint_not_in_profile_flagged(self) -> None:
+        """'Admin Configuration endpoint' is not in entry_points."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker accesses the Admin Configuration endpoint "
+                    "to modify system parameters."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "phantom_tool_invocation" for v in violations)
+
+    def test_api_calls_to_phantom_action_flagged(self) -> None:
+        """'API calls to overwrite audit logs' references a phantom API."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The attacker uses API calls to overwrite audit logs "
+                    "and session history."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        cats = {v.category for v in violations}
+        # Should be caught by phantom_tool_invocation and/or audit_monitoring_write
+        assert "phantom_tool_invocation" in cats or "audit_monitoring_write" in cats
+
+    def test_named_tool_in_profile_not_flagged(self) -> None:
+        """Tool name matches an entry_point name -- no false positive."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker triggers a Policy Audit tool invocation "
+                    "to extract internal compliance data."
+                ],
+            ),
+        ]
+        profile = _make_profile(
+            entry_points=[
+                "user prompts (zone 1)",
+                "Policy Audit dashboard (zone 2)",
+            ],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        # phantom_tool_invocation should NOT fire (name matches entry point)
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "phantom_tool_invocation"
+
+    def test_named_api_in_profile_not_flagged(self) -> None:
+        """API name matches an entry_point name -- no false positive."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system connects to the Transaction Override API "
+                    "to reverse completed payments."
+                ],
+            ),
+        ]
+        profile = _make_profile(
+            entry_points=[
+                "user prompts (zone 1)",
+                "Transaction Override API (zone 2)",
+            ],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "phantom_tool_invocation"
+
+    def test_api_calls_word_overlap_suppresses(self) -> None:
+        """'API calls to fetch account data' should not fire if profile
+        has an entry point mentioning 'account'."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker makes API calls to fetch account data "
+                    "for unauthorized purposes."
+                ],
+            ),
+        ]
+        profile = _make_profile(
+            entry_points=[
+                "user prompts (zone 1)",
+                "Account Management Portal (zone 2)",
+            ],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "phantom_tool_invocation"
+
+    def test_generic_tool_reference_not_flagged(self) -> None:
+        """Generic 'a tool' reference should not trigger the checker."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker uses a tool to probe the system for "
+                    "vulnerabilities."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "phantom_tool_invocation"
+
+    def test_generic_api_reference_not_flagged(self) -> None:
+        """Generic 'the API' reference should not trigger the checker."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The API returns sensitive information in the "
+                    "response body."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "phantom_tool_invocation"
+
+    def test_benign_text_no_false_positive(self) -> None:
+        """Ordinary scenario text should not trigger phantom_tool."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "I craft a carefully designed prompt to extract "
+                    "sensitive information from the system."
+                ],
+                step_effects=[
+                    "The system returns confidential data in the "
+                    "response without proper filtering."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "phantom_tool_invocation"
+
+
+# ---------------------------------------------------------------------------
+# Tests: false positive guards for v17 patterns
+# ---------------------------------------------------------------------------
+
+
+class TestV17FalsePositiveGuards:
+    """Ensure new v17 patterns do not fire on benign text."""
+
+    def test_admin_discussion_no_false_positive(self) -> None:
+        """Mentioning 'admin' in a non-escalation context."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker sends a message mentioning admin "
+                    "policies as a social engineering lure."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "privilege_escalation"
+
+    def test_session_mention_no_false_positive(self) -> None:
+        """Mentioning 'session' without write/reset context."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The session continues with the attacker's injected "
+                    "context still active."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "audit_monitoring_write"
+
+    def test_transaction_mention_no_false_positive(self) -> None:
+        """Mentioning 'transaction' without modification context."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker initiates a fraudulent transaction "
+                    "through the compromised assistant."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "audit_monitoring_write"
+
+    def test_payload_mention_no_false_positive(self) -> None:
+        """Mentioning 'payload' without execution context."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker crafts a prompt injection payload "
+                    "designed to confuse the reasoning engine."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_mass_mention_no_false_positive(self) -> None:
+        """Mentioning 'mass' in a non-broadcasting context."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The attack achieves a massive impact on the "
+                    "system's response quality."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "mass_broadcasting"
 
 
 # ---------------------------------------------------------------------------
