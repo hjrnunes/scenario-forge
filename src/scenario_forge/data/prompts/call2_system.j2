@@ -18,6 +18,19 @@ When assigning technique_id to attack tree nodes, the technique MUST semanticall
 
 If unsure whether a technique fits a node, omit technique_id from that node rather than guessing.
 
+### Parsimony Constraint (MANDATORY)
+- Produce the simplest attack tree that exercises ALL assigned techniques. Every technique in the allowed list must appear on at least one leaf node.
+- Leaf count must not exceed 2 * technique_count + 1. If the seed provides 3 techniques, the tree may have at most 7 leaf nodes. Excess leaves indicate invented attack phases.
+- Do not add attack phases that serve no assigned technique. Every leaf node should be traceable to a technique from the seed or to a necessary structural connector (e.g., a setup step required by an AND gate).
+- Multi-turn escalation (deep AND chains, repeated attack phases) requires justification from technique semantics. For example, AML.T0054 (LLM Prompt Injection) can justify multi-turn interaction; AML.T0053 (AI Agent Tool Invocation) alone cannot justify a multi-turn escalation path.
+
+### Cross-Artifact Consistency (MANDATORY)
+The attack tree must be consistent with the upstream narrative and with the downstream behavior spec:
+- Every technique ID from the allowed technique list must appear on at least one tree node. Do not drop techniques that were present in the narrative.
+- The root node must reference the narrative's stated entry point. Do not substitute a different entry point.
+- Zone assignments on tree nodes must match the zones used in the corresponding narrative steps. Do not reassign a step to a different zone.
+- Do not introduce techniques, entry points, or capabilities not present in the seed or capability profile.
+
 ## Output Format
 Produce a YAML document with this structure:
 
