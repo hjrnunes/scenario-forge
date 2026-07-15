@@ -2326,6 +2326,10 @@ def _call_attack_tree(
             f"- Capability level: {actor_profile.capability_level}\n"
         )
 
+    # Compute concrete leaf budget so the LLM sees the exact number
+    technique_count = len(tech_ids_for_tree) if tech_ids_for_tree else 0
+    leaf_budget = 2 * technique_count + 1 if technique_count > 0 else 5
+
     user_prompt = render_prompt(
         "call2_user.j2",
         seed=seed,
@@ -2335,6 +2339,8 @@ def _call_attack_tree(
         technique_context=technique_context,
         technique_constraint=technique_constraint,
         narrative=narrative,
+        technique_count=technique_count,
+        leaf_budget=leaf_budget,
     )
 
     call2_system = render_prompt("call2_system.j2")
