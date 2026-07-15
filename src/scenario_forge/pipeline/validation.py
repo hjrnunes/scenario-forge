@@ -1,23 +1,32 @@
-"""Phantom capability validation for generated scenarios.
+"""Validation passes for generated scenarios.
 
-Checks each scenario's narrative steps against the declared capability
-profile and flags scenarios that reference capabilities the system does
-not actually possess ("phantom capabilities").
-
-Detection is rule-based (keyword/pattern matching), not LLM-based.
-Tuned for precision — false negatives are acceptable, false positives
-are not.
+Contains:
+  1. Phantom capability validation — flags scenarios that reference
+     capabilities the system does not possess.
+  2. Parsimony pruning — trims excess unannotated leaf nodes from
+     attack trees to satisfy the parsimony budget constraint.
 """
 
 from __future__ import annotations
 
+import copy
+import logging
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from scenario_forge.models.attack_tree import (
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+    _repair_node,
+)
 
 if TYPE_CHECKING:
     from scenario_forge.models.capability_profile import CapabilityProfile
     from scenario_forge.models.scenario import ScenarioEnvelope
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -405,5 +414,269 @@ def validate_phantom_capabilities(
             result.flagged_scenarios.append((scenario, violations))
         else:
             result.valid_scenarios.append(scenario)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Parsimony pruning — data structures
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PrunedNode:
+    """Record of a single pruned leaf node."""
+
+    node_id: str
+    label: str
+    parent_gate: str  # "AND" or "OR"
+    reason: str  # why it was safe to prune
+
+
+@dataclass
+class ParsimonyResult:
+    """Result of parsimony pruning across a batch of scenarios."""
+
+    compliant_scenarios: list[ScenarioEnvelope] = field(default_factory=list)
+    pruned_scenarios: list[tuple[ScenarioEnvelope, list[PrunedNode]]] = field(
+        default_factory=list
+    )
+    unprunable_scenarios: list[tuple[ScenarioEnvelope, int, int]] = field(
+        default_factory=list
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parsimony pruning — helpers
+# ---------------------------------------------------------------------------
+
+
+def _collect_technique_ids(node: AttackTreeNode) -> set[str]:
+    """Walk a tree and return the set of unique technique_ids."""
+    ids: set[str] = set()
+    if node.technique_id:
+        ids.add(node.technique_id)
+    if node.children:
+        for child in node.children:
+            ids.update(_collect_technique_ids(child))
+    return ids
+
+
+def _collect_leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
+    """Collect all LEAF nodes in the tree."""
+    if node.gate == GateType.LEAF:
+        return [node]
+    leaves: list[AttackTreeNode] = []
+    if node.children:
+        for child in node.children:
+            leaves.extend(_collect_leaves(child))
+    return leaves
+
+
+def _find_parent(
+    root: AttackTreeNode, target_id: str
+) -> AttackTreeNode | None:
+    """Find the parent of the node with the given id."""
+    if root.children:
+        for child in root.children:
+            if child.id == target_id:
+                return root
+            result = _find_parent(child, target_id)
+            if result is not None:
+                return result
+    return None
+
+
+def _sibling_labels(parent: AttackTreeNode, node_id: str) -> list[str]:
+    """Return labels of siblings (other children of the same parent)."""
+    if not parent.children:
+        return []
+    return [c.label for c in parent.children if c.id != node_id]
+
+
+def _token_overlap_ratio(label: str, siblings: list[str]) -> float:
+    """Compute how much a label's tokens overlap with sibling labels.
+
+    Higher ratio = more redundant = better pruning candidate.
+    """
+    if not siblings:
+        return 0.0
+    tokens = set(label.lower().split())
+    if not tokens:
+        return 0.0
+    sibling_tokens: set[str] = set()
+    for sib in siblings:
+        sibling_tokens.update(sib.lower().split())
+    overlap = tokens & sibling_tokens
+    return len(overlap) / len(tokens)
+
+
+def _pruning_priority(
+    leaf: AttackTreeNode,
+    parent: AttackTreeNode,
+    siblings: list[str],
+) -> tuple[int, float, int]:
+    """Return a sort key for pruning priority.
+
+    Lower values = prune first.
+    Priority order:
+      1. AND-gate children before OR-gate children (AND=0, OR=1)
+      2. Higher token overlap with siblings (negate for ascending sort)
+      3. Shorter labels (less semantic content)
+    """
+    gate_priority = 0 if parent.gate == GateType.AND else 1
+    overlap = _token_overlap_ratio(leaf.label, siblings)
+    return (gate_priority, -overlap, len(leaf.label))
+
+
+def _remove_child(parent: AttackTreeNode, child_id: str) -> None:
+    """Remove a child node from a parent's children list."""
+    if parent.children:
+        parent.children = [c for c in parent.children if c.id != child_id]
+
+
+def _repair_tree_model(root_dict: dict[str, Any]) -> dict[str, Any]:
+    """Apply _repair_node to collapse single-child gates after pruning."""
+    return _repair_node(root_dict)
+
+
+# ---------------------------------------------------------------------------
+# Parsimony pruning — main function
+# ---------------------------------------------------------------------------
+
+
+def enforce_parsimony(
+    scenarios: list[ScenarioEnvelope],
+    max_leaf_factor: int = 2,
+    max_leaf_offset: int = 1,
+) -> ParsimonyResult:
+    """Prune excess unannotated leaves from attack trees.
+
+    For each scenario, computes a leaf budget based on the number of
+    unique technique_ids in the tree:
+
+        budget = max_leaf_factor * technique_count + max_leaf_offset
+
+    If technique_count is 0, a fallback budget of 3 is used.
+
+    Leaves without a technique_id are pruning candidates.  They are
+    removed one at a time (most redundant first) until the leaf count
+    is within budget, or no more safe candidates remain.
+
+    After pruning, single-child AND/OR gates are collapsed via
+    ``_repair_node`` and the resulting tree is re-validated with Pydantic.
+    """
+    result = ParsimonyResult()
+
+    for scenario in scenarios:
+        tree = scenario.attack_tree
+        technique_ids = _collect_technique_ids(tree.root)
+        technique_count = len(technique_ids)
+
+        if technique_count == 0:
+            budget = 3
+        else:
+            budget = max_leaf_factor * technique_count + max_leaf_offset
+
+        leaves = _collect_leaves(tree.root)
+        leaf_count = len(leaves)
+
+        if leaf_count <= budget:
+            result.compliant_scenarios.append(scenario)
+            continue
+
+        # Deep-copy so we don't mutate the original
+        pruned_scenario = copy.deepcopy(scenario)
+        pruned_root = pruned_scenario.attack_tree.root
+        pruned_nodes: list[PrunedNode] = []
+
+        while True:
+            current_leaves = _collect_leaves(pruned_root)
+            current_leaf_count = len(current_leaves)
+
+            if current_leaf_count <= budget:
+                break
+
+            # Find pruning candidates: unannotated leaves
+            candidates: list[
+                tuple[AttackTreeNode, AttackTreeNode, list[str]]
+            ] = []
+            for leaf in current_leaves:
+                if leaf.technique_id:
+                    continue  # never prune annotated leaves
+                parent = _find_parent(pruned_root, leaf.id)
+                if parent is None:
+                    continue  # root node, can't prune
+                # Must not leave parent with fewer than 2 children
+                # (we'll handle the collapse after removal, but we need
+                # at least 2 children to remove one safely)
+                if parent.children and len(parent.children) < 2:
+                    continue  # already at minimum
+                siblings = _sibling_labels(parent, leaf.id)
+                candidates.append((leaf, parent, siblings))
+
+            if not candidates:
+                break  # no safe candidates remain
+
+            # Sort by pruning priority
+            candidates.sort(
+                key=lambda x: _pruning_priority(x[0], x[1], x[2])
+            )
+
+            # Prune the best candidate
+            leaf, parent, siblings = candidates[0]
+            _remove_child(parent, leaf.id)
+            pruned_nodes.append(
+                PrunedNode(
+                    node_id=leaf.id,
+                    label=leaf.label,
+                    parent_gate=parent.gate.value,
+                    reason=(
+                        f"Unannotated leaf under {parent.gate.value} gate; "
+                        f"token overlap with siblings: "
+                        f"{_token_overlap_ratio(leaf.label, siblings):.0%}"
+                    ),
+                )
+            )
+
+            # If parent now has exactly 1 child, collapse it
+            if parent.children and len(parent.children) == 1:
+                # Convert to dict, repair, convert back
+                root_dict = pruned_root.model_dump()
+                repaired_dict = _repair_tree_model(root_dict)
+                pruned_root = AttackTreeNode.model_validate(repaired_dict)
+                pruned_scenario.attack_tree = AttackTree(
+                    id=pruned_scenario.attack_tree.id,
+                    seed_id=pruned_scenario.attack_tree.seed_id,
+                    goal=pruned_scenario.attack_tree.goal,
+                    root=pruned_root,
+                )
+
+        # Re-validate the pruned tree
+        final_leaves = _collect_leaves(pruned_root)
+        final_leaf_count = len(final_leaves)
+
+        if final_leaf_count <= budget:
+            # Validate with Pydantic to ensure structural integrity
+            try:
+                pruned_scenario.attack_tree = AttackTree.model_validate(
+                    pruned_scenario.attack_tree.model_dump()
+                )
+                result.pruned_scenarios.append(
+                    (pruned_scenario, pruned_nodes)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Pruned tree for %s failed Pydantic validation: %s",
+                    scenario.scenario_id,
+                    exc,
+                )
+                result.unprunable_scenarios.append(
+                    (scenario, leaf_count, budget)
+                )
+        else:
+            result.unprunable_scenarios.append(
+                (scenario, final_leaf_count, budget)
+            )
 
     return result
