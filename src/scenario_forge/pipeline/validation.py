@@ -110,6 +110,61 @@ _CODE_EXECUTION_PATTERNS = [
     ]
 ]
 
+# Mass broadcasting: references to proactive mass communication, pushing
+# notifications to all users, bulk messaging — phantom when the system is
+# reactive (single-session, no persistent memory, no multi-agent).
+_MASS_BROADCASTING_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bbroadcast\b",
+        r"\bproactively\s+reach\s+out\b",
+        r"\bpush\s+to\s+all\s+(?:users|customers|clients|accounts)\b",
+        r"\bmass\s+(?:notification|message|communication|email)\b",
+        r"\bsend\s+to\s+thousands\b",
+        r"\bbulk\s+messag(?:e|es|ing)\b",
+        r"\bnotify\s+all\s+(?:customers|users|clients|accounts)\b",
+        r"\bsend\s+(?:alerts?|messages?|notifications?)\s+to\s+(?:all|every)\b",
+    ]
+]
+
+# Cross-session / cross-user access: references to accessing data or sessions
+# belonging to other users — phantom when the system operates within a single
+# authenticated session with no persistent memory.
+_CROSS_SESSION_ACCESS_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bother\s+user(?:'?s?)?\b",
+        r"\bdifferent\s+account\b",
+        r"\bcross[- ]user\b",
+        r"\banother\s+customer(?:'?s?)?\b",
+        r"\btarget\s+victim\b",
+        r"\baccess\b[^.]{0,30}\bother\b[^.]{0,30}\bsession",
+        r"\bprocess\b[^.]{0,30}\bunauthorized\b[^.]{0,30}\buser",
+        r"\bwrite\b[^.]{0,30}\bas\b[^.]{0,30}\bexternal\b",
+        r"\baccess\b[^.]{0,30}\bother\b[^.]{0,30}\b(?:user|customer|account)",
+    ]
+]
+
+# Audit / monitoring write access: references to modifying audit trails,
+# tampering with logs, suppressing alerts — almost always phantom since
+# agents read from monitoring but don't write to it.
+_AUDIT_MONITORING_WRITE_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bmodify\s+audit\s+trail\b",
+        r"\balter\s+(?:the\s+)?logs?\b",
+        r"\btamper\b[^.]{0,30}\blogging\b",
+        r"\bwrite\s+to\s+monitoring\b",
+        r"\bcontrol\b[^.]{0,30}\baudit\b",
+        r"\bmanipulat(?:e|ed|es|ing)\b[^.]{0,30}\blog\s+entr(?:y|ies)\b",
+        r"\bsuppress\b[^.]{0,30}\balerts?\b",
+        r"\bdisable\b[^.]{0,30}\bmonitoring\b",
+        r"\berase\b[^.]{0,30}\b(?:audit|log)\b",
+        r"\btamper\b[^.]{0,30}\baudit\b",
+        r"\bmodify\b[^.]{0,30}\b(?:audit|log)\s+(?:record|entr|data)\b",
+    ]
+]
+
 
 # ---------------------------------------------------------------------------
 # Detection helpers
@@ -197,6 +252,72 @@ def _check_code_execution(
     return None
 
 
+def _check_mass_broadcasting(
+    text: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return a match string if text references phantom mass broadcasting.
+
+    Mass broadcasting is phantom when the system is reactive (single-session,
+    no persistent memory, no multi-agent coordination).  A system that lacks
+    both persistent memory and multi-agent capabilities operates within
+    individual user sessions and cannot proactively push to many users.
+    """
+    # If the profile declares persistent memory or multi-agent, the system
+    # may have infrastructure for mass communication.
+    if profile.has_persistent_memory or profile.multi_agent:
+        return None
+
+    for pattern in _MASS_BROADCASTING_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
+def _check_cross_session_access(
+    text: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return a match string if text references phantom cross-session access.
+
+    Cross-session/cross-user access is phantom when the system operates
+    within a single authenticated session.  The primary indicator is
+    has_persistent_memory=False — without persistent state the system
+    cannot reach across sessions or users.
+    """
+    if profile.has_persistent_memory:
+        return None
+
+    for pattern in _CROSS_SESSION_ACCESS_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
+def _check_audit_monitoring_write(
+    text: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return a match string if text references phantom audit/monitoring writes.
+
+    Audit/monitoring write access is almost always phantom — agents read
+    from monitoring systems but do not have write access to audit trails.
+    No KC subcode in the current taxonomy grants audit-write capability,
+    so this check always fires regardless of profile.
+    """
+    # No profile-based suppression — audit-write is always phantom in the
+    # current KC taxonomy.  If a future KC subcode is added for audit-write,
+    # add suppression logic here.
+
+    for pattern in _AUDIT_MONITORING_WRITE_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Main validation function
 # ---------------------------------------------------------------------------
@@ -220,6 +341,27 @@ _CHECKERS = [
         _check_code_execution,
         "Profile lacks KC6.2.2 (code execution) and KC6.5 (filesystem) "
         "— arbitrary code execution is a phantom capability.",
+    ),
+    (
+        "mass_broadcasting",
+        _check_mass_broadcasting,
+        "Profile lacks persistent memory and multi-agent capabilities "
+        "— the system is reactive (single-session) and cannot broadcast "
+        "to multiple users.",
+    ),
+    (
+        "cross_session_access",
+        _check_cross_session_access,
+        "Profile lacks persistent memory — the system operates within "
+        "a single authenticated session and cannot access other users' "
+        "sessions or data.",
+    ),
+    (
+        "audit_monitoring_write",
+        _check_audit_monitoring_write,
+        "No KC subcode grants audit/monitoring write access — agents "
+        "read from monitoring systems but cannot modify audit trails "
+        "or suppress alerts.",
     ),
 ]
 
