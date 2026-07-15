@@ -50,6 +50,24 @@ VALID_KC_SUBCODES: frozenset[str] = frozenset({
     "KC6.4", "KC6.5", "KC6.6", "KC6.7",
 })
 
+# ---------------------------------------------------------------------------
+# scenario-forge KC extensions — NOT from OWASP.
+# These gate attack patterns requiring structural capabilities beyond
+# standard OWASP KC codes. KCX-prefixed codes are scenario-forge-specific
+# and are NOT part of the OWASP Agentic AI taxonomy.
+# ---------------------------------------------------------------------------
+
+KCX_SUBCODES: dict[str, str] = {
+    "KCX-PRIV": (
+        "System has dynamic privilege tiers or permission escalation paths"
+    ),
+    "KCX-XAUTH": (
+        "System has cross-boundary credential propagation between trust domains"
+    ),
+}
+
+KCX_PREFIX = "KCX-"
+
 ZONE_DISPLAY_NAMES: dict[str, str] = {
     "input": "Input Surfaces",
     "reasoning": "Planning & Reasoning",
@@ -305,11 +323,17 @@ class Stage1Profile(BaseModel):
     def validate_kc_subcodes(cls, v: list[str]) -> list[str]:
         if not v:
             return v
-        invalid = [code for code in v if code not in VALID_KC_SUBCODES]
+        # KCX-prefixed codes are scenario-forge extensions (NOT from OWASP)
+        # and pass through without checking against VALID_KC_SUBCODES.
+        invalid = [
+            code for code in v
+            if not code.startswith(KCX_PREFIX) and code not in VALID_KC_SUBCODES
+        ]
         if invalid:
             raise ValueError(
                 f"Invalid KC sub-code(s): {invalid}. "
-                f"Valid codes: {sorted(VALID_KC_SUBCODES)}"
+                f"Valid codes: {sorted(VALID_KC_SUBCODES)} "
+                f"(codes prefixed with '{KCX_PREFIX}' are also accepted)"
             )
         return sorted(set(v))
 
@@ -405,11 +429,17 @@ class CapabilityProfile(BaseModel):
     def validate_kc_subcodes(cls, v: list[str]) -> list[str]:
         if not v:
             return v
-        invalid = [code for code in v if code not in VALID_KC_SUBCODES]
+        # KCX-prefixed codes are scenario-forge extensions (NOT from OWASP)
+        # and pass through without checking against VALID_KC_SUBCODES.
+        invalid = [
+            code for code in v
+            if not code.startswith(KCX_PREFIX) and code not in VALID_KC_SUBCODES
+        ]
         if invalid:
             raise ValueError(
                 f"Invalid KC sub-code(s): {invalid}. "
-                f"Valid codes: {sorted(VALID_KC_SUBCODES)}"
+                f"Valid codes: {sorted(VALID_KC_SUBCODES)} "
+                f"(codes prefixed with '{KCX_PREFIX}' are also accepted)"
             )
         return sorted(set(v))
 
