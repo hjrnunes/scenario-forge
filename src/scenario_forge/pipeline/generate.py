@@ -1970,6 +1970,7 @@ def _call_actor_profile(
     preferred_capability_level: str | None = None,
     attack_goal: dict[str, Any] | None = None,
     pinned_technique_ids: list[str] | None = None,
+    forced_actor_type: str | None = None,
 ) -> tuple[ActorProfile, LLMResult]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
@@ -1988,13 +1989,25 @@ def _call_actor_profile(
         pinned_technique_ids: Hard-constrained ATLAS technique IDs from the
             candidate filter. When set, only these techniques are passed to
             prompt context.
+        forced_actor_type: Hard-constrained actor type override. When set,
+            the LLM is instructed that it MUST use this actor type. Used
+            during BDI regeneration after validation reassignment.
 
     Returns:
         Tuple of (ActorProfile, LLMResult).
     """
     # Build actor type diversity guidance
     diversity_section = ""
-    if preferred_actor_type or excluded_actor_types or preferred_capability_level:
+    if forced_actor_type:
+        # Hard constraint — override any preferred/excluded hints
+        diversity_section = (
+            "\n## Actor Type Constraint\n"
+            f"- You MUST use actor_type: {forced_actor_type}. "
+            "This is a hard constraint, not a suggestion. "
+            "Generate beliefs, desires, intentions, and resources that are "
+            f"appropriate and realistic for a {forced_actor_type} actor.\n"
+        )
+    elif preferred_actor_type or excluded_actor_types or preferred_capability_level:
         diversity_lines = ["\n## Actor Type Guidance"]
         if preferred_actor_type:
             diversity_lines.append(
@@ -2626,7 +2639,56 @@ def generate_scenario(
         )
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
 
+    original_actor_type = actor_profile.actor_type
     actor_profile = _validate_actor_type(actor_profile)
+
+    # If BDI validation reassigned the actor type, regenerate the full profile
+    # so that beliefs/desires/intentions/resources match the corrected type.
+    if actor_profile.actor_type != original_actor_type:
+        logger.warning(
+            "BDI reassignment: regenerating actor profile with forced "
+            "actor_type '%s' (was '%s') for seed %s",
+            actor_profile.actor_type,
+            original_actor_type,
+            seed.seed_id,
+        )
+        corrected_type = actor_profile.actor_type
+        try:
+            actor_profile, result0 = _call_actor_profile(
+                seed,
+                profile,
+                client,
+                use_case,
+                excluded_actor_types=excluded_actor_types,
+                preferred_capability_level=preferred_capability_level,
+                attack_goal=attack_goal,
+                pinned_technique_ids=pinned_technique_ids,
+                forced_actor_type=corrected_type,
+            )
+        except Exception as exc:
+            call_log_entries.append(
+                _call_log_entry_error(
+                    CallName.actor_profile,
+                    None,
+                    partial_scenario_id,
+                    f"BDI regeneration failed: {exc}",
+                )
+            )
+            raise GenerationError(
+                f"BDI regeneration failed: {exc}",
+                call_log_entries,
+                seed.seed_id,
+            ) from exc
+
+        # Defence in depth: re-validate the regenerated profile.
+        actor_profile = _validate_actor_type(actor_profile)
+        if actor_profile.actor_type != corrected_type:
+            logger.warning(
+                "BDI regeneration: regenerated profile still has wrong "
+                "actor_type '%s' (expected '%s') — accepting as-is",
+                actor_profile.actor_type,
+                corrected_type,
+            )
 
     # Store the selected goal category on the actor profile (Step 5).
     if attack_goal is not None:
