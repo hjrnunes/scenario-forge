@@ -90,6 +90,11 @@ _PRIVILEGE_ESCALATION_PATTERNS = [
         r"\btier(?:ed)?\s+(?:privil|access|permission|token)",
         r"\belevated\s+token",
         r"\bescalat(?:e|ed|es|ing)\b[^.]{0,40}\b(?:privil|role|access|permission)",
+        # v17 — escapee variants from QA-v16
+        r"\bemergency\s+admin(?:istrat(?:or|ive))?\b",
+        r"\badmin(?:istrat(?:or|ive))?\s+debug(?:ging)?\s+mode\b",
+        r"\bself[- ](?:permission|elevat|escalat|privilege)",
+        r"\bdynamic\s+privilege\b",
     ]
 ]
 
@@ -102,6 +107,8 @@ _CREDENTIAL_EXPOSURE_PATTERNS = [
         r"\bhttp\s+(?:auth(?:orization)?|header)[^.]{0,30}\b(?:expos|leak|reveal|output|disclos)",
         r"\b(?:auth(?:orization)?\s+header|bearer\s+token)\b[^.]{0,30}\b(?:visible|plain|clear|expos|leak|output)",
         r"\binfrastructure\s+credential",
+        # v17 — escapee variant: error messages leaking tokens/credentials
+        r"\b(?:error|exception|diagnostic|debug)\s+messages?\b[^.]{0,40}\b(?:session\s+)?(?:token|credential|secret|api[- _]?key)",
     ]
 ]
 
@@ -116,6 +123,8 @@ _CODE_EXECUTION_PATTERNS = [
         r"\b(?:run|execut)(?:s|ed|es|ing)?\s+(?:the\s+)?(?:python|bash|shell|powershell)\b",
         r"\bgenerat(?:e|ed|es|ing)\b[^.]{0,30}\b(?:executable|payload|script|code\s+snippet)",
         r"\b(?:arbitrary|remote)\s+code\s+execution\b",
+        # v17 — escapee variant: execute/distribute malicious payloads
+        r"\b(?:execut|distribut|deploy)\w*\b[^.]{0,40}\bmalicious\b[^.]{0,20}\bpayload",
     ]
 ]
 
@@ -133,6 +142,9 @@ _MASS_BROADCASTING_PATTERNS = [
         r"\bbulk\s+messag(?:e|es|ing)\b",
         r"\bnotify\s+all\s+(?:customers|users|clients|accounts)\b",
         r"\bsend\s+(?:alerts?|messages?|notifications?)\s+to\s+(?:all|every)\b",
+        # v17 — escapee variants: mass phishing / mass distribution
+        r"\bmass\s+phishing\b",
+        r"\bmass\b[^.]{0,30}\bdistribut(?:e|ed|es|ing|ion)\b",
     ]
 ]
 
@@ -151,6 +163,8 @@ _CROSS_SESSION_ACCESS_PATTERNS = [
         r"\bprocess\b[^.]{0,30}\bunauthorized\b[^.]{0,30}\buser",
         r"\bwrite\b[^.]{0,30}\bas\b[^.]{0,30}\bexternal\b",
         r"\baccess\b[^.]{0,30}\bother\b[^.]{0,30}\b(?:user|customer|account)",
+        # v17 — escapee variant: across multiple sessions
+        r"\bacross\b[^.]{0,30}\bsessions\b",
     ]
 ]
 
@@ -171,6 +185,13 @@ _AUDIT_MONITORING_WRITE_PATTERNS = [
         r"\berase\b[^.]{0,30}\b(?:audit|log)\b",
         r"\btamper\b[^.]{0,30}\baudit\b",
         r"\bmodify\b[^.]{0,30}\b(?:audit|log)\s+(?:record|entr|data)\b",
+        # v17 — escapee variants from QA-v16
+        r"\b(?:session|chat|conversation)\s+history\s+(?:reset|clear|delet|wip|purg)",
+        r"\b(?:reset|clear|delet|wip|purg)\w*\b[^.]{0,20}\b(?:session|chat)\s+history\b",
+        r"\b(?:generat|creat|fabricat)(?:e|ed|es|ing)?\b[^.]{0,30}\b(?:deceptive|false|fake|fraudulent|misleading)\s+(?:\w+\s+){0,2}(?:report|record|alert)",
+        r"\btransaction\s+(?:description|record|detail|log)\s+(?:modif|alter|chang|edit|tamper)",
+        r"\b(?:modif|alter|chang|tamper)\w*\b[^.]{0,20}\btransaction\s+(?:description|record|detail|log)",
+        r"\boverwrite\b[^.]{0,20}\b(?:audit|log|session\s+history)\b",
     ]
 ]
 
@@ -330,6 +351,106 @@ def _check_audit_monitoring_write(
 
 
 # ---------------------------------------------------------------------------
+# Phantom tool invocation — patterns and helpers
+# ---------------------------------------------------------------------------
+
+# Patterns to extract named tool/API/endpoint references from narrative text.
+# Each pattern's group 1 captures the raw name preceding the keyword.
+# The first three patterns require title-case words ([A-Z][a-z]+) to
+# discriminate proper-noun tool names from generic references.
+_PHANTOM_TOOL_EXTRACTORS = [
+    # "<Title Case Name> tool" — e.g. "Policy Audit tool invocation"
+    re.compile(
+        r"\b((?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+){0,4})\s+tool\b"
+    ),
+    # "<Title Case Name> API" — e.g. "Payment Processing API"
+    re.compile(
+        r"\b((?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+){0,4})\s+API\b"
+    ),
+    # "<Title Case Name> endpoint" — e.g. "Admin Configuration endpoint"
+    re.compile(
+        r"\b((?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+){0,4})\s+endpoint\b"
+    ),
+    # "API calls to <action>" — e.g. "API calls to overwrite audit logs"
+    re.compile(
+        r"\bAPI\s+calls?\s+to\s+(\w+(?:\s+\w+){0,5})",
+        re.IGNORECASE,
+    ),
+]
+
+# Words stripped from the leading/trailing edges of extracted tool names.
+_TOOL_NAME_NOISE = frozenset({
+    "the", "a", "an", "this", "that", "its", "our", "their",
+    "some", "each", "every", "my", "your",
+})
+
+# Stop words excluded from word-overlap comparisons.
+_OVERLAP_STOP = _TOOL_NAME_NOISE | frozenset({
+    "and", "or", "for", "to", "in", "on", "at", "by", "of", "with",
+})
+
+
+def _clean_tool_name(raw: str) -> str | None:
+    """Strip leading/trailing noise words from an extracted tool name.
+
+    Returns the cleaned name in lowercase, or ``None`` if the remaining
+    name has fewer than 2 significant words (too generic to be a named
+    tool reference).
+    """
+    words = raw.split()
+    while words and words[0].lower() in _TOOL_NAME_NOISE:
+        words.pop(0)
+    while words and words[-1].lower() in _TOOL_NAME_NOISE:
+        words.pop()
+    if len(words) < 2:
+        return None
+    return " ".join(words).lower()
+
+
+def _check_phantom_tool_invocation(
+    text: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return a match string if text references a tool/API/endpoint not in the profile.
+
+    Extracts named tool, API, and endpoint references from the text and
+    compares them against the profile's ``entry_points``.  A reference is
+    phantom if no entry-point name contains the referenced name
+    (case-insensitive substring match for named tools, word-overlap match
+    for action-based API references).
+    """
+    ep_names = [ep.name.lower() for ep in profile.entry_points]
+
+    for idx, pattern in enumerate(_PHANTOM_TOOL_EXTRACTORS):
+        for m in pattern.finditer(text):
+            raw_name = m.group(1).strip()
+            name = _clean_tool_name(raw_name)
+            if name is None:
+                continue
+
+            if idx < 3:
+                # Named tool/API/endpoint — substring containment check
+                found = any(
+                    name in ep_name or ep_name in name
+                    for ep_name in ep_names
+                )
+            else:
+                # "API calls to <action>" — word-overlap check
+                name_words = set(name.split()) - _OVERLAP_STOP
+                found = False
+                for ep_name in ep_names:
+                    ep_words = set(ep_name.split()) - _OVERLAP_STOP
+                    if name_words and ep_words and name_words & ep_words:
+                        found = True
+                        break
+
+            if not found:
+                return m.group(0)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main validation function
 # ---------------------------------------------------------------------------
 
@@ -373,6 +494,12 @@ _CHECKERS = [
         "No KC subcode grants audit/monitoring write access — agents "
         "read from monitoring systems but cannot modify audit trails "
         "or suppress alerts.",
+    ),
+    (
+        "phantom_tool_invocation",
+        _check_phantom_tool_invocation,
+        "Narrative references a tool, API, or endpoint not found in "
+        "the profile's entry points — this capability is phantom.",
     ),
 ]
 
