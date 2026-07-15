@@ -13,7 +13,18 @@ Use these zone identifiers when annotating entry_points:
 - has_persistent_memory: true if the system stores state across sessions or interactions.
 - multi_agent: true if multiple AI agents coordinate or communicate.
 - hitl: true if humans review, approve, or intervene in the workflow.
-- entry_points: list of attack surfaces as short strings, each annotated with its zone, e.g. "user prompts via chat widget (input)".
+- entry_points: list of entry point objects, each with a "name" and a "direction" field.
+  - name: short description of the entry point, annotated with its zone, e.g. "user prompts via chat widget (input)".
+  - direction: one of "input", "output", or "bidirectional".
+    - "input" — attacker can send data INTO the system through this channel (e.g. user prompts via chat widget, file uploads, API requests from external callers).
+    - "output" — system sends data OUT through this channel; the attacker cannot directly control what flows through it (e.g. backend service API calls the system makes, human agent escalation triggers, notification dispatches).
+    - "bidirectional" — data flows both ways and the attacker can influence the channel (e.g. interactive API endpoints, webhook integrations).
+  - Examples:
+    - {"name": "user prompts via chat widget (input)", "direction": "input"}
+    - {"name": "backend service API calls for refunds and payments (tool_execution)", "direction": "output"}
+    - {"name": "webhook integration endpoint (input)", "direction": "bidirectional"}
+    - {"name": "RAG knowledge-grounding system (memory)", "direction": "input"}
+    - {"name": "human agent escalation triggers (reasoning)", "direction": "output"}
 - confidence: "high" if the description is detailed, "medium" if moderate, "low" if vague or minimal.
 
 ## OWASP KC Sub-Codes

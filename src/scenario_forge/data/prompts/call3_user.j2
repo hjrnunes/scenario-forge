@@ -13,7 +13,7 @@ Steps:
 ## Capability Profile
 Use active zones to determine which Background Given steps to include. Only reference system capabilities that match this profile.
 - Active zones: {{ profile.zones_active }}
-- Entry points: {{ profile.entry_points }}
+- Entry points: {{ profile.entry_points | map(attribute='name') | list }}
 - Persistent memory: {{ profile.has_persistent_memory }}
 - Multi-agent: {{ profile.multi_agent }}
 - Human-in-the-loop: {{ profile.hitl }}

@@ -183,7 +183,8 @@ def _check_privilege_escalation(
     # If the profile explicitly declares admin-level entry points or
     # relevant KC subcodes, privilege references are legitimate.
     admin_entry = any(
-        "admin" in ep.lower() or "role" in ep.lower() for ep in profile.entry_points
+        "admin" in ep.name.lower() or "role" in ep.name.lower()
+        for ep in profile.entry_points
     )
     # KC6.4 = identity / auth management; KC6.3 = database (may include role tables)
     admin_kc = any(
@@ -217,7 +218,8 @@ def _check_credential_exposure(
         for code in profile.kc_subcodes
     )
     api_entry = any(
-        "api" in ep.lower() or "http" in ep.lower() for ep in profile.entry_points
+        "api" in ep.name.lower() or "http" in ep.name.lower()
+        for ep in profile.entry_points
     )
     if api_kc or api_entry:
         return None

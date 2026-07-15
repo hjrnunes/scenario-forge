@@ -146,10 +146,13 @@ def analyze_coverage_gaps(
         covered_attack_pattern_ids.add(envelope.faceting.taxonomy_chain.scenario_seed)
 
     # 1. Uncovered entry points — compare using normalized strings.
+    # Only consider ingress-capable entry points (input/bidirectional) for
+    # coverage analysis — output-only entry points are not attacker ingress.
     uncovered_entry_points = [
-        ep
+        ep.name
         for ep in profile.entry_points
-        if _normalize_entry_point(ep) not in used_entry_points_normalized
+        if ep.direction != "output"
+        and _normalize_entry_point(ep.name) not in used_entry_points_normalized
     ]
 
     # 2. Uncovered active zones

@@ -193,6 +193,29 @@ def expand_candidates(
 
     candidates: list[CandidateTriple] = []
 
+    # Filter out output-only entry points — they are not attacker-accessible
+    # ingress channels. Only input and bidirectional entry points participate
+    # in the candidate cross-product.
+    ingress_points = [ep for ep in profile.entry_points if ep.direction != "output"]
+
+    if not ingress_points:
+        logger.warning(
+            "Profile has %d entry points but none are input/bidirectional — "
+            "returning empty candidate list",
+            len(profile.entry_points),
+        )
+        return []
+
+    output_only_count = len(profile.entry_points) - len(ingress_points)
+    if output_only_count > 0:
+        logger.info(
+            "Entry point direction filter: %d/%d entry points are ingress-capable "
+            "(%d output-only excluded)",
+            len(ingress_points),
+            len(profile.entry_points),
+            output_only_count,
+        )
+
     for seed in eligible_seeds:
         if not seed.atlas_technique_ids:
             logger.warning(
@@ -200,7 +223,7 @@ def expand_candidates(
             )
             continue
 
-        for entry_point in profile.entry_points:
+        for entry_point in ingress_points:
             for combo_size in range(1, max_techniques + 1):
                 for tech_combo in combinations(seed.atlas_technique_ids, combo_size):
                     candidates.append(
@@ -210,7 +233,7 @@ def expand_candidates(
                             threat_name=seed.threat_name,
                             attack_pattern_name=seed.attack_pattern_name,
                             attack_pattern_description=seed.attack_pattern_description,
-                            entry_point=entry_point,
+                            entry_point=entry_point.name,
                             atlas_technique_ids=tech_combo,
                             atlas_technique_names=tuple(
                                 ATLAS_TECHNIQUE_NAMES.get(t, t) for t in tech_combo
@@ -229,10 +252,10 @@ def expand_candidates(
         tech_counts = [len(s.atlas_technique_ids) for s in eligible_seeds if s.atlas_technique_ids]
         avg_techniques = sum(tech_counts) / len(tech_counts) if tech_counts else 0.0
         logger.info(
-            "%d seeds x %d entry points x avg %.1f techniques "
+            "%d seeds x %d ingress entry points x avg %.1f techniques "
             "(max_techniques=%d) = %d candidates",
             len(eligible_seeds),
-            len(profile.entry_points),
+            len(ingress_points),
             avg_techniques,
             max_techniques,
             len(candidates),

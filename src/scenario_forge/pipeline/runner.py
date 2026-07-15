@@ -439,20 +439,24 @@ def run_pipeline(
         _zone_tag_re = re.compile(
             r"\s*\((" + _zone_alts + r")\)\s*$",
         )
-        cleaned_entry_points: list[str] = []
+        cleaned_entry_points = []
+        entry_points_changed = False
         for ep in profile.entry_points:
-            m = _zone_tag_re.search(ep)
+            m = _zone_tag_re.search(ep.name)
             if m and m.group(1) not in filtered:
-                cleaned = ep[: m.start()].rstrip()
+                cleaned_name = ep.name[: m.start()].rstrip()
                 logger.warning(
                     "Stripped zone tag from entry point: '%s' -> '%s'",
-                    ep,
-                    cleaned,
+                    ep.name,
+                    cleaned_name,
                 )
-                cleaned_entry_points.append(cleaned)
+                cleaned_entry_points.append(
+                    ep.model_copy(update={"name": cleaned_name})
+                )
+                entry_points_changed = True
             else:
                 cleaned_entry_points.append(ep)
-        if cleaned_entry_points != list(profile.entry_points):
+        if entry_points_changed:
             updates["entry_points"] = cleaned_entry_points
         profile = profile.model_copy(update=updates)
         logger.info("  Zone filter applied: %s", filtered)
