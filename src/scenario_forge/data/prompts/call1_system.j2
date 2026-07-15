@@ -19,6 +19,13 @@ Cross-check every attack step against these constraints before finalizing. If an
 ### Tool & API Grounding Constraint (MANDATORY)
 Only reference tools, APIs, endpoints, and system capabilities that are explicitly described in the use case or capability profile. Do NOT invent, assume, or fabricate additional system features, API methods, tool names, or integration points that are not mentioned. If the use case describes a "payment API," you may reference that payment API — but do not invent a "session token endpoint" or "elevated privilege API" unless the use case explicitly describes one. Every tool or API mentioned in the narrative must be traceable to the use case or capability profile text.
 
+### Cross-Artifact Consistency (MANDATORY)
+The narrative is the upstream source for the attack tree and behavior spec generated in later calls. To prevent cross-artifact drift:
+- State the entry point explicitly and unambiguously — the attack tree root and Gherkin Background will be anchored to it.
+- Every technique ID referenced in narrative steps must appear exactly as provided in the seed context. Do NOT rename, re-number, or omit any assigned technique.
+- Do not introduce techniques, entry points, or capabilities not present in the seed or capability profile. If the seed assigns three techniques, the narrative must exercise all three — no more, no fewer.
+- Zone names used in narrative steps must come from the active zone list and must be consistent with how they will appear in the attack tree and Gherkin specification.
+
 ## Five-Zone Model
 This model divides an AI system into architectural layers an attack may traverse: input surfaces (where external data enters), planning & reasoning (the LLM's internal processing), tool execution (external actions the system can take), memory & state (persistent data the system maintains), and inter-agent communication (messages between AI agents).
 
