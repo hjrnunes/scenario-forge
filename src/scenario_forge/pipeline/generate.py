@@ -1930,6 +1930,26 @@ _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
     "circumvent",
     "coerce",
     "impersonate",
+    # v16 escapees — adversarial language that negligent-insiders should never use
+    "craft",
+    "phishing",
+    "destroy",
+    "forge",
+    "fabricate",
+    "sabotage",
+    "disrupt",
+    "corrupt",
+    "undermine",
+    "tamper",
+    "obfuscate",
+    "evade",
+    # additional adversarial-only verbs
+    "spoof",
+    "weaponize",
+    "poison",
+    "siphon",
+    "infiltrate",
+    "counterfeit",
 }
 
 
@@ -1951,7 +1971,7 @@ def _validate_actor_type(actor_profile: ActorProfile) -> ActorProfile:
     for intention in actor_profile.intentions:
         intention_lower = intention.lower()
         for keyword in _ADVERSARIAL_INTENTION_KEYWORDS:
-            if keyword in intention_lower:
+            if re.search(r"\b" + re.escape(keyword) + r"\b", intention_lower):
                 matched.append(keyword)
 
     if matched:

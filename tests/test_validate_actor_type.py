@@ -173,6 +173,7 @@ class TestValidateActorType:
     @pytest.mark.parametrize(
         "keyword",
         [
+            # original keywords
             "exploit",
             "extract",
             "bypass",
@@ -184,6 +185,36 @@ class TestValidateActorType:
             "compromise",
             "steal",
             "hijack",
+            "confuse",
+            "trick",
+            "probe",
+            "probing",
+            "deceive",
+            "fool",
+            "subvert",
+            "circumvent",
+            "coerce",
+            "impersonate",
+            # v16 escapees
+            "craft",
+            "phishing",
+            "destroy",
+            "forge",
+            "fabricate",
+            "sabotage",
+            "disrupt",
+            "corrupt",
+            "undermine",
+            "tamper",
+            "obfuscate",
+            "evade",
+            # additional adversarial-only verbs
+            "spoof",
+            "weaponize",
+            "poison",
+            "siphon",
+            "infiltrate",
+            "counterfeit",
         ],
     )
     def test_all_adversarial_keywords_detected(self, keyword):
@@ -194,6 +225,52 @@ class TestValidateActorType:
         result = _validate_actor_type(profile)
         assert result.actor_type == "adversarial-user", (
             f"keyword '{keyword}' did not trigger reassignment"
+        )
+
+    @pytest.mark.parametrize(
+        "intention",
+        [
+            "I will accidentally paste secrets into a public channel.",
+            "I will misconfigure the access controls due to lack of training.",
+            "I will unintentionally expose sensitive data by using the wrong template.",
+            "I will unknowingly share a document with the wrong audience.",
+            "I will forget to revoke temporary credentials after testing.",
+            "I will inadvertently trigger a data leak by copy-pasting into the chatbot.",
+            "I will neglect to follow the data handling policy.",
+            "I will carelessly upload a file containing PII to the wrong bucket.",
+        ],
+    )
+    def test_legitimate_negligent_intentions_not_reassigned(self, intention):
+        """Genuine negligent-insider language must not trigger reassignment."""
+        profile = _make_actor(intentions=[intention])
+        result = _validate_actor_type(profile)
+        assert result.actor_type == "negligent-insider", (
+            f"legitimate intention was wrongly reassigned: {intention!r}"
+        )
+
+    @pytest.mark.parametrize(
+        ("keyword", "sentence"),
+        [
+            ("craft", "I will craft output manipulation prompts to alter responses."),
+            ("phishing", "I will generate phishing template content via the model."),
+            ("destroy", "I will destroy audit evidence to cover my tracks."),
+            ("forge", "I will forge authentication tokens using model outputs."),
+            ("fabricate", "I will fabricate compliance documents with the AI."),
+            ("sabotage", "I will sabotage the training pipeline data."),
+            ("disrupt", "I will disrupt the service by flooding it with requests."),
+            ("corrupt", "I will corrupt the model's fine-tuning dataset."),
+            ("undermine", "I will undermine the safety filters through prompt tricks."),
+            ("tamper", "I will tamper with the logging configuration."),
+            ("obfuscate", "I will obfuscate my malicious queries to avoid detection."),
+            ("evade", "I will evade the content safety classifiers."),
+        ],
+    )
+    def test_v16_escapee_scenarios_now_caught(self, keyword, sentence):
+        """Exact v16 QA escapee patterns are now detected."""
+        profile = _make_actor(intentions=[sentence])
+        result = _validate_actor_type(profile)
+        assert result.actor_type == "adversarial-user", (
+            f"v16 escapee keyword '{keyword}' in {sentence!r} was not caught"
         )
 
 
