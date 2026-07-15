@@ -11,7 +11,7 @@ You are a security analyst assessing which attack vectors are plausible for a sp
 - **Has persistent memory:** {{ profile.has_persistent_memory }}
 - **Multi-agent system:** {{ profile.multi_agent }}
 - **Human-in-the-loop checkpoints:** {{ profile.hitl }}
-- **Entry points:** {{ profile.entry_points | join("; ") }}
+- **Entry points:** {{ profile.entry_points | map(attribute='name') | join("; ") }}
 
 ### Schneider five-zone model reference
 

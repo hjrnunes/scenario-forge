@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -280,6 +280,60 @@ class ExternalIntegration(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Entry point with direction tag
+# ---------------------------------------------------------------------------
+
+
+class EntryPoint(BaseModel):
+    """An entry point with a direction tag indicating data flow.
+
+    Direction controls whether the entry point is considered as attacker
+    ingress during candidate expansion:
+    - ``input``: attacker can send data in (included in candidate cross-product)
+    - ``output``: system sends data out only (excluded from candidate cross-product)
+    - ``bidirectional``: both input and output (included in candidate cross-product)
+    """
+
+    name: str = Field(description="Entry point description, e.g. 'user prompts via chat widget'.")
+    direction: Literal["input", "output", "bidirectional"] = Field(
+        default="bidirectional",
+        description=(
+            "Data flow direction: 'input' (attacker can send data in), "
+            "'output' (system sends data out), or 'bidirectional' (both)."
+        ),
+    )
+
+    def __str__(self) -> str:
+        """Return the entry point name for backward-compatible string formatting."""
+        return self.name
+
+
+def _coerce_entry_points(
+    v: list[Union[str, dict, EntryPoint]],
+) -> list[EntryPoint]:
+    """Coerce a list of mixed entry point representations to EntryPoint objects.
+
+    Accepts:
+    - Plain strings (backward compat) -> EntryPoint(name=string, direction="bidirectional")
+    - Dicts with at least a ``name`` key -> EntryPoint(**dict)
+    - EntryPoint objects -> passed through
+    """
+    result: list[EntryPoint] = []
+    for item in v:
+        if isinstance(item, EntryPoint):
+            result.append(item)
+        elif isinstance(item, str):
+            result.append(EntryPoint(name=item, direction="bidirectional"))
+        elif isinstance(item, dict):
+            result.append(EntryPoint(**item))
+        else:
+            raise ValueError(
+                f"entry_points items must be str, dict, or EntryPoint, got {type(item)}"
+            )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Stage 1-only model (used for LLM inference to avoid schema bloat)
 # ---------------------------------------------------------------------------
 
@@ -303,8 +357,12 @@ class Stage1Profile(BaseModel):
     hitl: bool = Field(
         description="Whether the system includes human-in-the-loop checkpoints.",
     )
-    entry_points: list[str] = Field(
-        description="Attack entry points annotated with their Schneider zone.",
+    entry_points: list[EntryPoint] = Field(
+        description=(
+            "Attack entry points, each with a name and direction tag. "
+            "Direction is one of: input (attacker can send data in), "
+            "output (system sends data out), bidirectional (both)."
+        ),
         min_length=1,
     )
     confidence: ConfidenceLevel = Field(
@@ -317,6 +375,13 @@ class Stage1Profile(BaseModel):
             "granular capabilities. E.g. ['KC1.1', 'KC4.1', 'KC6.1.1']."
         ),
     )
+
+    @field_validator("entry_points", mode="before")
+    @classmethod
+    def coerce_entry_points(
+        cls, v: list[Union[str, dict, EntryPoint]],
+    ) -> list[EntryPoint]:
+        return _coerce_entry_points(v)
 
     @field_validator("kc_subcodes")
     @classmethod
@@ -384,8 +449,12 @@ class CapabilityProfile(BaseModel):
     hitl: bool = Field(
         description="Whether the system includes human-in-the-loop checkpoints.",
     )
-    entry_points: list[str] = Field(
-        description="Attack entry points annotated with their Schneider zone.",
+    entry_points: list[EntryPoint] = Field(
+        description=(
+            "Attack entry points, each with a name and direction tag. "
+            "Direction is one of: input (attacker can send data in), "
+            "output (system sends data out), bidirectional (both)."
+        ),
         min_length=1,
     )
     confidence: ConfidenceLevel = Field(
@@ -423,6 +492,13 @@ class CapabilityProfile(BaseModel):
     )
 
     # --- Validation ---
+
+    @field_validator("entry_points", mode="before")
+    @classmethod
+    def coerce_entry_points(
+        cls, v: list[Union[str, dict, EntryPoint]],
+    ) -> list[EntryPoint]:
+        return _coerce_entry_points(v)
 
     @field_validator("kc_subcodes")
     @classmethod

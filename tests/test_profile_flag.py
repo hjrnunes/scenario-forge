@@ -107,7 +107,8 @@ def test_profile_flag_skips_inference(
 
     # Profile values must match the supplied YAML
     assert result.capability_profile.zones_active == valid_profile_data["zones_active"]
-    assert result.capability_profile.entry_points == valid_profile_data["entry_points"]
+    # entry_points are coerced from plain strings to EntryPoint objects
+    assert [ep.name for ep in result.capability_profile.entry_points] == valid_profile_data["entry_points"]
     assert result.capability_profile.confidence.value == valid_profile_data["confidence"]
 
 
@@ -189,4 +190,6 @@ def test_profile_written_to_output_dir(
 
     written = yaml.safe_load(output_profile.read_text(encoding="utf-8"))
     assert written["zones_active"] == valid_profile_data["zones_active"]
-    assert written["entry_points"] == valid_profile_data["entry_points"]
+    # Serialized entry_points are now dicts with name and direction keys
+    written_ep_names = [ep["name"] for ep in written["entry_points"]]
+    assert written_ep_names == valid_profile_data["entry_points"]

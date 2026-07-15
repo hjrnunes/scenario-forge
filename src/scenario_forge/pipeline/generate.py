@@ -2281,11 +2281,12 @@ def _call_attack_tree(
     # Build optional architecture and actor profile sections for Call 2
     arch_section = ""
     if profile is not None:
+        entry_point_names = [ep.name for ep in profile.entry_points]
         arch_section = (
             "\n## Target System Architecture\n"
             "Every node's zone must be drawn from these active zones.\n"
             f"- Active zones: {profile.zones_active}\n"
-            f"- Entry points: {profile.entry_points}\n"
+            f"- Entry points: {entry_point_names}\n"
         )
 
     actor_section = ""
