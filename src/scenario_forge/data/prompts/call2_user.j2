@@ -6,6 +6,9 @@ The attack tree must formalize the narrative below, which is a concrete instance
 - Use case: {{ use_case }}
 {{ arch_section }}{{ actor_section }}
 {{ technique_context }}{{ technique_constraint }}
+## Leaf Budget (MANDATORY)
+This scenario has {{ technique_count }} technique(s). Your attack tree MUST have at most {{ leaf_budget }} leaf nodes. Trees exceeding this limit will be rejected.
+
 ## Narrative (from Call 1)
 Title: {{ narrative.title }}
 Summary: {{ narrative.summary }}
