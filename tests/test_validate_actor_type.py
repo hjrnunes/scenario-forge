@@ -1,24 +1,82 @@
-"""Tests for _validate_actor_type BDI validation."""
+"""Tests for _validate_actor_type BDI validation and regeneration."""
 
 import logging
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from scenario_forge.llm.client import LLMResult
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ConfidenceLevel,
+)
 from scenario_forge.models.scenario import ActorProfile
-from scenario_forge.pipeline.generate import _validate_actor_type
+from scenario_forge.pipeline.generate import (
+    GenerationError,
+    _validate_actor_type,
+    generate_scenario,
+)
+from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 
 
 def _make_actor(
     actor_type: str = "negligent-insider",
     intentions: list[str] | None = None,
+    beliefs: list[str] | None = None,
+    desires: list[str] | None = None,
+    resources: list[str] | None = None,
 ) -> ActorProfile:
     return ActorProfile(
         actor_type=actor_type,  # type: ignore[arg-type]
         capability_level="intermediate",
-        beliefs=["The system exposes a chat interface."],
-        desires=["I want to access restricted data."],
+        beliefs=beliefs or ["The system exposes a chat interface."],
+        desires=desires or ["I want to access restricted data."],
         intentions=intentions or ["I will accidentally paste secrets."],
-        resources=["Company laptop"],
+        resources=resources or ["Company laptop"],
+    )
+
+
+def _make_llm_result(actor_profile: ActorProfile) -> LLMResult:
+    """Create a minimal LLMResult wrapping an actor profile."""
+    return LLMResult(
+        content=actor_profile,
+        prompt_tokens=100,
+        completion_tokens=50,
+        duration_ms=500,
+    )
+
+
+def _make_seed() -> ScenarioSeed:
+    """Create a minimal ScenarioSeed for testing."""
+    return ScenarioSeed(
+        seed_id="AP-T7-01",
+        threat_id="T7",
+        threat_name="Test Threat",
+        attack_pattern_name="Test Pattern",
+        attack_pattern_description="Test description",
+        risk_card_ref=RiskCardRef(
+            risk_id="risk-1",
+            risk_name="Risk 1",
+            risk_description="Description for risk-1",
+            taxonomy="ibm-risk-atlas",
+            confidence=0.9,
+            grounding_confidence=ConfidenceLevel.high,
+        ),
+        owasp_llm_ids=["LLM01"],
+        agentic_threat_ids=["T7"],
+        atlas_technique_ids=[],
+    )
+
+
+def _make_profile() -> CapabilityProfile:
+    """Create a minimal CapabilityProfile for testing."""
+    return CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        has_persistent_memory=False,
+        multi_agent=False,
+        hitl=False,
+        entry_points=["user prompts (input)"],
+        confidence=ConfidenceLevel.high,
     )
 
 
@@ -137,3 +195,292 @@ class TestValidateActorType:
         assert result.actor_type == "adversarial-user", (
             f"keyword '{keyword}' did not trigger reassignment"
         )
+
+
+def _make_narrative_mock():
+    """Create a mock narrative with the attributes _assemble_envelope needs."""
+    narrative = MagicMock()
+    narrative.zone_sequence = ["input", "reasoning"]
+    narrative.entry_point = "user prompts (input)"
+    return narrative
+
+
+def _make_tree_mock():
+    """Create a mock attack tree with proper root structure."""
+    root = MagicMock()
+    root.maestro_layer = 3
+    root.children = None
+    root.threat_id = "T7"
+    tree = MagicMock()
+    tree.root = root
+    return tree
+
+
+def _make_client_mock():
+    """Create a mock LLMClient with the attributes generate_scenario needs."""
+    client = MagicMock()
+    client.model = "test-model"
+    return client
+
+
+class TestBDIRegeneration:
+    """Tests for actor profile regeneration after BDI validation reassignment.
+
+    These tests mock _assemble_envelope (in addition to the LLM call functions)
+    to isolate the regeneration logic from Pydantic model assembly.
+    """
+
+    _PATCHES = [
+        "scenario_forge.pipeline.generate._assemble_envelope",
+        "scenario_forge.pipeline.generate._call_attack_tree",
+        "scenario_forge.pipeline.generate._call_behavior_spec",
+        "scenario_forge.pipeline.generate._call_narrative",
+        "scenario_forge.pipeline.generate._call_actor_profile",
+    ]
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_regeneration_triggered_on_reassignment(
+        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble, caplog
+    ):
+        """When _validate_actor_type reassigns, _call_actor_profile is invoked a second time."""
+        adversarial_profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will exploit the system to steal data."],
+        )
+        regen_profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will craft malicious API requests."],
+        )
+
+        mock_actor.side_effect = [
+            (adversarial_profile, _make_llm_result(adversarial_profile)),
+            (regen_profile, _make_llm_result(regen_profile)),
+        ]
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_assemble.return_value = MagicMock()
+
+        with caplog.at_level(logging.WARNING):
+            generate_scenario(
+                seed=_make_seed(),
+                profile=_make_profile(),
+                client=_make_client_mock(),
+                use_case="Test AI chatbot",
+            )
+
+        assert mock_actor.call_count == 2
+        _, second_kwargs = mock_actor.call_args_list[1]
+        assert second_kwargs.get("forced_actor_type") == "adversarial-user"
+        assert "BDI reassignment: regenerating" in caplog.text
+
+        # _assemble_envelope should receive the regenerated profile
+        _, assemble_kwargs = mock_assemble.call_args
+        assert assemble_kwargs["actor_profile"].actor_type == "adversarial-user"
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_no_regeneration_when_type_unchanged(
+        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble
+    ):
+        """No regeneration when _validate_actor_type does not change the type."""
+        genuine_profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will accidentally share credentials."],
+        )
+        mock_actor.return_value = (genuine_profile, _make_llm_result(genuine_profile))
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(genuine_profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(genuine_profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(genuine_profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed(),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+        )
+
+        assert mock_actor.call_count == 1
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_regenerated_profile_has_correct_bdi(
+        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble
+    ):
+        """Regenerated profile BDI text matches the corrected actor type."""
+        adversarial_profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will exploit the system to bypass security."],
+        )
+        regen_profile = _make_actor(
+            actor_type="adversarial-user",
+            beliefs=["The target API lacks rate limiting."],
+            desires=["I want to extract proprietary training data."],
+            intentions=["I will send crafted adversarial queries."],
+            resources=["Custom scripts", "GPU cluster"],
+        )
+
+        mock_actor.side_effect = [
+            (adversarial_profile, _make_llm_result(adversarial_profile)),
+            (regen_profile, _make_llm_result(regen_profile)),
+        ]
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed(),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+        )
+
+        _, assemble_kwargs = mock_assemble.call_args
+        actor = assemble_kwargs["actor_profile"]
+        assert actor.actor_type == "adversarial-user"
+        assert actor.beliefs == regen_profile.beliefs
+        assert actor.desires == regen_profile.desires
+        assert actor.intentions == regen_profile.intentions
+        assert actor.resources == regen_profile.resources
+
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_regeneration_failure_raises_generation_error(
+        self, mock_actor, mock_narrative, mock_behavior, mock_tree
+    ):
+        """If regeneration LLM call fails, GenerationError is raised."""
+        adversarial_profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will exploit the system."],
+        )
+        mock_actor.side_effect = [
+            (adversarial_profile, _make_llm_result(adversarial_profile)),
+            RuntimeError("LLM unavailable"),
+        ]
+
+        with pytest.raises(GenerationError, match="BDI regeneration failed"):
+            generate_scenario(
+                seed=_make_seed(),
+                profile=_make_profile(),
+                client=_make_client_mock(),
+                use_case="Test AI chatbot",
+            )
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_defence_in_depth_accepts_still_wrong_type(
+        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble, caplog
+    ):
+        """If regenerated profile still fails validation, accept it with a warning."""
+        adversarial_profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will exploit the system to steal data."],
+        )
+        still_wrong = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will jailbreak the model safety filters."],
+        )
+
+        mock_actor.side_effect = [
+            (adversarial_profile, _make_llm_result(adversarial_profile)),
+            (still_wrong, _make_llm_result(still_wrong)),
+        ]
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(still_wrong))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(still_wrong))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(still_wrong))
+        mock_assemble.return_value = MagicMock()
+
+        with caplog.at_level(logging.WARNING):
+            generate_scenario(
+                seed=_make_seed(),
+                profile=_make_profile(),
+                client=_make_client_mock(),
+                use_case="Test AI chatbot",
+            )
+
+        # Re-validation reassigns again; _assemble_envelope gets adversarial-user
+        _, assemble_kwargs = mock_assemble.call_args
+        assert assemble_kwargs["actor_profile"].actor_type == "adversarial-user"
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_non_negligent_insider_no_regeneration(
+        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble
+    ):
+        """Adversarial-user profiles pass through without regeneration."""
+        profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will exploit the system to steal data."],
+        )
+        mock_actor.return_value = (profile, _make_llm_result(profile))
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed(),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+        )
+
+        assert mock_actor.call_count == 1
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_regeneration_passes_forced_not_preferred(
+        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble
+    ):
+        """Regeneration uses forced_actor_type, not preferred_actor_type."""
+        adversarial_profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will exploit the system."],
+        )
+        regen_profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will send crafted queries."],
+        )
+        mock_actor.side_effect = [
+            (adversarial_profile, _make_llm_result(adversarial_profile)),
+            (regen_profile, _make_llm_result(regen_profile)),
+        ]
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(regen_profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed(),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+            preferred_actor_type="negligent-insider",
+        )
+
+        _, second_kwargs = mock_actor.call_args_list[1]
+        assert second_kwargs["forced_actor_type"] == "adversarial-user"
+        assert second_kwargs.get("preferred_actor_type") is None
