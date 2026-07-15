@@ -21,6 +21,7 @@ from scenario_forge.pipeline.candidates import (
     CandidateTriple,
     FilteredSeed,
     FilterVerdict,
+    cap_scenarios_per_pattern,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
@@ -56,6 +57,30 @@ def _make_seed(
         owasp_llm_ids=["LLM01"],
         agentic_threat_ids=[threat_id],
         atlas_technique_ids=atlas_technique_ids or [],
+    )
+
+
+def _make_filtered_seed(
+    seed_id: str = "AP-T7-01",
+    entry_point: str = "user prompts (input)",
+    technique_ids: tuple[str, ...] = ("AML.T0051",),
+    technique_names: tuple[str, ...] | None = None,
+) -> FilteredSeed:
+    """Build a FilteredSeed with minimal boilerplate for capping tests."""
+    if technique_names is None:
+        technique_names = tuple(f"Technique {t}" for t in technique_ids)
+    return FilteredSeed(
+        seed_id=seed_id,
+        threat_id="T7",
+        threat_name="Threat T7",
+        attack_pattern_name=f"Pattern {seed_id}",
+        attack_pattern_description=f"Description for {seed_id}",
+        risk_card_ref=_make_ref(),
+        owasp_llm_ids=["LLM01"],
+        agentic_threat_ids=["T7"],
+        pinned_entry_point=entry_point,
+        pinned_technique_ids=technique_ids,
+        pinned_technique_names=technique_names,
     )
 
 
@@ -381,7 +406,7 @@ class TestExpandCandidates:
         assert len(singles) == math.comb(n_techniques, 1)
         assert len(pairs) == math.comb(n_techniques, 2)
 
-    def test_expand_candidates_max_techniques_3(self):
+    def test_expand_candidates_max_techniques_3(self):  # noqa: E301
         """max_techniques=3 with 3 techniques produces C(3,1)+C(3,2)+C(3,3)=7."""
         n_techniques = 3
         technique_ids = ["AML.T0051", "AML.T0054", "AML.T0053"]
@@ -407,3 +432,206 @@ class TestExpandCandidates:
         # 2 seeds x 2 entry_points x (C(2,1) + C(2,2)) = 2 x 2 x 3 = 12
         combos_per_seed_ep = math.comb(2, 1) + math.comb(2, 2)  # 3
         assert len(candidates) == 2 * 2 * combos_per_seed_ep
+
+
+# ---------------------------------------------------------------------------
+# cap_scenarios_per_pattern greedy marginal coverage tests
+# ---------------------------------------------------------------------------
+
+
+class TestCapScenariosPerPattern:
+    """Greedy marginal coverage capping logic."""
+
+    # -- Core algorithm properties --
+
+    def test_dual_technique_preferred_over_single(self):
+        """A dual-technique candidate covers more new techniques and is selected first."""
+        dual = _make_filtered_seed(
+            entry_point="ep1",
+            technique_ids=("AML.T0051", "AML.T0054"),
+        )
+        single = _make_filtered_seed(
+            entry_point="ep1",
+            technique_ids=("AML.T0051",),
+        )
+        # Only 1 slot: the dual-technique candidate should win.
+        result = cap_scenarios_per_pattern([single, dual], max_per_pattern=1)
+        assert len(result) == 1
+        assert result[0].pinned_technique_ids == ("AML.T0051", "AML.T0054")
+
+    def test_entry_point_diversity_adds_score(self):
+        """A new entry point contributes +1, so candidates with unseen entry points are preferred."""
+        # Both cover the same technique, but ep2 is a new entry point.
+        a = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",))
+        b = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",))
+        c = _make_filtered_seed(entry_point="ep2", technique_ids=("AML.T0051",))
+
+        result = cap_scenarios_per_pattern([a, b, c], max_per_pattern=2)
+        assert len(result) == 2
+        entry_points = {fs.pinned_entry_point for fs in result}
+        assert entry_points == {"ep1", "ep2"}
+
+    def test_technique_coverage_then_entry_point_diversity(self):
+        """After all techniques are covered, entry-point diversity drives selection."""
+        # T0051 + T0054 covered by first pick (dual). Second pick should favor new EP.
+        dual_ep1 = _make_filtered_seed(
+            entry_point="ep1",
+            technique_ids=("AML.T0051", "AML.T0054"),
+        )
+        single_ep1 = _make_filtered_seed(
+            entry_point="ep1",
+            technique_ids=("AML.T0051",),
+        )
+        single_ep2 = _make_filtered_seed(
+            entry_point="ep2",
+            technique_ids=("AML.T0051",),
+        )
+        result = cap_scenarios_per_pattern(
+            [dual_ep1, single_ep1, single_ep2], max_per_pattern=2,
+        )
+        assert len(result) == 2
+        # First pick: dual on ep1 (marginal=3: 2 new techs + 1 new ep).
+        assert result[0] is dual_ep1
+        # Second pick: single_ep2 wins (marginal=1 for new ep) over single_ep1 (marginal=0).
+        assert result[1] is single_ep2
+
+    def test_cap_respected(self):
+        """Never more than max_per_pattern returned per seed_id."""
+        seeds = [
+            _make_filtered_seed(entry_point=f"ep{i}", technique_ids=(f"AML.T{i:04d}",))
+            for i in range(10)
+        ]
+        result = cap_scenarios_per_pattern(seeds, max_per_pattern=3)
+        assert len(result) == 3
+
+    def test_no_capping_when_under_limit(self):
+        """Groups at or below the limit pass through unchanged."""
+        seeds = [
+            _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",)),
+            _make_filtered_seed(entry_point="ep2", technique_ids=("AML.T0054",)),
+        ]
+        result = cap_scenarios_per_pattern(seeds, max_per_pattern=5)
+        assert len(result) == 2
+        assert result == seeds
+
+    # -- Edge cases --
+
+    def test_empty_input(self):
+        """Empty input produces empty output."""
+        result = cap_scenarios_per_pattern([], max_per_pattern=3)
+        assert result == []
+
+    def test_single_candidate(self):
+        """A single candidate passes through regardless of cap."""
+        seed = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",))
+        result = cap_scenarios_per_pattern([seed], max_per_pattern=1)
+        assert len(result) == 1
+        assert result[0] is seed
+
+    def test_all_same_entry_point(self):
+        """When all candidates share the same entry point, technique diversity drives selection."""
+        a = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",))
+        b = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0054",))
+        c = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",))
+
+        result = cap_scenarios_per_pattern([a, b, c], max_per_pattern=2)
+        assert len(result) == 2
+        # First pick: a (1 new tech + 1 new ep = 2). Second pick: b (1 new tech = 1).
+        techs = {t for fs in result for t in fs.pinned_technique_ids}
+        assert techs == {"AML.T0051", "AML.T0054"}
+
+    def test_max_per_pattern_one(self):
+        """max_per_pattern=1 selects the single best candidate."""
+        a = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",))
+        b = _make_filtered_seed(
+            entry_point="ep2",
+            technique_ids=("AML.T0051", "AML.T0054"),
+        )
+        result = cap_scenarios_per_pattern([a, b], max_per_pattern=1)
+        assert len(result) == 1
+        # b has marginal 3 (2 new techs + 1 new ep) vs a's marginal 2 (1 tech + 1 ep).
+        assert result[0].pinned_technique_ids == ("AML.T0051", "AML.T0054")
+
+    def test_invalid_max_per_pattern(self):
+        """max_per_pattern < 1 raises ValueError."""
+        with pytest.raises(ValueError, match="max_per_pattern must be >= 1"):
+            cap_scenarios_per_pattern([], max_per_pattern=0)
+
+    # -- Multi-group behaviour --
+
+    def test_multiple_seed_ids_capped_independently(self):
+        """Each seed_id group is capped independently."""
+        group_a = [
+            _make_filtered_seed(seed_id="AP-01", entry_point=f"ep{i}", technique_ids=("AML.T0051",))
+            for i in range(5)
+        ]
+        group_b = [
+            _make_filtered_seed(seed_id="AP-02", entry_point=f"ep{i}", technique_ids=("AML.T0054",))
+            for i in range(5)
+        ]
+        result = cap_scenarios_per_pattern(group_a + group_b, max_per_pattern=2)
+        ids = [fs.seed_id for fs in result]
+        assert ids.count("AP-01") == 2
+        assert ids.count("AP-02") == 2
+
+    # -- Tie-breaking --
+
+    def test_tiebreak_prefers_larger_combo(self):
+        """When marginal coverage is equal, prefer the larger technique combo."""
+        # First pick: 'first' wins with marginal=4 (3 new techs + 1 new ep).
+        # After: covered={T1, T2, T3}, seen={ep1}.
+        # Second pick:
+        #   ta: ep2, (T4,)        -> 1 new tech + 1 new ep = 2, combo_size=1
+        #   tb: ep3, (T1, T5)     -> 1 new tech (T5) + 1 new ep = 2, combo_size=2
+        # Equal marginal=2 -> tiebreak by combo_size: tb wins.
+        first = _make_filtered_seed(
+            entry_point="ep1",
+            technique_ids=("AML.T0001", "AML.T0002", "AML.T0003"),
+        )
+        ta = _make_filtered_seed(entry_point="ep2", technique_ids=("AML.T0004",))
+        tb = _make_filtered_seed(
+            entry_point="ep3", technique_ids=("AML.T0001", "AML.T0005"),
+        )
+        result = cap_scenarios_per_pattern([first, ta, tb], max_per_pattern=2)
+        assert len(result) == 2
+        assert result[0] is first
+        assert result[1] is tb
+
+    def test_tiebreak_encounter_order(self):
+        """When marginal and combo size are equal, earlier encounter order wins."""
+        a = _make_filtered_seed(entry_point="ep1", technique_ids=("AML.T0051",))
+        b = _make_filtered_seed(entry_point="ep2", technique_ids=("AML.T0054",))
+        c = _make_filtered_seed(entry_point="ep3", technique_ids=("AML.T0053",))
+        # All have the same marginal on first pick (1 tech + 1 ep = 2) and combo_size=1.
+        # Tiebreak by encounter order: a first.
+        result = cap_scenarios_per_pattern([a, b, c], max_per_pattern=1)
+        assert len(result) == 1
+        assert result[0] is a
+
+    # -- Greedy selection ordering --
+
+    def test_greedy_technique_coverage_ordering(self):
+        """The greedy algorithm picks candidates that maximise new technique coverage."""
+        # 4 candidates, 3 techniques, cap=2.
+        # dual covers T1+T2, single_t3 covers T3. Together they cover all 3.
+        dual = _make_filtered_seed(
+            entry_point="ep1", technique_ids=("AML.T0001", "AML.T0002"),
+        )
+        single_t1 = _make_filtered_seed(
+            entry_point="ep2", technique_ids=("AML.T0001",),
+        )
+        single_t2 = _make_filtered_seed(
+            entry_point="ep3", technique_ids=("AML.T0002",),
+        )
+        single_t3 = _make_filtered_seed(
+            entry_point="ep4", technique_ids=("AML.T0003",),
+        )
+        result = cap_scenarios_per_pattern(
+            [single_t1, dual, single_t2, single_t3], max_per_pattern=2,
+        )
+        assert len(result) == 2
+        # dual is picked first (covers 2 new techniques + 1 ep = 3).
+        assert result[0] is dual
+        # single_t3 is picked second (covers 1 new technique + 1 new ep = 2)
+        # vs single_t1 (0 new tech + 1 new ep = 1) and single_t2 (0 + 1 = 1).
+        assert result[1] is single_t3
