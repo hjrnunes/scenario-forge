@@ -504,6 +504,434 @@ class TestCredentialExposure:
 
 
 # ---------------------------------------------------------------------------
+# Tests: mass broadcasting detection
+# ---------------------------------------------------------------------------
+
+
+class TestMassBroadcasting:
+    """Scenarios referencing mass broadcasting should be flagged
+    when the profile is reactive (no persistent memory, no multi-agent)."""
+
+    def test_broadcast_keyword_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent uses the broadcast channel to notify all users."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "mass_broadcasting" for v in violations)
+
+    def test_proactively_reach_out_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The compromised assistant begins to proactively reach out "
+                    "to customers with phishing links."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "mass_broadcasting" for v in violations)
+
+    def test_push_to_all_users_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system push to all users a fraudulent notification."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_mass_notification_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker triggers a mass notification containing "
+                    "the malicious payload."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_bulk_messaging_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent starts bulk messaging customers with "
+                    "fraudulent payment links."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_send_to_thousands_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system send to thousands of customers the "
+                    "manipulated response."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_notify_all_customers_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker instructs the agent to notify all customers "
+                    "about a fake security update."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_broadcasting_passes_with_persistent_memory(self) -> None:
+        """No false positive when profile has persistent memory."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent uses the broadcast channel to notify all users."
+                ],
+            ),
+        ]
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "memory"],
+            has_persistent_memory=True,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user prompts (zone 1)"],
+            confidence="high",
+            kc_subcodes=[],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+    def test_broadcasting_passes_with_multi_agent(self) -> None:
+        """No false positive when profile has multi-agent."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent uses the broadcast channel to notify all users."
+                ],
+            ),
+        ]
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "inter_agent"],
+            has_persistent_memory=False,
+            multi_agent=True,
+            hitl=False,
+            entry_points=["user prompts (zone 1)"],
+            confidence="high",
+            kc_subcodes=[],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: cross-session access detection
+# ---------------------------------------------------------------------------
+
+
+class TestCrossSessionAccess:
+    """Scenarios referencing cross-session/cross-user access should be flagged
+    when the profile lacks persistent memory."""
+
+    def test_other_user_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker accesses data belonging to other user accounts."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "cross_session_access" for v in violations)
+
+    def test_different_account_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent retrieves records from a different account."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_cross_user_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system enables cross-user data access through "
+                    "the compromised context."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_another_customer_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker pivots to access another customer's "
+                    "financial data."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_target_victim_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker identifies a target victim and extracts "
+                    "their session data."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_access_other_session_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent can now access the other active session's "
+                    "data store."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_process_unauthorized_user_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system begins to process requests for an "
+                    "unauthorized user."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_cross_session_passes_with_persistent_memory(self) -> None:
+        """No false positive when profile has persistent memory."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker accesses data belonging to other user accounts."
+                ],
+            ),
+        ]
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "memory"],
+            has_persistent_memory=True,
+            multi_agent=False,
+            hitl=False,
+            entry_points=["user prompts (zone 1)"],
+            confidence="high",
+            kc_subcodes=[],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: audit/monitoring write access detection
+# ---------------------------------------------------------------------------
+
+
+class TestAuditMonitoringWrite:
+    """Scenarios referencing audit/monitoring write access should always be
+    flagged since no KC subcode grants this capability."""
+
+    def test_modify_audit_trail_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker instructs the agent to modify audit trail "
+                    "entries to cover tracks."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+    def test_alter_logs_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The compromised agent can now alter logs to remove "
+                    "evidence of the intrusion."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_tamper_logging_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker uses the agent to tamper with the logging "
+                    "infrastructure."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_suppress_alerts_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent is able to suppress security alerts to "
+                    "avoid detection."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_disable_monitoring_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker convinces the agent to disable monitoring "
+                    "for the compromised service."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_manipulate_log_entries_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent manipulates log entries to hide the "
+                    "unauthorized access."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_write_to_monitoring_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The attacker can write to monitoring dashboards "
+                    "to create false alerts."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_audit_write_flagged_even_with_rich_profile(self) -> None:
+        """Audit write is always phantom — even profiles with many
+        capabilities should be flagged."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker instructs the agent to modify audit trail "
+                    "entries to cover tracks."
+                ],
+            ),
+        ]
+        # Rich profile with many capabilities
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "memory", "inter_agent"],
+            has_persistent_memory=True,
+            multi_agent=True,
+            hitl=True,
+            entry_points=[
+                "user prompts (zone 1)",
+                "admin console (zone 2)",
+                "API gateway (zone 1)",
+            ],
+            confidence="high",
+            kc_subcodes=[],
+        )
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "audit_monitoring_write" for v in violations)
+
+
+# ---------------------------------------------------------------------------
 # Tests: mixed scenarios
 # ---------------------------------------------------------------------------
 
@@ -567,6 +995,57 @@ class TestMixedScenarios:
         cats = result.violation_categories
         assert "credential_exposure" in cats
         assert "privilege_escalation" in cats
+
+    def test_all_six_categories_detected(self) -> None:
+        """Integration: all 6 sub-patterns fire on a reactive profile."""
+        scenarios = [
+            _make_envelope(
+                step_actions=["I escalate privileges to gain admin access."],
+                scenario_id="s1",
+            ),
+            _make_envelope(
+                step_effects=[
+                    "The LLM outputs the authorization header containing "
+                    "the bearer token."
+                ],
+                scenario_id="s2",
+            ),
+            _make_envelope(
+                step_actions=[
+                    "I trick the system into generating a Python script."
+                ],
+                scenario_id="s3",
+            ),
+            _make_envelope(
+                step_actions=[
+                    "The agent starts bulk messaging customers with scam links."
+                ],
+                scenario_id="s4",
+            ),
+            _make_envelope(
+                step_actions=[
+                    "The attacker pivots to access another customer's data."
+                ],
+                scenario_id="s5",
+            ),
+            _make_envelope(
+                step_effects=[
+                    "The agent can now alter logs to remove evidence."
+                ],
+                scenario_id="s6",
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 6
+        cats = result.violation_categories
+        assert "privilege_escalation" in cats
+        assert "credential_exposure" in cats
+        assert "code_execution" in cats
+        assert "mass_broadcasting" in cats
+        assert "cross_session_access" in cats
+        assert "audit_monitoring_write" in cats
 
 
 # ---------------------------------------------------------------------------
