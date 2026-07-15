@@ -1907,6 +1907,26 @@ def _enforce_capability_floor(actor_type: str, capability_level: str) -> str:
     return capability_level
 
 
+# Threat IDs where negligent-insider is structurally implausible.
+# These threats describe inherently adversarial actions (prompt injection,
+# privilege escalation, identity spoofing, etc.) that cannot arise from
+# mere negligence.  For these seeds, "negligent-insider" is excluded from
+# the actor-type pool *before* the LLM call, preventing the generator from
+# producing an incoherent actor profile.
+#
+# Allowed (negligent-insider plausible):
+#   T2  — Tool Misuse (accidental misuse)
+#   T7  — Misaligned & Deceptive Behaviors (could stem from poor oversight)
+#   T8  — Repudiation & Untraceability (poor logging practices)
+_ADVERSARIAL_ONLY_THREATS: frozenset[str] = frozenset({
+    "T3",   # Privilege Compromise
+    "T6",   # Intent Breaking / Goal Manipulation (prompt injection)
+    "T9",   # Identity Spoofing
+    "T10",  # Overwhelming HITL (deliberate flooding)
+    "T15",  # Human Manipulation
+})
+
+
 # Keywords in intentions that indicate adversarial (non-negligent) behaviour.
 _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
     "exploit",
@@ -2651,6 +2671,18 @@ def generate_scenario(
     # a trace in calls.jsonl.
     call_log_entries: list[dict] = []
     results: dict[CallName, LLMResult] = {}
+
+    # --- Pre-filter: exclude negligent-insider for adversarial-only threats ---
+    if seed.threat_id in _ADVERSARIAL_ONLY_THREATS:
+        excluded_actor_types = list(excluded_actor_types) if excluded_actor_types else []
+        if "negligent-insider" not in excluded_actor_types:
+            excluded_actor_types.append("negligent-insider")
+            logger.debug(
+                "Excluding negligent-insider for adversarial-only threat %s "
+                "(seed %s)",
+                seed.threat_id,
+                seed.seed_id,
+            )
 
     # --- Call 0: Actor Profile ---
     try:

@@ -1,4 +1,5 @@
-"""Tests for _validate_actor_type BDI validation and regeneration."""
+"""Tests for _validate_actor_type BDI validation, regeneration, and
+negligent-insider threat-based exclusion."""
 
 import logging
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,7 @@ from scenario_forge.models.capability_profile import (
 )
 from scenario_forge.models.scenario import ActorProfile
 from scenario_forge.pipeline.generate import (
+    _ADVERSARIAL_ONLY_THREATS,
     GenerationError,
     _validate_actor_type,
     generate_scenario,
@@ -561,3 +563,299 @@ class TestBDIRegeneration:
         _, second_kwargs = mock_actor.call_args_list[1]
         assert second_kwargs["forced_actor_type"] == "adversarial-user"
         assert second_kwargs.get("preferred_actor_type") is None
+
+
+def _make_seed_with_threat(threat_id: str) -> ScenarioSeed:
+    """Create a ScenarioSeed with a specific threat_id."""
+    return ScenarioSeed(
+        seed_id=f"AP-{threat_id}-01",
+        threat_id=threat_id,
+        threat_name=f"Test Threat {threat_id}",
+        attack_pattern_name="Test Pattern",
+        attack_pattern_description="Test description",
+        risk_card_ref=RiskCardRef(
+            risk_id="risk-1",
+            risk_name="Risk 1",
+            risk_description="Description for risk-1",
+            taxonomy="ibm-risk-atlas",
+            confidence=0.9,
+            grounding_confidence=ConfidenceLevel.high,
+        ),
+        owasp_llm_ids=["LLM01"],
+        agentic_threat_ids=[threat_id],
+        atlas_technique_ids=[],
+    )
+
+
+class TestAdversarialOnlyThreats:
+    """Tests for negligent-insider exclusion based on threat_id."""
+
+    _PATCHES = [
+        "scenario_forge.pipeline.generate._assemble_envelope",
+        "scenario_forge.pipeline.generate._call_attack_tree",
+        "scenario_forge.pipeline.generate._call_behavior_spec",
+        "scenario_forge.pipeline.generate._call_narrative",
+        "scenario_forge.pipeline.generate._call_actor_profile",
+    ]
+
+    def test_constant_contains_expected_threats(self):
+        """Verify the adversarial-only set includes the correct threat IDs."""
+        assert _ADVERSARIAL_ONLY_THREATS == frozenset(
+            {"T3", "T6", "T9", "T10", "T15"}
+        )
+
+    @pytest.mark.parametrize("threat_id", ["T3", "T6", "T9", "T10", "T15"])
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_negligent_insider_excluded_for_adversarial_threats(
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+        threat_id,
+    ):
+        """For adversarial-only threats, negligent-insider is added to
+        excluded_actor_types before the LLM call."""
+        profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will send crafted queries."],
+        )
+        mock_actor.return_value = (profile, _make_llm_result(profile))
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed_with_threat(threat_id),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+        )
+
+        _, first_kwargs = mock_actor.call_args_list[0]
+        excluded = first_kwargs.get("excluded_actor_types") or []
+        assert "negligent-insider" in excluded, (
+            f"negligent-insider should be excluded for threat {threat_id}"
+        )
+
+    @pytest.mark.parametrize("threat_id", ["T2", "T7", "T8"])
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_negligent_insider_allowed_for_non_adversarial_threats(
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+        threat_id,
+    ):
+        """For non-adversarial threats (T2, T7, T8), negligent-insider
+        is NOT automatically excluded."""
+        profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will accidentally share credentials."],
+        )
+        mock_actor.return_value = (profile, _make_llm_result(profile))
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed_with_threat(threat_id),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+        )
+
+        _, first_kwargs = mock_actor.call_args_list[0]
+        excluded = first_kwargs.get("excluded_actor_types") or []
+        assert "negligent-insider" not in excluded, (
+            f"negligent-insider should be allowed for threat {threat_id}"
+        )
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_existing_exclusions_preserved(
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+    ):
+        """Pre-existing excluded_actor_types are preserved when
+        negligent-insider is appended."""
+        profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will send crafted queries."],
+        )
+        mock_actor.return_value = (profile, _make_llm_result(profile))
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed_with_threat("T6"),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+            excluded_actor_types=["cybercriminal"],
+        )
+
+        _, first_kwargs = mock_actor.call_args_list[0]
+        excluded = first_kwargs.get("excluded_actor_types") or []
+        assert "cybercriminal" in excluded
+        assert "negligent-insider" in excluded
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_no_duplicate_if_already_excluded(
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+    ):
+        """If negligent-insider is already in the exclusion list, it is
+        not duplicated."""
+        profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will send crafted queries."],
+        )
+        mock_actor.return_value = (profile, _make_llm_result(profile))
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed_with_threat("T9"),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+            excluded_actor_types=["negligent-insider"],
+        )
+
+        _, first_kwargs = mock_actor.call_args_list[0]
+        excluded = first_kwargs.get("excluded_actor_types") or []
+        assert excluded.count("negligent-insider") == 1
+
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_caller_list_not_mutated(
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+    ):
+        """The caller's excluded_actor_types list is not mutated in place."""
+        profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will send crafted queries."],
+        )
+        mock_actor.return_value = (profile, _make_llm_result(profile))
+        mock_narrative.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_tree.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_behavior.return_value = (MagicMock(), _make_llm_result(profile))
+        mock_assemble.return_value = MagicMock()
+
+        original_list = ["cybercriminal"]
+        generate_scenario(
+            seed=_make_seed_with_threat("T6"),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+            excluded_actor_types=original_list,
+        )
+
+        assert original_list == ["cybercriminal"], (
+            "caller's list was mutated in place"
+        )
+
+    @pytest.mark.parametrize("threat_id", ["T3", "T6", "T9", "T10", "T15"])
+    @patch(_PATCHES[0])
+    @patch(_PATCHES[1])
+    @patch(_PATCHES[2])
+    @patch(_PATCHES[3])
+    @patch(_PATCHES[4])
+    def test_defence_in_depth_both_mechanisms(
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+        threat_id,
+    ):
+        """Both threat-based exclusion and BDI keyword validation work
+        together as defence in depth.  Even if the LLM ignores the
+        exclusion and returns negligent-insider with adversarial
+        intentions, BDI validation catches it."""
+        # Simulate LLM ignoring the exclusion hint
+        bad_profile = _make_actor(
+            actor_type="negligent-insider",
+            intentions=["I will exploit the system to steal data."],
+        )
+        corrected_profile = _make_actor(
+            actor_type="adversarial-user",
+            intentions=["I will send crafted adversarial queries."],
+        )
+
+        mock_actor.side_effect = [
+            (bad_profile, _make_llm_result(bad_profile)),
+            (corrected_profile, _make_llm_result(corrected_profile)),
+        ]
+        mock_narrative.return_value = (
+            MagicMock(),
+            _make_llm_result(corrected_profile),
+        )
+        mock_tree.return_value = (
+            MagicMock(),
+            _make_llm_result(corrected_profile),
+        )
+        mock_behavior.return_value = (
+            MagicMock(),
+            _make_llm_result(corrected_profile),
+        )
+        mock_assemble.return_value = MagicMock()
+
+        generate_scenario(
+            seed=_make_seed_with_threat(threat_id),
+            profile=_make_profile(),
+            client=_make_client_mock(),
+            use_case="Test AI chatbot",
+        )
+
+        # Threat-based exclusion was applied
+        _, first_kwargs = mock_actor.call_args_list[0]
+        excluded = first_kwargs.get("excluded_actor_types") or []
+        assert "negligent-insider" in excluded
+
+        # BDI validation triggered regeneration
+        assert mock_actor.call_count == 2
+        _, assemble_kwargs = mock_assemble.call_args
+        assert assemble_kwargs["actor_profile"].actor_type == "adversarial-user"
