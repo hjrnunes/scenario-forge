@@ -416,10 +416,21 @@ def cap_scenarios_per_pattern(
 ) -> list[FilteredSeed]:
     """Cap the number of filtered seeds per attack pattern (seed_id).
 
-    When a group exceeds ``max_per_pattern``, seeds are prioritised by
-    entry-point diversity: one seed per unique ``pinned_entry_point`` is
-    selected first (in encounter order), then remaining slots are filled
-    from the leftovers (also in encounter order).
+    When a group exceeds ``max_per_pattern``, seeds are selected using
+    greedy marginal coverage that balances both technique and entry-point
+    diversity.
+
+    At each selection step the candidate with the highest score is picked::
+
+        score = (count of technique IDs NOT yet covered by selected set)
+              + (1 if entry point NOT yet seen in selected set)
+
+    Ties are broken by technique-combo size (prefer larger combos), then
+    by original encounter order (lower index wins).
+
+    This ensures dual-technique candidates float to the top early (more
+    new technique ground), while single-technique candidates fill
+    entry-point diversity once technique coverage is saturated.
 
     A warning is logged for every capped group.
 
@@ -444,22 +455,36 @@ def cap_scenarios_per_pattern(
             result.extend(group)
             continue
 
-        # Prioritise entry-point diversity: pick first occurrence of each
-        # unique pinned_entry_point, then fill remaining slots.
+        # Greedy marginal-coverage selection.
+        covered_techniques: set[str] = set()
         seen_entry_points: set[str] = set()
-        diverse: list[FilteredSeed] = []
-        remainder: list[FilteredSeed] = []
-        for fs in group:
-            if fs.pinned_entry_point not in seen_entry_points:
-                seen_entry_points.add(fs.pinned_entry_point)
-                diverse.append(fs)
-            else:
-                remainder.append(fs)
+        selected: list[FilteredSeed] = []
+        remaining_indices: list[int] = list(range(len(group)))
 
-        selected = diverse[:max_per_pattern]
-        if len(selected) < max_per_pattern:
-            slots_left = max_per_pattern - len(selected)
-            selected.extend(remainder[:slots_left])
+        while len(selected) < max_per_pattern and remaining_indices:
+            best_idx: int | None = None
+            best_score: tuple[int, int, int] = (-1, -1, -1)
+
+            for idx in remaining_indices:
+                fs = group[idx]
+                new_techniques = sum(
+                    1 for t in fs.pinned_technique_ids if t not in covered_techniques
+                )
+                new_entry_point = 1 if fs.pinned_entry_point not in seen_entry_points else 0
+                marginal = new_techniques + new_entry_point
+                combo_size = len(fs.pinned_technique_ids)
+                # Score tuple: (marginal coverage, combo size, -index for stable ordering)
+                score = (marginal, combo_size, -idx)
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+
+            assert best_idx is not None  # remaining_indices is non-empty
+            chosen = group[best_idx]
+            selected.append(chosen)
+            covered_techniques.update(chosen.pinned_technique_ids)
+            seen_entry_points.add(chosen.pinned_entry_point)
+            remaining_indices.remove(best_idx)
 
         logger.warning(
             "Capped %s from %d to %d scenarios (--max-scenarios-per-pattern)",

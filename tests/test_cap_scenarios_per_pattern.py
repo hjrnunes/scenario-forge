@@ -3,7 +3,7 @@
 Covers:
   - No cap (default pipeline behavior unchanged when function is not called).
   - Cap applied -- group is truncated to the cap.
-  - Entry-point diversity prioritisation -- unique entry points are kept first.
+  - Greedy marginal coverage balancing technique and entry-point diversity.
   - Cap larger than group size -- no effect.
 """
 
@@ -109,31 +109,33 @@ class TestCapScenariosPerPattern:
         assert len(group2) == 1
 
     def test_entry_point_diversity_prioritisation(self):
-        """When capping, seeds with unique entry points are kept first."""
+        """When capping, the greedy algorithm balances technique and entry-point diversity."""
+        # Each unique entry point carries a unique technique, so greedy
+        # marginal coverage selects all 3 EPs (each one adds both a new
+        # technique and a new entry point).
         seeds = [
             _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0051",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0054",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep2", pinned_technique_ids=("AML.T0051",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0053",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep3", pinned_technique_ids=("AML.T0051",)),
+            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep2", pinned_technique_ids=("AML.T0054",)),
+            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep3", pinned_technique_ids=("AML.T0053",)),
+            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0051",)),
+            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep2", pinned_technique_ids=("AML.T0054",)),
         ]
-        # Cap to 3: should pick the 3 unique entry points (ep1, ep2, ep3)
-        # rather than the first 3 in order (which would be ep1, ep1, ep2).
+        # Cap to 3: greedy picks ep1/T0051, ep2/T0054, ep3/T0053 (each
+        # adds 1 new technique + 1 new entry point = marginal 2).
         result = cap_scenarios_per_pattern(seeds, max_per_pattern=3)
         assert len(result) == 3
         entry_points = {fs.pinned_entry_point for fs in result}
         assert entry_points == {"ep1", "ep2", "ep3"}
 
-    def test_entry_point_diversity_fills_remaining_slots(self):
-        """After picking one per unique entry point, remaining slots fill from leftovers."""
+    def test_greedy_fills_remaining_slots(self):
+        """After initial picks for technique/EP diversity, remaining slots fill greedily."""
         seeds = [
             _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0051",)),
             _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0054",)),
             _make_filtered_seed("AP-T7-01", pinned_entry_point="ep2", pinned_technique_ids=("AML.T0051",)),
             _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0053",)),
         ]
-        # Cap to 3: 2 unique entry points (ep1, ep2) + 1 remaining slot
-        # filled from remainder (ep1 duplicate).
+        # Cap to 3: greedy picks based on marginal technique + EP coverage.
         result = cap_scenarios_per_pattern(seeds, max_per_pattern=3)
         assert len(result) == 3
         entry_points = [fs.pinned_entry_point for fs in result]
