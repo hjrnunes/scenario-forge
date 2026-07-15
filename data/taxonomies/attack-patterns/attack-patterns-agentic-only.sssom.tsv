@@ -50,10 +50,10 @@ AP-T10-01	scenario-forge	skos:relatedMatch	AML.T0067	mitre-atlas	semapv:ManualMa
 AP-T10-02	scenario-forge	skos:relatedMatch	M5	laaf	semapv:ManualMappingCuration
 AP-T10-02	scenario-forge	skos:relatedMatch	T3	laaf	semapv:ManualMappingCuration
 AP-T10-02	scenario-forge	skos:relatedMatch	AML.T0029	mitre-atlas	semapv:ManualMappingCuration
-AP-T10-02	scenario-forge	skos:relatedMatch	AML.T0031	mitre-atlas	semapv:ManualMappingCuration
+AP-T10-02	scenario-forge	skos:relatedMatch	AML.T0046	mitre-atlas	semapv:ManualMappingCuration
 AP-T10-03	scenario-forge	skos:relatedMatch	T5	laaf	semapv:ManualMappingCuration
 AP-T10-03	scenario-forge	skos:relatedMatch	M5	laaf	semapv:ManualMappingCuration
-AP-T10-03	scenario-forge	skos:relatedMatch	AML.T0031	mitre-atlas	semapv:ManualMappingCuration
+AP-T10-03	scenario-forge	skos:relatedMatch	AML.T0046	mitre-atlas	semapv:ManualMappingCuration
 AP-T10-03	scenario-forge	skos:relatedMatch	AML.T0029	mitre-atlas	semapv:ManualMappingCuration
 AP-T14-01	scenario-forge	skos:relatedMatch	L1	laaf	semapv:ManualMappingCuration
 AP-T14-01	scenario-forge	skos:relatedMatch	M2	laaf	semapv:ManualMappingCuration
