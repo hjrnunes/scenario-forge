@@ -180,6 +180,31 @@ class AttackTree(BaseModel):
             raise ValueError(f"Root node must have id 'n1', got '{self.root.id}'")
         return self
 
+    def collect_technique_ids(self) -> list[str]:
+        """Collect all unique technique_id values from tree nodes.
+
+        Walks the tree recursively and returns a deduplicated list of
+        ATLAS technique IDs (preserving first-seen order).
+        """
+        seen: set[str] = set()
+        result: list[str] = []
+        _collect_technique_ids_from_node(self.root, seen, result)
+        return result
+
+
+def _collect_technique_ids_from_node(
+    node: AttackTreeNode,
+    seen: set[str],
+    result: list[str],
+) -> None:
+    """Recursively collect unique technique_id values from a node and its children."""
+    if node.technique_id and node.technique_id not in seen:
+        seen.add(node.technique_id)
+        result.append(node.technique_id)
+    if node.children:
+        for child in node.children:
+            _collect_technique_ids_from_node(child, seen, result)
+
 
 # ---------------------------------------------------------------------------
 # Pre-validation tree repair
