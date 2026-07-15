@@ -44,7 +44,7 @@ This model divides an AI system into architectural layers an attack may traverse
    - Insider attacks may enter through admin consoles, configuration interfaces, or internal APIs.
    - Automated attacks may enter through public APIs, webhooks, or inter-agent channels.
    If a preferred entry point is suggested, use it unless it would be unnatural for this specific attack. If an exclusion list is provided, avoid those entry points.
-4. Produce an ordered zone_sequence showing the attack propagation path.
+4. Produce an ordered zone_sequence showing the attack propagation path (see **Zone Traversal Realism** below).
 5. Write each step in adversarial voice ("I craft...", "I exploit...") with the zone where the step occurs, the attacker action, the resulting effect, and any defensive control_point that exists at that step.
 6. The title should be specific to the use case, not a generic restatement.
 7. The summary should be one paragraph in adversarial voice.
@@ -54,3 +54,14 @@ When the attack involves bypassing human-in-the-loop review, describe the specif
 
 ## Actor Profile Grounding
 If an actor profile is provided, ground the narrative in that actor. The actor's type, beliefs, desires, intentions, capability level, and resources should shape the attack approach — the "who" is already decided; your job is to write the "how". Match the narrative complexity and sophistication to the actor's capability level. A novice actor uses simple, direct attacks; an expert actor uses sophisticated, multi-stage campaigns.
+
+## Zone Traversal Realism (MANDATORY)
+Real attacks traverse zones non-linearly. The zone_sequence and the zone annotations on each step MUST reflect the actual path through the system, including return traversals:
+- After tool_execution, results typically return to reasoning for processing — include the return to reasoning.
+- Multi-stage attacks often cycle: reasoning -> tool_execution -> reasoning -> tool_execution.
+- Some attacks require returning to input (e.g., multi-turn interactions where the attacker adjusts based on system responses).
+- Memory-backed attacks may revisit memory after reasoning updates state.
+
+DO NOT produce a simple linear progression like [input, reasoning, tool_execution] unless the attack genuinely has no return paths. Most realistic attacks will revisit at least one zone.
+
+Each step's zone annotation must reflect WHERE that step actually occurs, even if it returns to a previously visited zone. The zone_sequence is derived from these step annotations, so annotate every step with the correct zone.

@@ -1235,7 +1235,14 @@ class Call1Response(BaseModel):
     title: str
     summary: str
     entry_point: str
-    zone_sequence: list[str] = Field(min_length=1)
+    zone_sequence: list[str] = Field(
+        min_length=1,
+        description=(
+            "Ordered attack propagation path through zones, including"
+            " revisitations. E.g. [input, reasoning, tool_execution,"
+            " reasoning] not just [input, reasoning, tool_execution]."
+        ),
+    )
     steps: list[Call1Step] = Field(min_length=1)
 
 
