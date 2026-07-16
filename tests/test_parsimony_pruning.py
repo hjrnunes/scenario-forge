@@ -181,7 +181,7 @@ class TestCompliantTrees:
 
     def test_exact_budget_passes(self) -> None:
         """A tree at exactly the budget limit passes."""
-        # 1 technique -> budget = 2*1+1 = 3 leaves
+        # 1 technique -> budget = 2*1+2 = 4 leaves
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -231,7 +231,7 @@ class TestPruningOrder:
 
     def test_unannotated_leaves_pruned(self) -> None:
         """Excess unannotated leaves are removed."""
-        # 1 technique -> budget = 3. Tree has 5 leaves: 1 annotated, 4 unannotated.
+        # 1 technique -> budget = 4. Tree has 5 leaves: 1 annotated, 4 unannotated.
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -276,8 +276,8 @@ class TestPruningOrder:
 
         assert len(result.pruned_scenarios) == 1
         pruned_scenario, pruned_nodes = result.pruned_scenarios[0]
-        # Should have pruned 2 leaves (5 - 3 = 2)
-        assert len(pruned_nodes) == 2
+        # Should have pruned 1 leaf (5 - 4 = 1)
+        assert len(pruned_nodes) == 1
         # All pruned nodes should be unannotated
         for pn in pruned_nodes:
             assert pn.node_id != "n1.1"  # annotated leaf must survive
@@ -290,7 +290,7 @@ class TestPruningOrder:
 
     def test_annotated_leaves_never_pruned(self) -> None:
         """When all excess leaves have technique_ids, they cannot be pruned."""
-        # 1 technique -> budget = 3. All 4 leaves have technique_ids.
+        # 1 technique -> budget = 4. All 5 leaves have technique_ids.
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -325,6 +325,13 @@ class TestPruningOrder:
                     zone="output",
                     technique_id="AML.T0051",
                 ),
+                AttackTreeNode(
+                    id="n1.5",
+                    label="Step E",
+                    gate=GateType.LEAF,
+                    zone="output",
+                    technique_id="AML.T0051",
+                ),
             ],
         )
         scenario = _make_envelope(root)
@@ -332,8 +339,8 @@ class TestPruningOrder:
 
         assert len(result.unprunable_scenarios) == 1
         _, actual, budget = result.unprunable_scenarios[0]
-        assert actual == 4
-        assert budget == 3
+        assert actual == 5
+        assert budget == 4
 
 
 # ---------------------------------------------------------------------------
@@ -346,13 +353,14 @@ class TestGateCollapse:
 
     def test_and_gate_collapses(self) -> None:
         """Pruning one child of a 2-child AND gate collapses the gate."""
-        # 1 technique -> budget = 3. Tree has 4 leaves.
+        # 1 technique -> budget = 4. Tree has 5 leaves.
         # n1 (OR)
         #   n1.1 (AND)
         #     n1.1.1 LEAF (annotated)
         #     n1.1.2 LEAF (unannotated - will be pruned)
         #   n1.2 LEAF (annotated)
         #   n1.3 LEAF (unannotated)
+        #   n1.4 LEAF (unannotated)
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -393,6 +401,12 @@ class TestGateCollapse:
                     gate=GateType.LEAF,
                     zone="output",
                 ),
+                AttackTreeNode(
+                    id="n1.4",
+                    label="Extra filler step",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
             ],
         )
         scenario = _make_envelope(root)
@@ -418,9 +432,9 @@ class TestGateCollapse:
 class TestBudgetCalculation:
     """Budget should scale with technique count."""
 
-    def test_zero_techniques_budget_3(self) -> None:
-        """With 0 techniques, fallback budget is 3."""
-        # No technique_ids anywhere. 4 leaves > budget 3.
+    def test_zero_techniques_budget_5(self) -> None:
+        """With 0 techniques, fallback budget is 5."""
+        # No technique_ids anywhere. 6 leaves > budget 5.
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -451,18 +465,30 @@ class TestBudgetCalculation:
                     gate=GateType.LEAF,
                     zone="output",
                 ),
+                AttackTreeNode(
+                    id="n1.5",
+                    label="Step E",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
+                AttackTreeNode(
+                    id="n1.6",
+                    label="Step F filler",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
             ],
         )
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        # Should prune 1 leaf (4 -> 3)
+        # Should prune 1 leaf (6 -> 5)
         assert len(result.pruned_scenarios) == 1
         _, pruned_nodes = result.pruned_scenarios[0]
         assert len(pruned_nodes) == 1
 
-    def test_one_technique_budget_3(self) -> None:
-        """With 1 technique, budget = 2*1+1 = 3."""
+    def test_one_technique_budget_4(self) -> None:
+        """With 1 technique, budget = 2*1+2 = 4."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -488,6 +514,12 @@ class TestBudgetCalculation:
                     gate=GateType.LEAF,
                     zone="reasoning",
                 ),
+                AttackTreeNode(
+                    id="n1.4",
+                    label="Step D",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
             ],
         )
         scenario = _make_envelope(root)
@@ -495,9 +527,9 @@ class TestBudgetCalculation:
 
         assert len(result.compliant_scenarios) == 1
 
-    def test_two_techniques_budget_5(self) -> None:
-        """With 2 techniques, budget = 2*2+1 = 5."""
-        # 6 leaves, 2 techniques -> budget 5, need to prune 1
+    def test_two_techniques_budget_6(self) -> None:
+        """With 2 techniques, budget = 2*2+2 = 6."""
+        # 7 leaves, 2 techniques -> budget 6, need to prune 1
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -542,6 +574,12 @@ class TestBudgetCalculation:
                     gate=GateType.LEAF,
                     zone="output",
                 ),
+                AttackTreeNode(
+                    id="n1.7",
+                    label="Step G filler extra",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
             ],
         )
         scenario = _make_envelope(root)
@@ -564,7 +602,7 @@ class TestMinimumViableTree:
         """A 2-leaf tree over budget where both are unannotated cannot
         be pruned further (would leave parent with < 2 children and
         no collapse target)."""
-        # 0 techniques -> budget = 3.
+        # 0 techniques -> budget = 5.
         # This tree has only 2 leaves, so it's within budget.
         root = AttackTreeNode(
             id="n1",
@@ -593,6 +631,7 @@ class TestMinimumViableTree:
 
     def test_pruned_tree_is_valid_pydantic(self) -> None:
         """After pruning, the tree should be valid Pydantic."""
+        # 1 technique -> budget = 4. Tree has 5 leaves.
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -624,6 +663,12 @@ class TestMinimumViableTree:
                     gate=GateType.LEAF,
                     zone="output",
                 ),
+                AttackTreeNode(
+                    id="n1.5",
+                    label="Step E filler excess",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
             ],
         )
         scenario = _make_envelope(root)
@@ -642,7 +687,7 @@ class TestMinimumViableTree:
         If pruning would bring it to 1 child, the gate collapses
         rather than leaving an invalid structure.
         """
-        # 1 technique -> budget = 3.
+        # 1 technique -> budget = 4.
         # n1 (AND)
         #   n1.1 LEAF (annotated)
         #   n1.2 (OR)
@@ -730,13 +775,14 @@ class TestAndGatePreference:
 
     def test_and_children_pruned_first(self) -> None:
         """When both AND and OR children are candidates, AND is pruned first."""
-        # 1 technique -> budget = 3. Tree has 4 leaves.
+        # 1 technique -> budget = 4. Tree has 5 leaves.
         # n1 (OR)
         #   n1.1 (AND)
         #     n1.1.1 LEAF (annotated)
         #     n1.1.2 LEAF (unannotated - should be pruned first, AND child)
         #   n1.2 LEAF (unannotated, OR child)
         #   n1.3 LEAF (unannotated, OR child)
+        #   n1.4 LEAF (unannotated, OR child)
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -773,6 +819,12 @@ class TestAndGatePreference:
                 AttackTreeNode(
                     id="n1.3",
                     label="Direct path B",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
+                AttackTreeNode(
+                    id="n1.4",
+                    label="Direct path C filler",
                     gate=GateType.LEAF,
                     zone="output",
                 ),

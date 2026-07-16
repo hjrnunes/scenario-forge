@@ -330,8 +330,8 @@ class TestFormatSkeletonYaml:
         assert "```yaml" in result
         assert "mandatory_leaves:" in result
 
-    def test_connector_budget_matches_leaf_count(self) -> None:
-        """Additional connector budget equals the number of mandatory leaves."""
+    def test_connector_budget_matches_leaf_count_plus_two(self) -> None:
+        """Additional connector budget equals mandatory leaf count + 2."""
         skeleton = [
             {
                 "id": "n0.1",
@@ -347,7 +347,7 @@ class TestFormatSkeletonYaml:
             },
         ]
         result = _format_skeleton_yaml(skeleton)
-        assert "2 additional connector/setup leaves" in result
+        assert "4 additional connector/setup leaves" in result
 
 
 # ---------------------------------------------------------------------------

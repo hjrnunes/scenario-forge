@@ -2375,7 +2375,7 @@ def _format_skeleton_yaml(skeleton: list[dict[str, str]]) -> str:
         "exact technique_id and zone. Each mandatory leaf MUST have gate: LEAF "
         "and use a valid node id (e.g. n1.1, n1.2.1). Reassign the placeholder "
         "ids below to match your tree's numbering scheme. You may add up to "
-        f"{len(skeleton)} additional connector/setup leaves "
+        f"{len(skeleton) + 2} additional connector/setup leaves "
         "beyond these mandatory ones. Organize them into a coherent AND/OR "
         "tree with meaningful labels and gate structure."
     )
@@ -2498,7 +2498,7 @@ def _call_attack_tree(
 
     # Compute concrete leaf budget so the LLM sees the exact number
     technique_count = len(tech_ids_for_tree) if tech_ids_for_tree else 0
-    leaf_budget = 2 * technique_count + 1 if technique_count > 0 else 5
+    leaf_budget = 2 * technique_count + 2 if technique_count > 0 else 5
 
     # Build tree skeleton from pinned techniques (tree-anchored flow)
     skeleton: list[dict[str, str]] = []
