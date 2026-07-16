@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import json
 import logging
 import math
 import re
@@ -64,6 +65,22 @@ _DEFAULT_CROSS_TAXONOMY_PATH = (
     / "mappings"
     / "cross-taxonomy-mappings.yaml"
 )
+
+
+def _write_pipeline_call_log(entries: list[dict], output_dir: Path) -> None:
+    """Append call-log entries to the top-level ``calls.jsonl`` in *output_dir*.
+
+    This file records non-scenario LLM calls (capability profile inference,
+    candidate filtering) in the same JSON-per-line format used by
+    ``scenarios/calls.jsonl``.
+    """
+    if not entries:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    calls_path = output_dir / "calls.jsonl"
+    with calls_path.open("a", encoding="utf-8") as fh:
+        for entry in entries:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 class PipelineResult(BaseModel):
@@ -420,7 +437,25 @@ def run_pipeline(
         profile = CapabilityProfile(**profile_data)
     else:
         logger.info("[Stage 1] Inferring capability profile...")
-        profile, _llm_result = infer_capability_profile(use_case, client)
+        profile, profile_llm_result = infer_capability_profile(use_case, client)
+        # Log the profile inference LLM call to top-level calls.jsonl.
+        raw_content = profile_llm_result.content
+        if hasattr(raw_content, "model_dump"):
+            raw_content = raw_content.model_dump(mode="json")
+        elif not isinstance(raw_content, str):
+            raw_content = str(raw_content)
+        _write_pipeline_call_log(
+            [{
+                "call": "capability_profile",
+                "system_prompt": profile_llm_result.system_prompt,
+                "user_prompt": profile_llm_result.user_prompt,
+                "response": raw_content,
+                "prompt_tokens": profile_llm_result.prompt_tokens,
+                "completion_tokens": profile_llm_result.completion_tokens,
+                "duration_ms": profile_llm_result.duration_ms,
+            }],
+            output_dir,
+        )
     if zones is not None:
         requested = [z.strip() for z in zones.split(",")]
         invalid = [z for z in requested if z not in ZONE_NAMES]
@@ -523,7 +558,11 @@ def run_pipeline(
     # --- Stage 3.5: Candidate Expansion + Filtering ---
     logger.info("[Stage 3.5] Expanding and filtering candidates...")
     candidates = expand_candidates(seeds, profile, max_techniques=max_techniques)
-    filtered_seeds = filter_candidates(candidates, seeds, client, use_case, profile)
+    filtered_seeds, filter_call_logs = filter_candidates(
+        candidates, seeds, client, use_case, profile
+    )
+    # Log candidate filter LLM calls to top-level calls.jsonl.
+    _write_pipeline_call_log(filter_call_logs, output_dir)
     candidates_expanded = len(candidates)
     candidates_accepted = len(filtered_seeds)
     candidates_rejected = candidates_expanded - candidates_accepted
