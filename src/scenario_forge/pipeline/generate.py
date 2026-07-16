@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
@@ -63,6 +63,50 @@ from scenario_forge.pipeline.seeds import ScenarioSeed
 logger = logging.getLogger(__name__)
 
 _GENERATOR_VERSION = "0.1.0"
+
+# ---------------------------------------------------------------------------
+# Canonical threat_id -> violation category tag mapping
+# Source of truth: call3_system.j2 lines 88-108.
+# Extracted here so the deterministic Gherkin template can assign the tag
+# without an LLM round-trip.
+# ---------------------------------------------------------------------------
+
+THREAT_VIOLATION_CATEGORY: dict[str, str] = {
+    "T1": "uncontrolled-autonomy",
+    "T2": "insufficient-access-controls",
+    "T3": "privilege-compromise",
+    "T4": "resource-overload",
+    "T5": "memory-integrity-breach",
+    "T6": "goal-manipulation",
+    "T7": "misaligned-and-deceptive-behavior",
+    "T8": "repudiation-and-untraceability",
+    "T9": "improper-output-handling",
+    "T10": "hitl-bypass",
+    "T11": "unexpected-code-execution",
+    "T12": "agent-communication-poisoning",
+    "T13": "rogue-agent",
+    "T14": "human-attack-on-multi-agent",
+    "T15": "human-manipulation",
+    "T16": "insecure-inter-agent-protocol",
+    "T17": "insufficient-logging",
+}
+
+
+def _collect_leaf_nodes_dfs(node: AttackTreeNode) -> list[AttackTreeNode]:
+    """Collect leaf nodes from an attack tree in depth-first order.
+
+    Leaf nodes are nodes with ``gate == GateType.LEAF`` (no children).
+    The ordering matches the narrative's attack-phase sequence.
+    """
+    from scenario_forge.models.attack_tree import GateType
+
+    leaves: list[AttackTreeNode] = []
+    if node.gate == GateType.LEAF:
+        leaves.append(node)
+    elif node.children:
+        for child in node.children:
+            leaves.extend(_collect_leaf_nodes_dfs(child))
+    return leaves
 
 
 class GenerationError(Exception):
@@ -2527,8 +2571,81 @@ def _call_attack_tree(
 
 
 # ---------------------------------------------------------------------------
-# Call 3: Behavior Spec
+# Call 3: Behavior Spec — deterministic Gherkin template + LLM assertions
 # ---------------------------------------------------------------------------
+
+_ASSERTIONS_MARKER = "{ASSERTIONS}"
+
+
+def _build_gherkin_template(
+    narrative: NarrativeLayer,
+    attack_tree: AttackTree,
+    profile: CapabilityProfile,
+    seed: ScenarioSeed,
+    scenario_tag: str,
+) -> str:
+    """Build a deterministic Gherkin skeleton from the tree and narrative.
+
+    The mechanical parts (tags, Feature, Background, When/And steps) are
+    projected directly from the attack tree and narrative.  The function
+    returns the skeleton with a ``{ASSERTIONS}`` marker where the LLM-
+    generated Then/But/* block should be spliced in.
+
+    Returns:
+        A Gherkin template string containing ``{ASSERTIONS}`` exactly once.
+    """
+    # --- Violation category tag ---
+    violation_tag = THREAT_VIOLATION_CATEGORY.get(
+        seed.threat_id, "misaligned-and-deceptive-behavior"
+    )
+
+    # --- Feature header ---
+    lines: list[str] = [
+        f"@id:{scenario_tag}",
+        f"@{violation_tag}",
+        f"Feature: {narrative.title}",
+        f"  {narrative.summary}",
+        "",
+    ]
+
+    # --- Background: preconditions ---
+    # First Given: narrative entry point with the first zone
+    first_zone = narrative.zone_sequence[0] if narrative.zone_sequence else "input"
+    lines.append("  Background: Preconditions")
+    lines.append(f"    Given {narrative.entry_point} ({first_zone})")
+
+    # Additional zone/capability preconditions from the profile
+    for zone in profile.zones_active:
+        if zone == first_zone:
+            continue  # already covered by the entry point
+        from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES
+
+        display_name = ZONE_DISPLAY_NAMES.get(zone, zone)
+        lines.append(f"    And the system has {display_name} capabilities ({zone})")
+    lines.append("")
+
+    # --- Scenario: attack steps from tree leaves ---
+    lines.append(f"  Scenario: {narrative.title}")
+    lines.append("    Given the system is in its normal operating state")
+    lines.append("")
+
+    leaf_nodes = _collect_leaf_nodes_dfs(attack_tree.root)
+
+    for i, leaf in enumerate(leaf_nodes):
+        # Build step text: label [technique_id] (zone)
+        step_text = leaf.label
+        if leaf.technique_id:
+            step_text += f" [{leaf.technique_id}]"
+        step_text += f" ({leaf.zone})"
+
+        keyword = "When" if i == 0 else "And"
+        lines.append(f"    {keyword} {step_text}")
+
+    lines.append("")
+    lines.append(f"    {_ASSERTIONS_MARKER}")
+
+    return "\n".join(lines) + "\n"
+
 
 
 def _call_behavior_spec(
@@ -2543,64 +2660,22 @@ def _call_behavior_spec(
 ) -> tuple[str, LLMResult]:
     scenario_tag = f"{seed.seed_id}-{scenario_hash}"
 
-    technique_nodes: list[str] = []
-    tree_technique_ids: list[str] = []
-
-    def _collect_techniques(node: AttackTreeNode) -> None:
-        if node.technique_id:
-            technique_nodes.append(
-                f"- {node.label} [{node.technique_id}] (zone: {node.zone})"
-            )
-            if node.technique_id not in tree_technique_ids:
-                tree_technique_ids.append(node.technique_id)
-        if node.children:
-            for child in node.children:
-                _collect_techniques(child)
-
-    _collect_techniques(attack_tree.root)
-
-    tree_section = f"""
-## Attack Tree
-Goal: {attack_tree.goal}
-Root: {attack_tree.root.label} (gate={attack_tree.root.gate.value}, zone={attack_tree.root.zone})
-"""
-    if technique_nodes:
-        tree_section += (
-            "\nTechnique-annotated steps:\n" + "\n".join(technique_nodes) + "\n"
-        )
-
-    system_prompt = render_prompt("call3_system.j2", scenario_tag=scenario_tag)
-
-    # Pin to specific techniques if set; otherwise use tree-derived IDs
-    tech_ids_for_spec = (
-        pinned_technique_ids if pinned_technique_ids else tree_technique_ids
+    # Build deterministic Gherkin skeleton from tree + narrative
+    gherkin_template = _build_gherkin_template(
+        narrative=narrative,
+        attack_tree=attack_tree,
+        profile=profile,
+        seed=seed,
+        scenario_tag=scenario_tag,
     )
-    technique_context = _build_technique_context_block(tech_ids_for_spec)
-    if pinned_technique_ids:
-        technique_framing_3 = (
-            "You MUST use this ATLAS technique in the Gherkin steps. "
-            "Annotate steps with the technique ID in square brackets, "
-            "e.g. [AML.T0054]. This is a hard constraint.\n"
-        )
-    else:
-        technique_framing_3 = (
-            "Annotate Gherkin steps with technique IDs from the attack tree above. "
-            "Use ONLY technique IDs that appear in the attack tree — do not introduce "
-            "new technique IDs. Use square brackets, e.g. [AML.T0054].\n"
-            if technique_context
-            else ""
-        )
+
+    system_prompt = render_prompt("call3_system.j2")
 
     user_prompt = render_prompt(
         "call3_user.j2",
-        use_case=use_case,
+        gherkin_skeleton=gherkin_template,
         narrative=narrative,
-        profile=profile,
-        technique_context=technique_context,
-        technique_framing=technique_framing_3,
-        tree_section=tree_section,
         seed=seed,
-        scenario_tag=scenario_tag,
     )
 
     result = client.complete(
@@ -2615,6 +2690,7 @@ Root: {attack_tree.root.label} (gate={attack_tree.root.gate.value}, zone={attack
             f"Behavior spec generation returned empty content for {seed.seed_id}"
         )
 
+    # Clean markdown fences from LLM output
     cleaned = content.strip()
     if cleaned.startswith("```"):
         lines = cleaned.split("\n")
@@ -2623,7 +2699,10 @@ Root: {attack_tree.root.label} (gate={attack_tree.root.gate.value}, zone={attack
             lines = lines[:-1]
         cleaned = "\n".join(lines)
 
-    return cleaned, result
+    # Splice the assertion block into the template
+    complete_gherkin = gherkin_template.replace(_ASSERTIONS_MARKER, cleaned.strip())
+
+    return complete_gherkin, result
 
 
 # ---------------------------------------------------------------------------
