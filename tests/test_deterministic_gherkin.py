@@ -401,7 +401,11 @@ class TestBuildGherkinTemplate:
         assert "Persist to memory" in attack_lines[-1]
 
     def test_additional_zones_in_background(self):
-        """Background includes additional zone capabilities from profile."""
+        """Background only includes zones actually present in the tree.
+
+        Even if the profile has tool_execution active, it should not appear
+        in Background if the tree has no leaf nodes in that zone.
+        """
         profile = _make_profile(
             zones=["input", "reasoning", "tool_execution"],
         )
@@ -412,7 +416,10 @@ class TestBuildGherkinTemplate:
             seed=_make_seed(),
             scenario_tag="AP-T7-01-abc123",
         )
-        assert "Tool Execution capabilities (tool_execution)" in template
+        # tree only uses input and reasoning, so tool_execution should be absent
+        assert "Tool Execution capabilities (tool_execution)" not in template
+        # reasoning should still be present (it's in the tree)
+        assert "Reasoning capabilities (reasoning)" in template
 
     def test_unknown_threat_id_uses_default(self):
         """Unknown threat_id falls back to misaligned-and-deceptive-behavior."""
@@ -427,6 +434,92 @@ class TestBuildGherkinTemplate:
             scenario_tag="AP-T99-01-abc123",
         )
         assert "@misaligned-and-deceptive-behavior" in template
+
+    # --- Regression tests for Gherkin projection bugs (scenario-forge-vaxe) ---
+
+    def test_no_doubled_zone_label_in_entry_point(self):
+        """Entry points already containing a zone suffix should not be doubled.
+
+        Bug: 'user queries via app (input)' became '(input) (input)'.
+        """
+        narrative = NarrativeLayer(
+            title="Test scenario",
+            summary="Test summary",
+            entry_point="user queries via Klarna app (input)",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="Submit query",
+                    effect="Query accepted",
+                ),
+            ],
+        )
+        template = _build_gherkin_template(
+            narrative=narrative,
+            attack_tree=_make_tree_simple(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Should appear exactly once, not doubled
+        assert "(input) (input)" not in template
+        assert "user queries via Klarna app (input)" in template
+
+    def test_raw_technique_id_label_resolved(self):
+        """Leaf nodes whose label is a raw technique ID should render
+        the technique name instead."""
+        tree = AttackTree(
+            id="tree-AP-T7-01",
+            seed_id="AP-T7-01",
+            goal="Test goal",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                zone="input",
+                children=[
+                    _make_leaf("n1.1", "AML.T0053", "input", "AML.T0053"),
+                    _make_leaf("n1.2", "Normal label", "reasoning", "AML.T0054"),
+                ],
+            ),
+        )
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=tree,
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Raw ID should not appear as step text
+        assert "When AML.T0053 [AML.T0053]" not in template
+        # Should use the ATLAS name instead
+        from scenario_forge.data.atlas import ATLAS_TECHNIQUE_NAMES
+        expected_name = ATLAS_TECHNIQUE_NAMES["AML.T0053"]
+        assert f"When {expected_name} [AML.T0053] (input)" in template
+        # Normal labels remain unchanged
+        assert "And Normal label [AML.T0054] (reasoning)" in template
+
+    def test_background_excludes_unused_zones(self):
+        """Background should only declare zones present in tree leaves,
+        not all zones from the capability profile."""
+        profile = _make_profile(
+            zones=["input", "reasoning", "tool_execution"],
+        )
+        # Tree only uses input and reasoning
+        tree = _make_tree_simple()
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=tree,
+            profile=profile,
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # tool_execution is in profile but not in tree leaves
+        assert "tool_execution" not in template.split("Scenario:")[0]
+        # reasoning IS in tree leaves and should be declared
+        assert "Reasoning capabilities (reasoning)" in template
 
 
 # ---------------------------------------------------------------------------

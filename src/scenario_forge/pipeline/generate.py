@@ -2620,17 +2620,33 @@ def _build_gherkin_template(
         "",
     ]
 
+    # --- Collect leaf nodes early so we can scope Background zones ---
+    leaf_nodes = _collect_leaf_nodes_dfs(attack_tree.root)
+    tree_zones = {leaf.zone for leaf in leaf_nodes}
+
     # --- Background: preconditions ---
     # First Given: narrative entry point with the first zone
     first_zone = narrative.zone_sequence[0] if narrative.zone_sequence else "input"
     lines.append("  Background: Preconditions")
-    lines.append(f"    Given {narrative.entry_point} ({first_zone})")
 
-    # Additional zone/capability preconditions from the profile
+    # Bug fix: strip any trailing zone suffix already present in entry_point
+    # to avoid doubled labels like "(input) (input)"
+    entry_point = re.sub(
+        r"\s*\((input|reasoning|tool_execution|memory|inter_agent)\)\s*$",
+        "",
+        narrative.entry_point,
+    )
+    lines.append(f"    Given {entry_point} ({first_zone})")
+
+    # Additional zone/capability preconditions — scoped to zones
+    # actually present in the tree's leaf nodes, not the full profile
+    from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES
+
     for zone in profile.zones_active:
         if zone == first_zone:
             continue  # already covered by the entry point
-        from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES
+        if zone not in tree_zones:
+            continue  # zone not used in this scenario's tree
 
         display_name = ZONE_DISPLAY_NAMES.get(zone, zone)
         lines.append(f"    And the system has {display_name} capabilities ({zone})")
@@ -2641,11 +2657,17 @@ def _build_gherkin_template(
     lines.append("    Given the system is in its normal operating state")
     lines.append("")
 
-    leaf_nodes = _collect_leaf_nodes_dfs(attack_tree.root)
+    _TECHNIQUE_ID_PATTERN = re.compile(r"^AML\.T\d+(\.\d+)?$")
 
     for i, leaf in enumerate(leaf_nodes):
         # Build step text: label [technique_id] (zone)
         step_text = leaf.label
+
+        # Bug fix: when the label is just a raw technique ID (e.g. "AML.T0052"),
+        # replace it with the human-readable technique name
+        if _TECHNIQUE_ID_PATTERN.match(step_text):
+            step_text = ATLAS_TECHNIQUE_NAMES.get(step_text, step_text)
+
         if leaf.technique_id:
             step_text += f" [{leaf.technique_id}]"
         step_text += f" ({leaf.zone})"
