@@ -1689,3 +1689,569 @@ class TestRunnerIntegration:
         assert val_pos < cov_pos, (
             "Validation pass should run before coverage remediation"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: v18 expanded code generation patterns
+# ---------------------------------------------------------------------------
+
+
+class TestV18CodeGenPatterns:
+    """v18 expanded patterns catch code-generation phrasing that
+    bypassed the v17 checker."""
+
+    # -- The three v17 escapee scenarios that must now be caught --
+
+    def test_exploit_code_assembly_flagged(self) -> None:
+        """v17 AP-T8-02-427677: 'exploit code assembly'."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker leverages the agent for exploit code assembly "
+                    "targeting downstream services."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_python_script_generation_flagged(self) -> None:
+        """v17 AP-T8-03-cc1aa3: 'Python script generation for API exploitation'."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system performs Python script generation for "
+                    "API exploitation against external endpoints."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_obfuscated_script_synthesis_flagged(self) -> None:
+        """v17 AP-T7-05-f6e7b4: 'obfuscated script synthesis'."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker instructs the agent to perform obfuscated "
+                    "script synthesis to evade detection."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    # -- Noun-phrase generation patterns --
+
+    def test_script_generation_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent performs script generation to create "
+                    "exploitation tools."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_script_synthesis_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker triggers script synthesis through "
+                    "a carefully crafted prompt."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_script_assembly_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system carries out script assembly for the "
+                    "attacker's payload."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_code_generation_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent engages in code generation to produce "
+                    "attack utilities."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_code_synthesis_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker uses the system for code synthesis of "
+                    "data exfiltration routines."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_code_assembly_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system completes code assembly for the "
+                    "malicious workflow."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    # -- Broader creation verbs --
+
+    def test_craft_script_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker tricks the agent into crafting a script "
+                    "that exfiltrates credentials."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_produce_exploit_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system produces an exploit that targets "
+                    "the backend API."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_assemble_payload_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker instructs the agent to assemble "
+                    "a payload for data exfiltration."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_synthesize_code_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent synthesizes code to bypass "
+                    "the authentication layer."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    # -- Qualified noun phrases --
+
+    def test_malicious_code_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system outputs malicious code that targets "
+                    "the payment processing system."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(v.category == "code_execution" for v in violations)
+
+    def test_exploit_code_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker uses the system to prepare exploit code "
+                    "for the authentication bypass."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_obfuscated_script_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent produces an obfuscated script to avoid "
+                    "detection by security tools."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_python_script_standalone_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system outputs a Python script that automates "
+                    "credential harvesting."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_automated_script_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker triggers the creation of an automated "
+                    "script for data exfiltration."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    def test_weaponized_code_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The agent delivers weaponized code to the target "
+                    "infrastructure."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    # -- generate.*code pattern (broadened from "code snippet" to "code") --
+
+    def test_generate_code_flagged(self) -> None:
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system generates code to automate the "
+                    "attack workflow."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.flagged_count == 1
+
+    # -- Gherkin behavior_spec scanning --
+
+    def test_code_gen_in_gherkin_flagged(self) -> None:
+        """Phantom code-gen phrasing in behavior_spec is caught."""
+        scenario = _make_envelope(
+            step_actions=["I send a benign prompt."],
+        )
+        scenario.behavior_spec = (
+            "Feature: Exploit code assembly\n"
+            "  Scenario: Agent assembles exploit code\n"
+            "    Given a compromised agent context\n"
+            "    When the attacker requests exploit code assembly\n"
+            "    Then the system produces weaponized code\n"
+        )
+        profile = _make_profile()
+        result = validate_phantom_capabilities([scenario], profile)
+
+        assert result.flagged_count == 1
+        violations = result.flagged_scenarios[0][1]
+        assert any(
+            v.category == "code_execution" and v.field == "behavior_spec"
+            for v in violations
+        )
+
+    def test_gherkin_not_checked_when_none(self) -> None:
+        """No error when behavior_spec is None."""
+        scenario = _make_envelope(
+            step_actions=["I send a benign prompt."],
+        )
+        scenario.behavior_spec = None
+        profile = _make_profile()
+        result = validate_phantom_capabilities([scenario], profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+    def test_gherkin_not_checked_when_dict(self) -> None:
+        """behavior_spec as dict is not string-scanned (opaque)."""
+        scenario = _make_envelope(
+            step_actions=["I send a benign prompt."],
+        )
+        scenario.behavior_spec = {"steps": ["exploit code assembly"]}
+        profile = _make_profile()
+        result = validate_phantom_capabilities([scenario], profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+    # -- Profile suppression: patterns do NOT fire with KC6.2.2/KC6.5 --
+
+    def test_expanded_patterns_pass_with_kc622(self) -> None:
+        """All v18 patterns are suppressed when profile has KC6.2.2."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent performs exploit code assembly for the attacker."
+                ],
+                scenario_id="s1",
+            ),
+            _make_envelope(
+                step_effects=[
+                    "The system does Python script generation for "
+                    "API exploitation."
+                ],
+                scenario_id="s2",
+            ),
+            _make_envelope(
+                step_actions=[
+                    "The agent carries out obfuscated script synthesis."
+                ],
+                scenario_id="s3",
+            ),
+            _make_envelope(
+                step_effects=[
+                    "The system outputs malicious code targeting the backend."
+                ],
+                scenario_id="s4",
+            ),
+        ]
+        profile = _make_profile(kc_subcodes=["KC6.2.2"])
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 4
+        assert result.flagged_count == 0
+
+    def test_expanded_patterns_pass_with_kc65(self) -> None:
+        """All v18 patterns are suppressed when profile has KC6.5."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The agent crafts a script for data exfiltration."
+                ],
+            ),
+        ]
+        profile = _make_profile(kc_subcodes=["KC6.5"])
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        assert result.valid_count == 1
+        assert result.flagged_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: v18 false positive guards
+# ---------------------------------------------------------------------------
+
+
+class TestV18FalsePositiveGuards:
+    """Expanded v18 patterns must not fire on benign phrases."""
+
+    def test_error_code_no_false_positive(self) -> None:
+        """'error code' is not about code execution."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system returns an error code indicating the "
+                    "request was malformed."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_status_code_no_false_positive(self) -> None:
+        """'status code' is not about code execution."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The API responds with a 403 status code denying "
+                    "the request."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_code_of_conduct_no_false_positive(self) -> None:
+        """'code of conduct' is not about code execution."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker references the code of conduct policy "
+                    "to social-engineer the agent."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_manipulate_existing_script_no_false_positive(self) -> None:
+        """Manipulating an existing script (not generating one) should
+        not trigger the code_execution checker."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker modifies the existing configuration "
+                    "to alter system behavior."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_prompt_injection_payload_no_false_positive(self) -> None:
+        """'payload' in prompt injection context is not code execution."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker embeds a prompt injection payload "
+                    "in the user query."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_qr_code_no_false_positive(self) -> None:
+        """'QR code' is not about code execution."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The system displays a QR code for the "
+                    "payment confirmation."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_response_code_no_false_positive(self) -> None:
+        """'response code' is not about code execution."""
+        scenarios = [
+            _make_envelope(
+                step_effects=[
+                    "The server returns a response code 200 confirming "
+                    "the transaction."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
+
+    def test_benign_code_mention_no_false_positive(self) -> None:
+        """Generic 'code' without generation/execution context
+        should not be flagged."""
+        scenarios = [
+            _make_envelope(
+                step_actions=[
+                    "The attacker includes deceptive instructions in the "
+                    "code section of the prompt."
+                ],
+            ),
+        ]
+        profile = _make_profile()
+        result = validate_phantom_capabilities(scenarios, profile)
+
+        for _scenario, violations in result.flagged_scenarios:
+            for v in violations:
+                assert v.category != "code_execution"
