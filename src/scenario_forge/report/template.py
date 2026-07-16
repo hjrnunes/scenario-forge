@@ -562,50 +562,77 @@ body {
 
 .card:hover { border-color: #3d4460; }
 
-/* Zone diagram */
-.zone-diagram {
+/* Zone strip (compact horizontal badges) */
+.zone-strip {
   display: flex;
-  gap: 16px;
-  justify-content: center;
-  padding: 32px 0;
-  flex-wrap: wrap;
-}
-
-.zone-box {
-  width: 160px;
-  height: 110px;
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.zone-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 4px;
+  font-size: 11px;
   font-weight: 600;
-  font-size: 13px;
-  text-align: center;
-  border: 2px solid;
-  transition: transform 0.2s ease;
+  border: 1px solid;
+  white-space: nowrap;
 }
 
-.zone-box:hover { transform: translateY(-3px); }
-
-.zone-box.active {
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+.zone-chip.active {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
 }
 
-.zone-box.inactive {
-  background: #1a1d2e !important;
+.zone-chip.inactive {
+  background: transparent !important;
   border-color: #2d3348 !important;
   color: #4b5563 !important;
-  opacity: 0.5;
+  font-weight: 400;
+  font-size: 10px;
+  height: 20px;
+  padding: 0 7px;
+  opacity: 0.6;
 }
 
-.zone-number {
-  font-size: 24px;
-  font-weight: 800;
+/* Capability flags inline */
+.flags-inline {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
-/* Capability flags table */
+.flag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.flag-chip .flag-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.flag-chip .flag-dot.on { background: var(--low); }
+.flag-chip .flag-dot.off { background: #3d4460; }
+
+.flag-chip .flag-label { font-weight: 500; }
+.flag-chip .flag-value {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.flag-true { color: var(--low); font-weight: 600; }
+.flag-false { color: var(--text-muted); }
+
+/* Capability flags table (used in other sections) */
 .flags-table {
   width: 100%;
   border-collapse: collapse;
@@ -630,22 +657,51 @@ body {
   font-size: 13px;
 }
 
-.flag-true { color: var(--low); font-weight: 600; }
-.flag-false { color: var(--text-muted); }
-
+/* Entry points compact */
 .entry-point-list {
   list-style: none;
   padding: 0;
-  margin-top: 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .entry-point-list li {
-  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
   background: var(--bg-secondary);
-  border-radius: 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.ep-direction {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 16px;
+  text-align: center;
+}
+
+.ep-name { color: var(--text-primary); }
+
+/* Profile sub-section dividers */
+.profile-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-row:last-child { border-bottom: none; }
+
+.profile-row-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
   margin-bottom: 6px;
-  font-size: 13px;
-  border-left: 3px solid var(--accent);
 }
 
 /* Threat surface */
@@ -2826,47 +2882,73 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
     raw_zones_active = profile.get("zones_active", [])
     zones_active = {_normalize_zone(z) for z in raw_zones_active}
 
-    # Zone diagram
-    zone_boxes = []
+    # Zone chips — compact horizontal strip
+    zone_chips = []
     for z in _ZONE_NAMES_TUPLE:
         active = z in zones_active
         cls = "active" if active else "inactive"
         color = ZONE_COLORS[z]
         bg = ZONE_BG_COLORS[z] if active else ""
         style = f"background:{bg};border-color:{color};color:{color};" if active else ""
-        zone_boxes.append(
-            f'<div class="zone-box {cls}" style="{style}">'
-            f"<span>{_esc(ZONE_DISPLAY_NAMES[z])}</span>"
-            f"</div>"
+        zone_chips.append(
+            f'<span class="zone-chip {cls}" style="{style}">'
+            f"{_esc(ZONE_DISPLAY_NAMES[z])}</span>"
         )
 
-    # Flags table
-    flags = [
-        ("Persistent Memory", profile.get("has_persistent_memory", False), ""),
-        ("Multi-Agent", profile.get("multi_agent", False), ""),
-        ("Human-in-the-Loop", profile.get("hitl", False), ""),
-        (
-            "Confidence",
-            profile.get("confidence", "unknown"),
-            "Profile inference confidence — how clearly the use-case description signals these capabilities",
-        ),
+    # Flags — inline chips with dot indicators
+    bool_flags = [
+        ("Memory", profile.get("has_persistent_memory", False)),
+        ("Multi-Agent", profile.get("multi_agent", False)),
+        ("HITL", profile.get("hitl", False)),
     ]
-    flag_rows = ""
-    for name, value, tip in flags:
-        tip_attr = f' data-tooltip="{_esc(tip)}"' if tip else ""
-        if isinstance(value, bool):
-            cls = "flag-true" if value else "flag-false"
-            display = "Yes" if value else "No"
+    confidence = profile.get("confidence", "unknown")
+    flag_chips = []
+    for label, val in bool_flags:
+        dot_cls = "on" if val else "off"
+        flag_chips.append(
+            f'<span class="flag-chip">'
+            f'<span class="flag-dot {dot_cls}"></span>'
+            f'<span class="flag-label">{_esc(label)}</span>'
+            f"</span>"
+        )
+    # Confidence as a text chip
+    conf_tip = (
+        "Profile inference confidence — how clearly the use-case "
+        "description signals these capabilities"
+    )
+    flag_chips.append(
+        f'<span class="flag-chip" data-tooltip="{_esc(conf_tip)}">'
+        f'<span class="flag-label">Confidence:</span>'
+        f'<span class="flag-value">{_esc(str(confidence).capitalize())}</span>'
+        f"</span>"
+    )
+
+    # Entry points — extract name/direction from dicts or strings
+    _DIR_ARROWS = {"input": "←", "output": "→", "bidirectional": "↔"}
+    eps = profile.get("entry_points", [])
+    ep_items = []
+    for ep in eps:
+        if isinstance(ep, dict):
+            name = ep.get("name", str(ep))
+            direction = ep.get("direction", "bidirectional")
         else:
-            cls = ""
-            display = _esc(str(value).capitalize())
-        flag_rows += (
-            f'<tr><td{tip_attr}>{_esc(name)}</td><td class="{cls}">{display}</td></tr>'
+            name = str(ep)
+            direction = "bidirectional"
+        arrow = _DIR_ARROWS.get(direction, "↔")
+        ep_items.append(
+            f"<li>"
+            f'<span class="ep-direction" title="{_esc(direction)}">{arrow}</span>'
+            f'<span class="ep-name">{_esc(name)}</span>'
+            f"</li>"
         )
 
-    # Entry points
-    eps = profile.get("entry_points", [])
-    ep_items = "".join(f"<li>{_esc(ep)}</li>" for ep in eps)
+    ep_html = ""
+    if ep_items:
+        ep_html = f"""
+        <div class="profile-row">
+          <div class="profile-row-label">Entry Points</div>
+          <ul class="entry-point-list">{"".join(ep_items)}</ul>
+        </div>"""
 
     # KC sub-codes
     kc_subcodes = profile.get("kc_subcodes", [])
@@ -2881,12 +2963,10 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
                 f'<span class="kc-badge" data-cat="{cat}" title="{desc}">{_esc(kc)}</span>'
             )
         kc_html = f"""
-      <div class="card">
-        <div class="scenario-section-title">System Capabilities (KC Sub-Codes)</div>
-        <div class="kc-subcodes-grid">
-          {"".join(kc_badges)}
-        </div>
-      </div>"""
+        <div class="profile-row">
+          <div class="profile-row-label">System Capabilities (KC Sub-Codes)</div>
+          <div class="kc-subcodes-grid">{"".join(kc_badges)}</div>
+        </div>"""
 
     return f"""
     <div id="sec-profile" class="section">
@@ -2896,27 +2976,18 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
       </div>
 
       <div class="card">
-        <div class="zone-diagram">
-          {"".join(zone_boxes)}
+        <div class="profile-row">
+          <div class="profile-row-label">Active Zones</div>
+          <div class="zone-strip">{"".join(zone_chips)}</div>
         </div>
-        <div class="legend" style="justify-content:center;">
-          <span class="legend-item"><span class="legend-dot" style="background:var(--accent);"></span> Active zone</span>
-          <span class="legend-item"><span class="legend-dot" style="background:#2d3348;"></span> Inactive zone</span>
+
+        <div class="profile-row">
+          <div class="profile-row-label">Capability Flags</div>
+          <div class="flags-inline">{"".join(flag_chips)}</div>
         </div>
+        {ep_html}
+        {kc_html}
       </div>
-
-      <div class="card">
-        <table class="flags-table">
-          <thead><tr><th>Capability Flag</th><th>Value</th></tr></thead>
-          <tbody>{flag_rows}</tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="scenario-section-title">Entry Points</div>
-        <ul class="entry-point-list">{ep_items}</ul>
-      </div>
-      {kc_html}
     </div>
     """
 
