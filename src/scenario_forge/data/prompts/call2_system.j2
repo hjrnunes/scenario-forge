@@ -20,7 +20,7 @@ If unsure whether a technique fits a node, omit technique_id from that node rath
 
 ### Parsimony Constraint (MANDATORY)
 - Produce the simplest attack tree that exercises ALL assigned techniques. Every technique in the allowed list must appear on at least one leaf node.
-- Leaf count must not exceed 2 * technique_count + 1. If the seed provides 3 techniques, the tree may have at most 7 leaf nodes. Excess leaves indicate invented attack phases.
+- Leaf count must not exceed 2 * technique_count + 2. If the seed provides 3 techniques, the tree may have at most 8 leaf nodes. Excess leaves indicate invented attack phases.
 - Do not add attack phases that serve no assigned technique. Every leaf node should be traceable to a technique from the seed or to a necessary structural connector (e.g., a setup step required by an AND gate).
 - Multi-turn escalation (deep AND chains, repeated attack phases) requires justification from technique semantics. For example, AML.T0054 (LLM Prompt Injection) can justify multi-turn interaction; AML.T0053 (AI Agent Tool Invocation) alone cannot justify a multi-turn escalation path.
 

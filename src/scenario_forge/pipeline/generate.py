@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
     ATLAS_TECHNIQUE_NAMES,
+    TECHNIQUE_ZONE_CONSTRAINTS,
 )
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.prompts import render_prompt
@@ -2353,12 +2354,21 @@ def _build_tree_skeleton(
                 matched_zone = step.zone
                 break
 
+        zone = matched_zone if matched_zone is not None else fallback_zone
+
+        # Validate zone against technique-zone semantic constraints.
+        # If the narrative-derived zone is invalid for this technique,
+        # pick the first valid zone from the constraint set.
+        valid_zones = TECHNIQUE_ZONE_CONSTRAINTS.get(tid)
+        if valid_zones is not None and zone not in valid_zones:
+            zone = sorted(valid_zones)[0]
+
         leaves.append(
             {
                 "id": f"n0.{idx}",
                 "technique_id": tid,
                 "technique_name": tname,
-                "zone": matched_zone if matched_zone is not None else fallback_zone,
+                "zone": zone,
             }
         )
 
@@ -2375,7 +2385,7 @@ def _format_skeleton_yaml(skeleton: list[dict[str, str]]) -> str:
         "exact technique_id and zone. Each mandatory leaf MUST have gate: LEAF "
         "and use a valid node id (e.g. n1.1, n1.2.1). Reassign the placeholder "
         "ids below to match your tree's numbering scheme. You may add up to "
-        f"{len(skeleton)} additional connector/setup leaves "
+        f"{len(skeleton) + 2} additional connector/setup leaves "
         "beyond these mandatory ones. Organize them into a coherent AND/OR "
         "tree with meaningful labels and gate structure."
     )
@@ -2498,7 +2508,7 @@ def _call_attack_tree(
 
     # Compute concrete leaf budget so the LLM sees the exact number
     technique_count = len(tech_ids_for_tree) if tech_ids_for_tree else 0
-    leaf_budget = 2 * technique_count + 1 if technique_count > 0 else 5
+    leaf_budget = 2 * technique_count + 2 if technique_count > 0 else 5
 
     # Build tree skeleton from pinned techniques (tree-anchored flow)
     skeleton: list[dict[str, str]] = []
@@ -2610,17 +2620,33 @@ def _build_gherkin_template(
         "",
     ]
 
+    # --- Collect leaf nodes early so we can scope Background zones ---
+    leaf_nodes = _collect_leaf_nodes_dfs(attack_tree.root)
+    tree_zones = {leaf.zone for leaf in leaf_nodes}
+
     # --- Background: preconditions ---
     # First Given: narrative entry point with the first zone
     first_zone = narrative.zone_sequence[0] if narrative.zone_sequence else "input"
     lines.append("  Background: Preconditions")
-    lines.append(f"    Given {narrative.entry_point} ({first_zone})")
 
-    # Additional zone/capability preconditions from the profile
+    # Bug fix: strip any trailing zone suffix already present in entry_point
+    # to avoid doubled labels like "(input) (input)"
+    entry_point = re.sub(
+        r"\s*\((input|reasoning|tool_execution|memory|inter_agent)\)\s*$",
+        "",
+        narrative.entry_point,
+    )
+    lines.append(f"    Given {entry_point} ({first_zone})")
+
+    # Additional zone/capability preconditions — scoped to zones
+    # actually present in the tree's leaf nodes, not the full profile
+    from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES
+
     for zone in profile.zones_active:
         if zone == first_zone:
             continue  # already covered by the entry point
-        from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES
+        if zone not in tree_zones:
+            continue  # zone not used in this scenario's tree
 
         display_name = ZONE_DISPLAY_NAMES.get(zone, zone)
         lines.append(f"    And the system has {display_name} capabilities ({zone})")
@@ -2631,11 +2657,17 @@ def _build_gherkin_template(
     lines.append("    Given the system is in its normal operating state")
     lines.append("")
 
-    leaf_nodes = _collect_leaf_nodes_dfs(attack_tree.root)
+    _TECHNIQUE_ID_PATTERN = re.compile(r"^AML\.T\d+(\.\d+)?$")
 
     for i, leaf in enumerate(leaf_nodes):
         # Build step text: label [technique_id] (zone)
         step_text = leaf.label
+
+        # Bug fix: when the label is just a raw technique ID (e.g. "AML.T0052"),
+        # replace it with the human-readable technique name
+        if _TECHNIQUE_ID_PATTERN.match(step_text):
+            step_text = ATLAS_TECHNIQUE_NAMES.get(step_text, step_text)
+
         if leaf.technique_id:
             step_text += f" [{leaf.technique_id}]"
         step_text += f" ({leaf.zone})"

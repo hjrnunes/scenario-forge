@@ -1,7 +1,7 @@
 """Tests for explicit leaf budget injection into the call2 user prompt.
 
 Covers:
-1. Budget computation: 2*technique_count+1 for >0 techniques, 5 for zero.
+1. Budget computation: 2*technique_count+2 for >0 techniques, 5 for zero.
 2. Template variables technique_count and leaf_budget appear in rendered prompt.
 3. Budget values are correct for 0, 1, 2, and 3 techniques.
 """
@@ -116,29 +116,29 @@ class TestLeafBudgetComputation:
         assert "0 technique(s)" in prompt
         assert "at most 5 leaf nodes" in prompt
 
-    def test_one_technique_budget_3(self) -> None:
-        """With 1 technique, budget = 2*1+1 = 3."""
+    def test_one_technique_budget_4(self) -> None:
+        """With 1 technique, budget = 2*1+2 = 4."""
         prompt = self._call_and_capture_prompt(
             technique_ids=["AML.T0051"],
         )
         assert "1 technique(s)" in prompt
-        assert "at most 3 leaf nodes" in prompt
+        assert "at most 4 leaf nodes" in prompt
 
-    def test_two_techniques_budget_5(self) -> None:
-        """With 2 techniques, budget = 2*2+1 = 5."""
+    def test_two_techniques_budget_6(self) -> None:
+        """With 2 techniques, budget = 2*2+2 = 6."""
         prompt = self._call_and_capture_prompt(
             technique_ids=["AML.T0051", "AML.T0052"],
         )
         assert "2 technique(s)" in prompt
-        assert "at most 5 leaf nodes" in prompt
+        assert "at most 6 leaf nodes" in prompt
 
-    def test_three_techniques_budget_7(self) -> None:
-        """With 3 techniques, budget = 2*3+1 = 7."""
+    def test_three_techniques_budget_8(self) -> None:
+        """With 3 techniques, budget = 2*3+2 = 8."""
         prompt = self._call_and_capture_prompt(
             technique_ids=["AML.T0051", "AML.T0052", "AML.T0053"],
         )
         assert "3 technique(s)" in prompt
-        assert "at most 7 leaf nodes" in prompt
+        assert "at most 8 leaf nodes" in prompt
 
     def test_pinned_techniques_override_seed(self) -> None:
         """When pinned_technique_ids is set, budget uses those, not seed's."""
@@ -148,7 +148,7 @@ class TestLeafBudgetComputation:
         )
         # Should use pinned count (1), not seed count (3)
         assert "1 technique(s)" in prompt
-        assert "at most 3 leaf nodes" in prompt
+        assert "at most 4 leaf nodes" in prompt
 
     def test_leaf_budget_section_header_present(self) -> None:
         """The rendered prompt contains the Leaf Budget section header."""
@@ -177,8 +177,8 @@ class TestLeafBudgetTemplateRendering:
             technique_constraint="",
             narrative=narrative,
             technique_count=1,
-            leaf_budget=3,
+            leaf_budget=4,
         )
 
         assert "1 technique(s)" in result
-        assert "at most 3 leaf nodes" in result
+        assert "at most 4 leaf nodes" in result

@@ -709,7 +709,7 @@ def _repair_tree_model(root_dict: dict[str, Any]) -> dict[str, Any]:
 def enforce_parsimony(
     scenarios: list[ScenarioEnvelope],
     max_leaf_factor: int = 2,
-    max_leaf_offset: int = 1,
+    max_leaf_offset: int = 2,
 ) -> ParsimonyResult:
     """Prune excess unannotated leaves from attack trees.
 
@@ -718,7 +718,7 @@ def enforce_parsimony(
 
         budget = max_leaf_factor * technique_count + max_leaf_offset
 
-    If technique_count is 0, a fallback budget of 3 is used.
+    If technique_count is 0, a fallback budget of 5 is used.
 
     Leaves without a technique_id are pruning candidates.  They are
     removed one at a time (most redundant first) until the leaf count
@@ -735,7 +735,7 @@ def enforce_parsimony(
         technique_count = len(technique_ids)
 
         if technique_count == 0:
-            budget = 3
+            budget = 5
         else:
             budget = max_leaf_factor * technique_count + max_leaf_offset
 
