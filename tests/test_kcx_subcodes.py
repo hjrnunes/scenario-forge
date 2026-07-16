@@ -103,7 +103,8 @@ _AP_T3_01 = {
         "min_zones": ["input", "reasoning", "tool_execution"],
         "requires_tool_execution": True,
         "kc_requires": {
-            "any": ["KC6.1.2", "KC6.2.2", "KC6.3.2", "KC6.5", "KCX-PRIV"],
+            "all": ["KCX-PRIV"],
+            "any": ["KC6.1.2", "KC6.2.2", "KC6.3.2", "KC6.5"],
         },
     },
 }
@@ -219,9 +220,24 @@ class TestKCXGatingFiltering:
     """KCX codes in attack pattern prerequisites cause filtering."""
 
     def test_t3_01_filtered_without_kcx_priv_or_kc6(self):
-        """AP-T3-01 requires KCX-PRIV or KC6.1.2/KC6.2.2/KC6.3.2/KC6.5.
-        Profile with only KC6.1.1 (limited API) lacks all of them."""
+        """AP-T3-01 requires KCX-PRIV (all) AND one of KC6.x (any).
+        Profile with only KC6.1.1 (limited API) lacks both."""
         profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.1"])
+        result = _filter_attack_patterns([_AP_T3_01], profile)
+        assert "AP-T3-01" not in result
+
+    def test_t3_01_filtered_without_kcx_priv(self):
+        """AP-T3-01 requires KCX-PRIV (all). Profile with KC6.1.2 but
+        without KCX-PRIV is filtered -- the headline fix for phantom
+        privilege scenarios on static-capability systems."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.2"])
+        result = _filter_attack_patterns([_AP_T3_01], profile)
+        assert "AP-T3-01" not in result
+
+    def test_t3_01_filtered_with_kcx_priv_but_no_kc6(self):
+        """AP-T3-01 requires KCX-PRIV (all) AND one of KC6.x (any).
+        Profile with KCX-PRIV but no qualifying KC6 code is filtered."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KCX-PRIV"])
         result = _filter_attack_patterns([_AP_T3_01], profile)
         assert "AP-T3-01" not in result
 
@@ -232,9 +248,9 @@ class TestKCXGatingFiltering:
         result = _filter_attack_patterns([_AP_T3_02], profile)
         assert "AP-T3-02" not in result
 
-    def test_t3_01_passes_with_kcx_priv(self):
-        """AP-T3-01 passes when profile has KCX-PRIV."""
-        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.1", "KCX-PRIV"])
+    def test_t3_01_passes_with_kcx_priv_and_kc6(self):
+        """AP-T3-01 passes when profile has both KCX-PRIV and a KC6 code."""
+        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.2", "KCX-PRIV"])
         result = _filter_attack_patterns([_AP_T3_01], profile)
         assert "AP-T3-01" in result
 
@@ -243,12 +259,6 @@ class TestKCXGatingFiltering:
         profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.1", "KCX-XAUTH"])
         result = _filter_attack_patterns([_AP_T3_02], profile)
         assert "AP-T3-02" in result
-
-    def test_t3_01_passes_with_standard_kc6_code(self):
-        """AP-T3-01 still passes with standard KC6.1.2 (no KCX needed)."""
-        profile = _make_profile(kc_subcodes=["KC1.1", "KC6.1.2"])
-        result = _filter_attack_patterns([_AP_T3_01], profile)
-        assert "AP-T3-01" in result
 
 
 # ---------------------------------------------------------------------------
