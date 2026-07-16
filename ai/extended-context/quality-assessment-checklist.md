@@ -73,6 +73,25 @@ For each scenario, check the following. Read the YAML scenario file and its corr
 - [ ] **Provenance techniques used** — the attack tree's `technique_id` values include at least one technique from the seed's SSSOM provenance mapping (the curated per-pattern techniques), not just any technique from the broad risk-level pool.
 - [ ] **Technique semantic fit** — the `technique_id` on each tree node semantically matches the action described in that node's label. *Known issue: same handful of IDs (T0053, T0054, T0056, T0057) used interchangeably regardless of semantic fit.*
 
+### 2g. Cross-Artifact Consistency ⛔ HARD CHECK
+
+Every claim in any artifact must be grounded in the others. No artifact should introduce techniques, entry points, capabilities, or attack steps that the others don't reflect. Failure on any sub-check = scenario fails.
+
+- [ ] **Technique ID unity** — every technique ID in the Gherkin must appear in the attack tree, and vice versa. Every technique ID in the tree must trace to a seed `atlas_provenance_ids` entry (no invented techniques).
+- [ ] **Entry point alignment** — the entry point in the Gherkin Background must match the narrative's stated entry point and exist in the capability profile's entry_points list.
+- [ ] **Zone tag agreement** — zone tags on Gherkin steps must match zones on corresponding attack tree nodes.
+- [ ] **Actor consistency** — actor type in the narrative must match `actor_profile.actor_type`. No artifact should describe actor behavior inconsistent with the labeled type.
+- [ ] **No orphan claims** — no narrative attack phase, tree node, or Gherkin step should introduce a capability, technique, or attack vector that isn't reflected in the other artifacts.
+
+### 2h. Parsimony ⛔ HARD CHECK
+
+A scenario should be the simplest plausible attack that exercises its assigned techniques. Complexity is a cost, not a feature. Failure on any sub-check = scenario fails.
+
+- [ ] **Tree leaf count proportional** — tree leaf count must not exceed `2 × technique_count + 1`. A two-technique seed gets at most 5 leaves. Exceeding this signals embellishment beyond what the techniques require.
+- [ ] **No unmapped Gherkin steps** — every When/And step must map to a technique or a necessary prerequisite for one. Steps that serve no assigned technique are padding.
+- [ ] **No gratuitous narrative phases** — the narrative should not introduce attack phases that serve zero assigned techniques. If removing a phase wouldn't break the attack chain, it shouldn't be there.
+- [ ] **Multi-turn justification** — multi-turn escalation requires justification from technique semantics. AML.T0054 (Jailbreak) can justify multi-turn prompting. AML.T0053 (Tool Invocation) alone cannot — a single misrouted tool call is a single step.
+
 ---
 
 ## 3. Batch-Level Judgment
