@@ -16,7 +16,7 @@ from typing import Literal, Sequence
 from pydantic import BaseModel, Field
 
 from scenario_forge.data.atlas import ATLAS_TECHNIQUE_DESCRIPTIONS, ATLAS_TECHNIQUE_NAMES
-from scenario_forge.llm.client import LLMClient
+from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -275,7 +275,7 @@ def filter_candidates(
     client: LLMClient,
     use_case: str,
     profile: CapabilityProfile,
-) -> list[FilteredSeed]:
+) -> tuple[list[FilteredSeed], list[dict]]:
     """Filter candidates via one LLM call per seed.
 
     Groups candidates by ``seed_id``, renders a batch prompt for each seed,
@@ -290,11 +290,14 @@ def filter_candidates(
         profile: Capability profile of the system under assessment.
 
     Returns:
-        List of :class:`FilteredSeed`, one per accepted candidate.
+        Tuple of (filtered_seeds, call_log_entries).  ``filtered_seeds`` has
+        one :class:`FilteredSeed` per accepted candidate.  ``call_log_entries``
+        contains one dict per LLM call made during filtering, using the same
+        JSON schema as scenario call logs (with ``"call": "candidate_filter"``).
     """
     if not candidates:
         logger.info("Filter: no candidates to filter")
-        return []
+        return [], []
 
     # Build seed lookup for constructing FilteredSeed with full fields
     seed_lookup: dict[str, ScenarioSeed] = {s.seed_id: s for s in seeds}
@@ -314,8 +317,8 @@ def filter_candidates(
     def _filter_one_seed(
         seed_id: str,
         seed_candidates: list[CandidateTriple],
-    ) -> tuple[list[FilteredSeed], int, int]:
-        """Filter candidates for a single seed. Returns (accepted, n_accepted, n_rejected)."""
+    ) -> tuple[list[FilteredSeed], int, int, LLMResult]:
+        """Filter candidates for a single seed. Returns (accepted, n_accepted, n_rejected, llm_result)."""
         first = seed_candidates[0]
 
         user_prompt = render_prompt(
@@ -357,7 +360,7 @@ def filter_candidates(
                 seed_id,
                 len(accepted_verdicts),
             )
-            return [], 0, len(seed_candidates)
+            return [], 0, len(seed_candidates), llm_result
 
         seed_results: list[FilteredSeed] = []
         for verdict in accepted_verdicts:
@@ -395,11 +398,12 @@ def filter_candidates(
             seed_accepted,
             seed_total,
         )
-        return seed_results, seed_accepted, seed_total - seed_accepted
+        return seed_results, seed_accepted, seed_total - seed_accepted, llm_result
 
     total_accepted = 0
     total_rejected = 0
     results: list[FilteredSeed] = []
+    call_log_entries: list[dict] = []
 
     max_workers = min(8, len(groups))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -410,10 +414,26 @@ def filter_candidates(
         for future in as_completed(futures):
             seed_id = futures[future]
             try:
-                seed_results, n_acc, n_rej = future.result()
+                seed_results, n_acc, n_rej, llm_result = future.result()
                 results.extend(seed_results)
                 total_accepted += n_acc
                 total_rejected += n_rej
+                # Build call log entry for this filter call.
+                raw_content = llm_result.content
+                if hasattr(raw_content, "model_dump"):
+                    raw_content = raw_content.model_dump(mode="json")
+                elif not isinstance(raw_content, str):
+                    raw_content = str(raw_content)
+                call_log_entries.append({
+                    "call": "candidate_filter",
+                    "seed_id": seed_id,
+                    "system_prompt": llm_result.system_prompt,
+                    "user_prompt": llm_result.user_prompt,
+                    "response": raw_content,
+                    "prompt_tokens": llm_result.prompt_tokens,
+                    "completion_tokens": llm_result.completion_tokens,
+                    "duration_ms": llm_result.duration_ms,
+                })
             except Exception:
                 logger.exception("Filter failed for seed %s", seed_id)
                 total_rejected += len(groups[seed_id])
@@ -425,7 +445,7 @@ def filter_candidates(
         total_rejected,
     )
 
-    return results
+    return results, call_log_entries
 
 
 # ---------------------------------------------------------------------------

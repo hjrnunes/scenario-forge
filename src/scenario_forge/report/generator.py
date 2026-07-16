@@ -14,6 +14,7 @@ from scenario_forge.report.template import (
     build_coverage_section,
     build_full_page,
     build_methodology_section,
+    build_pipeline_calls_section,
     build_raw_data_section,
     build_run_summary_section,
     build_scenarios_section,
@@ -147,6 +148,26 @@ def generate_report(output_dir: Path) -> Path:
             output_dir / "scenarios",
         )
 
+    # --- Load top-level (non-scenario) LLM call logs ---
+    pipeline_calls_path = output_dir / "calls.jsonl"
+    pipeline_call_logs: list[dict] = []
+    if pipeline_calls_path.exists():
+        try:
+            for line in pipeline_calls_path.read_text(encoding="utf-8").strip().splitlines():
+                pipeline_call_logs.append(json.loads(line))
+            logger.info(
+                "Loaded %d pipeline call log entries from %s",
+                len(pipeline_call_logs),
+                pipeline_calls_path,
+            )
+        except Exception as exc:
+            logger.warning("Failed to load %s: %s", pipeline_calls_path, exc)
+    else:
+        logger.info(
+            "calls.jsonl not found in %s (skipping pipeline call log section)",
+            output_dir,
+        )
+
     # --- Load coverage gaps ---
     coverage_path = output_dir / "coverage-gaps.json"
     coverage_data: dict = {}
@@ -267,6 +288,12 @@ def generate_report(output_dir: Path) -> Path:
 
     scorecard_html = build_scorecard_section(scorecard_data) if scorecard_data else ""
 
+    pipeline_calls_html = (
+        build_pipeline_calls_section(pipeline_call_logs)
+        if pipeline_call_logs
+        else ""
+    )
+
     scenarios_html = build_scenarios_section(
         scenarios,
         feature_files,
@@ -291,6 +318,7 @@ def generate_report(output_dir: Path) -> Path:
         threat_technique_html=threat_technique_html,
         run_summary_html=run_summary_html,
         methodology_html=methodology_html,
+        pipeline_calls_html=pipeline_calls_html,
     )
 
     # --- Write output ---

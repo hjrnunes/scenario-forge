@@ -48,7 +48,17 @@ def test_use_case_written_to_output_dir(
         multi_agent=False,
         hitl=False,
     )
-    mock_profile.return_value = (profile, MagicMock())
+    from scenario_forge.llm.client import LLMResult
+
+    llm_result = LLMResult(
+        content="mock",
+        prompt_tokens=10,
+        completion_tokens=20,
+        duration_ms=100,
+        system_prompt="system",
+        user_prompt="user",
+    )
+    mock_profile.return_value = (profile, llm_result)
 
     coherence = MagicMock()
     coherence.has_warnings = False

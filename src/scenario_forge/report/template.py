@@ -5901,6 +5901,82 @@ def _build_priority_signals(signals: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Section: Pipeline LLM Calls (non-scenario)
+# ---------------------------------------------------------------------------
+
+
+def build_pipeline_calls_section(call_logs: list[dict[str, Any]]) -> str:
+    """Build an expandable section showing non-scenario LLM calls.
+
+    These are pipeline-level calls such as capability profile inference and
+    candidate filtering, logged to the top-level ``calls.jsonl``.  The UI
+    mirrors the collapsible prompt/response pattern used for per-scenario
+    call logs.
+    """
+    if not call_logs:
+        return ""
+
+    _CALL_DISPLAY_NAMES: dict[str, str] = {
+        "capability_profile": "Capability Profile Inference",
+        "candidate_filter": "Candidate Filter",
+    }
+
+    call_items = ""
+    for idx, entry in enumerate(call_logs):
+        call_name = entry.get("call", "")
+        display_name = _CALL_DISPLAY_NAMES.get(call_name, call_name)
+        ptokens = entry.get("prompt_tokens", 0)
+        ctokens = entry.get("completion_tokens", 0)
+        dur = entry.get("duration_ms", 0)
+        sys_prompt = _esc(entry.get("system_prompt", ""))
+        usr_prompt = _esc(entry.get("user_prompt", ""))
+        response_raw = entry.get("response", "")
+        if isinstance(response_raw, (dict, list)):
+            response_text = _esc(
+                json.dumps(response_raw, indent=2, ensure_ascii=False)
+            )
+        else:
+            response_text = _esc(str(response_raw))
+
+        seed_label = ""
+        seed_id = entry.get("seed_id")
+        if seed_id:
+            seed_label = f" (seed: {_esc(seed_id)})"
+
+        call_items += f"""
+        <details class="expandable">
+          <summary>Call {idx}: {_esc(display_name)}{seed_label} ({ptokens} prompt / {ctokens} completion tokens, {dur}ms)</summary>
+          <div style="padding:8px 0;">
+            <h4 style="margin:8px 0 4px;font-size:12px;color:var(--text-muted);">System Prompt</h4>
+            <pre class="call-log-pre">{sys_prompt}</pre>
+            <h4 style="margin:12px 0 4px;font-size:12px;color:var(--text-muted);">User Prompt</h4>
+            <pre class="call-log-pre">{usr_prompt}</pre>
+            <h4 style="margin:12px 0 4px;font-size:12px;color:var(--text-muted);">Response</h4>
+            <pre class="call-log-pre">{response_text}</pre>
+          </div>
+        </details>"""
+
+    # Compute aggregate stats.
+    total_prompt = sum(e.get("prompt_tokens", 0) for e in call_logs)
+    total_completion = sum(e.get("completion_tokens", 0) for e in call_logs)
+    total_duration = sum(e.get("duration_ms", 0) for e in call_logs)
+
+    return f"""
+    <section id="sec-pipeline-calls" class="section">
+      <h2>Pipeline LLM Calls</h2>
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
+        Non-scenario LLM calls made during pipeline execution.
+        {len(call_logs)} call(s) &middot;
+        {total_prompt:,} prompt tokens &middot;
+        {total_completion:,} completion tokens &middot;
+        {total_duration:,}ms total
+      </p>
+      {call_items}
+    </section>
+    """
+
+
+# ---------------------------------------------------------------------------
 # Section 4: Raw Data
 # ---------------------------------------------------------------------------
 
@@ -7153,6 +7229,7 @@ def build_full_page(
     threat_technique_html: str = "",
     run_summary_html: str = "",
     methodology_html: str = "",
+    pipeline_calls_html: str = "",
     title: str = "Scenario Forge Report",
 ) -> str:
     # Conditionally add sidebar links for optional sections
@@ -7179,6 +7256,9 @@ def build_full_page(
     threat_technique_nav = ""
     if threat_technique_html:
         threat_technique_nav = '<a href="#sec-threat-matrix"><span class="nav-icon">&#9638;</span> Threat–Technique Matrix</a>'
+    pipeline_calls_nav = ""
+    if pipeline_calls_html:
+        pipeline_calls_nav = '<a href="#sec-pipeline-calls"><span class="nav-icon">&#9998;</span> Pipeline LLM Calls</a>'
 
     glossary_html = build_glossary_section()
 
@@ -7207,6 +7287,7 @@ def build_full_page(
       {diversity_nav}
       <a href="#sec-scenarios"><span class="nav-icon">&#9733;</span> Scenarios</a>
       {scorecard_nav}
+      {pipeline_calls_nav}
       <a href="#sec-raw"><span class="nav-icon">&#128196;</span> Raw Data</a>
       <a href="#glossary"><span class="nav-icon">&#128214;</span> Glossary</a>
     </nav>
@@ -7223,6 +7304,7 @@ def build_full_page(
     {diversity_html}
     {scenarios_html}
     {scorecard_html}
+    {pipeline_calls_html}
     {raw_html}
     {glossary_html}
   </main>
