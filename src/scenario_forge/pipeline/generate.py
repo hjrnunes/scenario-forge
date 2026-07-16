@@ -2270,6 +2270,109 @@ def _call_narrative(
 
 
 # ---------------------------------------------------------------------------
+# Call 2: Attack Tree — Skeleton Builder
+# ---------------------------------------------------------------------------
+
+
+def _build_tree_skeleton(
+    narrative: NarrativeLayer,
+    pinned_technique_ids: list[str],
+    pinned_technique_names: list[str],
+) -> list[dict[str, str]]:
+    """Build mandatory leaf-node specs from pinned techniques and narrative.
+
+    Each pinned technique is matched against the narrative steps by checking
+    whether the technique ID or name appears in the step's ``action`` or
+    ``effect`` text (case-insensitive).  The zone of the first matching step
+    is assigned to the leaf.  If no step matches, the narrative's first zone
+    is used as a fallback.
+
+    Returns a list of dicts, each with keys:
+      ``id``, ``technique_id``, ``technique_name``, ``zone``
+    """
+    if not pinned_technique_ids:
+        return []
+
+    fallback_zone = narrative.zone_sequence[0] if narrative.zone_sequence else "input"
+
+    leaves: list[dict[str, str]] = []
+    for idx, (tid, tname) in enumerate(
+        zip(pinned_technique_ids, pinned_technique_names), start=1
+    ):
+        # Match technique against narrative steps by ID or name
+        matched_zone: str | None = None
+        tid_lower = tid.lower()
+        tname_lower = tname.lower()
+        for step in narrative.steps:
+            haystack = f"{step.action} {step.effect}".lower()
+            if tid_lower in haystack or tname_lower in haystack:
+                matched_zone = step.zone
+                break
+
+        leaves.append(
+            {
+                "id": f"leaf-{idx}",
+                "technique_id": tid,
+                "technique_name": tname,
+                "zone": matched_zone if matched_zone is not None else fallback_zone,
+            }
+        )
+
+    return leaves
+
+
+def _format_skeleton_yaml(skeleton: list[dict[str, str]]) -> str:
+    """Format mandatory leaf specs as a YAML block for prompt injection."""
+    if not skeleton:
+        return ""
+    lines = ["## Mandatory Leaf Nodes"]
+    lines.append(
+        "Your tree MUST include ALL of the leaf nodes listed below with their "
+        "exact technique_id and zone. You may add up to "
+        f"{len(skeleton)} additional connector/setup leaves "
+        "beyond these mandatory ones. Organize them into a coherent AND/OR "
+        "tree with meaningful labels and gate structure."
+    )
+    lines.append("")
+    lines.append("```yaml")
+    lines.append("mandatory_leaves:")
+    for leaf in skeleton:
+        lines.append(f"  - id: {leaf['id']}")
+        lines.append(f"    technique_id: {leaf['technique_id']}")
+        lines.append(f"    technique_name: {leaf['technique_name']}")
+        lines.append(f"    zone: {leaf['zone']}")
+    lines.append("```")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _validate_mandatory_leaves(
+    tree: AttackTree,
+    skeleton: list[dict[str, str]],
+    seed_id: str,
+) -> None:
+    """Warn if any mandatory leaf techniques are missing from the parsed tree.
+
+    This is a post-generation check: it logs warnings but does not reject
+    the tree, since this is a first-pass implementation.
+    """
+    if not skeleton:
+        return
+
+    tree_technique_ids = set(tree.collect_technique_ids())
+    for leaf in skeleton:
+        if leaf["technique_id"] not in tree_technique_ids:
+            logger.warning(
+                "Mandatory leaf technique %s (%s) missing from attack tree "
+                "for seed %s — tree has: %s",
+                leaf["technique_id"],
+                leaf["technique_name"],
+                seed_id,
+                sorted(tree_technique_ids),
+            )
+
+
+# ---------------------------------------------------------------------------
 # Call 2: Attack Tree
 # ---------------------------------------------------------------------------
 
@@ -2282,6 +2385,7 @@ def _call_attack_tree(
     profile: CapabilityProfile | None = None,
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
+    pinned_technique_names: list[str] | None = None,
 ) -> tuple[AttackTree, LLMResult]:
     # Build shared technique context + Call 2-specific constraint rules
     # Pin to specific techniques if set
@@ -2350,6 +2454,14 @@ def _call_attack_tree(
     technique_count = len(tech_ids_for_tree) if tech_ids_for_tree else 0
     leaf_budget = 2 * technique_count + 1 if technique_count > 0 else 5
 
+    # Build tree skeleton from pinned techniques (tree-anchored flow)
+    skeleton: list[dict[str, str]] = []
+    if pinned_technique_ids and pinned_technique_names:
+        skeleton = _build_tree_skeleton(
+            narrative, pinned_technique_ids, pinned_technique_names
+        )
+    skeleton_section = _format_skeleton_yaml(skeleton)
+
     user_prompt = render_prompt(
         "call2_user.j2",
         seed=seed,
@@ -2361,6 +2473,7 @@ def _call_attack_tree(
         narrative=narrative,
         technique_count=technique_count,
         leaf_budget=leaf_budget,
+        skeleton_section=skeleton_section,
     )
 
     call2_system = render_prompt("call2_system.j2")
@@ -2402,12 +2515,14 @@ def _call_attack_tree(
             tree,
             profile.zones_active if profile else None,
         )
+        _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
         return tree, retry_result
 
     tree = _enforce_zones_attack_tree(
         tree,
         profile.zones_active if profile else None,
     )
+    _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
     return tree, result
 
 
@@ -2819,6 +2934,7 @@ def generate_scenario(
             profile=profile,
             actor_profile=actor_profile,
             pinned_technique_ids=pinned_technique_ids,
+            pinned_technique_names=pinned_technique_names,
         )
     except Exception as exc:
         call_log_entries.append(
