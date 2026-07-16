@@ -252,19 +252,19 @@ class TestBuildTreeSkeleton:
         steps = [
             NarrativeStep(
                 step_number=1,
-                zone="memory",
+                zone="input",
                 action="attacker performs rag poisoning attack",
                 effect="Knowledge base corrupted",
             ),
         ]
-        narrative = _make_narrative(steps=steps, zone_sequence=["memory"])
+        narrative = _make_narrative(steps=steps, zone_sequence=["input"])
         result = _build_tree_skeleton(
             narrative,
             ["AML.T0070"],
             ["RAG Poisoning"],
         )
         assert len(result) == 1
-        assert result[0]["zone"] == "memory"
+        assert result[0]["zone"] == "input"
 
     def test_match_in_effect_field(self) -> None:
         """Techniques can also be matched in step effect text."""
@@ -498,6 +498,136 @@ class TestSkeletonInCall2Prompt:
         )
         assert "## Leaf Budget (MANDATORY)" in prompt
         assert "## Mandatory Leaf Nodes" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Tests: technique-zone semantic constraints
+# ---------------------------------------------------------------------------
+
+
+class TestTechniqueZoneConstraints:
+    """Skeleton builder should override invalid zone assignments
+    using TECHNIQUE_ZONE_CONSTRAINTS."""
+
+    def test_t0053_corrected_to_tool_execution(self) -> None:
+        """AML.T0053 (AI Agent Tool Invocation) must be tool_execution.
+
+        If the narrative assigns it to 'reasoning', the skeleton builder
+        should correct it to 'tool_execution'.
+        """
+        # Narrative where AML.T0053 appears in a reasoning step
+        narrative = _make_narrative(
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="reasoning",
+                    action="Agent processes tool invocation AML.T0053",
+                    effect="Unauthorized tool call",
+                ),
+            ],
+            zone_sequence=["reasoning"],
+        )
+        skeleton = _build_tree_skeleton(
+            narrative,
+            pinned_technique_ids=["AML.T0053"],
+            pinned_technique_names=["AI Agent Tool Invocation"],
+        )
+        assert len(skeleton) == 1
+        assert skeleton[0]["zone"] == "tool_execution"
+
+    def test_t0054_valid_zone_not_overridden(self) -> None:
+        """AML.T0054 (LLM Jailbreak) is valid in input or reasoning.
+
+        If the narrative assigns it to 'input', it should remain 'input'.
+        """
+        narrative = _make_narrative(
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="Attacker crafts LLM Jailbreak [AML.T0054] prompt",
+                    effect="Jailbreak payload delivered",
+                ),
+            ],
+            zone_sequence=["input"],
+        )
+        skeleton = _build_tree_skeleton(
+            narrative,
+            pinned_technique_ids=["AML.T0054"],
+            pinned_technique_names=["LLM Jailbreak"],
+        )
+        assert len(skeleton) == 1
+        assert skeleton[0]["zone"] == "input"
+
+    def test_t0060_corrected_to_reasoning(self) -> None:
+        """AML.T0060 (Hallucination Exploitation) must be reasoning.
+
+        If the narrative assigns it to 'tool_execution', the skeleton
+        builder should correct it to 'reasoning'.
+        """
+        narrative = _make_narrative(
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="tool_execution",
+                    action="AI generates hallucinated content AML.T0060",
+                    effect="False information published",
+                ),
+            ],
+            zone_sequence=["tool_execution"],
+        )
+        skeleton = _build_tree_skeleton(
+            narrative,
+            pinned_technique_ids=["AML.T0060"],
+            pinned_technique_names=["Publish Hallucinated Entities"],
+        )
+        assert len(skeleton) == 1
+        assert skeleton[0]["zone"] == "reasoning"
+
+    def test_unconstrained_technique_uses_narrative_zone(self) -> None:
+        """Techniques without zone constraints keep the narrative zone."""
+        narrative = _make_narrative(
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="reasoning",
+                    action="Attacker obtains capabilities AML.T0016",
+                    effect="Resources acquired",
+                ),
+            ],
+            zone_sequence=["reasoning"],
+        )
+        skeleton = _build_tree_skeleton(
+            narrative,
+            pinned_technique_ids=["AML.T0016"],
+            pinned_technique_names=["Obtain Capabilities"],
+        )
+        assert len(skeleton) == 1
+        assert skeleton[0]["zone"] == "reasoning"
+
+    def test_fallback_zone_also_validated(self) -> None:
+        """When no narrative step matches and the fallback zone is invalid
+        for the technique, the constraint should still override it."""
+        # Narrative has no mention of AML.T0053, fallback zone is 'input'
+        narrative = _make_narrative(
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="Generic unrelated action",
+                    effect="Something happens",
+                ),
+            ],
+            zone_sequence=["input"],
+        )
+        skeleton = _build_tree_skeleton(
+            narrative,
+            pinned_technique_ids=["AML.T0053"],
+            pinned_technique_names=["AI Agent Tool Invocation"],
+        )
+        assert len(skeleton) == 1
+        # Fallback would be 'input', but AML.T0053 requires 'tool_execution'
+        assert skeleton[0]["zone"] == "tool_execution"
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
     ATLAS_TECHNIQUE_NAMES,
+    TECHNIQUE_ZONE_CONSTRAINTS,
 )
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.prompts import render_prompt
@@ -2353,12 +2354,21 @@ def _build_tree_skeleton(
                 matched_zone = step.zone
                 break
 
+        zone = matched_zone if matched_zone is not None else fallback_zone
+
+        # Validate zone against technique-zone semantic constraints.
+        # If the narrative-derived zone is invalid for this technique,
+        # pick the first valid zone from the constraint set.
+        valid_zones = TECHNIQUE_ZONE_CONSTRAINTS.get(tid)
+        if valid_zones is not None and zone not in valid_zones:
+            zone = sorted(valid_zones)[0]
+
         leaves.append(
             {
                 "id": f"n0.{idx}",
                 "technique_id": tid,
                 "technique_name": tname,
-                "zone": matched_zone if matched_zone is not None else fallback_zone,
+                "zone": zone,
             }
         )
 

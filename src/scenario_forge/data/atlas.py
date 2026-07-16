@@ -156,3 +156,30 @@ ATLAS_TECHNIQUE_DESCRIPTIONS: dict[str, str] = {
         "attacker-controlled content"
     ),
 }
+
+# ---------------------------------------------------------------------------
+# Technique-zone semantic constraints
+# ---------------------------------------------------------------------------
+#
+# Maps ATLAS technique IDs to the set of zones where they can validly
+# operate.  Used by the skeleton builder to override narrative-derived
+# zone assignments when they conflict with technique semantics.
+#
+# Techniques absent from this dict have no zone constraint (any zone
+# is acceptable).
+
+TECHNIQUE_ZONE_CONSTRAINTS: dict[str, frozenset[str]] = {
+    "AML.T0051.000": frozenset({"input"}),
+    "AML.T0051.001": frozenset({"input"}),
+    "AML.T0052": frozenset({"input"}),
+    "AML.T0053": frozenset({"tool_execution"}),
+    "AML.T0054": frozenset({"input", "reasoning"}),
+    "AML.T0056": frozenset({"input", "reasoning"}),
+    "AML.T0057": frozenset({"reasoning", "tool_execution"}),
+    "AML.T0060": frozenset({"reasoning"}),
+    "AML.T0066": frozenset({"input"}),
+    "AML.T0067": frozenset({"tool_execution", "reasoning"}),
+    "AML.T0070": frozenset({"input"}),
+    "AML.T0071": frozenset({"input"}),
+    "AML.T0073": frozenset({"input", "reasoning"}),
+}
