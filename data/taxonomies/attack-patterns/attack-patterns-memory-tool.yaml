@@ -250,7 +250,8 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       requires_tool_execution: true
       kc_requires:
-        any: [KC6.1.2, KC6.2.2, KC6.3.2, KC6.5, KCX-PRIV]
+        all: [KCX-PRIV]
+        any: [KC6.1.2, KC6.2.2, KC6.3.2, KC6.5]
 
   AP-T3-02:
     id: "AP-T3-02"
