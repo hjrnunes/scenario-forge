@@ -121,10 +121,28 @@ _CODE_EXECUTION_PATTERNS = [
         r"\b(?:generat|creat|writ|execut|run|invok)(?:e|ed|es|ing)?\b[^.]{0,30}\bshell\s+(?:script|command|code)",
         r"\bexecut(?:e|ed|es|ing)\b[^.]{0,30}\b(?:arbitrary|malicious|crafted)\s+(?:code|script|command)",
         r"\b(?:run|execut)(?:s|ed|es|ing)?\s+(?:the\s+)?(?:python|bash|shell|powershell)\b",
-        r"\bgenerat(?:e|ed|es|ing)\b[^.]{0,30}\b(?:executable|payload|script|code\s+snippet)",
+        r"\bgenerat(?:e|ed|es|ing)\b[^.]{0,30}\b(?:executable|payload|script|code)\b",
         r"\b(?:arbitrary|remote)\s+code\s+execution\b",
         # v17 — escapee variant: execute/distribute malicious payloads
         r"\b(?:execut|distribut|deploy)\w*\b[^.]{0,40}\bmalicious\b[^.]{0,20}\bpayload",
+        # v18 — code generation phrasing: noun-phrase generation references
+        # Bare "(code|script) + generation noun" — e.g. "script synthesis"
+        r"\b(?:code|script)\s+(?:generation|synthesis|assembly)\b",
+        # Qualified noun + generation noun — e.g. "exploit code assembly",
+        # "Python script generation", "obfuscated script synthesis"
+        r"\b(?:exploit|malicious|obfuscated|weaponized|python|bash|shell|automated)\s+(?:code|script)\s+(?:generat|synthes|assembl|creat|construct)\w*",
+        # Broader creation verbs + code/script/payload:
+        # produce/craft/assemble/synthesize
+        r"\b(?:produc|craft|assembl|synthesi[zs])(?:e|ed|es|ing)?\b[^.]{0,30}\b(?:code|script|payload)\b",
+        # write/craft + script (without requiring language qualifier)
+        r"\b(?:writ|craft)(?:e|ed|es|ing)?\b[^.]{0,30}\bscript\b",
+        # produce + exploit
+        r"\bproduc(?:e|ed|es|ing)?\b[^.]{0,30}\bexploit\b",
+        # Qualified noun phrases implying code artifacts:
+        # exploit/malicious/obfuscated/weaponized + code/script
+        r"\b(?:exploit|malicious|obfuscated|weaponized)\s+(?:code|script)\b",
+        # Language-specific or automated script references
+        r"\b(?:python|automated)\s+script\b",
     ]
 ]
 
@@ -511,8 +529,9 @@ def validate_phantom_capabilities(
     """Validate scenarios against the capability profile for phantom capabilities.
 
     Examines each scenario's narrative steps (action and effect fields) and
-    flags scenarios whose steps reference capabilities the system doesn't
-    possess according to the profile.
+    the Gherkin behavior_spec text, flagging scenarios whose content
+    references capabilities the system doesn't possess according to the
+    profile.
 
     Returns a ``ValidationResult`` with valid and flagged scenarios.
     """
@@ -536,6 +555,21 @@ def validate_phantom_capabilities(
                                 reason=reason,
                             )
                         )
+
+        # Also check Gherkin behavior_spec text
+        if scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
+            for category, checker, reason in _CHECKERS:
+                matched = checker(scenario.behavior_spec, profile)
+                if matched is not None:
+                    violations.append(
+                        PhantomViolation(
+                            step_number=0,
+                            field="behavior_spec",
+                            category=category,
+                            matched_text=matched,
+                            reason=reason,
+                        )
+                    )
 
         if violations:
             result.flagged_scenarios.append((scenario, violations))
