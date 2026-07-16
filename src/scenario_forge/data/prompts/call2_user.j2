@@ -18,4 +18,7 @@ Zone sequence: {{ narrative.zone_sequence }}
 Steps:
 {% for step in narrative.steps %}  {{ step.step_number }}. [{{ step.zone }}] {{ step.action }} -> {{ step.effect }}{% if step.control_point %} (control: {{ step.control_point }}){% endif %}
 {% endfor %}
+---
+
+## Your Task
 Produce the attack tree YAML for seed_id={{ seed.seed_id }}. The tree id must be "tree-{{ seed.seed_id }}".
