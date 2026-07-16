@@ -2355,7 +2355,7 @@ def _build_tree_skeleton(
 
         leaves.append(
             {
-                "id": f"leaf-{idx}",
+                "id": f"n0.{idx}",
                 "technique_id": tid,
                 "technique_name": tname,
                 "zone": matched_zone if matched_zone is not None else fallback_zone,
@@ -2372,7 +2372,9 @@ def _format_skeleton_yaml(skeleton: list[dict[str, str]]) -> str:
     lines = ["## Mandatory Leaf Nodes"]
     lines.append(
         "Your tree MUST include ALL of the leaf nodes listed below with their "
-        "exact technique_id and zone. You may add up to "
+        "exact technique_id and zone. Each mandatory leaf MUST have gate: LEAF "
+        "and use a valid node id (e.g. n1.1, n1.2.1). Reassign the placeholder "
+        "ids below to match your tree's numbering scheme. You may add up to "
         f"{len(skeleton)} additional connector/setup leaves "
         "beyond these mandatory ones. Organize them into a coherent AND/OR "
         "tree with meaningful labels and gate structure."

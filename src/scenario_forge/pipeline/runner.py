@@ -15,8 +15,6 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-logger = logging.getLogger(__name__)
-
 from scenario_forge.data.loaders import load_risk_extraction
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
@@ -57,6 +55,8 @@ from scenario_forge.pipeline.validation import validate_phantom_capabilities
 from scenario_forge.prompts import hash_prompt_templates
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_CROSS_TAXONOMY_PATH = (
     Path(__file__).resolve().parents[3]
@@ -123,10 +123,6 @@ def _compute_gap_attributions(
     seed_ap_ids: set[str] = {s.seed_id for s in seeds}
     candidate_ap_ids: set[str] = {c.seed_id for c in candidates}
     filtered_ap_ids: set[str] = {f.seed_id for f in filtered_seeds}
-    scenario_ap_ids: set[str] = {
-        env.faceting.taxonomy_chain.scenario_seed for env in scenarios
-    }
-
     # Normalized entry-point lookup sets.
     # Note: seeds don't carry entry points; candidates are the first stage
     # that pairs seeds with entry points.

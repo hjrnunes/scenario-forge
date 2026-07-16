@@ -193,7 +193,7 @@ class TestBuildTreeSkeleton:
         )
         assert len(result) == 1
         leaf = result[0]
-        assert leaf["id"] == "leaf-1"
+        assert leaf["id"] == "n0.1"
         assert leaf["technique_id"] == "AML.T0054"
         assert leaf["technique_name"] == "LLM Jailbreak"
         # AML.T0054 appears in step 1 (zone=input)
@@ -227,10 +227,10 @@ class TestBuildTreeSkeleton:
             ["LLM Jailbreak", "AI Agent Tool Invocation"],
         )
         assert len(result) == 2
-        assert result[0]["id"] == "leaf-1"
+        assert result[0]["id"] == "n0.1"
         assert result[0]["technique_id"] == "AML.T0054"
         assert result[0]["zone"] == "input"  # step 1
-        assert result[1]["id"] == "leaf-2"
+        assert result[1]["id"] == "n0.2"
         assert result[1]["technique_id"] == "AML.T0053"
         assert result[1]["zone"] == "tool_execution"  # step 3
 
@@ -288,7 +288,7 @@ class TestBuildTreeSkeleton:
         assert result[0]["zone"] == "tool_execution"
 
     def test_leaf_ids_are_sequential(self) -> None:
-        """Leaf IDs are leaf-1, leaf-2, etc."""
+        """Leaf IDs are n0.1, n0.2, etc."""
         narrative = _make_narrative()
         result = _build_tree_skeleton(
             narrative,
@@ -296,9 +296,9 @@ class TestBuildTreeSkeleton:
             ["LLM Jailbreak", "AI Agent Tool Invocation", "RAG Poisoning"],
         )
         assert [leaf["id"] for leaf in result] == [
-            "leaf-1",
-            "leaf-2",
-            "leaf-3",
+            "n0.1",
+            "n0.2",
+            "n0.3",
         ]
 
 
@@ -316,7 +316,7 @@ class TestFormatSkeletonYaml:
     def test_single_leaf_formatting(self) -> None:
         skeleton = [
             {
-                "id": "leaf-1",
+                "id": "n0.1",
                 "technique_id": "AML.T0054",
                 "technique_name": "LLM Jailbreak",
                 "zone": "input",
@@ -334,13 +334,13 @@ class TestFormatSkeletonYaml:
         """Additional connector budget equals the number of mandatory leaves."""
         skeleton = [
             {
-                "id": "leaf-1",
+                "id": "n0.1",
                 "technique_id": "AML.T0054",
                 "technique_name": "LLM Jailbreak",
                 "zone": "input",
             },
             {
-                "id": "leaf-2",
+                "id": "n0.2",
                 "technique_id": "AML.T0053",
                 "technique_name": "AI Agent Tool Invocation",
                 "zone": "tool_execution",
@@ -371,13 +371,13 @@ class TestValidateMandatoryLeaves:
         tree = _make_tree(["AML.T0054", "AML.T0053"])
         skeleton = [
             {
-                "id": "leaf-1",
+                "id": "n0.1",
                 "technique_id": "AML.T0054",
                 "technique_name": "LLM Jailbreak",
                 "zone": "input",
             },
             {
-                "id": "leaf-2",
+                "id": "n0.2",
                 "technique_id": "AML.T0053",
                 "technique_name": "AI Agent Tool Invocation",
                 "zone": "tool_execution",
@@ -397,13 +397,13 @@ class TestValidateMandatoryLeaves:
         tree = _make_tree(["AML.T0054"])
         skeleton = [
             {
-                "id": "leaf-1",
+                "id": "n0.1",
                 "technique_id": "AML.T0054",
                 "technique_name": "LLM Jailbreak",
                 "zone": "input",
             },
             {
-                "id": "leaf-2",
+                "id": "n0.2",
                 "technique_id": "AML.T0053",
                 "technique_name": "AI Agent Tool Invocation",
                 "zone": "tool_execution",

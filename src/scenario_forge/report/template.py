@@ -3598,10 +3598,6 @@ def build_threat_technique_section(
         if not pinned_technique_names:
             old_name = candidate_filter.get("pinned_technique_name", "")
             pinned_technique_names = [old_name] if old_name else []
-        # For display: first ID for compact view, full list for tooltip
-        pinned_technique_id = pinned_technique_ids[0] if pinned_technique_ids else ""
-        pinned_technique_name = ", ".join(pinned_technique_names) if pinned_technique_names else ""
-
         # Extract parent threat from scenario_seed (e.g. "AP-T10-01" -> "T10")
         parent_threat = ""
         if scenario_seed:
