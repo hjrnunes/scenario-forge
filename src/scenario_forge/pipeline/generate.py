@@ -2724,6 +2724,13 @@ def _build_gherkin_template(
 
     _TECHNIQUE_ID_PATTERN = re.compile(r"^AML\.T\d+(\.\d+)?$")
 
+    # Build a case-insensitive lookup of known ATLAS technique names so
+    # we can detect when a leaf label is a verbatim technique name.
+    _known_technique_names: dict[str, str] = {
+        name.lower(): tid
+        for tid, name in ATLAS_TECHNIQUE_NAMES.items()
+    }
+
     for i, leaf in enumerate(leaf_nodes):
         # Build step text: label [technique_id] (zone)
         step_text = leaf.label
@@ -2732,6 +2739,16 @@ def _build_gherkin_template(
         # replace it with the human-readable technique name
         if _TECHNIQUE_ID_PATTERN.match(step_text):
             step_text = ATLAS_TECHNIQUE_NAMES.get(step_text, step_text)
+
+        # Bug fix: when the label is a verbatim ATLAS technique name
+        # (e.g. "AI Agent Tool Invocation"), replace with the node's
+        # description or a generic action label — the technique name
+        # alone is not a meaningful Gherkin step.
+        elif step_text.lower() in _known_technique_names:
+            if leaf.description:
+                step_text = leaf.description
+            else:
+                step_text = f"Execute attack step via {step_text}"
 
         if leaf.technique_id:
             step_text += f" [{leaf.technique_id}]"
@@ -2798,8 +2815,20 @@ def _call_behavior_spec(
             lines = lines[:-1]
         cleaned = "\n".join(lines)
 
-    # Splice the assertion block into the template
-    complete_gherkin = gherkin_template.replace(_ASSERTIONS_MARKER, cleaned.strip())
+    # Splice the assertion block into the template, ensuring every
+    # Then/But/* line is indented with 4 spaces to sit inside the
+    # Scenario block (the template marker already sits at col 4).
+    indented_lines = []
+    for line in cleaned.strip().splitlines():
+        stripped = line.strip()
+        if stripped:
+            indented_lines.append(f"    {stripped}")
+        else:
+            indented_lines.append("")
+    indented_assertions = "\n".join(indented_lines)
+    complete_gherkin = gherkin_template.replace(
+        f"    {_ASSERTIONS_MARKER}", indented_assertions
+    )
 
     return complete_gherkin, result
 
