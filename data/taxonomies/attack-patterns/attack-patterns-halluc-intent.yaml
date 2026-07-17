@@ -32,8 +32,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.integrity_violations"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
-      requires_persistent_memory: true
       kc_requires:
+        all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T5-02:
@@ -53,8 +53,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.integrity_violations"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
-      requires_persistent_memory: true
       kc_requires:
+        all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T5-03:
@@ -74,8 +74,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.integrity_violations"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
-      requires_persistent_memory: true
       kc_requires:
+        all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   AP-T5-04:
@@ -95,8 +95,8 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.integrity_violations"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "memory"]
-      requires_persistent_memory: true
       kc_requires:
+        all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
 
   # ═══════════════════════════════════════════════════════════════════
@@ -289,8 +289,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T13-02:
@@ -310,8 +310,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T13-03:
@@ -330,8 +330,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T13-04:
@@ -351,6 +351,6 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
