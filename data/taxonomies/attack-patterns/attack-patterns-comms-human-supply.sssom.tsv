@@ -35,7 +35,6 @@ AP-T15-01	scenario-forge	skos:relatedMatch	AML.T0067	mitre-atlas	semapv:ManualMa
 AP-T15-02	scenario-forge	skos:relatedMatch	M5	laaf	semapv:ManualMappingCuration
 AP-T15-02	scenario-forge	skos:relatedMatch	EX1	laaf	semapv:ManualMappingCuration
 AP-T15-02	scenario-forge	skos:relatedMatch	AML.T0051.001	mitre-atlas	semapv:ManualMappingCuration
-AP-T15-02	scenario-forge	skos:relatedMatch	AML.T0052	mitre-atlas	semapv:ManualMappingCuration
 AP-T17-01	scenario-forge	skos:relatedMatch	S8	laaf	semapv:ManualMappingCuration
 AP-T17-01	scenario-forge	skos:relatedMatch	L1	laaf	semapv:ManualMappingCuration
 AP-T17-01	scenario-forge	skos:relatedMatch	AML.T0010	mitre-atlas	semapv:ManualMappingCuration
