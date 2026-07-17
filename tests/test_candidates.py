@@ -5,6 +5,7 @@ Covers:
     BatchFilterResponse, and FilteredSeed.
   - expand_candidates() cross-product logic (skipped if not yet available).
   - Multi-technique combo expansion (max_techniques parameter).
+  - Per-technique entry-point compatibility post-filter.
 """
 
 from __future__ import annotations
@@ -17,11 +18,14 @@ from pydantic import ValidationError
 from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.candidates import (
+    DIRECT_ONLY_TECHNIQUES,
     BatchFilterResponse,
     CandidateTriple,
     FilteredSeed,
     FilterVerdict,
+    apply_technique_entry_point_filter,
     cap_scenarios_per_pattern,
+    is_indirect_entry_point,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
@@ -668,3 +672,271 @@ class TestCapScenariosPerPattern:
         # single_t3 is picked second (covers 1 new technique + 1 new ep = 2)
         # vs single_t1 (0 new tech + 1 new ep = 1) and single_t2 (0 + 1 = 1).
         assert result[1] is single_t3
+
+
+# ---------------------------------------------------------------------------
+# is_indirect_entry_point unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestIsIndirectEntryPoint:
+    """is_indirect_entry_point() classification logic."""
+
+    # -- Indirect cases (direction=input + indirect keyword) --
+
+    @pytest.mark.parametrize("name", [
+        "RAG knowledge-grounding",
+        "rag knowledge base",
+        "product knowledge retrieval",
+        "third-party data feeds",
+        "third party API feeds",
+        "authenticated context injection",
+        "external data feed ingestion",
+        "context injection via plugins",
+        "knowledge base retrieval",
+    ])
+    def test_indirect_input_entry_points(self, name: str):
+        """Input-direction entry points with indirect keywords are indirect."""
+        assert is_indirect_entry_point(name, "input") is True
+
+    # -- Direct cases --
+
+    def test_direct_user_prompts_input(self):
+        """'user prompts' with direction=input is direct (no indirect keyword)."""
+        assert is_indirect_entry_point("natural language user queries via app", "input") is False
+
+    def test_bidirectional_always_direct(self):
+        """Bidirectional entry points are always direct, even with indirect keywords."""
+        assert is_indirect_entry_point("RAG knowledge-grounding", "bidirectional") is False
+
+    def test_output_always_direct(self):
+        """Output entry points are not indirect (they shouldn't reach here, but guard anyway)."""
+        assert is_indirect_entry_point("RAG knowledge output", "output") is False
+
+    def test_input_without_keywords_is_direct(self):
+        """Input entry points without indirect keywords are direct."""
+        assert is_indirect_entry_point("user prompts via chat widget", "input") is False
+        assert is_indirect_entry_point("API calls", "input") is False
+
+    def test_case_insensitive(self):
+        """Keyword matching is case-insensitive."""
+        assert is_indirect_entry_point("RAG Knowledge-Grounding", "input") is True
+        assert is_indirect_entry_point("THIRD-PARTY DATA", "input") is True
+
+
+# ---------------------------------------------------------------------------
+# apply_technique_entry_point_filter tests
+# ---------------------------------------------------------------------------
+
+
+def _make_directed_profile(
+    entry_points: list[dict[str, str]],
+) -> CapabilityProfile:
+    """Build a profile with explicitly directed entry points.
+
+    Each dict should have ``name`` and ``direction`` keys.
+    """
+    return CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        has_persistent_memory=False,
+        multi_agent=False,
+        hitl=False,
+        entry_points=entry_points,
+        confidence=ConfidenceLevel.high,
+    )
+
+
+class TestApplyTechniqueEntryPointFilter:
+    """Per-technique entry-point compatibility post-filter."""
+
+    # -- Core rejection / pruning behaviour --
+
+    def test_direct_only_solo_on_indirect_ep_is_dropped(self):
+        """A solo direct-only technique pinned to an indirect EP is rejected."""
+        profile = _make_directed_profile([
+            {"name": "RAG knowledge-grounding", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0051.000",),
+            technique_names=("Direct Prompt Injection",),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 0
+
+    def test_direct_only_combo_on_indirect_ep_is_dropped(self):
+        """A combo of all direct-only techniques on an indirect EP is rejected entirely."""
+        profile = _make_directed_profile([
+            {"name": "RAG knowledge-grounding", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0051.000", "AML.T0054"),
+            technique_names=("Direct Prompt Injection", "LLM Jailbreak"),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 0
+
+    def test_mixed_combo_on_indirect_ep_is_pruned(self):
+        """A combo with both direct-only and compatible techniques on an indirect EP
+        keeps only the compatible technique(s)."""
+        profile = _make_directed_profile([
+            {"name": "RAG knowledge-grounding", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0051.001", "AML.T0054"),
+            technique_names=("Indirect Prompt Injection", "LLM Jailbreak"),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 1
+        assert result[0].pinned_technique_ids == ("AML.T0051.001",)
+        assert result[0].pinned_technique_names == ("Indirect Prompt Injection",)
+
+    def test_t0052_on_indirect_ep_is_dropped(self):
+        """AML.T0052 (Adversarial Jailbreaking) is a direct-only technique."""
+        assert "AML.T0052" in DIRECT_ONLY_TECHNIQUES
+        profile = _make_directed_profile([
+            {"name": "third-party data feeds", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="third-party data feeds",
+            technique_ids=("AML.T0052",),
+            technique_names=("Adversarial Jailbreaking",),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 0
+
+    # -- Pass-through behaviour --
+
+    def test_direct_only_on_direct_ep_passes(self):
+        """Direct-only techniques on a direct entry point pass through unchanged."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat widget", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="user prompts via chat widget",
+            technique_ids=("AML.T0051.000",),
+            technique_names=("Direct Prompt Injection",),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 1
+        assert result[0].pinned_technique_ids == ("AML.T0051.000",)
+
+    def test_direct_only_on_bidirectional_ep_passes(self):
+        """Direct-only techniques on a bidirectional entry point pass through."""
+        profile = _make_directed_profile([
+            {"name": "interactive chat", "direction": "bidirectional"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="interactive chat",
+            technique_ids=("AML.T0054",),
+            technique_names=("LLM Jailbreak",),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 1
+        assert result[0].pinned_technique_ids == ("AML.T0054",)
+
+    def test_compatible_technique_on_indirect_ep_passes(self):
+        """Non-direct-only techniques on indirect EPs pass through unchanged."""
+        profile = _make_directed_profile([
+            {"name": "RAG knowledge-grounding", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0051.001",),
+            technique_names=("Indirect Prompt Injection",),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 1
+        assert result[0].pinned_technique_ids == ("AML.T0051.001",)
+
+    # -- Bead motivating scenario: T0051.001+T0052 on RAG --
+
+    def test_bead_scenario_t0051001_plus_t0052_on_rag(self):
+        """The exact case from the bead: T0051.001+T0052 on RAG should prune T0052."""
+        profile = _make_directed_profile([
+            {"name": "RAG knowledge-grounding", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0051.001", "AML.T0052"),
+            technique_names=("Indirect Prompt Injection", "Adversarial Jailbreaking"),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 1
+        assert result[0].pinned_technique_ids == ("AML.T0051.001",)
+        assert result[0].pinned_technique_names == ("Indirect Prompt Injection",)
+
+    # -- Edge cases --
+
+    def test_empty_input(self):
+        """Empty input produces empty output."""
+        profile = _make_directed_profile([
+            {"name": "user prompts", "direction": "input"},
+        ])
+        result = apply_technique_entry_point_filter([], profile)
+        assert result == []
+
+    def test_unknown_entry_point_defaults_to_bidirectional(self):
+        """An entry point not in the profile defaults to bidirectional (direct)."""
+        profile = _make_directed_profile([
+            {"name": "known ep", "direction": "input"},
+        ])
+        seed = _make_filtered_seed(
+            entry_point="unknown ep",
+            technique_ids=("AML.T0054",),
+            technique_names=("LLM Jailbreak",),
+        )
+        result = apply_technique_entry_point_filter([seed], profile)
+        assert len(result) == 1
+
+    def test_multiple_seeds_mixed(self):
+        """Multiple seeds with different EPs: only indirect+direct-only combos are affected."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via app", "direction": "input"},
+            {"name": "RAG knowledge-grounding", "direction": "input"},
+        ])
+        direct_seed = _make_filtered_seed(
+            entry_point="user prompts via app",
+            technique_ids=("AML.T0054",),
+            technique_names=("LLM Jailbreak",),
+        )
+        indirect_seed_compatible = _make_filtered_seed(
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0051.001",),
+            technique_names=("Indirect Prompt Injection",),
+        )
+        indirect_seed_incompatible = _make_filtered_seed(
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0054",),
+            technique_names=("LLM Jailbreak",),
+        )
+        result = apply_technique_entry_point_filter(
+            [direct_seed, indirect_seed_compatible, indirect_seed_incompatible],
+            profile,
+        )
+        assert len(result) == 2
+        assert result[0] is direct_seed
+        assert result[1] is indirect_seed_compatible
+
+    def test_pruned_seed_preserves_other_fields(self):
+        """A pruned FilteredSeed preserves all non-technique fields from the original."""
+        profile = _make_directed_profile([
+            {"name": "RAG knowledge-grounding", "direction": "input"},
+        ])
+        original = _make_filtered_seed(
+            seed_id="AP-T9-03",
+            entry_point="RAG knowledge-grounding",
+            technique_ids=("AML.T0051.001", "AML.T0054"),
+            technique_names=("Indirect Prompt Injection", "LLM Jailbreak"),
+        )
+        result = apply_technique_entry_point_filter([original], profile)
+        assert len(result) == 1
+        pruned = result[0]
+        assert pruned.seed_id == "AP-T9-03"
+        assert pruned.threat_id == original.threat_id
+        assert pruned.threat_name == original.threat_name
+        assert pruned.pinned_entry_point == "RAG knowledge-grounding"
+        assert pruned.pinned_technique_ids == ("AML.T0051.001",)
+        assert pruned.pinned_technique_names == ("Indirect Prompt Injection",)

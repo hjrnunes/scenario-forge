@@ -458,6 +458,142 @@ def filter_candidates(
 
 
 # ---------------------------------------------------------------------------
+# Post-filter: per-technique entry-point compatibility
+# ---------------------------------------------------------------------------
+
+# Techniques that require the attacker to directly interact with the LLM's
+# prompt interface.  These are incompatible with indirect entry points (e.g.
+# RAG knowledge-grounding, third-party data feeds) where the attacker cannot
+# craft prompts directly.
+#
+# This hardcoded set covers the clearest cases.  It can be moved to SSSOM
+# metadata or a configuration file in the future if the list grows.
+DIRECT_ONLY_TECHNIQUES: frozenset[str] = frozenset({
+    "AML.T0051.000",  # Direct Prompt Injection
+    "AML.T0052",      # Adversarial Jailbreaking (direct prompt channel)
+    "AML.T0054",      # LLM Jailbreak
+})
+
+# Case-insensitive keywords in entry-point names that signal an indirect
+# channel — one where the attacker cannot directly author prompts.
+_INDIRECT_KEYWORDS: tuple[str, ...] = (
+    "rag",
+    "knowledge",
+    "retrieval",
+    "third-party",
+    "third party",
+    "data feed",
+    "context injection",
+    "authenticated context",
+)
+
+
+def is_indirect_entry_point(entry_point_name: str, direction: str) -> bool:
+    """Return True if the entry point is an indirect channel.
+
+    An entry point is considered indirect when it has ``direction="input"``
+    *and* its name contains keywords indicating a non-user-facing data
+    channel (RAG, knowledge-grounding, third-party feeds, etc.).
+
+    Bidirectional entry points are always direct — the attacker has full
+    interactive access.  Output-only entry points should have been
+    excluded earlier by :func:`expand_candidates`.
+    """
+    if direction != "input":
+        return False
+    name_lower = entry_point_name.lower()
+    return any(kw in name_lower for kw in _INDIRECT_KEYWORDS)
+
+
+def apply_technique_entry_point_filter(
+    filtered_seeds: Sequence[FilteredSeed],
+    profile: CapabilityProfile,
+) -> list[FilteredSeed]:
+    """Drop direct-only techniques from combos pinned to indirect entry points.
+
+    After the LLM candidate filter accepts a technique combo, this
+    deterministic post-filter checks each technique individually for
+    entry-point compatibility.  Direct-only techniques (e.g. Direct
+    Prompt Injection, LLM Jailbreak) require the attacker to interact
+    directly with the LLM's prompt interface and are incompatible with
+    indirect entry points (RAG, knowledge-grounding, etc.).
+
+    If removing incompatible techniques empties the combo, the candidate
+    is rejected entirely.
+
+    Args:
+        filtered_seeds: Output of :func:`filter_candidates`.
+        profile: Capability profile (provides entry-point directions).
+
+    Returns:
+        A new list of :class:`FilteredSeed` with incompatible techniques
+        pruned or candidates dropped.
+    """
+    # Build entry-point direction lookup from the profile.
+    ep_direction: dict[str, str] = {
+        ep.name: ep.direction for ep in profile.entry_points
+    }
+
+    result: list[FilteredSeed] = []
+    dropped_count = 0
+    pruned_count = 0
+
+    for seed in filtered_seeds:
+        direction = ep_direction.get(seed.pinned_entry_point, "bidirectional")
+
+        if not is_indirect_entry_point(seed.pinned_entry_point, direction):
+            # Direct or bidirectional entry point — all techniques OK.
+            result.append(seed)
+            continue
+
+        # Keep only techniques compatible with indirect channels.
+        compatible_ids: list[str] = []
+        compatible_names: list[str] = []
+        for tid, tname in zip(seed.pinned_technique_ids, seed.pinned_technique_names):
+            if tid not in DIRECT_ONLY_TECHNIQUES:
+                compatible_ids.append(tid)
+                compatible_names.append(tname)
+
+        if not compatible_ids:
+            # Every technique was direct-only — reject entire candidate.
+            dropped_count += 1
+            logger.info(
+                "Technique-entry-point filter: dropped %s + %s "
+                "(all techniques are direct-only, entry point is indirect)",
+                seed.pinned_technique_ids,
+                seed.pinned_entry_point,
+            )
+            continue
+
+        if len(compatible_ids) < len(seed.pinned_technique_ids):
+            # Some techniques pruned from the combo.
+            removed = set(seed.pinned_technique_ids) - set(compatible_ids)
+            pruned_count += 1
+            logger.info(
+                "Technique-entry-point filter: pruned %s from combo for %s "
+                "(direct-only techniques, indirect entry point)",
+                removed,
+                seed.pinned_entry_point,
+            )
+            seed = seed.model_copy(update={
+                "pinned_technique_ids": tuple(compatible_ids),
+                "pinned_technique_names": tuple(compatible_names),
+            })
+
+        result.append(seed)
+
+    if dropped_count or pruned_count:
+        logger.info(
+            "Technique-entry-point filter: %d dropped, %d pruned, %d passed",
+            dropped_count,
+            pruned_count,
+            len(result),
+        )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Post-filter: cap scenarios per attack pattern
 # ---------------------------------------------------------------------------
 
