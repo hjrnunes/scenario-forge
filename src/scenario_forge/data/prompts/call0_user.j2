@@ -20,4 +20,8 @@ The following describes what the target system can and cannot do. Your actor pro
 
 ## Your Task
 Produce a BDI actor profile for this attack pattern applied to the target system above.
+{% if pinned_entry_point %}
+**Entry point constraint (MANDATORY):** The actor's intentions MUST describe attacks that enter through "{{ pinned_entry_point }}". Do NOT describe attacks through other entry points.
+{% endif %}
+**Intention budget:** List exactly {{ pinned_technique_count }} intention(s). Each intention must directly instantiate one pinned technique as a concrete action.
 {{ technique_context }}{{ technique_framing_0 }}{{ goal_section }}{{ diversity_section }}

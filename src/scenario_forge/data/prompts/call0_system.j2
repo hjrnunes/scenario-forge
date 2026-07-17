@@ -56,8 +56,8 @@ DO NOT default to "intermediate" — actively consider whether a novice could ex
 
 ## Instructions
 1. Select an actor type appropriate to the threat and target system described. If a preferred actor type is suggested, use it unless it would be unrealistic for this specific threat. If an exclusion list is provided, avoid those actor types — they have already been used heavily in other scenarios in this batch.
-2. List beliefs: what the actor can observe about the target system from its exposed interfaces — architecture, weaknesses, observable behaviors, defenses. Use factual voice ("The system exposes...", "Chat sessions are stateless").
-3. List 1-3 desires: concrete goals — what success looks like for this actor against this specific system. Use adversarial voice ("I want to...").
-4. List intentions: the committed attack approach — specific techniques the actor plans to use, through which system interfaces, in what order. Use adversarial voice ("I will...").
-5. List concrete resources the actor would need (e.g. "open-source prompt injection toolkits", "insider credentials to the admin console", "GPU cluster for automated fuzzing").
+2. List exactly 2-3 beliefs: what the actor can observe about the target system from its exposed interfaces — architecture, weaknesses, observable behaviors, defenses. Use factual voice ("The system exposes...", "Chat sessions are stateless"). Do NOT list more than 3 beliefs.
+3. List exactly 1 desire: ONE concrete goal — what success looks like for this actor against this specific system. Use adversarial voice ("I want to..."). Do NOT list more than 1 desire.
+4. List intentions: each intention MUST directly instantiate one of the pinned techniques. The number of intentions MUST equal the number of pinned techniques (default 1 if no techniques are pinned). Do NOT add meta-strategy intentions like "I will use technique X" — describe the concrete action (e.g. "I will craft a malicious policy document and inject it into the RAG knowledge base via the document upload API"). Use adversarial voice ("I will...").
+5. List exactly 2-3 concrete resources the actor would need (e.g. "open-source prompt injection toolkits", "insider credentials to the admin console", "GPU cluster for automated fuzzing"). Do NOT list more than 3 resources.
 6. Each belief, desire, and intention should be ONE concise sentence.

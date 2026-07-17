@@ -36,6 +36,7 @@ from scenario_forge.prompts import render_prompt
 from scenario_forge.models.attack_tree import (
     AttackTree,
     AttackTreeNode,
+    GateType,
     repair_attack_tree_dict,
 )
 from scenario_forge.models.capability_profile import CapabilityProfile
@@ -2063,6 +2064,7 @@ def _call_actor_profile(
     attack_goal: dict[str, Any] | None = None,
     pinned_technique_ids: list[str] | None = None,
     forced_actor_type: str | None = None,
+    pinned_entry_point: str | None = None,
 ) -> tuple[ActorProfile, LLMResult]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
@@ -2084,6 +2086,9 @@ def _call_actor_profile(
         forced_actor_type: Hard-constrained actor type override. When set,
             the LLM is instructed that it MUST use this actor type. Used
             during BDI regeneration after validation reassignment.
+        pinned_entry_point: Hard-constrained entry point from the candidate
+            filter. When set, the actor's intentions are constrained to
+            attack through this entry point only.
 
     Returns:
         Tuple of (ActorProfile, LLMResult).
@@ -2142,6 +2147,9 @@ def _call_actor_profile(
     if attack_goal is not None:
         goal_section = _build_attack_goal_context_block(attack_goal)
 
+    # Compute technique count for BDI parsimony (intention budget)
+    pinned_technique_count = len(pinned_technique_ids) if pinned_technique_ids else 1
+
     user_prompt = render_prompt(
         "call0_user.j2",
         use_case=use_case,
@@ -2151,6 +2159,8 @@ def _call_actor_profile(
         technique_framing_0=technique_framing_0,
         goal_section=goal_section,
         diversity_section=diversity_section,
+        pinned_entry_point=pinned_entry_point,
+        pinned_technique_count=pinned_technique_count,
     )
 
     result = client.complete(
@@ -2583,6 +2593,61 @@ def _call_attack_tree(
 
 
 # ---------------------------------------------------------------------------
+# Post-processing: strip non-skeleton technique IDs
+# ---------------------------------------------------------------------------
+
+
+def _strip_non_skeleton_techniques_node(
+    node: AttackTreeNode, skeleton_technique_ids: set[str]
+) -> int:
+    """Recursively strip technique_id from non-skeleton leaf nodes.
+
+    Returns the number of technique_ids stripped.
+    """
+    stripped = 0
+    if node.gate == GateType.LEAF:
+        if (
+            node.technique_id is not None
+            and node.technique_id not in skeleton_technique_ids
+        ):
+            logger.debug(
+                "Stripping non-skeleton technique_id '%s' from leaf '%s'",
+                node.technique_id,
+                node.id,
+            )
+            node.technique_id = None
+            stripped += 1
+    elif node.children:
+        for child in node.children:
+            stripped += _strip_non_skeleton_techniques_node(
+                child, skeleton_technique_ids
+            )
+    return stripped
+
+
+def _strip_non_skeleton_techniques(
+    tree: AttackTree, skeleton_technique_ids: set[str]
+) -> int:
+    """Remove technique_id from leaves that are not in the skeleton.
+
+    The skeleton builder places pinned techniques on mandatory leaves.
+    The LLM tree generator often copies those technique IDs onto additional
+    leaves it creates, producing decorative/semantically incorrect annotations.
+    Only skeleton leaves (those whose technique_id is in the pinned set) should
+    retain their technique annotations.
+
+    Args:
+        tree: The attack tree to post-process (mutated in place).
+        skeleton_technique_ids: Set of pinned technique IDs that are allowed
+            to remain on leaves. If empty, ALL leaf technique_ids are stripped.
+
+    Returns:
+        The number of technique_ids stripped.
+    """
+    return _strip_non_skeleton_techniques_node(tree.root, skeleton_technique_ids)
+
+
+# ---------------------------------------------------------------------------
 # Call 3: Behavior Spec — deterministic Gherkin template + LLM assertions
 # ---------------------------------------------------------------------------
 
@@ -2936,6 +3001,7 @@ def generate_scenario(
             preferred_capability_level=preferred_capability_level,
             attack_goal=attack_goal,
             pinned_technique_ids=pinned_technique_ids,
+            pinned_entry_point=pinned_entry_point,
         )
     except Exception as exc:
         call_log_entries.append(
@@ -2970,6 +3036,7 @@ def generate_scenario(
                 attack_goal=attack_goal,
                 pinned_technique_ids=pinned_technique_ids,
                 forced_actor_type=corrected_type,
+                pinned_entry_point=pinned_entry_point,
             )
         except Exception as exc:
             call_log_entries.append(
@@ -3065,6 +3132,17 @@ def generate_scenario(
 
     # --- Post-generation threat_id cross-ref validation ---
     _warn_dominant_threat_id_crossref(attack_tree, seed.threat_id, partial_scenario_id)
+
+    # --- Post-generation: strip non-skeleton technique IDs ---
+    skeleton_ids = set(pinned_technique_ids) if pinned_technique_ids else set()
+    stripped_count = _strip_non_skeleton_techniques(attack_tree, skeleton_ids)
+    if stripped_count > 0:
+        logger.info(
+            "Stripped %d non-skeleton technique_id(s) from tree leaves "
+            "(seed %s)",
+            stripped_count,
+            seed.seed_id,
+        )
 
     # --- Call 3: Behavior Spec ---
     try:
