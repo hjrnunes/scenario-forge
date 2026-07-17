@@ -687,3 +687,228 @@ class TestCallBehaviorSpecIntegration:
             user_prompt = call_args[1][1] if len(call_args[1]) > 1 else ""
         # The user prompt should contain skeleton elements
         assert "Feature:" in user_prompt or "Gherkin" in user_prompt
+
+
+# ---------------------------------------------------------------------------
+# Tests: Then/But/* indentation (scenario-forge-7kk9 Fix 1)
+# ---------------------------------------------------------------------------
+
+
+class TestAssertionIndentation:
+    """Verify that Then/But/* lines spliced into the Gherkin are 4-space indented."""
+
+    def test_then_but_star_lines_indented(self):
+        """All Then/But/* assertion lines should be at 4-space indent."""
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.content = (
+            "Then the model generates deceptive outputs\n"
+            "But no content filter is triggered\n"
+            "* Misleading information appears in user responses\n"
+            "* Factual accuracy drops below baseline"
+        )
+        mock_result.prompt_tokens = 100
+        mock_result.completion_tokens = 50
+        mock_result.duration_ms = 1000
+        mock_result.system_prompt = "test"
+        mock_result.user_prompt = "test"
+        mock_client.complete.return_value = mock_result
+
+        gherkin, _ = _call_behavior_spec(
+            seed=_make_seed(),
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_simple(),
+            profile=_make_profile(),
+            client=mock_client,
+            use_case="Test chatbot system",
+            scenario_hash="abc123",
+        )
+
+        for line in gherkin.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith(("Then ", "But ", "* ")):
+                assert line.startswith("    "), (
+                    f"Assertion line not 4-space indented: {line!r}"
+                )
+
+    def test_but_star_not_at_column_zero(self):
+        """But and * continuation lines must not be at column 0."""
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.content = (
+            "Then attack succeeds\n"
+            "But defense is bypassed\n"
+            "* Data exfiltrated"
+        )
+        mock_result.prompt_tokens = 50
+        mock_result.completion_tokens = 20
+        mock_result.duration_ms = 500
+        mock_result.system_prompt = "test"
+        mock_result.user_prompt = "test"
+        mock_client.complete.return_value = mock_result
+
+        gherkin, _ = _call_behavior_spec(
+            seed=_make_seed(),
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_simple(),
+            profile=_make_profile(),
+            client=mock_client,
+            use_case="Test",
+            scenario_hash="abc123",
+        )
+
+        lines = gherkin.split("\n")
+        for line in lines:
+            if line.strip().startswith("But ") or line.strip().startswith("* "):
+                assert not line.startswith("But "), (
+                    f"'But' at column 0: {line!r}"
+                )
+                assert not line.startswith("* "), (
+                    f"'*' at column 0: {line!r}"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Tests: Raw technique name substitution (scenario-forge-7kk9 Fix 2)
+# ---------------------------------------------------------------------------
+
+
+class TestRawTechniqueNameSubstitution:
+    """Verify that leaf labels matching ATLAS technique names are replaced."""
+
+    def test_verbatim_technique_name_replaced_with_description(self):
+        """Leaf whose label is a verbatim ATLAS technique name should use
+        the node's description instead."""
+        tree = AttackTree(
+            id="tree-AP-T7-01",
+            seed_id="AP-T7-01",
+            goal="Test goal",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                zone="input",
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="AI Agent Tool Invocation",
+                        gate=GateType.LEAF,
+                        zone="tool_execution",
+                        technique_id="AML.T0053",
+                        description="Agent invokes external API beyond scope",
+                    ),
+                    _make_leaf("n1.2", "Normal step label", "reasoning", "AML.T0054"),
+                ],
+            ),
+        )
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=tree,
+            profile=_make_profile(zones=["input", "reasoning", "tool_execution"]),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Should NOT contain the raw technique name as step text
+        assert "When AI Agent Tool Invocation [AML.T0053]" not in template
+        # Should use the description
+        assert "When Agent invokes external API beyond scope [AML.T0053] (tool_execution)" in template
+        # Normal labels remain unchanged
+        assert "And Normal step label [AML.T0054] (reasoning)" in template
+
+    def test_verbatim_technique_name_fallback_without_description(self):
+        """Leaf whose label is a technique name but has no description
+        falls back to generic label."""
+        tree = AttackTree(
+            id="tree-AP-T7-01",
+            seed_id="AP-T7-01",
+            goal="Test goal",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                zone="input",
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="Indirect Prompt Injection",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        technique_id="AML.T0051.001",
+                        # no description
+                    ),
+                    _make_leaf("n1.2", "Other step", "reasoning"),
+                ],
+            ),
+        )
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=tree,
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Should NOT contain verbatim technique name as-is
+        assert "When Indirect Prompt Injection [AML.T0051.001]" not in template
+        # Should use generic fallback
+        assert "When Execute attack step via Indirect Prompt Injection [AML.T0051.001] (input)" in template
+
+    def test_case_insensitive_technique_name_match(self):
+        """Matching should be case-insensitive."""
+        tree = AttackTree(
+            id="tree-AP-T7-01",
+            seed_id="AP-T7-01",
+            goal="Test goal",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                zone="input",
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="llm jailbreak",  # lowercase variant
+                        gate=GateType.LEAF,
+                        zone="input",
+                        technique_id="AML.T0054",
+                        description="Bypass safety via crafted prompts",
+                    ),
+                    _make_leaf("n1.2", "Other step", "reasoning"),
+                ],
+            ),
+        )
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=tree,
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Should use description, not the raw technique name
+        assert "When Bypass safety via crafted prompts [AML.T0054] (input)" in template
+
+    def test_non_technique_label_unchanged(self):
+        """Labels that are NOT technique names should pass through unchanged."""
+        tree = AttackTree(
+            id="tree-AP-T7-01",
+            seed_id="AP-T7-01",
+            goal="Test goal",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                zone="input",
+                children=[
+                    _make_leaf("n1.1", "Craft malicious payload", "input", "AML.T0051"),
+                    _make_leaf("n1.2", "Exploit trust boundary", "reasoning"),
+                ],
+            ),
+        )
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=tree,
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        assert "When Craft malicious payload [AML.T0051] (input)" in template
+        assert "And Exploit trust boundary (reasoning)" in template
