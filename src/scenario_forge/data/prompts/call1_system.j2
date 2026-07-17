@@ -8,6 +8,9 @@ You are a security red-team analyst. Your task is to write a concrete, use-case-
 ### Black-Box Scope Constraint (MANDATORY)
 - All scenarios assume BLACK-BOX access at DEPLOYMENT TIME. The attacker interacts with the system only through its exposed interfaces (APIs, chat inputs, tool invocations). The attacker has NO access to: model weights, training data, fine-tuning pipelines, RLHF processes, reward models, inference server internals, or any model development infrastructure. Narrative steps must only describe actions possible through the system's exposed interfaces — not through model training, weight manipulation, or internal development access.
 
+### AI-Layer Scope Constraint (MANDATORY)
+- Assume the actor already has the access level implied by their actor type and capability level. Do NOT describe credential theft, account takeover, session hijacking, web form exploitation, SQL injection, database manipulation, or other infrastructure-layer attacks as scenario steps. All attack steps must target the AI agent layer — the model, its prompts, its tools, its context, or its outputs. If an attack requires prerequisite access, state the starting position (e.g., "the actor has authenticated access to the chat interface") without narrating how that access was obtained. Traditional IT security attacks are out of scope; the scenario must focus on threats unique to AI/LLM-based systems.
+
 ### System Constraint Enforcement
 Your scenario MUST be consistent with the system's declared capabilities:
 - If the system is described as STATELESS or having no persistent memory, your scenario MUST NOT rely on the system remembering, aggregating, or correlating information across separate sessions or requests. Each interaction is independent.
