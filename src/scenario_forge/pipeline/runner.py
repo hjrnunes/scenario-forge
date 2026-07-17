@@ -23,6 +23,7 @@ from scenario_forge.models.scenario import ACTOR_TYPES, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
     FilteredSeed,
+    apply_technique_entry_point_filter,
     cap_scenarios_per_pattern,
     expand_candidates,
     filter_candidates,
@@ -571,6 +572,20 @@ def run_pipeline(
         candidates_accepted,
         candidates_rejected,
     )
+
+    # Deterministic post-filter: drop direct-only techniques from combos
+    # pinned to indirect entry points (e.g. T0051.000 on RAG channels).
+    pre_compat_count = len(filtered_seeds)
+    filtered_seeds = apply_technique_entry_point_filter(filtered_seeds, profile)
+    compat_dropped = pre_compat_count - len(filtered_seeds)
+    if compat_dropped > 0:
+        logger.info(
+            "  Technique-entry-point compatibility: %d -> %d filtered seeds "
+            "(%d dropped/pruned)",
+            pre_compat_count,
+            len(filtered_seeds),
+            compat_dropped,
+        )
 
     # Apply per-pattern cap if requested.
     candidates_capped = 0
