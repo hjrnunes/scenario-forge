@@ -92,8 +92,8 @@ class AttackTreeNode(BaseModel):
     )
     technique_id: Optional[str] = Field(
         default=None,
-        description="MITRE ATLAS technique ID applicable to this node (e.g. 'AML.T0051').",
-        pattern=r"^AML\.T\d{4}(\.\d{3})?$",
+        description="Technique ID applicable to this node — MITRE ATLAS (e.g. 'AML.T0051') or LAAF (e.g. 'S1', 'M2').",
+        pattern=r"^(AML\.T\d{4}(\.\d{3})?|[SML]\d+)$",
     )
     maestro_layer: Optional[int] = Field(
         default=None,
@@ -184,7 +184,7 @@ class AttackTree(BaseModel):
         """Collect all unique technique_id values from tree nodes.
 
         Walks the tree recursively and returns a deduplicated list of
-        ATLAS technique IDs (preserving first-seen order).
+        technique IDs — ATLAS or LAAF (preserving first-seen order).
         """
         seen: set[str] = set()
         result: list[str] = []
