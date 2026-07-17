@@ -46,6 +46,7 @@ def _make_seed(
     seed_id: str = "AP-T7-01",
     threat_id: str = "T7",
     atlas_technique_ids: list[str] | None = None,
+    laaf_technique_ids: list[str] | None = None,
 ) -> ScenarioSeed:
     return ScenarioSeed(
         seed_id=seed_id,
@@ -57,6 +58,7 @@ def _make_seed(
         owasp_llm_ids=["LLM01"],
         agentic_threat_ids=[threat_id],
         atlas_technique_ids=atlas_technique_ids or [],
+        laaf_technique_ids=laaf_technique_ids or [],
     )
 
 
@@ -348,13 +350,44 @@ class TestExpandCandidates:
         assert c.entry_point != ""
 
     def test_expand_candidates_empty_techniques(self):
-        """Seed with no atlas_technique_ids produces no candidates for that seed."""
+        """Seed with no technique IDs (ATLAS or LAAF) produces no candidates."""
         seeds = [
-            _make_seed("AP-T7-01", "T7", atlas_technique_ids=[]),
+            _make_seed("AP-T7-01", "T7", atlas_technique_ids=[], laaf_technique_ids=[]),
         ]
         profile = _make_profile(entry_points=["user prompts (input)"])
         candidates = _expand_candidates(seeds, profile)
         assert len(candidates) == 0
+
+    def test_expand_candidates_laaf_only_fallback(self):
+        """Seed with LAAF IDs but no ATLAS IDs uses LAAF for cross-product."""
+        seeds = [
+            _make_seed(
+                "AP-T7-01", "T7",
+                atlas_technique_ids=[],
+                laaf_technique_ids=["S1", "M3"],
+            ),
+        ]
+        profile = _make_profile(entry_points=["user prompts (input)"])
+        candidates = _expand_candidates(seeds, profile)
+        # 1 seed x 1 entry_point x 2 LAAF techniques = 2 candidates
+        assert len(candidates) == 2
+        technique_ids = {c.atlas_technique_ids[0] for c in candidates}
+        assert technique_ids == {"S1", "M3"}
+
+    def test_expand_candidates_atlas_preferred_over_laaf(self):
+        """When seed has both ATLAS and LAAF IDs, ATLAS is used."""
+        seeds = [
+            _make_seed(
+                "AP-T2-01", "T2",
+                atlas_technique_ids=["AML.T0051"],
+                laaf_technique_ids=["S1", "M3"],
+            ),
+        ]
+        profile = _make_profile(entry_points=["user prompts (input)"])
+        candidates = _expand_candidates(seeds, profile)
+        # Should use ATLAS (1 technique), not LAAF (2 techniques)
+        assert len(candidates) == 1
+        assert candidates[0].atlas_technique_ids == ("AML.T0051",)
 
     def test_expand_candidates_empty_entry_points(self):
         """Profile with no entry points returns empty list."""
