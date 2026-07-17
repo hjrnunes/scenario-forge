@@ -47,6 +47,7 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       kc_requires:
+        all: [KCX-PSTATE]
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T7-03:
@@ -66,6 +67,7 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T7-04:

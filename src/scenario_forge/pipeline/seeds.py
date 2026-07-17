@@ -68,14 +68,25 @@ class ScenarioSeed(BaseModel):
     )
 
 
+_KCX_TO_CAPABILITY: dict[str, list[str]] = {
+    "KCX-MAGENT": ["multi_agent"],
+    "KCX-PMEM": ["persistent_memory"],
+    "KCX-SHMEM": ["multi_agent", "persistent_memory"],
+    "KCX-VSTORE": ["persistent_memory"],
+    "KCX-HITL": ["hitl"],
+    "KCX-AUDIT": ["audit"],
+    "KCX-PSTATE": ["persistent_state"],
+}
+
+
 def _extract_seed_constraints(
     pattern: dict,
 ) -> tuple[str | None, list[str] | None]:
     """Extract min_complexity and required_capabilities from a pattern dict.
 
     Reads ``prerequisite_capabilities`` from the attack-pattern YAML and maps
-    boolean flags to a list of capability requirement strings.  Also reads
-    the top-level ``min_complexity`` field if present.
+    KCX sub-codes in ``kc_requires`` to a list of capability requirement
+    strings.  Also reads the top-level ``min_complexity`` field if present.
 
     Returns:
         (min_complexity, required_capabilities) — either may be None.
@@ -83,17 +94,13 @@ def _extract_seed_constraints(
     min_complexity: str | None = pattern.get("min_complexity")
     prereqs = pattern.get("prerequisite_capabilities") or {}
 
+    kc_req = prereqs.get("kc_requires") or {}
+    all_kcs = set(kc_req.get("all", []))
+
     caps: list[str] = []
-    if prereqs.get("requires_multi_agent"):
-        caps.append("multi_agent")
-    if prereqs.get("requires_persistent_memory"):
-        caps.append("persistent_memory")
-    if prereqs.get("requires_shared_writable_memory"):
-        # Shared writable memory implies multi-agent coordination
-        caps.append("multi_agent")
-        caps.append("persistent_memory")
-    if prereqs.get("requires_tool_execution"):
-        caps.append("tool_execution")
+    for kcx, capability_strings in _KCX_TO_CAPABILITY.items():
+        if kcx in all_kcs:
+            caps.extend(capability_strings)
 
     # Deduplicate while preserving order
     seen: set[str] = set()

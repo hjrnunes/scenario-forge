@@ -89,7 +89,7 @@ _MINI_KC_MAPPING = {
 # Test attack-pattern dicts (synthetic, matching real YAML structure)
 # ---------------------------------------------------------------------------
 
-# AP-T2-05 requires vector_store + tool_execution
+# AP-T2-05 requires KCX-VSTORE + KC6.3.3
 _AP_T2_05 = {
     "id": "AP-T2-05",
     "threat_id": "T2",
@@ -97,13 +97,11 @@ _AP_T2_05 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "memory", "tool_execution"],
-        "requires_vector_store": True,
-        "requires_tool_execution": True,
-        "kc_requires": {"any": ["KC6.3.3"]},
+        "kc_requires": {"all": ["KCX-VSTORE"], "any": ["KC6.3.3"]},
     },
 }
 
-# AP-T2-04 requires persistent_memory + tool_execution
+# AP-T2-04 requires KCX-PMEM + KC4.x
 _AP_T2_04 = {
     "id": "AP-T2-04",
     "threat_id": "T2",
@@ -111,13 +109,11 @@ _AP_T2_04 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "memory", "tool_execution"],
-        "requires_persistent_memory": True,
-        "requires_tool_execution": True,
-        "kc_requires": {"any": ["KC4.3", "KC4.4", "KC4.5", "KC4.6"]},
+        "kc_requires": {"all": ["KCX-PMEM"], "any": ["KC4.3", "KC4.4", "KC4.5", "KC4.6"]},
     },
 }
 
-# AP-T2-01 has only basic zone prereqs (input + tool_execution)
+# AP-T2-01 has basic KC6 prereqs (no KCX gate)
 _AP_T2_01 = {
     "id": "AP-T2-01",
     "threat_id": "T2",
@@ -125,14 +121,13 @@ _AP_T2_01 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "reasoning", "tool_execution"],
-        "requires_tool_execution": True,
         "kc_requires": {"any": ["KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2",
                                 "KC6.3.1", "KC6.3.2", "KC6.4", "KC6.5",
                                 "KC6.6", "KC6.7"]},
     },
 }
 
-# AP-T1-04 requires shared writable memory + inter_agent zone
+# AP-T1-04 requires KCX-SHMEM + KC4.4/KC4.6
 _AP_T1_04 = {
     "id": "AP-T1-04",
     "threat_id": "T1",
@@ -140,12 +135,11 @@ _AP_T1_04 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "memory", "inter_agent"],
-        "requires_shared_writable_memory": True,
-        "kc_requires": {"any": ["KC4.4", "KC4.6"]},
+        "kc_requires": {"all": ["KCX-SHMEM"], "any": ["KC4.4", "KC4.6"]},
     },
 }
 
-# AP-T1-01 has basic memory prereqs
+# AP-T1-01 requires KCX-PMEM + KC4.x
 _AP_T1_01 = {
     "id": "AP-T1-01",
     "threat_id": "T1",
@@ -153,8 +147,7 @@ _AP_T1_01 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "memory"],
-        "requires_persistent_memory": True,
-        "kc_requires": {"any": ["KC4.3", "KC4.4", "KC4.5", "KC4.6"]},
+        "kc_requires": {"all": ["KCX-PMEM"], "any": ["KC4.3", "KC4.4", "KC4.5", "KC4.6"]},
     },
 }
 
@@ -433,27 +426,27 @@ class TestHasSharedWritableMemory:
 class TestFilterAttackPatterns:
     """Verify data-driven attack-pattern filtering."""
 
-    def test_ap_t2_05_not_filtered_with_stage1_persistent_memory(self):
+    def test_ap_t2_05_not_filtered_with_kcx_vstore(self):
         profile = _make_profile(
             has_persistent_memory=True,
-            kc_subcodes=["KC1.1", "KC6.1.1", "KC6.3.3"],
+            kc_subcodes=["KC1.1", "KC6.1.1", "KC6.3.3", "KCX-VSTORE"],
         )
         patterns = [_AP_T2_01, _AP_T2_04, _AP_T2_05]
         result = _filter_attack_patterns(patterns, profile)
         assert "AP-T2-05" in result
 
-    def test_ap_t2_05_filtered_when_no_persistent_memory(self):
+    def test_ap_t2_05_filtered_without_kcx_vstore(self):
         profile = _make_profile(has_persistent_memory=False)
         patterns = [_AP_T2_01, _AP_T2_04, _AP_T2_05]
         result = _filter_attack_patterns(patterns, profile)
         assert "AP-T2-04" not in result
         assert "AP-T2-05" not in result
 
-    def test_ap_t1_04_not_filtered_with_stage1_persistent_memory(self):
+    def test_ap_t1_04_not_filtered_with_kcx_shmem(self):
         profile = _make_profile(
             has_persistent_memory=True,
             multi_agent=True,
-            kc_subcodes=["KC1.1", "KC4.4"],
+            kc_subcodes=["KC1.1", "KC4.4", "KCX-SHMEM"],
         )
         patterns = [_AP_T1_01, _AP_T1_04]
         result = _filter_attack_patterns(patterns, profile)
@@ -477,7 +470,7 @@ class TestGatingLogging:
     def test_filter_attack_patterns_logs_ap_t2_05_pass(self, caplog):
         profile = _make_profile(
             has_persistent_memory=True,
-            kc_subcodes=["KC1.1", "KC6.1.1", "KC6.3.3"],
+            kc_subcodes=["KC1.1", "KC6.1.1", "KC6.3.3", "KCX-VSTORE"],
         )
         patterns = [_AP_T2_01, _AP_T2_05]
         with caplog.at_level(logging.DEBUG, logger="scenario_forge.data.threat_gating"):
@@ -631,23 +624,17 @@ class TestMinZonesRemovalSafe:
         assert _evaluate_prerequisite_capabilities(prereqs, profile) is True
 
     def test_no_real_ap_relies_solely_on_min_zones(self):
-        """Every real AP with min_zones also has at least one other operative
-        gate (kc_requires, requires_persistent_memory, requires_hitl, etc.)
+        """Every real AP with min_zones also has kc_requires
         — so removing min_zones never leaves an AP ungated."""
         from scenario_forge.data.loaders import load_attack_patterns
 
-        other_gates = {
-            "kc_requires", "requires_persistent_memory",
-            "requires_shared_writable_memory", "requires_vector_store",
-            "requires_multi_agent", "requires_hitl",
-        }
         patterns = load_attack_patterns()
         for pid, pattern in patterns.items():
             prereqs = pattern.get("prerequisite_capabilities")
             if not prereqs or not prereqs.get("min_zones"):
                 continue
-            has_other = any(prereqs.get(g) for g in other_gates)
-            assert has_other, (
+            has_kc_requires = bool(prereqs.get("kc_requires"))
+            assert has_kc_requires, (
                 f"{pid} has min_zones as its ONLY gate — "
                 f"removing min_zones would leave it ungated"
             )

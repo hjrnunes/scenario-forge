@@ -64,6 +64,27 @@ KCX_SUBCODES: dict[str, str] = {
     "KCX-XAUTH": (
         "System has cross-boundary credential propagation between trust domains"
     ),
+    "KCX-PMEM": (
+        "System has persistent memory architecture (cross-session state)"
+    ),
+    "KCX-SHMEM": (
+        "System has shared writable memory accessible to multiple agents"
+    ),
+    "KCX-MAGENT": (
+        "System has multi-agent or outbound inter-agent communication"
+    ),
+    "KCX-VSTORE": (
+        "System has vector store or RAG write access"
+    ),
+    "KCX-HITL": (
+        "System has human-in-the-loop review or approval controls"
+    ),
+    "KCX-AUDIT": (
+        "System has exploitable audit or logging architecture"
+    ),
+    "KCX-PSTATE": (
+        "System has persistent state enabling self-model or self-preservation"
+    ),
 }
 
 KCX_PREFIX = "KCX-"

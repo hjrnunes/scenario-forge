@@ -29,8 +29,8 @@ patterns:
       attack_class: "poisoning.backdoor_poisoning"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T12-02:
@@ -51,8 +51,8 @@ patterns:
       attack_class: "poisoning.backdoor_poisoning"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T12-03:
@@ -73,8 +73,8 @@ patterns:
       attack_class: "poisoning.backdoor_poisoning"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T12-04:
@@ -95,8 +95,8 @@ patterns:
       attack_class: "poisoning.backdoor_poisoning"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T12-05:
@@ -117,8 +117,8 @@ patterns:
       attack_class: "poisoning.backdoor_poisoning"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T15-01:
@@ -139,7 +139,6 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.privacy_compromises"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
-      requires_tool_execution: true
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
 
@@ -162,7 +161,6 @@ patterns:
       attack_class: "genai.indirect_prompt_injection.privacy_compromises"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "tool_execution"]
-      requires_tool_execution: true
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
 

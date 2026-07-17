@@ -162,32 +162,12 @@ def _evaluate_prerequisite_capabilities(
 
     Zone-based checks (min_zones, requires_tool_execution) were removed in
     Phase 3 — kc_requires is strictly more precise and subsumes them.
+    Boolean prerequisite flags (requires_persistent_memory, requires_multi_agent,
+    etc.) were replaced by KCX sub-codes in kc_requires during Phase 4.
 
     Returns:
         True if all prerequisites are satisfied, False otherwise.
     """
-    # requires_persistent_memory
-    if prereqs.get("requires_persistent_memory") and not profile.has_persistent_memory:
-        return False
-
-    # requires_shared_writable_memory
-    if prereqs.get(
-        "requires_shared_writable_memory"
-    ) and not _has_shared_writable_memory(profile):
-        return False
-
-    # requires_vector_store
-    if prereqs.get("requires_vector_store") and not _has_vector_store(profile):
-        return False
-
-    # requires_multi_agent
-    if prereqs.get("requires_multi_agent") and not profile.multi_agent:
-        return False
-
-    # requires_hitl
-    if prereqs.get("requires_hitl") and not profile.hitl:
-        return False
-
     # kc_requires: {any: [...], all: [...]}
     kc_req = prereqs.get("kc_requires")
     if kc_req is not None:

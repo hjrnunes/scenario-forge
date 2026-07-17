@@ -101,7 +101,6 @@ _AP_T3_01 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "reasoning", "tool_execution"],
-        "requires_tool_execution": True,
         "kc_requires": {
             "all": ["KCX-PRIV"],
             "any": ["KC6.1.2", "KC6.2.2", "KC6.3.2", "KC6.5"],
@@ -116,7 +115,6 @@ _AP_T3_02 = {
     "description": "...",
     "prerequisite_capabilities": {
         "min_zones": ["input", "reasoning", "tool_execution"],
-        "requires_tool_execution": True,
         "kc_requires": {
             "any": ["KC6.1.2", "KC6.2.2", "KC6.5", "KCX-XAUTH"],
         },
@@ -313,6 +311,27 @@ class TestKCXConstants:
     def test_kcx_subcodes_contains_xauth(self):
         assert "KCX-XAUTH" in KCX_SUBCODES
 
+    def test_kcx_subcodes_contains_pmem(self):
+        assert "KCX-PMEM" in KCX_SUBCODES
+
+    def test_kcx_subcodes_contains_shmem(self):
+        assert "KCX-SHMEM" in KCX_SUBCODES
+
+    def test_kcx_subcodes_contains_magent(self):
+        assert "KCX-MAGENT" in KCX_SUBCODES
+
+    def test_kcx_subcodes_contains_vstore(self):
+        assert "KCX-VSTORE" in KCX_SUBCODES
+
+    def test_kcx_subcodes_contains_hitl(self):
+        assert "KCX-HITL" in KCX_SUBCODES
+
+    def test_kcx_subcodes_contains_audit(self):
+        assert "KCX-AUDIT" in KCX_SUBCODES
+
+    def test_kcx_subcodes_contains_pstate(self):
+        assert "KCX-PSTATE" in KCX_SUBCODES
+
     def test_kcx_subcodes_not_in_valid_kc_subcodes(self):
         """KCX codes are NOT in the OWASP VALID_KC_SUBCODES set."""
         for code in KCX_SUBCODES:
@@ -321,3 +340,7 @@ class TestKCXConstants:
     def test_all_kcx_codes_start_with_prefix(self):
         for code in KCX_SUBCODES:
             assert code.startswith(KCX_PREFIX)
+
+    def test_kcx_subcodes_count(self):
+        """All 9 KCX sub-codes are defined."""
+        assert len(KCX_SUBCODES) == 9

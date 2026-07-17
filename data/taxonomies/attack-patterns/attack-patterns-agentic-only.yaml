@@ -34,6 +34,7 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       kc_requires:
+        all: [KCX-AUDIT]
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T8-02:
@@ -54,6 +55,7 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       kc_requires:
+        all: [KCX-AUDIT]
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   AP-T8-03:
@@ -74,6 +76,7 @@ patterns:
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
       kc_requires:
+        all: [KCX-AUDIT]
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
 
   # ═══════════════════════════════════════════════════════════════════
@@ -118,8 +121,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T9-03:
@@ -159,8 +162,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T9-05:
@@ -199,8 +202,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   # ═══════════════════════════════════════════════════════════════════
@@ -225,7 +228,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-      requires_hitl: true
+      kc_requires:
+        all: [KCX-HITL]
 
   AP-T10-02:
     id: "AP-T10-02"
@@ -245,7 +249,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-      requires_hitl: true
+      kc_requires:
+        all: [KCX-HITL]
 
   AP-T10-03:
     id: "AP-T10-03"
@@ -265,7 +270,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning"]
-      requires_hitl: true
+      kc_requires:
+        all: [KCX-HITL]
 
   # ═══════════════════════════════════════════════════════════════════
   # T14 — Human Attacks on Multi-Agent Systems (4 patterns)
@@ -289,8 +295,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T14-02:
@@ -311,8 +317,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T14-03:
@@ -332,8 +338,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T14-04:
@@ -354,8 +360,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   # ═══════════════════════════════════════════════════════════════════
@@ -379,8 +385,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T16-02:
@@ -401,8 +407,8 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
       kc_requires:
+        all: [KCX-MAGENT]
         any: [KC2.3]
 
   AP-T16-03:
@@ -423,8 +429,6 @@ patterns:
       learning_stage: "deployment"
     prerequisite_capabilities:
       min_zones: ["input", "reasoning", "inter_agent"]
-      requires_multi_agent: true
-      requires_tool_execution: true
       kc_requires:
-        all: [KC2.3]
+        all: [KC2.3, KCX-MAGENT]
         any: [KC5.1, KC5.2, KC5.3, KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
