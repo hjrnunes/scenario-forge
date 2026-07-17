@@ -3,7 +3,9 @@
 Contains:
   1. Phantom capability validation — flags scenarios that reference
      capabilities the system does not possess.
-  2. Parsimony pruning — trims excess unannotated leaf nodes from
+  2. Leaf technique provenance — flags attack-work leaf nodes that
+     lack a technique_id annotation.
+  3. Parsimony pruning — trims excess unannotated leaf nodes from
      attack trees to satisfy the parsimony budget constraint.
 """
 
@@ -639,6 +641,153 @@ def validate_phantom_capabilities(
             result.flagged_scenarios.append((scenario, violations))
         else:
             result.valid_scenarios.append(scenario)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Leaf technique provenance — data structures
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LeafTechniqueViolation:
+    """A leaf node performing attack work without a ``technique_id``."""
+
+    node_id: str
+    label: str
+    zone: str
+    reason: str
+
+
+@dataclass
+class LeafTechniqueResult:
+    """Result of leaf technique provenance validation across a batch."""
+
+    clean_scenarios: list[ScenarioEnvelope] = field(default_factory=list)
+    flagged_scenarios: list[tuple[ScenarioEnvelope, list[LeafTechniqueViolation]]] = (
+        field(default_factory=list)
+    )
+
+    @property
+    def flagged_count(self) -> int:
+        return len(self.flagged_scenarios)
+
+    @property
+    def clean_count(self) -> int:
+        return len(self.clean_scenarios)
+
+
+# ---------------------------------------------------------------------------
+# Leaf technique provenance — consequence heuristic
+# ---------------------------------------------------------------------------
+
+# Consequence / terminal-outcome patterns.  A leaf whose label (or
+# description) matches one of these is a *consequence node* — it
+# describes what happens as a result of the attack, not an active
+# attack step.  Consequence nodes are exempt from the technique_id
+# requirement.
+
+_CONSEQUENCE_LEAF_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        # Victim / target performing an action as a result of manipulation
+        r"\bvictim\s+\w+",
+        r"\btarget\s+(?:user|employee|operator|person|individual)\s+"
+        r"(?:transfer|send|comply|reveal|disclose|provide|submit)\w*",
+        # Data / asset terminal-outcome language
+        r"\b(?:data|credentials?|information|secrets?|funds?|assets?|money)"
+        r"\s+(?:exfiltrated|stolen|harvested|captured|diverted|"
+        r"compromised|lost|leaked|extracted|obtained)\b",
+        # Exfiltration as terminal step
+        r"\b(?:exfiltrate|siphon)\s",
+        # Attack / breach completion
+        r"\b(?:attack|breach|compromise|infiltration|campaign|objective)"
+        r"\s+(?:succeed|complet|achiev|accomplish|finalize)\w*",
+        # Impact / damage realization
+        r"\b(?:impact|damage|loss|harm)"
+        r"\s+(?:realiz|materializ|inflict|occur)\w*",
+        # Goal achievement (allow intervening words)
+        r"\b(?:achieve|accomplish)\w*\b"
+        r"[^.]{0,30}\b(?:goal|objective|purpose|aim)\b",
+        # System state as terminal outcome
+        r"\b(?:system|account|network|infrastructure)"
+        r"\s+(?:fully\s+)?(?:compromised|breached|corrupted|infected)\b",
+        # Access gained as terminal outcome
+        r"\b(?:gain|obtain|establish|secure)\w*"
+        r"\s+(?:persistent|unauthorized|full|complete|admin|root)\s+access\b",
+    ]
+]
+
+
+def _is_consequence_leaf(node: AttackTreeNode) -> bool:
+    """Heuristic: is this leaf a terminal consequence / effect node?
+
+    Consequence nodes describe outcomes or effects (e.g. "victim
+    transfers funds", "data exfiltrated") rather than active attack
+    steps.  They are exempt from the ``technique_id`` requirement
+    because they are not technique-driven actions.
+    """
+    text = node.label
+    if node.description:
+        text = f"{text} {node.description}"
+
+    for pattern in _CONSEQUENCE_LEAF_PATTERNS:
+        if pattern.search(text):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Leaf technique provenance — main validation
+# ---------------------------------------------------------------------------
+
+
+def check_leaf_technique_provenance(
+    scenarios: list[ScenarioEnvelope],
+) -> LeafTechniqueResult:
+    """Flag attack-work leaf nodes that lack a ``technique_id``.
+
+    Walks every scenario's attack tree, collects leaf nodes, and checks
+    whether each leaf that performs active attack work has a
+    ``technique_id`` annotation.  Leaves classified as consequence /
+    terminal-outcome nodes (via :func:`_is_consequence_leaf`) are
+    exempt.
+
+    Returns a :class:`LeafTechniqueResult` with clean and flagged
+    scenarios.  The caller decides whether to log warnings or block.
+    """
+    result = LeafTechniqueResult()
+
+    for scenario in scenarios:
+        violations: list[LeafTechniqueViolation] = []
+        leaves = _collect_leaves(scenario.attack_tree.root)
+
+        for leaf in leaves:
+            # Already annotated — no issue.
+            if leaf.technique_id:
+                continue
+
+            # Consequence / effect nodes are exempt.
+            if _is_consequence_leaf(leaf):
+                continue
+
+            violations.append(
+                LeafTechniqueViolation(
+                    node_id=leaf.id,
+                    label=leaf.label,
+                    zone=leaf.zone,
+                    reason=(
+                        "Leaf node performs attack work but has no "
+                        "technique_id — missing technique provenance."
+                    ),
+                )
+            )
+
+        if violations:
+            result.flagged_scenarios.append((scenario, violations))
+        else:
+            result.clean_scenarios.append(scenario)
 
     return result
 

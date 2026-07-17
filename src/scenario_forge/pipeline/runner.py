@@ -51,7 +51,10 @@ from scenario_forge.pipeline.coverage import (
     write_coverage_report,
 )
 from scenario_forge.pipeline.profile import infer_capability_profile
-from scenario_forge.pipeline.validation import validate_phantom_capabilities
+from scenario_forge.pipeline.validation import (
+    check_leaf_technique_provenance,
+    validate_phantom_capabilities,
+)
 from scenario_forge.prompts import hash_prompt_templates
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
@@ -762,6 +765,32 @@ def run_pipeline(
     else:
         logger.info("  All %d scenarios passed validation", len(scenarios))
 
+    # --- Leaf Technique Provenance Pass ---
+    logger.info("[Validation] Checking leaf technique provenance...")
+    leaf_technique_result = check_leaf_technique_provenance(scenarios)
+    if leaf_technique_result.flagged_count:
+        for flagged_scenario, violations in leaf_technique_result.flagged_scenarios:
+            for v in violations:
+                logger.warning(
+                    "  Missing technique_id in %s node %s (%s, zone=%s): %s",
+                    flagged_scenario.scenario_id,
+                    v.node_id,
+                    v.label,
+                    v.zone,
+                    v.reason,
+                )
+        logger.info(
+            "  %d/%d scenarios clean, %d flagged (warnings only)",
+            leaf_technique_result.clean_count,
+            len(scenarios),
+            leaf_technique_result.flagged_count,
+        )
+    else:
+        logger.info(
+            "  All %d scenarios have complete leaf technique provenance",
+            len(scenarios),
+        )
+
     # --- Coverage Remediation Pass ---
     # Check for uncovered entry points and generate additional scenarios
     # to fill gaps, before running the final coverage analysis.
@@ -810,6 +839,10 @@ def run_pipeline(
     manifest["phantom_validation"] = {
         "flagged_count": validation_result.flagged_count,
         "violation_categories": validation_result.violation_categories,
+    }
+    manifest["leaf_technique_provenance"] = {
+        "flagged_count": leaf_technique_result.flagged_count,
+        "clean_count": leaf_technique_result.clean_count,
     }
     manifest_path.write_text(
         yaml.dump(manifest, default_flow_style=False, sort_keys=False),
