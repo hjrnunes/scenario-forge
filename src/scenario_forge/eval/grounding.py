@@ -14,8 +14,8 @@ from typing import Any
 import yaml
 
 
-# Regex for ATLAS technique IDs like [AML.T0054] or [AML.T0051.000]
-_TECHNIQUE_RE = re.compile(r"\[AML\.T\d{4}(?:\.\d{3})?\]")
+# Regex for technique IDs: ATLAS like [AML.T0054] or LAAF like [S1], [M2]
+_TECHNIQUE_RE = re.compile(r"\[(?:AML\.T\d{4}(?:\.\d{3})?|[SML]\d+)\]")
 
 
 # Default path to bundled OWASP agentic threats data
