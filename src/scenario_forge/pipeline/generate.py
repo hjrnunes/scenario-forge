@@ -2648,6 +2648,79 @@ def _strip_non_skeleton_techniques(
 
 
 # ---------------------------------------------------------------------------
+# Post-generation consistency enforcement
+# ---------------------------------------------------------------------------
+
+# Configurable floor for step-node correspondence ratio.
+_STEP_NODE_CORRESPONDENCE_FLOOR = 0.7
+
+# Maximum number of Call 2 retries for consistency violations.
+_CONSISTENCY_MAX_RETRIES = 2
+
+
+def _count_leaves(node: AttackTreeNode) -> int:
+    """Count leaf nodes in an attack tree rooted at *node*."""
+    if node.gate == GateType.LEAF:
+        return 1
+    total = 0
+    if node.children:
+        for child in node.children:
+            total += _count_leaves(child)
+    return total
+
+
+def _check_consistency(
+    tree: AttackTree,
+    narrative: NarrativeLayer,
+    parsimony_budget: int,
+    step_node_floor: float = _STEP_NODE_CORRESPONDENCE_FLOOR,
+) -> list[str]:
+    """Run post-generation consistency checks on the attack tree.
+
+    Returns a list of violation descriptions (empty if all checks pass).
+    Checks:
+      1. Parsimony — leaf count must not exceed budget.
+      2. Zone-sequence — every narrative zone must appear in the tree.
+      3. Step-node correspondence — ratio must meet the floor.
+    """
+    violations: list[str] = []
+
+    # Check 1: parsimony
+    leaf_count = _count_leaves(tree.root)
+    if leaf_count > parsimony_budget:
+        violations.append(
+            f"parsimony: {leaf_count} leaves > {parsimony_budget} budget"
+        )
+
+    # Check 2: zone-sequence consistency
+    narrative_zones = set(narrative.zone_sequence)
+    tree_zones = _collect_zones_from_tree(tree.root)
+    missing_zones = narrative_zones - tree_zones
+    if missing_zones:
+        violations.append(
+            f"zone-sequence: zones {missing_zones} in narrative but not tree"
+        )
+
+    # Check 3: step-node correspondence
+    step_count = len(narrative.steps)
+    if leaf_count > 0 and step_count > 0:
+        correspondence = min(step_count, leaf_count) / max(
+            step_count, leaf_count
+        )
+        if correspondence < step_node_floor:
+            violations.append(
+                f"step-node: {correspondence:.2f} < {step_node_floor} floor"
+            )
+    elif step_count == 0:
+        # No steps — cannot compute, not a violation
+        pass
+    elif leaf_count == 0:
+        violations.append("step-node: 0 leaves in tree")
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Call 3: Behavior Spec — deterministic Gherkin template + LLM assertions
 # ---------------------------------------------------------------------------
 
@@ -3133,7 +3206,16 @@ def generate_scenario(
         _call_log_entry(CallName.narrative, result1, partial_scenario_id)
     )
 
-    # --- Call 2: Attack Tree ---
+    # --- Call 2: Attack Tree (with consistency enforcement retries) ---
+    # Compute parsimony budget using the same formula as _call_attack_tree.
+    _tech_ids_for_budget = (
+        pinned_technique_ids if pinned_technique_ids else seed.atlas_technique_ids
+    )
+    _technique_count = len(_tech_ids_for_budget) if _tech_ids_for_budget else 0
+    parsimony_budget = (
+        2 * _technique_count + 2 if _technique_count > 0 else 5
+    )
+
     try:
         attack_tree, result2 = _call_attack_tree(
             seed,
@@ -3152,6 +3234,52 @@ def generate_scenario(
             )
         )
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
+
+    # --- Post-generation consistency enforcement ---
+    consistency_violations = _check_consistency(
+        attack_tree, narrative, parsimony_budget
+    )
+    consistency_retry = 0
+    while consistency_violations and consistency_retry < _CONSISTENCY_MAX_RETRIES:
+        consistency_retry += 1
+        logger.warning(
+            "Consistency violations in %s (retry %d/%d): %s",
+            partial_scenario_id,
+            consistency_retry,
+            _CONSISTENCY_MAX_RETRIES,
+            "; ".join(consistency_violations),
+        )
+        try:
+            attack_tree, result2 = _call_attack_tree(
+                seed,
+                narrative,
+                client,
+                use_case,
+                profile=profile,
+                actor_profile=actor_profile,
+                pinned_technique_ids=pinned_technique_ids,
+                pinned_technique_names=pinned_technique_names,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Consistency retry %d/%d failed for %s: %s",
+                consistency_retry,
+                _CONSISTENCY_MAX_RETRIES,
+                partial_scenario_id,
+                exc,
+            )
+            break
+        consistency_violations = _check_consistency(
+            attack_tree, narrative, parsimony_budget
+        )
+
+    if consistency_violations:
+        logger.warning(
+            "Consistency violations persist after %d retries for %s: %s",
+            consistency_retry,
+            partial_scenario_id,
+            "; ".join(consistency_violations),
+        )
 
     call_metas.append(_call_metadata(CallName.attack_tree, result2))
     results[CallName.attack_tree] = result2
