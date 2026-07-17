@@ -66,6 +66,28 @@ logger = logging.getLogger(__name__)
 
 _GENERATOR_VERSION = "0.1.0"
 
+
+def _lookup_entry_point_direction(
+    profile: CapabilityProfile,
+    entry_point_name: str | None,
+) -> str | None:
+    """Look up the direction for a named entry point in the capability profile.
+
+    Returns the direction string ('input', 'output', or 'bidirectional'),
+    or ``None`` if *entry_point_name* is ``None`` or not found in the profile.
+    """
+    if entry_point_name is None:
+        return None
+    for ep in profile.entry_points:
+        if ep.name == entry_point_name:
+            return ep.direction
+    logger.warning(
+        "Entry point '%s' not found in profile entry_points; "
+        "direction lookup returning None",
+        entry_point_name,
+    )
+    return None
+
 # ---------------------------------------------------------------------------
 # Canonical threat_id -> violation category tag mapping
 # Source of truth: call3_system.j2 lines 88-108.
@@ -2150,6 +2172,11 @@ def _call_actor_profile(
     # Compute technique count for BDI parsimony (intention budget)
     pinned_technique_count = len(pinned_technique_ids) if pinned_technique_ids else 1
 
+    # Look up entry point direction from the capability profile
+    pinned_entry_point_direction = _lookup_entry_point_direction(
+        profile, pinned_entry_point
+    )
+
     user_prompt = render_prompt(
         "call0_user.j2",
         use_case=use_case,
@@ -2160,6 +2187,7 @@ def _call_actor_profile(
         goal_section=goal_section,
         diversity_section=diversity_section,
         pinned_entry_point=pinned_entry_point,
+        pinned_entry_point_direction=pinned_entry_point_direction,
         pinned_technique_count=pinned_technique_count,
     )
 
@@ -2299,6 +2327,11 @@ def _call_narrative(
 
     owasp_llm_formatted = _format_taxonomy_ids(seed.owasp_llm_ids, _OWASP_LLM_NAMES)
 
+    # Look up entry point direction from the capability profile
+    pinned_entry_point_direction = _lookup_entry_point_direction(
+        profile, pinned_entry_point
+    )
+
     user_prompt = render_prompt(
         "call1_user.j2",
         use_case=use_case,
@@ -2311,6 +2344,8 @@ def _call_narrative(
         diversity_section=diversity_section,
         pattern_section=pattern_section,
         structural_section=structural_section,
+        pinned_entry_point=pinned_entry_point,
+        pinned_entry_point_direction=pinned_entry_point_direction,
     )
 
     result = client.complete(
