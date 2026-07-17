@@ -143,6 +143,8 @@ _CODE_EXECUTION_PATTERNS = [
         r"\b(?:exploit|malicious|obfuscated|weaponized)\s+(?:code|script)\b",
         # Language-specific or automated script references
         r"\b(?:python|automated)\s+script\b",
+        # v19 — escapee variant: "automation script(s)"
+        r"\bautomation\s+scripts?\b",
     ]
 ]
 
@@ -183,6 +185,8 @@ _CROSS_SESSION_ACCESS_PATTERNS = [
         r"\baccess\b[^.]{0,30}\bother\b[^.]{0,30}\b(?:user|customer|account)",
         # v17 — escapee variant: across multiple sessions
         r"\bacross\b[^.]{0,30}\bsessions\b",
+        # v19 — escapee variant: third-party user references
+        r"\bthird[- ]party\s+(?:user|customer|account)(?:'?s?)?\b",
     ]
 ]
 
@@ -210,6 +214,28 @@ _AUDIT_MONITORING_WRITE_PATTERNS = [
         r"\btransaction\s+(?:description|record|detail|log)\s+(?:modif|alter|chang|edit|tamper)",
         r"\b(?:modif|alter|chang|tamper)\w*\b[^.]{0,20}\btransaction\s+(?:description|record|detail|log)",
         r"\boverwrite\b[^.]{0,20}\b(?:audit|log|session\s+history)\b",
+        # v19 — escapee variant: overwrite with wider gap for transaction logs
+        r"\boverwrite\b[^.]{0,50}\btransaction\s+logs?\b",
+        r"\bpurg(?:e|ed|es|ing)\b[^.]{0,30}\b(?:sensitive\s+)?logs?\b",
+    ]
+]
+
+# Session introspection: references to the agent accessing or extracting
+# its own session tokens, API authorization headers, bearer tokens, or other
+# infrastructure credentials — phantom because agents don't have access to
+# their own authentication layer.  The platform handles auth transparently.
+_SESSION_INTROSPECTION_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bAPI\s+auth(?:orization|entication)\s+headers?\b",
+        r"\bsession\s+(?:identity\s+)?tokens?\b",
+        r"\bbearer\s+tokens?\b",
+        r"\bidentity\s+tokens?\b",
+        r"\bauth(?:entication)?\s+tokens?\b",
+        r"\bsession\s+credentials?\b",
+        r"\bsession\s+metadata\b",
+        r"\bsession[- ]specific\s+(?:metadata|identifiers?)\b",
+        r"\bauthenticat(?:ed|ion)\s+identifiers?\b",
     ]
 ]
 
@@ -340,6 +366,37 @@ def _check_cross_session_access(
         return None
 
     for pattern in _CROSS_SESSION_ACCESS_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
+def _check_session_introspection(
+    text: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return a match string if text references phantom session introspection.
+
+    Session introspection is phantom when the profile doesn't include
+    capabilities that handle raw infrastructure credentials (KC6.1.2 or
+    KC6.1.3 = extensive API access, or entry points mentioning API/HTTP).
+    Agents don't have access to their own session tokens, API
+    authorization headers, or bearer tokens — the platform handles
+    authentication transparently.
+    """
+    api_kc = any(
+        code.startswith("KC6.1.2") or code.startswith("KC6.1.3")
+        for code in profile.kc_subcodes
+    )
+    api_entry = any(
+        "api" in ep.name.lower() or "http" in ep.name.lower()
+        for ep in profile.entry_points
+    )
+    if api_kc or api_entry:
+        return None
+
+    for pattern in _SESSION_INTROSPECTION_PATTERNS:
         m = pattern.search(text)
         if m:
             return m.group(0)
@@ -518,6 +575,13 @@ _CHECKERS = [
         _check_phantom_tool_invocation,
         "Narrative references a tool, API, or endpoint not found in "
         "the profile's entry points — this capability is phantom.",
+    ),
+    (
+        "session_introspection",
+        _check_session_introspection,
+        "Profile lacks KC6.1.2/KC6.1.3 (extensive API access) and no "
+        "API/HTTP entry points — agents cannot introspect their own "
+        "session tokens, API authorization headers, or bearer tokens.",
     ),
 ]
 
