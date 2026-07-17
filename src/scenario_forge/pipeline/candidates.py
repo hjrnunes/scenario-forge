@@ -1,8 +1,8 @@
 """Candidate expansion and filtering pipeline.
 
-Cross-products scenario seeds with entry points and ATLAS techniques to
-produce CandidateTriple objects, then defines models for the LLM batch
-filter stage and downstream scenario generation.
+Cross-products scenario seeds with entry points and techniques (ATLAS or
+LAAF) to produce CandidateTriple objects, then defines models for the LLM
+batch filter stage and downstream scenario generation.
 """
 
 from __future__ import annotations
@@ -217,15 +217,20 @@ def expand_candidates(
         )
 
     for seed in eligible_seeds:
-        if not seed.atlas_technique_ids:
+        # Use ATLAS technique IDs when available; fall back to LAAF IDs
+        # for seeds that have only LAAF provenance (e.g. T7 misalignment
+        # patterns where ATLAS techniques are semantically incorrect).
+        technique_pool = seed.atlas_technique_ids or seed.laaf_technique_ids
+        if not technique_pool:
             logger.warning(
-                "Seed %s has no ATLAS technique IDs — skipping", seed.seed_id
+                "Seed %s has no technique IDs (ATLAS or LAAF) — skipping",
+                seed.seed_id,
             )
             continue
 
         for entry_point in ingress_points:
             for combo_size in range(1, max_techniques + 1):
-                for tech_combo in combinations(seed.atlas_technique_ids, combo_size):
+                for tech_combo in combinations(technique_pool, combo_size):
                     candidates.append(
                         CandidateTriple(
                             seed_id=seed.seed_id,
@@ -249,7 +254,11 @@ def expand_candidates(
 
     # Log expansion summary
     if eligible_seeds:
-        tech_counts = [len(s.atlas_technique_ids) for s in eligible_seeds if s.atlas_technique_ids]
+        tech_counts = [
+            len(s.atlas_technique_ids or s.laaf_technique_ids)
+            for s in eligible_seeds
+            if s.atlas_technique_ids or s.laaf_technique_ids
+        ]
         avg_techniques = sum(tech_counts) / len(tech_counts) if tech_counts else 0.0
         logger.info(
             "%d seeds x %d ingress entry points x avg %.1f techniques "

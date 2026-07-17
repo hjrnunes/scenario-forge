@@ -1962,11 +1962,11 @@ def _enforce_capability_floor(actor_type: str, capability_level: str) -> str:
 #
 # Allowed (negligent-insider plausible):
 #   T2  — Tool Misuse (accidental misuse)
-#   T7  — Misaligned & Deceptive Behaviors (could stem from poor oversight)
-#   T8  — Repudiation & Untraceability (poor logging practices)
 _ADVERSARIAL_ONLY_THREATS: frozenset[str] = frozenset({
     "T3",   # Privilege Compromise
     "T6",   # Intent Breaking / Goal Manipulation (prompt injection)
+    "T7",   # Misaligned & Deceptive Behaviors (emergent agent misalignment)
+    "T8",   # Repudiation & Untraceability (deliberate audit trail manipulation)
     "T9",   # Identity Spoofing
     "T10",  # Overwhelming HITL (deliberate flooding)
     "T15",  # Human Manipulation

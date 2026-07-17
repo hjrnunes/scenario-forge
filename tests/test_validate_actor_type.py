@@ -601,10 +601,10 @@ class TestAdversarialOnlyThreats:
     def test_constant_contains_expected_threats(self):
         """Verify the adversarial-only set includes the correct threat IDs."""
         assert _ADVERSARIAL_ONLY_THREATS == frozenset(
-            {"T3", "T6", "T9", "T10", "T15"}
+            {"T3", "T6", "T7", "T8", "T9", "T10", "T15"}
         )
 
-    @pytest.mark.parametrize("threat_id", ["T3", "T6", "T9", "T10", "T15"])
+    @pytest.mark.parametrize("threat_id", ["T3", "T6", "T7", "T8", "T9", "T10", "T15"])
     @patch(_PATCHES[0])
     @patch(_PATCHES[1])
     @patch(_PATCHES[2])
@@ -644,7 +644,7 @@ class TestAdversarialOnlyThreats:
             f"negligent-insider should be excluded for threat {threat_id}"
         )
 
-    @pytest.mark.parametrize("threat_id", ["T2", "T7", "T8"])
+    @pytest.mark.parametrize("threat_id", ["T2"])
     @patch(_PATCHES[0])
     @patch(_PATCHES[1])
     @patch(_PATCHES[2])
@@ -659,7 +659,7 @@ class TestAdversarialOnlyThreats:
         mock_assemble,
         threat_id,
     ):
-        """For non-adversarial threats (T2, T7, T8), negligent-insider
+        """For non-adversarial threats (T2), negligent-insider
         is NOT automatically excluded."""
         profile = _make_actor(
             actor_type="negligent-insider",
