@@ -210,7 +210,7 @@ class TestSerialization:
     def test_entry_point_to_dict(self):
         ep = EntryPoint(name="user chat", direction="input")
         d = ep.model_dump()
-        assert d == {"name": "user chat", "direction": "input"}
+        assert d == {"name": "user chat", "direction": "input", "controllability": None}
 
     def test_entry_point_from_dict(self):
         d = {"name": "backend API", "direction": "output"}
@@ -234,8 +234,8 @@ class TestSerialization:
         )
         data = profile.model_dump(mode="json")
         ep_data = data["entry_points"]
-        assert ep_data[0] == {"name": "chat input", "direction": "input"}
-        assert ep_data[1] == {"name": "api calls", "direction": "output"}
+        assert ep_data[0] == {"name": "chat input", "direction": "input", "controllability": None}
+        assert ep_data[1] == {"name": "api calls", "direction": "output", "controllability": None}
 
     def test_profile_model_dump_reload(self):
         """Round-trip: profile -> dict -> profile preserves entry points."""
@@ -415,3 +415,129 @@ class TestStage1ToCapabilityProfile:
         assert profile.entry_points[0].direction == "input"
         assert profile.entry_points[1].direction == "output"
         assert profile.entry_points[2].direction == "bidirectional"
+
+    def test_controllability_preserved_through_promotion(self):
+        stage1 = Stage1Profile(
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                {"name": "user prompts", "direction": "input", "controllability": "direct"},
+                {"name": "RAG knowledge", "direction": "input", "controllability": "indirect"},
+                {"name": "backend calls", "direction": "output", "controllability": "system"},
+                {"name": "unknown", "direction": "input"},
+            ],
+            confidence="high",
+            kc_subcodes=["KC1.1"],
+        )
+        profile = stage1.to_capability_profile()
+        assert len(profile.entry_points) == 4
+        assert profile.entry_points[0].controllability == "direct"
+        assert profile.entry_points[1].controllability == "indirect"
+        assert profile.entry_points[2].controllability == "system"
+        assert profile.entry_points[3].controllability is None
+
+
+# ---------------------------------------------------------------------------
+# EntryPoint controllability field tests
+# ---------------------------------------------------------------------------
+
+
+class TestEntryPointControllability:
+    """Tests for the controllability field on EntryPoint."""
+
+    def test_controllability_direct(self):
+        ep = EntryPoint(name="chat input", direction="input", controllability="direct")
+        assert ep.controllability == "direct"
+
+    def test_controllability_indirect(self):
+        ep = EntryPoint(name="RAG knowledge", direction="input", controllability="indirect")
+        assert ep.controllability == "indirect"
+
+    def test_controllability_system(self):
+        ep = EntryPoint(name="backend API", direction="output", controllability="system")
+        assert ep.controllability == "system"
+
+    def test_controllability_default_none(self):
+        ep = EntryPoint(name="some endpoint", direction="input")
+        assert ep.controllability is None
+
+    def test_controllability_explicit_none(self):
+        ep = EntryPoint(name="some endpoint", direction="input", controllability=None)
+        assert ep.controllability is None
+
+    def test_invalid_controllability_rejected(self):
+        with pytest.raises(Exception):
+            EntryPoint(name="test", direction="input", controllability="partial")
+
+    def test_model_dump_includes_controllability(self):
+        ep = EntryPoint(name="chat", direction="input", controllability="direct")
+        d = ep.model_dump()
+        assert d == {"name": "chat", "direction": "input", "controllability": "direct"}
+
+    def test_model_dump_controllability_none(self):
+        ep = EntryPoint(name="chat", direction="input")
+        d = ep.model_dump()
+        assert d == {"name": "chat", "direction": "input", "controllability": None}
+
+    def test_json_round_trip_with_controllability(self):
+        ep = EntryPoint(name="RAG store", direction="input", controllability="indirect")
+        json_str = ep.model_dump_json()
+        restored = EntryPoint.model_validate_json(json_str)
+        assert restored.controllability == "indirect"
+
+    def test_json_round_trip_without_controllability(self):
+        ep = EntryPoint(name="endpoint", direction="input")
+        json_str = ep.model_dump_json()
+        restored = EntryPoint.model_validate_json(json_str)
+        assert restored.controllability is None
+
+
+class TestBackwardCompatibilityControllability:
+    """Backward compatibility: old profiles without controllability still work."""
+
+    def test_coerce_dict_without_controllability(self):
+        result = _coerce_entry_points([{"name": "chat widget", "direction": "input"}])
+        assert len(result) == 1
+        assert result[0].controllability is None
+
+    def test_coerce_dict_with_controllability(self):
+        result = _coerce_entry_points(
+            [{"name": "chat widget", "direction": "input", "controllability": "direct"}]
+        )
+        assert len(result) == 1
+        assert result[0].controllability == "direct"
+
+    def test_coerce_plain_string_no_controllability(self):
+        result = _coerce_entry_points(["user prompts (input)"])
+        assert result[0].controllability is None
+
+    def test_profile_accepts_old_style_entry_points(self):
+        """Profiles from before controllability was added still load fine."""
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                {"name": "user prompts", "direction": "input"},
+                {"name": "backend", "direction": "output"},
+            ],
+            confidence="high",
+        )
+        assert all(ep.controllability is None for ep in profile.entry_points)
+
+    def test_profile_model_dump_reload_with_controllability(self):
+        """Round-trip: profile with controllability -> dict -> profile."""
+        original = _make_profile(
+            entry_points=[
+                EntryPoint(name="chat", direction="input", controllability="direct"),
+                EntryPoint(name="rag", direction="input", controllability="indirect"),
+                EntryPoint(name="backend", direction="output"),
+            ]
+        )
+        data = original.model_dump(mode="json")
+        restored = CapabilityProfile(**data)
+        assert restored.entry_points[0].controllability == "direct"
+        assert restored.entry_points[1].controllability == "indirect"
+        assert restored.entry_points[2].controllability is None

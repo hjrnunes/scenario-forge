@@ -477,8 +477,9 @@ def filter_candidates(
 # --- Entry point controllability heuristic ---
 #
 # Classifies entry point names as "direct", "indirect", or "system"
-# using keyword matching.  This is a heuristic; a proper controllability
-# field on the profile is a follow-up (bead x3zc).
+# using keyword matching.  When the capability profile provides an
+# explicit ``controllability`` value on the entry point, the heuristic
+# is bypassed.
 
 _DIRECT_KEYWORDS: tuple[str, ...] = (
     "user",
@@ -513,11 +514,19 @@ _SYSTEM_KEYWORDS: tuple[str, ...] = (
 )
 
 
-def classify_entry_point(entry_point_name: str, direction: str) -> str:
+def classify_entry_point(
+    entry_point_name: str,
+    direction: str,
+    controllability: str | None = None,
+) -> str:
     """Classify an entry point as 'direct', 'indirect', or 'system'.
 
-    Uses a keyword heuristic on the entry point name, refined by the
-    direction tag from the capability profile.
+    When *controllability* is provided (not None), it is returned directly
+    -- the capability profile already carries an explicit classification
+    and the keyword heuristic is skipped.
+
+    Otherwise, falls back to a keyword heuristic on the entry point name,
+    refined by the direction tag from the capability profile.
 
     - Bidirectional entry points are always ``"direct"`` (attacker has
       full interactive access).
@@ -528,9 +537,19 @@ def classify_entry_point(entry_point_name: str, direction: str) -> str:
       (user, chat, etc.), which win over system keywords.  If no keyword
       matches, defaults to ``"direct"`` (conservative -- let LLM decide).
 
+    Args:
+        entry_point_name: Human-readable entry point name.
+        direction: Data flow direction (``"input"``, ``"output"``, ``"bidirectional"``).
+        controllability: Explicit controllability from the capability profile.
+            When not None, returned as-is (bypasses heuristic).
+
     Returns:
         One of ``"direct"``, ``"indirect"``, ``"system"``.
     """
+    # Use explicit controllability when available.
+    if controllability is not None:
+        return controllability
+
     if direction == "output":
         return "system"
     if direction == "bidirectional":
@@ -551,13 +570,17 @@ def classify_entry_point(entry_point_name: str, direction: str) -> str:
     return "direct"
 
 
-def is_indirect_entry_point(entry_point_name: str, direction: str) -> bool:
+def is_indirect_entry_point(
+    entry_point_name: str,
+    direction: str,
+    controllability: str | None = None,
+) -> bool:
     """Return True if the entry point is an indirect channel.
 
     Convenience wrapper around :func:`classify_entry_point` for backward
     compatibility.
     """
-    return classify_entry_point(entry_point_name, direction) == "indirect"
+    return classify_entry_point(entry_point_name, direction, controllability) == "indirect"
 
 
 # Legacy constant preserved for backward compatibility in tests.
@@ -809,9 +832,12 @@ def apply_rule_based_filter(
     if not candidates:
         return [], [], []
 
-    # Build entry-point direction lookup from the profile.
+    # Build entry-point direction and controllability lookups from the profile.
     ep_direction: dict[str, str] = {
         ep.name: ep.direction for ep in profile.entry_points
+    }
+    ep_controllability: dict[str, str | None] = {
+        ep.name: ep.controllability for ep in profile.entry_points
     }
 
     rule_passed: list[CandidateTriple] = []
@@ -820,7 +846,8 @@ def apply_rule_based_filter(
 
     for candidate in candidates:
         direction = ep_direction.get(candidate.entry_point, "bidirectional")
-        ep_type = classify_entry_point(candidate.entry_point, direction)
+        ctrl = ep_controllability.get(candidate.entry_point)
+        ep_type = classify_entry_point(candidate.entry_point, direction, ctrl)
 
         # Check each technique in the combo.
         compatible_ids: list[str] = []

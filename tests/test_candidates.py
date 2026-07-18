@@ -760,6 +760,35 @@ class TestClassifyEntryPoint:
         assert classify_entry_point("user knowledge retrieval", "input") == "indirect"
 
 
+class TestClassifyEntryPointExplicitControllability:
+    """classify_entry_point() with explicit controllability parameter."""
+
+    def test_explicit_direct_bypasses_heuristic(self):
+        """Explicit controllability='direct' is returned regardless of keywords."""
+        assert classify_entry_point("RAG knowledge-grounding", "input", "direct") == "direct"
+
+    def test_explicit_indirect_bypasses_heuristic(self):
+        """Explicit controllability='indirect' is returned even for user-like name."""
+        assert classify_entry_point("user prompts via chat", "input", "indirect") == "indirect"
+
+    def test_explicit_system_bypasses_heuristic(self):
+        """Explicit controllability='system' overrides direction heuristic."""
+        assert classify_entry_point("user prompts", "bidirectional", "system") == "system"
+
+    def test_explicit_direct_overrides_output_direction(self):
+        """Explicit controllability overrides even output direction."""
+        assert classify_entry_point("some channel", "output", "direct") == "direct"
+
+    def test_none_falls_back_to_heuristic(self):
+        """controllability=None falls back to keyword heuristic."""
+        assert classify_entry_point("RAG knowledge-grounding", "input", None) == "indirect"
+        assert classify_entry_point("user prompts via chat", "input", None) == "direct"
+
+    def test_default_falls_back_to_heuristic(self):
+        """Omitting controllability (default None) falls back to keyword heuristic."""
+        assert classify_entry_point("RAG knowledge-grounding", "input") == "indirect"
+
+
 class TestIsIndirectEntryPoint:
     """is_indirect_entry_point() backward-compatible wrapper."""
 
@@ -778,6 +807,14 @@ class TestIsIndirectEntryPoint:
     def test_output_not_indirect(self):
         """Output entry points are not indirect."""
         assert is_indirect_entry_point("RAG knowledge output", "output") is False
+
+    def test_explicit_indirect_controllability(self):
+        """Explicit controllability='indirect' returns True."""
+        assert is_indirect_entry_point("user prompts", "input", "indirect") is True
+
+    def test_explicit_direct_controllability(self):
+        """Explicit controllability='direct' returns False."""
+        assert is_indirect_entry_point("RAG knowledge", "input", "direct") is False
 
 
 # ---------------------------------------------------------------------------
@@ -1246,3 +1283,79 @@ class TestApplyRuleBasedFilter:
         assert len(verdicts) == 1
         assert "Rejected:" in verdicts[0].rationale
         assert "AML.T0051.000" in verdicts[0].rationale
+
+    # -- Explicit controllability tests --
+
+    def test_explicit_indirect_controllability_rejects_direct_technique(self):
+        """Entry point with explicit controllability='indirect' rejects direct-only technique."""
+        from scenario_forge.models.capability_profile import EntryPoint
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                EntryPoint(name="some generic channel", direction="input", controllability="indirect"),
+            ],
+            confidence=ConfidenceLevel.high,
+        )
+        candidate = _make_candidate(
+            entry_point="some generic channel",
+            technique_ids=("AML.T0051.000",),
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        # Without explicit controllability, "some generic channel" would default
+        # to "direct" (no keywords match). With controllability="indirect",
+        # direct-only T0051.000 should be rejected.
+        assert len(passed) == 0
+        assert len(rejected) == 1
+
+    def test_explicit_direct_controllability_overrides_indirect_keyword(self):
+        """Entry point with indirect keyword but controllability='direct' passes direct technique."""
+        from scenario_forge.models.capability_profile import EntryPoint
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                EntryPoint(name="RAG knowledge interface", direction="input", controllability="direct"),
+            ],
+            confidence=ConfidenceLevel.high,
+        )
+        candidate = _make_candidate(
+            entry_point="RAG knowledge interface",
+            technique_ids=("AML.T0054",),
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        # Without explicit controllability, "RAG knowledge interface" would be
+        # classified as "indirect" due to keyword match, and T0054 (direct-only)
+        # would be rejected. With controllability="direct", it should pass.
+        assert len(passed) == 1
+        assert len(rejected) == 0
+
+    def test_no_controllability_falls_back_to_heuristic(self):
+        """Entry point without controllability uses keyword heuristic as before."""
+        from scenario_forge.models.capability_profile import EntryPoint
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                EntryPoint(name="RAG knowledge interface", direction="input"),
+            ],
+            confidence=ConfidenceLevel.high,
+        )
+        candidate = _make_candidate(
+            entry_point="RAG knowledge interface",
+            technique_ids=("AML.T0054",),
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        # "RAG knowledge interface" matches "knowledge" -> indirect.
+        # T0054 requires direct access -> rejected.
+        assert len(passed) == 0
+        assert len(rejected) == 1

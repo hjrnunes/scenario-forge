@@ -13,18 +13,23 @@ Use these zone identifiers when annotating entry_points:
 - has_persistent_memory: true if the system stores state across sessions or interactions.
 - multi_agent: true if multiple AI agents coordinate or communicate.
 - hitl: true if humans review, approve, or intervene in the workflow.
-- entry_points: list of entry point objects, each with a "name" and a "direction" field.
+- entry_points: list of entry point objects, each with "name", "direction", and optionally "controllability" fields.
   - name: short description of the entry point, annotated with its zone, e.g. "user prompts via chat widget (input)".
   - direction: one of "input", "output", or "bidirectional".
     - "input" — attacker can send data INTO the system through this channel (e.g. user prompts via chat widget, file uploads, API requests from external callers).
     - "output" — system sends data OUT through this channel; the attacker cannot directly control what flows through it (e.g. backend service API calls the system makes, human agent escalation triggers, notification dispatches).
     - "bidirectional" — data flows both ways and the attacker can influence the channel (e.g. interactive API endpoints, webhook integrations).
+  - controllability: one of "direct", "indirect", "system", or null. Describes how directly an attacker can influence data through this entry point.
+    - "direct" — attacker types or sends input directly to the system (e.g. chat prompts, form submissions, direct API calls from external users).
+    - "indirect" — attacker can influence a data source that feeds into the system but does not interact with it directly (e.g. poisoning RAG knowledge bases, manipulating third-party data feeds, injecting content into documents the system retrieves).
+    - "system" — fully system-controlled; not attacker-accessible as an ingress channel (e.g. internal service buses, cron jobs, backend orchestration calls).
+    - null — omit the field when controllability cannot be determined from the description; it will be inferred by a downstream heuristic.
   - Examples:
-    - {"name": "user prompts via chat widget (input)", "direction": "input"}
-    - {"name": "backend service API calls for refunds and payments (tool_execution)", "direction": "output"}
-    - {"name": "webhook integration endpoint (input)", "direction": "bidirectional"}
-    - {"name": "RAG knowledge-grounding system (memory)", "direction": "input"}
-    - {"name": "human agent escalation triggers (reasoning)", "direction": "output"}
+    - {"name": "user prompts via chat widget (input)", "direction": "input", "controllability": "direct"}
+    - {"name": "backend service API calls for refunds and payments (tool_execution)", "direction": "output", "controllability": "system"}
+    - {"name": "webhook integration endpoint (input)", "direction": "bidirectional", "controllability": "direct"}
+    - {"name": "RAG knowledge-grounding system (memory)", "direction": "input", "controllability": "indirect"}
+    - {"name": "human agent escalation triggers (reasoning)", "direction": "output", "controllability": "system"}
 - confidence: "high" if the description is detailed, "medium" if moderate, "low" if vague or minimal.
 
 ## OWASP KC Sub-Codes
