@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any
@@ -26,6 +27,11 @@ class LLMClient:
 
     DEFAULT_TEMPERATURE: float = 0.4
 
+    _OPENROUTER_DEFAULT_HEADERS: dict[str, str] = {
+        "HTTP-Referer": "https://github.com/hjrnunes/scenario-forge",
+        "X-Title": "scenario-forge",
+    }
+
     def __init__(
         self,
         base_url: str | None = None,
@@ -33,6 +39,7 @@ class LLMClient:
         model: str | None = None,
         max_completion_tokens: int | None = None,
         temperature: float | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.base_url = (
             base_url or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL") or None
@@ -53,12 +60,37 @@ class LLMClient:
         else:
             self.temperature = self.DEFAULT_TEMPERATURE
 
+        # --- extra headers resolution ---
+        self.extra_headers = self._resolve_extra_headers(extra_headers)
+
         if not self.base_url:
             raise ValueError(
                 "No LLM endpoint configured."
                 " Set SCENARIO_FORGE_MODEL_BASE_URL or pass --base-url."
             )
-        self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
+        self._client = OpenAI(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            default_headers=self.extra_headers or None,
+        )
+
+    def _resolve_extra_headers(
+        self, explicit: dict[str, str] | None
+    ) -> dict[str, str] | None:
+        """Merge explicit headers, env-var headers, and OpenRouter defaults."""
+        # 1. Start with env-var headers (if any).
+        env_raw = os.environ.get("SCENARIO_FORGE_EXTRA_HEADERS")
+        env_headers: dict[str, str] = json.loads(env_raw) if env_raw else {}
+
+        # 2. Explicit constructor arg wins over env var.
+        merged: dict[str, str] = {**env_headers, **(explicit or {})}
+
+        # 3. Auto-inject OpenRouter defaults for missing keys.
+        if self.base_url and "openrouter.ai" in self.base_url:
+            for key, default in self._OPENROUTER_DEFAULT_HEADERS.items():
+                merged.setdefault(key, default)
+
+        return merged if merged else None
 
     def complete(
         self,
