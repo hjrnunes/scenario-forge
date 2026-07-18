@@ -6,7 +6,8 @@ Covers:
 - Direction variable passed to Call 1 template (call1_user.j2)
 - INPUT direction renders correct constraint text
 - OUTPUT direction renders correct constraint text
-- None/bidirectional direction renders no constraint text
+- BIDIRECTIONAL direction renders correct constraint text
+- None direction renders no constraint text
 """
 
 from __future__ import annotations
@@ -147,8 +148,8 @@ class TestCall0DirectionRendering:
             pinned_entry_point_direction="input",
         )
         assert "Entry point direction: INPUT" in prompt
-        assert "cannot write to or upload content" in prompt.lower()
-        assert "system-provided" in prompt.lower()
+        assert "can send data into the system" in prompt.lower()
+        assert "malicious input" in prompt.lower()
 
     def test_output_direction_renders_output_constraint(self):
         prompt = self._render_call0(
@@ -158,12 +159,13 @@ class TestCall0DirectionRendering:
         assert "Entry point direction: OUTPUT" in prompt
         assert "misusing this output channel" in prompt.lower()
 
-    def test_bidirectional_direction_renders_no_direction_constraint(self):
+    def test_bidirectional_direction_renders_constraint(self):
         prompt = self._render_call0(
             pinned_entry_point="admin console",
             pinned_entry_point_direction="bidirectional",
         )
-        assert "Entry point direction:" not in prompt
+        assert "Entry point direction: BIDIRECTIONAL" in prompt
+        assert "both send data" in prompt.lower()
 
     def test_none_direction_renders_no_direction_constraint(self):
         prompt = self._render_call0(
@@ -235,16 +237,19 @@ class TestCall1DirectionRendering:
             pinned_entry_point_direction="input",
         )
         assert "Entry point direction: INPUT" in prompt
-        assert "CANNOT upload, inject, or write" in prompt
+        assert "can send data into the system" in prompt.lower()
+        assert "malicious input" in prompt.lower()
 
-    def test_input_direction_warns_against_t0052(self):
-        """INPUT direction should warn against Direct Prompt Injection on RAG."""
+    def test_input_direction_mentions_indirect_injection_for_rag(self):
+        """INPUT direction should mention indirect injection for RAG entry points."""
         prompt = self._render_call1(
             pinned_entry_point="RAG knowledge-grounding system",
             pinned_entry_point_direction="input",
         )
-        assert "AML.T0052" in prompt
-        assert "AML.T0051.001" in prompt
+        assert (
+            "indirect injection surface" in prompt.lower()
+            or "upstream data sources" in prompt.lower()
+        )
 
     def test_output_direction_renders_output_constraint(self):
         prompt = self._render_call1(
@@ -254,12 +259,13 @@ class TestCall1DirectionRendering:
         assert "Entry point direction: OUTPUT" in prompt
         assert "misusing this output channel" in prompt.lower()
 
-    def test_bidirectional_direction_renders_no_direction_constraint(self):
+    def test_bidirectional_direction_renders_constraint(self):
         prompt = self._render_call1(
             pinned_entry_point="admin console",
             pinned_entry_point_direction="bidirectional",
         )
-        assert "Entry point direction:" not in prompt
+        assert "Entry point direction: BIDIRECTIONAL" in prompt
+        assert "both send data" in prompt.lower()
 
     def test_none_direction_renders_no_direction_constraint(self):
         prompt = self._render_call1(

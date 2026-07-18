@@ -23,9 +23,11 @@ Produce a BDI actor profile for this attack pattern applied to the target system
 {% if pinned_entry_point %}
 **Entry point constraint (MANDATORY):** The actor's intentions MUST describe attacks that enter through "{{ pinned_entry_point }}". Do NOT describe attacks through other entry points.
 {% if pinned_entry_point_direction == 'input' %}
-**Entry point direction: INPUT.** This entry point provides data TO the agent (system-provided). The actor cannot write to or upload content into this channel. Describe attacks that exploit what the system provides through this channel, not attacks that inject into it. For example, if this is a RAG/knowledge system, the actor exploits poisoned upstream data sources or retrieval ranking — the actor does NOT "upload" or "inject" content directly into the knowledge base.
+**Entry point direction: INPUT.** The attacker can send data INTO the system through "{{ pinned_entry_point }}". Describe attacks where the actor sends malicious input through this channel to compromise the system. For example, if this is a user-facing prompt interface, the actor crafts adversarial prompts; if this is a file upload endpoint, the actor submits poisoned files; if this is a RAG/knowledge system, the actor exploits the indirect injection surface (e.g., poisoning upstream data sources that feed retrieval).
 {% elif pinned_entry_point_direction == 'output' %}
-**Entry point direction: OUTPUT.** This entry point is an action the agent takes. The actor's goal is to manipulate the agent into misusing this output channel.
+**Entry point direction: OUTPUT.** This channel delivers data from the system to external consumers — the attacker cannot inject data through it directly. The actor's goal is to manipulate the agent into misusing this output channel.
+{% elif pinned_entry_point_direction == 'bidirectional' %}
+**Entry point direction: BIDIRECTIONAL.** The attacker can both send data into the system and observe data coming out through "{{ pinned_entry_point }}". Describe attacks that exploit either or both directions of this channel.
 {% endif %}
 {% endif %}
 **Intention budget:** List exactly {{ pinned_technique_count }} intention(s). Each intention must directly instantiate one pinned technique as a concrete action.

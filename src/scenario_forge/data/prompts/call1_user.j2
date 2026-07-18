@@ -26,9 +26,10 @@ Ground the narrative in these taxonomy categories. The attack pattern above is a
 ## Your Task
 Write a concrete attack narrative for this attack pattern applied to the target system above.
 {% if pinned_entry_point and pinned_entry_point_direction == 'input' %}
-**Entry point direction: INPUT.** The attack enters through "{{ pinned_entry_point }}" (direction: INPUT). This is a system-provided data channel. The attacker CANNOT upload, inject, or write content into this channel. Instead, describe how the attacker exploits data the system already provides through this channel (e.g., poisoning upstream data sources, exploiting retrieval ranking, manipulating what gets retrieved).
-If this entry point is a RAG/knowledge system, do NOT use AML.T0052 (Direct Prompt Injection). RAG is an indirect injection surface — use AML.T0051.001 (Indirect Prompt Injection) or other applicable techniques.
+**Entry point direction: INPUT.** The attack enters through "{{ pinned_entry_point }}" (direction: INPUT). The attacker can send data INTO the system through this channel. Describe how the attacker crafts malicious input to compromise the system via this channel. For example, if this is a user-facing prompt interface, the attacker crafts adversarial prompts; if this is a RAG/knowledge system or other indirect injection surface, the attacker poisons upstream data sources that feed retrieval.
 {% elif pinned_entry_point and pinned_entry_point_direction == 'output' %}
-**Entry point direction: OUTPUT.** The attack targets "{{ pinned_entry_point }}" (direction: OUTPUT). This entry point is an action the agent takes. Describe how the attacker manipulates the agent into misusing this output channel.
+**Entry point direction: OUTPUT.** The attack targets "{{ pinned_entry_point }}" (direction: OUTPUT). This channel delivers data from the system to external consumers — the attacker cannot inject data through it directly. Describe how the attacker manipulates the agent into misusing this output channel.
+{% elif pinned_entry_point and pinned_entry_point_direction == 'bidirectional' %}
+**Entry point direction: BIDIRECTIONAL.** The attack involves "{{ pinned_entry_point }}" (direction: BIDIRECTIONAL). The attacker can both send data into the system and observe data coming out through this channel. Describe how the attacker exploits either or both directions of this channel.
 {% endif %}
 {{ technique_context }}{{ technique_framing }}{{ actor_section }}{{ diversity_section }}{{ pattern_section }}{{ structural_section }}
