@@ -1311,6 +1311,66 @@ def _build_technique_context_block(technique_ids: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _build_ontology_context(
+    entry_point_name: str,
+    entry_point_direction: str | None,
+    zones: list[str],
+    technique_ids: list[str],
+) -> str:
+    """Build a focused ontology context block for LLM prompts.
+
+    Provides the LLM with only the specific entry point, zones, and
+    techniques assigned to THIS scenario seed -- not the full profile.
+    This reduces prompt noise and anchors generation to the pinned
+    taxonomy elements, mitigating orphan technique hallucination.
+
+    Returns an empty string when *entry_point_name* is empty and no
+    technique IDs are provided.
+    """
+    lines: list[str] = []
+    lines.append("## Ontology Context")
+    lines.append(
+        "The following taxonomy elements are pinned for THIS scenario. "
+        "Use ONLY these elements -- do not introduce others."
+    )
+
+    # -- Entry point section --
+    lines.append("")
+    lines.append("### Pinned Entry Point")
+    direction_label = f" (direction: {entry_point_direction})" if entry_point_direction else ""
+    lines.append(f"- {entry_point_name}{direction_label}")
+
+    # -- Active zones section --
+    if zones:
+        lines.append("")
+        lines.append("### Active Zones")
+        lines.append(
+            "The target system has these architectural zones. "
+            "Attack steps MUST only reference these zones."
+        )
+        for zone in zones:
+            lines.append(f"- {zone}")
+
+    # -- Pinned techniques section --
+    if technique_ids:
+        lines.append("")
+        lines.append("### Pinned Techniques")
+        lines.append(
+            "Use ONLY these ATLAS techniques. Do NOT reference, invent, "
+            "or introduce any technique IDs not listed here."
+        )
+        for tid in technique_ids:
+            name = _ATLAS_TECHNIQUE_NAMES.get(tid, tid)
+            desc = _ATLAS_TECHNIQUE_DESCRIPTIONS.get(tid, "")
+            entry = f"- **{tid}** -- {name}"
+            if desc:
+                entry += f": {desc}"
+            lines.append(entry)
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Intermediate models for structured output (flattened for LLM reliability)
 # ---------------------------------------------------------------------------
@@ -2216,6 +2276,14 @@ def _call_actor_profile(
     # Build KC/KCX definition block for the prompt
     kc_definitions = build_kc_definitions_block(profile.kc_subcodes)
 
+    # Build focused ontology context block for this seed
+    ontology_context = _build_ontology_context(
+        entry_point_name=pinned_entry_point or "",
+        entry_point_direction=pinned_entry_point_direction,
+        zones=profile.zones_active,
+        technique_ids=list(tech_ids_for_context) if tech_ids_for_context else [],
+    )
+
     user_prompt = render_prompt(
         "call0_user.j2",
         use_case=use_case,
@@ -2229,6 +2297,7 @@ def _call_actor_profile(
         pinned_entry_point_direction=pinned_entry_point_direction,
         pinned_technique_count=pinned_technique_count,
         kc_definitions=kc_definitions,
+        ontology_context=ontology_context,
     )
 
     result = client.complete(
@@ -2375,6 +2444,14 @@ def _call_narrative(
     # Build KC/KCX definition block for the prompt
     kc_definitions = build_kc_definitions_block(profile.kc_subcodes)
 
+    # Build focused ontology context block for this seed
+    ontology_context = _build_ontology_context(
+        entry_point_name=pinned_entry_point or "",
+        entry_point_direction=pinned_entry_point_direction,
+        zones=profile.zones_active,
+        technique_ids=list(tech_ids_for_narrative) if tech_ids_for_narrative else [],
+    )
+
     user_prompt = render_prompt(
         "call1_user.j2",
         use_case=use_case,
@@ -2390,6 +2467,7 @@ def _call_narrative(
         pinned_entry_point=pinned_entry_point,
         pinned_entry_point_direction=pinned_entry_point_direction,
         kc_definitions=kc_definitions,
+        ontology_context=ontology_context,
     )
 
     result = client.complete(
@@ -2607,6 +2685,18 @@ def _call_attack_tree(
         )
     skeleton_section = _format_skeleton_yaml(skeleton)
 
+    # Build focused ontology context block for this seed
+    # Use narrative.entry_point for the entry point (it was pinned upstream)
+    _tree_ep_direction = _lookup_entry_point_direction(
+        profile, narrative.entry_point
+    ) if profile else None
+    ontology_context = _build_ontology_context(
+        entry_point_name=narrative.entry_point or "",
+        entry_point_direction=_tree_ep_direction,
+        zones=profile.zones_active if profile else [],
+        technique_ids=list(tech_ids_for_tree) if tech_ids_for_tree else [],
+    )
+
     user_prompt = render_prompt(
         "call2_user.j2",
         seed=seed,
@@ -2619,6 +2709,7 @@ def _call_attack_tree(
         technique_count=technique_count,
         leaf_budget=leaf_budget,
         skeleton_section=skeleton_section,
+        ontology_context=ontology_context,
     )
 
     call2_system = render_prompt("call2_system.j2")

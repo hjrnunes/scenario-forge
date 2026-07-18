@@ -4,6 +4,7 @@ The attack tree must formalize the narrative below, which is a concrete instance
 - How it works: {{ seed.attack_pattern_description }}
 - Threat category: {{ seed.threat_name }} — {{ seed.threat_description }}
 - Use case: {{ use_case }}
+{{ ontology_context | default('') }}
 {{ arch_section }}{{ actor_section }}
 {{ technique_context }}{{ technique_constraint }}{{ skeleton_section | default('') }}
 ## Leaf Budget (MANDATORY)
