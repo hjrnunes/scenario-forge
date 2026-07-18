@@ -103,6 +103,7 @@ def _compute_gap_attributions(
     candidates: list[CandidateTriple],
     filtered_seeds: list[FilteredSeed],
     scenarios: list[ScenarioEnvelope],
+    phantom_seed_ids: set[str] | None = None,
 ) -> GapAttributions:
     """Attribute each coverage gap to the pipeline funnel stage where it fell out.
 
@@ -112,10 +113,20 @@ def _compute_gap_attributions(
       1. ``"no_seed"`` -- no seed was generated for this item
       2. ``"no_candidate"`` -- seed existed but candidate expansion produced nothing
       3. ``"rejected"`` -- candidate existed but the LLM filter rejected it
-      4. ``"generation_failed"`` -- filtered seed existed but scenario generation failed
-      5. ``"out_of_scope"`` -- threat gated out before seed expansion
+      4. ``"phantom_flagged"`` -- scenario was generated but dropped by phantom
+         capability validation
+      5. ``"generation_failed"`` -- filtered seed existed but scenario generation failed
+      6. ``"out_of_scope"`` -- threat gated out before seed expansion
+
+    Args:
+        phantom_seed_ids: Scenario seed IDs (attack pattern IDs) of scenarios
+            that were generated successfully but removed by phantom capability
+            validation. When provided, the function can distinguish actual
+            generation failures from validation drops.
     """
     # Pre-compute lookup sets for each funnel stage.
+    _phantom_seed_ids = phantom_seed_ids or set()
+
     seed_threat_ids: set[str] = {s.threat_id for s in seeds}
     candidate_threat_ids: set[str] = {c.threat_id for c in candidates}
     filtered_threat_ids: set[str] = {f.threat_id for f in filtered_seeds}
@@ -137,6 +148,20 @@ def _compute_gap_attributions(
         _normalize_entry_point(f.pinned_entry_point) for f in filtered_seeds
     }
 
+    # Phantom-flagged lookup: build threat/AP/EP sets from the seed IDs of
+    # scenarios that were generated but removed by phantom validation.
+    # A filtered seed whose seed_id is in _phantom_seed_ids produced at least
+    # one scenario that was later dropped.
+    phantom_threat_ids: set[str] = set()
+    phantom_ap_ids: set[str] = _phantom_seed_ids
+    phantom_entry_points_norm: set[str] = set()
+    for fs in filtered_seeds:
+        if fs.seed_id in _phantom_seed_ids:
+            phantom_threat_ids.add(fs.threat_id)
+            phantom_entry_points_norm.add(
+                _normalize_entry_point(fs.pinned_entry_point)
+            )
+
     # Zone lookup sets (zones only exist in generated scenarios).
     scenario_zones: set[str] = set()
     for env in scenarios:
@@ -151,6 +176,8 @@ def _compute_gap_attributions(
             threat_attrs[tid] = "no_candidate"
         elif tid not in filtered_threat_ids:
             threat_attrs[tid] = "rejected"
+        elif tid in phantom_threat_ids:
+            threat_attrs[tid] = "phantom_flagged"
         else:
             # Filtered seed existed but no scenario was produced
             threat_attrs[tid] = "generation_failed"
@@ -164,6 +191,8 @@ def _compute_gap_attributions(
             ap_attrs[ap_id] = "no_candidate"
         elif ap_id not in filtered_ap_ids:
             ap_attrs[ap_id] = "rejected"
+        elif ap_id in phantom_ap_ids:
+            ap_attrs[ap_id] = "phantom_flagged"
         else:
             # Filtered seed existed but no scenario was produced
             ap_attrs[ap_id] = "generation_failed"
@@ -179,6 +208,8 @@ def _compute_gap_attributions(
             ep_attrs[ep] = "no_candidate"
         elif ep_norm not in filtered_entry_points_norm:
             ep_attrs[ep] = "rejected"
+        elif ep_norm in phantom_entry_points_norm:
+            ep_attrs[ep] = "phantom_flagged"
         else:
             ep_attrs[ep] = "generation_failed"
 
@@ -777,7 +808,12 @@ def run_pipeline(
             validation_result.flagged_count,
         )
         scenarios = validation_result.valid_scenarios
-    else:
+    # Collect seed IDs of phantom-flagged scenarios for coverage attribution.
+    phantom_seed_ids: set[str] = {
+        env.faceting.taxonomy_chain.scenario_seed
+        for env, _violations in validation_result.flagged_scenarios
+    }
+    if not validation_result.flagged_count:
         logger.info("  All %d scenarios passed validation", len(scenarios))
 
     # --- Leaf Technique Provenance Pass ---
@@ -837,6 +873,7 @@ def run_pipeline(
             candidates,
             filtered_seeds,
             scenarios,
+            phantom_seed_ids=phantom_seed_ids,
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
