@@ -37,6 +37,39 @@ ATLAS_TECHNIQUE_NAMES: dict[str, str] = {
     "AML.T0067": "Output Manipulation",
     "AML.T0070": "RAG Poisoning",
     "AML.T0071": "Embedding Manipulation",
+    # -----------------------------------------------------------------
+    # LAAF (LLM Agent Assessment Framework) technique names
+    # Source: https://github.com/qorvexconsulting1/laaf-V2.0
+    # -----------------------------------------------------------------
+    # Structural techniques — payload hiding in document/data formats
+    "S1": "JSON Value Payload Embedding",
+    "S2": "YAML Front Matter Injection",
+    "S3": "Markdown Comment Injection",
+    "S4": "HTML Meta Tag Injection",
+    "S6": "Split Payload Reassembly",
+    "S8": "PDF Metadata Injection",
+    # Semantic techniques — contextual reframing of malicious content
+    "M1": "Formatting Request Disguise",
+    "M2": "Compliance Obligation Framing",
+    "M3": "System Initialization Impersonation",
+    "M4": "Tool Schema Injection",
+    "M5": "Authority Level Spoofing",
+    "M7": "Gradual Trust Escalation",
+    "M8": "Document Configuration Injection",
+    # Layered techniques — chained encoding/structural/semantic methods
+    "L1": "Multi-Layer Encoding Chain",
+    "L2": "Unicode-HTML Encoded Injection",
+    "L3": "Nested Encoding with Authority Framing",
+    "L4": "Hex-Split Payload Injection",
+    "L5": "URL-Encoded Code Block Injection",
+    # Trigger techniques — conditional activation mechanisms
+    "T1": "Keyword-Triggered Activation",
+    "T2": "Compound AND-Condition Trigger",
+    "T3": "Compound OR-Condition Trigger",
+    "T5": "Turn-Count Delayed Activation",
+    "T8": "Tool Event Triggered Activation",
+    # Exfiltration techniques
+    "EX1": "Markdown Link Data Exfiltration",
 }
 
 # ---------------------------------------------------------------------------
@@ -155,6 +188,135 @@ ATLAS_TECHNIQUE_DESCRIPTIONS: dict[str, str] = {
         "search results, steering retrieval towards "
         "attacker-controlled content"
     ),
+    # -----------------------------------------------------------------
+    # LAAF (LLM Agent Assessment Framework) technique descriptions
+    # Source: https://github.com/qorvexconsulting1/laaf-V2.0
+    # -----------------------------------------------------------------
+    # Structural techniques
+    "S1": (
+        "Embeds the attack payload as a value within a JSON object, "
+        "exploiting the model's tendency to process structured data "
+        "fields as trusted input"
+    ),
+    "S2": (
+        "Hides malicious instructions inside YAML front matter blocks "
+        "commonly used in Markdown documents, where the model may "
+        "interpret metadata as operational directives"
+    ),
+    "S3": (
+        "Conceals payloads within Markdown comment syntax that is "
+        "invisible in rendered output but may still be processed "
+        "by the model during context interpretation"
+    ),
+    "S4": (
+        "Inserts malicious instructions into HTML meta tag attributes, "
+        "exploiting document metadata processing to inject directives "
+        "outside the visible content flow"
+    ),
+    "S6": (
+        "Fragments the malicious instruction across multiple separated "
+        "segments that are individually benign, relying on the model "
+        "to reassemble and execute the complete payload"
+    ),
+    "S8": (
+        "Embeds attack instructions within PDF metadata fields such as "
+        "author, title, or custom properties, exploiting document "
+        "processing pipelines that extract and surface metadata"
+    ),
+    # Semantic techniques
+    "M1": (
+        "Disguises injected instructions as benign formatting or "
+        "display requirements, causing the model to execute "
+        "directives it interprets as presentation-layer requests"
+    ),
+    "M2": (
+        "Frames malicious payloads as data protection compliance "
+        "obligations the model must follow, exploiting alignment "
+        "towards regulatory and privacy requirements"
+    ),
+    "M3": (
+        "Presents attack content as system initialization or startup "
+        "configuration commands, exploiting the model's tendency to "
+        "treat system-context instructions as authoritative"
+    ),
+    "M4": (
+        "Embeds malicious instructions within what appears to be "
+        "tool or function schema definitions, exploiting the trust "
+        "boundary between tool metadata and executable directives"
+    ),
+    "M5": (
+        "Impersonates operator-level or administrative authority to "
+        "elevate instruction trust, causing the model to treat "
+        "attacker directives as privileged system commands"
+    ),
+    "M7": (
+        "Incrementally establishes credibility through a series of "
+        "benign-seeming interactions before injecting the malicious "
+        "payload, exploiting accumulated conversational trust"
+    ),
+    "M8": (
+        "Frames malicious content as document configuration or "
+        "metadata settings, exploiting the model's processing of "
+        "document-level directives as operational instructions"
+    ),
+    # Layered techniques
+    "L1": (
+        "Chains ROT13 cipher with Base64 encoding wrapped in a JSON "
+        "structure and semantic reframing layer, using multi-layer "
+        "obfuscation to bypass content filters"
+    ),
+    "L2": (
+        "Combines Unicode escape sequences with HTML entity encoding "
+        "and compliance-themed semantic framing to hide payloads "
+        "behind multiple encoding and contextual layers"
+    ),
+    "L3": (
+        "Nests Base64 encoding within YAML front matter paired with "
+        "authority-spoofing semantic context, combining structural "
+        "concealment with social engineering framing"
+    ),
+    "L4": (
+        "Uses hexadecimal encoding with split-payload structural "
+        "delivery and formatting-request semantic cover, distributing "
+        "the attack across encoding and presentation layers"
+    ),
+    "L5": (
+        "Applies URL encoding inside code block structural wrappers "
+        "with ISO audit semantic framing, leveraging trusted document "
+        "conventions to conceal encoded payloads"
+    ),
+    # Trigger techniques
+    "T1": (
+        "Activates a dormant payload when a specific keyword appears "
+        "in conversation, enabling time-delayed or context-conditional "
+        "attack execution"
+    ),
+    "T2": (
+        "Fires the payload only when multiple conditions are "
+        "simultaneously satisfied, requiring compound state to "
+        "activate and evading single-condition detection"
+    ),
+    "T3": (
+        "Triggers payload execution when any one of several specified "
+        "conditions occurs, broadening the activation surface while "
+        "maintaining conditional dormancy"
+    ),
+    "T5": (
+        "Fires the payload after a specific number of conversational "
+        "turns have elapsed, exploiting temporal distance from the "
+        "initial injection to evade detection"
+    ),
+    "T8": (
+        "Activates when a specific tool invocation or function call "
+        "occurs, tying payload execution to the agent's tool-use "
+        "workflow to exploit action-phase trust"
+    ),
+    # Exfiltration techniques
+    "EX1": (
+        "Causes the model to render Markdown links pointing to "
+        "attacker-controlled URLs, embedding sensitive context data "
+        "in URL parameters for exfiltration via HTTP requests"
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -182,4 +344,39 @@ TECHNIQUE_ZONE_CONSTRAINTS: dict[str, frozenset[str]] = {
     "AML.T0070": frozenset({"input"}),
     "AML.T0071": frozenset({"input"}),
     "AML.T0073": frozenset({"input", "reasoning"}),
+    # -----------------------------------------------------------------
+    # LAAF (LLM Agent Assessment Framework) zone constraints
+    # Source: https://github.com/qorvexconsulting1/laaf-V2.0
+    # -----------------------------------------------------------------
+    # Structural techniques — payload arrives via input channels
+    "S1": frozenset({"input"}),
+    "S2": frozenset({"input"}),
+    "S3": frozenset({"input"}),
+    "S4": frozenset({"input"}),
+    "S6": frozenset({"input", "memory", "inter_agent"}),
+    "S8": frozenset({"input"}),
+    # Semantic techniques — reframing affects input interpretation
+    # and reasoning; some cross trust boundaries
+    "M1": frozenset({"input", "reasoning"}),
+    "M2": frozenset({"input", "reasoning"}),
+    "M3": frozenset({"input", "reasoning"}),
+    "M4": frozenset({"input", "tool_execution"}),
+    "M5": frozenset({"input", "reasoning", "inter_agent"}),
+    "M7": frozenset({"input", "reasoning"}),
+    "M8": frozenset({"input"}),
+    # Layered techniques — encoded payloads arrive via input
+    "L1": frozenset({"input"}),
+    "L2": frozenset({"input"}),
+    "L3": frozenset({"input"}),
+    "L4": frozenset({"input"}),
+    "L5": frozenset({"input"}),
+    # Trigger techniques — conditional activation in reasoning
+    # or execution phases
+    "T1": frozenset({"input", "reasoning"}),
+    "T2": frozenset({"input", "reasoning"}),
+    "T3": frozenset({"input", "reasoning"}),
+    "T5": frozenset({"reasoning"}),
+    "T8": frozenset({"tool_execution"}),
+    # Exfiltration — data leakage via model output and tool actions
+    "EX1": frozenset({"reasoning", "tool_execution"}),
 }
