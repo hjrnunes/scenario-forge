@@ -23,11 +23,13 @@ from scenario_forge.data.threat_gating import (
 )
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
+    KC_SUBCODE_NAMES,
     KCX_PREFIX,
     KCX_SUBCODES,
     Stage1Profile,
     VALID_KC_SUBCODES,
 )
+from scenario_forge.pipeline.generate import build_kc_definitions_block
 
 
 # ---------------------------------------------------------------------------
@@ -344,3 +346,87 @@ class TestKCXConstants:
     def test_kcx_subcodes_count(self):
         """All 9 KCX sub-codes are defined."""
         assert len(KCX_SUBCODES) == 9
+
+
+# ---------------------------------------------------------------------------
+# KC_SUBCODE_NAMES constants
+# ---------------------------------------------------------------------------
+
+
+class TestKCSubcodeNames:
+    """Verify KC_SUBCODE_NAMES covers all standard KC sub-codes."""
+
+    def test_all_valid_kc_subcodes_have_names(self):
+        """Every standard KC sub-code in VALID_KC_SUBCODES must have a name."""
+        missing = VALID_KC_SUBCODES - set(KC_SUBCODE_NAMES.keys())
+        assert not missing, f"KC sub-codes missing from KC_SUBCODE_NAMES: {missing}"
+
+    def test_no_extra_keys_beyond_valid(self):
+        """KC_SUBCODE_NAMES should only contain valid KC sub-codes."""
+        extra = set(KC_SUBCODE_NAMES.keys()) - VALID_KC_SUBCODES
+        assert not extra, f"Extra keys in KC_SUBCODE_NAMES: {extra}"
+
+    def test_names_are_nonempty_strings(self):
+        for code, name in KC_SUBCODE_NAMES.items():
+            assert isinstance(name, str) and len(name) > 0, (
+                f"{code} has empty or non-string name"
+            )
+
+
+# ---------------------------------------------------------------------------
+# build_kc_definitions_block
+# ---------------------------------------------------------------------------
+
+
+class TestBuildKcDefinitionsBlock:
+    """Tests for the KC/KCX definition block builder."""
+
+    def test_empty_list_returns_empty_string(self):
+        assert build_kc_definitions_block([]) == ""
+
+    def test_single_kc_code(self):
+        result = build_kc_definitions_block(["KC1.1"])
+        assert "KC1.1" in result
+        assert "Large Language Model" in result
+
+    def test_single_kcx_code(self):
+        result = build_kc_definitions_block(["KCX-PMEM"])
+        assert "KCX-PMEM" in result
+        assert "persistent memory" in result.lower()
+
+    def test_mixed_kc_and_kcx(self):
+        result = build_kc_definitions_block(["KC1.1", "KC3.2", "KCX-PMEM"])
+        assert "KC1.1" in result
+        assert "KC3.2" in result
+        assert "KCX-PMEM" in result
+        # Each line should start with "- "
+        for line in result.strip().split("\n"):
+            assert line.startswith("- ")
+
+    def test_unknown_code_included_raw(self):
+        """Unknown codes (e.g. future KCX) appear without a definition."""
+        result = build_kc_definitions_block(["KC1.1", "KCX-FUTURE"])
+        assert "- KCX-FUTURE" in result
+        # KC1.1 should still have its definition
+        assert "Large Language Model" in result
+
+    def test_all_standard_codes_produce_definitions(self):
+        """Every standard KC sub-code should produce a line with a definition."""
+        codes = sorted(VALID_KC_SUBCODES)
+        result = build_kc_definitions_block(codes)
+        for code in codes:
+            assert code in result
+
+    def test_all_kcx_codes_produce_definitions(self):
+        """Every KCX sub-code should produce a line with a definition."""
+        codes = sorted(KCX_SUBCODES.keys())
+        result = build_kc_definitions_block(codes)
+        for code in codes:
+            assert code in result
+
+    def test_output_format_is_dash_prefixed_lines(self):
+        result = build_kc_definitions_block(["KC1.1", "KC6.4"])
+        lines = result.strip().split("\n")
+        assert len(lines) == 2
+        for line in lines:
+            assert line.startswith("- KC")
