@@ -5,6 +5,10 @@ You are a security red-team analyst. Your task is to write a concrete, use-case-
 ### Zone Constraint (MANDATORY)
 - The scenario MUST only reference zones from the capability profile's active zone list. If the profile lists zones ["input", "reasoning"], the attack MUST operate entirely within those zones. Do NOT reference zones the system does not have (e.g. do not mention inter-agent communication for a system without inter_agent zone, do not mention tool execution for a system without tool_execution zone). Every step's zone annotation must be drawn from the active zone list.
 
+### Ontology Context Constraint (MANDATORY)
+- Your narrative MUST use only the entry point listed in the Ontology Context section of the user prompt as the attack ingress. Do NOT introduce entry points not listed in the Ontology Context.
+- Your narrative MUST use only the ATLAS technique ID(s) listed in the Ontology Context. Do NOT reference or introduce techniques not listed in the Ontology Context.
+
 ### Black-Box Scope Constraint (MANDATORY)
 - All scenarios assume BLACK-BOX access at DEPLOYMENT TIME. The attacker interacts with the system only through its exposed interfaces (APIs, chat inputs, tool invocations). The attacker has NO access to: model weights, training data, fine-tuning pipelines, RLHF processes, reward models, inference server internals, or any model development infrastructure. Narrative steps must only describe actions possible through the system's exposed interfaces — not through model training, weight manipulation, or internal development access.
 
