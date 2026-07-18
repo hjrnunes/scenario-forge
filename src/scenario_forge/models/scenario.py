@@ -17,7 +17,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.capability_profile import ConfidenceLevel
@@ -339,6 +339,70 @@ class GenerationMetadata(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Validation sub-models (rwv2)
+# ---------------------------------------------------------------------------
+
+
+class PhantomViolationRecord(BaseModel):
+    """A single phantom capability violation persisted on the envelope."""
+
+    step_number: int = Field(description="Narrative step number (0 for behavior_spec).")
+    field: str = Field(description="Which field triggered the match (action/effect/behavior_spec).")
+    category: str = Field(description="Violation category (e.g. privilege_escalation).")
+    matched_text: str = Field(description="Substring that triggered the match.")
+    reason: str = Field(description="Why this is phantom given the profile.")
+
+
+class PhantomValidation(BaseModel):
+    """Phantom capability validation results."""
+
+    valid: bool = Field(default=True, description="True if no phantom capabilities detected.")
+    violations: list[PhantomViolationRecord] = Field(
+        default_factory=list,
+        description="List of phantom capability violations found.",
+    )
+
+
+class StructuralValidation(BaseModel):
+    """Structural (JSON Schema) validation results."""
+
+    valid: bool = Field(default=True, description="True if the envelope passes JSON Schema validation.")
+    violations: list[str] = Field(
+        default_factory=list,
+        description="List of JSON Schema validation error messages.",
+    )
+
+
+class SemanticViolation(BaseModel):
+    """A single semantic validation violation."""
+
+    rule: str = Field(description="Rule identifier (e.g. technique_exists, zone_in_profile).")
+    message: str = Field(description="Human-readable description of the violation.")
+    severity: Literal["major", "minor"] = Field(
+        default="major",
+        description="Severity of the violation.",
+    )
+
+
+class SemanticValidation(BaseModel):
+    """Semantic (Python logic) validation results."""
+
+    valid: bool = Field(default=True, description="True if no semantic violations detected.")
+    violations: list[SemanticViolation] = Field(
+        default_factory=list,
+        description="List of semantic validation violations found.",
+    )
+
+
+class ValidationBlock(BaseModel):
+    """Unified validation block aggregating all validation passes."""
+
+    phantom: PhantomValidation = Field(default_factory=PhantomValidation)
+    structural: StructuralValidation = Field(default_factory=StructuralValidation)
+    semantic: SemanticValidation = Field(default_factory=SemanticValidation)
+
+
+# ---------------------------------------------------------------------------
 # Top-level model
 # ---------------------------------------------------------------------------
 
@@ -434,8 +498,30 @@ class ScenarioEnvelope(BaseModel):
         ),
     )
 
+    # --- Validation ---
+
+    validation: Optional[ValidationBlock] = Field(
+        default=None,
+        description="Unified validation results (phantom, structural, semantic).",
+    )
+    validation_passed: Optional[bool] = Field(
+        default=None,
+        description="True only if all three validation sub-blocks are valid. None if validation has not run.",
+    )
+
     # --- Generation Metadata ---
 
     generation: GenerationMetadata = Field(
         description="Metadata about the generation process.",
     )
+
+    @model_validator(mode="after")
+    def _sync_validation_passed(self) -> ScenarioEnvelope:
+        """Keep validation_passed in sync with the validation block."""
+        if self.validation is not None and self.validation_passed is None:
+            self.validation_passed = (
+                self.validation.phantom.valid
+                and self.validation.structural.valid
+                and self.validation.semantic.valid
+            )
+        return self
