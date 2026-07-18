@@ -55,6 +55,8 @@ from scenario_forge.pipeline.profile import infer_capability_profile
 from scenario_forge.pipeline.validation import (
     check_leaf_technique_provenance,
     validate_phantom_capabilities,
+    validate_scenario_semantics,
+    validate_scenario_structure,
 )
 from scenario_forge.prompts import hash_prompt_templates
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
@@ -113,19 +115,32 @@ def _compute_gap_attributions(
       1. ``"no_seed"`` -- no seed was generated for this item
       2. ``"no_candidate"`` -- seed existed but candidate expansion produced nothing
       3. ``"rejected"`` -- candidate existed but the LLM filter rejected it
-      4. ``"phantom_flagged"`` -- scenario was generated but dropped by phantom
-         capability validation
+      4. ``"phantom_flagged"`` -- scenario was generated but marked invalid by
+         phantom capability validation (scenarios still present in output)
       5. ``"generation_failed"`` -- filtered seed existed but scenario generation failed
       6. ``"out_of_scope"`` -- threat gated out before seed expansion
 
     Args:
         phantom_seed_ids: Scenario seed IDs (attack pattern IDs) of scenarios
-            that were generated successfully but removed by phantom capability
-            validation. When provided, the function can distinguish actual
-            generation failures from validation drops.
+            that were generated but flagged by phantom capability validation.
+            When provided, the function can distinguish actual generation
+            failures from phantom validation flags. This can be derived from
+            scenarios with ``validation.phantom.valid == False``, or passed
+            explicitly for backward compatibility.
     """
-    # Pre-compute lookup sets for each funnel stage.
-    _phantom_seed_ids = phantom_seed_ids or set()
+    # Derive phantom_seed_ids from scenario validation blocks if not provided.
+    if phantom_seed_ids is None:
+        _phantom_seed_ids: set[str] = set()
+        for env in scenarios:
+            if (
+                env.validation is not None
+                and not env.validation.phantom.valid
+            ):
+                _phantom_seed_ids.add(
+                    env.faceting.taxonomy_chain.scenario_seed
+                )
+    else:
+        _phantom_seed_ids = phantom_seed_ids
 
     seed_threat_ids: set[str] = {s.threat_id for s in seeds}
     candidate_threat_ids: set[str] = {c.threat_id for c in candidates}
@@ -149,9 +164,7 @@ def _compute_gap_attributions(
     }
 
     # Phantom-flagged lookup: build threat/AP/EP sets from the seed IDs of
-    # scenarios that were generated but removed by phantom validation.
-    # A filtered seed whose seed_id is in _phantom_seed_ids produced at least
-    # one scenario that was later dropped.
+    # scenarios that were flagged by phantom validation.
     phantom_threat_ids: set[str] = set()
     phantom_ap_ids: set[str] = _phantom_seed_ids
     phantom_entry_points_norm: set[str] = set()
@@ -802,19 +815,46 @@ def run_pipeline(
                     v.matched_text,
                 )
         logger.info(
-            "  %d/%d scenarios passed validation, %d flagged and dropped",
+            "  %d/%d scenarios passed phantom validation, %d flagged (warn+mark)",
             validation_result.valid_count,
             len(scenarios),
             validation_result.flagged_count,
         )
-        scenarios = validation_result.valid_scenarios
-    # Collect seed IDs of phantom-flagged scenarios for coverage attribution.
-    phantom_seed_ids: set[str] = {
-        env.faceting.taxonomy_chain.scenario_seed
-        for env, _violations in validation_result.flagged_scenarios
-    }
-    if not validation_result.flagged_count:
-        logger.info("  All %d scenarios passed validation", len(scenarios))
+    else:
+        logger.info("  All %d scenarios passed phantom validation", len(scenarios))
+    # Note: scenarios are NOT dropped. They carry validation.phantom results.
+
+    # --- Structural Validation Pass ---
+    logger.info("[Validation] Running structural (JSON Schema) validation...")
+    validate_scenario_structure(scenarios)
+    structural_fail_count = sum(
+        1 for s in scenarios
+        if s.validation is not None and not s.validation.structural.valid
+    )
+    if structural_fail_count:
+        logger.warning(
+            "  %d/%d scenarios have structural validation issues (warn+mark)",
+            structural_fail_count,
+            len(scenarios),
+        )
+    else:
+        logger.info("  All %d scenarios passed structural validation", len(scenarios))
+
+    # --- Semantic Validation Pass ---
+    logger.info("[Validation] Running semantic validation...")
+    validate_scenario_semantics(scenarios, profile)
+    semantic_fail_count = sum(
+        1 for s in scenarios
+        if s.validation is not None and not s.validation.semantic.valid
+    )
+    if semantic_fail_count:
+        logger.warning(
+            "  %d/%d scenarios have semantic validation issues (warn+mark)",
+            semantic_fail_count,
+            len(scenarios),
+        )
+    else:
+        logger.info("  All %d scenarios passed semantic validation", len(scenarios))
 
     # --- Leaf Technique Provenance Pass ---
     logger.info("[Validation] Checking leaf technique provenance...")
@@ -873,7 +913,6 @@ def run_pipeline(
             candidates,
             filtered_seeds,
             scenarios,
-            phantom_seed_ids=phantom_seed_ids,
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
@@ -891,6 +930,14 @@ def run_pipeline(
     manifest["phantom_validation"] = {
         "flagged_count": validation_result.flagged_count,
         "violation_categories": validation_result.violation_categories,
+    }
+    manifest["structural_validation"] = {
+        "failed_count": structural_fail_count,
+        "passed_count": len(scenarios) - structural_fail_count,
+    }
+    manifest["semantic_validation"] = {
+        "failed_count": semantic_fail_count,
+        "passed_count": len(scenarios) - semantic_fail_count,
     }
     manifest["leaf_technique_provenance"] = {
         "flagged_count": leaf_technique_result.flagged_count,

@@ -1,0 +1,488 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenario-forge.dev/schemas/scenario-envelope.schema.json",
+  "title": "ScenarioEnvelope",
+  "description": "Top-level scenario document wrapping all four output layers of a scenario-forge scenario.",
+  "type": "object",
+  "required": [
+    "scenario_id",
+    "generated_at",
+    "generator_version",
+    "narrative",
+    "attack_tree",
+    "behavior_spec",
+    "faceting",
+    "priority",
+    "generation"
+  ],
+  "properties": {
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier: <attack_pattern_id>-<hash>."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generator_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scenario_seed_metadata": {
+      "oneOf": [
+        { "type": "object" },
+        { "type": "null" }
+      ]
+    },
+    "legitimate_task": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
+    "actor_profile": {
+      "oneOf": [
+        { "$ref": "#/$defs/ActorProfile" },
+        { "type": "null" }
+      ]
+    },
+    "narrative": {
+      "$ref": "#/$defs/NarrativeLayer"
+    },
+    "attack_tree": {
+      "$ref": "#/$defs/AttackTree"
+    },
+    "behavior_spec": {
+      "description": "Tool-neutral test specification. Stored as dict or Gherkin text."
+    },
+    "faceting": {
+      "$ref": "#/$defs/FacetingMetadata"
+    },
+    "priority": {
+      "$ref": "#/$defs/Priority"
+    },
+    "candidate_filter": {
+      "oneOf": [
+        { "type": "object" },
+        { "type": "null" }
+      ]
+    },
+    "validation": {
+      "oneOf": [
+        { "$ref": "#/$defs/ValidationBlock" },
+        { "type": "null" }
+      ]
+    },
+    "validation_passed": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    },
+    "generation": {
+      "$ref": "#/$defs/GenerationMetadata"
+    }
+  },
+  "$defs": {
+    "ActorProfile": {
+      "type": "object",
+      "required": ["actor_type", "capability_level", "beliefs", "desires", "intentions", "resources"],
+      "properties": {
+        "actor_type": {
+          "type": "string",
+          "enum": [
+            "cybercriminal", "nation-state", "malicious-insider",
+            "negligent-insider", "competitor", "hacktivist",
+            "supply-chain-actor", "adversarial-user", "automated-agent"
+          ]
+        },
+        "capability_level": {
+          "type": "string",
+          "enum": ["novice", "intermediate", "advanced", "expert"]
+        },
+        "beliefs": { "type": "array", "items": { "type": "string" } },
+        "desires": { "type": "array", "items": { "type": "string" } },
+        "intentions": { "type": "array", "items": { "type": "string" } },
+        "resources": { "type": "array", "items": { "type": "string" } },
+        "goal_category": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "goal_category_name": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "goal_category_parent": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+      }
+    },
+    "NarrativeStep": {
+      "type": "object",
+      "required": ["step_number", "zone", "action", "effect"],
+      "properties": {
+        "step_number": { "type": "integer", "minimum": 1 },
+        "zone": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
+        "effect": { "type": "string", "minLength": 1 },
+        "control_point": {
+          "oneOf": [{ "type": "string" }, { "type": "null" }]
+        }
+      }
+    },
+    "NarrativeLayer": {
+      "type": "object",
+      "required": ["title", "summary", "entry_point", "zone_sequence", "steps"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "entry_point": { "type": "string", "minLength": 1 },
+        "zone_sequence": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/NarrativeStep" },
+          "minItems": 1
+        }
+      }
+    },
+    "AttackTreeNode": {
+      "type": "object",
+      "required": ["id", "label", "gate", "zone"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^n\\d+(\\.\\d+){0,4}$"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "description": {
+          "oneOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "gate": {
+          "type": "string",
+          "enum": ["AND", "OR", "LEAF"]
+        },
+        "zone": { "type": "string", "minLength": 1 },
+        "threat_id": {
+          "oneOf": [
+            { "type": "string", "pattern": "^T\\d+$" },
+            { "type": "null" }
+          ]
+        },
+        "technique_id": {
+          "oneOf": [
+            { "type": "string", "pattern": "^(AML\\.T\\d{4}(\\.\\d{3})?|(S|M|L|T|EX)\\d+)$" },
+            { "type": "null" }
+          ]
+        },
+        "maestro_layer": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "maximum": 7 },
+            { "type": "null" }
+          ]
+        },
+        "control_point": {
+          "oneOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "structural_exposure": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["single_point_of_failure", "convergence_point", "probabilistic_control", "defense_in_depth_claim"]
+            },
+            { "type": "null" }
+          ]
+        },
+        "evidence_level": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["assumed", "design-reviewed", "lab-validated", "end-to-end-validated", "regression-tested"]
+            },
+            { "type": "null" }
+          ]
+        },
+        "children": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "$ref": "#/$defs/AttackTreeNode" }
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "gate": { "const": "LEAF" } }
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "type": "array", "maxItems": 0 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "gate": { "enum": ["AND", "OR"] } }
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/AttackTreeNode" },
+                "minItems": 2
+              }
+            },
+            "required": ["children"]
+          }
+        }
+      ]
+    },
+    "AttackTree": {
+      "type": "object",
+      "required": ["id", "seed_id", "goal", "root"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^tree-AP-T\\d+-\\d+$"
+        },
+        "seed_id": {
+          "type": "string",
+          "pattern": "^AP-T\\d+-\\d+$"
+        },
+        "goal": { "type": "string", "minLength": 1 },
+        "root": { "$ref": "#/$defs/AttackTreeNode" }
+      }
+    },
+    "RiskCardRef": {
+      "type": "object",
+      "required": ["risk_id", "risk_name", "risk_description", "taxonomy", "confidence", "grounding_confidence"],
+      "properties": {
+        "risk_id": { "type": "string" },
+        "risk_name": { "type": "string" },
+        "risk_description": { "type": "string" },
+        "taxonomy": { "type": "string", "const": "ibm-risk-atlas" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "grounding_confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        },
+        "threat": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "threat_source": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "vulnerability": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "consequence": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "impact": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+      }
+    },
+    "TaxonomyChain": {
+      "type": "object",
+      "required": ["owasp_llm_ids", "agentic_threat_ids", "scenario_seed"],
+      "properties": {
+        "owasp_llm_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "agentic_threat_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "owasp_asi_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "atlas_technique_ids": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string", "pattern": "^AML\\.T\\d{4}(\\.\\d{3})?$" } },
+            { "type": "null" }
+          ]
+        },
+        "scenario_seed": {
+          "type": "string",
+          "pattern": "^AP-T\\d+-\\d+$"
+        }
+      }
+    },
+    "CapabilityProfileRef": {
+      "type": "object",
+      "required": ["zones_traversed", "architecture_match", "entry_point"],
+      "properties": {
+        "zones_traversed": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "architecture_match": {
+          "type": "string",
+          "enum": ["explicit", "inferred"]
+        },
+        "entry_point": { "type": "string" }
+      }
+    },
+    "FacetingMetadata": {
+      "type": "object",
+      "required": ["risk_card", "taxonomy_chain", "capability_profile", "maestro_layers"],
+      "properties": {
+        "risk_card": { "$ref": "#/$defs/RiskCardRef" },
+        "taxonomy_chain": { "$ref": "#/$defs/TaxonomyChain" },
+        "capability_profile": { "$ref": "#/$defs/CapabilityProfileRef" },
+        "maestro_layers": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 7 },
+          "minItems": 1
+        }
+      }
+    },
+    "PrioritySignals": {
+      "type": "object",
+      "required": [
+        "technique_maturity", "risk_impact", "risk_likelihood",
+        "attack_complexity", "architecture_match", "structural_exposure"
+      ],
+      "properties": {
+        "technique_maturity": {
+          "type": "string",
+          "enum": ["feasible", "demonstrated", "realized"]
+        },
+        "risk_impact": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "risk_likelihood": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        },
+        "attack_complexity": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "architecture_match": {
+          "type": "string",
+          "enum": ["explicit", "inferred"]
+        },
+        "structural_exposure": {
+          "type": "string",
+          "enum": [
+            "single_point_of_failure", "convergence_point",
+            "probabilistic_control", "defense_in_depth_claim", "none"
+          ]
+        }
+      }
+    },
+    "Priority": {
+      "type": "object",
+      "required": ["composite", "signals"],
+      "properties": {
+        "composite": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "signals": { "$ref": "#/$defs/PrioritySignals" }
+      }
+    },
+    "CallMetadata": {
+      "type": "object",
+      "required": ["call", "prompt_tokens", "completion_tokens", "duration_ms"],
+      "properties": {
+        "call": {
+          "type": "string",
+          "enum": ["actor_profile", "narrative", "attack_tree", "behavior_spec"]
+        },
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "GenerationMetadata": {
+      "type": "object",
+      "required": ["model", "call_metadata"],
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "call_metadata": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CallMetadata" }
+        },
+        "notes": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "PhantomViolationRecord": {
+      "type": "object",
+      "required": ["step_number", "field", "category", "matched_text", "reason"],
+      "properties": {
+        "step_number": { "type": "integer", "minimum": 0 },
+        "field": { "type": "string" },
+        "category": { "type": "string" },
+        "matched_text": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "PhantomValidation": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "violations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PhantomViolationRecord" }
+        }
+      }
+    },
+    "SemanticViolation": {
+      "type": "object",
+      "required": ["rule", "message"],
+      "properties": {
+        "rule": { "type": "string" },
+        "message": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["major", "minor"],
+          "default": "major"
+        }
+      }
+    },
+    "StructuralValidation": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "violations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "SemanticValidation": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "violations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SemanticViolation" }
+        }
+      }
+    },
+    "ValidationBlock": {
+      "type": "object",
+      "properties": {
+        "phantom": { "$ref": "#/$defs/PhantomValidation" },
+        "structural": { "$ref": "#/$defs/StructuralValidation" },
+        "semantic": { "$ref": "#/$defs/SemanticValidation" }
+      }
+    }
+  }
+}
