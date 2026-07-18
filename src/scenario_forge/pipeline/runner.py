@@ -23,7 +23,7 @@ from scenario_forge.models.scenario import ACTOR_TYPES, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
     FilteredSeed,
-    apply_technique_entry_point_filter,
+    apply_rule_based_filter,
     cap_scenarios_per_pattern,
     expand_candidates,
     filter_candidates,
@@ -599,37 +599,39 @@ def run_pipeline(
     seeds = expand_seeds(threat_surface, threats_path)
     logger.info("  %d scenario seeds to generate", len(seeds))
 
-    # --- Stage 3.5: Candidate Expansion + Filtering ---
+    # --- Stage 3.5: Candidate Expansion + Filtering (hybrid) ---
     logger.info("[Stage 3.5] Expanding and filtering candidates...")
     candidates = expand_candidates(seeds, profile, max_techniques=max_techniques)
+    candidates_expanded = len(candidates)
+
+    # Phase 1: Deterministic rule-based pre-filter.
+    rule_passed, rule_rejected, rule_verdicts = apply_rule_based_filter(
+        candidates, profile
+    )
+    rule_rejected_count = len(rule_rejected)
+    if rule_rejected_count:
+        logger.info(
+            "  Rule pre-filter: %d/%d candidates rejected, %d passed to LLM",
+            rule_rejected_count,
+            candidates_expanded,
+            len(rule_passed),
+        )
+
+    # Phase 2: LLM filter on survivors only.
     filtered_seeds, filter_call_logs = filter_candidates(
-        candidates, seeds, client, use_case, profile
+        rule_passed, seeds, client, use_case, profile
     )
     # Log candidate filter LLM calls to top-level calls.jsonl.
     _write_pipeline_call_log(filter_call_logs, output_dir)
-    candidates_expanded = len(candidates)
     candidates_accepted = len(filtered_seeds)
     candidates_rejected = candidates_expanded - candidates_accepted
     logger.info(
-        "  %d candidates -> %d accepted, %d rejected",
+        "  %d candidates -> %d rule-rejected, %d LLM-filtered -> %d accepted",
         candidates_expanded,
+        rule_rejected_count,
+        len(rule_passed) - candidates_accepted,
         candidates_accepted,
-        candidates_rejected,
     )
-
-    # Deterministic post-filter: drop direct-only techniques from combos
-    # pinned to indirect entry points (e.g. T0051.000 on RAG channels).
-    pre_compat_count = len(filtered_seeds)
-    filtered_seeds = apply_technique_entry_point_filter(filtered_seeds, profile)
-    compat_dropped = pre_compat_count - len(filtered_seeds)
-    if compat_dropped > 0:
-        logger.info(
-            "  Technique-entry-point compatibility: %d -> %d filtered seeds "
-            "(%d dropped/pruned)",
-            pre_compat_count,
-            len(filtered_seeds),
-            compat_dropped,
-        )
 
     # Apply per-pattern cap if requested.
     candidates_capped = 0
@@ -920,6 +922,7 @@ def run_pipeline(
     manifest["timestamp_end"] = datetime.now(timezone.utc).isoformat()
     manifest["seeds_generated"] = len(seeds)
     manifest["candidates_expanded"] = candidates_expanded
+    manifest["candidates_rule_rejected"] = rule_rejected_count
     manifest["candidates_accepted"] = candidates_accepted
     manifest["candidates_rejected"] = candidates_rejected
     if max_scenarios_per_pattern is not None:

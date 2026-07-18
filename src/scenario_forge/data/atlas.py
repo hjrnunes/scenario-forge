@@ -380,3 +380,334 @@ TECHNIQUE_ZONE_CONSTRAINTS: dict[str, frozenset[str]] = {
     # Exfiltration — data leakage via model output and tool actions
     "EX1": frozenset({"reasoning", "tool_execution"}),
 }
+
+
+# ---------------------------------------------------------------------------
+# Technique structural properties (for rule-based candidate pre-filter)
+# ---------------------------------------------------------------------------
+#
+# Per-technique metadata used by the deterministic rule engine in
+# ``candidates.py`` to reject structurally impossible candidates before
+# the LLM filter.
+#
+# Fields:
+#   requires_direct_access: True if the technique requires the attacker to
+#       directly interact with the LLM's prompt interface (e.g. direct
+#       prompt injection, jailbreak).
+#   is_preparatory: True if the technique is a pre-attack preparation step
+#       that cannot directly exploit an entry point at runtime.
+#   target_layer: The infrastructure layer this technique targets, or None
+#       if it is layer-agnostic.  Valid values: "supply_chain", "training",
+#       "tool_schema", "embedding".
+#   incompatible_entry_types: Set of entry point controllability types
+#       that are structurally incompatible with this technique.  Valid
+#       values: "direct", "indirect", "system".
+
+TECHNIQUE_PROPERTIES: dict[str, dict] = {
+    # --- ATLAS techniques ---
+    "AML.T0010": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": "supply_chain",
+        "incompatible_entry_types": {"direct", "indirect"},
+    },
+    "AML.T0015": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0016": {
+        "requires_direct_access": False,
+        "is_preparatory": True,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0020": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": "training",
+        "incompatible_entry_types": {"direct", "indirect"},
+    },
+    "AML.T0021": {
+        "requires_direct_access": False,
+        "is_preparatory": True,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0024": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "AML.T0025": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": "embedding",
+        "incompatible_entry_types": {"direct"},
+    },
+    "AML.T0029": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0031": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": "training",
+        "incompatible_entry_types": {"direct", "indirect"},
+    },
+    "AML.T0034": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0040": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0043": {
+        "requires_direct_access": False,
+        "is_preparatory": True,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0047": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "AML.T0048": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": "supply_chain",
+        "incompatible_entry_types": {"direct", "indirect"},
+    },
+    "AML.T0049": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "AML.T0051.000": {
+        "requires_direct_access": True,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"indirect", "system"},
+    },
+    "AML.T0051.001": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"direct", "system"},
+    },
+    "AML.T0053": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0054": {
+        "requires_direct_access": True,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"indirect", "system"},
+    },
+    "AML.T0056": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "AML.T0057": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0060": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0066": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"direct", "system"},
+    },
+    "AML.T0067": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    "AML.T0070": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"direct", "system"},
+    },
+    "AML.T0071": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": "embedding",
+        "incompatible_entry_types": {"direct"},
+    },
+    # --- LAAF structural techniques ---
+    "S1": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "S2": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "S3": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "S4": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "S6": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "S8": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    # --- LAAF semantic techniques ---
+    "M1": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "M2": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "M3": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "M4": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": "tool_schema",
+        "incompatible_entry_types": {"direct", "system"},
+    },
+    "M5": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "M7": {
+        "requires_direct_access": True,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"indirect", "system"},
+    },
+    "M8": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    # --- LAAF layered techniques ---
+    "L1": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "L2": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "L3": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "L4": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "L5": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    # --- LAAF trigger techniques ---
+    "T1": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "T2": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "T3": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "T5": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": {"system"},
+    },
+    "T8": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+    # --- LAAF exfiltration techniques ---
+    "EX1": {
+        "requires_direct_access": False,
+        "is_preparatory": False,
+        "target_layer": None,
+        "incompatible_entry_types": set(),
+    },
+}
