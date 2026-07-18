@@ -37,6 +37,8 @@ class GapAttributions:
       - ``"no_seed"``: no seed was generated for this item
       - ``"no_candidate"``: seed existed but no candidate was expanded
       - ``"rejected"``: candidate existed but was rejected at filtering
+      - ``"phantom_flagged"``: scenario was generated but dropped by phantom
+        capability validation
       - ``"generation_failed"``: filtered seed existed but scenario generation failed
       - ``"out_of_scope"``: threat gated out before seed expansion
     """

@@ -64,7 +64,9 @@ from scenario_forge.pipeline.coverage import (
     analyze_coverage_gaps,
     write_coverage_report,
 )
+from scenario_forge.pipeline.candidates import CandidateTriple, FilteredSeed
 from scenario_forge.pipeline.runner import (
+    _compute_gap_attributions,
     _pick_best_seed_for_entry_point,
     _remediate_coverage_gaps,
 )
@@ -1087,3 +1089,247 @@ class TestRemediateCoverageGaps:
         assert call_args.args[2] is client  # client
         assert call_args.args[3] == "my use case"  # use_case
         assert call_args.kwargs["pinned_entry_point"] == "api gateway (zone 3)"
+
+
+# ---------------------------------------------------------------------------
+# Gap attribution tests (scenario-forge-qaeh)
+# ---------------------------------------------------------------------------
+
+
+def _make_candidate(
+    seed_id: str = "AP-T1-01",
+    threat_id: str = "T1",
+    entry_point: str = "user prompts (zone 1)",
+) -> CandidateTriple:
+    """Build a minimal CandidateTriple for testing."""
+    return CandidateTriple(
+        seed_id=seed_id,
+        threat_id=threat_id,
+        threat_name=f"Threat {threat_id}",
+        attack_pattern_name=f"Attack pattern {seed_id}",
+        attack_pattern_description=f"Description for {seed_id}.",
+        entry_point=entry_point,
+        atlas_technique_ids=("AML.T0051",),
+        atlas_technique_names=("LLM Prompt Injection",),
+        atlas_technique_descriptions=("Inject instructions into LLM prompts.",),
+        risk_card_ref=_make_risk_card_ref(),
+        owasp_llm_ids=["LLM01"],
+    )
+
+
+def _make_filtered_seed(
+    seed_id: str = "AP-T1-01",
+    threat_id: str = "T1",
+    pinned_entry_point: str = "user prompts (zone 1)",
+) -> FilteredSeed:
+    """Build a minimal FilteredSeed for testing."""
+    return FilteredSeed(
+        seed_id=seed_id,
+        threat_id=threat_id,
+        threat_name=f"Threat {threat_id}",
+        attack_pattern_name=f"Attack pattern {seed_id}",
+        attack_pattern_description=f"Description for {seed_id}.",
+        risk_card_ref=_make_risk_card_ref(),
+        owasp_llm_ids=["LLM01"],
+        agentic_threat_ids=[threat_id],
+        pinned_entry_point=pinned_entry_point,
+        pinned_technique_ids=("AML.T0051",),
+        pinned_technique_names=("LLM Prompt Injection",),
+    )
+
+
+class TestComputeGapAttributions:
+    """Tests for _compute_gap_attributions, including phantom_flagged."""
+
+    def test_no_seed_attribution(self):
+        """Threat with no seed is attributed as no_seed."""
+        gaps = CoverageGaps(uncovered_threats=["T5"])
+        seeds = [_make_seed(seed_id="AP-T1-01", threat_id="T1")]
+        candidates = [_make_candidate(seed_id="AP-T1-01", threat_id="T1")]
+        filtered = [_make_filtered_seed(seed_id="AP-T1-01", threat_id="T1")]
+        scenarios = [_make_envelope(agentic_threat_ids=["T1"])]
+
+        result = _compute_gap_attributions(gaps, seeds, candidates, filtered, scenarios)
+        assert result.threats["T5"] == "no_seed"
+
+    def test_no_candidate_attribution(self):
+        """Threat with seed but no candidate is attributed as no_candidate."""
+        gaps = CoverageGaps(uncovered_threats=["T2"])
+        seeds = [
+            _make_seed(seed_id="AP-T1-01", threat_id="T1"),
+            _make_seed(seed_id="AP-T2-01", threat_id="T2"),
+        ]
+        # Only T1 has a candidate
+        candidates = [_make_candidate(seed_id="AP-T1-01", threat_id="T1")]
+        filtered = [_make_filtered_seed(seed_id="AP-T1-01", threat_id="T1")]
+        scenarios = [_make_envelope(agentic_threat_ids=["T1"])]
+
+        result = _compute_gap_attributions(gaps, seeds, candidates, filtered, scenarios)
+        assert result.threats["T2"] == "no_candidate"
+
+    def test_rejected_attribution(self):
+        """Threat with candidate but no filtered seed is attributed as rejected."""
+        gaps = CoverageGaps(uncovered_threats=["T2"])
+        seeds = [
+            _make_seed(seed_id="AP-T1-01", threat_id="T1"),
+            _make_seed(seed_id="AP-T2-01", threat_id="T2"),
+        ]
+        candidates = [
+            _make_candidate(seed_id="AP-T1-01", threat_id="T1"),
+            _make_candidate(seed_id="AP-T2-01", threat_id="T2"),
+        ]
+        # Only T1 passes filter
+        filtered = [_make_filtered_seed(seed_id="AP-T1-01", threat_id="T1")]
+        scenarios = [_make_envelope(agentic_threat_ids=["T1"])]
+
+        result = _compute_gap_attributions(gaps, seeds, candidates, filtered, scenarios)
+        assert result.threats["T2"] == "rejected"
+
+    def test_generation_failed_attribution(self):
+        """Threat with filtered seed but no scenario is generation_failed."""
+        gaps = CoverageGaps(uncovered_threats=["T2"])
+        seeds = [
+            _make_seed(seed_id="AP-T1-01", threat_id="T1"),
+            _make_seed(seed_id="AP-T2-01", threat_id="T2"),
+        ]
+        candidates = [
+            _make_candidate(seed_id="AP-T1-01", threat_id="T1"),
+            _make_candidate(seed_id="AP-T2-01", threat_id="T2"),
+        ]
+        filtered = [
+            _make_filtered_seed(seed_id="AP-T1-01", threat_id="T1"),
+            _make_filtered_seed(seed_id="AP-T2-01", threat_id="T2"),
+        ]
+        # Only T1 produces a scenario
+        scenarios = [_make_envelope(agentic_threat_ids=["T1"])]
+
+        result = _compute_gap_attributions(gaps, seeds, candidates, filtered, scenarios)
+        assert result.threats["T2"] == "generation_failed"
+
+    def test_phantom_flagged_threat_attribution(self):
+        """Threat whose scenarios were all phantom-flagged gets phantom_flagged."""
+        gaps = CoverageGaps(uncovered_threats=["T9"])
+        seeds = [
+            _make_seed(seed_id="AP-T9-03", threat_id="T9"),
+        ]
+        candidates = [
+            _make_candidate(seed_id="AP-T9-03", threat_id="T9"),
+        ]
+        filtered = [
+            _make_filtered_seed(seed_id="AP-T9-03", threat_id="T9"),
+        ]
+        # No scenarios survive (all phantom-flagged)
+        scenarios: list[ScenarioEnvelope] = []
+        phantom_seed_ids = {"AP-T9-03"}
+
+        result = _compute_gap_attributions(
+            gaps, seeds, candidates, filtered, scenarios,
+            phantom_seed_ids=phantom_seed_ids,
+        )
+        assert result.threats["T9"] == "phantom_flagged"
+
+    def test_phantom_flagged_attack_pattern_attribution(self):
+        """Attack pattern whose scenarios were phantom-flagged gets phantom_flagged."""
+        gaps = CoverageGaps(uncovered_attack_patterns=["AP-T9-03", "AP-T10-03"])
+        seeds = [
+            _make_seed(seed_id="AP-T9-03", threat_id="T9"),
+            _make_seed(seed_id="AP-T10-03", threat_id="T10"),
+        ]
+        candidates = [
+            _make_candidate(seed_id="AP-T9-03", threat_id="T9"),
+            _make_candidate(seed_id="AP-T10-03", threat_id="T10"),
+        ]
+        filtered = [
+            _make_filtered_seed(seed_id="AP-T9-03", threat_id="T9"),
+            _make_filtered_seed(seed_id="AP-T10-03", threat_id="T10"),
+        ]
+        scenarios: list[ScenarioEnvelope] = []
+        phantom_seed_ids = {"AP-T9-03", "AP-T10-03"}
+
+        result = _compute_gap_attributions(
+            gaps, seeds, candidates, filtered, scenarios,
+            phantom_seed_ids=phantom_seed_ids,
+        )
+        assert result.attack_patterns["AP-T9-03"] == "phantom_flagged"
+        assert result.attack_patterns["AP-T10-03"] == "phantom_flagged"
+
+    def test_phantom_flagged_entry_point_attribution(self):
+        """Entry point whose only scenarios were phantom-flagged gets phantom_flagged."""
+        gaps = CoverageGaps(uncovered_entry_points=["admin console (zone 2)"])
+        seeds = [_make_seed(seed_id="AP-T9-03", threat_id="T9")]
+        candidates = [
+            _make_candidate(
+                seed_id="AP-T9-03", threat_id="T9",
+                entry_point="admin console (zone 2)",
+            ),
+        ]
+        filtered = [
+            _make_filtered_seed(
+                seed_id="AP-T9-03", threat_id="T9",
+                pinned_entry_point="admin console (zone 2)",
+            ),
+        ]
+        scenarios: list[ScenarioEnvelope] = []
+        phantom_seed_ids = {"AP-T9-03"}
+
+        result = _compute_gap_attributions(
+            gaps, seeds, candidates, filtered, scenarios,
+            phantom_seed_ids=phantom_seed_ids,
+        )
+        assert result.entry_points["admin console (zone 2)"] == "phantom_flagged"
+
+    def test_no_phantom_seed_ids_falls_through_to_generation_failed(self):
+        """Without phantom_seed_ids, filtered seed with no scenario is generation_failed."""
+        gaps = CoverageGaps(uncovered_attack_patterns=["AP-T9-03"])
+        seeds = [_make_seed(seed_id="AP-T9-03", threat_id="T9")]
+        candidates = [_make_candidate(seed_id="AP-T9-03", threat_id="T9")]
+        filtered = [_make_filtered_seed(seed_id="AP-T9-03", threat_id="T9")]
+        scenarios: list[ScenarioEnvelope] = []
+
+        # No phantom_seed_ids passed -- old behavior
+        result = _compute_gap_attributions(
+            gaps, seeds, candidates, filtered, scenarios,
+        )
+        assert result.attack_patterns["AP-T9-03"] == "generation_failed"
+
+    def test_mixed_phantom_and_generation_failed(self):
+        """Some APs are phantom-flagged, others genuinely failed generation."""
+        gaps = CoverageGaps(uncovered_attack_patterns=["AP-T9-03", "AP-T10-01"])
+        seeds = [
+            _make_seed(seed_id="AP-T9-03", threat_id="T9"),
+            _make_seed(seed_id="AP-T10-01", threat_id="T10"),
+        ]
+        candidates = [
+            _make_candidate(seed_id="AP-T9-03", threat_id="T9"),
+            _make_candidate(seed_id="AP-T10-01", threat_id="T10"),
+        ]
+        filtered = [
+            _make_filtered_seed(seed_id="AP-T9-03", threat_id="T9"),
+            _make_filtered_seed(seed_id="AP-T10-01", threat_id="T10"),
+        ]
+        scenarios: list[ScenarioEnvelope] = []
+        # Only AP-T9-03 was phantom-flagged; AP-T10-01 genuinely failed
+        phantom_seed_ids = {"AP-T9-03"}
+
+        result = _compute_gap_attributions(
+            gaps, seeds, candidates, filtered, scenarios,
+            phantom_seed_ids=phantom_seed_ids,
+        )
+        assert result.attack_patterns["AP-T9-03"] == "phantom_flagged"
+        assert result.attack_patterns["AP-T10-01"] == "generation_failed"
+
+    def test_phantom_does_not_override_earlier_funnel_stage(self):
+        """A seed_id in phantom_seed_ids but with no candidate still gets no_candidate."""
+        gaps = CoverageGaps(uncovered_attack_patterns=["AP-T9-03"])
+        seeds = [_make_seed(seed_id="AP-T9-03", threat_id="T9")]
+        candidates: list[CandidateTriple] = []  # no candidate expanded
+        filtered: list[FilteredSeed] = []
+        scenarios: list[ScenarioEnvelope] = []
+        phantom_seed_ids = {"AP-T9-03"}
+
+        result = _compute_gap_attributions(
+            gaps, seeds, candidates, filtered, scenarios,
+            phantom_seed_ids=phantom_seed_ids,
+        )
+        # Earlier funnel stage (no_candidate) takes priority
+        assert result.attack_patterns["AP-T9-03"] == "no_candidate"
