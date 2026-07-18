@@ -359,6 +359,13 @@ class EntryPoint(BaseModel):
     - ``input``: attacker can send data in (included in candidate cross-product)
     - ``output``: system sends data out only (excluded from candidate cross-product)
     - ``bidirectional``: both input and output (included in candidate cross-product)
+
+    Controllability (optional) indicates how directly an attacker can
+    influence data through this entry point:
+    - ``direct``: attacker types input directly (e.g. chat prompt)
+    - ``indirect``: attacker can influence a data source (e.g. RAG poisoning)
+    - ``system``: fully system-controlled, not attacker-accessible
+    - ``None``: inferred at runtime by keyword heuristic
     """
 
     name: str = Field(description="Entry point description, e.g. 'user prompts via chat widget'.")
@@ -367,6 +374,15 @@ class EntryPoint(BaseModel):
         description=(
             "Data flow direction: 'input' (attacker can send data in), "
             "'output' (system sends data out), or 'bidirectional' (both)."
+        ),
+    )
+    controllability: Literal["direct", "indirect", "system"] | None = Field(
+        default=None,
+        description=(
+            "Attacker controllability: 'direct' (user types input), "
+            "'indirect' (attacker can influence data source), "
+            "'system' (fully system-controlled). "
+            "When None, inferred by keyword heuristic."
         ),
     )
 
@@ -426,9 +442,11 @@ class Stage1Profile(BaseModel):
     )
     entry_points: list[EntryPoint] = Field(
         description=(
-            "Attack entry points, each with a name and direction tag. "
-            "Direction is one of: input (attacker can send data in), "
-            "output (system sends data out), bidirectional (both)."
+            "Attack entry points, each with a name, direction tag, and optional "
+            "controllability. Direction is one of: input (attacker can send data in), "
+            "output (system sends data out), bidirectional (both). Controllability "
+            "is one of: direct (user types input), indirect (attacker influences "
+            "data source), system (fully system-controlled), or null (inferred later)."
         ),
         min_length=1,
     )
@@ -518,9 +536,11 @@ class CapabilityProfile(BaseModel):
     )
     entry_points: list[EntryPoint] = Field(
         description=(
-            "Attack entry points, each with a name and direction tag. "
-            "Direction is one of: input (attacker can send data in), "
-            "output (system sends data out), bidirectional (both)."
+            "Attack entry points, each with a name, direction tag, and optional "
+            "controllability. Direction is one of: input (attacker can send data in), "
+            "output (system sends data out), bidirectional (both). Controllability "
+            "is one of: direct (user types input), indirect (attacker influences "
+            "data source), system (fully system-controlled), or null (inferred later)."
         ),
         min_length=1,
     )
