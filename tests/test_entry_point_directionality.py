@@ -140,6 +140,7 @@ class TestCall0DirectionRendering:
             pinned_entry_point=pinned_entry_point,
             pinned_entry_point_direction=pinned_entry_point_direction,
             pinned_technique_count=1,
+            kc_definitions="",
         )
 
     def test_input_direction_renders_input_constraint(self):
@@ -229,6 +230,7 @@ class TestCall1DirectionRendering:
             structural_section="",
             pinned_entry_point=pinned_entry_point,
             pinned_entry_point_direction=pinned_entry_point_direction,
+            kc_definitions="",
         )
 
     def test_input_direction_renders_input_constraint(self):

@@ -25,7 +25,7 @@ Only reference tools, APIs, endpoints, and system capabilities that are explicit
 ### Profile Boundary (MANDATORY)
 Do NOT invent capabilities the system does not have. Every capability referenced in the narrative must be traceable to the capability profile. The following categories are commonly hallucinated — they are FORBIDDEN unless the profile explicitly declares them:
 
-- **Privilege escalation**: Do not invent tiered access, admin modes, elevated tokens, or dynamic permission systems unless the profile declares admin entry points or KC6.3/KC6.4 subcodes.
+- **Privilege escalation**: Do not invent tiered access, admin modes, elevated tokens, or dynamic permission systems unless the profile declares admin entry points, KC6.3/KC6.4 subcodes, or KCX-PRIV.
 - **Audit/monitoring write access**: Do not describe modifying audit trails, tampering with logs, suppressing alerts, or resetting session history. Agents read from monitoring but do not write to it.
 - **Cross-session/cross-user access**: If `has_persistent_memory` is false, do not describe accessing other users' data, correlating across sessions, or maintaining state between interactions.
 - **Code execution**: Do not describe generating or executing code (Python scripts, shell commands) unless the profile declares KC6.2.2 or KC6.5.

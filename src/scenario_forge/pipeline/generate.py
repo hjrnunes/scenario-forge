@@ -39,7 +39,11 @@ from scenario_forge.models.attack_tree import (
     GateType,
     repair_attack_tree_dict,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    KC_SUBCODE_NAMES,
+    KCX_SUBCODES,
+    CapabilityProfile,
+)
 from scenario_forge.models.scenario import (
     ACTOR_TYPES,
     ActorProfile,
@@ -1256,6 +1260,38 @@ def _format_taxonomy_ids(ids: list[str], name_map: dict[str, str]) -> str:
     return ", ".join(parts) if parts else "none"
 
 
+def build_kc_definitions_block(kc_subcodes: list[str]) -> str:
+    """Build a formatted KC/KCX definitions block for LLM prompts.
+
+    Takes a list of KC sub-codes from the capability profile and produces
+    a human-readable definition list.  Each code is paired with its short
+    definition from :data:`KC_SUBCODE_NAMES` (for standard KC codes) or
+    :data:`KCX_SUBCODES` (for scenario-forge KCX extensions).
+
+    Returns an empty string when *kc_subcodes* is empty.
+
+    Example output::
+
+        - KC1.1: Large Language Model (LLM)
+        - KC3.2: ReAct -- interleaved reasoning and action
+        - KCX-PMEM: Persistent memory architecture (cross-session state)
+    """
+    if not kc_subcodes:
+        return ""
+    lines: list[str] = []
+    for code in kc_subcodes:
+        name = KC_SUBCODE_NAMES.get(code)
+        if name is None:
+            # Try KCX definitions
+            name = KCX_SUBCODES.get(code)
+        if name is not None:
+            lines.append(f"- {code}: {name}")
+        else:
+            # Unknown code -- include raw for transparency
+            lines.append(f"- {code}")
+    return "\n".join(lines)
+
+
 def _build_technique_context_block(technique_ids: list[str]) -> str:
     """Build a shared ATLAS technique context block for LLM prompts.
 
@@ -2177,6 +2213,9 @@ def _call_actor_profile(
         profile, pinned_entry_point
     )
 
+    # Build KC/KCX definition block for the prompt
+    kc_definitions = build_kc_definitions_block(profile.kc_subcodes)
+
     user_prompt = render_prompt(
         "call0_user.j2",
         use_case=use_case,
@@ -2189,6 +2228,7 @@ def _call_actor_profile(
         pinned_entry_point=pinned_entry_point,
         pinned_entry_point_direction=pinned_entry_point_direction,
         pinned_technique_count=pinned_technique_count,
+        kc_definitions=kc_definitions,
     )
 
     result = client.complete(
@@ -2332,6 +2372,9 @@ def _call_narrative(
         profile, pinned_entry_point
     )
 
+    # Build KC/KCX definition block for the prompt
+    kc_definitions = build_kc_definitions_block(profile.kc_subcodes)
+
     user_prompt = render_prompt(
         "call1_user.j2",
         use_case=use_case,
@@ -2346,6 +2389,7 @@ def _call_narrative(
         structural_section=structural_section,
         pinned_entry_point=pinned_entry_point,
         pinned_entry_point_direction=pinned_entry_point_direction,
+        kc_definitions=kc_definitions,
     )
 
     result = client.complete(

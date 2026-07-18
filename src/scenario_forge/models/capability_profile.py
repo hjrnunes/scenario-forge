@@ -89,6 +89,52 @@ KCX_SUBCODES: dict[str, str] = {
 
 KCX_PREFIX = "KCX-"
 
+# ---------------------------------------------------------------------------
+# Human-readable names for all KC sub-codes.
+# Source of truth: profile_system.j2 KC taxonomy.
+# Used by downstream prompts to make opaque codes intelligible to the LLM.
+# ---------------------------------------------------------------------------
+
+KC_SUBCODE_NAMES: dict[str, str] = {
+    # KC1 — Language Models
+    "KC1.1": "Large Language Model (LLM)",
+    "KC1.2": "Multimodal LLM (MLLM)",
+    "KC1.3": "Small Language Model (SLM)",
+    "KC1.4": "Domain-specific or fine-tuned model",
+    # KC2 — Orchestration
+    "KC2.1": "Predefined workflows",
+    "KC2.2": "Hierarchical planning",
+    "KC2.3": "Multi-agent collaboration",
+    # KC3 — Reasoning / Planning
+    "KC3.1": "Structured planning (ReWoo, Plan-and-Execute)",
+    "KC3.2": "ReAct — interleaved reasoning and action",
+    "KC3.3": "Chain of Thought (CoT)",
+    "KC3.4": "Tree of Thoughts (ToT)",
+    # KC4 — Memory
+    "KC4.1": "In-agent, session-only memory",
+    "KC4.2": "Cross-agent, session-only memory",
+    "KC4.3": "In-agent, cross-session memory",
+    "KC4.4": "Cross-agent, cross-session memory",
+    "KC4.5": "In-agent, cross-user memory",
+    "KC4.6": "Cross-agent, cross-user memory",
+    # KC5 — Tool Integration Framework
+    "KC5.1": "Flexible libraries / SDK",
+    "KC5.2": "Managed platform",
+    "KC5.3": "Managed API",
+    # KC6 — Operational Environment
+    "KC6.1.1": "Limited API access",
+    "KC6.1.2": "Extensive API access",
+    "KC6.2.1": "Limited code execution",
+    "KC6.2.2": "Extensive code execution",
+    "KC6.3.1": "Database read-only",
+    "KC6.3.2": "Database full CRUD",
+    "KC6.3.3": "RAG context data sources",
+    "KC6.4": "Web / browser access",
+    "KC6.5": "PC / filesystem operations",
+    "KC6.6": "Critical systems (SCADA, ICS)",
+    "KC6.7": "IoT device control",
+}
+
 ZONE_DISPLAY_NAMES: dict[str, str] = {
     "input": "Input Surfaces",
     "reasoning": "Planning & Reasoning",
