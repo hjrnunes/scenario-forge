@@ -15,7 +15,11 @@ from typing import Literal, Sequence
 
 from pydantic import BaseModel, Field
 
-from scenario_forge.data.atlas import ATLAS_TECHNIQUE_DESCRIPTIONS, ATLAS_TECHNIQUE_NAMES
+from scenario_forge.data.atlas import (
+    ATLAS_TECHNIQUE_DESCRIPTIONS,
+    ATLAS_TECHNIQUE_NAMES,
+    TECHNIQUE_PROPERTIES,
+)
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import RiskCardRef
@@ -458,24 +462,33 @@ def filter_candidates(
 
 
 # ---------------------------------------------------------------------------
-# Post-filter: per-technique entry-point compatibility
+# Rule-based candidate pre-filter
 # ---------------------------------------------------------------------------
-
-# Techniques that require the attacker to directly interact with the LLM's
-# prompt interface.  These are incompatible with indirect entry points (e.g.
-# RAG knowledge-grounding, third-party data feeds) where the attacker cannot
-# craft prompts directly.
 #
-# This hardcoded set covers the clearest cases.  It can be moved to SSSOM
-# metadata or a configuration file in the future if the list grows.
-DIRECT_ONLY_TECHNIQUES: frozenset[str] = frozenset({
-    "AML.T0051.000",  # Direct Prompt Injection
-    "AML.T0052",      # Adversarial Jailbreaking (direct prompt channel)
-    "AML.T0054",      # LLM Jailbreak
-})
+# Deterministic rules that reject structurally impossible candidates
+# BEFORE the LLM filter.  Each rule takes a technique ID, entry point
+# name, entry point type, and capability profile; returns (reject,
+# rationale).  Rules REJECT ONLY -- they never accept.  All non-rejected
+# candidates pass to the LLM filter.
+#
+# The old DIRECT_ONLY_TECHNIQUES / apply_technique_entry_point_filter
+# post-filter is absorbed here as _rule_direct_vs_indirect.
 
-# Case-insensitive keywords in entry-point names that signal an indirect
-# channel — one where the attacker cannot directly author prompts.
+# --- Entry point controllability heuristic ---
+#
+# Classifies entry point names as "direct", "indirect", or "system"
+# using keyword matching.  This is a heuristic; a proper controllability
+# field on the profile is a follow-up (bead x3zc).
+
+_DIRECT_KEYWORDS: tuple[str, ...] = (
+    "user",
+    "customer",
+    "query",
+    "chat",
+    "prompt",
+    "message",
+)
+
 _INDIRECT_KEYWORDS: tuple[str, ...] = (
     "rag",
     "knowledge",
@@ -483,114 +496,389 @@ _INDIRECT_KEYWORDS: tuple[str, ...] = (
     "third-party",
     "third party",
     "data feed",
+    "data_feed",
     "context injection",
     "authenticated context",
+    "document",
 )
+
+_SYSTEM_KEYWORDS: tuple[str, ...] = (
+    "api",
+    "backend",
+    "service",
+    "internal",
+    "system",
+    "cron",
+    "scheduler",
+)
+
+
+def classify_entry_point(entry_point_name: str, direction: str) -> str:
+    """Classify an entry point as 'direct', 'indirect', or 'system'.
+
+    Uses a keyword heuristic on the entry point name, refined by the
+    direction tag from the capability profile.
+
+    - Bidirectional entry points are always ``"direct"`` (attacker has
+      full interactive access).
+    - Output-only entry points are always ``"system"`` (not attacker-
+      accessible as ingress).
+    - Input-direction entry points are classified by keyword matching:
+      indirect keywords (RAG, knowledge, etc.) win over direct keywords
+      (user, chat, etc.), which win over system keywords.  If no keyword
+      matches, defaults to ``"direct"`` (conservative -- let LLM decide).
+
+    Returns:
+        One of ``"direct"``, ``"indirect"``, ``"system"``.
+    """
+    if direction == "output":
+        return "system"
+    if direction == "bidirectional":
+        return "direct"
+
+    # direction == "input": use keyword heuristic.
+    name_lower = entry_point_name.lower()
+
+    # Indirect keywords take priority (more specific).
+    if any(kw in name_lower for kw in _INDIRECT_KEYWORDS):
+        return "indirect"
+    if any(kw in name_lower for kw in _SYSTEM_KEYWORDS):
+        return "system"
+    if any(kw in name_lower for kw in _DIRECT_KEYWORDS):
+        return "direct"
+
+    # Default: treat as direct (conservative -- let LLM decide).
+    return "direct"
 
 
 def is_indirect_entry_point(entry_point_name: str, direction: str) -> bool:
     """Return True if the entry point is an indirect channel.
 
-    An entry point is considered indirect when it has ``direction="input"``
-    *and* its name contains keywords indicating a non-user-facing data
-    channel (RAG, knowledge-grounding, third-party feeds, etc.).
-
-    Bidirectional entry points are always direct — the attacker has full
-    interactive access.  Output-only entry points should have been
-    excluded earlier by :func:`expand_candidates`.
+    Convenience wrapper around :func:`classify_entry_point` for backward
+    compatibility.
     """
-    if direction != "input":
-        return False
-    name_lower = entry_point_name.lower()
-    return any(kw in name_lower for kw in _INDIRECT_KEYWORDS)
+    return classify_entry_point(entry_point_name, direction) == "indirect"
 
 
-def apply_technique_entry_point_filter(
-    filtered_seeds: Sequence[FilteredSeed],
+# Legacy constant preserved for backward compatibility in tests.
+# The rule engine now uses TECHNIQUE_PROPERTIES instead.
+DIRECT_ONLY_TECHNIQUES: frozenset[str] = frozenset({
+    tid
+    for tid, props in TECHNIQUE_PROPERTIES.items()
+    if props.get("requires_direct_access")
+})
+
+
+def _get_technique_name(technique_id: str) -> str:
+    """Look up human-readable name for a technique ID."""
+    return ATLAS_TECHNIQUE_NAMES.get(technique_id, technique_id)
+
+
+# --- Rule functions ---
+#
+# Each rule takes (technique_id, entry_point_name, ep_type, profile) and
+# returns (reject: bool, rationale: str | None).  Rationale is a
+# fixed-format template string when reject=True, None otherwise.
+
+
+def _rule_supply_chain_mismatch(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
     profile: CapabilityProfile,
-) -> list[FilteredSeed]:
-    """Drop direct-only techniques from combos pinned to indirect entry points.
+) -> tuple[bool, str | None]:
+    """T0048/T0010 supply chain attacks are incompatible with runtime entry points."""
+    props = TECHNIQUE_PROPERTIES.get(technique_id)
+    if props is None:
+        return False, None
+    if props.get("target_layer") != "supply_chain":
+        return False, None
+    if ep_type in ("direct", "indirect"):
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"supply chain attacks target the model development pipeline, "
+            f"not runtime inputs."
+        )
+    return False, None
 
-    After the LLM candidate filter accepts a technique combo, this
-    deterministic post-filter checks each technique individually for
-    entry-point compatibility.  Direct-only techniques (e.g. Direct
-    Prompt Injection, LLM Jailbreak) require the attacker to interact
-    directly with the LLM's prompt interface and are incompatible with
-    indirect entry points (RAG, knowledge-grounding, etc.).
 
-    If removing incompatible techniques empties the combo, the candidate
-    is rejected entirely.
+def _rule_entry_point_not_interactive(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """System-controlled entry points are not attacker-accessible."""
+    if ep_type != "system":
+        return False, None
+    props = TECHNIQUE_PROPERTIES.get(technique_id)
+    if props is None:
+        return False, None
+    if "system" in props.get("incompatible_entry_types", set()):
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"system-controlled entry points are not attacker-accessible."
+        )
+    return False, None
+
+
+def _rule_wrong_zone_direction(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """Output-direction entry points cannot serve as attack ingress."""
+    if ep_type != "system":
+        return False, None
+    # Check if the entry point name suggests output-only semantics.
+    name_lower = entry_point_name.lower()
+    output_signals = ("output", "response", "reply", "outbound", "emit")
+    if not any(sig in name_lower for sig in output_signals):
+        return False, None
+    return True, (
+        f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+        f"is incompatible with entry point type {ep_type} -- "
+        f"output-direction entry points cannot be attack ingress channels."
+    )
+
+
+def _rule_technique_incompatible(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """Technique's incompatible_entry_types includes this entry point type."""
+    props = TECHNIQUE_PROPERTIES.get(technique_id)
+    if props is None:
+        return False, None
+    incompatible = props.get("incompatible_entry_types", set())
+    if ep_type in incompatible:
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"technique cannot target this entry point type."
+        )
+    return False, None
+
+
+def _rule_direct_vs_indirect(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """T0051.000 requires direct access; T0051.001 requires indirect."""
+    props = TECHNIQUE_PROPERTIES.get(technique_id)
+    if props is None:
+        return False, None
+    if props.get("requires_direct_access") and ep_type == "indirect":
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"technique requires direct attacker access to the prompt interface."
+        )
+    # T0051.001 and similar indirect-only techniques: reject on direct EPs.
+    if technique_id == "AML.T0051.001" and ep_type == "direct":
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"indirect prompt injection requires a non-user-facing data channel."
+        )
+    return False, None
+
+
+def _rule_preparatory_technique(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """T0043/T0044/T0016/T0021 are pre-attack prep, not entry-point-exploitable."""
+    props = TECHNIQUE_PROPERTIES.get(technique_id)
+    if props is None:
+        return False, None
+    if props.get("is_preparatory"):
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"preparatory techniques are pre-attack steps that do not "
+            f"directly exploit runtime entry points."
+        )
+    return False, None
+
+
+def _rule_technique_targets_wrong_layer(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """Technique targets an infrastructure layer incompatible with the entry point."""
+    props = TECHNIQUE_PROPERTIES.get(technique_id)
+    if props is None:
+        return False, None
+    target_layer = props.get("target_layer")
+    if target_layer is None:
+        return False, None
+
+    # Tool schema injection via direct user chat interface.
+    if target_layer == "tool_schema" and ep_type == "direct":
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"tool schema injection targets tool metadata trust boundaries, "
+            f"not direct user chat interfaces."
+        )
+    # Training-layer techniques via runtime entry points.
+    if target_layer == "training" and ep_type in ("direct", "indirect"):
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"training pipeline attacks target the model development process, "
+            f"not runtime inputs."
+        )
+    # Embedding manipulation via direct user input.
+    if target_layer == "embedding" and ep_type == "direct":
+        return True, (
+            f"Rejected: {technique_id} ({_get_technique_name(technique_id)}) "
+            f"is incompatible with entry point type {ep_type} -- "
+            f"embedding manipulation targets vector stores, not direct "
+            f"user input channels."
+        )
+    return False, None
+
+
+# Ordered list of all rules.  Evaluated top-to-bottom; first rejection wins.
+_ALL_RULES = [
+    _rule_supply_chain_mismatch,
+    _rule_entry_point_not_interactive,
+    _rule_wrong_zone_direction,
+    _rule_technique_incompatible,
+    _rule_direct_vs_indirect,
+    _rule_preparatory_technique,
+    _rule_technique_targets_wrong_layer,
+]
+
+
+# --- Rule-based filter orchestration ---
+
+
+def _run_rules_on_technique(
+    technique_id: str,
+    entry_point_name: str,
+    ep_type: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """Run all rules on a single (technique, entry_point) pair.
+
+    Returns (True, rationale) on first rejection, (False, None) if all pass.
+    """
+    for rule in _ALL_RULES:
+        reject, rationale = rule(technique_id, entry_point_name, ep_type, profile)
+        if reject:
+            return True, rationale
+    return False, None
+
+
+def apply_rule_based_filter(
+    candidates: list[CandidateTriple],
+    profile: CapabilityProfile,
+) -> tuple[list[CandidateTriple], list[CandidateTriple], list[FilterVerdict]]:
+    """Run deterministic rules on candidates, rejecting structural impossibilities.
+
+    For each candidate, every technique in its combo is checked against all
+    rules.  If ALL techniques in a combo are rejected, the entire candidate
+    is rejected.  If some but not all techniques are rejected, the combo is
+    pruned to keep only compatible techniques (the candidate survives with
+    the reduced combo).
 
     Args:
-        filtered_seeds: Output of :func:`filter_candidates`.
+        candidates: Output of :func:`expand_candidates`.
         profile: Capability profile (provides entry-point directions).
 
     Returns:
-        A new list of :class:`FilteredSeed` with incompatible techniques
-        pruned or candidates dropped.
+        Tuple of (rule_passed, rule_rejected, rejection_verdicts).
+        ``rule_passed`` candidates proceed to the LLM filter.
+        ``rule_rejected`` candidates are dropped with rationales.
+        ``rejection_verdicts`` are FilterVerdict objects for provenance.
     """
+    if not candidates:
+        return [], [], []
+
     # Build entry-point direction lookup from the profile.
     ep_direction: dict[str, str] = {
         ep.name: ep.direction for ep in profile.entry_points
     }
 
-    result: list[FilteredSeed] = []
-    dropped_count = 0
-    pruned_count = 0
+    rule_passed: list[CandidateTriple] = []
+    rule_rejected: list[CandidateTriple] = []
+    rejection_verdicts: list[FilterVerdict] = []
 
-    for seed in filtered_seeds:
-        direction = ep_direction.get(seed.pinned_entry_point, "bidirectional")
+    for candidate in candidates:
+        direction = ep_direction.get(candidate.entry_point, "bidirectional")
+        ep_type = classify_entry_point(candidate.entry_point, direction)
 
-        if not is_indirect_entry_point(seed.pinned_entry_point, direction):
-            # Direct or bidirectional entry point — all techniques OK.
-            result.append(seed)
-            continue
-
-        # Keep only techniques compatible with indirect channels.
+        # Check each technique in the combo.
         compatible_ids: list[str] = []
         compatible_names: list[str] = []
-        for tid, tname in zip(seed.pinned_technique_ids, seed.pinned_technique_names):
-            if tid not in DIRECT_ONLY_TECHNIQUES:
+        compatible_descs: list[str] = []
+        combo_rationales: list[str] = []
+
+        for tid, tname, tdesc in zip(
+            candidate.atlas_technique_ids,
+            candidate.atlas_technique_names,
+            candidate.atlas_technique_descriptions,
+        ):
+            reject, rationale = _run_rules_on_technique(
+                tid, candidate.entry_point, ep_type, profile,
+            )
+            if reject:
+                combo_rationales.append(rationale)  # type: ignore[arg-type]
+            else:
                 compatible_ids.append(tid)
                 compatible_names.append(tname)
+                compatible_descs.append(tdesc)
 
         if not compatible_ids:
-            # Every technique was direct-only — reject entire candidate.
-            dropped_count += 1
-            logger.info(
-                "Technique-entry-point filter: dropped %s + %s "
-                "(all techniques are direct-only, entry point is indirect)",
-                seed.pinned_technique_ids,
-                seed.pinned_entry_point,
-            )
+            # All techniques rejected -- reject the entire candidate.
+            rule_rejected.append(candidate)
+            rejection_verdicts.append(FilterVerdict(
+                entry_point=candidate.entry_point,
+                atlas_technique_ids=candidate.atlas_technique_ids,
+                verdict="reject",
+                rationale=combo_rationales[0] if combo_rationales else "Rule-rejected.",
+            ))
             continue
 
-        if len(compatible_ids) < len(seed.pinned_technique_ids):
-            # Some techniques pruned from the combo.
-            removed = set(seed.pinned_technique_ids) - set(compatible_ids)
-            pruned_count += 1
+        if len(compatible_ids) < len(candidate.atlas_technique_ids):
+            # Partial pruning: some techniques removed from combo.
+            pruned = set(candidate.atlas_technique_ids) - set(compatible_ids)
             logger.info(
-                "Technique-entry-point filter: pruned %s from combo for %s "
-                "(direct-only techniques, indirect entry point)",
-                removed,
-                seed.pinned_entry_point,
+                "Rule pre-filter: pruned %s from combo for %s",
+                pruned,
+                candidate.entry_point,
             )
-            seed = seed.model_copy(update={
-                "pinned_technique_ids": tuple(compatible_ids),
-                "pinned_technique_names": tuple(compatible_names),
+            candidate = candidate.model_copy(update={
+                "atlas_technique_ids": tuple(compatible_ids),
+                "atlas_technique_names": tuple(compatible_names),
+                "atlas_technique_descriptions": tuple(compatible_descs),
             })
 
-        result.append(seed)
+        rule_passed.append(candidate)
 
-    if dropped_count or pruned_count:
+    if rule_rejected:
         logger.info(
-            "Technique-entry-point filter: %d dropped, %d pruned, %d passed",
-            dropped_count,
-            pruned_count,
-            len(result),
+            "Rule pre-filter: %d/%d candidates rejected, %d passed to LLM filter",
+            len(rule_rejected),
+            len(rule_rejected) + len(rule_passed),
+            len(rule_passed),
         )
 
-    return result
+    return rule_passed, rule_rejected, rejection_verdicts
 
 
 # ---------------------------------------------------------------------------
