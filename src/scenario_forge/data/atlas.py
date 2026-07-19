@@ -711,3 +711,110 @@ TECHNIQUE_PROPERTIES: dict[str, dict] = {
         "incompatible_entry_types": set(),
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# OWASP Agentic Threat prerequisites
+# ---------------------------------------------------------------------------
+#
+# Per-threat architectural prerequisites: which zones and/or capabilities
+# MUST be present for the threat to be architecturally possible.
+#
+# Fields:
+#   required_zones: list of zone names that ALL must be present (AND).
+#   required_zones_any: list of zone names where at LEAST ONE must be
+#       present (OR).  Empty list means no "any-of" constraint.
+#   required_capabilities: list of capability flag names that ALL must
+#       be true.  Valid names: "has_persistent_memory", "multi_agent",
+#       "hitl".
+#
+# Source: OWASP Agentic AI Threats and Mitigations v1.1 (Dec 2025).
+# Audit: ai/findings/threat-zone-prerequisites.md (bead 5urp).
+
+THREAT_PREREQUISITES: dict[str, dict] = {
+    "T1": {
+        "required_zones": ["memory"],
+        "required_zones_any": [],
+        "required_capabilities": ["has_persistent_memory"],
+    },
+    "T2": {
+        "required_zones": ["tool_execution"],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T3": {
+        "required_zones": ["tool_execution"],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T4": {
+        "required_zones": [],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T5": {
+        "required_zones": [],
+        "required_zones_any": ["memory", "tool_execution", "inter_agent"],
+        "required_capabilities": [],
+    },
+    "T6": {
+        "required_zones": [],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T7": {
+        "required_zones": [],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T8": {
+        "required_zones": [],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T9": {
+        "required_zones": [],
+        "required_zones_any": ["tool_execution", "inter_agent"],
+        "required_capabilities": [],
+    },
+    "T10": {
+        "required_zones": [],
+        "required_zones_any": [],
+        "required_capabilities": ["hitl"],
+    },
+    "T11": {
+        "required_zones": ["tool_execution"],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T12": {
+        "required_zones": ["inter_agent"],
+        "required_zones_any": [],
+        "required_capabilities": ["multi_agent"],
+    },
+    "T13": {
+        "required_zones": ["inter_agent"],
+        "required_zones_any": [],
+        "required_capabilities": ["multi_agent"],
+    },
+    "T14": {
+        "required_zones": ["inter_agent"],
+        "required_zones_any": [],
+        "required_capabilities": ["multi_agent"],
+    },
+    "T15": {
+        "required_zones": [],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+    "T16": {
+        "required_zones": [],
+        "required_zones_any": ["tool_execution", "inter_agent"],
+        "required_capabilities": [],
+    },
+    "T17": {
+        "required_zones": [],
+        "required_zones_any": [],
+        "required_capabilities": [],
+    },
+}

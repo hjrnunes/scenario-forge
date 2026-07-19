@@ -19,6 +19,7 @@ from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
     ATLAS_TECHNIQUE_NAMES,
     TECHNIQUE_PROPERTIES,
+    THREAT_PREREQUISITES,
 )
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
@@ -775,7 +776,7 @@ def _rule_technique_targets_wrong_layer(
     return False, None
 
 
-# Ordered list of all rules.  Evaluated top-to-bottom; first rejection wins.
+# Ordered list of all per-technique rules.  Evaluated top-to-bottom; first rejection wins.
 _ALL_RULES = [
     _rule_supply_chain_mismatch,
     _rule_entry_point_not_interactive,
@@ -785,6 +786,85 @@ _ALL_RULES = [
     _rule_preparatory_technique,
     _rule_technique_targets_wrong_layer,
 ]
+
+
+# --- Threat-level prerequisite rules ---
+#
+# These check whether a candidate's OWASP threat (threat_id) has zone or
+# capability prerequisites that the profile does not satisfy.  Unlike
+# per-technique rules, these operate at the candidate level and reject
+# the entire candidate regardless of technique.
+
+
+def _rule_threat_requires_zone(
+    threat_id: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """Reject if the profile is missing zones required by the threat.
+
+    Checks both ``required_zones`` (all must be present) and
+    ``required_zones_any`` (at least one must be present).
+    """
+    prereqs = THREAT_PREREQUISITES.get(threat_id)
+    if prereqs is None:
+        return False, None
+
+    active = set(profile.zones_active)
+
+    # AND semantics: all required_zones must be active
+    required = prereqs.get("required_zones", [])
+    missing = [z for z in required if z not in active]
+    if missing:
+        return True, (
+            f"Rejected: threat {threat_id} requires zone(s) "
+            f"{missing} but profile only has {sorted(active)}."
+        )
+
+    # OR semantics: at least one of required_zones_any must be active
+    any_of = prereqs.get("required_zones_any", [])
+    if any_of and not active.intersection(any_of):
+        return True, (
+            f"Rejected: threat {threat_id} requires at least one of "
+            f"zone(s) {any_of} but profile only has {sorted(active)}."
+        )
+
+    return False, None
+
+
+def _rule_threat_requires_capability(
+    threat_id: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """Reject if the profile is missing capabilities required by the threat."""
+    prereqs = THREAT_PREREQUISITES.get(threat_id)
+    if prereqs is None:
+        return False, None
+
+    required_caps = prereqs.get("required_capabilities", [])
+    if not required_caps:
+        return False, None
+
+    _CAP_GETTERS: dict[str, str] = {
+        "has_persistent_memory": "has_persistent_memory",
+        "multi_agent": "multi_agent",
+        "hitl": "hitl",
+    }
+
+    missing = []
+    for cap in required_caps:
+        attr = _CAP_GETTERS.get(cap)
+        if attr is None:
+            continue
+        if not getattr(profile, attr, False):
+            missing.append(cap)
+
+    if missing:
+        return True, (
+            f"Rejected: threat {threat_id} requires capability(ies) "
+            f"{missing} but profile does not have them."
+        )
+
+    return False, None
 
 
 # --- Rule-based filter orchestration ---
@@ -845,6 +925,24 @@ def apply_rule_based_filter(
     rejection_verdicts: list[FilterVerdict] = []
 
     for candidate in candidates:
+        # --- Threat-level prerequisite checks (reject entire candidate) ---
+        threat_reject, threat_rationale = _rule_threat_requires_zone(
+            candidate.threat_id, profile,
+        )
+        if not threat_reject:
+            threat_reject, threat_rationale = _rule_threat_requires_capability(
+                candidate.threat_id, profile,
+            )
+        if threat_reject:
+            rule_rejected.append(candidate)
+            rejection_verdicts.append(FilterVerdict(
+                entry_point=candidate.entry_point,
+                atlas_technique_ids=candidate.atlas_technique_ids,
+                verdict="reject",
+                rationale=threat_rationale or "Threat prerequisite not met.",
+            ))
+            continue
+
         direction = ep_direction.get(candidate.entry_point, "bidirectional")
         ctrl = ep_controllability.get(candidate.entry_point)
         ep_type = classify_entry_point(candidate.entry_point, direction, ctrl)

@@ -30,6 +30,8 @@ from scenario_forge.pipeline.candidates import (
     _rule_supply_chain_mismatch,
     _rule_technique_incompatible,
     _rule_technique_targets_wrong_layer,
+    _rule_threat_requires_capability,
+    _rule_threat_requires_zone,
     _rule_wrong_zone_direction,
     apply_rule_based_filter,
     cap_scenarios_per_pattern,
@@ -1359,3 +1361,494 @@ class TestApplyRuleBasedFilter:
         # T0054 requires direct access -> rejected.
         assert len(passed) == 0
         assert len(rejected) == 1
+
+
+# ---------------------------------------------------------------------------
+# Threat prerequisite rule unit tests
+# ---------------------------------------------------------------------------
+
+
+def _make_zoned_profile(
+    zones: list[str],
+    has_persistent_memory: bool = False,
+    multi_agent: bool = False,
+    hitl: bool = False,
+) -> CapabilityProfile:
+    """Build a CapabilityProfile with specific zones and capability flags."""
+    return CapabilityProfile(
+        zones_active=zones,
+        has_persistent_memory=has_persistent_memory,
+        multi_agent=multi_agent,
+        hitl=hitl,
+        entry_points=["user prompts (input)"],
+        confidence=ConfidenceLevel.high,
+    )
+
+
+class TestRuleThreatRequiresZone:
+    """_rule_threat_requires_zone checks threat-level zone prerequisites."""
+
+    # -- T1 Memory Poisoning: requires memory zone --
+
+    def test_t1_without_memory_zone_rejected(self):
+        """T1 (Memory Poisoning) requires memory zone; rejected without it."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_zone("T1", profile)
+        assert reject is True
+        assert "memory" in rationale
+
+    def test_t1_with_memory_zone_passes(self):
+        """T1 passes when memory zone is active."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning", "memory"],
+            has_persistent_memory=True,
+        )
+        reject, _ = _rule_threat_requires_zone("T1", profile)
+        assert reject is False
+
+    # -- T2 Tool Misuse: requires tool_execution zone --
+
+    def test_t2_without_tool_execution_rejected(self):
+        """T2 (Tool Misuse) requires tool_execution zone."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_zone("T2", profile)
+        assert reject is True
+        assert "tool_execution" in rationale
+
+    def test_t2_with_tool_execution_passes(self):
+        """T2 passes when tool_execution zone is active."""
+        profile = _make_zoned_profile(["input", "reasoning", "tool_execution"])
+        reject, _ = _rule_threat_requires_zone("T2", profile)
+        assert reject is False
+
+    # -- T3 Privilege Compromise: requires tool_execution zone --
+
+    def test_t3_without_tool_execution_rejected(self):
+        """T3 (Privilege Compromise) requires tool_execution zone."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_zone("T3", profile)
+        assert reject is True
+        assert "tool_execution" in rationale
+
+    # -- T5 Cascading Hallucination: requires any of memory/tool_execution/inter_agent --
+
+    def test_t5_without_any_propagation_zone_rejected(self):
+        """T5 requires at least one propagation zone; rejected without any."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_zone("T5", profile)
+        assert reject is True
+        assert "at least one of" in rationale
+
+    def test_t5_with_memory_zone_passes(self):
+        """T5 passes with memory zone (hallucinations persist across sessions)."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning", "memory"],
+            has_persistent_memory=True,
+        )
+        reject, _ = _rule_threat_requires_zone("T5", profile)
+        assert reject is False
+
+    def test_t5_with_tool_execution_passes(self):
+        """T5 passes with tool_execution (hallucinations cause real-world actions)."""
+        profile = _make_zoned_profile(["input", "reasoning", "tool_execution"])
+        reject, _ = _rule_threat_requires_zone("T5", profile)
+        assert reject is False
+
+    def test_t5_with_inter_agent_passes(self):
+        """T5 passes with inter_agent (hallucinations spread to other agents)."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning", "inter_agent"],
+            multi_agent=True,
+        )
+        reject, _ = _rule_threat_requires_zone("T5", profile)
+        assert reject is False
+
+    # -- T9 Identity Spoofing: requires any of tool_execution/inter_agent --
+
+    def test_t9_without_tool_or_agent_rejected(self):
+        """T9 requires at least tool_execution or inter_agent."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_zone("T9", profile)
+        assert reject is True
+        assert "at least one of" in rationale
+
+    def test_t9_with_tool_execution_passes(self):
+        """T9 passes with tool_execution (agent has actionable identity)."""
+        profile = _make_zoned_profile(["input", "reasoning", "tool_execution"])
+        reject, _ = _rule_threat_requires_zone("T9", profile)
+        assert reject is False
+
+    # -- T11 Unexpected RCE: requires tool_execution zone --
+
+    def test_t11_without_tool_execution_rejected(self):
+        """T11 (Unexpected RCE) requires tool_execution zone."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_zone("T11", profile)
+        assert reject is True
+        assert "tool_execution" in rationale
+
+    # -- T12/T13/T14 Multi-agent threats: require inter_agent zone --
+
+    @pytest.mark.parametrize("threat_id", ["T12", "T13", "T14"])
+    def test_multi_agent_threats_without_inter_agent_rejected(self, threat_id: str):
+        """T12/T13/T14 require inter_agent zone."""
+        profile = _make_zoned_profile(["input", "reasoning", "tool_execution"])
+        reject, rationale = _rule_threat_requires_zone(threat_id, profile)
+        assert reject is True
+        assert "inter_agent" in rationale
+
+    @pytest.mark.parametrize("threat_id", ["T12", "T13", "T14"])
+    def test_multi_agent_threats_with_inter_agent_passes(self, threat_id: str):
+        """T12/T13/T14 pass with inter_agent zone."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning", "inter_agent"],
+            multi_agent=True,
+        )
+        reject, _ = _rule_threat_requires_zone(threat_id, profile)
+        assert reject is False
+
+    # -- T16 Protocol Abuse: requires any of tool_execution/inter_agent --
+
+    def test_t16_without_tool_or_agent_rejected(self):
+        """T16 requires at least tool_execution or inter_agent."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_zone("T16", profile)
+        assert reject is True
+        assert "at least one of" in rationale
+
+    def test_t16_with_inter_agent_passes(self):
+        """T16 passes with inter_agent (A2A protocol surface)."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning", "inter_agent"],
+            multi_agent=True,
+        )
+        reject, _ = _rule_threat_requires_zone("T16", profile)
+        assert reject is False
+
+    # -- Threats with no zone prerequisites pass unconditionally --
+
+    @pytest.mark.parametrize("threat_id", ["T4", "T6", "T7", "T8", "T15", "T17"])
+    def test_no_zone_prerequisite_threats_always_pass(self, threat_id: str):
+        """Threats with no zone prerequisites pass with minimal profile."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, _ = _rule_threat_requires_zone(threat_id, profile)
+        assert reject is False
+
+    # -- Unknown threat ID passes (no prerequisite data) --
+
+    def test_unknown_threat_id_passes(self):
+        """Unknown threat IDs pass (no prerequisite data to check)."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, _ = _rule_threat_requires_zone("T99", profile)
+        assert reject is False
+
+
+class TestRuleThreatRequiresCapability:
+    """_rule_threat_requires_capability checks threat-level capability prerequisites."""
+
+    # -- T1 Memory Poisoning: requires has_persistent_memory --
+
+    def test_t1_without_persistent_memory_rejected(self):
+        """T1 requires has_persistent_memory; rejected without it."""
+        # Test the capability check in isolation (zone check is separate)
+        profile_no_mem = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_capability("T1", profile_no_mem)
+        assert reject is True
+        assert "has_persistent_memory" in rationale
+
+    def test_t1_with_persistent_memory_passes(self):
+        """T1 passes when has_persistent_memory is true."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning", "memory"],
+            has_persistent_memory=True,
+        )
+        reject, _ = _rule_threat_requires_capability("T1", profile)
+        assert reject is False
+
+    # -- T10 Overwhelming HITL: requires hitl --
+
+    def test_t10_without_hitl_rejected(self):
+        """T10 requires hitl=true; rejected without it."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_capability("T10", profile)
+        assert reject is True
+        assert "hitl" in rationale
+
+    def test_t10_with_hitl_passes(self):
+        """T10 passes when hitl is true."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning"],
+            hitl=True,
+        )
+        reject, _ = _rule_threat_requires_capability("T10", profile)
+        assert reject is False
+
+    # -- T12/T13/T14 Multi-agent: requires multi_agent --
+
+    @pytest.mark.parametrize("threat_id", ["T12", "T13", "T14"])
+    def test_multi_agent_threats_without_multi_agent_rejected(self, threat_id: str):
+        """T12/T13/T14 require multi_agent capability."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, rationale = _rule_threat_requires_capability(threat_id, profile)
+        assert reject is True
+        assert "multi_agent" in rationale
+
+    @pytest.mark.parametrize("threat_id", ["T12", "T13", "T14"])
+    def test_multi_agent_threats_with_multi_agent_passes(self, threat_id: str):
+        """T12/T13/T14 pass with multi_agent capability."""
+        profile = _make_zoned_profile(
+            ["input", "reasoning", "inter_agent"],
+            multi_agent=True,
+        )
+        reject, _ = _rule_threat_requires_capability(threat_id, profile)
+        assert reject is False
+
+    # -- Threats with no capability prerequisites --
+
+    @pytest.mark.parametrize("threat_id", ["T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T11", "T15", "T16", "T17"])
+    def test_no_capability_prerequisite_threats_pass(self, threat_id: str):
+        """Threats with no capability prerequisites pass with minimal profile."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, _ = _rule_threat_requires_capability(threat_id, profile)
+        assert reject is False
+
+    # -- Unknown threat ID passes --
+
+    def test_unknown_threat_id_passes(self):
+        """Unknown threat IDs pass."""
+        profile = _make_zoned_profile(["input", "reasoning"])
+        reject, _ = _rule_threat_requires_capability("T99", profile)
+        assert reject is False
+
+
+# ---------------------------------------------------------------------------
+# Threat prerequisite integration with apply_rule_based_filter
+# ---------------------------------------------------------------------------
+
+
+def _make_threat_candidate(
+    threat_id: str = "T7",
+    entry_point: str = "user prompts (input)",
+    technique_ids: tuple[str, ...] = ("AML.T0051.000",),
+    seed_id: str = "AP-T7-01",
+) -> CandidateTriple:
+    """Build a CandidateTriple with a specific threat_id for prerequisite tests."""
+    return CandidateTriple(
+        seed_id=seed_id,
+        threat_id=threat_id,
+        threat_name=f"Threat {threat_id}",
+        attack_pattern_name=f"Pattern {seed_id}",
+        attack_pattern_description=f"Description for {seed_id}",
+        entry_point=entry_point,
+        atlas_technique_ids=technique_ids,
+        atlas_technique_names=tuple(f"Technique {t}" for t in technique_ids),
+        atlas_technique_descriptions=tuple(f"Desc {t}" for t in technique_ids),
+        risk_card_ref=_make_ref(),
+        owasp_llm_ids=["LLM01"],
+    )
+
+
+class TestApplyRuleBasedFilterThreatPrereqs:
+    """apply_rule_based_filter integration: threat prerequisite rules."""
+
+    def test_t1_candidate_rejected_without_memory(self):
+        """T1 candidate rejected when profile has no memory zone."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat", "direction": "input"},
+        ])
+        candidate = _make_threat_candidate(
+            threat_id="T1",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0051.000",),
+        )
+        passed, rejected, verdicts = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 0
+        assert len(rejected) == 1
+        assert "T1" in verdicts[0].rationale
+
+    def test_t2_candidate_rejected_without_tool_execution(self):
+        """T2 candidate rejected when profile has no tool_execution zone."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat", "direction": "input"},
+        ])
+        candidate = _make_threat_candidate(
+            threat_id="T2",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0053",),
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 0
+        assert len(rejected) == 1
+
+    def test_t2_candidate_passes_with_tool_execution(self):
+        """T2 candidate passes when profile has tool_execution zone."""
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                {"name": "user prompts via chat", "direction": "input"},
+            ],
+            confidence=ConfidenceLevel.high,
+        )
+        candidate = _make_threat_candidate(
+            threat_id="T2",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0053",),
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 1
+        assert len(rejected) == 0
+
+    def test_t10_candidate_rejected_without_hitl(self):
+        """T10 candidate rejected when profile has hitl=false."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat", "direction": "input"},
+        ])
+        candidate = _make_threat_candidate(
+            threat_id="T10",
+            entry_point="user prompts via chat",
+        )
+        passed, rejected, verdicts = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 0
+        assert len(rejected) == 1
+        assert "hitl" in verdicts[0].rationale
+
+    def test_t10_candidate_passes_with_hitl(self):
+        """T10 candidate passes when profile has hitl=true."""
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=True,
+            entry_points=[
+                {"name": "user prompts via chat", "direction": "input"},
+            ],
+            confidence=ConfidenceLevel.high,
+        )
+        candidate = _make_threat_candidate(
+            threat_id="T10",
+            entry_point="user prompts via chat",
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 1
+        assert len(rejected) == 0
+
+    def test_t12_candidate_rejected_without_multi_agent(self):
+        """T12 candidate rejected without inter_agent zone and multi_agent flag."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat", "direction": "input"},
+        ])
+        candidate = _make_threat_candidate(
+            threat_id="T12",
+            entry_point="user prompts via chat",
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 0
+        assert len(rejected) == 1
+
+    def test_t5_cascade_rejected_without_propagation_zone(self):
+        """T5 candidate rejected when profile has only input+reasoning."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat", "direction": "input"},
+        ])
+        candidate = _make_threat_candidate(
+            threat_id="T5",
+            entry_point="user prompts via chat",
+        )
+        passed, rejected, verdicts = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 0
+        assert len(rejected) == 1
+        assert "at least one of" in verdicts[0].rationale
+
+    def test_t5_cascade_passes_with_tool_execution(self):
+        """T5 candidate passes with tool_execution zone."""
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                {"name": "user prompts via chat", "direction": "input"},
+            ],
+            confidence=ConfidenceLevel.high,
+        )
+        candidate = _make_threat_candidate(
+            threat_id="T5",
+            entry_point="user prompts via chat",
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 1
+        assert len(rejected) == 0
+
+    def test_threat_prereq_rejects_before_technique_rules(self):
+        """Threat-level rejection occurs before per-technique rules are checked."""
+        # T1 requires memory zone. Even with a perfectly valid technique+EP combo,
+        # the candidate should be rejected at the threat level.
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat", "direction": "input"},
+        ])
+        candidate = _make_threat_candidate(
+            threat_id="T1",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0051.000",),  # valid on direct EP
+        )
+        passed, rejected, verdicts = apply_rule_based_filter([candidate], profile)
+        assert len(passed) == 0
+        assert len(rejected) == 1
+        # Rationale should mention the threat-level check, not a technique-level one
+        assert "T1" in verdicts[0].rationale
+        assert "memory" in verdicts[0].rationale
+
+    def test_no_prereq_threats_pass_normally(self):
+        """Threats with no prerequisites (T6, T7, etc.) pass through to technique rules."""
+        profile = _make_directed_profile([
+            {"name": "user prompts via chat", "direction": "input"},
+        ])
+        candidate = _make_threat_candidate(
+            threat_id="T7",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0051.000",),
+        )
+        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        # T7 has no zone/capability prereqs, and T0051.000 on direct EP is valid
+        assert len(passed) == 1
+        assert len(rejected) == 0
+
+    def test_mixed_threats_some_rejected_some_pass(self):
+        """Multiple candidates with different threats: only impossible ones rejected."""
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                {"name": "user prompts via chat", "direction": "input"},
+            ],
+            confidence=ConfidenceLevel.high,
+        )
+        t2_ok = _make_threat_candidate(
+            threat_id="T2",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0053",),
+            seed_id="AP-T2-01",
+        )
+        t12_bad = _make_threat_candidate(
+            threat_id="T12",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0051.000",),
+            seed_id="AP-T12-01",
+        )
+        t7_ok = _make_threat_candidate(
+            threat_id="T7",
+            entry_point="user prompts via chat",
+            technique_ids=("AML.T0051.000",),
+            seed_id="AP-T7-01",
+        )
+        passed, rejected, _ = apply_rule_based_filter(
+            [t2_ok, t12_bad, t7_ok], profile,
+        )
+        assert len(passed) == 2
+        assert len(rejected) == 1
+        assert rejected[0].threat_id == "T12"
