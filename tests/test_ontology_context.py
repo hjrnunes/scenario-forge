@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from scenario_forge.pipeline.generate import _build_ontology_context
+from scenario_forge.pipeline.generate import (
+    _build_ontology_context,
+    _lookup_entry_point_controllability,
+)
 
 
 class TestBuildOntologyContext:
@@ -134,3 +137,161 @@ class TestBuildOntologyContext:
         )
         assert "### Pinned Entry Point" in result
         assert "## Ontology Context" in result
+
+    def test_entry_point_with_controllability(self):
+        """Controllability appears in the pinned entry point line."""
+        result = _build_ontology_context(
+            entry_point_name="RAG knowledge-grounding system",
+            entry_point_direction="input",
+            zones=["input", "reasoning"],
+            technique_ids=[],
+            entry_point_controllability="indirect",
+        )
+        assert "RAG knowledge-grounding system" in result
+        assert "(direction: input, controllability: indirect)" in result
+
+    def test_entry_point_controllability_without_direction(self):
+        """Controllability renders alone when direction is None."""
+        result = _build_ontology_context(
+            entry_point_name="internal API",
+            entry_point_direction=None,
+            zones=["input"],
+            technique_ids=[],
+            entry_point_controllability="system",
+        )
+        assert "internal API" in result
+        assert "(controllability: system)" in result
+        assert "direction" not in result
+
+    def test_entry_point_controllability_none_omitted(self):
+        """When controllability is None, no controllability label appears."""
+        result = _build_ontology_context(
+            entry_point_name="chat interface",
+            entry_point_direction="input",
+            zones=["input"],
+            technique_ids=[],
+            entry_point_controllability=None,
+        )
+        assert "(direction: input)" in result
+        assert "controllability" not in result
+
+    def test_entry_point_direction_and_controllability_both_none(self):
+        """When both direction and controllability are None, no qualifier appears."""
+        result = _build_ontology_context(
+            entry_point_name="some endpoint",
+            entry_point_direction=None,
+            zones=["input"],
+            technique_ids=[],
+            entry_point_controllability=None,
+        )
+        assert "- some endpoint\n" in result
+        assert "(" not in result.split("### Pinned Entry Point")[1].split("\n")[1]
+
+    def test_controllability_direct(self):
+        """Direct controllability renders correctly."""
+        result = _build_ontology_context(
+            entry_point_name="user prompts via chat",
+            entry_point_direction="input",
+            zones=["input"],
+            technique_ids=[],
+            entry_point_controllability="direct",
+        )
+        assert "controllability: direct" in result
+
+
+class TestLookupEntryPointControllability:
+    """Tests for _lookup_entry_point_controllability."""
+
+    def test_returns_controllability_when_found(self):
+        """Returns the controllability string for a matching entry point."""
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            EntryPoint,
+        )
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(
+                    name="RAG knowledge-grounding system",
+                    direction="input",
+                    controllability="indirect",
+                ),
+            ],
+            kc_subcodes=[],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            confidence="medium",
+        )
+        result = _lookup_entry_point_controllability(
+            profile, "RAG knowledge-grounding system"
+        )
+        assert result == "indirect"
+
+    def test_returns_none_for_none_name(self):
+        """Returns None when entry_point_name is None."""
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            EntryPoint,
+        )
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(name="placeholder", direction="input"),
+            ],
+            kc_subcodes=[],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            confidence="medium",
+        )
+        result = _lookup_entry_point_controllability(profile, None)
+        assert result is None
+
+    def test_returns_none_for_missing_entry_point(self):
+        """Returns None when the entry point is not in the profile."""
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            EntryPoint,
+        )
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(name="placeholder", direction="input"),
+            ],
+            kc_subcodes=[],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            confidence="medium",
+        )
+        result = _lookup_entry_point_controllability(profile, "nonexistent")
+        assert result is None
+
+    def test_returns_none_controllability_when_field_is_none(self):
+        """Returns None when entry point exists but controllability is None."""
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            EntryPoint,
+        )
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(
+                    name="chat interface",
+                    direction="input",
+                    controllability=None,
+                ),
+            ],
+            kc_subcodes=[],
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            confidence="medium",
+        )
+        result = _lookup_entry_point_controllability(profile, "chat interface")
+        assert result is None

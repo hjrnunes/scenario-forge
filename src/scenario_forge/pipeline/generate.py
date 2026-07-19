@@ -92,6 +92,28 @@ def _lookup_entry_point_direction(
     )
     return None
 
+
+def _lookup_entry_point_controllability(
+    profile: CapabilityProfile,
+    entry_point_name: str | None,
+) -> str | None:
+    """Look up the controllability for a named entry point in the capability profile.
+
+    Returns the controllability string ('direct', 'indirect', or 'system'),
+    or ``None`` if *entry_point_name* is ``None`` or not found in the profile.
+    """
+    if entry_point_name is None:
+        return None
+    for ep in profile.entry_points:
+        if ep.name == entry_point_name:
+            return ep.controllability
+    logger.warning(
+        "Entry point '%s' not found in profile entry_points; "
+        "controllability lookup returning None",
+        entry_point_name,
+    )
+    return None
+
 # ---------------------------------------------------------------------------
 # Canonical threat_id -> violation category tag mapping
 # Source of truth: call3_system.j2 lines 88-108.
@@ -1316,6 +1338,7 @@ def _build_ontology_context(
     entry_point_direction: str | None,
     zones: list[str],
     technique_ids: list[str],
+    entry_point_controllability: str | None = None,
 ) -> str:
     """Build a focused ontology context block for LLM prompts.
 
@@ -1337,8 +1360,13 @@ def _build_ontology_context(
     # -- Entry point section --
     lines.append("")
     lines.append("### Pinned Entry Point")
-    direction_label = f" (direction: {entry_point_direction})" if entry_point_direction else ""
-    lines.append(f"- {entry_point_name}{direction_label}")
+    qualifiers: list[str] = []
+    if entry_point_direction:
+        qualifiers.append(f"direction: {entry_point_direction}")
+    if entry_point_controllability:
+        qualifiers.append(f"controllability: {entry_point_controllability}")
+    qualifier_label = f" ({', '.join(qualifiers)})" if qualifiers else ""
+    lines.append(f"- {entry_point_name}{qualifier_label}")
 
     # -- Active zones section --
     if zones:
@@ -2268,8 +2296,11 @@ def _call_actor_profile(
     # Compute technique count for BDI parsimony (intention budget)
     pinned_technique_count = len(pinned_technique_ids) if pinned_technique_ids else 1
 
-    # Look up entry point direction from the capability profile
+    # Look up entry point direction and controllability from the capability profile
     pinned_entry_point_direction = _lookup_entry_point_direction(
+        profile, pinned_entry_point
+    )
+    pinned_entry_point_controllability = _lookup_entry_point_controllability(
         profile, pinned_entry_point
     )
 
@@ -2282,6 +2313,7 @@ def _call_actor_profile(
         entry_point_direction=pinned_entry_point_direction,
         zones=profile.zones_active,
         technique_ids=list(tech_ids_for_context) if tech_ids_for_context else [],
+        entry_point_controllability=pinned_entry_point_controllability,
     )
 
     user_prompt = render_prompt(
@@ -2436,8 +2468,11 @@ def _call_narrative(
 
     owasp_llm_formatted = _format_taxonomy_ids(seed.owasp_llm_ids, _OWASP_LLM_NAMES)
 
-    # Look up entry point direction from the capability profile
+    # Look up entry point direction and controllability from the capability profile
     pinned_entry_point_direction = _lookup_entry_point_direction(
+        profile, pinned_entry_point
+    )
+    pinned_entry_point_controllability = _lookup_entry_point_controllability(
         profile, pinned_entry_point
     )
 
@@ -2450,6 +2485,7 @@ def _call_narrative(
         entry_point_direction=pinned_entry_point_direction,
         zones=profile.zones_active,
         technique_ids=list(tech_ids_for_narrative) if tech_ids_for_narrative else [],
+        entry_point_controllability=pinned_entry_point_controllability,
     )
 
     user_prompt = render_prompt(
@@ -2690,11 +2726,15 @@ def _call_attack_tree(
     _tree_ep_direction = _lookup_entry_point_direction(
         profile, narrative.entry_point
     ) if profile else None
+    _tree_ep_controllability = _lookup_entry_point_controllability(
+        profile, narrative.entry_point
+    ) if profile else None
     ontology_context = _build_ontology_context(
         entry_point_name=narrative.entry_point or "",
         entry_point_direction=_tree_ep_direction,
         zones=profile.zones_active if profile else [],
         technique_ids=list(tech_ids_for_tree) if tech_ids_for_tree else [],
+        entry_point_controllability=_tree_ep_controllability,
     )
 
     user_prompt = render_prompt(
