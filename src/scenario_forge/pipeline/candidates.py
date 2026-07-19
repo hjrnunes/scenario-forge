@@ -522,12 +522,15 @@ def classify_entry_point(
 ) -> str:
     """Classify an entry point as 'direct', 'indirect', or 'system'.
 
-    When *controllability* is provided (not None), it is returned directly
-    -- the capability profile already carries an explicit classification
-    and the keyword heuristic is skipped.
+    When *controllability* is provided (not None), it is used — with one
+    safety override: ``"system"`` is downgraded to ``"indirect"`` when
+    *direction* is not ``"output"``, because a non-output direction means
+    data flows in through this entry point and the attacker can influence
+    it at least indirectly (e.g. backend API calls triggered by user
+    requests).
 
-    Otherwise, falls back to a keyword heuristic on the entry point name,
-    refined by the direction tag from the capability profile.
+    When *controllability* is None, falls back to a keyword heuristic on
+    the entry point name, refined by the direction tag:
 
     - Bidirectional entry points are always ``"direct"`` (attacker has
       full interactive access).
@@ -542,13 +545,21 @@ def classify_entry_point(
         entry_point_name: Human-readable entry point name.
         direction: Data flow direction (``"input"``, ``"output"``, ``"bidirectional"``).
         controllability: Explicit controllability from the capability profile.
-            When not None, returned as-is (bypasses heuristic).
+            When not None, used directly (bypasses heuristic) unless the
+            ``"system"`` / non-output override applies.
 
     Returns:
         One of ``"direct"``, ``"indirect"``, ``"system"``.
     """
-    # Use explicit controllability when available.
+    # Use explicit controllability when available — but override "system"
+    # when the direction indicates an attacker-accessible ingress path.
+    # A non-output direction means data flows in through this entry point,
+    # so the attacker can influence it at least indirectly (e.g. backend API
+    # calls triggered by user requests).  "system" should only apply to
+    # entry points the attacker has zero ability to influence.
     if controllability is not None:
+        if controllability == "system" and direction != "output":
+            return "indirect"
         return controllability
 
     if direction == "output":

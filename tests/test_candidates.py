@@ -773,9 +773,15 @@ class TestClassifyEntryPointExplicitControllability:
         """Explicit controllability='indirect' is returned even for user-like name."""
         assert classify_entry_point("user prompts via chat", "input", "indirect") == "indirect"
 
-    def test_explicit_system_bypasses_heuristic(self):
-        """Explicit controllability='system' overrides direction heuristic."""
-        assert classify_entry_point("user prompts", "bidirectional", "system") == "system"
+    def test_explicit_system_downgraded_for_non_output(self):
+        """Explicit controllability='system' is downgraded to 'indirect' when
+        direction is not 'output' — the attacker can influence data through
+        a non-output ingress path."""
+        assert classify_entry_point("user prompts", "bidirectional", "system") == "indirect"
+
+    def test_explicit_system_preserved_for_output(self):
+        """Explicit controllability='system' is preserved when direction is 'output'."""
+        assert classify_entry_point("user prompts", "output", "system") == "system"
 
     def test_explicit_direct_overrides_output_direction(self):
         """Explicit controllability overrides even output direction."""
