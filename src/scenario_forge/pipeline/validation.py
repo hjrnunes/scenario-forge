@@ -39,6 +39,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Valid OWASP Agentic Threat IDs: T1 through T17.
+_VALID_THREAT_IDS: frozenset[str] = frozenset(f"T{i}" for i in range(1, 18))
+
 
 # ---------------------------------------------------------------------------
 # Violation data structures
@@ -848,11 +851,28 @@ def _check_tree_threat_ids(
     expected_threat: str,
     violations: list,
 ) -> None:
-    """Recursively check threat_id on tree nodes against expected value."""
-    # Note: per decision-t6-crossref-policy, per-node threat_id reflects
-    # mechanism, not scenario-level threat. We only flag when a threat_id
-    # is present and doesn't match ANY known pattern (i.e. is clearly wrong).
-    # This is intentionally lenient to avoid false positives.
+    """Recursively check threat_id on tree nodes against valid range.
+
+    Per ``decision-t6-crossref-policy``, per-node ``threat_id`` may reflect
+    the mechanism rather than the scenario-level threat.  This check therefore
+    validates **range** (is it a real OWASP threat in T1-T17?) rather than
+    requiring a match to *expected_threat*.
+    """
+    from scenario_forge.models.scenario import SemanticViolation
+
+    tid = node.threat_id
+    if tid is not None and tid not in _VALID_THREAT_IDS:
+        violations.append(
+            SemanticViolation(
+                rule="threat_id_range",
+                message=(
+                    f"Node '{node.id}' has invalid threat_id '{tid}'; "
+                    f"valid range is T1-T17"
+                ),
+                severity="major",
+            )
+        )
+
     if node.children:
         for child in node.children:
             _check_tree_threat_ids(child, expected_threat, violations)
