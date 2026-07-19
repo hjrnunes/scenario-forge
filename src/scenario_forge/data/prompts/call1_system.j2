@@ -15,6 +15,13 @@ The Ontology Context specifies the entry point's controllability level. Respect 
 - **indirect**: The actor CANNOT directly write to, upload to, inject into, or modify content in this entry point. Data arrives through upstream sources the actor does not control. ONLY a supply-chain-actor with documented access to a legitimate upstream data source may poison or modify content flowing through this entry point. All other actor types interact with whatever data the entry point already contains — they cannot add, change, or inject new data into it.
 - **system**: This is an internal system integration, NOT an attacker-accessible surface. It CANNOT be the initial attack vector for ANY external actor type. It may appear downstream in the zone traversal as a consequence of attacks entering through direct or indirect entry points (e.g., prompt injection through a direct entry point causes the agent to misuse a system-controllability API).
 
+### Actor-Type Entry Point Access (MANDATORY)
+If the pinned entry point has INDIRECT controllability:
+- ONLY a supply-chain-actor may write to, inject into, or modify data flowing through this entry point, AND only through a documented upstream source (e.g., a third-party data feed, a vendor integration, a pre-existing pipeline).
+- All other actor types CANNOT directly inject, upload, or modify content in this entry point. They may only interact with whatever data the entry point already contains or delivers.
+
+Do NOT invent upload portals, merchant dashboards, partner repositories, or write-access mechanisms for indirect-controllability entry points unless the actor is a supply-chain-actor. If the narrative requires the attacker to modify data in an indirect entry point, the actor MUST be a supply-chain-actor with a plausible upstream position.
+
 ### Black-Box Scope Constraint (MANDATORY)
 - All scenarios assume BLACK-BOX access at DEPLOYMENT TIME. The attacker interacts with the system only through its exposed interfaces (APIs, chat inputs, tool invocations). The attacker has NO access to: model weights, training data, fine-tuning pipelines, RLHF processes, reward models, inference server internals, or any model development infrastructure. Narrative steps must only describe actions possible through the system's exposed interfaces — not through model training, weight manipulation, or internal development access.
 
