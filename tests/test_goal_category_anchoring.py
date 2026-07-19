@@ -172,8 +172,21 @@ class TestT15Exclusions:
         result_ids = {g["id"] for g in result}
         assert "AB-5" in result_ids
 
-    def test_non_t15_keeps_ab8_ab9(self):
-        """Other threats should NOT exclude AB-8 or AB-9."""
+    def test_non_t15_keeps_ab8_ab9_with_audit(self):
+        """Other threats with KCX-AUDIT should keep AB-8 and AB-9."""
+        goals = _make_sub_goals_with_ids("AB-8", "AB-9", "PR-1")
+        result = compute_compatible_goal_ids(
+            threat_id="T7",
+            sub_goals=goals,
+            zones_active=["input", "reasoning", "output", "tool_execution"],
+            kc_subcodes=["KCX-AUDIT"],
+        )
+        result_ids = {g["id"] for g in result}
+        assert "AB-8" in result_ids
+        assert "AB-9" in result_ids
+
+    def test_non_t15_excludes_ab8_without_audit(self):
+        """Other threats without KCX-AUDIT should still exclude AB-8 (el87)."""
         goals = _make_sub_goals_with_ids("AB-8", "AB-9", "PR-1")
         result = compute_compatible_goal_ids(
             threat_id="T7",
@@ -181,7 +194,7 @@ class TestT15Exclusions:
             zones_active=["input", "reasoning", "output", "tool_execution"],
         )
         result_ids = {g["id"] for g in result}
-        assert "AB-8" in result_ids
+        assert "AB-8" not in result_ids
         assert "AB-9" in result_ids
 
 
@@ -194,12 +207,13 @@ class TestNonAffectedThreats:
     """Threats not in exclusion rules keep their full sub-goal pools."""
 
     def test_t2_pool_without_excluded_ids(self):
-        """T2 keeps non-AB-1 goals untouched."""
+        """T2 keeps non-AB-1 goals untouched (with KCX-AUDIT for AB-8)."""
         goals = _make_sub_goals_with_ids("IN-2", "AB-2", "AB-8", "AB-9", "PR-1")
         result = compute_compatible_goal_ids(
             threat_id="T2",
             sub_goals=goals,
             zones_active=["input", "reasoning", "output", "tool_execution"],
+            kc_subcodes=["KCX-AUDIT"],
         )
         assert len(result) == len(goals)
 
@@ -218,6 +232,7 @@ class TestNonAffectedThreats:
             threat_id=None,
             sub_goals=goals,
             zones_active=["input", "reasoning", "output", "tool_execution"],
+            kc_subcodes=["KCX-AUDIT"],
         )
         assert len(result) == len(goals)
 

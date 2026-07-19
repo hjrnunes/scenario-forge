@@ -253,6 +253,32 @@ _SESSION_INTROSPECTION_PATTERNS = [
     ]
 ]
 
+# API response fabrication: scenarios assume backend APIs return data types
+# not described in the profile — system metadata, prompt fragments,
+# model configuration, internal system information.  The phantom tool
+# invocation checker validates API *name* existence but not *return data*;
+# this pattern catches fabricated return payloads.
+_API_RESPONSE_FABRICATION_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bsystem\s+metadata\b",
+        r"\bsystem[- ]level\s+metadata\b",
+        r"\binternal\s+system\s+information\b",
+        r"\bprompt\s+fragments?\b",
+        r"\bsystem\s+prompt\s+(?:content|text|fragment|data|detail)\b",
+        r"\bmodel\s+configuration\b",
+        r"\bmodel\s+weights?\b",
+        r"\btraining\s+data\b",
+        r"\bmodel\s+parameters?\b[^.]{0,30}\b(?:expos|leak|extract|access|retriev|obtain|return)",
+        r"\b(?:expos|leak|extract|access|retriev|obtain|return)\w*\b[^.]{0,30}\bmodel\s+parameters?\b",
+        r"\binternal\s+(?:configuration|state|architecture)\s+(?:data|detail|information)\b",
+        r"\b(?:retriev|extract|obtain|access|return|expos|leak|disclos)\w*\b[^.]{0,30}\bsystem\s+(?:internals?|metadata)\b",
+        r"\b(?:retriev|extract|obtain|access|return|expos|leak|disclos)\w*\b[^.]{0,30}\bprompt\s+(?:template|fragment|content)\b",
+        r"\binfrastructure\s+(?:metadata|configuration|detail)\b",
+        r"\braw\s+(?:system|model|infrastructure)\s+(?:data|state|configuration)\b",
+    ]
+]
+
 
 # ---------------------------------------------------------------------------
 # Detection helpers
@@ -392,24 +418,17 @@ def _check_session_introspection(
 ) -> str | None:
     """Return a match string if text references phantom session introspection.
 
-    Session introspection is phantom when the profile doesn't include
-    capabilities that handle raw infrastructure credentials (KC6.1.2 or
-    KC6.1.3 = extensive API access, or entry points mentioning API/HTTP).
-    Agents don't have access to their own session tokens, API
-    authorization headers, or bearer tokens — the platform handles
-    authentication transparently.
-    """
-    api_kc = any(
-        code.startswith("KC6.1.2") or code.startswith("KC6.1.3")
-        for code in profile.kc_subcodes
-    )
-    api_entry = any(
-        "api" in ep.name.lower() or "http" in ep.name.lower()
-        for ep in profile.entry_points
-    )
-    if api_kc or api_entry:
-        return None
+    Session introspection is ALWAYS phantom — agents never have access to
+    their own session tokens, API authorization headers, or bearer tokens.
+    The platform handles authentication transparently; even systems with
+    KC6.1.2 (extensive API access) or API entry points use opaque
+    credentials managed by the infrastructure, not by the LLM itself.
 
+    Previously this check was suppressed when KC6.1.2 / KC6.1.3 was
+    present or an entry point contained "api", conflating "the system
+    calls APIs" with "the LLM can access auth tokens."  That suppression
+    was removed — the check now always fires (el87).
+    """
     for pattern in _SESSION_INTROSPECTION_PATTERNS:
         m = pattern.search(text)
         if m:
@@ -433,6 +452,28 @@ def _check_audit_monitoring_write(
     # add suppression logic here.
 
     for pattern in _AUDIT_MONITORING_WRITE_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
+def _check_api_response_fabrication(
+    text: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return a match string if text assumes APIs return fabricated data types.
+
+    Scenarios sometimes assume that backend APIs return data types not
+    described in the profile — system metadata, prompt fragments, model
+    configuration, internal system information.  The phantom tool
+    invocation checker validates API *name* existence but not *return
+    data*; this check catches fabricated return payloads.
+
+    Always fires regardless of profile — no KC subcode grants access to
+    system internals via normal API responses.
+    """
+    for pattern in _API_RESPONSE_FABRICATION_PATTERNS:
         m = pattern.search(text)
         if m:
             return m.group(0)
@@ -593,11 +634,28 @@ _CHECKERS = [
     (
         "session_introspection",
         _check_session_introspection,
-        "Profile lacks KC6.1.2/KC6.1.3 (extensive API access) and no "
-        "API/HTTP entry points — agents cannot introspect their own "
-        "session tokens, API authorization headers, or bearer tokens.",
+        "Agents never have access to their own session tokens, API "
+        "authorization headers, or bearer tokens — the platform handles "
+        "authentication transparently.",
+    ),
+    (
+        "api_response_fabrication",
+        _check_api_response_fabrication,
+        "Scenario assumes APIs return data types not in the profile — "
+        "system metadata, prompt fragments, model configuration, or "
+        "internal system information are not returned by normal API "
+        "endpoints.",
     ),
 ]
+
+
+def _collect_node_labels(node: AttackTreeNode) -> list[str]:
+    """Recursively collect all labels from an attack tree."""
+    labels = [node.label]
+    if node.children:
+        for child in node.children:
+            labels.extend(_collect_node_labels(child))
+    return labels
 
 
 def validate_phantom_capabilities(
@@ -606,10 +664,10 @@ def validate_phantom_capabilities(
 ) -> ValidationResult:
     """Validate scenarios against the capability profile for phantom capabilities.
 
-    Examines each scenario's narrative steps (action and effect fields) and
-    the Gherkin behavior_spec text, flagging scenarios whose content
-    references capabilities the system doesn't possess according to the
-    profile.
+    Examines each scenario's narrative steps (action and effect fields),
+    attack tree node labels, and the Gherkin behavior_spec text, flagging
+    scenarios whose content references capabilities the system doesn't
+    possess according to the profile.
 
     Returns a ``ValidationResult`` with valid and flagged scenarios.
     Also populates ``scenario.validation.phantom`` on each scenario
@@ -636,6 +694,22 @@ def validate_phantom_capabilities(
                             PhantomViolation(
                                 step_number=step.step_number,
                                 field=field_name,
+                                category=category,
+                                matched_text=matched,
+                                reason=reason,
+                            )
+                        )
+
+        # Also check attack tree node labels
+        if scenario.attack_tree and scenario.attack_tree.root:
+            for label in _collect_node_labels(scenario.attack_tree.root):
+                for category, checker, reason in _CHECKERS:
+                    matched = checker(label, profile)
+                    if matched is not None:
+                        violations.append(
+                            PhantomViolation(
+                                step_number=0,
+                                field="attack_tree",
                                 category=category,
                                 matched_text=matched,
                                 reason=reason,

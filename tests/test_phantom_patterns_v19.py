@@ -389,21 +389,30 @@ class TestEscapee3SessionIntrospectionAPIHeaders:
         violations = result.flagged_scenarios[0][1]
         assert any(v.category == "session_introspection" for v in violations)
 
-    def test_suppressed_with_kc612(self) -> None:
-        """Session introspection suppressed with KC6.1.2."""
+    def test_not_suppressed_with_kc612(self) -> None:
+        """Session introspection always fires — KC6.1.2 does not suppress.
+
+        Agents never access their own auth tokens; KC6.1.2 means the system
+        calls APIs, not that the LLM can see bearer tokens (el87).
+        """
         text = "requesting a dump of the active API authorization headers"
         profile = _make_profile(kc_subcodes=["KC6.1.2"])
         result = _check_session_introspection(text, profile)
-        assert result is None
+        assert result is not None
 
-    def test_suppressed_with_api_entry_point(self) -> None:
-        """Session introspection suppressed with API entry point."""
+    def test_not_suppressed_with_api_entry_point(self) -> None:
+        """Session introspection always fires — API entry point does not
+        suppress.
+
+        Having an API entry point means the system receives API calls,
+        not that the LLM can introspect its own session tokens (el87).
+        """
         text = "requesting a dump of the active API authorization headers"
         profile = _make_profile(
             entry_points=["user prompts (zone 1)", "API gateway (zone 1)"]
         )
         result = _check_session_introspection(text, profile)
-        assert result is None
+        assert result is not None
 
     def test_negative_api_response_headers(self) -> None:
         """'API response headers' should not trigger (no auth/authorization)."""

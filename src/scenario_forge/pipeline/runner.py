@@ -347,6 +347,7 @@ def _remediate_coverage_gaps(
                 threat_id=seed.threat_id,
                 sub_goals=available_goals,
                 zones_active=profile.zones_active,
+                kc_subcodes=profile.kc_subcodes,
             )
             try:
                 selected_goal = select_attack_goal(
@@ -733,6 +734,7 @@ def run_pipeline(
                 threat_id=fseed.threat_id,
                 sub_goals=available_goals,
                 zones_active=profile.zones_active,
+                kc_subcodes=profile.kc_subcodes,
             )
             try:
                 selected_goal = select_attack_goal(
