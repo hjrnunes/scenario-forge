@@ -1244,6 +1244,84 @@ def _build_attack_goal_context_block(sub_goal: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Goal-category seed anchoring constraint (i7q8)
+# ---------------------------------------------------------------------------
+
+# Threat-specific sub-goal exclusions.  These goals are structurally
+# implausible for the given threat regardless of system capabilities.
+_THREAT_GOAL_EXCLUSIONS: dict[str, set[str]] = {
+    "T15": {"AB-8", "AB-9"},  # Human Manipulation: no evidence destruction or resource hijack
+}
+
+
+def compute_compatible_goal_ids(
+    threat_id: str | None,
+    sub_goals: list[dict[str, Any]],
+    zones_active: list[str],
+) -> list[dict[str, Any]]:
+    """Narrow the sub-goal pool with architectural and threat-specific exclusions.
+
+    Applied AFTER the zone-based ``filter_sub_goals_by_zones()`` and BEFORE
+    ``select_attack_goal()``.  This is a sub-goal-level refinement on top of
+    the parent-level threat-goal affinity filtering.
+
+    Architectural exclusions:
+    - IN-2 (Disinformation Propagation): excluded when "output" not in zones_active
+    - AB-2 (Malware Generation / Distribution): excluded when no code generation
+      capability — heuristic: "tool_execution" not in zones_active
+
+    Threat-specific exclusions:
+    - T15: excludes AB-8 (Evidence Destruction) and AB-9 (Resource Hijacking)
+
+    Args:
+        threat_id: OWASP Agentic Threat ID (e.g. 'T15'), or None.
+        sub_goals: Pre-filtered list of available sub-goals (from zone filtering).
+        zones_active: Active zones from the capability profile.
+
+    Returns:
+        Filtered list of sub-goals. Never empty if input was non-empty
+        (falls back to original list if all would be excluded).
+    """
+    if not sub_goals:
+        return sub_goals
+
+    active_set = set(zones_active)
+    excluded_ids: set[str] = set()
+
+    # --- Architectural exclusions ---
+
+    # IN-2: Disinformation Propagation requires output zone
+    if "output" not in active_set:
+        excluded_ids.add("IN-2")
+
+    # AB-2: Malware Generation / Distribution requires code generation capability.
+    # Heuristic: exclude when tool_execution not in zones.
+    if "tool_execution" not in active_set:
+        excluded_ids.add("AB-2")
+
+    # --- Threat-specific exclusions ---
+    if threat_id and threat_id in _THREAT_GOAL_EXCLUSIONS:
+        excluded_ids |= _THREAT_GOAL_EXCLUSIONS[threat_id]
+
+    if not excluded_ids:
+        return sub_goals
+
+    filtered = [sg for sg in sub_goals if sg["id"] not in excluded_ids]
+
+    # Safety: never return empty if input was non-empty
+    if not filtered:
+        logger.warning(
+            "Goal anchoring: all sub-goals excluded for threat_id=%s — "
+            "falling back to unfiltered pool (%d goals)",
+            threat_id,
+            len(sub_goals),
+        )
+        return sub_goals
+
+    return filtered
+
+
+# ---------------------------------------------------------------------------
 # ATLAS technique lookups — imported from shared data module
 # ---------------------------------------------------------------------------
 # Backward-compatible aliases for in-module references.

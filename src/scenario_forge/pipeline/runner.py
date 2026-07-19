@@ -32,6 +32,7 @@ from scenario_forge.pipeline.generate import (
     GenerationError,
     compute_entry_point_affinity,
     extract_narrative_keywords,
+    compute_compatible_goal_ids,
     extract_structural_pattern,
     filter_sub_goals_by_zones,
     generate_scenario,
@@ -341,9 +342,14 @@ def _remediate_coverage_gaps(
 
         selected_goal = None
         if available_goals and goal_usage is not None:
+            seed_goals = compute_compatible_goal_ids(
+                threat_id=seed.threat_id,
+                sub_goals=available_goals,
+                zones_active=profile.zones_active,
+            )
             try:
                 selected_goal = select_attack_goal(
-                    available_goals,
+                    seed_goals,
                     goal_usage,
                     total_seeds=len(uncovered),
                     threat_id=seed.threat_id,
@@ -718,11 +724,18 @@ def run_pipeline(
         preferred_cap = min(_CAP_LEVELS, key=lambda c: capability_level_usage.get(c, 0))
 
         # Select an attack goal for this seed using fair-share diversity.
+        # Narrow the sub-goal pool per-seed with architectural and
+        # threat-specific exclusions (i7q8 constraint).
         selected_goal = None
         if available_goals:
+            seed_goals = compute_compatible_goal_ids(
+                threat_id=fseed.threat_id,
+                sub_goals=available_goals,
+                zones_active=profile.zones_active,
+            )
             try:
                 selected_goal = select_attack_goal(
-                    available_goals,
+                    seed_goals,
                     goal_usage,
                     total_seeds,
                     threat_id=fseed.threat_id,
