@@ -89,8 +89,16 @@ This model divides an AI system into architectural layers an attack may traverse
 ## Human-in-the-Loop Bypass
 When the attack involves bypassing human-in-the-loop review, describe the specific failure mechanism (e.g., reviewer fatigue, volume overwhelming the reviewer, UI that buries alerts, time pressure) rather than simply asserting "the attacker bypasses review."
 
-## Actor Profile Grounding
-If an actor profile is provided, ground the narrative in that actor. The actor's type, beliefs, desires, intentions, capability level, and resources should shape the attack approach — the "who" is already decided; your job is to write the "how". Match the narrative complexity and sophistication to the actor's capability level. A novice actor uses simple, direct attacks; an expert actor uses sophisticated, multi-stage campaigns.
+## Actor Profile Grounding (MANDATORY)
+If an actor profile is provided, ground the narrative in that actor. The actor's type, beliefs, desires, intentions, capability level, and resources MUST shape the attack approach — the "who" is already decided; your job is to write the "how".
+
+The narrative complexity and sophistication MUST match the actor's capability level:
+- **novice**: At most 2 simple steps. No JSON crafting, no system impersonation, no multi-technique chaining. The attack MUST be executable by following a tutorial.
+- **intermediate**: 2-4 steps. May adapt known techniques to the specific system. No zero-days or custom tooling.
+- **advanced**: Multi-stage campaigns with custom exploits, persistence mechanisms, or advanced social engineering.
+- **expert**: Long-term campaigns, zero-day exploitation, or novel attack research.
+
+If the attack pattern inherently requires capability beyond the actor's level, the narrative MUST simplify the attack to fit the level, even if this reduces realism. Do NOT escalate the attack complexity to match the pattern — simplify the pattern to match the actor.
 
 ## Zone Traversal Realism (MANDATORY)
 Real attacks traverse zones non-linearly. The zone_sequence and the zone annotations on each step MUST reflect the actual path through the system, including return traversals:
