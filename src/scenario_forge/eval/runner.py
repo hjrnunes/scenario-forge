@@ -137,7 +137,15 @@ def run_evaluation(
         if cap_data and isinstance(cap_data, dict):
             ep_list = cap_data.get("entry_points")
             if isinstance(ep_list, list):
-                expected_entry_points = len(ep_list)
+                # Only count ingress-capable entry points (direction != "output").
+                # Output-only EPs are structurally excluded from candidate
+                # expansion (candidates.py) and can never produce scenarios,
+                # so they must not inflate the coverage denominator.
+                ingress_eps = [
+                    ep for ep in ep_list
+                    if not (isinstance(ep, dict) and ep.get("direction") == "output")
+                ]
+                expected_entry_points = len(ingress_eps)
             za_list = cap_data.get("zones_active")
             if isinstance(za_list, list):
                 active_zones = {str(z) for z in za_list}
