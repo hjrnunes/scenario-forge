@@ -2770,6 +2770,7 @@ def _call_narrative(
     excluded_structural_patterns: list[str] | None = None,
     pinned_entry_point: str | None = None,
     pinned_technique_ids: list[str] | None = None,
+    prior_titles: list[str] | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     # Build entry point diversity guidance section
     diversity_section = ""
@@ -2792,6 +2793,20 @@ def _call_narrative(
                 f"- Avoid these overused entry points: {excluded_entry_points}"
             )
         diversity_section = "\n".join(diversity_lines) + "\n"
+
+    # Build title diversity section when prior titles exist
+    if prior_titles:
+        title_list = "\n".join(
+            f"  {i}. {t}" for i, t in enumerate(prior_titles, 1)
+        )
+        diversity_section += (
+            "\n## Previously Generated Titles (avoid duplication)\n"
+            "The following titles have already been used in this generation "
+            "run. Your title MUST be substantially different — do not reuse "
+            "the same structure, key phrases, or \"[Mechanism] for [Goal]\" "
+            "pattern:\n"
+            f"{title_list}\n"
+        )
 
     # Build attack pattern diversity section
     pattern_section = ""
@@ -3695,6 +3710,7 @@ def generate_scenario(
     pinned_entry_point: str | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
+    prior_titles: list[str] | None = None,
 ) -> tuple[ScenarioEnvelope, list[dict]]:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -3733,6 +3749,8 @@ def generate_scenario(
             filter. When set, only these techniques are passed to prompt context.
         pinned_technique_names: Human-readable names of the pinned techniques, for
             context in prompts.
+        prior_titles: List of titles already generated in this batch. Passed to
+            the Call 1 diversity section so the LLM avoids duplicate titles.
     """
     call_metas: list[CallMetadata] = []
     scenario_hash = _scenario_hash(
@@ -3859,6 +3877,7 @@ def generate_scenario(
             excluded_structural_patterns=excluded_structural_patterns,
             pinned_entry_point=pinned_entry_point,
             pinned_technique_ids=pinned_technique_ids,
+            prior_titles=prior_titles,
         )
     except Exception as exc:
         call_log_entries.append(
