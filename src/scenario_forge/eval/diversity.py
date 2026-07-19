@@ -225,13 +225,17 @@ def capability_level_evenness(scenarios: list[dict[str, Any]]) -> float:
     return round(_shannon_entropy(levels), 4)
 
 
-def title_uniqueness(scenarios: list[dict[str, Any]]) -> float:
-    """Pairwise title uniqueness: 1 - max Jaccard similarity of title token sets.
+def title_uniqueness(scenarios: list[dict[str, Any]], top_k: int = 5) -> float:
+    """Pairwise title uniqueness: 1 - mean of top-k Jaccard similarities.
 
     Before computing Jaccard, extracts "domain stopwords" — words appearing in
     more than 50% of titles — and excludes them.  This prevents common domain
     vocabulary (e.g. "Policy", "Agent", "Manipulation") from penalizing batches
     whose titles are genuinely diverse.
+
+    Uses the mean of the top-k most similar pairs rather than a single max,
+    so that one duplicate pair penalizes the score but does not drive it to 0.0
+    on its own.  When fewer than *top_k* pairs exist, all pairs are averaged.
 
     Returns 1.0 if all titles are completely distinct, lower if duplicates exist.
     Returns 1.0 for 0 or 1 scenarios.
@@ -247,13 +251,18 @@ def title_uniqueness(scenarios: list[dict[str, Any]]) -> float:
 
     domain_stopwords = _extract_domain_stopwords(titles)
 
-    max_sim = 0.0
+    similarities: list[float] = []
     for i in range(len(titles)):
         for j in range(i + 1, len(titles)):
             sim = _jaccard_tokens(titles[i], titles[j], stopwords=domain_stopwords)
-            max_sim = max(max_sim, sim)
+            similarities.append(sim)
 
-    return round(1.0 - max_sim, 4)
+    # Take the top-k highest similarities and average them.
+    similarities.sort(reverse=True)
+    k = min(top_k, len(similarities))
+    mean_top_k = sum(similarities[:k]) / k
+
+    return round(1.0 - mean_top_k, 4)
 
 
 def score_diversity(

@@ -702,6 +702,9 @@ def run_pipeline(
         )
         available_goals = []
 
+    # Track generated titles for title diversity enforcement across batch.
+    prior_titles: list[str] = []
+
     for i, fseed in enumerate(filtered_seeds, 1):
         label = f"{fseed.seed_id}: {fseed.attack_pattern_name}"
         logger.info("  [%d/%d] %s...", i, total_seeds, label)
@@ -761,6 +764,7 @@ def run_pipeline(
                 pinned_entry_point=fseed.pinned_entry_point,
                 pinned_technique_ids=list(fseed.pinned_technique_ids),
                 pinned_technique_names=list(fseed.pinned_technique_names),
+                prior_titles=prior_titles if prior_titles else None,
             )
             # Attach candidate filter provenance data to the envelope.
             envelope.candidate_filter = {
@@ -775,6 +779,9 @@ def run_pipeline(
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             write_call_log(call_log_entries, scenarios_dir)
             scenarios.append(envelope)
+
+            # Track generated title for title diversity enforcement.
+            prior_titles.append(envelope.narrative.title)
 
             # Track which entry point was actually chosen by the LLM.
             entry_point_usage[envelope.narrative.entry_point] += 1

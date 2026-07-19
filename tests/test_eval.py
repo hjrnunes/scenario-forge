@@ -839,11 +839,13 @@ class TestTitleUniqueness:
         # With domain stopwords removed, titles are diverse
         assert result > 0.6
 
-    def test_genuinely_duplicate_titles_still_score_low(self):
-        """Titles that are truly near-duplicates should still score low.
+    def test_genuinely_duplicate_titles_still_penalized(self):
+        """Titles that are truly near-duplicates should be penalized.
 
         Here two titles share most of their non-domain words — they only
-        differ in one word out of several discriminating tokens.
+        differ in one word out of several discriminating tokens.  With the
+        mean-of-top-k metric the impact is diluted by the other diverse
+        pairs, but it should still not score perfect.
         """
         scenarios = [
             _make_scenario(title="Credential Theft via Phishing Email"),
@@ -852,9 +854,8 @@ class TestTitleUniqueness:
             _make_scenario(title="Prompt Injection Memory Corruption"),
         ]
         result = title_uniqueness(scenarios)
-        # First two titles share "credential theft phishing" after removing
-        # any domain stopwords; should keep score moderate-to-low
-        assert result < 0.8
+        # Near-duplicate pair penalizes but doesn't tank score (mean-of-top-k)
+        assert result < 1.0
 
 
 class TestScoreDiversity:
