@@ -2291,24 +2291,37 @@ ALL_ACTOR_TYPES: frozenset[str] = frozenset({
     "automated-agent",
 })
 
+# Actor-goal incompatibility map.  For each goal_id, lists actor types
+# whose motivational profile is structurally incompatible with that goal.
+# AB-3 (Fraud Facilitation) is purely financially motivated — hacktivists
+# (ideological) and competitors (competitive advantage) do not pursue
+# raw financial fraud without a matching motive.
+_ACTOR_GOAL_INCOMPATIBLE: dict[str, frozenset[str]] = {
+    "AB-3": frozenset({"hacktivist", "competitor"}),
+}
+
 
 def compute_compatible_actor_types(
     atlas_technique_ids: list[str] | tuple[str, ...] | None,
     ep_controllability: str | None,
     threat_id: str | None,
     entry_point_name: str | None = None,
+    goal_id: str | None = None,
 ) -> set[str]:
     """Compute the set of structurally compatible actor types for a seed.
 
-    Applies five rules in order, narrowing from the full actor-type set:
+    Applies six rules in order, narrowing from the full actor-type set:
 
     R1 — Adversarial-only threat: remove negligent-insider
-    R2 — Indirect EP: remove negligent-insider (except T2+RAG)
+    R2 — Indirect EP access floor: restrict to
+         {supply-chain-actor, malicious-insider, nation-state} (except T2+RAG)
     R3 — System EP: restrict to {malicious-insider, supply-chain-actor, nation-state}
     R4 — Technique requires direct access: remove negligent-insider and
          supply-chain-actor; verify EP is direct
     R5 — Supply chain target layer: restrict to
          {supply-chain-actor, nation-state, malicious-insider, automated-agent}
+    R6 — Actor-goal consistency: remove actor types whose motivational
+         profile is incompatible with the assigned goal category
 
     Returns:
         Set of compatible actor type strings. Never empty (R3/R5 restrictions
@@ -2321,7 +2334,11 @@ def compute_compatible_actor_types(
     if threat_id in _ADVERSARIAL_ONLY_THREATS:
         compatible.discard("negligent-insider")
 
-    # R2 — Indirect EP exclusion (with T2+RAG exception)
+    # R2 — Indirect EP access floor (with T2+RAG exception)
+    # Indirect entry points (e.g. RAG knowledge-grounding, authenticated
+    # customer context) require upstream or privileged write access.
+    # Only supply-chain-actor, malicious-insider, and nation-state have
+    # the positioning to inject through these channels.
     if ep_controllability == "indirect":
         # Exception: T2 + entry point contains "rag" or "knowledge"
         ep_name_lower = (entry_point_name or "").lower()
@@ -2330,7 +2347,7 @@ def compute_compatible_actor_types(
             and ("rag" in ep_name_lower or "knowledge" in ep_name_lower)
         )
         if not is_t2_rag:
-            compatible.discard("negligent-insider")
+            compatible &= {"supply-chain-actor", "malicious-insider", "nation-state"}
 
     # R3 — System EP restriction
     if ep_controllability == "system":
@@ -2355,6 +2372,14 @@ def compute_compatible_actor_types(
                 "automated-agent",
             }
             break
+
+    # R6 — Actor-goal consistency
+    if goal_id and goal_id in _ACTOR_GOAL_INCOMPATIBLE:
+        incompatible = _ACTOR_GOAL_INCOMPATIBLE[goal_id]
+        pruned = compatible - incompatible
+        # Safety: never empty the set — skip R6 if it would
+        if pruned:
+            compatible = pruned
 
     return compatible
 
@@ -2512,11 +2537,13 @@ def _call_actor_profile(
             preferred_capability_level = minimum_capability_level
 
     # Compute actor-type compatible set (ok0p constraint)
+    _goal_id = attack_goal["id"] if attack_goal else None
     compatible_actor_types = compute_compatible_actor_types(
         _tech_ids_for_floor,
         _ep_controllability_for_floor,
         seed.threat_id,
         entry_point_name=pinned_entry_point,
+        goal_id=_goal_id,
     )
 
     # Override preferred_actor_type if not in compatible set

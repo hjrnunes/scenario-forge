@@ -55,6 +55,7 @@ from scenario_forge.pipeline.coverage import (
 from scenario_forge.pipeline.profile import infer_capability_profile
 from scenario_forge.pipeline.validation import (
     check_leaf_technique_provenance,
+    validate_insider_access_floor,
     validate_phantom_capabilities,
     validate_scenario_semantics,
     validate_scenario_structure,
@@ -870,6 +871,24 @@ def run_pipeline(
         )
     else:
         logger.info("  All %d scenarios passed semantic validation", len(scenarios))
+
+    # --- Insider Access Floor Pass ---
+    logger.info("[Validation] Checking insider access floor...")
+    insider_result = validate_insider_access_floor(scenarios)
+    if insider_result.flagged_count:
+        for flagged_scenario, violation in insider_result.flagged_scenarios:
+            logger.warning(
+                "  Insider access floor: %s — %s",
+                violation.scenario_id,
+                violation.reason,
+            )
+        logger.info(
+            "  %d/%d malicious-insider scenarios flagged (warn only)",
+            insider_result.flagged_count,
+            insider_result.flagged_count + insider_result.clean_count,
+        )
+    else:
+        logger.info("  All scenarios passed insider access floor check")
 
     # --- Leaf Technique Provenance Pass ---
     logger.info("[Validation] Checking leaf technique provenance...")

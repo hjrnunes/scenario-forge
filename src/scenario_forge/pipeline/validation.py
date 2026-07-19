@@ -692,6 +692,147 @@ def validate_phantom_capabilities(
 
 
 # ---------------------------------------------------------------------------
+# Insider access floor validation
+# ---------------------------------------------------------------------------
+
+# Keywords indicating insider-specific access — actions that require
+# internal/privileged positioning beyond what a regular end-user has.
+_INSIDER_ACCESS_KEYWORDS: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\binternal\s+(?:system|tool|portal|dashboard|network|database|api|service|application)",
+        r"\badmin(?:istrat(?:or|ive|ion))?\s+(?:panel|console|portal|dashboard|interface|tool|access|account|credential)",
+        r"\bbackend\s+(?:system|access|service|api|database|infrastructure|tool)",
+        r"\bemployee\s+(?:portal|tool|access|credential|account|system|dashboard|directory|privilege)",
+        r"\binsider\b",
+        r"\bprivileged\s+(?:access|account|credential|role|position|knowledge)",
+        r"\binternal\s+(?:access|credential|knowledge|network|documentation|wiki|repository|infrastructure)",
+        r"\bcorporate\s+(?:network|system|credential|vpn|intranet|directory)",
+        r"\bintranet\b",
+        r"\bvpn\s+(?:access|credential|connection|tunnel)",
+        r"\bactive\s+directory\b",
+        r"\bldap\b",
+        r"\b(?:hr|crm|erp)\s+(?:system|tool|portal|database|access)",
+        r"\bsource\s+code\s+(?:access|repository|repo)",
+        r"\bdeployment\s+(?:pipeline|access|credential|key|system)",
+        r"\bservice\s+account\b",
+        r"\binternal\s+api\b",
+        r"\bstaging\s+(?:environment|server|system)\b",
+        r"\bproduction\s+(?:access|database|server|system|environment)\b",
+    ]
+]
+
+
+@dataclass
+class InsiderAccessViolation:
+    """A malicious-insider scenario lacking insider-specific actions."""
+
+    scenario_id: str
+    actor_type: str
+    reason: str
+
+
+@dataclass
+class InsiderAccessResult:
+    """Result of insider access floor validation across a batch."""
+
+    clean_scenarios: list[ScenarioEnvelope] = field(default_factory=list)
+    flagged_scenarios: list[tuple[ScenarioEnvelope, InsiderAccessViolation]] = field(
+        default_factory=list
+    )
+
+    @property
+    def flagged_count(self) -> int:
+        return len(self.flagged_scenarios)
+
+    @property
+    def clean_count(self) -> int:
+        return len(self.clean_scenarios)
+
+
+def _has_insider_access_markers(text: str) -> bool:
+    """Check whether text contains keywords indicating insider-specific access."""
+    for pattern in _INSIDER_ACCESS_KEYWORDS:
+        if pattern.search(text):
+            return True
+    return False
+
+
+def validate_insider_access_floor(
+    scenarios: list[ScenarioEnvelope],
+) -> InsiderAccessResult:
+    """Flag malicious-insider scenarios whose narratives lack insider-specific actions.
+
+    When ``actor_type`` is ``malicious-insider``, the narrative should contain
+    at least one action requiring insider-specific access (internal systems,
+    admin panels, backend access, employee tools, privileged credentials).
+    If the narrative is indistinguishable from an adversarial-user attack
+    (only uses public customer interface), it is flagged as a mismatch.
+
+    This is a heuristic check using keyword matching on narrative step
+    actions, effects, and the narrative summary.
+
+    Returns an :class:`InsiderAccessResult` with clean and flagged scenarios.
+    Scenarios are never removed -- violations are recorded as warnings.
+    """
+    result = InsiderAccessResult()
+
+    for scenario in scenarios:
+        # Only check malicious-insider scenarios
+        if (
+            scenario.actor_profile is None
+            or scenario.actor_profile.actor_type != "malicious-insider"
+        ):
+            result.clean_scenarios.append(scenario)
+            continue
+
+        # Scan narrative steps (action + effect) and summary for insider markers
+        found_insider_marker = False
+
+        # Check summary
+        if _has_insider_access_markers(scenario.narrative.summary):
+            found_insider_marker = True
+
+        # Check each narrative step
+        if not found_insider_marker:
+            for step in scenario.narrative.steps:
+                if _has_insider_access_markers(step.action):
+                    found_insider_marker = True
+                    break
+                if _has_insider_access_markers(step.effect):
+                    found_insider_marker = True
+                    break
+
+        # Check actor profile resources for insider markers
+        if not found_insider_marker and scenario.actor_profile.resources:
+            for resource in scenario.actor_profile.resources:
+                if _has_insider_access_markers(resource):
+                    found_insider_marker = True
+                    break
+
+        if found_insider_marker:
+            result.clean_scenarios.append(scenario)
+        else:
+            violation = InsiderAccessViolation(
+                scenario_id=scenario.scenario_id,
+                actor_type=scenario.actor_profile.actor_type,
+                reason=(
+                    "Malicious-insider narrative lacks insider-specific "
+                    "actions — indistinguishable from an adversarial-user "
+                    "attack using only the public interface."
+                ),
+            )
+            logger.warning(
+                "Insider access floor: scenario %s actor_type='malicious-insider' "
+                "but narrative lacks insider-specific actions",
+                scenario.scenario_id,
+            )
+            result.flagged_scenarios.append((scenario, violation))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Structural validation (JSON Schema) — rwv2
 # ---------------------------------------------------------------------------
 
