@@ -8,7 +8,9 @@ Contains:
      validity, threat-ID consistency).
   4. Leaf technique provenance — flags attack-work leaf nodes that
      lack a technique_id annotation.
-  5. Parsimony pruning — trims excess unannotated leaf nodes from
+  5. Blank-leaf validation — structural safety net that flags any leaf
+     node missing a technique_id (no consequence-leaf exemption).
+  6. Parsimony pruning — trims excess unannotated leaf nodes from
      attack trees to satisfy the parsimony budget constraint.
 """
 
@@ -996,6 +998,82 @@ def check_leaf_technique_provenance(
             )
 
         if violations:
+            result.flagged_scenarios.append((scenario, violations))
+        else:
+            result.clean_scenarios.append(scenario)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Blank-leaf validation — structural safety net
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BlankLeafViolation:
+    """A leaf node missing a ``technique_id`` annotation."""
+
+    node_id: str
+    label: str
+    zone: str
+
+
+@dataclass
+class BlankLeafResult:
+    """Result of blank-leaf validation across a batch of scenarios."""
+
+    clean_scenarios: list[ScenarioEnvelope] = field(default_factory=list)
+    flagged_scenarios: list[tuple[ScenarioEnvelope, list[BlankLeafViolation]]] = field(
+        default_factory=list
+    )
+
+    @property
+    def flagged_count(self) -> int:
+        return len(self.flagged_scenarios)
+
+    @property
+    def clean_count(self) -> int:
+        return len(self.clean_scenarios)
+
+
+def validate_blank_leaves(
+    scenarios: list[ScenarioEnvelope],
+) -> BlankLeafResult:
+    """Flag leaf nodes that lack a ``technique_id`` annotation.
+
+    This is a structural safety net behind the prompt-level technique
+    annotation floor.  It walks each scenario's attack tree and checks
+    that every LEAF node (``gate == LEAF`` or no children) has a
+    non-empty ``technique_id``.  AND/OR gate (structural connector)
+    nodes are not checked.
+
+    Returns a :class:`BlankLeafResult` with clean and flagged scenarios.
+    """
+    result = BlankLeafResult()
+
+    for scenario in scenarios:
+        violations: list[BlankLeafViolation] = []
+        leaves = _collect_leaves(scenario.attack_tree.root)
+
+        for leaf in leaves:
+            if not leaf.technique_id:
+                violations.append(
+                    BlankLeafViolation(
+                        node_id=leaf.id,
+                        label=leaf.label,
+                        zone=leaf.zone,
+                    )
+                )
+
+        if violations:
+            node_ids = [v.node_id for v in violations]
+            logger.warning(
+                "Scenario %s has %d leaf node(s) without technique_id: %s",
+                scenario.scenario_id,
+                len(violations),
+                ", ".join(node_ids),
+            )
             result.flagged_scenarios.append((scenario, violations))
         else:
             result.clean_scenarios.append(scenario)

@@ -26,7 +26,7 @@ When assigning technique_id to attack tree nodes, the technique MUST semanticall
 - AML.T0048 (External Harms): ONLY for downstream real-world harms caused by AI output (financial loss, physical harm, reputational damage). NOT as a generic "bad outcome" label on intermediate attack steps.
 - AML.T0067 (Output Manipulation): ONLY for nodes where attacker inputs produce dangerous outputs consumed by downstream systems (XSS, command injection). NOT for crafting attacker inputs or prompt injection payloads.
 
-If unsure whether a technique fits a node, omit technique_id from that node rather than guessing.
+Every LEAF node in the attack tree MUST have a technique_id from the pinned set. When the pinned set contains a single technique, that technique covers the full attack chain — use it on all leaf nodes, including downstream propagation and effect nodes in reasoning and tool_execution zones. The technique represents the campaign, not just the initial injection step. When the pinned set contains multiple techniques, assign the technique whose mechanism is closest to the node's action. Only omit technique_id on structural connector nodes (AND/OR gates), never on leaf nodes.
 
 ### Parsimony Constraint (MANDATORY)
 - Produce the simplest attack tree that exercises ALL assigned techniques. Every technique in the allowed list must appear on at least one leaf node.
