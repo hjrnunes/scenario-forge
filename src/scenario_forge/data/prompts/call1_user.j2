@@ -31,4 +31,4 @@ Write a concrete attack narrative for this attack pattern applied to the target 
 {% elif pinned_entry_point and pinned_entry_point_direction == 'bidirectional' %}
 **Entry point direction: BIDIRECTIONAL.** The attack involves "{{ pinned_entry_point }}" (direction: BIDIRECTIONAL). The attacker can both send data into the system and observe data coming out through this channel. Describe how the attacker exploits either or both directions of this channel.
 {% endif %}
-{{ technique_context }}{{ technique_framing }}{{ actor_section }}{{ diversity_section }}{{ pattern_section }}{{ structural_section }}
+{{ technique_context }}{{ technique_framing }}{{ actor_section }}{{ goal_section | default('') }}{{ diversity_section }}{{ pattern_section }}{{ structural_section }}
