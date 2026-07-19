@@ -2774,6 +2774,20 @@ def _call_narrative(
             + f"- Resources: {resources_str}\n"
         )
 
+    # Build goal category section for narrative grounding
+    goal_section = ""
+    if actor_profile is not None and actor_profile.goal_category:
+        goal_section = (
+            "\n## Attack Goal (MANDATORY)\n"
+            f"**Category:** {actor_profile.goal_category_parent}\n"
+            f"**Specific Goal:** {actor_profile.goal_category}: "
+            f"{actor_profile.goal_category_name}\n\n"
+            "The narrative's terminal attack outcome MUST achieve this goal. "
+            "The seed attack pattern describes the MECHANISM (how the attack works); "
+            "this goal describes the ENDS (what the attacker ultimately achieves). "
+            "Both must be satisfied — the mechanism serves the goal.\n"
+        )
+
     # Build technique context — pin to specific techniques if set
     tech_ids_for_narrative = (
         pinned_technique_ids if pinned_technique_ids else seed.atlas_technique_ids
@@ -2825,6 +2839,7 @@ def _call_narrative(
         technique_context=technique_context_1,
         technique_framing=technique_framing_1,
         actor_section=actor_section,
+        goal_section=goal_section,
         diversity_section=diversity_section,
         pattern_section=pattern_section,
         structural_section=structural_section,
