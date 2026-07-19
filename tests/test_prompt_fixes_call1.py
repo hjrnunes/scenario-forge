@@ -242,19 +242,21 @@ class TestWwjzGoalSectionRendering:
         goal_section = ""
         if actor_profile is not None and actor_profile.goal_category:
             goal_section = (
-                "\n## Attack Goal (MANDATORY)\n"
+                "\n## Attack Goal Guidance (SHOULD)\n"
                 f"**Category:** {actor_profile.goal_category_parent}\n"
                 f"**Specific Goal:** {actor_profile.goal_category}: "
                 f"{actor_profile.goal_category_name}\n\n"
-                "The narrative's terminal attack outcome MUST achieve this goal. "
-                "The seed attack pattern describes the MECHANISM (how the attack works); "
-                "this goal describes the ENDS (what the attacker ultimately achieves). "
-                "Both must be satisfied — the mechanism serves the goal.\n"
+                "The narrative's terminal attack outcome SHOULD align with this goal "
+                "when it is compatible with the seed attack pattern's mechanism. "
+                "If satisfying this goal would require abandoning the seed's core "
+                "attack mechanism, prioritise seed fidelity — the goal is a guiding "
+                "preference, not a hard override. The seed's 'Seed Attack Objective "
+                "Fidelity (MANDATORY)' constraint always takes precedence.\n"
             )
-        assert "## Attack Goal (MANDATORY)" in goal_section
+        assert "## Attack Goal Guidance (SHOULD)" in goal_section
         assert "**Category:** abuse" in goal_section
         assert "abuse-03: Unauthorized resource consumption" in goal_section
-        assert "MUST achieve this goal" in goal_section
+        assert "SHOULD align with this goal" in goal_section
 
     def test_goal_section_empty_when_no_goal_category(self):
         """No goal_section built when actor has no goal_category."""

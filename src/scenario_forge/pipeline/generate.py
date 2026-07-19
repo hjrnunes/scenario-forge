@@ -66,6 +66,10 @@ from scenario_forge.models.scenario import (
     TechniqueMaturity,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from scenario_forge.pipeline.validation import (
+    check_goal_narrative_alignment,
+    check_seed_mechanism_fidelity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1230,15 +1234,16 @@ def _build_attack_goal_context_block(sub_goal: dict[str, Any]) -> str:
     and intentions toward the specified goal category.
     """
     return (
-        "\n## Attack Goal Category (MANDATORY)\n"
+        "\n## Attack Goal Category Guidance (SHOULD)\n"
         f"**Category:** {sub_goal['category_name']} — "
         f"{sub_goal['category_description']}\n"
         f"**Specific Goal:** {sub_goal['id']}: {sub_goal['name']} — "
         f"{sub_goal['description']}\n\n"
         "The actor's desires and intentions should be oriented toward this "
-        "attack goal. The goal describes WHAT the attacker wants to achieve; "
+        "attack goal when compatible with the seed attack pattern. "
+        "The goal describes WHAT the attacker wants to achieve; "
         "the desires/intentions describe HOW they plan to achieve it in this "
-        "specific system. The desires MUST be concrete instantiations of the "
+        "specific system. The desires should be concrete instantiations of the "
         "assigned goal — do not drift to unrelated goal types.\n"
     )
 
@@ -1250,7 +1255,14 @@ def _build_attack_goal_context_block(sub_goal: dict[str, Any]) -> str:
 # Threat-specific sub-goal exclusions.  These goals are structurally
 # implausible for the given threat regardless of system capabilities.
 _THREAT_GOAL_EXCLUSIONS: dict[str, set[str]] = {
-    "T15": {"AB-8", "AB-9"},  # Human Manipulation: no evidence destruction or resource hijack
+    # T2 (Prompt Injection): about data poisoning / injection, not safety bypass
+    "T2": {"AB-1"},  # AB-1 Jailbreak is content bypass, not injection mechanism
+    # T9 (Identity Spoofing): about impersonation, not model extraction
+    "T9": {"PR-3"},  # PR-3 Model Extraction is theft, not spoofing
+    # T10 (Overwhelming HITL): about trust calibration degradation, not flooding
+    "T10": {"AV-1", "AV-5"},  # AV-1 Service Denial / AV-5 Cascading Failure are DoS, not trust abuse
+    # T15 (Human Manipulation): no evidence destruction or resource hijack
+    "T15": {"AB-8", "AB-9"},
 }
 
 
@@ -2805,14 +2817,16 @@ def _call_narrative(
     goal_section = ""
     if actor_profile is not None and actor_profile.goal_category:
         goal_section = (
-            "\n## Attack Goal (MANDATORY)\n"
+            "\n## Attack Goal Guidance (SHOULD)\n"
             f"**Category:** {actor_profile.goal_category_parent}\n"
             f"**Specific Goal:** {actor_profile.goal_category}: "
             f"{actor_profile.goal_category_name}\n\n"
-            "The narrative's terminal attack outcome MUST achieve this goal. "
-            "The seed attack pattern describes the MECHANISM (how the attack works); "
-            "this goal describes the ENDS (what the attacker ultimately achieves). "
-            "Both must be satisfied — the mechanism serves the goal.\n"
+            "The narrative's terminal attack outcome SHOULD align with this goal "
+            "when it is compatible with the seed attack pattern's mechanism. "
+            "If satisfying this goal would require abandoning the seed's core "
+            "attack mechanism, prioritise seed fidelity — the goal is a guiding "
+            "preference, not a hard override. The seed's 'Seed Attack Objective "
+            "Fidelity (MANDATORY)' constraint always takes precedence.\n"
         )
 
     # Resolve creativity-vs-simplicity conflict for novice actors
@@ -3842,6 +3856,37 @@ def generate_scenario(
     call_log_entries.append(
         _call_log_entry(CallName.narrative, result1, partial_scenario_id)
     )
+
+    # --- Post-Call-1 heuristic checks (warn-only, gmtc) ---
+    try:
+        _narrative_text = " ".join(
+            [narrative.title, narrative.summary]
+            + [f"{s.action} {s.effect}" for s in narrative.steps]
+        )
+
+        # Part C: Goal-narrative alignment
+        _goal_id = actor_profile.goal_category if actor_profile else None
+        if isinstance(_goal_id, str):
+            _goal_warn = check_goal_narrative_alignment(
+                _goal_id, _narrative_text
+            )
+            if _goal_warn:
+                logger.warning(
+                    "Scenario %s: %s", partial_scenario_id, _goal_warn
+                )
+
+        # Part D: Seed mechanism fidelity
+        _mechanism_warn = check_seed_mechanism_fidelity(
+            seed.attack_pattern_name, _narrative_text
+        )
+        if _mechanism_warn:
+            logger.warning(
+                "Scenario %s: %s", partial_scenario_id, _mechanism_warn
+            )
+    except (TypeError, AttributeError):
+        # Defensive: skip heuristic checks if narrative fields are not strings
+        # (e.g. in tests using MagicMock objects).
+        pass
 
     # --- Call 2: Attack Tree (with consistency enforcement retries) ---
     # Compute parsimony budget using the same formula as _call_attack_tree.

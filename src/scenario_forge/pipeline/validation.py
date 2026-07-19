@@ -1504,3 +1504,141 @@ def enforce_parsimony(
             )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Goal-narrative alignment validation (gmtc — Part C)
+# ---------------------------------------------------------------------------
+
+# Expected narrative keywords per goal sub-goal ID.  If a narrative contains
+# zero keywords for its assigned goal, we flag a warning.  This is a heuristic
+# signal, not a hard rejection.
+_GOAL_NARRATIVE_KEYWORDS: dict[str, list[str]] = {
+    # Availability
+    "AV-1": ["denial", "unavailable", "service disruption", "outage", "downtime"],
+    "AV-2": ["inhibit", "degrade capability", "disable", "impair"],
+    "AV-3": ["performance", "slow", "latency", "degrade", "throughput"],
+    "AV-4": ["alert", "saturation", "flood", "overwhelm", "fatigue"],
+    "AV-5": ["cascading", "chain failure", "propagat", "domino"],
+    # Integrity
+    "IN-1": ["manipulat", "output corruption", "misleading", "incorrect output", "alter"],
+    "IN-2": ["disinformation", "misinformation", "false information", "propagat"],
+    "IN-3": ["decision", "corrupt", "judgment", "misguide", "wrong choice"],
+    "IN-4": ["goal manipulation", "intent", "redirect", "subvert purpose"],
+    "IN-5": ["memory", "state poison", "persistent", "corrupt state", "taint"],
+    "IN-6": ["trust", "relationship", "exploit trust", "trust abuse"],
+    "IN-7": ["supply chain", "upstream", "dependency", "third-party", "vendor"],
+    # Privacy
+    "PR-1": ["exfiltrat", "leak", "data theft", "extract data", "expose data"],
+    "PR-2": ["system prompt", "intellectual property", "prompt theft", "IP theft"],
+    "PR-3": ["model extract", "model steal", "replicate model", "clone model"],
+    "PR-4": ["inference", "membership", "property inference", "fingerprint"],
+    "PR-5": ["cross-session", "session leak", "data leakage", "bleed"],
+    "PR-6": ["credential", "identity theft", "steal identity", "authentication"],
+    # Abuse
+    "AB-1": ["jailbreak", "safety bypass", "guardrail", "restricted content", "content filter"],
+    "AB-2": ["malware", "malicious code", "code generation", "virus", "exploit code"],
+    "AB-3": ["fraud", "financial", "unauthorized transaction", "scam", "fraudulent"],
+    "AB-4": ["social engineer", "phishing", "deception", "impersonat", "lure"],
+    "AB-5": ["human manipulation", "manipulat", "deceive", "psychological"],
+    "AB-6": ["privilege", "escalat", "elevated access", "admin", "unauthorized access"],
+    "AB-7": ["impersonat", "identity abuse", "spoof", "pose as", "pretend"],
+    "AB-8": ["evidence", "anti-forensic", "destroy", "erase", "cover tracks"],
+    "AB-9": ["resource hijack", "cost amplif", "compute abuse", "crypto", "resource consumption"],
+}
+
+
+def check_goal_narrative_alignment(
+    goal_id: str | None,
+    narrative_text: str,
+) -> str | None:
+    """Check whether narrative text contains expected keywords for the goal.
+
+    Args:
+        goal_id: The assigned goal sub-goal ID (e.g. 'AB-4'), or None.
+        narrative_text: Combined narrative text to check (title + summary + steps).
+
+    Returns:
+        A warning message if zero expected keywords are found, else None.
+    """
+    if not goal_id or goal_id not in _GOAL_NARRATIVE_KEYWORDS:
+        return None
+
+    keywords = _GOAL_NARRATIVE_KEYWORDS[goal_id]
+    text_lower = narrative_text.lower()
+
+    for kw in keywords:
+        if kw.lower() in text_lower:
+            return None
+
+    return (
+        f"Goal-narrative alignment warning: goal {goal_id} assigned but "
+        f"narrative contains none of the expected keywords "
+        f"{keywords!r}. The narrative may not reflect the assigned goal."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Seed mechanism fidelity check (gmtc — Part D)
+# ---------------------------------------------------------------------------
+
+
+def _extract_mechanism_keywords(attack_pattern_name: str) -> list[str]:
+    """Extract meaningful mechanism keywords from an attack pattern name.
+
+    Splits on whitespace/punctuation and filters out stop words to produce
+    keywords that characterise the seed's core mechanism.
+
+    Args:
+        attack_pattern_name: e.g. 'Identity Spoofing via Credential Theft'
+
+    Returns:
+        List of lowercase mechanism keywords (e.g. ['identity', 'spoofing',
+        'credential', 'theft']).
+    """
+    _STOP_WORDS = frozenset({
+        "a", "an", "and", "at", "by", "for", "from", "in", "into",
+        "of", "on", "or", "the", "to", "via", "with", "through",
+        "using", "based", "attack", "against",
+    })
+
+    # Split on non-alphanumeric characters
+    tokens = re.split(r"[^a-zA-Z0-9]+", attack_pattern_name.lower())
+    return [t for t in tokens if t and t not in _STOP_WORDS and len(t) > 2]
+
+
+def check_seed_mechanism_fidelity(
+    attack_pattern_name: str,
+    narrative_text: str,
+) -> str | None:
+    """Check whether the narrative references the seed's core mechanism.
+
+    Extracts mechanism keywords from the attack_pattern_name and checks
+    whether at least one appears in the narrative text.  If none are found,
+    returns a warning about potential attack pattern abandonment.
+
+    Args:
+        attack_pattern_name: The seed's attack_pattern_name field.
+        narrative_text: Combined narrative text (title + summary + steps).
+
+    Returns:
+        A warning message if no mechanism keywords found, else None.
+    """
+    if not attack_pattern_name or not isinstance(attack_pattern_name, str):
+        return None
+
+    keywords = _extract_mechanism_keywords(attack_pattern_name)
+    if not keywords:
+        return None
+
+    text_lower = narrative_text.lower()
+
+    for kw in keywords:
+        if kw in text_lower:
+            return None
+
+    return (
+        f"Seed mechanism fidelity warning: attack pattern "
+        f"'{attack_pattern_name}' keywords {keywords!r} not found in "
+        f"narrative. Potential attack pattern abandonment."
+    )

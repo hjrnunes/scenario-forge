@@ -193,7 +193,8 @@ class TestT15Exclusions:
 class TestNonAffectedThreats:
     """Threats not in exclusion rules keep their full sub-goal pools."""
 
-    def test_t2_full_pool(self):
+    def test_t2_pool_without_excluded_ids(self):
+        """T2 keeps non-AB-1 goals untouched."""
         goals = _make_sub_goals_with_ids("IN-2", "AB-2", "AB-8", "AB-9", "PR-1")
         result = compute_compatible_goal_ids(
             threat_id="T2",
@@ -348,6 +349,6 @@ class TestThreatGoalExclusionsConstant:
     def test_t15_has_expected_exclusions(self):
         assert _THREAT_GOAL_EXCLUSIONS["T15"] == {"AB-8", "AB-9"}
 
-    def test_only_t15_defined(self):
-        """Only T15 has threat-specific exclusions initially."""
-        assert set(_THREAT_GOAL_EXCLUSIONS.keys()) == {"T15"}
+    def test_defined_threats(self):
+        """T2, T9, T10, and T15 have threat-specific exclusions."""
+        assert set(_THREAT_GOAL_EXCLUSIONS.keys()) == {"T2", "T9", "T10", "T15"}

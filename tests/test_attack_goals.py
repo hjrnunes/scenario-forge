@@ -324,7 +324,7 @@ class TestBuildAttackGoalContextBlock:
         assert "PR-1" in block
         assert "Data Exfiltration" in block
         assert "Extract sensitive user data" in block
-        assert "MANDATORY" in block
+        assert "SHOULD" in block
         assert "desires" in block.lower()
 
     def test_block_is_nonempty(self) -> None:
