@@ -1270,6 +1270,7 @@ def compute_compatible_goal_ids(
     threat_id: str | None,
     sub_goals: list[dict[str, Any]],
     zones_active: list[str],
+    kc_subcodes: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Narrow the sub-goal pool with architectural and threat-specific exclusions.
 
@@ -1282,6 +1283,12 @@ def compute_compatible_goal_ids(
     - AB-2 (Malware Generation / Distribution): excluded when no code generation
       capability — heuristic: "tool_execution" not in zones_active
 
+    Capability-based exclusions:
+    - AB-8 (Evidence Destruction / Anti-Forensics): excluded when the profile
+      lacks KCX-AUDIT.  AB-8 requires the system to have write access to
+      audit trails / logs — without KCX-AUDIT, the LLM invents phantom log
+      management APIs to make the goal achievable.
+
     Threat-specific exclusions:
     - T15: excludes AB-8 (Evidence Destruction) and AB-9 (Resource Hijacking)
 
@@ -1289,6 +1296,7 @@ def compute_compatible_goal_ids(
         threat_id: OWASP Agentic Threat ID (e.g. 'T15'), or None.
         sub_goals: Pre-filtered list of available sub-goals (from zone filtering).
         zones_active: Active zones from the capability profile.
+        kc_subcodes: KC sub-codes from the capability profile, or None.
 
     Returns:
         Filtered list of sub-goals. Never empty if input was non-empty
@@ -1298,6 +1306,7 @@ def compute_compatible_goal_ids(
         return sub_goals
 
     active_set = set(zones_active)
+    kc_set = set(kc_subcodes) if kc_subcodes else set()
     excluded_ids: set[str] = set()
 
     # --- Architectural exclusions ---
@@ -1310,6 +1319,14 @@ def compute_compatible_goal_ids(
     # Heuristic: exclude when tool_execution not in zones.
     if "tool_execution" not in active_set:
         excluded_ids.add("AB-2")
+
+    # --- Capability-based exclusions ---
+
+    # AB-8: Evidence Destruction / Anti-Forensics requires audit-write
+    # capability (KCX-AUDIT).  Without it, scenarios must invent phantom
+    # log management APIs to achieve the goal.
+    if "KCX-AUDIT" not in kc_set:
+        excluded_ids.add("AB-8")
 
     # --- Threat-specific exclusions ---
     if threat_id and threat_id in _THREAT_GOAL_EXCLUSIONS:

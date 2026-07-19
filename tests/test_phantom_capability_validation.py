@@ -469,7 +469,11 @@ class TestCredentialExposure:
         assert result.flagged_count == 1
 
     def test_credential_exposure_passes_with_kc612(self) -> None:
-        """No false positive when profile has KC6.1.2 (extensive API access)."""
+        """No credential_exposure false positive when profile has KC6.1.2.
+
+        Note: session_introspection still fires on 'bearer token' (always
+        phantom — el87), but credential_exposure specifically is suppressed.
+        """
         scenarios = [
             _make_envelope(
                 step_effects=[
@@ -481,11 +485,27 @@ class TestCredentialExposure:
         profile = _make_profile(kc_subcodes=["KC6.1.2"])
         result = validate_phantom_capabilities(scenarios, profile)
 
-        assert result.valid_count == 1
-        assert result.flagged_count == 0
+        # credential_exposure should NOT fire with KC6.1.2
+        all_violations = [
+            v
+            for _, violations in result.flagged_scenarios
+            for v in violations
+        ]
+        assert not any(
+            v.category == "credential_exposure" for v in all_violations
+        )
+        # session_introspection fires on 'bearer token' (always phantom)
+        assert any(
+            v.category == "session_introspection" for v in all_violations
+        )
 
     def test_credential_exposure_passes_with_api_entry_point(self) -> None:
-        """No false positive when profile has API entry points."""
+        """No credential_exposure false positive when profile has API entry
+        points.
+
+        Note: session_introspection still fires on 'bearer token' (always
+        phantom — el87), but credential_exposure specifically is suppressed.
+        """
         scenarios = [
             _make_envelope(
                 step_effects=[
@@ -499,8 +519,19 @@ class TestCredentialExposure:
         )
         result = validate_phantom_capabilities(scenarios, profile)
 
-        assert result.valid_count == 1
-        assert result.flagged_count == 0
+        # credential_exposure should NOT fire with API entry point
+        all_violations = [
+            v
+            for _, violations in result.flagged_scenarios
+            for v in violations
+        ]
+        assert not any(
+            v.category == "credential_exposure" for v in all_violations
+        )
+        # session_introspection fires on 'bearer token' (always phantom)
+        assert any(
+            v.category == "session_introspection" for v in all_violations
+        )
 
 
 # ---------------------------------------------------------------------------
