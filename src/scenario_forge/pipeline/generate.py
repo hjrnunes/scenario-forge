@@ -2197,6 +2197,90 @@ def _max_capability_level(a: str, b: str) -> str:
     return _CAPABILITY_ORDER[max(idx_a, idx_b)]
 
 
+# ---------------------------------------------------------------------------
+# Actor-type compatible set constraint (ok0p)
+# ---------------------------------------------------------------------------
+
+ALL_ACTOR_TYPES: frozenset[str] = frozenset({
+    "adversarial-user",
+    "malicious-insider",
+    "negligent-insider",
+    "supply-chain-actor",
+    "cybercriminal",
+    "nation-state",
+    "hacktivist",
+    "competitor",
+    "automated-agent",
+})
+
+
+def compute_compatible_actor_types(
+    atlas_technique_ids: list[str] | tuple[str, ...] | None,
+    ep_controllability: str | None,
+    threat_id: str | None,
+    entry_point_name: str | None = None,
+) -> set[str]:
+    """Compute the set of structurally compatible actor types for a seed.
+
+    Applies five rules in order, narrowing from the full actor-type set:
+
+    R1 — Adversarial-only threat: remove negligent-insider
+    R2 — Indirect EP: remove negligent-insider (except T2+RAG)
+    R3 — System EP: restrict to {malicious-insider, supply-chain-actor, nation-state}
+    R4 — Technique requires direct access: remove negligent-insider and
+         supply-chain-actor; verify EP is direct
+    R5 — Supply chain target layer: restrict to
+         {supply-chain-actor, nation-state, malicious-insider, automated-agent}
+
+    Returns:
+        Set of compatible actor type strings. Never empty (R3/R5 restrictions
+        always leave at least one type).
+    """
+    compatible = set(ALL_ACTOR_TYPES)
+    tech_ids = list(atlas_technique_ids) if atlas_technique_ids else []
+
+    # R1 — Adversarial-only threat exclusion
+    if threat_id in _ADVERSARIAL_ONLY_THREATS:
+        compatible.discard("negligent-insider")
+
+    # R2 — Indirect EP exclusion (with T2+RAG exception)
+    if ep_controllability == "indirect":
+        # Exception: T2 + entry point contains "rag" or "knowledge"
+        ep_name_lower = (entry_point_name or "").lower()
+        is_t2_rag = (
+            threat_id == "T2"
+            and ("rag" in ep_name_lower or "knowledge" in ep_name_lower)
+        )
+        if not is_t2_rag:
+            compatible.discard("negligent-insider")
+
+    # R3 — System EP restriction
+    if ep_controllability == "system":
+        compatible &= {"malicious-insider", "supply-chain-actor", "nation-state"}
+
+    # R4 — Technique requires direct access
+    for tid in tech_ids:
+        props = TECHNIQUE_PROPERTIES.get(tid)
+        if props and props.get("requires_direct_access"):
+            compatible.discard("negligent-insider")
+            compatible.discard("supply-chain-actor")
+            break
+
+    # R5 — Supply chain target layer
+    for tid in tech_ids:
+        props = TECHNIQUE_PROPERTIES.get(tid)
+        if props and props.get("target_layer") == "supply_chain":
+            compatible &= {
+                "supply-chain-actor",
+                "nation-state",
+                "malicious-insider",
+                "automated-agent",
+            }
+            break
+
+    return compatible
+
+
 # Keywords in intentions that indicate adversarial (non-negligent) behaviour.
 _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
     "exploit",
@@ -2349,10 +2433,45 @@ def _call_actor_profile(
             )
             preferred_capability_level = minimum_capability_level
 
+    # Compute actor-type compatible set (ok0p constraint)
+    compatible_actor_types = compute_compatible_actor_types(
+        _tech_ids_for_floor,
+        _ep_controllability_for_floor,
+        seed.threat_id,
+        entry_point_name=pinned_entry_point,
+    )
+
+    # Override preferred_actor_type if not in compatible set
+    if preferred_actor_type and preferred_actor_type not in compatible_actor_types:
+        # Pick next best from compatible set (not excluded)
+        excluded_set = set(excluded_actor_types) if excluded_actor_types else set()
+        fallback_candidates = compatible_actor_types - excluded_set
+        if fallback_candidates:
+            preferred_actor_type = sorted(fallback_candidates)[0]
+            logger.debug(
+                "Actor type constraint override: preferred '%s' not compatible "
+                "for seed %s — falling back to '%s'",
+                preferred_actor_type,
+                seed.seed_id,
+                preferred_actor_type,
+            )
+        else:
+            # All compatible types are excluded; pick any compatible type
+            preferred_actor_type = sorted(compatible_actor_types)[0]
+
     # Build actor type diversity guidance
     diversity_section = ""
     if forced_actor_type:
-        # Hard constraint — override any preferred/excluded hints
+        # Hard constraint — override any preferred/excluded hints.
+        # Log warning if forced type not in compatible set (diversity override).
+        if forced_actor_type not in compatible_actor_types:
+            logger.warning(
+                "Forced actor_type '%s' not in compatible set %s for seed %s "
+                "— respecting force (diversity override)",
+                forced_actor_type,
+                sorted(compatible_actor_types),
+                seed.seed_id,
+            )
         diversity_section = (
             "\n## Actor Type Constraint\n"
             f"- You MUST use actor_type: {forced_actor_type}. "
@@ -2446,6 +2565,7 @@ def _call_actor_profile(
         system_prompt=render_prompt(
             "call0_system.j2",
             minimum_capability_level=minimum_capability_level,
+            compatible_actor_types=sorted(compatible_actor_types),
         ),
         user_prompt=user_prompt,
         response_format=Call0Response,

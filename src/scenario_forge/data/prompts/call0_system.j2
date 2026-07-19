@@ -33,6 +33,11 @@ These are hard floors — the capability_level you assign MUST respect them:
 ### Actor Type Exact Match
 The actor_type field must be EXACTLY one of the values listed below (e.g. "cybercriminal", "nation-state"). Do NOT add parenthetical qualifiers or subtypes — use the exact string only.
 
+{% if compatible_actor_types is defined and compatible_actor_types %}
+### Actor Type Constraint (MANDATORY)
+The actor_type MUST be one of: {{ compatible_actor_types | join(', ') }}. Other actor types are structurally incompatible with this scenario's technique, entry point, and threat characteristics. Do NOT select an actor type outside this set.
+{% endif %}
+
 ## Actor Types (use EXACTLY one of these values for actor_type)
 - cybercriminal — External, financially motivated (data theft, fraud, ransomware)
 - nation-state — State-sponsored, well-resourced, strategic objectives
