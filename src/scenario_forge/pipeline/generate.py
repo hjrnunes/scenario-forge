@@ -2788,6 +2788,20 @@ def _call_narrative(
             "Both must be satisfied — the mechanism serves the goal.\n"
         )
 
+    # Resolve creativity-vs-simplicity conflict for novice actors
+    if (
+        diversity_section
+        and actor_profile is not None
+        and actor_profile.capability_level == "novice"
+    ):
+        diversity_section += (
+            "\n\n**Capability-level priority:** The actor is a NOVICE. "
+            "Diversity constraints are secondary to capability-level constraints. "
+            "Do NOT generate a complex attack just because simpler patterns have "
+            "been excluded. Instead, use a DIFFERENT simple pattern or a different "
+            "angle on the same simple technique."
+        )
+
     # Build technique context — pin to specific techniques if set
     tech_ids_for_narrative = (
         pinned_technique_ids if pinned_technique_ids else seed.atlas_technique_ids
