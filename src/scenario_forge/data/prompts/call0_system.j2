@@ -58,6 +58,11 @@ A negligent-insider is an employee or authorized user who ACCIDENTALLY causes ha
 - If the attack pattern involves deliberate exploitation, prompt injection, jailbreaking, or fraud, the actor MUST NOT be negligent-insider. Use adversarial-user or malicious-insider instead.
 - Self-check: if ANY intention uses words like "exploit", "extract", "bypass", "inject", "jailbreak", "manipulate", "exfiltrate", "compromise", "steal", or "hijack", the actor is NOT a negligent-insider.
 
+{% if minimum_capability_level is defined and minimum_capability_level and minimum_capability_level != "novice" %}
+### Capability Level Constraint (MANDATORY)
+The minimum capability_level for this scenario is "{{ minimum_capability_level }}". You MUST NOT assign a capability level below this floor. This constraint is derived from the scenario's technique complexity, entry point access level, and threat characteristics.
+{% endif %}
+
 ## Capability Levels
 Set the capability level based on the MINIMUM skill required for this specific attack:
 - novice: The attack uses pre-built tools or known prompts with no adaptation. Simple jailbreaks, copy-pasted prompt injections, basic social engineering. If a non-technical person could follow a tutorial to do this, it's novice.

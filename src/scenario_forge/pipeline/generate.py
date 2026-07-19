@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
     ATLAS_TECHNIQUE_NAMES,
+    TECHNIQUE_PROPERTIES,
     TECHNIQUE_ZONE_CONSTRAINTS,
 )
 from scenario_forge.llm.client import LLMClient, LLMResult
@@ -2119,6 +2120,83 @@ _ADVERSARIAL_ONLY_THREATS: frozenset[str] = frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# Capability-level minimum floor constraint (estu)
+# ---------------------------------------------------------------------------
+
+# Technique pairs that form a natural execution chain (one enables the other).
+# When a 2-technique seed's pair is in this set, the multi-technique escalation
+# rule (R2) does NOT trigger — the chain is a single logical step.
+CHAIN_TECHNIQUE_PAIRS: frozenset[tuple[str, str]] = frozenset({
+    ("AML.T0051.001", "AML.T0067"),
+    ("AML.T0066", "AML.T0057"),
+    ("AML.T0070", "AML.T0057"),
+})
+
+
+def compute_minimum_capability_level(
+    atlas_technique_ids: list[str] | tuple[str, ...] | None,
+    ep_controllability: str | None,
+    threat_id: str | None,
+) -> str:
+    """Compute the minimum capability level floor for a scenario seed.
+
+    Applies four rules and returns the highest triggered floor:
+
+    R1 — Supply chain / training technique: advanced
+    R2 — Multi-technique escalation (2+ techniques, unless chain pair): intermediate
+    R3 — System EP access floor: intermediate
+    R4 — Indirect EP + adversarial-only threat (except T2): intermediate
+
+    Returns:
+        The highest minimum capability level across all triggered rules.
+        Defaults to "novice" if no rules fire.
+    """
+    # Track the highest floor across all rules.
+    floor = "novice"
+
+    tech_ids = list(atlas_technique_ids) if atlas_technique_ids else []
+
+    # R1 — Supply chain / training technique
+    for tid in tech_ids:
+        props = TECHNIQUE_PROPERTIES.get(tid)
+        if props and props.get("target_layer") in ("supply_chain", "training"):
+            floor = _max_capability_level(floor, "advanced")
+            break  # already at advanced, no need to check more
+
+    # R2 — Multi-technique escalation
+    if len(tech_ids) >= 2:
+        # Check if the pair is a chain pair (only applies to exactly 2 techniques)
+        is_chain = False
+        if len(tech_ids) == 2:
+            pair = (tech_ids[0], tech_ids[1])
+            pair_rev = (tech_ids[1], tech_ids[0])
+            is_chain = pair in CHAIN_TECHNIQUE_PAIRS or pair_rev in CHAIN_TECHNIQUE_PAIRS
+        if not is_chain:
+            floor = _max_capability_level(floor, "intermediate")
+
+    # R3 — System EP access floor
+    if ep_controllability == "system":
+        floor = _max_capability_level(floor, "intermediate")
+
+    # R4 — Indirect EP + adversarial-only threat (except T2)
+    if (
+        ep_controllability == "indirect"
+        and threat_id in _ADVERSARIAL_ONLY_THREATS
+        and threat_id != "T2"
+    ):
+        floor = _max_capability_level(floor, "intermediate")
+
+    return floor
+
+
+def _max_capability_level(a: str, b: str) -> str:
+    """Return the higher of two capability levels."""
+    idx_a = _CAPABILITY_ORDER.index(a) if a in _CAPABILITY_ORDER else 0
+    idx_b = _CAPABILITY_ORDER.index(b) if b in _CAPABILITY_ORDER else 0
+    return _CAPABILITY_ORDER[max(idx_a, idx_b)]
+
+
 # Keywords in intentions that indicate adversarial (non-negligent) behaviour.
 _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
     "exploit",
@@ -2239,6 +2317,38 @@ def _call_actor_profile(
     Returns:
         Tuple of (ActorProfile, LLMResult).
     """
+    # Compute capability-level minimum floor (estu constraint)
+    _tech_ids_for_floor = (
+        pinned_technique_ids if pinned_technique_ids else seed.atlas_technique_ids
+    )
+    # Look up EP controllability early so it's available for floor computation
+    _ep_controllability_for_floor = _lookup_entry_point_controllability(
+        profile, pinned_entry_point
+    )
+    minimum_capability_level = compute_minimum_capability_level(
+        _tech_ids_for_floor,
+        _ep_controllability_for_floor,
+        seed.threat_id,
+    )
+
+    # Override preferred_capability_level if it falls below the computed floor
+    if preferred_capability_level and minimum_capability_level != "novice":
+        pref_idx = (
+            _CAPABILITY_ORDER.index(preferred_capability_level)
+            if preferred_capability_level in _CAPABILITY_ORDER
+            else 1
+        )
+        floor_idx = _CAPABILITY_ORDER.index(minimum_capability_level)
+        if pref_idx < floor_idx:
+            logger.debug(
+                "Capability floor override: preferred '%s' < minimum '%s' "
+                "for seed %s — bumping preferred",
+                preferred_capability_level,
+                minimum_capability_level,
+                seed.seed_id,
+            )
+            preferred_capability_level = minimum_capability_level
+
     # Build actor type diversity guidance
     diversity_section = ""
     if forced_actor_type:
@@ -2333,7 +2443,10 @@ def _call_actor_profile(
     )
 
     result = client.complete(
-        system_prompt=render_prompt("call0_system.j2"),
+        system_prompt=render_prompt(
+            "call0_system.j2",
+            minimum_capability_level=minimum_capability_level,
+        ),
         user_prompt=user_prompt,
         response_format=Call0Response,
     )
@@ -2342,6 +2455,23 @@ def _call_actor_profile(
     actor_type = _normalize_actor_type(resp.actor_type)
     capability_level = _normalize_capability_level(resp.capability_level)
     capability_level = _enforce_capability_floor(actor_type, capability_level)
+    # Enforce computed capability-level minimum floor (estu constraint)
+    if minimum_capability_level and minimum_capability_level in _CAPABILITY_ORDER:
+        min_floor_idx = _CAPABILITY_ORDER.index(minimum_capability_level)
+        current_idx = (
+            _CAPABILITY_ORDER.index(capability_level)
+            if capability_level in _CAPABILITY_ORDER
+            else 1
+        )
+        if current_idx < min_floor_idx:
+            logger.warning(
+                "Capability-level floor (estu): seed %s requires '%s', "
+                "actor had '%s' — bumped",
+                seed.seed_id,
+                minimum_capability_level,
+                capability_level,
+            )
+            capability_level = minimum_capability_level
     # Enforce seed-level min_complexity constraint
     if seed.min_complexity and seed.min_complexity in _CAPABILITY_ORDER:
         seed_floor_idx = _CAPABILITY_ORDER.index(seed.min_complexity)
