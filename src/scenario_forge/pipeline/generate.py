@@ -3215,6 +3215,49 @@ def _strip_non_skeleton_techniques(
 
 
 # ---------------------------------------------------------------------------
+# Post-generation: technique-zone compatibility validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_technique_zone_node(node: AttackTreeNode) -> int:
+    """Recursively strip technique_ids that violate zone constraints.
+
+    Returns the number of technique_ids stripped.
+    """
+    stripped = 0
+    if node.gate == GateType.LEAF:
+        if node.technique_id is not None:
+            valid_zones = TECHNIQUE_ZONE_CONSTRAINTS.get(node.technique_id)
+            if valid_zones is not None and node.zone not in valid_zones:
+                logger.warning(
+                    "Technique-zone mismatch: stripping %s from node %s "
+                    "(zone=%s, valid_zones=%s)",
+                    node.technique_id,
+                    node.id,
+                    node.zone,
+                    sorted(valid_zones),
+                )
+                node.technique_id = None
+                stripped += 1
+    elif node.children:
+        for child in node.children:
+            stripped += _validate_technique_zone_node(child)
+    return stripped
+
+
+def _validate_technique_zone_compatibility(tree: AttackTree) -> int:
+    """Strip technique_ids that violate TECHNIQUE_ZONE_CONSTRAINTS.
+
+    Walks the tree and removes technique_id from any leaf node where
+    the technique is not valid in the node's zone per the constraint map.
+    Techniques absent from the map are unconstrained and pass.
+
+    Returns the number of technique_ids stripped.
+    """
+    return _validate_technique_zone_node(tree.root)
+
+
+# ---------------------------------------------------------------------------
 # Post-generation consistency enforcement
 # ---------------------------------------------------------------------------
 
@@ -3865,6 +3908,16 @@ def generate_scenario(
             "Stripped %d non-skeleton technique_id(s) from tree leaves "
             "(seed %s)",
             stripped_count,
+            seed.seed_id,
+        )
+
+    # --- Post-generation: technique-zone compatibility validation ---
+    tz_stripped = _validate_technique_zone_compatibility(attack_tree)
+    if tz_stripped > 0:
+        logger.info(
+            "Stripped %d technique_id(s) for zone incompatibility "
+            "(seed %s)",
+            tz_stripped,
             seed.seed_id,
         )
 
