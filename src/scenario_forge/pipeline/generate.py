@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
     ATLAS_TECHNIQUE_NAMES,
+    TECHNIQUE_PROPERTIES,
     TECHNIQUE_ZONE_CONSTRAINTS,
 )
 from scenario_forge.llm.client import LLMClient, LLMResult
@@ -1243,6 +1244,84 @@ def _build_attack_goal_context_block(sub_goal: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Goal-category seed anchoring constraint (i7q8)
+# ---------------------------------------------------------------------------
+
+# Threat-specific sub-goal exclusions.  These goals are structurally
+# implausible for the given threat regardless of system capabilities.
+_THREAT_GOAL_EXCLUSIONS: dict[str, set[str]] = {
+    "T15": {"AB-8", "AB-9"},  # Human Manipulation: no evidence destruction or resource hijack
+}
+
+
+def compute_compatible_goal_ids(
+    threat_id: str | None,
+    sub_goals: list[dict[str, Any]],
+    zones_active: list[str],
+) -> list[dict[str, Any]]:
+    """Narrow the sub-goal pool with architectural and threat-specific exclusions.
+
+    Applied AFTER the zone-based ``filter_sub_goals_by_zones()`` and BEFORE
+    ``select_attack_goal()``.  This is a sub-goal-level refinement on top of
+    the parent-level threat-goal affinity filtering.
+
+    Architectural exclusions:
+    - IN-2 (Disinformation Propagation): excluded when "output" not in zones_active
+    - AB-2 (Malware Generation / Distribution): excluded when no code generation
+      capability — heuristic: "tool_execution" not in zones_active
+
+    Threat-specific exclusions:
+    - T15: excludes AB-8 (Evidence Destruction) and AB-9 (Resource Hijacking)
+
+    Args:
+        threat_id: OWASP Agentic Threat ID (e.g. 'T15'), or None.
+        sub_goals: Pre-filtered list of available sub-goals (from zone filtering).
+        zones_active: Active zones from the capability profile.
+
+    Returns:
+        Filtered list of sub-goals. Never empty if input was non-empty
+        (falls back to original list if all would be excluded).
+    """
+    if not sub_goals:
+        return sub_goals
+
+    active_set = set(zones_active)
+    excluded_ids: set[str] = set()
+
+    # --- Architectural exclusions ---
+
+    # IN-2: Disinformation Propagation requires output zone
+    if "output" not in active_set:
+        excluded_ids.add("IN-2")
+
+    # AB-2: Malware Generation / Distribution requires code generation capability.
+    # Heuristic: exclude when tool_execution not in zones.
+    if "tool_execution" not in active_set:
+        excluded_ids.add("AB-2")
+
+    # --- Threat-specific exclusions ---
+    if threat_id and threat_id in _THREAT_GOAL_EXCLUSIONS:
+        excluded_ids |= _THREAT_GOAL_EXCLUSIONS[threat_id]
+
+    if not excluded_ids:
+        return sub_goals
+
+    filtered = [sg for sg in sub_goals if sg["id"] not in excluded_ids]
+
+    # Safety: never return empty if input was non-empty
+    if not filtered:
+        logger.warning(
+            "Goal anchoring: all sub-goals excluded for threat_id=%s — "
+            "falling back to unfiltered pool (%d goals)",
+            threat_id,
+            len(sub_goals),
+        )
+        return sub_goals
+
+    return filtered
+
+
+# ---------------------------------------------------------------------------
 # ATLAS technique lookups — imported from shared data module
 # ---------------------------------------------------------------------------
 # Backward-compatible aliases for in-module references.
@@ -2119,6 +2198,167 @@ _ADVERSARIAL_ONLY_THREATS: frozenset[str] = frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# Capability-level minimum floor constraint (estu)
+# ---------------------------------------------------------------------------
+
+# Technique pairs that form a natural execution chain (one enables the other).
+# When a 2-technique seed's pair is in this set, the multi-technique escalation
+# rule (R2) does NOT trigger — the chain is a single logical step.
+CHAIN_TECHNIQUE_PAIRS: frozenset[tuple[str, str]] = frozenset({
+    ("AML.T0051.001", "AML.T0067"),
+    ("AML.T0066", "AML.T0057"),
+    ("AML.T0070", "AML.T0057"),
+})
+
+
+def compute_minimum_capability_level(
+    atlas_technique_ids: list[str] | tuple[str, ...] | None,
+    ep_controllability: str | None,
+    threat_id: str | None,
+) -> str:
+    """Compute the minimum capability level floor for a scenario seed.
+
+    Applies four rules and returns the highest triggered floor:
+
+    R1 — Supply chain / training technique: advanced
+    R2 — Multi-technique escalation (2+ techniques, unless chain pair): intermediate
+    R3 — System EP access floor: intermediate
+    R4 — Indirect EP + adversarial-only threat (except T2): intermediate
+
+    Returns:
+        The highest minimum capability level across all triggered rules.
+        Defaults to "novice" if no rules fire.
+    """
+    # Track the highest floor across all rules.
+    floor = "novice"
+
+    tech_ids = list(atlas_technique_ids) if atlas_technique_ids else []
+
+    # R1 — Supply chain / training technique
+    for tid in tech_ids:
+        props = TECHNIQUE_PROPERTIES.get(tid)
+        if props and props.get("target_layer") in ("supply_chain", "training"):
+            floor = _max_capability_level(floor, "advanced")
+            break  # already at advanced, no need to check more
+
+    # R2 — Multi-technique escalation
+    if len(tech_ids) >= 2:
+        # Check if the pair is a chain pair (only applies to exactly 2 techniques)
+        is_chain = False
+        if len(tech_ids) == 2:
+            pair = (tech_ids[0], tech_ids[1])
+            pair_rev = (tech_ids[1], tech_ids[0])
+            is_chain = pair in CHAIN_TECHNIQUE_PAIRS or pair_rev in CHAIN_TECHNIQUE_PAIRS
+        if not is_chain:
+            floor = _max_capability_level(floor, "intermediate")
+
+    # R3 — System EP access floor
+    if ep_controllability == "system":
+        floor = _max_capability_level(floor, "intermediate")
+
+    # R4 — Indirect EP + adversarial-only threat (except T2)
+    if (
+        ep_controllability == "indirect"
+        and threat_id in _ADVERSARIAL_ONLY_THREATS
+        and threat_id != "T2"
+    ):
+        floor = _max_capability_level(floor, "intermediate")
+
+    return floor
+
+
+def _max_capability_level(a: str, b: str) -> str:
+    """Return the higher of two capability levels."""
+    idx_a = _CAPABILITY_ORDER.index(a) if a in _CAPABILITY_ORDER else 0
+    idx_b = _CAPABILITY_ORDER.index(b) if b in _CAPABILITY_ORDER else 0
+    return _CAPABILITY_ORDER[max(idx_a, idx_b)]
+
+
+# ---------------------------------------------------------------------------
+# Actor-type compatible set constraint (ok0p)
+# ---------------------------------------------------------------------------
+
+ALL_ACTOR_TYPES: frozenset[str] = frozenset({
+    "adversarial-user",
+    "malicious-insider",
+    "negligent-insider",
+    "supply-chain-actor",
+    "cybercriminal",
+    "nation-state",
+    "hacktivist",
+    "competitor",
+    "automated-agent",
+})
+
+
+def compute_compatible_actor_types(
+    atlas_technique_ids: list[str] | tuple[str, ...] | None,
+    ep_controllability: str | None,
+    threat_id: str | None,
+    entry_point_name: str | None = None,
+) -> set[str]:
+    """Compute the set of structurally compatible actor types for a seed.
+
+    Applies five rules in order, narrowing from the full actor-type set:
+
+    R1 — Adversarial-only threat: remove negligent-insider
+    R2 — Indirect EP: remove negligent-insider (except T2+RAG)
+    R3 — System EP: restrict to {malicious-insider, supply-chain-actor, nation-state}
+    R4 — Technique requires direct access: remove negligent-insider and
+         supply-chain-actor; verify EP is direct
+    R5 — Supply chain target layer: restrict to
+         {supply-chain-actor, nation-state, malicious-insider, automated-agent}
+
+    Returns:
+        Set of compatible actor type strings. Never empty (R3/R5 restrictions
+        always leave at least one type).
+    """
+    compatible = set(ALL_ACTOR_TYPES)
+    tech_ids = list(atlas_technique_ids) if atlas_technique_ids else []
+
+    # R1 — Adversarial-only threat exclusion
+    if threat_id in _ADVERSARIAL_ONLY_THREATS:
+        compatible.discard("negligent-insider")
+
+    # R2 — Indirect EP exclusion (with T2+RAG exception)
+    if ep_controllability == "indirect":
+        # Exception: T2 + entry point contains "rag" or "knowledge"
+        ep_name_lower = (entry_point_name or "").lower()
+        is_t2_rag = (
+            threat_id == "T2"
+            and ("rag" in ep_name_lower or "knowledge" in ep_name_lower)
+        )
+        if not is_t2_rag:
+            compatible.discard("negligent-insider")
+
+    # R3 — System EP restriction
+    if ep_controllability == "system":
+        compatible &= {"malicious-insider", "supply-chain-actor", "nation-state"}
+
+    # R4 — Technique requires direct access
+    for tid in tech_ids:
+        props = TECHNIQUE_PROPERTIES.get(tid)
+        if props and props.get("requires_direct_access"):
+            compatible.discard("negligent-insider")
+            compatible.discard("supply-chain-actor")
+            break
+
+    # R5 — Supply chain target layer
+    for tid in tech_ids:
+        props = TECHNIQUE_PROPERTIES.get(tid)
+        if props and props.get("target_layer") == "supply_chain":
+            compatible &= {
+                "supply-chain-actor",
+                "nation-state",
+                "malicious-insider",
+                "automated-agent",
+            }
+            break
+
+    return compatible
+
+
 # Keywords in intentions that indicate adversarial (non-negligent) behaviour.
 _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
     "exploit",
@@ -2239,10 +2479,77 @@ def _call_actor_profile(
     Returns:
         Tuple of (ActorProfile, LLMResult).
     """
+    # Compute capability-level minimum floor (estu constraint)
+    _tech_ids_for_floor = (
+        pinned_technique_ids if pinned_technique_ids else seed.atlas_technique_ids
+    )
+    # Look up EP controllability early so it's available for floor computation
+    _ep_controllability_for_floor = _lookup_entry_point_controllability(
+        profile, pinned_entry_point
+    )
+    minimum_capability_level = compute_minimum_capability_level(
+        _tech_ids_for_floor,
+        _ep_controllability_for_floor,
+        seed.threat_id,
+    )
+
+    # Override preferred_capability_level if it falls below the computed floor
+    if preferred_capability_level and minimum_capability_level != "novice":
+        pref_idx = (
+            _CAPABILITY_ORDER.index(preferred_capability_level)
+            if preferred_capability_level in _CAPABILITY_ORDER
+            else 1
+        )
+        floor_idx = _CAPABILITY_ORDER.index(minimum_capability_level)
+        if pref_idx < floor_idx:
+            logger.debug(
+                "Capability floor override: preferred '%s' < minimum '%s' "
+                "for seed %s — bumping preferred",
+                preferred_capability_level,
+                minimum_capability_level,
+                seed.seed_id,
+            )
+            preferred_capability_level = minimum_capability_level
+
+    # Compute actor-type compatible set (ok0p constraint)
+    compatible_actor_types = compute_compatible_actor_types(
+        _tech_ids_for_floor,
+        _ep_controllability_for_floor,
+        seed.threat_id,
+        entry_point_name=pinned_entry_point,
+    )
+
+    # Override preferred_actor_type if not in compatible set
+    if preferred_actor_type and preferred_actor_type not in compatible_actor_types:
+        # Pick next best from compatible set (not excluded)
+        excluded_set = set(excluded_actor_types) if excluded_actor_types else set()
+        fallback_candidates = compatible_actor_types - excluded_set
+        if fallback_candidates:
+            preferred_actor_type = sorted(fallback_candidates)[0]
+            logger.debug(
+                "Actor type constraint override: preferred '%s' not compatible "
+                "for seed %s — falling back to '%s'",
+                preferred_actor_type,
+                seed.seed_id,
+                preferred_actor_type,
+            )
+        else:
+            # All compatible types are excluded; pick any compatible type
+            preferred_actor_type = sorted(compatible_actor_types)[0]
+
     # Build actor type diversity guidance
     diversity_section = ""
     if forced_actor_type:
-        # Hard constraint — override any preferred/excluded hints
+        # Hard constraint — override any preferred/excluded hints.
+        # Log warning if forced type not in compatible set (diversity override).
+        if forced_actor_type not in compatible_actor_types:
+            logger.warning(
+                "Forced actor_type '%s' not in compatible set %s for seed %s "
+                "— respecting force (diversity override)",
+                forced_actor_type,
+                sorted(compatible_actor_types),
+                seed.seed_id,
+            )
         diversity_section = (
             "\n## Actor Type Constraint\n"
             f"- You MUST use actor_type: {forced_actor_type}. "
@@ -2333,7 +2640,11 @@ def _call_actor_profile(
     )
 
     result = client.complete(
-        system_prompt=render_prompt("call0_system.j2"),
+        system_prompt=render_prompt(
+            "call0_system.j2",
+            minimum_capability_level=minimum_capability_level,
+            compatible_actor_types=sorted(compatible_actor_types),
+        ),
         user_prompt=user_prompt,
         response_format=Call0Response,
     )
@@ -2342,6 +2653,23 @@ def _call_actor_profile(
     actor_type = _normalize_actor_type(resp.actor_type)
     capability_level = _normalize_capability_level(resp.capability_level)
     capability_level = _enforce_capability_floor(actor_type, capability_level)
+    # Enforce computed capability-level minimum floor (estu constraint)
+    if minimum_capability_level and minimum_capability_level in _CAPABILITY_ORDER:
+        min_floor_idx = _CAPABILITY_ORDER.index(minimum_capability_level)
+        current_idx = (
+            _CAPABILITY_ORDER.index(capability_level)
+            if capability_level in _CAPABILITY_ORDER
+            else 1
+        )
+        if current_idx < min_floor_idx:
+            logger.warning(
+                "Capability-level floor (estu): seed %s requires '%s', "
+                "actor had '%s' — bumped",
+                seed.seed_id,
+                minimum_capability_level,
+                capability_level,
+            )
+            capability_level = minimum_capability_level
     # Enforce seed-level min_complexity constraint
     if seed.min_complexity and seed.min_complexity in _CAPABILITY_ORDER:
         seed_floor_idx = _CAPABILITY_ORDER.index(seed.min_complexity)
