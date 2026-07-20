@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
-import json
 import logging
 import re
 from collections import Counter
@@ -42,6 +41,15 @@ from scenario_forge.pipeline.generate import (
     write_call_log,
     write_scenario_outputs,
 )
+from scenario_forge.pipeline.io import (
+    get_scenarios_dir,
+    setup_pipeline_output,
+    write_capability_profile,
+    write_eval_scorecard,
+    write_final_manifest,
+    write_pipeline_call_log,
+    write_threat_surface,
+)
 from scenario_forge.pipeline.coverage import (
     CoverageGaps,
     GapAttributions,
@@ -71,22 +79,6 @@ _DEFAULT_CROSS_TAXONOMY_PATH = (
     / "mappings"
     / "cross-taxonomy-mappings.yaml"
 )
-
-
-def _write_pipeline_call_log(entries: list[dict], output_dir: Path) -> None:
-    """Append call-log entries to the top-level ``calls.jsonl`` in *output_dir*.
-
-    This file records non-scenario LLM calls (capability profile inference,
-    candidate filtering) in the same JSON-per-line format used by
-    ``scenarios/calls.jsonl``.
-    """
-    if not entries:
-        return
-    output_dir.mkdir(parents=True, exist_ok=True)
-    calls_path = output_dir / "calls.jsonl"
-    with calls_path.open("a", encoding="utf-8") as fh:
-        for entry in entries:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 class PipelineResult(BaseModel):
@@ -450,27 +442,12 @@ def run_pipeline(
         PipelineResult with all artifacts from the pipeline run.
     """
     ct_path = cross_taxonomy_path or _DEFAULT_CROSS_TAXONOMY_PATH
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "use-case.txt").write_text(use_case)
     generation_notes: list[str] = []
 
     client = LLMClient(base_url=base_url, api_key=api_key, model=model)
 
-    # --- Write run manifest sentinel (start) ---
-    timestamp_start = datetime.now(timezone.utc).isoformat()
-    manifest_path = output_dir / "run-manifest.yaml"
-    manifest_path.write_text(
-        yaml.dump(
-            {
-                "status": "started",
-                "timestamp_start": timestamp_start,
-                "version": importlib.metadata.version("scenario-forge"),
-            },
-            default_flow_style=False,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
+    # --- I/O boundary: pipeline setup (output dir, use-case, manifest sentinel) ---
+    timestamp_start = setup_pipeline_output(output_dir, use_case)
 
     # --- Stage 1: Capability Profile Inference ---
     if profile_path is not None:
@@ -486,7 +463,7 @@ def run_pipeline(
             raw_content = raw_content.model_dump(mode="json")
         elif not isinstance(raw_content, str):
             raw_content = str(raw_content)
-        _write_pipeline_call_log(
+        write_pipeline_call_log(
             [{
                 "call": "capability_profile",
                 "system_prompt": profile_llm_result.system_prompt,
@@ -542,14 +519,8 @@ def run_pipeline(
     logger.info("  Entry points: %d", len(profile.entry_points))
     logger.info("  Confidence: %s", profile.confidence.value)
 
-    profile_output_path = output_dir / "capability-profile.yaml"
-    profile_data = profile.model_dump(mode="json", exclude_none=True)
-    profile_output_path.write_text(
-        yaml.dump(
-            profile_data, default_flow_style=False, sort_keys=False, allow_unicode=True
-        ),
-        encoding="utf-8",
-    )
+    # --- I/O boundary: capability profile ---
+    profile_output_path = write_capability_profile(profile, output_dir)
     logger.info("  Written to %s", profile_output_path)
 
     # --- Stage 2: Threat Surface Determination ---
@@ -579,14 +550,8 @@ def run_pipeline(
     for entry in threat_surface.entries:
         in_scope_threats.update(entry.agentic_threat_ids)
 
-    ts_path = output_dir / "threat-surface.yaml"
-    ts_data = threat_surface.model_dump(mode="json", exclude_none=True)
-    ts_path.write_text(
-        yaml.dump(
-            ts_data, default_flow_style=False, sort_keys=False, allow_unicode=True
-        ),
-        encoding="utf-8",
-    )
+    # --- I/O boundary: threat surface ---
+    ts_path = write_threat_surface(threat_surface, output_dir)
     logger.info("  %d actionable risk cards", actionable_count)
     logger.info("  %d governance-only", governance_count)
     logger.info("  %d in-scope threats", len(in_scope_threats))
@@ -620,7 +585,7 @@ def run_pipeline(
         rule_passed, seeds, client, use_case, profile
     )
     # Log candidate filter LLM calls to top-level calls.jsonl.
-    _write_pipeline_call_log(filter_call_logs, output_dir)
+    write_pipeline_call_log(filter_call_logs, output_dir)
     candidates_accepted = len(filtered_seeds)
     candidates_rejected = candidates_expanded - candidates_accepted
     logger.info(
@@ -650,7 +615,7 @@ def run_pipeline(
 
     # --- Stage 4: Scenario Generation ---
     logger.info("[Stage 4] Generating %d scenarios...", len(filtered_seeds))
-    scenarios_dir = output_dir / "scenarios"
+    scenarios_dir = get_scenarios_dir(output_dir)
     scenarios: list[ScenarioEnvelope] = []
     failed_count = 0
 
@@ -931,10 +896,8 @@ def run_pipeline(
             "clean_count": leaf_technique_result.clean_count,
         },
     }
-    manifest_path.write_text(
-        yaml.dump(manifest, default_flow_style=False, sort_keys=False),
-        encoding="utf-8",
-    )
+    # --- I/O boundary: final manifest ---
+    write_final_manifest(manifest, output_dir)
 
     # --- Auto-evaluate scenarios (deterministic metrics) ---
     if eval:
@@ -943,16 +906,8 @@ def run_pipeline(
 
             logger.info("[Eval] Running deterministic quality metrics...")
             scorecard = run_evaluation(output_dir, threats_path=threats_path)
-            scorecard_path = output_dir / "eval-scorecard.yaml"
-            scorecard_path.write_text(
-                yaml.dump(
-                    scorecard,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    allow_unicode=True,
-                ),
-                encoding="utf-8",
-            )
+            # --- I/O boundary: eval scorecard ---
+            scorecard_path = write_eval_scorecard(scorecard, output_dir)
             logger.info("  Scorecard written to %s", scorecard_path)
         except Exception as exc:
             logger.warning("Eval scorecard generation failed: %s", exc)
