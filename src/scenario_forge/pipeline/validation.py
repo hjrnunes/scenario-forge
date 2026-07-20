@@ -279,6 +279,38 @@ _API_RESPONSE_FABRICATION_PATTERNS = [
     ]
 ]
 
+# System prompt retrieval via API: scenarios assume the agent can retrieve
+# its own system prompt or system configuration through API/tool calls.
+# This is ALWAYS phantom — agents never have access to their own system
+# prompt through tool execution.  The platform injects system prompts
+# into the context opaquely; no API or tool endpoint exposes them.
+_SYSTEM_PROMPT_RETRIEVAL_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        # "<type> API" used for system prompt / configuration retrieval
+        r"\b(?:configuration|config|settings|admin)\s+API\b[^.]{0,40}\b(?:system\s+prompt|system\s+instruction|internal\s+instruction)",
+        r"\b(?:system\s+prompt|system\s+instruction|internal\s+instruction)\b[^.]{0,40}\b(?:configuration|config|settings|admin)\s+API\b",
+        # Diagnostic / introspection API or endpoint
+        r"\bdiagnostic\s+(?:API|endpoint)\b",
+        r"\bintrospection\s+(?:API|endpoint)\b",
+        # Configuration / settings endpoint for prompt/instruction access
+        r"\b(?:configuration|config|settings)\s+endpoint\b[^.]{0,40}\b(?:prompt|instruction)",
+        r"\b(?:prompt|instruction)\b[^.]{0,40}\b(?:configuration|config|settings)\s+endpoint\b",
+        # Direct system prompt retrieval / dump / extraction phrasing
+        r"\b(?:retriev|dump|extract|access|obtain|fetch|read|quer[yi])\w*\b[^.]{0,30}\bsystem\s+prompt\b",
+        r"\bsystem\s+prompt\s+(?:retriev|dump|extract)\w*\b",
+        # Internal / system instructions via API
+        r"\b(?:retriev|dump|extract|access|obtain|fetch|read|quer[yi])\w*\b[^.]{0,30}\b(?:internal|system)\s+instructions?\b",
+        r"\b(?:internal|system)\s+instructions?\b[^.]{0,30}\bvia\s+(?:API|endpoint|tool)\b",
+        # Diagnostic retrieval / configuration retrieval APIs (generic)
+        r"\bdiagnostic\b[^.]{0,30}\bretrieval\b",
+        r"\bconfiguration\s+retrieval\b[^.]{0,30}\b(?:API|endpoint)\b",
+        # Identity management / auth token manipulation endpoints
+        r"\bidentity\s+management\s+(?:API|endpoint)\b",
+        r"\bauth(?:entication)?\s+token\s+manipulation\s+(?:API|endpoint)\b",
+    ]
+]
+
 
 # ---------------------------------------------------------------------------
 # Detection helpers
@@ -480,6 +512,28 @@ def _check_api_response_fabrication(
     return None
 
 
+def _check_system_prompt_retrieval(
+    text: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return a match string if text assumes the agent can retrieve its system prompt.
+
+    System prompt retrieval via API/tool calls is ALWAYS phantom — agents
+    never have access to their own system prompt through tool execution.
+    The platform injects system prompts into the LLM context opaquely;
+    no configuration API, diagnostic endpoint, or introspection tool
+    exposes them.
+
+    Always fires regardless of profile — no KC subcode grants access to
+    system prompts via API.
+    """
+    for pattern in _SYSTEM_PROMPT_RETRIEVAL_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Phantom tool invocation — patterns and helpers
 # ---------------------------------------------------------------------------
@@ -645,6 +699,14 @@ _CHECKERS = [
         "system metadata, prompt fragments, model configuration, or "
         "internal system information are not returned by normal API "
         "endpoints.",
+    ),
+    (
+        "system_prompt_retrieval",
+        _check_system_prompt_retrieval,
+        "Agents never have access to their own system prompt via "
+        "API or tool calls — no configuration API, diagnostic endpoint, "
+        "or introspection tool exposes system prompts.  The platform "
+        "injects them opaquely.",
     ),
 ]
 
