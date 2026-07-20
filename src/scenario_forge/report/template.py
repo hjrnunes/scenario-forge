@@ -18,13 +18,11 @@ import yaml
 
 from scenario_forge.data.atlas import ATLAS_TECHNIQUE_DESCRIPTIONS
 from scenario_forge.data.loaders import (
-    load_attack_patterns,
-)
-from scenario_forge.pipeline.generate import (
     load_attack_goals_taxonomy,
+    load_attack_patterns,
+    load_kc_threat_mapping,
     load_threat_goal_affinity,
 )
-from scenario_forge.data.loaders import load_kc_threat_mapping
 from scenario_forge.models.capability_profile import (
     ZONE_DISPLAY_NAMES,
     ZONE_NAMES as _ZONE_NAMES_TUPLE,

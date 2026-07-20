@@ -15,7 +15,10 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-from scenario_forge.data.loaders import load_risk_extraction
+from scenario_forge.data.loaders import (
+    load_attack_goals_taxonomy,
+    load_risk_extraction,
+)
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import ZONE_NAMES, CapabilityProfile
@@ -39,7 +42,6 @@ from scenario_forge.pipeline.generate import (
     get_all_sub_goals,
     get_overused_patterns,
     get_overused_structural_patterns,
-    load_attack_goals_taxonomy,
     select_attack_goal,
     write_call_log,
     write_scenario_outputs,

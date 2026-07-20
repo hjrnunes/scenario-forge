@@ -32,6 +32,7 @@ from scenario_forge.data.atlas import (
     TECHNIQUE_PROPERTIES,
     TECHNIQUE_ZONE_CONSTRAINTS,
 )
+from scenario_forge.data.loaders import load_threat_goal_affinity
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.prompts import render_prompt
 from scenario_forge.models.attack_tree import (
@@ -969,81 +970,6 @@ def _format_structural_exclusions(patterns: list[str]) -> str:
         "Vary the structural attack approach — do not repeat the same "
         "sequence of attack phases.\n"
     )
-
-
-# ---------------------------------------------------------------------------
-# Attack Goals Taxonomy
-# ---------------------------------------------------------------------------
-
-_ATTACK_GOALS_TAXONOMY_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "data"
-    / "taxonomies"
-    / "attack-goals"
-    / "attack-goals.json"
-)
-
-# Cache the loaded taxonomy to avoid re-reading the file per scenario.
-_attack_goals_cache: dict[str, Any] | None = None
-
-
-def load_attack_goals_taxonomy(
-    path: Path | None = None,
-) -> dict[str, Any]:
-    """Load the attack goals taxonomy JSON file.
-
-    Returns the parsed taxonomy dict with 'version' and 'categories' keys.
-    Uses a module-level cache after the first load.
-    """
-    global _attack_goals_cache
-    if _attack_goals_cache is not None and path is None:
-        return _attack_goals_cache
-
-    taxonomy_path = path or _ATTACK_GOALS_TAXONOMY_PATH
-    with open(taxonomy_path) as f:
-        data = json.load(f)
-
-    if path is None:
-        _attack_goals_cache = data
-    return data
-
-
-# ---------------------------------------------------------------------------
-# Threat-goal affinity map
-# ---------------------------------------------------------------------------
-
-_THREAT_GOAL_AFFINITY_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "data"
-    / "taxonomies"
-    / "attack-goals"
-    / "threat-goal-affinity.yaml"
-)
-
-_threat_goal_affinity_cache: dict[str, dict[str, list[str]]] | None = None
-
-
-def load_threat_goal_affinity(
-    path: Path | None = None,
-) -> dict[str, dict[str, list[str]]]:
-    """Load the threat-goal affinity YAML map.
-
-    Returns a dict keyed by threat ID (e.g. 'T1') whose values are dicts
-    with keys 'primary', 'secondary', 'excluded' — each a list of category IDs.
-    Uses a module-level cache after the first load.
-    """
-    global _threat_goal_affinity_cache
-    if _threat_goal_affinity_cache is not None and path is None:
-        return _threat_goal_affinity_cache
-
-    affinity_path = path or _THREAT_GOAL_AFFINITY_PATH
-    with open(affinity_path) as f:
-        data = yaml.safe_load(f)
-
-    affinities: dict[str, dict[str, list[str]]] = data["affinities"]
-    if path is None:
-        _threat_goal_affinity_cache = affinities
-    return affinities
 
 
 def get_all_sub_goals(

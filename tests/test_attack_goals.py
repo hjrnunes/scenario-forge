@@ -12,12 +12,14 @@ from pathlib import Path
 
 import pytest
 
+from scenario_forge.data.loaders import (
+    load_attack_goals_taxonomy,
+    load_threat_goal_affinity,
+)
 from scenario_forge.pipeline.generate import (
     _build_attack_goal_context_block,
     filter_sub_goals_by_zones,
     get_all_sub_goals,
-    load_attack_goals_taxonomy,
-    load_threat_goal_affinity,
     select_attack_goal,
 )
 
