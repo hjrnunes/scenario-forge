@@ -34,6 +34,9 @@ Assign technique_id from the pinned set to LEAF nodes where the technique's mech
 - Do not add attack phases that serve no assigned technique. Every leaf node should be traceable to a technique from the seed or to a necessary structural connector (e.g., a setup step required by an AND gate).
 - Multi-turn escalation (deep AND chains, repeated attack phases) requires justification from technique semantics. For example, AML.T0054 (LLM Prompt Injection) can justify multi-turn interaction; AML.T0053 (AI Agent Tool Invocation) alone cannot justify a multi-turn escalation path.
 
+### Gate-Type Semantics (MANDATORY)
+Use AND gates for nodes whose children are sequential prerequisites — all must succeed for the parent to succeed. Use OR gates for nodes whose children are alternative approaches — any one suffices. When the narrative describes steps that must happen in sequence (step A enables step B), the parent node MUST use AND. When the narrative describes alternative methods to achieve the same goal, the parent node MUST use OR.
+
 ### Cross-Artifact Consistency (MANDATORY)
 The attack tree must be consistent with the upstream narrative and with the downstream behavior spec:
 - Every technique ID from the allowed technique list must appear on at least one tree node. Do not drop techniques that were present in the narrative.
