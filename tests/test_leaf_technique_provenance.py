@@ -1,11 +1,12 @@
 """Tests for leaf technique provenance validation.
 
 Covers:
-- Leaf nodes with technique_id pass cleanly
-- Attack-work leaf nodes without technique_id are flagged
-- Consequence / terminal-outcome leaves are exempt
-- Mixed trees: some flagged, some clean
-- Deep trees with nested attack-work leaves
+- At least one provenance-matching leaf -> clean
+- Technique IDs present but none from provenance set -> flagged
+- All leaves unannotated (no technique_ids) -> flagged
+- Consequence leaf exemption still works (unannotated consequence
+  leaves do not block a scenario with a provenance match)
+- Mixed batch (some clean, some flagged)
 - Empty scenario list
 - _is_consequence_leaf heuristic matches expected patterns
 """
@@ -54,8 +55,16 @@ from scenario_forge.pipeline.validation import (
 def _make_envelope(
     root: AttackTreeNode,
     scenario_id: str = "AP-T1-01-abc123",
+    atlas_provenance_ids: list[str] | None = None,
 ) -> ScenarioEnvelope:
-    """Build a minimal valid ScenarioEnvelope with a custom tree root."""
+    """Build a minimal valid ScenarioEnvelope with a custom tree root.
+
+    Parameters
+    ----------
+    atlas_provenance_ids:
+        ATLAS technique IDs from the seed's provenance.  Stored in
+        ``scenario_seed_metadata["atlas_provenance_ids"]``.
+    """
     narrative = NarrativeLayer(
         title="Test Scenario",
         summary="Test summary.",
@@ -125,10 +134,20 @@ def _make_envelope(
         ],
     )
 
+    seed_metadata = {
+        "seed_id": "AP-T1-01",
+        "threat_id": "T1",
+        "threat_name": "Test Threat",
+        "attack_pattern_name": "Test Pattern",
+        "attack_pattern_description": "A test attack pattern.",
+        "atlas_provenance_ids": atlas_provenance_ids or [],
+    }
+
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         generated_at=datetime.now(),
         generator_version="0.1.0",
+        scenario_seed_metadata=seed_metadata,
         narrative=narrative,
         attack_tree=attack_tree,
         behavior_spec={},
@@ -139,18 +158,48 @@ def _make_envelope(
 
 
 # ---------------------------------------------------------------------------
-# Tests: all leaves annotated -> clean
+# Tests: at least one provenance-matching leaf -> clean
 # ---------------------------------------------------------------------------
 
 
 class TestCleanScenarios:
-    """Scenarios where all leaf nodes have technique_id should pass cleanly."""
+    """Scenarios with at least one provenance-matching leaf are clean."""
 
-    def test_all_leaves_annotated(self) -> None:
+    def test_one_leaf_matches_provenance(self) -> None:
+        """A single annotated leaf matching provenance is sufficient."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
-            gate=GateType.OR,
+            gate=GateType.AND,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Inject prompt payload",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    technique_id="AML.T0051",
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Observe response",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
+            ],
+        )
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
+        result = check_leaf_technique_provenance([scenario])
+
+        assert result.clean_count == 1
+        assert result.flagged_count == 0
+
+    def test_multiple_leaves_one_matches(self) -> None:
+        """Only one leaf needs to match provenance for clean result."""
+        root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
             zone="input",
             children=[
                 AttackTreeNode(
@@ -165,36 +214,22 @@ class TestCleanScenarios:
                     label="Exploit reasoning flaw",
                     gate=GateType.LEAF,
                     zone="reasoning",
-                    technique_id="AML.T0052",
+                    technique_id="AML.T0099",  # Not in provenance
                 ),
             ],
         )
-        scenario = _make_envelope(root)
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
         result = check_leaf_technique_provenance([scenario])
 
         assert result.clean_count == 1
         assert result.flagged_count == 0
 
-    def test_empty_list(self) -> None:
-        result = check_leaf_technique_provenance([])
-        assert result.clean_count == 0
-        assert result.flagged_count == 0
-
-
-# ---------------------------------------------------------------------------
-# Tests: attack-work leaves without technique_id -> flagged
-# ---------------------------------------------------------------------------
-
-
-class TestFlaggedScenarios:
-    """Attack-work leaf nodes without technique_id should be flagged."""
-
-    def test_unannotated_attack_leaf_flagged(self) -> None:
-        """A leaf performing attack work with no technique_id is flagged."""
+    def test_unannotated_leaves_alongside_provenance_match(self) -> None:
+        """Unannotated leaves are excluded; provenance match still holds."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
-            gate=GateType.OR,
+            gate=GateType.AND,
             zone="input",
             children=[
                 AttackTreeNode(
@@ -206,25 +241,28 @@ class TestFlaggedScenarios:
                 ),
                 AttackTreeNode(
                     id="n1.2",
-                    label="Manipulate user via crafted social engineering message",
+                    label="Observe response",
                     gate=GateType.LEAF,
-                    zone="input",
+                    zone="output",
+                    # No technique_id — legitimate unannotated step
+                ),
+                AttackTreeNode(
+                    id="n1.3",
+                    label="Trigger escalation",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    # No technique_id — legitimate unannotated step
                 ),
             ],
         )
-        scenario = _make_envelope(root)
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
         result = check_leaf_technique_provenance([scenario])
 
-        assert result.flagged_count == 1
-        assert result.clean_count == 0
-        flagged_scenario, violations = result.flagged_scenarios[0]
-        assert flagged_scenario.scenario_id == "AP-T1-01-abc123"
-        assert len(violations) == 1
-        assert violations[0].node_id == "n1.2"
-        assert violations[0].zone == "input"
+        assert result.clean_count == 1
+        assert result.flagged_count == 0
 
-    def test_multiple_unannotated_leaves_flagged(self) -> None:
-        """Multiple attack-work leaves without technique_id all get flagged."""
+    def test_partial_provenance_accepted(self) -> None:
+        """Matching 1 of 2 provenance IDs is accepted (partial provenance)."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -233,27 +271,30 @@ class TestFlaggedScenarios:
             children=[
                 AttackTreeNode(
                     id="n1.1",
-                    label="Craft phishing lure",
+                    label="Inject prompt payload",
                     gate=GateType.LEAF,
                     zone="input",
+                    technique_id="AML.T0051",
                 ),
                 AttackTreeNode(
                     id="n1.2",
-                    label="Deliver payload via injection",
+                    label="Observe behavior",
                     gate=GateType.LEAF,
-                    zone="input",
+                    zone="output",
                 ),
             ],
         )
-        scenario = _make_envelope(root)
+        scenario = _make_envelope(
+            root,
+            atlas_provenance_ids=["AML.T0051", "AML.T0052"],
+        )
         result = check_leaf_technique_provenance([scenario])
 
-        assert result.flagged_count == 1
-        _, violations = result.flagged_scenarios[0]
-        assert len(violations) == 2
+        assert result.clean_count == 1
+        assert result.flagged_count == 0
 
-    def test_deep_tree_unannotated_leaf(self) -> None:
-        """A deeply nested unannotated attack-work leaf is found."""
+    def test_deep_tree_provenance_match(self) -> None:
+        """Deeply nested leaf matching provenance is found."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -275,9 +316,10 @@ class TestFlaggedScenarios:
                         ),
                         AttackTreeNode(
                             id="n1.1.2",
-                            label="Establish persistence via hook",
+                            label="Observe system behavior",
                             gate=GateType.LEAF,
                             zone="tool_execution",
+                            # No technique_id
                         ),
                     ],
                 ),
@@ -286,30 +328,208 @@ class TestFlaggedScenarios:
                     label="Stage 2",
                     gate=GateType.LEAF,
                     zone="reasoning",
-                    technique_id="AML.T0052",
+                    # No technique_id
                 ),
             ],
         )
-        scenario = _make_envelope(root)
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
+        result = check_leaf_technique_provenance([scenario])
+
+        assert result.clean_count == 1
+        assert result.flagged_count == 0
+
+    def test_empty_list(self) -> None:
+        result = check_leaf_technique_provenance([])
+        assert result.clean_count == 0
+        assert result.flagged_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: flagged scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestFlaggedScenarios:
+    """Scenarios without a provenance-matching leaf are flagged."""
+
+    def test_technique_ids_none_from_provenance(self) -> None:
+        """Leaves have technique_ids but none match provenance set."""
+        root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Inject prompt payload",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    technique_id="AML.T0099",  # Not in provenance
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Exploit reasoning flaw",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    technique_id="AML.T0098",  # Not in provenance
+                ),
+            ],
+        )
+        scenario = _make_envelope(
+            root,
+            atlas_provenance_ids=["AML.T0051", "AML.T0052"],
+        )
+        result = check_leaf_technique_provenance([scenario])
+
+        assert result.flagged_count == 1
+        assert result.clean_count == 0
+        _, violations = result.flagged_scenarios[0]
+        assert len(violations) == 1
+        assert "AML.T0098" in violations[0].reason or "AML.T0099" in violations[0].reason
+        assert "atlas_provenance_ids" in violations[0].reason
+
+    def test_all_unannotated_leaves(self) -> None:
+        """No leaves carry any technique_id at all -> flagged."""
+        root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Craft phishing lure",
+                    gate=GateType.LEAF,
+                    zone="input",
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Deliver payload via injection",
+                    gate=GateType.LEAF,
+                    zone="input",
+                ),
+            ],
+        )
+        scenario = _make_envelope(
+            root,
+            atlas_provenance_ids=["AML.T0051"],
+        )
+        result = check_leaf_technique_provenance([scenario])
+
+        assert result.flagged_count == 1
+        assert result.clean_count == 0
+        _, violations = result.flagged_scenarios[0]
+        assert len(violations) == 1
+        assert "No leaf nodes carry a technique_id" in violations[0].reason
+
+    def test_no_seed_metadata(self) -> None:
+        """Scenario with no seed metadata is flagged (empty provenance)."""
+        root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Inject payload",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    technique_id="AML.T0051",
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Observe response",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
+            ],
+        )
+        scenario = _make_envelope(root, atlas_provenance_ids=[])
+        # Clear seed metadata to simulate missing data
+        scenario.scenario_seed_metadata = None
+        result = check_leaf_technique_provenance([scenario])
+
+        assert result.flagged_count == 1
+        assert result.clean_count == 0
+
+    def test_empty_provenance_set(self) -> None:
+        """Scenario with empty atlas_provenance_ids is flagged."""
+        root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Inject payload",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    technique_id="AML.T0051",
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Observe response",
+                    gate=GateType.LEAF,
+                    zone="output",
+                ),
+            ],
+        )
+        scenario = _make_envelope(root, atlas_provenance_ids=[])
+        result = check_leaf_technique_provenance([scenario])
+
+        assert result.flagged_count == 1
+        assert result.clean_count == 0
+
+    def test_violation_uses_root_node(self) -> None:
+        """Violation references the root node (scenario-level issue)."""
+        root = AttackTreeNode(
+            id="n1",
+            label="Attack Goal",
+            gate=GateType.AND,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Some step",
+                    gate=GateType.LEAF,
+                    zone="input",
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Another step",
+                    gate=GateType.LEAF,
+                    zone="input",
+                ),
+            ],
+        )
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
         result = check_leaf_technique_provenance([scenario])
 
         assert result.flagged_count == 1
         _, violations = result.flagged_scenarios[0]
-        assert len(violations) == 1
-        assert violations[0].node_id == "n1.1.2"
-        assert violations[0].label == "Establish persistence via hook"
+        assert violations[0].node_id == "n1"
+        assert violations[0].label == "Attack Goal"
+        assert violations[0].zone == "input"
 
 
 # ---------------------------------------------------------------------------
-# Tests: consequence leaves are exempt
+# Tests: consequence leaf exemption still works
 # ---------------------------------------------------------------------------
 
 
 class TestConsequenceExemption:
-    """Consequence / terminal-outcome leaves should not be flagged."""
+    """Consequence leaves do not block clean status under new semantic.
 
-    def test_victim_action_exempt(self) -> None:
-        """A leaf describing victim action as result is a consequence."""
+    Unannotated leaves (including consequence leaves) are excluded from
+    the check.  A scenario is clean as long as at least one annotated
+    leaf matches the provenance set.
+    """
+
+    def test_consequence_leaf_with_provenance_match(self) -> None:
+        """Consequence leaf (no technique_id) + provenance match -> clean."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -328,17 +548,18 @@ class TestConsequenceExemption:
                     label="Victim transfers funds to attacker account",
                     gate=GateType.LEAF,
                     zone="output",
+                    # No technique_id — consequence leaf
                 ),
             ],
         )
-        scenario = _make_envelope(root)
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
         result = check_leaf_technique_provenance([scenario])
 
         assert result.clean_count == 1
         assert result.flagged_count == 0
 
-    def test_data_exfiltrated_exempt(self) -> None:
-        """A leaf describing data exfiltration outcome is a consequence."""
+    def test_data_exfiltrated_with_provenance_match(self) -> None:
+        """Data exfiltration consequence leaf alongside provenance match."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -360,14 +581,14 @@ class TestConsequenceExemption:
                 ),
             ],
         )
-        scenario = _make_envelope(root)
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
         result = check_leaf_technique_provenance([scenario])
 
         assert result.clean_count == 1
         assert result.flagged_count == 0
 
-    def test_system_compromised_exempt(self) -> None:
-        """A leaf describing system compromise outcome is a consequence."""
+    def test_only_consequence_leaves_flagged(self) -> None:
+        """Tree with only consequence leaves (no technique_ids) is flagged."""
         root = AttackTreeNode(
             id="n1",
             label="Root",
@@ -376,10 +597,9 @@ class TestConsequenceExemption:
             children=[
                 AttackTreeNode(
                     id="n1.1",
-                    label="Inject payload",
+                    label="Victim transfers funds to attacker account",
                     gate=GateType.LEAF,
-                    zone="input",
-                    technique_id="AML.T0051",
+                    zone="output",
                 ),
                 AttackTreeNode(
                     id="n1.2",
@@ -389,99 +609,11 @@ class TestConsequenceExemption:
                 ),
             ],
         )
-        scenario = _make_envelope(root)
+        scenario = _make_envelope(root, atlas_provenance_ids=["AML.T0051"])
         result = check_leaf_technique_provenance([scenario])
 
-        assert result.clean_count == 1
-        assert result.flagged_count == 0
-
-    def test_attack_succeeds_exempt(self) -> None:
-        """A leaf describing attack success is a consequence."""
-        root = AttackTreeNode(
-            id="n1",
-            label="Root",
-            gate=GateType.OR,
-            zone="input",
-            children=[
-                AttackTreeNode(
-                    id="n1.1",
-                    label="Inject payload",
-                    gate=GateType.LEAF,
-                    zone="input",
-                    technique_id="AML.T0051",
-                ),
-                AttackTreeNode(
-                    id="n1.2",
-                    label="Breach completed successfully",
-                    gate=GateType.LEAF,
-                    zone="output",
-                ),
-            ],
-        )
-        scenario = _make_envelope(root)
-        result = check_leaf_technique_provenance([scenario])
-
-        assert result.clean_count == 1
-        assert result.flagged_count == 0
-
-    def test_exfiltrate_verb_exempt(self) -> None:
-        """A leaf starting with 'Exfiltrate ...' is a consequence."""
-        root = AttackTreeNode(
-            id="n1",
-            label="Root",
-            gate=GateType.OR,
-            zone="input",
-            children=[
-                AttackTreeNode(
-                    id="n1.1",
-                    label="Inject payload",
-                    gate=GateType.LEAF,
-                    zone="input",
-                    technique_id="AML.T0051",
-                ),
-                AttackTreeNode(
-                    id="n1.2",
-                    label="Exfiltrate sensitive data to C2 server",
-                    gate=GateType.LEAF,
-                    zone="output",
-                ),
-            ],
-        )
-        scenario = _make_envelope(root)
-        result = check_leaf_technique_provenance([scenario])
-
-        assert result.clean_count == 1
-        assert result.flagged_count == 0
-
-    def test_description_also_checked(self) -> None:
-        """Consequence pattern in description exempts the node."""
-        root = AttackTreeNode(
-            id="n1",
-            label="Root",
-            gate=GateType.OR,
-            zone="input",
-            children=[
-                AttackTreeNode(
-                    id="n1.1",
-                    label="Inject payload",
-                    gate=GateType.LEAF,
-                    zone="input",
-                    technique_id="AML.T0051",
-                ),
-                AttackTreeNode(
-                    id="n1.2",
-                    label="Terminal outcome",
-                    description="The victim transfers money to the attacker.",
-                    gate=GateType.LEAF,
-                    zone="output",
-                ),
-            ],
-        )
-        scenario = _make_envelope(root)
-        result = check_leaf_technique_provenance([scenario])
-
-        assert result.clean_count == 1
-        assert result.flagged_count == 0
+        assert result.flagged_count == 1
+        assert result.clean_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -497,7 +629,7 @@ class TestMixedBatch:
         clean_root = AttackTreeNode(
             id="n1",
             label="Root",
-            gate=GateType.OR,
+            gate=GateType.AND,
             zone="input",
             children=[
                 AttackTreeNode(
@@ -509,19 +641,22 @@ class TestMixedBatch:
                 ),
                 AttackTreeNode(
                     id="n1.2",
-                    label="Exploit reasoning",
+                    label="Observe response",
                     gate=GateType.LEAF,
-                    zone="reasoning",
-                    technique_id="AML.T0052",
+                    zone="output",
                 ),
             ],
         )
-        clean = _make_envelope(clean_root, scenario_id="AP-T1-01-clean1")
+        clean = _make_envelope(
+            clean_root,
+            scenario_id="AP-T1-01-clean1",
+            atlas_provenance_ids=["AML.T0051"],
+        )
 
         flagged_root = AttackTreeNode(
             id="n1",
             label="Root",
-            gate=GateType.OR,
+            gate=GateType.AND,
             zone="input",
             children=[
                 AttackTreeNode(
@@ -529,17 +664,21 @@ class TestMixedBatch:
                     label="Inject payload",
                     gate=GateType.LEAF,
                     zone="input",
-                    technique_id="AML.T0051",
+                    technique_id="AML.T0099",  # Not in provenance
                 ),
                 AttackTreeNode(
                     id="n1.2",
-                    label="Perform social engineering manipulation",
+                    label="Follow up step",
                     gate=GateType.LEAF,
-                    zone="input",
+                    zone="reasoning",
                 ),
             ],
         )
-        flagged = _make_envelope(flagged_root, scenario_id="AP-T1-01-flagg1")
+        flagged = _make_envelope(
+            flagged_root,
+            scenario_id="AP-T1-01-flagg1",
+            atlas_provenance_ids=["AML.T0051"],
+        )
 
         result = check_leaf_technique_provenance([clean, flagged])
 

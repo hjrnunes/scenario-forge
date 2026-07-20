@@ -1100,7 +1100,7 @@ def _check_tree_threat_ids(
 
 @dataclass
 class LeafTechniqueViolation:
-    """A leaf node performing attack work without a ``technique_id``."""
+    """Scenario-level provenance mismatch for leaf technique validation."""
 
     node_id: str
     label: str
@@ -1194,13 +1194,23 @@ def _is_consequence_leaf(node: AttackTreeNode) -> bool:
 def check_leaf_technique_provenance(
     scenarios: list[ScenarioEnvelope],
 ) -> LeafTechniqueResult:
-    """Flag attack-work leaf nodes that lack a ``technique_id``.
+    """Check that at least one leaf carries a seed provenance technique.
 
-    Walks every scenario's attack tree, collects leaf nodes, and checks
-    whether each leaf that performs active attack work has a
-    ``technique_id`` annotation.  Leaves classified as consequence /
-    terminal-outcome nodes (via :func:`_is_consequence_leaf`) are
-    exempt.
+    For each scenario, extracts ``atlas_provenance_ids`` from the
+    scenario's ``scenario_seed_metadata`` and checks whether at least
+    one leaf node's ``technique_id`` appears in that provenance set.
+    Leaves without a ``technique_id`` (unannotated prerequisite steps
+    like "observe response") are excluded from the check entirely —
+    they are legitimate attack steps not tied to a specific ATLAS
+    technique.
+
+    Per ``decision-technique-provenance-partial``, partial provenance
+    (1 of N seed techniques) is accepted.
+
+    A scenario is flagged when:
+    - No leaf node carries any ``technique_id`` at all, or
+    - Leaf nodes have ``technique_id`` values but none match the seed's
+      ``atlas_provenance_ids``.
 
     Returns a :class:`LeafTechniqueResult` with clean and flagged
     scenarios.  The caller decides whether to log warnings or block.
@@ -1208,34 +1218,51 @@ def check_leaf_technique_provenance(
     result = LeafTechniqueResult()
 
     for scenario in scenarios:
-        violations: list[LeafTechniqueViolation] = []
+        # Extract atlas_provenance_ids from seed metadata.
+        provenance_ids: set[str] = set()
+        if scenario.scenario_seed_metadata:
+            raw = scenario.scenario_seed_metadata.get("atlas_provenance_ids") or []
+            provenance_ids = set(raw)
+
         leaves = _collect_leaves(scenario.attack_tree.root)
 
-        for leaf in leaves:
-            # Already annotated — no issue.
-            if leaf.technique_id:
-                continue
+        # Collect only leaves that carry a technique_id; unannotated
+        # leaves (prerequisite steps) are excluded from the denominator.
+        annotated_technique_ids = [
+            leaf.technique_id for leaf in leaves if leaf.technique_id
+        ]
 
-            # Consequence / effect nodes are exempt.
-            if _is_consequence_leaf(leaf):
-                continue
+        # Check if at least one annotated leaf matches the provenance set.
+        has_provenance_match = any(
+            tid in provenance_ids for tid in annotated_technique_ids
+        )
 
-            violations.append(
-                LeafTechniqueViolation(
-                    node_id=leaf.id,
-                    label=leaf.label,
-                    zone=leaf.zone,
-                    reason=(
-                        "Leaf node performs attack work but has no "
-                        "technique_id — missing technique provenance."
-                    ),
-                )
-            )
-
-        if violations:
-            result.flagged_scenarios.append((scenario, violations))
-        else:
+        if has_provenance_match:
             result.clean_scenarios.append(scenario)
+        else:
+            # Build a descriptive violation.
+            root = scenario.attack_tree.root
+            if not annotated_technique_ids:
+                reason = (
+                    "No leaf nodes carry a technique_id; "
+                    "cannot verify provenance against seed "
+                    f"atlas_provenance_ids {sorted(provenance_ids)}."
+                )
+            else:
+                found_ids = sorted(set(annotated_technique_ids))
+                reason = (
+                    f"Leaf technique_ids {found_ids} do not include any "
+                    f"seed provenance technique from atlas_provenance_ids "
+                    f"{sorted(provenance_ids)}."
+                )
+
+            violation = LeafTechniqueViolation(
+                node_id=root.id,
+                label=root.label,
+                zone=root.zone,
+                reason=reason,
+            )
+            result.flagged_scenarios.append((scenario, [violation]))
 
     return result
 
