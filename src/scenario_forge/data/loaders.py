@@ -6,6 +6,7 @@ scenario generation pipeline.
 
 from __future__ import annotations
 
+import functools
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -271,3 +272,71 @@ def build_pattern_provenance_index(
         if m.object_id not in index[pid][src]:
             index[pid][src].append(m.object_id)
     return index
+
+
+# ---------------------------------------------------------------------------
+# Attack Goals Taxonomy
+# ---------------------------------------------------------------------------
+
+_ATTACK_GOALS_TAXONOMY_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "attack-goals"
+    / "attack-goals.json"
+)
+
+
+@functools.lru_cache(maxsize=4)
+def _load_attack_goals_taxonomy_cached(path_str: str | None) -> dict[str, Any]:
+    """Internal cached loader — takes a string path for hashability."""
+    taxonomy_path = Path(path_str) if path_str else _ATTACK_GOALS_TAXONOMY_PATH
+    with open(taxonomy_path) as f:
+        return json.load(f)
+
+
+def load_attack_goals_taxonomy(
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """Load the attack goals taxonomy JSON file.
+
+    Returns the parsed taxonomy dict with 'version' and 'categories' keys.
+    Results are cached per unique path.
+    """
+    return _load_attack_goals_taxonomy_cached(str(path) if path else None)
+
+
+# ---------------------------------------------------------------------------
+# Threat-goal affinity map
+# ---------------------------------------------------------------------------
+
+_THREAT_GOAL_AFFINITY_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "attack-goals"
+    / "threat-goal-affinity.yaml"
+)
+
+
+@functools.lru_cache(maxsize=4)
+def _load_threat_goal_affinity_cached(
+    path_str: str | None,
+) -> dict[str, dict[str, list[str]]]:
+    """Internal cached loader — takes a string path for hashability."""
+    affinity_path = Path(path_str) if path_str else _THREAT_GOAL_AFFINITY_PATH
+    with open(affinity_path) as f:
+        data = yaml.safe_load(f)
+    return data["affinities"]
+
+
+def load_threat_goal_affinity(
+    path: Path | None = None,
+) -> dict[str, dict[str, list[str]]]:
+    """Load the threat-goal affinity YAML map.
+
+    Returns a dict keyed by threat ID (e.g. 'T1') whose values are dicts
+    with keys 'primary', 'secondary', 'excluded' — each a list of category IDs.
+    Results are cached per unique path.
+    """
+    return _load_threat_goal_affinity_cached(str(path) if path else None)

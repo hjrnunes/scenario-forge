@@ -14,12 +14,12 @@ from collections import Counter
 
 import pytest
 
+from scenario_forge.data.loaders import load_attack_goals_taxonomy
 from scenario_forge.pipeline.generate import (
     _THREAT_GOAL_EXCLUSIONS,
     compute_compatible_goal_ids,
     filter_sub_goals_by_zones,
     get_all_sub_goals,
-    load_attack_goals_taxonomy,
     select_attack_goal,
 )
 
