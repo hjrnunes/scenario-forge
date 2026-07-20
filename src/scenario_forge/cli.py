@@ -101,8 +101,20 @@ def generate(
         "--eval/--no-eval",
         help="Run deterministic eval metrics after generation (default: enabled).",
     ),
+    log_level: str = typer.Option(
+        "INFO",
+        help="Log level for console output.",
+        case_sensitive=False,
+    ),
+    structured: bool = typer.Option(
+        False,
+        help="Use JSON-lines format for the log file.",
+    ),
 ) -> None:
     """Run the full scenario generation pipeline (stages 1-4)."""
+    from scenario_forge.log_config import setup_logging
+
+    setup_logging(log_level=log_level, output_dir=output_dir, structured=structured)
     typer.echo(f"\nscenario-forge v{_VERSION} — generate\n{'=' * 40}")
 
     use_case_text = _resolve_use_case(use_case)
@@ -156,8 +168,20 @@ def report(
         "output",
         help="Output directory containing pipeline artifacts.",
     ),
+    log_level: str = typer.Option(
+        "INFO",
+        help="Log level for console output.",
+        case_sensitive=False,
+    ),
+    structured: bool = typer.Option(
+        False,
+        help="Use JSON-lines format for the log file.",
+    ),
 ) -> None:
     """Generate an HTML report from pipeline output."""
+    from scenario_forge.log_config import setup_logging
+
+    setup_logging(log_level=log_level, output_dir=output_dir, structured=structured)
     typer.echo(f"\nscenario-forge v{_VERSION} — report\n{'=' * 40}")
 
     if not output_dir.exists():
@@ -200,8 +224,21 @@ def profile(
         None,
         help="LLM model name (overrides SCENARIO_FORGE_MODEL_NAME).",
     ),
+    log_level: str = typer.Option(
+        "INFO",
+        help="Log level for console output.",
+        case_sensitive=False,
+    ),
+    structured: bool = typer.Option(
+        False,
+        help="Use JSON-lines format for the log file.",
+    ),
 ) -> None:
     """Infer a capability profile from a use-case description (stage 1 only)."""
+    from scenario_forge.log_config import setup_logging
+
+    profile_dir = output.parent if output is not None else None
+    setup_logging(log_level=log_level, output_dir=profile_dir, structured=structured)
     typer.echo(f"\nscenario-forge v{_VERSION} — profile\n{'=' * 40}")
 
     use_case_text = _resolve_use_case(use_case)
@@ -255,8 +292,20 @@ def eval_cmd(
         "yaml",
         help="Output format: yaml or json.",
     ),
+    log_level: str = typer.Option(
+        "INFO",
+        help="Log level for console output.",
+        case_sensitive=False,
+    ),
+    structured: bool = typer.Option(
+        False,
+        help="Use JSON-lines format for the log file.",
+    ),
 ) -> None:
     """Evaluate generated scenario quality (Tier 1: deterministic metrics)."""
+    from scenario_forge.log_config import setup_logging
+
+    setup_logging(log_level=log_level, output_dir=output_dir, structured=structured)
     typer.echo(f"\nscenario-forge v{_VERSION} — eval\n{'=' * 40}")
 
     if not output_dir.exists():
