@@ -1,13 +1,11 @@
-"""Report generator — reads pipeline artifacts and produces a self-contained HTML report."""
+"""Report generator — builds a self-contained HTML report from ReportData."""
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
-import yaml
-
+from scenario_forge.report.data import ReportData, load_report_data
 from scenario_forge.report.template import (
     build_attacker_diversity_section,
     build_capability_profile_section,
@@ -27,215 +25,39 @@ from scenario_forge.report.template import (
 logger = logging.getLogger(__name__)
 
 
-def generate_report(output_dir: Path) -> Path:
-    """Read all pipeline artifacts from *output_dir* and write ``report.html``.
+def generate_report(report_data: ReportData, output_dir: Path) -> Path:
+    """Build the HTML report from *report_data* and write it to *output_dir*.
 
-    Expected directory layout::
+    This function performs no filesystem reads -- all data comes from the
+    :class:`ReportData` object.  The only I/O is writing ``report.html``.
 
-        output_dir/
-            capability-profile.yaml
-            threat-surface.yaml
-            scenarios/
-                *.yaml
-                *.feature
+    Args:
+        report_data: Pre-loaded report inputs (see :func:`load_report_data`).
+        output_dir: Directory where ``report.html`` will be written.
 
     Returns:
         Path to the generated ``report.html``.
     """
     output_dir = Path(output_dir)
 
-    # --- Check eval scorecard status ---
-    _scorecard_path = output_dir / "eval-scorecard.yaml"
-    _scenarios_dir = output_dir / "scenarios"
-    if not _scorecard_path.exists():
-        logger.warning(
-            "No eval scorecard found in %s. Run "
-            "'scenario-forge eval --output-dir %s' before generating "
-            "the report to embed quality metrics.",
-            output_dir,
-            output_dir,
-        )
-    elif _scenarios_dir.is_dir():
-        scenario_yamls = list(_scenarios_dir.glob("*.yaml"))
-        if scenario_yamls:
-            newest_scenario = max(f.stat().st_mtime for f in scenario_yamls)
-            if _scorecard_path.stat().st_mtime < newest_scenario:
-                logger.warning(
-                    "Eval scorecard is older than scenario files. Re-run "
-                    "'scenario-forge eval --output-dir %s' to refresh.",
-                    output_dir,
-                )
-
-    # --- Load capability profile ---
-    profile_path = output_dir / "capability-profile.yaml"
-    if profile_path.exists():
-        profile_data = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
-        logger.info("Loaded capability profile from %s", profile_path)
-    else:
-        logger.warning("capability-profile.yaml not found in %s", output_dir)
-        profile_data = {}
-
-    # --- Load threat surface ---
-    ts_path = output_dir / "threat-surface.yaml"
-    if ts_path.exists():
-        ts_data = yaml.safe_load(ts_path.read_text(encoding="utf-8")) or {}
-        logger.info("Loaded threat surface from %s", ts_path)
-    else:
-        logger.warning("threat-surface.yaml not found in %s", output_dir)
-        ts_data = {}
-
-    # --- Load scenarios and feature files ---
-    scenarios_dir = output_dir / "scenarios"
-    scenarios: list[dict] = []
-    feature_files: dict[str, str] = {}
-    raw_files: dict[str, str] = {}
-
-    # Add top-level files to raw data
-    if profile_path.exists():
-        raw_files["capability-profile.yaml"] = profile_path.read_text(encoding="utf-8")
-    if ts_path.exists():
-        raw_files["threat-surface.yaml"] = ts_path.read_text(encoding="utf-8")
-
-    if scenarios_dir.is_dir():
-        # Load YAML scenario envelopes
-        for yaml_file in sorted(scenarios_dir.glob("*.yaml")):
-            try:
-                data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-                if data and isinstance(data, dict):
-                    scenarios.append(data)
-                    raw_files[f"scenarios/{yaml_file.name}"] = yaml_file.read_text(
-                        encoding="utf-8"
-                    )
-                    logger.info("Loaded scenario %s", yaml_file.name)
-            except Exception as exc:
-                logger.warning("Failed to load %s: %s", yaml_file, exc)
-
-        # Load feature files
-        for feature_file in sorted(scenarios_dir.glob("*.feature")):
-            content = feature_file.read_text(encoding="utf-8")
-            # Extract scenario ID from filename (e.g., AP-T5-01-5f016c.feature -> AP-T5-01-5f016c)
-            scenario_id = feature_file.stem
-            feature_files[scenario_id] = content
-            raw_files[f"scenarios/{feature_file.name}"] = content
-
-        logger.info(
-            "Loaded %d scenarios, %d feature files",
-            len(scenarios),
-            len(feature_files),
-        )
-    else:
-        logger.warning("scenarios/ directory not found in %s", output_dir)
-
-    # --- Load LLM call logs ---
-    calls_path = output_dir / "scenarios" / "calls.jsonl"
-    call_logs: dict[str, list[dict]] = {}  # keyed by scenario_id
-    if calls_path.exists():
-        try:
-            for line in calls_path.read_text(encoding="utf-8").strip().splitlines():
-                entry = json.loads(line)
-                sid = entry.get("scenario_id", "")
-                call_logs.setdefault(sid, []).append(entry)
-            logger.info(
-                "Loaded %d call log entries from %s",
-                sum(len(v) for v in call_logs.values()),
-                calls_path,
-            )
-        except Exception as exc:
-            logger.warning("Failed to load %s: %s", calls_path, exc)
-    else:
-        logger.info(
-            "calls.jsonl not found in %s (skipping call log section)",
-            output_dir / "scenarios",
-        )
-
-    # --- Load top-level (non-scenario) LLM call logs ---
-    pipeline_calls_path = output_dir / "calls.jsonl"
-    pipeline_call_logs: list[dict] = []
-    if pipeline_calls_path.exists():
-        try:
-            for line in pipeline_calls_path.read_text(encoding="utf-8").strip().splitlines():
-                pipeline_call_logs.append(json.loads(line))
-            logger.info(
-                "Loaded %d pipeline call log entries from %s",
-                len(pipeline_call_logs),
-                pipeline_calls_path,
-            )
-        except Exception as exc:
-            logger.warning("Failed to load %s: %s", pipeline_calls_path, exc)
-    else:
-        logger.info(
-            "calls.jsonl not found in %s (skipping pipeline call log section)",
-            output_dir,
-        )
-
-    # --- Load coverage gaps ---
-    coverage_path = output_dir / "coverage-gaps.json"
-    coverage_data: dict = {}
-    if coverage_path.exists():
-        try:
-            coverage_data = json.loads(coverage_path.read_text(encoding="utf-8")) or {}
-            logger.info("Loaded coverage gaps from %s", coverage_path)
-            raw_files["coverage-gaps.json"] = coverage_path.read_text(encoding="utf-8")
-        except Exception as exc:
-            logger.warning("Failed to load %s: %s", coverage_path, exc)
-    else:
-        logger.info(
-            "coverage-gaps.json not found in %s (skipping coverage section)", output_dir
-        )
-
-    # --- Load eval scorecard ---
-    scorecard_path = output_dir / "eval-scorecard.yaml"
-    scorecard_data: dict = {}
-    if scorecard_path.exists():
-        try:
-            scorecard_data = (
-                yaml.safe_load(scorecard_path.read_text(encoding="utf-8")) or {}
-            )
-            logger.info("Loaded eval scorecard from %s", scorecard_path)
-            raw_files["eval-scorecard.yaml"] = scorecard_path.read_text(
-                encoding="utf-8"
-            )
-        except Exception as exc:
-            logger.warning("Failed to load %s: %s", scorecard_path, exc)
-    else:
-        logger.info(
-            "eval-scorecard.yaml not found in %s (skipping scorecard section)",
-            output_dir,
-        )
-
-    # --- Load run manifest ---
-    manifest_path = output_dir / "run-manifest.yaml"
-    manifest_data: dict = {}
-    if manifest_path.exists():
-        try:
-            manifest_data = (
-                yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
-            )
-            logger.info("Loaded run manifest from %s", manifest_path)
-        except Exception as exc:
-            logger.warning("Failed to load %s: %s", manifest_path, exc)
-    else:
-        logger.info(
-            "run-manifest.yaml not found in %s (skipping run summary section)",
-            output_dir,
-        )
+    # Unpack data for readability
+    profile_data = report_data.profile_data
+    ts_data = report_data.threat_surface_data
+    scenarios = list(report_data.scenarios)  # copy so sort is non-destructive
+    feature_files = report_data.feature_files
+    call_logs = report_data.call_logs
+    pipeline_call_logs = report_data.pipeline_call_logs
+    coverage_data = report_data.coverage_data
+    scorecard_data = report_data.scorecard_data
+    manifest_data = report_data.manifest_data
+    use_case_text = report_data.use_case_text
+    raw_files = report_data.raw_files
 
     # Sort scenarios by priority (descending)
     scenarios.sort(
         key=lambda s: s.get("priority", {}).get("composite", 0),
         reverse=True,
     )
-
-    # --- Load use case description ---
-    use_case_path = output_dir / "use-case.txt"
-    use_case_text = ""
-    if use_case_path.exists():
-        use_case_text = use_case_path.read_text(encoding="utf-8")
-        logger.info("Loaded use case description from %s", use_case_path)
-    else:
-        logger.info(
-            "use-case.txt not found in %s (skipping use case section)", output_dir
-        )
 
     # --- Compute priority breakdown for run summary ---
     high_count = 0
@@ -327,3 +149,15 @@ def generate_report(output_dir: Path) -> Path:
     logger.info("Report written to %s (%d bytes)", report_path, len(page_html))
 
     return report_path
+
+
+def generate_report_from_dir(output_dir: Path) -> Path:
+    """Convenience wrapper: load artifacts from *output_dir* and generate the report.
+
+    Equivalent to::
+
+        data = load_report_data(output_dir)
+        return generate_report(data, output_dir)
+    """
+    data = load_report_data(output_dir)
+    return generate_report(data, output_dir)

@@ -1036,9 +1036,11 @@ def run_pipeline(
 
     # --- Auto-generate HTML report ---
     try:
+        from scenario_forge.report.data import load_report_data
         from scenario_forge.report.generator import generate_report
 
-        report_path = generate_report(output_dir)
+        report_data = load_report_data(output_dir)
+        report_path = generate_report(report_data, output_dir)
         logger.info("Report written to %s", report_path)
     except Exception as exc:
         logger.warning("Report generation failed: %s", exc)
