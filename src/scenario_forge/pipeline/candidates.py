@@ -380,20 +380,7 @@ def filter_candidates(
         for verdict in accepted_verdicts:
             seed_results.append(
                 FilteredSeed(
-                    seed_id=original_seed.seed_id,
-                    threat_id=original_seed.threat_id,
-                    threat_name=original_seed.threat_name,
-                    threat_description=original_seed.threat_description,
-                    attack_pattern_name=original_seed.attack_pattern_name,
-                    attack_pattern_description=original_seed.attack_pattern_description,
-                    risk_card_ref=original_seed.risk_card_ref,
-                    contributing_risk_cards=original_seed.contributing_risk_cards,
-                    owasp_llm_ids=original_seed.owasp_llm_ids,
-                    agentic_threat_ids=original_seed.agentic_threat_ids,
-                    atlas_technique_ids=original_seed.atlas_technique_ids,
-                    owasp_origin=original_seed.owasp_origin,
-                    laaf_technique_ids=original_seed.laaf_technique_ids,
-                    atlas_provenance_ids=original_seed.atlas_provenance_ids,
+                    **original_seed.model_dump(),
                     pinned_entry_point=verdict.entry_point,
                     pinned_technique_ids=verdict.atlas_technique_ids,
                     pinned_technique_names=tech_names_lookup.get(

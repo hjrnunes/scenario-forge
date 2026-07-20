@@ -311,6 +311,90 @@ class TestFilteredSeed:
         assert len(fs.pinned_technique_ids) == 2
         assert len(fs.pinned_technique_names) == 2
 
+    def test_filtered_seed_from_model_dump_propagates_all_fields(self):
+        """FilteredSeed(**seed.model_dump(), ...) preserves every ScenarioSeed field.
+
+        Regression test: the manual 14-field copy previously dropped
+        owasp_asi_ids, min_complexity, and required_capabilities to defaults.
+        """
+        seed = ScenarioSeed(
+            seed_id="AP-T9-01",
+            threat_id="T9",
+            threat_name="Identity Spoofing",
+            threat_description="Agent impersonates another entity",
+            attack_pattern_name="Credential replay",
+            attack_pattern_description="Replays captured credentials",
+            risk_card_ref=_make_ref(),
+            contributing_risk_cards=[_make_ref(), _make_ref("risk-2")],
+            owasp_llm_ids=["LLM02", "LLM07"],
+            agentic_threat_ids=["T9"],
+            atlas_technique_ids=["AML.T0051"],
+            owasp_asi_ids=["ASI-01", "ASI-02"],
+            owasp_origin="OWASP-T9",
+            laaf_technique_ids=["LAAF.T001"],
+            atlas_provenance_ids=["AML.T0051"],
+            min_complexity="advanced",
+            required_capabilities=["multi_agent", "persistent_memory"],
+        )
+        fs = FilteredSeed(
+            **seed.model_dump(),
+            pinned_entry_point="admin API (input)",
+            pinned_technique_ids=("AML.T0051",),
+            pinned_technique_names=("LLM Prompt Injection",),
+        )
+
+        # Previously-dropped fields (regression):
+        assert fs.owasp_asi_ids == ["ASI-01", "ASI-02"]
+        assert fs.min_complexity == "advanced"
+        assert fs.required_capabilities == ["multi_agent", "persistent_memory"]
+
+        # All other ScenarioSeed fields carried through:
+        assert fs.seed_id == "AP-T9-01"
+        assert fs.threat_id == "T9"
+        assert fs.threat_name == "Identity Spoofing"
+        assert fs.threat_description == "Agent impersonates another entity"
+        assert fs.attack_pattern_name == "Credential replay"
+        assert fs.attack_pattern_description == "Replays captured credentials"
+        assert fs.risk_card_ref.risk_id == "risk-1"
+        assert len(fs.contributing_risk_cards) == 2
+        assert fs.owasp_llm_ids == ["LLM02", "LLM07"]
+        assert fs.agentic_threat_ids == ["T9"]
+        assert fs.atlas_technique_ids == ["AML.T0051"]
+        assert fs.owasp_origin == "OWASP-T9"
+        assert fs.laaf_technique_ids == ["LAAF.T001"]
+        assert fs.atlas_provenance_ids == ["AML.T0051"]
+
+        # FilteredSeed-specific fields:
+        assert fs.pinned_entry_point == "admin API (input)"
+        assert fs.pinned_technique_ids == ("AML.T0051",)
+        assert fs.pinned_technique_names == ("LLM Prompt Injection",)
+
+    def test_filtered_seed_model_dump_roundtrip_field_count(self):
+        """FilteredSeed(**seed.model_dump()) never silently loses fields.
+
+        If ScenarioSeed gains a new field, this test will catch it because
+        the FilteredSeed dump will contain all parent fields plus pinned fields.
+        """
+        seed = _make_seed()
+        fs = FilteredSeed(
+            **seed.model_dump(),
+            pinned_entry_point="ep",
+            pinned_technique_ids=("AML.T0051",),
+            pinned_technique_names=("Technique",),
+        )
+        seed_fields = set(ScenarioSeed.model_fields.keys())
+        fs_fields = set(FilteredSeed.model_fields.keys())
+        # Every ScenarioSeed field must exist in FilteredSeed
+        assert seed_fields.issubset(fs_fields), (
+            f"FilteredSeed is missing ScenarioSeed fields: {seed_fields - fs_fields}"
+        )
+        # The dump of the FilteredSeed must include every seed field
+        fs_dump = fs.model_dump()
+        for field_name in seed_fields:
+            assert field_name in fs_dump, (
+                f"FilteredSeed.model_dump() missing field: {field_name}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Expansion tests (skip if expand_candidates not yet available)
