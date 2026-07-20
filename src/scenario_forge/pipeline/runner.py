@@ -458,27 +458,19 @@ def run_pipeline(
 
     client = LLMClient(base_url=base_url, api_key=api_key, model=model)
 
-    # --- Write run manifest (start) ---
-    manifest = {
-        "version": importlib.metadata.version("scenario-forge"),
-        "timestamp_start": datetime.now(timezone.utc).isoformat(),
-        "inputs": {
-            "use_case_hash": hashlib.sha256(use_case.encode()).hexdigest(),
-            "risk_extraction_hash": hashlib.sha256(
-                risk_extraction_path.read_bytes()
-            ).hexdigest(),
-            "sssom_hash": hashlib.sha256(sssom_path.read_bytes()).hexdigest(),
-        },
-        "config": {
-            "model": client.model,
-            "temperature": client.temperature,
-            "max_completion_tokens": client.max_completion_tokens,
-            "prompt_template_hashes": hash_prompt_templates(),
-        },
-    }
+    # --- Write run manifest sentinel (start) ---
+    timestamp_start = datetime.now(timezone.utc).isoformat()
     manifest_path = output_dir / "run-manifest.yaml"
     manifest_path.write_text(
-        yaml.dump(manifest, default_flow_style=False, sort_keys=False),
+        yaml.dump(
+            {
+                "status": "started",
+                "timestamp_start": timestamp_start,
+                "version": importlib.metadata.version("scenario-forge"),
+            },
+            default_flow_style=False,
+            sort_keys=False,
+        ),
         encoding="utf-8",
     )
 
@@ -959,33 +951,55 @@ def run_pipeline(
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
-    # --- Update run manifest (end) — before report so it can read stats ---
-    manifest["timestamp_end"] = datetime.now(timezone.utc).isoformat()
-    manifest["seeds_generated"] = len(seeds)
-    manifest["candidates_expanded"] = candidates_expanded
-    manifest["candidates_rule_rejected"] = rule_rejected_count
-    manifest["candidates_accepted"] = candidates_accepted
-    manifest["candidates_rejected"] = candidates_rejected
-    if max_scenarios_per_pattern is not None:
-        manifest["max_scenarios_per_pattern"] = max_scenarios_per_pattern
-        manifest["candidates_capped"] = candidates_capped
-    manifest["scenarios_generated"] = len(scenarios)
-    manifest["scenarios_failed"] = failed_count
-    manifest["phantom_validation"] = {
-        "flagged_count": validation_result.flagged_count,
-        "violation_categories": validation_result.violation_categories,
-    }
-    manifest["structural_validation"] = {
-        "failed_count": structural_fail_count,
-        "passed_count": len(scenarios) - structural_fail_count,
-    }
-    manifest["semantic_validation"] = {
-        "failed_count": semantic_fail_count,
-        "passed_count": len(scenarios) - semantic_fail_count,
-    }
-    manifest["leaf_technique_provenance"] = {
-        "flagged_count": leaf_technique_result.flagged_count,
-        "clean_count": leaf_technique_result.clean_count,
+    # --- Write final run manifest — single complete build ---
+    manifest = {
+        "version": importlib.metadata.version("scenario-forge"),
+        "timestamp_start": timestamp_start,
+        "timestamp_end": datetime.now(timezone.utc).isoformat(),
+        "inputs": {
+            "use_case_hash": hashlib.sha256(use_case.encode()).hexdigest(),
+            "risk_extraction_hash": hashlib.sha256(
+                risk_extraction_path.read_bytes()
+            ).hexdigest(),
+            "sssom_hash": hashlib.sha256(sssom_path.read_bytes()).hexdigest(),
+        },
+        "config": {
+            "model": client.model,
+            "temperature": client.temperature,
+            "max_completion_tokens": client.max_completion_tokens,
+            "prompt_template_hashes": hash_prompt_templates(),
+        },
+        "seeds_generated": len(seeds),
+        "candidates_expanded": candidates_expanded,
+        "candidates_rule_rejected": rule_rejected_count,
+        "candidates_accepted": candidates_accepted,
+        "candidates_rejected": candidates_rejected,
+        **(
+            {
+                "max_scenarios_per_pattern": max_scenarios_per_pattern,
+                "candidates_capped": candidates_capped,
+            }
+            if max_scenarios_per_pattern is not None
+            else {}
+        ),
+        "scenarios_generated": len(scenarios),
+        "scenarios_failed": failed_count,
+        "phantom_validation": {
+            "flagged_count": validation_result.flagged_count,
+            "violation_categories": validation_result.violation_categories,
+        },
+        "structural_validation": {
+            "failed_count": structural_fail_count,
+            "passed_count": len(scenarios) - structural_fail_count,
+        },
+        "semantic_validation": {
+            "failed_count": semantic_fail_count,
+            "passed_count": len(scenarios) - semantic_fail_count,
+        },
+        "leaf_technique_provenance": {
+            "flagged_count": leaf_technique_result.flagged_count,
+            "clean_count": leaf_technique_result.clean_count,
+        },
     }
     manifest_path.write_text(
         yaml.dump(manifest, default_flow_style=False, sort_keys=False),
