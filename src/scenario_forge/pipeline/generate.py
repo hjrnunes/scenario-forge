@@ -2419,10 +2419,9 @@ def _validate_actor_type(actor_profile: ActorProfile) -> ActorProfile:
     return actor_profile
 
 
-def _call_actor_profile(
+def build_call0_context(
     seed: ScenarioSeed,
     profile: CapabilityProfile,
-    client: LLMClient,
     use_case: str,
     preferred_actor_type: str | None = None,
     excluded_actor_types: list[str] | None = None,
@@ -2431,33 +2430,32 @@ def _call_actor_profile(
     pinned_technique_ids: list[str] | None = None,
     forced_actor_type: str | None = None,
     pinned_entry_point: str | None = None,
-) -> tuple[ActorProfile, LLMResult]:
-    """Generate a threat actor profile for a scenario seed (Call 0).
+) -> dict[str, Any]:
+    """Build prompt template variables for Call 0 (Actor Profile).
+
+    Pure data-preparation function that constructs all template variables
+    needed by ``call0_system.j2`` and ``call0_user.j2``.  No LLM calls.
 
     Args:
         seed: The scenario seed providing threat context.
         profile: The system's capability profile.
-        client: LLM client for generation.
         use_case: Free-text description of the system under assessment.
         preferred_actor_type: Suggested actor type for diversity (hint, not enforced).
         excluded_actor_types: Actor types to avoid (already overused in this batch).
         preferred_capability_level: Suggested capability level for diversity
             (hint, not enforced).
         attack_goal: Selected attack goal sub-goal dict from the taxonomy.
-            When provided, the goal context is injected into the prompt to
-            orient the actor's desires.
         pinned_technique_ids: Hard-constrained ATLAS technique IDs from the
-            candidate filter. When set, only these techniques are passed to
-            prompt context.
-        forced_actor_type: Hard-constrained actor type override. When set,
-            the LLM is instructed that it MUST use this actor type. Used
-            during BDI regeneration after validation reassignment.
+            candidate filter.
+        forced_actor_type: Hard-constrained actor type override.
         pinned_entry_point: Hard-constrained entry point from the candidate
-            filter. When set, the actor's intentions are constrained to
-            attack through this entry point only.
+            filter.
 
     Returns:
-        Tuple of (ActorProfile, LLMResult).
+        Dict mapping template variable names to their values.  Keys
+        include both system-prompt variables (``minimum_capability_level``,
+        ``compatible_actor_types``) and user-prompt variables
+        (``technique_context``, ``diversity_section``, etc.).
     """
     # Compute capability-level minimum floor (estu constraint)
     _tech_ids_for_floor = (
@@ -2605,29 +2603,67 @@ def _call_actor_profile(
         entry_point_controllability=pinned_entry_point_controllability,
     )
 
-    user_prompt = render_prompt(
-        "call0_user.j2",
-        use_case=use_case,
+    return {
+        # System prompt variables
+        "minimum_capability_level": minimum_capability_level,
+        "compatible_actor_types": sorted(compatible_actor_types),
+        # User prompt variables
+        "use_case": use_case,
+        "seed": seed,
+        "profile": profile,
+        "technique_context": technique_context,
+        "technique_framing_0": technique_framing_0,
+        "goal_section": goal_section,
+        "diversity_section": diversity_section,
+        "pinned_entry_point": pinned_entry_point,
+        "pinned_entry_point_direction": pinned_entry_point_direction,
+        "pinned_technique_count": pinned_technique_count,
+        "kc_definitions": kc_definitions,
+        "ontology_context": ontology_context,
+    }
+
+
+def _call_actor_profile(
+    seed: ScenarioSeed,
+    profile: CapabilityProfile,
+    client: LLMClient,
+    use_case: str,
+    preferred_actor_type: str | None = None,
+    excluded_actor_types: list[str] | None = None,
+    preferred_capability_level: str | None = None,
+    attack_goal: dict[str, Any] | None = None,
+    pinned_technique_ids: list[str] | None = None,
+    forced_actor_type: str | None = None,
+    pinned_entry_point: str | None = None,
+) -> tuple[ActorProfile, LLMResult]:
+    """Generate a threat actor profile for a scenario seed (Call 0).
+
+    Delegates context building to :func:`build_call0_context`, then renders
+    templates, calls the LLM, and parses the response.
+
+    Returns:
+        Tuple of (ActorProfile, LLMResult).
+    """
+    ctx = build_call0_context(
         seed=seed,
         profile=profile,
-        technique_context=technique_context,
-        technique_framing_0=technique_framing_0,
-        goal_section=goal_section,
-        diversity_section=diversity_section,
+        use_case=use_case,
+        preferred_actor_type=preferred_actor_type,
+        excluded_actor_types=excluded_actor_types,
+        preferred_capability_level=preferred_capability_level,
+        attack_goal=attack_goal,
+        pinned_technique_ids=pinned_technique_ids,
+        forced_actor_type=forced_actor_type,
         pinned_entry_point=pinned_entry_point,
-        pinned_entry_point_direction=pinned_entry_point_direction,
-        pinned_technique_count=pinned_technique_count,
-        kc_definitions=kc_definitions,
-        ontology_context=ontology_context,
     )
 
     result = client.complete(
         system_prompt=render_prompt(
             "call0_system.j2",
-            minimum_capability_level=minimum_capability_level,
-            compatible_actor_types=sorted(compatible_actor_types),
+            minimum_capability_level=ctx["minimum_capability_level"],
+            compatible_actor_types=ctx["compatible_actor_types"],
         ),
-        user_prompt=user_prompt,
+        user_prompt=render_prompt("call0_user.j2", **ctx),
         response_format=Call0Response,
     )
 
@@ -2636,6 +2672,7 @@ def _call_actor_profile(
     capability_level = _normalize_capability_level(resp.capability_level)
     capability_level = _enforce_capability_floor(actor_type, capability_level)
     # Enforce computed capability-level minimum floor (estu constraint)
+    minimum_capability_level = ctx["minimum_capability_level"]
     if minimum_capability_level and minimum_capability_level in _CAPABILITY_ORDER:
         min_floor_idx = _CAPABILITY_ORDER.index(minimum_capability_level)
         current_idx = (
@@ -2684,10 +2721,9 @@ def _call_actor_profile(
 # ---------------------------------------------------------------------------
 
 
-def _call_narrative(
+def build_call1_context(
     seed: ScenarioSeed,
     profile: CapabilityProfile,
-    client: LLMClient,
     use_case: str,
     actor_profile: ActorProfile | None = None,
     preferred_entry_point: str | None = None,
@@ -2697,7 +2733,15 @@ def _call_narrative(
     pinned_entry_point: str | None = None,
     pinned_technique_ids: list[str] | None = None,
     prior_titles: list[str] | None = None,
-) -> tuple[NarrativeLayer, LLMResult]:
+) -> dict[str, Any]:
+    """Build prompt template variables for Call 1 (Narrative).
+
+    Pure data-preparation function that constructs all template variables
+    needed by ``call1_user.j2``.  No LLM calls.
+
+    Returns:
+        Dict mapping template variable names to their values.
+    """
     # Build entry point diversity guidance section
     diversity_section = ""
     if pinned_entry_point:
@@ -2843,28 +2887,64 @@ def _call_narrative(
         entry_point_controllability=pinned_entry_point_controllability,
     )
 
-    user_prompt = render_prompt(
-        "call1_user.j2",
-        use_case=use_case,
+    return {
+        "use_case": use_case,
+        "seed": seed,
+        "profile": profile,
+        "owasp_llm_formatted": owasp_llm_formatted,
+        "technique_context": technique_context_1,
+        "technique_framing": technique_framing_1,
+        "actor_section": actor_section,
+        "goal_section": goal_section,
+        "diversity_section": diversity_section,
+        "pattern_section": pattern_section,
+        "structural_section": structural_section,
+        "pinned_entry_point": pinned_entry_point,
+        "pinned_entry_point_direction": pinned_entry_point_direction,
+        "kc_definitions": kc_definitions,
+        "ontology_context": ontology_context,
+    }
+
+
+def _call_narrative(
+    seed: ScenarioSeed,
+    profile: CapabilityProfile,
+    client: LLMClient,
+    use_case: str,
+    actor_profile: ActorProfile | None = None,
+    preferred_entry_point: str | None = None,
+    excluded_entry_points: list[str] | None = None,
+    excluded_patterns: list[str] | None = None,
+    excluded_structural_patterns: list[str] | None = None,
+    pinned_entry_point: str | None = None,
+    pinned_technique_ids: list[str] | None = None,
+    prior_titles: list[str] | None = None,
+) -> tuple[NarrativeLayer, LLMResult]:
+    """Generate an attack narrative for a scenario seed (Call 1).
+
+    Delegates context building to :func:`build_call1_context`, then renders
+    templates, calls the LLM, and post-processes the narrative.
+
+    Returns:
+        Tuple of (NarrativeLayer, LLMResult).
+    """
+    ctx = build_call1_context(
         seed=seed,
         profile=profile,
-        owasp_llm_formatted=owasp_llm_formatted,
-        technique_context=technique_context_1,
-        technique_framing=technique_framing_1,
-        actor_section=actor_section,
-        goal_section=goal_section,
-        diversity_section=diversity_section,
-        pattern_section=pattern_section,
-        structural_section=structural_section,
+        use_case=use_case,
+        actor_profile=actor_profile,
+        preferred_entry_point=preferred_entry_point,
+        excluded_entry_points=excluded_entry_points,
+        excluded_patterns=excluded_patterns,
+        excluded_structural_patterns=excluded_structural_patterns,
         pinned_entry_point=pinned_entry_point,
-        pinned_entry_point_direction=pinned_entry_point_direction,
-        kc_definitions=kc_definitions,
-        ontology_context=ontology_context,
+        pinned_technique_ids=pinned_technique_ids,
+        prior_titles=prior_titles,
     )
 
     result = client.complete(
         system_prompt=render_prompt("call1_system.j2"),
-        user_prompt=user_prompt,
+        user_prompt=render_prompt("call1_user.j2", **ctx),
         response_format=Call1Response,
     )
     narrative = _map_call1_to_narrative(result.content)
@@ -2992,16 +3072,25 @@ def _validate_mandatory_leaves(
 # ---------------------------------------------------------------------------
 
 
-def _call_attack_tree(
+def build_call2_context(
     seed: ScenarioSeed,
     narrative: NarrativeLayer,
-    client: LLMClient,
     use_case: str,
     profile: CapabilityProfile | None = None,
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
-) -> tuple[AttackTree, LLMResult]:
+) -> dict[str, Any]:
+    """Build prompt template variables for Call 2 (Attack Tree).
+
+    Pure data-preparation function that constructs all template variables
+    needed by ``call2_user.j2``.  No LLM calls.
+
+    Returns:
+        Dict mapping template variable names to their values.  Also
+        includes ``skeleton`` (the raw leaf-node spec list) for use in
+        post-generation validation.
+    """
     # Build shared technique context + Call 2-specific constraint rules
     # Pin to specific techniques if set
     tech_ids_for_tree = (
@@ -3093,26 +3182,58 @@ def _call_attack_tree(
         entry_point_controllability=_tree_ep_controllability,
     )
 
-    user_prompt = render_prompt(
-        "call2_user.j2",
+    return {
+        "seed": seed,
+        "use_case": use_case,
+        "arch_section": arch_section,
+        "actor_section": actor_section,
+        "technique_context": technique_context,
+        "technique_constraint": technique_constraint,
+        "narrative": narrative,
+        "technique_count": technique_count,
+        "leaf_budget": leaf_budget,
+        "skeleton_section": skeleton_section,
+        "ontology_context": ontology_context,
+        # Non-template data for post-generation validation
+        "skeleton": skeleton,
+    }
+
+
+def _call_attack_tree(
+    seed: ScenarioSeed,
+    narrative: NarrativeLayer,
+    client: LLMClient,
+    use_case: str,
+    profile: CapabilityProfile | None = None,
+    actor_profile: ActorProfile | None = None,
+    pinned_technique_ids: list[str] | None = None,
+    pinned_technique_names: list[str] | None = None,
+) -> tuple[AttackTree, LLMResult]:
+    """Generate an attack tree for a scenario seed (Call 2).
+
+    Delegates context building to :func:`build_call2_context`, then renders
+    templates, calls the LLM (with one retry on YAML parse failure), and
+    post-processes the tree.
+
+    Returns:
+        Tuple of (AttackTree, LLMResult).
+    """
+    ctx = build_call2_context(
         seed=seed,
-        use_case=use_case,
-        arch_section=arch_section,
-        actor_section=actor_section,
-        technique_context=technique_context,
-        technique_constraint=technique_constraint,
         narrative=narrative,
-        technique_count=technique_count,
-        leaf_budget=leaf_budget,
-        skeleton_section=skeleton_section,
-        ontology_context=ontology_context,
+        use_case=use_case,
+        profile=profile,
+        actor_profile=actor_profile,
+        pinned_technique_ids=pinned_technique_ids,
+        pinned_technique_names=pinned_technique_names,
     )
 
+    skeleton = ctx["skeleton"]
     call2_system = render_prompt("call2_system.j2")
 
     result = client.complete(
         system_prompt=call2_system,
-        user_prompt=user_prompt,
+        user_prompt=render_prompt("call2_user.j2", **ctx),
         response_format=None,
     )
 
@@ -3446,16 +3567,21 @@ def _build_gherkin_template(
 
 
 
-def _call_behavior_spec(
+def build_call3_context(
     seed: ScenarioSeed,
     narrative: NarrativeLayer,
     attack_tree: AttackTree,
     profile: CapabilityProfile,
-    client: LLMClient,
-    use_case: str,
     scenario_hash: str,
-    pinned_technique_ids: list[str] | None = None,
-) -> tuple[str, LLMResult]:
+) -> dict[str, Any]:
+    """Build prompt template variables for Call 3 (Behavior Spec).
+
+    Pure data-preparation function that constructs all template variables
+    needed by ``call3_user.j2``.  No LLM calls.
+
+    Returns:
+        Dict mapping template variable names to their values.
+    """
     scenario_tag = f"{seed.seed_id}-{scenario_hash}"
 
     # Build deterministic Gherkin skeleton from tree + narrative
@@ -3467,18 +3593,42 @@ def _call_behavior_spec(
         scenario_tag=scenario_tag,
     )
 
-    system_prompt = render_prompt("call3_system.j2")
+    return {
+        "gherkin_skeleton": gherkin_template,
+        "narrative": narrative,
+        "seed": seed,
+    }
 
-    user_prompt = render_prompt(
-        "call3_user.j2",
-        gherkin_skeleton=gherkin_template,
-        narrative=narrative,
+
+def _call_behavior_spec(
+    seed: ScenarioSeed,
+    narrative: NarrativeLayer,
+    attack_tree: AttackTree,
+    profile: CapabilityProfile,
+    client: LLMClient,
+    use_case: str,
+    scenario_hash: str,
+    pinned_technique_ids: list[str] | None = None,
+) -> tuple[str, LLMResult]:
+    """Generate a behavior spec for a scenario seed (Call 3).
+
+    Delegates context building to :func:`build_call3_context`, then renders
+    templates, calls the LLM, and splices assertions into the Gherkin skeleton.
+
+    Returns:
+        Tuple of (complete_gherkin_spec, LLMResult).
+    """
+    ctx = build_call3_context(
         seed=seed,
+        narrative=narrative,
+        attack_tree=attack_tree,
+        profile=profile,
+        scenario_hash=scenario_hash,
     )
 
     result = client.complete(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+        system_prompt=render_prompt("call3_system.j2"),
+        user_prompt=render_prompt("call3_user.j2", **ctx),
         response_format=None,
     )
 
@@ -3508,7 +3658,7 @@ def _call_behavior_spec(
         else:
             indented_lines.append("")
     indented_assertions = "\n".join(indented_lines)
-    complete_gherkin = gherkin_template.replace(
+    complete_gherkin = ctx["gherkin_skeleton"].replace(
         f"    {_ASSERTIONS_MARKER}", indented_assertions
     )
 
