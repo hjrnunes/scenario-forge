@@ -6,7 +6,6 @@ import hashlib
 import importlib.metadata
 import json
 import logging
-import math
 import re
 from collections import Counter
 from datetime import datetime, timezone
@@ -22,7 +21,7 @@ from scenario_forge.data.loaders import (
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import ZONE_NAMES, CapabilityProfile
-from scenario_forge.models.scenario import ACTOR_TYPES, ScenarioEnvelope
+from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
     FilteredSeed,
@@ -31,17 +30,14 @@ from scenario_forge.pipeline.candidates import (
     expand_candidates,
     filter_candidates,
 )
+from scenario_forge.pipeline.diversity import DiversityTracker
 from scenario_forge.pipeline.generate import (
     GenerationError,
     compute_entry_point_affinity,
-    extract_narrative_keywords,
     compute_compatible_goal_ids,
-    extract_structural_pattern,
     filter_sub_goals_by_zones,
     generate_scenario,
     get_all_sub_goals,
-    get_overused_patterns,
-    get_overused_structural_patterns,
     select_attack_goal,
     write_call_log,
     write_scenario_outputs,
@@ -658,20 +654,8 @@ def run_pipeline(
     scenarios: list[ScenarioEnvelope] = []
     failed_count = 0
 
-    # Track entry point usage across the batch for diversity enforcement.
-    entry_point_usage: Counter[str] = Counter()
-    # Track attack pattern keywords for narrative diversity enforcement.
-    pattern_usage: Counter[str] = Counter()
-    # Track structural attack patterns for deep diversity enforcement.
-    structural_usage: Counter[str] = Counter()
-    # Track actor type usage for actor diversity enforcement.
-    actor_type_usage: Counter[str] = Counter()
-    # Track capability level usage for capability diversity enforcement.
-    capability_level_usage: Counter[str] = Counter()
-    # Track attack goal usage for goal diversity enforcement.
-    goal_usage: Counter[str] = Counter()
+    tracker = DiversityTracker()
     total_seeds = len(filtered_seeds)
-    num_actor_types = len(ACTOR_TYPES)
 
     # Load attack goals taxonomy and filter to system-relevant sub-goals.
     try:
@@ -696,52 +680,17 @@ def run_pipeline(
         )
         available_goals = []
 
-    # Track generated titles for title diversity enforcement across batch.
-    prior_titles: list[str] = []
-
     for i, fseed in enumerate(filtered_seeds, 1):
         label = f"{fseed.seed_id}: {fseed.attack_pattern_name}"
         logger.info("  [%d/%d] %s...", i, total_seeds, label)
 
-        excluded_pats = get_overused_patterns(pattern_usage) or None
-        excluded_structural = get_overused_structural_patterns(structural_usage) or None
-
-        # Compute actor type diversity hints.
-        # Pick the least-used actor type as preferred; exclude types over
-        # their fair share (ceil(total_seeds / num_actor_types)).
-        actor_fair_share = (
-            math.ceil(total_seeds / num_actor_types) if total_seeds else 1
+        hints = tracker.get_diversity_hints(
+            seed_threat_id=fseed.threat_id,
+            total_seeds=total_seeds,
+            available_goals=available_goals,
+            zones_active=profile.zones_active,
+            kc_subcodes=profile.kc_subcodes,
         )
-        preferred_actor = min(ACTOR_TYPES, key=lambda t: actor_type_usage.get(t, 0))
-        excluded_actors = [
-            t for t in ACTOR_TYPES if actor_type_usage.get(t, 0) > actor_fair_share
-        ] or None
-
-        # Compute capability level diversity hint.
-        # Pick the least-used capability level as preferred.
-        _CAP_LEVELS = ("novice", "intermediate", "advanced", "expert")
-        preferred_cap = min(_CAP_LEVELS, key=lambda c: capability_level_usage.get(c, 0))
-
-        # Select an attack goal for this seed using fair-share diversity.
-        # Narrow the sub-goal pool per-seed with architectural and
-        # threat-specific exclusions (i7q8 constraint).
-        selected_goal = None
-        if available_goals:
-            seed_goals = compute_compatible_goal_ids(
-                threat_id=fseed.threat_id,
-                sub_goals=available_goals,
-                zones_active=profile.zones_active,
-                kc_subcodes=profile.kc_subcodes,
-            )
-            try:
-                selected_goal = select_attack_goal(
-                    seed_goals,
-                    goal_usage,
-                    total_seeds,
-                    threat_id=fseed.threat_id,
-                )
-            except ValueError:
-                pass  # No goals available — proceed without goal diversity
 
         try:
             envelope, call_log_entries = generate_scenario(
@@ -749,16 +698,16 @@ def run_pipeline(
                 profile,
                 client,
                 use_case,
-                excluded_patterns=excluded_pats,
-                excluded_structural_patterns=excluded_structural,
-                preferred_actor_type=preferred_actor,
-                excluded_actor_types=excluded_actors,
-                preferred_capability_level=preferred_cap,
-                attack_goal=selected_goal,
+                excluded_patterns=hints.excluded_patterns,
+                excluded_structural_patterns=hints.excluded_structural_patterns,
+                preferred_actor_type=hints.preferred_actor_type,
+                excluded_actor_types=hints.excluded_actor_types,
+                preferred_capability_level=hints.preferred_capability_level,
+                attack_goal=hints.selected_goal,
                 pinned_entry_point=fseed.pinned_entry_point,
                 pinned_technique_ids=list(fseed.pinned_technique_ids),
                 pinned_technique_names=list(fseed.pinned_technique_names),
-                prior_titles=prior_titles if prior_titles else None,
+                prior_titles=tracker.prior_titles if tracker.prior_titles else None,
             )
             # Attach candidate filter provenance data to the envelope.
             envelope.candidate_filter = {
@@ -774,29 +723,8 @@ def run_pipeline(
             write_call_log(call_log_entries, scenarios_dir)
             scenarios.append(envelope)
 
-            # Track generated title for title diversity enforcement.
-            prior_titles.append(envelope.narrative.title)
-
-            # Track which entry point was actually chosen by the LLM.
-            entry_point_usage[envelope.narrative.entry_point] += 1
-
-            # Track which actor type was generated for diversity enforcement.
-            if envelope.actor_profile is not None:
-                actor_type_usage[envelope.actor_profile.actor_type] += 1
-                capability_level_usage[envelope.actor_profile.capability_level] += 1
-                # Track goal category usage for goal diversity enforcement.
-                if envelope.actor_profile.goal_category is not None:
-                    goal_usage[envelope.actor_profile.goal_category] += 1
-
-            # Track attack pattern keywords for diversity enforcement.
-            keywords = extract_narrative_keywords(
-                envelope.narrative, attack_pattern_name=fseed.attack_pattern_name
-            )
-            pattern_usage.update(keywords)
-
-            # Track structural attack pattern for deep diversity enforcement.
-            structural_pattern = extract_structural_pattern(envelope.narrative)
-            structural_usage[structural_pattern] += 1
+            # Update diversity counters for subsequent seeds.
+            tracker.update(envelope, attack_pattern_name=fseed.attack_pattern_name)
 
             notes = envelope.generation.notes or []
             generation_notes.extend(notes)
@@ -932,7 +860,7 @@ def run_pipeline(
             use_case,
             scenarios_dir,
             available_goals=available_goals,
-            goal_usage=goal_usage,
+            goal_usage=tracker.goal_usage,
         )
         scenarios.extend(remediation_scenarios)
         generation_notes.extend(remediation_notes)
