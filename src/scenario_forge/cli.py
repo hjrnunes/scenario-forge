@@ -189,9 +189,11 @@ def report(
         raise typer.Exit(code=1)
 
     try:
+        from scenario_forge.report.data import load_report_data
         from scenario_forge.report.generator import generate_report
 
-        report_path = generate_report(output_dir)
+        report_data = load_report_data(output_dir)
+        report_path = generate_report(report_data, output_dir)
         typer.echo(f"\nReport written to {report_path}")
 
     except Exception as exc:
