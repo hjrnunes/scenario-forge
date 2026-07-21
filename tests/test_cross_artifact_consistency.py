@@ -890,6 +890,250 @@ Feature: Attack
 
 
 # ===========================================================================
+# 4. Zone coverage dropout (cxy4)
+# ===========================================================================
+
+
+class TestZoneCoverageDropout:
+    """Integration tests: zone_coverage_dropout via validate_scenario_semantics.
+
+    A zone present in the narrative but absent from BOTH the attack tree
+    AND the Gherkin behavior_spec is a hard consistency failure (severity
+    'major').  If it is only missing from one of the two, the existing
+    minor violations fire but zone_coverage_dropout does NOT.
+    """
+
+    def test_zone_missing_from_tree_only_no_dropout(self):
+        """Zone absent from tree but present in Gherkin -> minor only, no dropout."""
+        profile = _make_profile()
+        # Tree only has "input", Gherkin has both "input" and "reasoning"
+        tree_root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            threat_id="T7",
+            children=[
+                _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
+                _leaf("n1.2", zone="input", technique_id="AML.T0054", threat_id="T7"),
+            ],
+        )
+        gherkin = """\
+Feature: Attack
+  Scenario: Test
+    # Zone input
+    Given an attacker
+    # Zone reasoning
+    When the system reasons
+"""
+        envelope = _make_envelope(
+            zone_sequence=["input", "reasoning"],
+            tree_root=tree_root,
+            behavior_spec=gherkin,
+            seed_metadata={"threat_id": "T7"},
+        )
+        validate_scenario_semantics([envelope], profile)
+
+        tree_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_omission_tree"
+        ]
+        dropout_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_coverage_dropout"
+        ]
+        assert len(tree_violations) == 1  # reasoning missing from tree
+        assert tree_violations[0].severity == "minor"
+        assert len(dropout_violations) == 0  # NOT a dropout — Gherkin covers it
+
+    def test_zone_missing_from_gherkin_only_no_dropout(self):
+        """Zone absent from Gherkin but present in tree -> minor only, no dropout."""
+        profile = _make_profile()
+        # Tree has both zones, Gherkin only has "input"
+        tree_root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            threat_id="T7",
+            children=[
+                _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
+                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"),
+            ],
+        )
+        gherkin = """\
+Feature: Attack
+  Scenario: Test
+    # Zone input
+    Given an attacker
+    When the system processes
+"""
+        envelope = _make_envelope(
+            zone_sequence=["input", "reasoning"],
+            tree_root=tree_root,
+            behavior_spec=gherkin,
+            seed_metadata={"threat_id": "T7"},
+        )
+        validate_scenario_semantics([envelope], profile)
+
+        gherkin_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_omission_gherkin"
+        ]
+        dropout_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_coverage_dropout"
+        ]
+        assert len(gherkin_violations) == 1  # reasoning missing from Gherkin
+        assert gherkin_violations[0].severity == "minor"
+        assert len(dropout_violations) == 0  # NOT a dropout — tree covers it
+
+    def test_zone_missing_from_both_triggers_dropout(self):
+        """Zone absent from BOTH tree AND Gherkin -> major zone_coverage_dropout."""
+        profile = _make_profile()
+        # Tree only has "input", Gherkin only has "input"
+        tree_root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            threat_id="T7",
+            children=[
+                _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
+                _leaf("n1.2", zone="input", technique_id="AML.T0054", threat_id="T7"),
+            ],
+        )
+        gherkin = """\
+Feature: Attack
+  Scenario: Test
+    # Zone input
+    Given an attacker
+    When the system processes
+"""
+        envelope = _make_envelope(
+            zone_sequence=["input", "reasoning"],
+            tree_root=tree_root,
+            behavior_spec=gherkin,
+            seed_metadata={"threat_id": "T7"},
+        )
+        validate_scenario_semantics([envelope], profile)
+
+        dropout_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_coverage_dropout"
+        ]
+        assert len(dropout_violations) == 1
+        assert dropout_violations[0].severity == "major"
+        assert "reasoning" in dropout_violations[0].message
+        assert "BOTH" in dropout_violations[0].message
+
+    def test_all_zones_covered_no_dropout(self):
+        """All narrative zones present in tree and Gherkin -> no dropout."""
+        profile = _make_profile()
+        tree_root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            threat_id="T7",
+            children=[
+                _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
+                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"),
+            ],
+        )
+        gherkin = """\
+Feature: Attack
+  Scenario: Test
+    # Zone input
+    Given an attacker
+    # Zone reasoning
+    When the system reasons
+"""
+        envelope = _make_envelope(
+            zone_sequence=["input", "reasoning"],
+            tree_root=tree_root,
+            behavior_spec=gherkin,
+            seed_metadata={"threat_id": "T7"},
+        )
+        validate_scenario_semantics([envelope], profile)
+
+        dropout_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_coverage_dropout"
+        ]
+        assert len(dropout_violations) == 0
+
+    def test_multiple_zones_dropped_multiple_violations(self):
+        """Multiple zones dropped from both tree and Gherkin -> multiple major violations."""
+        profile = _make_profile()
+        # Tree and Gherkin only have "tool_execution"
+        tree_root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="tool_execution",
+            threat_id="T7",
+            children=[
+                _leaf("n1.1", zone="tool_execution", technique_id="AML.T0051", threat_id="T7"),
+                _leaf("n1.2", zone="tool_execution", technique_id="AML.T0054", threat_id="T7"),
+            ],
+        )
+        gherkin = """\
+Feature: Attack
+  Scenario: Test
+    # Zone tool_execution
+    Given attacker uses tools
+"""
+        envelope = _make_envelope(
+            zone_sequence=["input", "reasoning", "tool_execution"],
+            tree_root=tree_root,
+            behavior_spec=gherkin,
+            seed_metadata={"threat_id": "T7"},
+        )
+        validate_scenario_semantics([envelope], profile)
+
+        dropout_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_coverage_dropout"
+        ]
+        assert len(dropout_violations) == 2  # input + reasoning both dropped
+        dropped_zones = {v.message.split("'")[1] for v in dropout_violations}
+        assert dropped_zones == {"input", "reasoning"}
+        assert all(v.severity == "major" for v in dropout_violations)
+
+    def test_no_gherkin_text_dropout_from_tree_only(self):
+        """When behavior_spec is empty, gherkin_zones is empty; dropout based on tree only."""
+        profile = _make_profile()
+        # Tree only has "input", no Gherkin text
+        tree_root = AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.OR,
+            zone="input",
+            threat_id="T7",
+            children=[
+                _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
+                _leaf("n1.2", zone="input", technique_id="AML.T0054", threat_id="T7"),
+            ],
+        )
+        envelope = _make_envelope(
+            zone_sequence=["input", "reasoning"],
+            tree_root=tree_root,
+            behavior_spec="",  # empty string -> gherkin_zones = set()
+            seed_metadata={"threat_id": "T7"},
+        )
+        validate_scenario_semantics([envelope], profile)
+
+        dropout_violations = [
+            v for v in envelope.validation.semantic.violations
+            if v.rule == "zone_coverage_dropout"
+        ]
+        # reasoning is missing from tree and gherkin is empty -> dropout
+        assert len(dropout_violations) == 1
+        assert "reasoning" in dropout_violations[0].message
+
+
+# ===========================================================================
 # Combined validator interactions
 # ===========================================================================
 
@@ -937,7 +1181,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         new_rules = {"narrative_technique_orphan", "missing_scenario_threat_id",
-                     "zone_omission_tree", "zone_omission_gherkin"}
+                     "zone_omission_tree", "zone_omission_gherkin",
+                     "zone_coverage_dropout"}
         new_violations = [
             v for v in envelope.validation.semantic.violations
             if v.rule in new_rules
@@ -987,3 +1232,4 @@ Feature: Attack
         assert "missing_scenario_threat_id" in rules_found  # T7 not in tree
         assert "zone_omission_tree" in rules_found  # reasoning not in tree
         assert "zone_omission_gherkin" in rules_found  # reasoning not in gherkin
+        assert "zone_coverage_dropout" in rules_found  # reasoning dropped from both

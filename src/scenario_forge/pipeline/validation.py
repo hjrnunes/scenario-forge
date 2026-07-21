@@ -1216,6 +1216,8 @@ def validate_scenario_semantics(
          in the profile's tool inventory.
       9. ``seed_technique_provenance``: at least one seed technique from
          ``laaf_technique_ids`` must appear in the attack tree.
+     10. ``zone_coverage_dropout``: narrative zone absent from BOTH tree
+         AND Gherkin — a hard consistency failure (cxy4).
 
     Populates ``scenario.validation.semantic`` with results.
     Scenarios are never removed -- violations are recorded as warnings.
@@ -1326,6 +1328,7 @@ def validate_scenario_semantics(
         gherkin_text = ""
         if scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
             gherkin_text = scenario.behavior_spec
+        gherkin_zones: set[str] = set()
         if gherkin_text:
             gherkin_zones = _extract_gherkin_zones_for_validation(gherkin_text)
             for zone in sorted(narrative_zones - gherkin_zones):
@@ -1339,6 +1342,21 @@ def validate_scenario_semantics(
                         severity="minor",
                     )
                 )
+
+        # 10. Zone coverage dropout — a zone present in narrative but absent
+        #     from BOTH tree AND Gherkin is a hard consistency failure (cxy4).
+        dropped_zones = narrative_zones - (tree_zones | gherkin_zones)
+        for zone in sorted(dropped_zones):
+            violations.append(
+                SemanticViolation(
+                    rule="zone_coverage_dropout",
+                    message=(
+                        f"Zone '{zone}' in narrative zone_sequence is absent "
+                        f"from BOTH attack tree nodes AND Gherkin behavior_spec"
+                    ),
+                    severity="major",
+                )
+            )
 
         # 8. Phantom tool check — tool_execution leaf nodes referencing
         #    tools not in the profile's tool inventory (4w56).
