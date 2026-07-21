@@ -60,6 +60,9 @@ Do NOT invent capabilities the system does not have. Every capability referenced
 
 If a seed attack pattern requires a capability the profile does not declare, model the attack within the profile's actual boundaries rather than inventing the missing capability.
 
+### Attack Pattern Example Adaptation (MANDATORY)
+Attack pattern descriptions may contain generic examples (e.g. "payment details", "contact information"). You MUST adapt these to the specific data types and capabilities described in this system's profile. Do not import example data types from the attack pattern if the system does not handle that kind of data.
+
 ### Cross-Artifact Consistency (MANDATORY)
 The narrative is the upstream source for the attack tree and behavior spec generated in later calls. To prevent cross-artifact drift:
 - State the entry point explicitly and unambiguously — the attack tree root and Gherkin Background will be anchored to it.

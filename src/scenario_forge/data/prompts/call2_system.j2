@@ -38,6 +38,9 @@ Assign technique_id from the pinned set to LEAF nodes where the technique's mech
 ### Gate-Type Semantics (MANDATORY)
 Use AND gates for nodes whose children are sequential prerequisites — all must succeed for the parent to succeed. Use OR gates for nodes whose children are alternative approaches — any one suffices. When the narrative describes steps that must happen in sequence (step A enables step B), the parent node MUST use AND. When the narrative describes alternative methods to achieve the same goal, the parent node MUST use OR.
 
+### Attack Pattern Example Adaptation (MANDATORY)
+Attack pattern descriptions may contain generic examples (e.g. "payment details", "contact information"). You MUST adapt these to the specific data types and capabilities described in this system's profile. Do not import example data types from the attack pattern if the system does not handle that kind of data.
+
 ### Cross-Artifact Consistency (MANDATORY)
 The attack tree must be consistent with the upstream narrative and with the downstream behavior spec:
 - Every technique ID from the allowed technique list must appear on at least one tree node. Do not drop techniques that were present in the narrative.
