@@ -50,6 +50,8 @@ The system can ONLY invoke the tools listed below. Do NOT reference any tool, AP
 - {{ tool.name }}: {{ tool.description }}
 {% endfor %}
 The data types each tool processes are defined in its description above. Scenarios MUST use only data types handled by these tools. Do NOT reference data types from attack pattern examples if they are not handled by the system's tools.
+
+Each tool can ONLY perform what its description states. Do NOT extrapolate additional functionality beyond the description — no batch/broadcast mode, no controllable routing or arbitrary destinations, no code execution unless explicitly stated.
 {% endif %}
 
 ### Profile Boundary (MANDATORY)
