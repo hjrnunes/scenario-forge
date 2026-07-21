@@ -26,6 +26,7 @@ _CALL1_SYS_DEFAULTS = dict(
     hitl=True,
     zones_active=["input", "reasoning", "tool_execution"],
     kc_subcodes=[],
+    tool_inventory=[],
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 

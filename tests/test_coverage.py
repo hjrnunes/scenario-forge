@@ -34,7 +34,7 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -228,11 +228,15 @@ def _make_profile(
         kc.append("KC4.3")
     if "inter_agent" in zones_active:
         kc.append("KC2.3")
+    kw = {}
+    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc):
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     return CapabilityProfile(
         zones_active=zones_active,
         entry_points=entry_points,
         confidence="high",
         kc_subcodes=kc,
+        **kw,
     )
 
 

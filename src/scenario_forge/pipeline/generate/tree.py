@@ -423,6 +423,7 @@ def build_call2_context(
         "leaf_budget": leaf_budget,
         "skeleton_section": skeleton_section,
         "ontology_context": ontology_context,
+        "tool_inventory": (profile.tool_inventory if profile else None) or [],
         # Non-template data for post-generation validation
         "skeleton": skeleton,
     }
@@ -458,9 +459,11 @@ def _call_attack_tree(
     )
 
     skeleton = ctx["skeleton"]
+
     call2_system = render_prompt(
         "call2_system.j2",
         zones_active=profile.zones_active if profile else [],
+        tool_inventory=ctx["tool_inventory"],
     )
 
     result = client.complete(

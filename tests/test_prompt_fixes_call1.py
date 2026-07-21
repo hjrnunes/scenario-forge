@@ -13,6 +13,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
     EntryPoint,
+    ToolInventoryEntry,
 )
 from scenario_forge.models.scenario import ActorProfile, RiskCardRef
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -33,6 +34,7 @@ def _make_profile() -> CapabilityProfile:
         ],
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KC1.1", "KC6.1.1"],
+        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
     )
 
 
@@ -86,6 +88,7 @@ def _render_call1_system(**overrides: object) -> str:
         hitl=False,
         zones_active=["input", "reasoning", "tool_execution"],
         kc_subcodes=[],
+        tool_inventory=[],
     )
     defaults.update(overrides)
     return render_prompt("call1_system.j2", **defaults)
@@ -108,6 +111,7 @@ def _render_call1_user(**overrides: object) -> str:
         pinned_entry_point=None,
         pinned_entry_point_direction=None,
         kc_definitions="",
+        tool_inventory=[],
     )
     defaults.update(overrides)
     return render_prompt("call1_user.j2", **defaults)
@@ -237,6 +241,7 @@ class TestWwjzGoalSectionRendering:
             pinned_entry_point=None,
             pinned_entry_point_direction=None,
             kc_definitions="",
+            tool_inventory=[],
         )
         # Deliberately omit goal_section — template default('') handles it
         prompt = render_prompt("call1_user.j2", **defaults)

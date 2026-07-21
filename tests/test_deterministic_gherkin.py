@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
-from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel
+from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel, ToolInventoryEntry
 from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
 from scenario_forge.pipeline.generate import (
     THREAT_VIOLATION_CATEGORY,
@@ -57,8 +57,10 @@ def _make_profile(
 ) -> CapabilityProfile:
     z = zones or ["input", "reasoning"]
     kc = ["KC1.1"]
+    kw = {}
     if "tool_execution" in z:
         kc.append("KC6.1.1")
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     if "memory" in z:
         kc.append("KC4.3")
     if "inter_agent" in z:
@@ -68,6 +70,7 @@ def _make_profile(
         entry_points=["user prompts via chat widget"],
         confidence=ConfidenceLevel.high,
         kc_subcodes=kc,
+        **kw,
     )
 
 

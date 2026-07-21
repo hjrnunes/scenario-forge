@@ -278,6 +278,19 @@ class AuthMethod(str, Enum):
 # ---------------------------------------------------------------------------
 
 
+class ToolInventoryEntry(BaseModel):
+    """A tool in the system's tool inventory (Stage 1).
+
+    Lightweight description of a tool or API the system can invoke,
+    extracted during Stage 1 capability profile inference.  Used to
+    ground downstream scenario generation — the LLM may only reference
+    tools listed here, preventing phantom tool hallucination.
+    """
+
+    name: str = Field(description="Tool or API name")
+    description: str = Field(description="What the tool does (one line)")
+
+
 class ToolType(BaseModel):
     """A tool or API the system can invoke, with risk-relevant properties."""
 
@@ -450,6 +463,14 @@ class Stage1Profile(BaseModel):
             "granular capabilities. E.g. ['KC1.1', 'KC4.1', 'KC6.1.1']."
         ),
     )
+    tool_inventory: list[ToolInventoryEntry] = Field(
+        default_factory=list,
+        description=(
+            "Tools and APIs the system can invoke, extracted from the "
+            "use-case description.  Only populated when the system has "
+            "tool execution capability (KC5.*/KC6.* sub-codes)."
+        ),
+    )
 
     @field_validator("entry_points", mode="before")
     @classmethod
@@ -560,6 +581,17 @@ class CapabilityProfile(BaseModel):
     def hitl(self) -> bool:
         """True if KC codes indicate human-in-the-loop controls."""
         return "KCX-HITL" in self.kc_subcodes
+
+    # --- Stage 1 tool inventory (optional but required when tool_execution active) ---
+
+    tool_inventory: list[ToolInventoryEntry] | None = Field(
+        default=None,
+        description=(
+            "Tools and APIs the system can invoke.  Required when "
+            "'tool_execution' is in zones_active.  Prevents phantom "
+            "tool hallucination in downstream scenario generation."
+        ),
+    )
 
     # --- Stage 2 (optional) ---
 
@@ -677,5 +709,20 @@ class CapabilityProfile(BaseModel):
                 "Zone 'inter_agent' (Inter-Agent Communication) active "
                 "implies multi_agent must be true"
             )
+
+        # tool_execution active requires a non-empty tool_inventory
+        if "tool_execution" in zones:
+            if not self.tool_inventory:
+                raise ValueError(
+                    "Zone 'tool_execution' is active but tool_inventory is "
+                    "empty or None.  When the system has tool execution "
+                    "capability, you must provide a tool_inventory listing "
+                    "the tools and APIs the system can invoke.  Add a "
+                    "'tool_inventory' section to your capability profile YAML "
+                    "with at least one entry, e.g.:\n"
+                    "  tool_inventory:\n"
+                    "    - name: my_tool\n"
+                    "      description: What the tool does"
+                )
 
         return self

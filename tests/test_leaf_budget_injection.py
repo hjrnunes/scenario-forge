@@ -178,6 +178,7 @@ class TestLeafBudgetTemplateRendering:
             narrative=narrative,
             technique_count=1,
             leaf_budget=4,
+            tool_inventory=[],
         )
 
         assert "1 technique(s)" in result

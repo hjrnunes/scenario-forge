@@ -27,6 +27,7 @@ from scenario_forge.models.capability_profile import (
     KCX_PREFIX,
     KCX_SUBCODES,
     Stage1Profile,
+    ToolInventoryEntry,
     VALID_KC_SUBCODES,
 )
 from scenario_forge.pipeline.generate import build_kc_definitions_block
@@ -44,6 +45,7 @@ def _base_profile_data(**overrides) -> dict:
         "entry_points": ["user input (input)"],
         "confidence": "high",
         "kc_subcodes": ["KC1.1", "KC6.1.1"],
+        "tool_inventory": [{"name": "test_tool", "description": "A test tool"}],
     }
     data.update(overrides)
     return data
@@ -69,11 +71,15 @@ def _make_profile(
     """Build a CapabilityProfile with sensible defaults for testing."""
     if kc_subcodes is None:
         kc_subcodes = ["KC1.1", "KC6.1.1"]
+    kw = {}
+    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc_subcodes):
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
         entry_points=["user input (zone 1)"],
         confidence="medium",
         kc_subcodes=kc_subcodes,
+        **kw,
     )
 
 

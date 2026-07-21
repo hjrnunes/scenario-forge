@@ -27,6 +27,7 @@ def valid_profile_data() -> dict:
         "entry_points": ["chat input [input]", "file upload [input]"],
         "confidence": "high",
         "kc_subcodes": ["KC1.1", "KC6.1.1"],
+        "tool_inventory": [{"name": "test_tool", "description": "A test tool"}],
     }
 
 

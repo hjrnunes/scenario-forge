@@ -12,7 +12,7 @@ from collections import Counter
 from unittest.mock import MagicMock
 
 from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 from scenario_forge.models.scenario import (
     AttackComplexity,
     NarrativeLayer,
@@ -70,6 +70,7 @@ def _make_profile() -> CapabilityProfile:
         ],
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
+        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
     )
 
 
@@ -106,18 +107,18 @@ class TestScoringCalibrationRubric:
 
     def test_call2_contains_tree_calibration(self):
         """Call 2 system prompt must have Tree Complexity Calibration section."""
-        prompt = render_prompt("call2_system.j2")
+        prompt = render_prompt("call2_system.j2", zones_active=[], tool_inventory=[])
         assert "Tree Complexity Calibration" in prompt
 
     def test_call2_mentions_depth_ranges(self):
         """Call 2 calibration should mention specific depth ranges."""
-        prompt_lower = render_prompt("call2_system.j2").lower()
+        prompt_lower = render_prompt("call2_system.j2", zones_active=[], tool_inventory=[]).lower()
         assert "depth 2-3" in prompt_lower or "depth 2" in prompt_lower
         assert "depth 4-5" in prompt_lower or "depth 4" in prompt_lower
 
     def test_call2_warns_against_uniform_depth(self):
         """Call 2 should warn against same depth for every scenario."""
-        prompt_lower = render_prompt("call2_system.j2").lower()
+        prompt_lower = render_prompt("call2_system.j2", zones_active=[], tool_inventory=[]).lower()
         assert "do not default" in prompt_lower
 
 
