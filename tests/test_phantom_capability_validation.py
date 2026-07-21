@@ -168,14 +168,14 @@ def _make_profile(
     """Build a minimal CapabilityProfile for testing."""
     if entry_points is None:
         entry_points = ["user prompts (zone 1)"]
+    codes = list(kc_subcodes) if kc_subcodes else []
+    if "KC1.1" not in codes:
+        codes.insert(0, "KC1.1")
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=entry_points,
         confidence="high",
-        kc_subcodes=kc_subcodes or [],
+        kc_subcodes=codes,
     )
 
 
@@ -654,12 +654,9 @@ class TestMassBroadcasting:
         ]
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "memory"],
-            has_persistent_memory=True,
-            multi_agent=False,
-            hitl=False,
             entry_points=["user prompts (zone 1)"],
             confidence="high",
-            kc_subcodes=[],
+            kc_subcodes=["KC1.1", "KC4.3"],
         )
         result = validate_phantom_capabilities(scenarios, profile)
 
@@ -677,12 +674,9 @@ class TestMassBroadcasting:
         ]
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "inter_agent"],
-            has_persistent_memory=False,
-            multi_agent=True,
-            hitl=False,
             entry_points=["user prompts (zone 1)"],
             confidence="high",
-            kc_subcodes=[],
+            kc_subcodes=["KC1.1", "KC2.3"],
         )
         result = validate_phantom_capabilities(scenarios, profile)
 
@@ -808,12 +802,9 @@ class TestCrossSessionAccess:
         ]
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "memory"],
-            has_persistent_memory=True,
-            multi_agent=False,
-            hitl=False,
             entry_points=["user prompts (zone 1)"],
             confidence="high",
-            kc_subcodes=[],
+            kc_subcodes=["KC1.1", "KC4.3"],
         )
         result = validate_phantom_capabilities(scenarios, profile)
 
@@ -944,16 +935,13 @@ class TestAuditMonitoringWrite:
         # Rich profile with many capabilities
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "memory", "inter_agent"],
-            has_persistent_memory=True,
-            multi_agent=True,
-            hitl=True,
             entry_points=[
                 "user prompts (zone 1)",
                 "admin console (zone 2)",
                 "API gateway (zone 1)",
             ],
             confidence="high",
-            kc_subcodes=[],
+            kc_subcodes=["KC1.1", "KC2.3", "KC4.3", "KCX-HITL"],
         )
         result = validate_phantom_capabilities(scenarios, profile)
 

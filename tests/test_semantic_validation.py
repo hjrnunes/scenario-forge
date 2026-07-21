@@ -55,11 +55,9 @@ def _make_profile(
         zones_active = ["input", "reasoning", "tool_execution"]
     return CapabilityProfile(
         zones_active=zones_active,
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=["user prompts (zone 1)"],
         confidence="high",
+        kc_subcodes=["KC1.1", "KC6.1.1"],
     )
 
 

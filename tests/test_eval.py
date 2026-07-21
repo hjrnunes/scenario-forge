@@ -1083,10 +1083,8 @@ class TestRunEvaluation:
                 "user prompts (zone input)",
                 "api responses (zone tool_execution)",
             ],
-            "has_persistent_memory": False,
-            "multi_agent": False,
-            "hitl": False,
             "confidence": "high",
+            "kc_subcodes": ["KC1.1", "KC6.1.1"],
         }
         cap_path = tmp_path / "capability-profile.yaml"
         cap_path.write_text(

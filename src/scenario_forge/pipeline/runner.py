@@ -484,10 +484,22 @@ def run_pipeline(
             )
         filtered = [z for z in requested if z in profile.zones_active]
         updates: dict = {"zones_active": filtered}
+        # When zones are filtered, strip KC codes that would activate
+        # computed flags for the excluded zones so the boolean flags
+        # (has_persistent_memory, multi_agent) naturally become False.
+        kc_codes = list(profile.kc_subcodes)
         if "memory" not in filtered:
-            updates["has_persistent_memory"] = False
+            kc_codes = [
+                kc for kc in kc_codes
+                if kc not in {"KC4.3", "KC4.4", "KC4.5", "KC4.6", "KCX-PMEM"}
+            ]
         if "inter_agent" not in filtered:
-            updates["multi_agent"] = False
+            kc_codes = [
+                kc for kc in kc_codes
+                if kc not in {"KC2.3", "KCX-MAGENT"}
+            ]
+        if kc_codes != list(profile.kc_subcodes):
+            updates["kc_subcodes"] = kc_codes
         # Strip zone tags from entry points whose zone is excluded.
         _zone_alts = "|".join(re.escape(z) for z in ZONE_NAMES)
         _zone_tag_re = re.compile(

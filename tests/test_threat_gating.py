@@ -44,23 +44,23 @@ def _make_profile(
     memory_mechanisms: list[MemoryMechanism] | None = None,
     kc_subcodes: list[str] | None = None,
 ) -> CapabilityProfile:
-    """Build a CapabilityProfile with sensible defaults for testing."""
-    if zones_active is None:
-        zones = ["input", "reasoning", "tool_execution"]
-        if has_persistent_memory:
-            zones.append("memory")
-        if multi_agent:
-            zones.append("inter_agent")
-    else:
-        zones = zones_active
+    """Build a CapabilityProfile with sensible defaults for testing.
+
+    Boolean flags are computed from kc_subcodes.  When explicit kc_subcodes
+    are not provided, they are assembled from the boolean flag arguments so
+    the computed properties return the expected values.
+    """
     if kc_subcodes is None:
         kc_subcodes = ["KC1.1", "KC2.1", "KC3.3", "KC5.2",
                         "KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2"]
+        if has_persistent_memory:
+            kc_subcodes.append("KC4.3")
+        if multi_agent:
+            kc_subcodes.append("KC2.3")
+        if hitl:
+            kc_subcodes.append("KCX-HITL")
     return CapabilityProfile(
-        zones_active=zones,
-        has_persistent_memory=has_persistent_memory,
-        multi_agent=multi_agent,
-        hitl=hitl,
+        zones_active=zones_active or ["input", "reasoning"],
         entry_points=["user input (zone 1)"],
         confidence="medium",
         memory_mechanisms=memory_mechanisms,
@@ -220,14 +220,14 @@ class TestComputeKCEnabledThreats:
 
     def test_hitl_adds_t10(self):
         """HITL cross-cutting flag enables T10."""
-        profile = _make_profile(kc_subcodes=["KC1.1"], hitl=True)
+        profile = _make_profile(kc_subcodes=["KC1.1", "KCX-HITL"])
         result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
         assert "T10" in result
         assert "hitl" in result["T10"]
 
     def test_hitl_false_no_t10(self):
         """Without HITL, T10 is not enabled (unless via KC2.2/KC2.3)."""
-        profile = _make_profile(kc_subcodes=["KC1.1"], hitl=False)
+        profile = _make_profile(kc_subcodes=["KC1.1"])
         result = _compute_kc_enabled_threats(profile, _MINI_KC_MAPPING)
         assert "T10" not in result
 
@@ -587,9 +587,7 @@ class TestDetermineThreatScopeKC:
     def test_hitl_enables_t10(self):
         """HITL flag enables T10 even without KC2.2/KC2.3."""
         profile = _make_profile(
-            kc_subcodes=["KC1.1"],
-            hitl=True,
-            zones_active=["input", "reasoning"],
+            kc_subcodes=["KC1.1", "KCX-HITL"],
         )
         scope = determine_threat_scope(profile)
         in_scope_ids = {e.threat_id for e in scope.in_scope}

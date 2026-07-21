@@ -104,11 +104,9 @@ def _make_filtered_seed(
 def _make_profile(entry_points: list[str] | None = None) -> CapabilityProfile:
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=entry_points or ["user prompts (input)"],
         confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
     )
 
 
@@ -923,11 +921,9 @@ def _make_directed_profile(
     """
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=entry_points,
         confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
     )
 
 
@@ -1384,13 +1380,11 @@ class TestApplyRuleBasedFilter:
 
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 EntryPoint(name="some generic channel", direction="input", controllability="indirect"),
             ],
             confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
         )
         candidate = _make_candidate(
             entry_point="some generic channel",
@@ -1409,13 +1403,11 @@ class TestApplyRuleBasedFilter:
 
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 EntryPoint(name="RAG knowledge interface", direction="input", controllability="direct"),
             ],
             confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
         )
         candidate = _make_candidate(
             entry_point="RAG knowledge interface",
@@ -1434,13 +1426,11 @@ class TestApplyRuleBasedFilter:
 
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 EntryPoint(name="RAG knowledge interface", direction="input"),
             ],
             confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
         )
         candidate = _make_candidate(
             entry_point="RAG knowledge interface",
@@ -1465,13 +1455,20 @@ def _make_zoned_profile(
     hitl: bool = False,
 ) -> CapabilityProfile:
     """Build a CapabilityProfile with specific zones and capability flags."""
+    kc_codes = ["KC1.1"]
+    if "tool_execution" in zones:
+        kc_codes.append("KC6.1.1")
+    if "memory" in zones or has_persistent_memory:
+        kc_codes.append("KC4.3")
+    if "inter_agent" in zones or multi_agent:
+        kc_codes.append("KC2.3")
+    if hitl:
+        kc_codes.append("KCX-HITL")
     return CapabilityProfile(
         zones_active=zones,
-        has_persistent_memory=has_persistent_memory,
-        multi_agent=multi_agent,
-        hitl=hitl,
         entry_points=["user prompts (input)"],
         confidence=ConfidenceLevel.high,
+        kc_subcodes=kc_codes,
     )
 
 
@@ -1774,13 +1771,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
         """T2 candidate passes when profile has tool_execution zone."""
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "tool_execution"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 {"name": "user prompts via chat", "direction": "input"},
             ],
             confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1", "KC6.1.1"],
         )
         candidate = _make_threat_candidate(
             threat_id="T2",
@@ -1809,13 +1804,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
         """T10 candidate passes when profile has hitl=true."""
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=True,
             entry_points=[
                 {"name": "user prompts via chat", "direction": "input"},
             ],
             confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1", "KCX-HITL"],
         )
         candidate = _make_threat_candidate(
             threat_id="T10",
@@ -1856,13 +1849,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
         """T5 candidate passes with tool_execution zone."""
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "tool_execution"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 {"name": "user prompts via chat", "direction": "input"},
             ],
             confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1", "KC6.1.1"],
         )
         candidate = _make_threat_candidate(
             threat_id="T5",
@@ -1910,13 +1901,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
         """Multiple candidates with different threats: only impossible ones rejected."""
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "tool_execution"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 {"name": "user prompts via chat", "direction": "input"},
             ],
             confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1", "KC6.1.1"],
         )
         t2_ok = _make_threat_candidate(
             threat_id="T2",

@@ -41,11 +41,9 @@ def _base_profile_data(**overrides) -> dict:
     """Minimal valid CapabilityProfile payload."""
     data = {
         "zones_active": ["input", "reasoning", "tool_execution"],
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": True,
         "entry_points": ["user input (input)"],
         "confidence": "high",
+        "kc_subcodes": ["KC1.1", "KC6.1.1"],
     }
     data.update(overrides)
     return data
@@ -56,7 +54,7 @@ def _base_stage1_data(**overrides) -> dict:
     data = {
         "has_persistent_memory": False,
         "multi_agent": False,
-        "hitl": True,
+        "hitl": False,
         "entry_points": ["user input (input)"],
         "confidence": "high",
     }
@@ -67,27 +65,12 @@ def _base_stage1_data(**overrides) -> dict:
 def _make_profile(
     *,
     kc_subcodes: list[str] | None = None,
-    zones_active: list[str] | None = None,
-    has_persistent_memory: bool = False,
-    multi_agent: bool = False,
-    hitl: bool = False,
 ) -> CapabilityProfile:
     """Build a CapabilityProfile with sensible defaults for testing."""
-    if zones_active is None:
-        zones = ["input", "reasoning", "tool_execution"]
-        if has_persistent_memory:
-            zones.append("memory")
-        if multi_agent:
-            zones.append("inter_agent")
-    else:
-        zones = zones_active
     if kc_subcodes is None:
         kc_subcodes = ["KC1.1", "KC6.1.1"]
     return CapabilityProfile(
-        zones_active=zones,
-        has_persistent_memory=has_persistent_memory,
-        multi_agent=multi_agent,
-        hitl=hitl,
+        zones_active=["input", "reasoning"],
         entry_points=["user input (zone 1)"],
         confidence="medium",
         kc_subcodes=kc_subcodes,
@@ -282,7 +265,6 @@ class TestKCXPrerequisiteEvaluation:
     def test_all_passes_with_kcx_code(self):
         profile = _make_profile(
             kc_subcodes=["KC1.1", "KC2.3", "KCX-XAUTH"],
-            multi_agent=True,
         )
         prereqs = {"kc_requires": {"all": ["KC2.3", "KCX-XAUTH"]}}
         assert _evaluate_prerequisite_capabilities(prereqs, profile) is True
@@ -290,7 +272,6 @@ class TestKCXPrerequisiteEvaluation:
     def test_all_fails_missing_kcx_code(self):
         profile = _make_profile(
             kc_subcodes=["KC1.1", "KC2.3"],
-            multi_agent=True,
         )
         prereqs = {"kc_requires": {"all": ["KC2.3", "KCX-XAUTH"]}}
         assert _evaluate_prerequisite_capabilities(prereqs, profile) is False

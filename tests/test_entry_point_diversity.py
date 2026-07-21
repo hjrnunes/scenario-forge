@@ -278,15 +278,13 @@ class TestNarrativePromptIntegration:
 
         return CapabilityProfile(
             zones_active=["input", "reasoning", "tool_execution"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 "document uploads (zone 1)",
                 "API endpoint (zone 1)",
                 "admin console (zone 2)",
             ],
             confidence="high",
+            kc_subcodes=["KC1.1", "KC6.1.1"],
         )
 
     @patch("scenario_forge.pipeline.generate.LLMClient")

@@ -38,9 +38,7 @@ def minimal_profile():
         zones_active=["input", "reasoning"],
         entry_points=["chat input"],
         confidence="high",
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
+        kc_subcodes=["KC1.1"],
     )
 
 

@@ -54,17 +54,20 @@ def _make_seed(threat_id: str = "T7", seed_id: str = "AP-T7-01") -> ScenarioSeed
 
 def _make_profile(
     zones: list[str] | None = None,
-    has_memory: bool = False,
-    multi_agent: bool = False,
 ) -> CapabilityProfile:
     z = zones or ["input", "reasoning"]
+    kc = ["KC1.1"]
+    if "tool_execution" in z:
+        kc.append("KC6.1.1")
+    if "memory" in z:
+        kc.append("KC4.3")
+    if "inter_agent" in z:
+        kc.append("KC2.3")
     return CapabilityProfile(
         zones_active=z,
-        has_persistent_memory=has_memory or "memory" in z,
-        multi_agent=multi_agent or "inter_agent" in z,
-        hitl=False,
         entry_points=["user prompts via chat widget"],
         confidence=ConfidenceLevel.high,
+        kc_subcodes=kc,
     )
 
 
@@ -337,7 +340,7 @@ class TestBuildGherkinTemplate:
             narrative=_make_narrative(),
             attack_tree=tree,
             profile=_make_profile(
-                zones=["input", "reasoning", "memory"], has_memory=True
+                zones=["input", "reasoning", "memory"],
             ),
             seed=_make_seed(threat_id="T5", seed_id="AP-T5-01"),
             scenario_tag="AP-T5-01-abc123",
@@ -384,7 +387,7 @@ class TestBuildGherkinTemplate:
             narrative=_make_narrative(),
             attack_tree=tree,
             profile=_make_profile(
-                zones=["input", "reasoning", "memory"], has_memory=True
+                zones=["input", "reasoning", "memory"],
             ),
             seed=_make_seed(threat_id="T5", seed_id="AP-T5-01"),
             scenario_tag="AP-T5-01-abc123",
