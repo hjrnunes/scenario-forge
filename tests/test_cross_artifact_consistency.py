@@ -68,9 +68,6 @@ def _make_profile(
         kc.append("KC2.3")
     return CapabilityProfile(
         zones_active=zones_active,
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=["user prompts (zone 1)"],
         confidence="high",
         kc_subcodes=kc,
