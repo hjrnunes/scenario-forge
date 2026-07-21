@@ -543,6 +543,7 @@ def _call_actor_profile(
             "call0_system.j2",
             minimum_capability_level=ctx["minimum_capability_level"],
             compatible_actor_types=ctx["compatible_actor_types"],
+            zones_active=profile.zones_active,
         ),
         user_prompt=render_prompt("call0_user.j2", **ctx),
         response_format=Call0Response,

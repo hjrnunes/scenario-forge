@@ -419,7 +419,14 @@ def _call_narrative(
     )
 
     result = client.complete(
-        system_prompt=render_prompt("call1_system.j2"),
+        system_prompt=render_prompt(
+            "call1_system.j2",
+            has_persistent_memory=profile.has_persistent_memory,
+            multi_agent=profile.multi_agent,
+            hitl=profile.hitl,
+            zones_active=profile.zones_active,
+            kc_subcodes=profile.kc_subcodes,
+        ),
         user_prompt=render_prompt("call1_user.j2", **ctx),
         response_format=Call1Response,
     )

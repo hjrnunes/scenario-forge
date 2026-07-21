@@ -159,7 +159,14 @@ class TestGoalSectionPromptHierarchy:
 
     def test_seed_fidelity_remains_mandatory_in_system_prompt(self):
         """Seed Attack Objective Fidelity must stay MANDATORY."""
-        system_prompt = render_prompt("call1_system.j2")
+        system_prompt = render_prompt(
+            "call1_system.j2",
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            zones_active=["input", "reasoning"],
+            kc_subcodes=[],
+        )
         assert "Seed Attack Objective Fidelity (MANDATORY)" in system_prompt
 
     def test_call0_goal_context_uses_should(self):
