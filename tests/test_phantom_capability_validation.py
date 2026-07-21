@@ -18,7 +18,7 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -171,11 +171,15 @@ def _make_profile(
     codes = list(kc_subcodes) if kc_subcodes else []
     if "KC1.1" not in codes:
         codes.insert(0, "KC1.1")
+    kw = {}
+    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
         entry_points=entry_points,
         confidence="high",
         kc_subcodes=codes,
+        **kw,
     )
 
 

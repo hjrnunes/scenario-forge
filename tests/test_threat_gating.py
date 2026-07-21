@@ -28,6 +28,7 @@ from scenario_forge.models import (
     MemoryScope,
     MemoryType,
 )
+from scenario_forge.models.capability_profile import ToolInventoryEntry
 
 
 # ---------------------------------------------------------------------------
@@ -59,12 +60,16 @@ def _make_profile(
             kc_subcodes.append("KC2.3")
         if hitl:
             kc_subcodes.append("KCX-HITL")
+    kw = {}
+    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc_subcodes):
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     return CapabilityProfile(
         zones_active=zones_active or ["input", "reasoning"],
         entry_points=["user input (zone 1)"],
         confidence="medium",
         memory_mechanisms=memory_mechanisms,
         kc_subcodes=kc_subcodes,
+        **kw,
     )
 
 

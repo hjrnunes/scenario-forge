@@ -13,6 +13,7 @@ from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     EntryPoint,
+    ToolInventoryEntry,
 )
 from scenario_forge.models.scenario import (
     ActorProfile,
@@ -62,6 +63,10 @@ def _make_profile(
     entry_points: list[EntryPoint] | None = None,
     kc_subcodes: list[str] | None = None,
 ) -> CapabilityProfile:
+    codes = kc_subcodes if kc_subcodes is not None else ["KC1.1"]
+    kw = {}
+    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     return CapabilityProfile(
         zones_active=zones_active if zones_active is not None else ["input", "reasoning"],
         entry_points=entry_points if entry_points is not None else [
@@ -71,8 +76,9 @@ def _make_profile(
                 controllability="direct",
             ),
         ],
-        kc_subcodes=kc_subcodes if kc_subcodes is not None else ["KC1.1"],
+        kc_subcodes=codes,
         confidence="medium",
+        **kw,
     )
 
 

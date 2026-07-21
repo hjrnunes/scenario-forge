@@ -274,7 +274,7 @@ class TestNarrativePromptIntegration:
 
     def _make_profile(self):
         """Create a minimal CapabilityProfile for testing."""
-        from scenario_forge.models.capability_profile import CapabilityProfile
+        from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 
         return CapabilityProfile(
             zones_active=["input", "reasoning", "tool_execution"],
@@ -285,6 +285,7 @@ class TestNarrativePromptIntegration:
             ],
             confidence="high",
             kc_subcodes=["KC1.1", "KC6.1.1"],
+            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
         )
 
     @patch("scenario_forge.pipeline.generate.LLMClient")
@@ -547,5 +548,6 @@ class TestEdgeCases:
             hitl=False,
             zones_active=["input", "reasoning", "tool_execution"],
             kc_subcodes=[],
+            tool_inventory=[],
         )
         assert "exclusion list" in prompt.lower()

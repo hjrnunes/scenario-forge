@@ -1138,6 +1138,62 @@ def _extract_gherkin_zones_for_validation(gherkin_text: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_tool_name(name: str) -> str:
+    """Normalize a tool name for fuzzy matching.
+
+    Lowercases, strips surrounding whitespace, and replaces underscores
+    and hyphens with spaces for uniform comparison.
+    """
+    return name.lower().strip().replace("_", " ").replace("-", " ")
+
+
+def _check_phantom_tool_in_tree(
+    scenarios: list[ScenarioEnvelope],
+    profile: CapabilityProfile,
+) -> dict[str, list[tuple[str, str]]]:
+    """Check attack tree leaf nodes in tool_execution zone against tool inventory.
+
+    Returns a dict mapping scenario_id to a list of (node_id, node_label)
+    tuples for nodes that reference tools not in the inventory.
+    Only runs when tool_inventory is available and non-empty.
+    """
+    if not profile.tool_inventory:
+        return {}
+
+    # Build normalized tool name set for fuzzy matching
+    tool_names = [_normalize_tool_name(t.name) for t in profile.tool_inventory]
+
+    results: dict[str, list[tuple[str, str]]] = {}
+
+    for scenario in scenarios:
+        if not scenario.attack_tree or not scenario.attack_tree.root:
+            continue
+
+        violations: list[tuple[str, str]] = []
+        leaves = _collect_leaves(scenario.attack_tree.root)
+
+        for leaf in leaves:
+            if leaf.zone != "tool_execution":
+                continue
+
+            # Normalize the leaf label for comparison
+            label_normalized = _normalize_tool_name(leaf.label)
+
+            # Check if any tool name appears as a substring in the label
+            found = any(
+                tool_name in label_normalized or label_normalized in tool_name
+                for tool_name in tool_names
+            )
+
+            if not found:
+                violations.append((leaf.id, leaf.label))
+
+        if violations:
+            results[scenario.scenario_id] = violations
+
+    return results
+
+
 def validate_scenario_semantics(
     scenarios: list[ScenarioEnvelope],
     profile: CapabilityProfile,
@@ -1156,6 +1212,8 @@ def validate_scenario_semantics(
          text but absent from the attack tree.
       6. ``zone_omission_tree``: narrative zones missing from attack tree.
       7. ``zone_omission_gherkin``: narrative zones missing from Gherkin.
+      8. ``phantom_tool``: tool_execution leaf nodes referencing tools not
+         in the profile's tool inventory.
 
     Populates ``scenario.validation.semantic`` with results.
     Scenarios are never removed -- violations are recorded as warnings.
@@ -1279,6 +1337,35 @@ def validate_scenario_semantics(
                         severity="minor",
                     )
                 )
+
+        # 8. Phantom tool check — tool_execution leaf nodes referencing
+        #    tools not in the profile's tool inventory (4w56).
+        if profile.tool_inventory:
+            tool_names_normalized = [
+                _normalize_tool_name(t.name) for t in profile.tool_inventory
+            ]
+            leaves = _collect_leaves(scenario.attack_tree.root)
+            for leaf in leaves:
+                if leaf.zone != "tool_execution":
+                    continue
+                label_normalized = _normalize_tool_name(leaf.label)
+                found = any(
+                    tn in label_normalized or label_normalized in tn
+                    for tn in tool_names_normalized
+                )
+                if not found:
+                    violations.append(
+                        SemanticViolation(
+                            rule="phantom_tool",
+                            message=(
+                                f"Leaf node '{leaf.id}' in tool_execution zone "
+                                f"references '{leaf.label}' which does not match "
+                                f"any tool in the inventory: "
+                                f"{[t.name for t in profile.tool_inventory]}"
+                            ),
+                            severity="major",
+                        )
+                    )
 
         semantic = SemanticValidation(
             valid=len(violations) == 0,

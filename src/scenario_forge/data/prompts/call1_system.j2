@@ -42,6 +42,14 @@ Your scenario MUST be consistent with the system's declared capabilities:
 
 ### Tool & API Grounding Constraint (MANDATORY)
 Only reference tools, APIs, endpoints, and system capabilities that are explicitly described in the use case or capability profile. Do NOT invent, assume, or fabricate additional system features, API methods, tool names, or integration points that are not mentioned. If the use case describes a "payment API," you may reference that payment API — but do not invent a "session token endpoint" or "elevated privilege API" unless the use case explicitly describes one. Every tool or API mentioned in the narrative must be traceable to the use case or capability profile text.
+{% if tool_inventory %}
+
+### Tool Inventory (MANDATORY)
+The system can ONLY invoke the tools listed below. Do NOT reference any tool, API, or capability not in this list.
+{% for tool in tool_inventory %}
+- {{ tool.name }}: {{ tool.description }}
+{% endfor %}
+{% endif %}
 
 ### Profile Boundary (MANDATORY)
 Do NOT invent capabilities the system does not have. Every capability referenced in the narrative must be traceable to the capability profile. The following categories are commonly hallucinated — they are FORBIDDEN unless the profile explicitly declares them:

@@ -16,7 +16,7 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -57,6 +57,15 @@ def _make_profile(
 ) -> CapabilityProfile:
     if zones_active is None:
         zones_active = ["input", "reasoning", "tool_execution"]
+    kc = ["KC1.1"]
+    kw = {}
+    if "tool_execution" in zones_active:
+        kc.append("KC6.1.1")
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+    if "memory" in zones_active:
+        kc.append("KC4.3")
+    if "inter_agent" in zones_active:
+        kc.append("KC2.3")
     return CapabilityProfile(
         zones_active=zones_active,
         has_persistent_memory=False,
@@ -64,6 +73,8 @@ def _make_profile(
         hitl=False,
         entry_points=["user prompts (zone 1)"],
         confidence="high",
+        kc_subcodes=kc,
+        **kw,
     )
 
 

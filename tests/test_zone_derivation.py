@@ -17,9 +17,12 @@ import yaml
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
+    ToolInventoryEntry,
     VALID_KC_SUBCODES,
     derive_zones_from_kc,
 )
+
+_TEST_TOOL_INVENTORY = [ToolInventoryEntry(name="test_tool", description="A test tool")]
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +244,7 @@ class TestStage1ProfileZoneDerivation:
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC5.1"],
+            tool_inventory=_TEST_TOOL_INVENTORY,
         )
         p = s.to_capability_profile()
         assert p.zones_active == ["input", "reasoning", "tool_execution"]
@@ -280,6 +284,7 @@ class TestStage1ProfileZoneDerivation:
             entry_points=["user input (input)"],
             confidence="high",
             kc_subcodes=["KC1.1", "KC2.3", "KC4.4", "KC5.1"],
+            tool_inventory=_TEST_TOOL_INVENTORY,
         )
         p = s.to_capability_profile()
         assert p.zones_active == [
@@ -324,6 +329,7 @@ class TestCapabilityProfileZoneDerivation:
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC5.1"],
+            tool_inventory=_TEST_TOOL_INVENTORY,
         )
         assert p.zones_active == ["input", "reasoning", "tool_execution"]
 
@@ -334,6 +340,7 @@ class TestCapabilityProfileZoneDerivation:
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC5.1"],  # derives tool_execution, not memory
+            tool_inventory=_TEST_TOOL_INVENTORY,
         )
         # memory should be gone, tool_execution should be present
         assert "memory" not in p.zones_active
@@ -346,6 +353,7 @@ class TestCapabilityProfileZoneDerivation:
             entry_points=["user input (input)"],
             confidence="high",
             kc_subcodes=["KC1.1", "KC2.3", "KC4.4", "KC5.1"],
+            tool_inventory=_TEST_TOOL_INVENTORY,
         )
         assert p.zones_active == [
             "input", "inter_agent", "memory", "reasoning", "tool_execution",
@@ -546,6 +554,7 @@ class TestStage1ProfileFlagDerivation:
             entry_points=["user input (input)"],
             confidence="high",
             kc_subcodes=["KC1.1", "KC2.3", "KC4.4", "KC5.1"],
+            tool_inventory=_TEST_TOOL_INVENTORY,
         )
         p = s.to_capability_profile()
         assert p.has_persistent_memory is True

@@ -98,4 +98,16 @@ These custom sub-codes gate attack patterns that require specific structural cap
 - For KCX, only assign when the description explicitly describes the structural capability. Most systems will NOT have all KCX codes — that is the intended gating behavior. When assigning KCX-PMEM, KCX-SHMEM, KCX-MAGENT, or KCX-VSTORE, also include the corresponding KC code (see notes above).
 - Only include sub-codes supported by the use-case description. Do NOT speculate.
 
+## Tool Inventory
+If the system has tool execution capability (any KC5.* or KC6.* sub-codes), list the tools and APIs it can invoke in the `tool_inventory` field. Each entry has a `name` and a one-line `description`.
+
+**CRITICAL:** List ONLY tools explicitly described or strongly implied by the use-case description. Do NOT invent tools based on domain expectations or common assumptions. If the use case says "the system can process refunds," list a refund tool — but do NOT add a "billing API" or "inventory management system" unless the use case mentions them.
+
+Examples:
+- {"name": "process_refund", "description": "Processes customer refund requests"}
+- {"name": "query_patient_records", "description": "Retrieves patient EHR records by ID"}
+- {"name": "escalate_to_human", "description": "Escalates conversation to a human agent"}
+
+If the system has NO tool execution capability (no KC5.*/KC6.* sub-codes), leave `tool_inventory` as an empty list.
+
 Return a valid CapabilityProfile with only the Stage 1 fields. Do NOT populate Stage 2 fields (tool_types, data_flows, etc.).

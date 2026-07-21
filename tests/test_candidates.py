@@ -16,7 +16,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel
+from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel, ToolInventoryEntry
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.candidates import (
     DIRECT_ONLY_TECHNIQUES,
@@ -1464,11 +1464,15 @@ def _make_zoned_profile(
         kc_codes.append("KC2.3")
     if hitl:
         kc_codes.append("KCX-HITL")
+    kw = {}
+    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc_codes):
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     return CapabilityProfile(
         zones_active=zones,
         entry_points=["user prompts (input)"],
         confidence=ConfidenceLevel.high,
         kc_subcodes=kc_codes,
+        **kw,
     )
 
 
@@ -1776,6 +1780,7 @@ class TestApplyRuleBasedFilterThreatPrereqs:
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1", "KC6.1.1"],
+            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
         )
         candidate = _make_threat_candidate(
             threat_id="T2",
@@ -1854,6 +1859,7 @@ class TestApplyRuleBasedFilterThreatPrereqs:
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1", "KC6.1.1"],
+            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
         )
         candidate = _make_threat_candidate(
             threat_id="T5",
@@ -1906,6 +1912,7 @@ class TestApplyRuleBasedFilterThreatPrereqs:
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1", "KC6.1.1"],
+            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
         )
         t2_ok = _make_threat_candidate(
             threat_id="T2",

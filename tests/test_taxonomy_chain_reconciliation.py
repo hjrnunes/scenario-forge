@@ -64,13 +64,14 @@ def _make_narrative() -> NarrativeLayer:
 
 
 def _make_profile():
-    from scenario_forge.models.capability_profile import CapabilityProfile
+    from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 
     return CapabilityProfile(
         zones_active=["input", "reasoning", "tool_execution"],
         entry_points=["test entry point (zone 1)"],
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
+        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
     )
 
 

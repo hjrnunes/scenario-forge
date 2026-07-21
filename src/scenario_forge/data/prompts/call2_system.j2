@@ -38,6 +38,13 @@ Assign technique_id from the pinned set to LEAF nodes where the technique's mech
 ### Gate-Type Semantics (MANDATORY)
 Use AND gates for nodes whose children are sequential prerequisites — all must succeed for the parent to succeed. Use OR gates for nodes whose children are alternative approaches — any one suffices. When the narrative describes steps that must happen in sequence (step A enables step B), the parent node MUST use AND. When the narrative describes alternative methods to achieve the same goal, the parent node MUST use OR.
 
+{% if tool_inventory %}
+### Tool Inventory (MANDATORY)
+The system can ONLY invoke the tools listed below. Do NOT reference any tool, API, or capability not in this list. Attack tree nodes in the tool_execution zone must use tools from this inventory.
+{% for tool in tool_inventory %}
+- {{ tool.name }}: {{ tool.description }}
+{% endfor %}
+{% endif %}
 ### Attack Pattern Example Adaptation (MANDATORY)
 Attack pattern descriptions may contain generic examples (e.g. "payment details", "contact information"). You MUST adapt these to the specific data types and capabilities described in this system's profile. Do not import example data types from the attack pattern if the system does not handle that kind of data.
 

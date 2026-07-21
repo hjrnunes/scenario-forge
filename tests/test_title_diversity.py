@@ -16,6 +16,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
     EntryPoint,
+    ToolInventoryEntry,
 )
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.generate import _call_narrative
@@ -29,6 +30,7 @@ _CALL1_SYS_DEFAULTS = dict(
     hitl=False,
     zones_active=["input", "reasoning", "tool_execution"],
     kc_subcodes=[],
+    tool_inventory=[],
 )
 
 
@@ -46,6 +48,7 @@ def _make_profile() -> CapabilityProfile:
         ],
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KC1.1", "KC6.1.1"],
+        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
     )
 
 

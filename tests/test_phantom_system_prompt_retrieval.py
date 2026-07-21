@@ -18,7 +18,7 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -168,11 +168,16 @@ def _make_profile(
     """Build a minimal CapabilityProfile for testing."""
     if entry_points is None:
         entry_points = ["user prompts (zone 1)"]
+    codes = kc_subcodes or ["KC1.1"]
+    kw = {}
+    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
         entry_points=entry_points,
         confidence="high",
-        kc_subcodes=kc_subcodes or ["KC1.1"],
+        kc_subcodes=codes,
+        **kw,
     )
 
 
@@ -646,6 +651,7 @@ class TestSystemPromptRetrievalIntegration:
             ],
             confidence="high",
             kc_subcodes=["KC1.1", "KC2.3", "KC4.3", "KC6.1.2", "KC6.2.2", "KC6.4", "KC6.5", "KCX-HITL"],
+            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
         )
         result = validate_phantom_capabilities(scenarios, profile)
 

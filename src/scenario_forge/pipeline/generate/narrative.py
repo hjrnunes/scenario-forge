@@ -379,6 +379,7 @@ def build_call1_context(
         "pinned_entry_point_direction": pinned_entry_point_direction,
         "kc_definitions": kc_definitions,
         "ontology_context": ontology_context,
+        "tool_inventory": profile.tool_inventory or [],
     }
 
 
@@ -426,6 +427,7 @@ def _call_narrative(
             hitl=profile.hitl,
             zones_active=profile.zones_active,
             kc_subcodes=profile.kc_subcodes,
+            tool_inventory=ctx["tool_inventory"],
         ),
         user_prompt=render_prompt("call1_user.j2", **ctx),
         response_format=Call1Response,

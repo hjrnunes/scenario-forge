@@ -5,7 +5,12 @@ The attack tree must formalize the narrative below, which is a concrete instance
 - Threat category: {{ seed.threat_name }} — {{ seed.threat_description }}
 - Use case: {{ use_case }}
 {{ ontology_context | default('') }}
-{{ arch_section }}{{ actor_section }}
+{{ arch_section }}{% if tool_inventory %}
+## Available Tools (MANDATORY — do NOT reference tools outside this list)
+{% for tool in tool_inventory %}
+- {{ tool.name }}: {{ tool.description }}
+{% endfor %}
+{% endif %}{{ actor_section }}
 {{ technique_context }}{{ technique_constraint }}{{ skeleton_section | default('') }}
 ## Leaf Budget (MANDATORY)
 This scenario has {{ technique_count }} technique(s). Your attack tree MUST have at most {{ leaf_budget }} leaf nodes. Trees exceeding this limit will be rejected.

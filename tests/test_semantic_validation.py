@@ -18,7 +18,7 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -58,6 +58,7 @@ def _make_profile(
         entry_points=["user prompts (zone 1)"],
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
+        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
     )
 
 

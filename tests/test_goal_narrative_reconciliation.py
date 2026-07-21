@@ -13,6 +13,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
     EntryPoint,
+    ToolInventoryEntry,
 )
 from scenario_forge.models.scenario import ActorProfile, RiskCardRef
 from scenario_forge.pipeline.generate import (
@@ -60,6 +61,7 @@ def _make_profile() -> CapabilityProfile:
         ],
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KC1.1", "KC6.1.1"],
+        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
     )
 
 
@@ -164,6 +166,7 @@ class TestGoalSectionPromptHierarchy:
             hitl=False,
             zones_active=["input", "reasoning"],
             kc_subcodes=[],
+            tool_inventory=[],
         )
         assert "Seed Attack Objective Fidelity (MANDATORY)" in system_prompt
 

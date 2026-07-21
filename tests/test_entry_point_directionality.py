@@ -16,6 +16,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
     EntryPoint,
+    ToolInventoryEntry,
 )
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.generate import _lookup_entry_point_direction
@@ -44,6 +45,7 @@ def _make_profile(
         entry_points=entry_points,
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KC1.1", "KC6.1.1"],
+        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
     )
 
 
@@ -229,6 +231,7 @@ class TestCall1DirectionRendering:
             pinned_entry_point=pinned_entry_point,
             pinned_entry_point_direction=pinned_entry_point_direction,
             kc_definitions="",
+            tool_inventory=[],
         )
 
     def test_input_direction_renders_input_constraint(self):

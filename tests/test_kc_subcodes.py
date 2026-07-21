@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
+    ToolInventoryEntry,
     VALID_KC_SUBCODES,
 )
 
@@ -19,6 +20,7 @@ def _base_profile_data(**overrides) -> dict:
         "entry_points": ["user input (input)"],
         "confidence": "high",
         "kc_subcodes": ["KC1.1", "KC6.1.1"],
+        "tool_inventory": [ToolInventoryEntry(name="test_tool", description="A test tool")],
     }
     data.update(overrides)
     return data
@@ -87,7 +89,10 @@ class TestStage1ProfileKCSubcodes:
 
     def test_stage1_to_capability_profile_preserves_kc_subcodes(self):
         codes = ["KC1.1", "KC4.3", "KC6.2.2"]
-        s = Stage1Profile(**_base_stage1_data(kc_subcodes=codes))
+        s = Stage1Profile(**_base_stage1_data(
+            kc_subcodes=codes,
+            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+        ))
         p = s.to_capability_profile()
         assert p.kc_subcodes == sorted(codes)
 
