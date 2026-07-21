@@ -18,6 +18,15 @@ from scenario_forge.pipeline.generate import (
     _sanitize_non_latin,
 )
 from scenario_forge.prompts import render_prompt
+
+# Default kwargs for rendering call1_system.j2 (requires profile variables)
+_CALL1_SYS_DEFAULTS = dict(
+    has_persistent_memory=False,
+    multi_agent=False,
+    hitl=True,
+    zones_active=["input", "reasoning", "tool_execution"],
+    kc_subcodes=[],
+)
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
 
@@ -30,22 +39,22 @@ class TestHITLFailureMechanism:
     """The Call 1 system prompt must include HITL failure mechanism language."""
 
     def test_system_prompt_contains_hitl_failure_mechanism(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
         assert "human-in-the-loop" in prompt.lower()
 
     def test_system_prompt_mentions_specific_failure_examples(self):
         # Should mention at least some concrete failure mechanisms
-        prompt_lower = render_prompt("call1_system.j2").lower()
+        prompt_lower = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS).lower()
         assert "reviewer fatigue" in prompt_lower
         assert "time pressure" in prompt_lower
 
     def test_system_prompt_warns_against_bare_assertion(self):
         # Should caution against simply asserting bypass
-        prompt = render_prompt("call1_system.j2")
+        prompt = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
         assert "simply asserting" in prompt.lower()
 
     def test_system_prompt_mentions_failure_mechanism(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
         assert "failure mechanism" in prompt.lower()
 
 

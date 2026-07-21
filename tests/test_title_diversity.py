@@ -22,6 +22,15 @@ from scenario_forge.pipeline.generate import _call_narrative
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.prompts import render_prompt
 
+# Default kwargs for rendering call1_system.j2 (requires profile variables)
+_CALL1_SYS_DEFAULTS = dict(
+    has_persistent_memory=False,
+    multi_agent=False,
+    hitl=False,
+    zones_active=["input", "reasoning", "tool_execution"],
+    kc_subcodes=[],
+)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -229,22 +238,22 @@ class TestCall1SystemTitleInstruction:
 
     def test_title_instruction_contains_uniqueness_language(self):
         """The system prompt should contain uniqueness guidance for titles."""
-        rendered = render_prompt("call1_system.j2")
+        rendered = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
         assert "MUST be unique" in rendered
 
     def test_title_instruction_warns_against_formulaic_patterns(self):
         """The system prompt should warn against formulaic title patterns."""
-        rendered = render_prompt("call1_system.j2")
+        rendered = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
         assert "[Mechanism] for [Goal]" in rendered
 
     def test_title_instruction_suggests_varied_structures(self):
         """The system prompt should suggest varied sentence structures."""
-        rendered = render_prompt("call1_system.j2")
+        rendered = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
         assert "noun phrases" in rendered
 
     def test_old_weak_instruction_removed(self):
         """The old weak instruction should no longer be present."""
-        rendered = render_prompt("call1_system.j2")
+        rendered = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
         assert "should be specific to the use case, not a generic restatement" not in rendered
 
 

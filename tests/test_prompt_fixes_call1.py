@@ -78,6 +78,19 @@ def _make_actor_profile(
     )
 
 
+def _render_call1_system(**overrides: object) -> str:
+    """Render call1_system.j2 with sensible profile defaults."""
+    defaults = dict(
+        has_persistent_memory=False,
+        multi_agent=False,
+        hitl=False,
+        zones_active=["input", "reasoning", "tool_execution"],
+        kc_subcodes=[],
+    )
+    defaults.update(overrides)
+    return render_prompt("call1_system.j2", **defaults)
+
+
 def _render_call1_user(**overrides: object) -> str:
     """Render call1_user.j2 with sensible defaults, overriding as needed."""
     defaults = dict(
@@ -109,32 +122,32 @@ class TestKsurActorProfileGroundingMandatory:
     """call1_system.j2 must contain MANDATORY actor profile grounding."""
 
     def test_section_header_is_mandatory(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "Actor Profile Grounding (MANDATORY)" in prompt
 
     def test_capability_level_novice(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "**novice**:" in prompt
         assert "At most 2 simple steps" in prompt
 
     def test_capability_level_intermediate(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "**intermediate**:" in prompt
         assert "2-4 steps" in prompt
 
     def test_capability_level_advanced(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "**advanced**:" in prompt
         assert "Multi-stage campaigns" in prompt
 
     def test_capability_level_expert(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "**expert**:" in prompt
         assert "zero-day exploitation" in prompt
 
     def test_uses_must_not_should(self):
         """Constraint language uses MUST, not soft 'should'."""
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         # Find the actor profile grounding section
         section_start = prompt.index("Actor Profile Grounding (MANDATORY)")
         # Look for the next ## heading to bound the section
@@ -144,7 +157,7 @@ class TestKsurActorProfileGroundingMandatory:
         assert "should shape" not in section
 
     def test_simplification_over_escalation(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "simplify the attack to fit the level" in prompt
         assert "Do NOT escalate the attack complexity" in prompt
 
@@ -158,11 +171,11 @@ class TestBto7ActorTypeEntryPointAccess:
     """call1_system.j2 must bridge actor type and controllability."""
 
     def test_section_header_present(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "Actor-Type Entry Point Access (MANDATORY)" in prompt
 
     def test_supply_chain_actor_mentioned(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         # Find the actor-type EP section
         idx = prompt.index("Actor-Type Entry Point Access (MANDATORY)")
         # Extract from there to end or next section
@@ -171,11 +184,11 @@ class TestBto7ActorTypeEntryPointAccess:
         assert "supply-chain-actor" in section
 
     def test_do_not_invent_portals(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         assert "Do NOT invent upload portals" in prompt
 
     def test_indirect_controllability_constraint(self):
-        prompt = render_prompt("call1_system.j2")
+        prompt = _render_call1_system()
         idx = prompt.index("Actor-Type Entry Point Access (MANDATORY)")
         section_end = prompt.index("###", idx + 1)
         section = prompt[idx:section_end]

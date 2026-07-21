@@ -458,7 +458,10 @@ def _call_attack_tree(
     )
 
     skeleton = ctx["skeleton"]
-    call2_system = render_prompt("call2_system.j2")
+    call2_system = render_prompt(
+        "call2_system.j2",
+        zones_active=profile.zones_active if profile else [],
+    )
 
     result = client.complete(
         system_prompt=call2_system,

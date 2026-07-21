@@ -19,9 +19,9 @@ Each zone describes a distinct layer in the system architecture. Use this model 
 
 - **input**: Where external data enters the system (user prompts, API inputs, file uploads, webhook payloads). Every AI system has this zone.
 - **reasoning**: Where the LLM processes inputs and generates responses. Every AI system has this zone.
-- **tool_execution**: Where the system can invoke external tools, APIs, or run code. Only present if the system has tool-calling capability.
-- **memory**: Where the system stores and retrieves persistent state across sessions (vector stores, databases, knowledge graphs, session caches). Only present if the system maintains state.
-- **inter_agent**: Where the system communicates with other AI agents (delegation, orchestration, message passing). Only present in multi-agent architectures.
+{% if 'tool_execution' in profile.zones_active %}- **tool_execution** (ACTIVE): Where the system invokes external tools, APIs, or runs code.{% else %}- **tool_execution** (NOT PRESENT): The system cannot invoke external tools. Attacks requiring tool execution are implausible.{% endif %}
+{% if 'memory' in profile.zones_active %}- **memory** (ACTIVE): Where the system stores and retrieves persistent state across sessions (vector stores, databases, knowledge graphs, session caches).{% else %}- **memory** (NOT PRESENT): The system does not maintain persistent state. Attacks requiring cross-session memory are implausible.{% endif %}
+{% if 'inter_agent' in profile.zones_active %}- **inter_agent** (ACTIVE): Where the system communicates with other AI agents (delegation, orchestration, message passing).{% else %}- **inter_agent** (NOT PRESENT): The system is not a multi-agent architecture. Attacks requiring inter-agent communication are implausible.{% endif %}
 
 The system's active zones (listed above) define what the system can and cannot do. If a zone is not active, attacks that require that zone's capability are implausible.
 
