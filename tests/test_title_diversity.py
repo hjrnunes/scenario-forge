@@ -31,14 +31,12 @@ from scenario_forge.prompts import render_prompt
 def _make_profile() -> CapabilityProfile:
     return CapabilityProfile(
         zones_active=["input", "reasoning", "tool_execution"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=[
             EntryPoint(name="user prompts via chat", direction="input"),
             EntryPoint(name="RAG knowledge base", direction="input"),
         ],
         confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1", "KC6.1.1"],
     )
 
 

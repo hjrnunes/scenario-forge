@@ -66,11 +66,9 @@ def _make_profile(
         ]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=entry_points,
         confidence="high",
+        kc_subcodes=["KC1.1"],
     )
 
 
@@ -159,11 +157,9 @@ class TestBackwardCompatibility:
     def test_capability_profile_accepts_plain_strings(self):
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=["user prompts (input)", "API endpoint (input)"],
             confidence="high",
+            kc_subcodes=["KC1.1"],
         )
         assert len(profile.entry_points) == 2
         assert all(isinstance(ep, EntryPoint) for ep in profile.entry_points)
@@ -516,14 +512,12 @@ class TestBackwardCompatibilityControllability:
         """Profiles from before controllability was added still load fine."""
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 {"name": "user prompts", "direction": "input"},
                 {"name": "backend", "direction": "output"},
             ],
             confidence="high",
+            kc_subcodes=["KC1.1"],
         )
         assert all(ep.controllability is None for ep in profile.entry_points)
 

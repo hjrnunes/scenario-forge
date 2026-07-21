@@ -80,14 +80,14 @@ def _make_profile(
     """Build a minimal CapabilityProfile for testing."""
     if entry_points is None:
         entry_points = ["user prompts (zone 1)"]
+    codes = list(kc_subcodes) if kc_subcodes else ["KC1.1"]
+    if has_persistent_memory and "KC4.3" not in codes:
+        codes.append("KC4.3")
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
-        has_persistent_memory=has_persistent_memory,
-        multi_agent=False,
-        hitl=False,
         entry_points=entry_points,
         confidence="high",
-        kc_subcodes=kc_subcodes or [],
+        kc_subcodes=codes,
     )
 
 

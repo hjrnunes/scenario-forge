@@ -218,10 +218,7 @@ class TestLookupEntryPointControllability:
                     controllability="indirect",
                 ),
             ],
-            kc_subcodes=[],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
+            kc_subcodes=["KC1.1"],
             confidence="medium",
         )
         result = _lookup_entry_point_controllability(
@@ -241,10 +238,7 @@ class TestLookupEntryPointControllability:
             entry_points=[
                 EntryPoint(name="placeholder", direction="input"),
             ],
-            kc_subcodes=[],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
+            kc_subcodes=["KC1.1"],
             confidence="medium",
         )
         result = _lookup_entry_point_controllability(profile, None)
@@ -262,10 +256,7 @@ class TestLookupEntryPointControllability:
             entry_points=[
                 EntryPoint(name="placeholder", direction="input"),
             ],
-            kc_subcodes=[],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
+            kc_subcodes=["KC1.1"],
             confidence="medium",
         )
         result = _lookup_entry_point_controllability(profile, "nonexistent")
@@ -287,10 +278,7 @@ class TestLookupEntryPointControllability:
                     controllability=None,
                 ),
             ],
-            kc_subcodes=[],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
+            kc_subcodes=["KC1.1"],
             confidence="medium",
         )
         result = _lookup_entry_point_controllability(profile, "chat interface")

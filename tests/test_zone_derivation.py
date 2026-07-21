@@ -1,10 +1,10 @@
-"""Tests for derive_zones_from_kc() and zone derivation on models.
+"""Tests for derive_zones_from_kc() and zone/flag derivation on models.
 
 Covers:
   - Zone derivation from KC sub-codes (pure function)
   - Zone derivation on Stage1Profile.to_capability_profile()
   - Zone derivation on CapabilityProfile (model_validator)
-  - Backward compatibility: explicit zones kept when kc_subcodes is empty
+  - Boolean flag computation from KC sub-codes (computed_field)
   - Consistency with kc-threat-mapping.yaml taxonomy data
 """
 
@@ -18,7 +18,6 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
     VALID_KC_SUBCODES,
-    derive_flags_from_kc,
     derive_zones_from_kc,
 )
 
@@ -287,8 +286,13 @@ class TestStage1ProfileZoneDerivation:
             "input", "inter_agent", "memory", "reasoning", "tool_execution",
         ]
 
-    def test_empty_kc_subcodes_produces_baseline(self):
-        """Empty kc_subcodes -> baseline zones ['input', 'reasoning']."""
+    def test_empty_kc_subcodes_on_stage1_produces_baseline(self):
+        """Empty kc_subcodes on Stage1Profile -> baseline zones on promoted profile.
+
+        Note: CapabilityProfile requires min_length=1, but Stage1Profile
+        allows empty kc_subcodes (LLM may not emit them).  The promoted
+        profile gets zones derived from the empty list, which is baseline.
+        """
         s = Stage1Profile(
             has_persistent_memory=False,
             multi_agent=False,
@@ -297,8 +301,12 @@ class TestStage1ProfileZoneDerivation:
             confidence="medium",
             kc_subcodes=[],
         )
-        p = s.to_capability_profile()
-        assert p.zones_active == ["input", "reasoning"]
+        # Stage1Profile.to_capability_profile() passes the empty list;
+        # CapabilityProfile requires min_length=1, so this should raise.
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="kc_subcodes"):
+            s.to_capability_profile()
 
 
 # ---------------------------------------------------------------------------
@@ -307,15 +315,12 @@ class TestStage1ProfileZoneDerivation:
 
 
 class TestCapabilityProfileZoneDerivation:
-    """CapabilityProfile derives zones_active from kc_subcodes when present."""
+    """CapabilityProfile derives zones_active from kc_subcodes."""
 
     def test_zones_derived_from_kc_subcodes(self):
         """When kc_subcodes is populated, zones_active is derived."""
         p = CapabilityProfile(
             zones_active=["input", "reasoning"],  # will be overridden
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC5.1"],
@@ -326,9 +331,6 @@ class TestCapabilityProfileZoneDerivation:
         """Explicit zones_active is replaced by KC-derived zones."""
         p = CapabilityProfile(
             zones_active=["input", "memory", "reasoning"],  # wrong for these KCs
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC5.1"],  # derives tool_execution, not memory
@@ -337,38 +339,10 @@ class TestCapabilityProfileZoneDerivation:
         assert "memory" not in p.zones_active
         assert "tool_execution" in p.zones_active
 
-    def test_backward_compat_explicit_zones_kept_without_kc(self):
-        """When kc_subcodes is empty, explicit zones_active is preserved."""
-        p = CapabilityProfile(
-            zones_active=["input", "memory", "reasoning", "tool_execution"],
-            has_persistent_memory=True,
-            multi_agent=False,
-            hitl=False,
-            entry_points=["user input (input)"],
-            confidence="medium",
-            kc_subcodes=[],
-        )
-        assert p.zones_active == ["input", "memory", "reasoning", "tool_execution"]
-
-    def test_backward_compat_no_kc_field(self):
-        """Profile without kc_subcodes field (default empty) keeps explicit zones."""
-        p = CapabilityProfile(
-            zones_active=["input", "reasoning", "tool_execution"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
-            entry_points=["user input (input)"],
-            confidence="medium",
-        )
-        assert p.zones_active == ["input", "reasoning", "tool_execution"]
-
     def test_all_zones_derived(self):
         """Full KC set derives all five zones."""
         p = CapabilityProfile(
             zones_active=["input", "reasoning"],  # will be overridden
-            has_persistent_memory=True,
-            multi_agent=True,
-            hitl=True,
             entry_points=["user input (input)"],
             confidence="high",
             kc_subcodes=["KC1.1", "KC2.3", "KC4.4", "KC5.1"],
@@ -377,108 +351,127 @@ class TestCapabilityProfileZoneDerivation:
             "input", "inter_agent", "memory", "reasoning", "tool_execution",
         ]
 
-    def test_cross_field_validation_still_applies_without_kc(self):
-        """Cross-field validation still catches inconsistencies when no KC sub-codes."""
-        import pytest
-        from pydantic import ValidationError
-
-        # Explicit memory zone but has_persistent_memory=False, no KC sub-codes -> error
-        with pytest.raises(ValidationError, match="has_persistent_memory"):
-            CapabilityProfile(
-                zones_active=["input", "memory", "reasoning"],
-                has_persistent_memory=False,
-                multi_agent=False,
-                hitl=False,
-                entry_points=["user input (input)"],
-                confidence="medium",
-                kc_subcodes=[],
-            )
-
     def test_kc_derived_flags_prevent_cross_field_error(self):
         """KC4.3 derives both memory zone AND has_persistent_memory=True (no error)."""
-        # This was the original bug: KC4.3 activated memory zone but
-        # has_persistent_memory stayed False, causing cross-field validation to fail.
         p = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,  # LLM inferred incorrectly
-            multi_agent=False,
-            hitl=False,
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC4.3"],
         )
         assert "memory" in p.zones_active
-        assert p.has_persistent_memory is True  # auto-derived from KC4.3
+        assert p.has_persistent_memory is True  # computed from KC4.3
 
 
 # ---------------------------------------------------------------------------
-# derive_flags_from_kc unit tests
+# Computed boolean flag tests (replaces derive_flags_from_kc unit tests)
 # ---------------------------------------------------------------------------
 
 
-class TestDeriveFlagsFromKc:
-    """Tests for the derive_flags_from_kc() pure function."""
+class TestComputedFlags:
+    """Boolean flags are computed from kc_subcodes on CapabilityProfile."""
 
-    def test_kc4_4_sets_persistent_memory(self):
-        """KC4.4 (cross-agent cross-session) -> has_persistent_memory."""
-        flags = derive_flags_from_kc(["KC1.1", "KC4.4"])
-        assert flags.get("has_persistent_memory") is True
+    def _make(self, kc_subcodes: list[str]) -> CapabilityProfile:
+        """Build a minimal CapabilityProfile with the given KC codes."""
+        return CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=kc_subcodes,
+        )
+
+    # --- has_persistent_memory ---
 
     def test_kc4_3_sets_persistent_memory(self):
         """KC4.3 (in-agent cross-session) -> has_persistent_memory."""
-        flags = derive_flags_from_kc(["KC1.1", "KC4.3"])
-        assert flags.get("has_persistent_memory") is True
+        p = self._make(["KC1.1", "KC4.3"])
+        assert p.has_persistent_memory is True
+
+    def test_kc4_4_sets_persistent_memory(self):
+        """KC4.4 (cross-agent cross-session) -> has_persistent_memory."""
+        p = self._make(["KC1.1", "KC4.4"])
+        assert p.has_persistent_memory is True
 
     def test_kc4_5_sets_persistent_memory(self):
         """KC4.5 (in-agent cross-user) -> has_persistent_memory."""
-        flags = derive_flags_from_kc(["KC1.1", "KC4.5"])
-        assert flags.get("has_persistent_memory") is True
+        p = self._make(["KC1.1", "KC4.5"])
+        assert p.has_persistent_memory is True
 
     def test_kc4_6_sets_persistent_memory(self):
         """KC4.6 (cross-agent cross-user) -> has_persistent_memory."""
-        flags = derive_flags_from_kc(["KC1.1", "KC4.6"])
-        assert flags.get("has_persistent_memory") is True
+        p = self._make(["KC1.1", "KC4.6"])
+        assert p.has_persistent_memory is True
+
+    def test_kcx_pmem_sets_persistent_memory(self):
+        """KCX-PMEM -> has_persistent_memory."""
+        p = self._make(["KC1.1", "KCX-PMEM"])
+        assert p.has_persistent_memory is True
 
     def test_kc4_1_no_persistent_memory(self):
-        """KC4.1 (in-agent session-only) -> no has_persistent_memory flag."""
-        flags = derive_flags_from_kc(["KC1.1", "KC4.1"])
-        assert "has_persistent_memory" not in flags
+        """KC4.1 (in-agent session-only) -> no has_persistent_memory."""
+        p = self._make(["KC1.1", "KC4.1"])
+        assert p.has_persistent_memory is False
 
     def test_kc4_2_no_persistent_memory(self):
-        """KC4.2 (cross-agent session-only) -> no has_persistent_memory flag."""
-        flags = derive_flags_from_kc(["KC1.1", "KC4.2"])
-        assert "has_persistent_memory" not in flags
+        """KC4.2 (cross-agent session-only) -> no has_persistent_memory."""
+        p = self._make(["KC1.1", "KC4.2"])
+        assert p.has_persistent_memory is False
+
+    # --- multi_agent ---
 
     def test_kc2_3_sets_multi_agent(self):
         """KC2.3 (multi-agent communication) -> multi_agent."""
-        flags = derive_flags_from_kc(["KC1.1", "KC2.3"])
-        assert flags.get("multi_agent") is True
+        p = self._make(["KC1.1", "KC2.3"])
+        assert p.multi_agent is True
+
+    def test_kcx_magent_sets_multi_agent(self):
+        """KCX-MAGENT -> multi_agent."""
+        p = self._make(["KC1.1", "KCX-MAGENT"])
+        assert p.multi_agent is True
 
     def test_kc2_1_no_multi_agent(self):
-        """KC2.1 (predefined workflows) -> no multi_agent flag."""
-        flags = derive_flags_from_kc(["KC1.1", "KC2.1"])
-        assert "multi_agent" not in flags
+        """KC2.1 (predefined workflows) -> no multi_agent."""
+        p = self._make(["KC1.1", "KC2.1"])
+        assert p.multi_agent is False
 
     def test_kc2_2_no_multi_agent(self):
-        """KC2.2 (hierarchical planning) -> no multi_agent flag."""
-        flags = derive_flags_from_kc(["KC1.1", "KC2.2"])
-        assert "multi_agent" not in flags
+        """KC2.2 (hierarchical planning) -> no multi_agent."""
+        p = self._make(["KC1.1", "KC2.2"])
+        assert p.multi_agent is False
 
-    def test_both_flags_from_full_kc_set(self):
-        """KC4.4 + KC2.3 -> both flags set."""
-        flags = derive_flags_from_kc(["KC1.1", "KC2.3", "KC4.4"])
-        assert flags.get("has_persistent_memory") is True
-        assert flags.get("multi_agent") is True
+    # --- hitl ---
 
-    def test_empty_kc_list_returns_empty(self):
-        """Empty KC list -> no flags."""
-        flags = derive_flags_from_kc([])
-        assert flags == {}
+    def test_kcx_hitl_sets_hitl(self):
+        """KCX-HITL -> hitl."""
+        p = self._make(["KC1.1", "KCX-HITL"])
+        assert p.hitl is True
 
-    def test_baseline_kc_only_returns_empty(self):
-        """KC1.1 alone -> no flags (no memory or multi-agent evidence)."""
-        flags = derive_flags_from_kc(["KC1.1"])
-        assert flags == {}
+    def test_no_kcx_hitl_no_hitl(self):
+        """Without KCX-HITL -> hitl is False."""
+        p = self._make(["KC1.1"])
+        assert p.hitl is False
+
+    # --- Multiple flags ---
+
+    def test_both_persistent_memory_and_multi_agent(self):
+        """KC4.4 + KC2.3 -> both flags True."""
+        p = self._make(["KC1.1", "KC2.3", "KC4.4"])
+        assert p.has_persistent_memory is True
+        assert p.multi_agent is True
+
+    def test_all_three_flags(self):
+        """KC4.3 + KC2.3 + KCX-HITL -> all three flags True."""
+        p = self._make(["KC1.1", "KC2.3", "KC4.3", "KCX-HITL"])
+        assert p.has_persistent_memory is True
+        assert p.multi_agent is True
+        assert p.hitl is True
+
+    def test_baseline_kc_only_no_flags(self):
+        """KC1.1 alone -> no flags set."""
+        p = self._make(["KC1.1"])
+        assert p.has_persistent_memory is False
+        assert p.multi_agent is False
+        assert p.hitl is False
 
 
 # ---------------------------------------------------------------------------
@@ -563,20 +556,17 @@ class TestStage1ProfileFlagDerivation:
 
 
 # ---------------------------------------------------------------------------
-# Flag derivation on CapabilityProfile (model validator)
+# Flag derivation on CapabilityProfile (computed properties)
 # ---------------------------------------------------------------------------
 
 
 class TestCapabilityProfileFlagDerivation:
-    """CapabilityProfile validator derives flags from kc_subcodes."""
+    """CapabilityProfile computed boolean flags from kc_subcodes."""
 
-    def test_kc4_4_fixes_persistent_memory(self):
-        """KC4.4 with has_persistent_memory=False -> auto-corrected to True."""
+    def test_kc4_4_computes_persistent_memory(self):
+        """KC4.4 -> has_persistent_memory computed as True."""
         p = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC4.4"],
@@ -584,13 +574,10 @@ class TestCapabilityProfileFlagDerivation:
         assert p.has_persistent_memory is True
         assert "memory" in p.zones_active
 
-    def test_kc2_3_fixes_multi_agent(self):
-        """KC2.3 with multi_agent=False -> auto-corrected to True."""
+    def test_kc2_3_computes_multi_agent(self):
+        """KC2.3 -> multi_agent computed as True."""
         p = CapabilityProfile(
             zones_active=["input", "reasoning"],
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=["user input (input)"],
             confidence="medium",
             kc_subcodes=["KC1.1", "KC2.3"],
@@ -598,31 +585,31 @@ class TestCapabilityProfileFlagDerivation:
         assert p.multi_agent is True
         assert "inter_agent" in p.zones_active
 
-    def test_flags_not_downgraded_when_already_true(self):
-        """Flags already True are not downgraded when KC evidence is absent."""
+    def test_legacy_bool_fields_stripped_from_input(self):
+        """Legacy boolean fields in input data are silently stripped."""
         p = CapabilityProfile(
-            zones_active=["input", "memory", "reasoning"],
-            has_persistent_memory=True,  # explicitly set
-            multi_agent=False,
-            hitl=False,
+            zones_active=["input", "reasoning"],
+            has_persistent_memory=True,  # will be stripped
+            multi_agent=True,            # will be stripped
+            hitl=True,                   # will be stripped
             entry_points=["user input (input)"],
             confidence="medium",
-            kc_subcodes=[],  # no KC evidence
+            kc_subcodes=["KC1.1"],       # no flag-triggering codes
         )
-        assert p.has_persistent_memory is True
+        # Computed fields reflect KC codes, not the stripped input
+        assert p.has_persistent_memory is False
+        assert p.multi_agent is False
+        assert p.hitl is False
 
-    def test_cross_field_validation_without_kc_still_catches_errors(self):
-        """Without KC sub-codes, cross-field validation still enforces consistency."""
-        import pytest
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError, match="multi_agent"):
-            CapabilityProfile(
-                zones_active=["input", "inter_agent", "reasoning"],
-                has_persistent_memory=False,
-                multi_agent=False,  # inconsistent with inter_agent zone
-                hitl=False,
-                entry_points=["user input (input)"],
-                confidence="medium",
-                kc_subcodes=[],
-            )
+    def test_computed_flags_in_model_dump(self):
+        """Computed fields appear in model_dump output."""
+        p = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=["user input (input)"],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC4.3", "KC2.3", "KCX-HITL"],
+        )
+        d = p.model_dump()
+        assert d["has_persistent_memory"] is True
+        assert d["multi_agent"] is True
+        assert d["hitl"] is True

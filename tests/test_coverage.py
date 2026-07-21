@@ -221,13 +221,18 @@ def _make_profile(
         ]
     if zones_active is None:
         zones_active = ["input", "reasoning", "tool_execution"]
+    kc = ["KC1.1"]
+    if "tool_execution" in zones_active:
+        kc.append("KC6.1.1")
+    if "memory" in zones_active:
+        kc.append("KC4.3")
+    if "inter_agent" in zones_active:
+        kc.append("KC2.3")
     return CapabilityProfile(
         zones_active=zones_active,
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=entry_points,
         confidence="high",
+        kc_subcodes=kc,
     )
 
 

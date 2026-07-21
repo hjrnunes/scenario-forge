@@ -44,9 +44,7 @@ def test_use_case_written_to_output_dir(
         zones_active=["input", "reasoning"],
         entry_points=["ep-1"],
         confidence="high",
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
+        kc_subcodes=["KC1.1"],
     )
     from scenario_forge.llm.client import LLMResult
 

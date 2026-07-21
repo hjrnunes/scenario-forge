@@ -24,11 +24,9 @@ def valid_profile_data() -> dict:
     """Minimal valid CapabilityProfile payload."""
     return {
         "zones_active": ["input", "reasoning", "tool_execution"],
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": True,
         "entry_points": ["chat input [input]", "file upload [input]"],
         "confidence": "high",
+        "kc_subcodes": ["KC1.1", "KC6.1.1"],
     }
 
 

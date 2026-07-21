@@ -72,9 +72,6 @@ def _make_profile(
             ),
         ],
         kc_subcodes=kc_subcodes if kc_subcodes is not None else ["KC1.1"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         confidence="medium",
     )
 
@@ -369,15 +366,6 @@ class TestBuildCall0Context:
             use_case="test",
         )
         assert "KC1.1" in ctx["kc_definitions"]
-
-    def test_kc_definitions_empty_without_subcodes(self):
-        """KC definitions block is empty when profile has no subcodes."""
-        ctx = build_call0_context(
-            seed=_make_seed(),
-            profile=_make_profile(kc_subcodes=[]),
-            use_case="test",
-        )
-        assert ctx["kc_definitions"] == ""
 
     def test_pinned_entry_point_passed_through(self):
         """pinned_entry_point is passed through as-is."""

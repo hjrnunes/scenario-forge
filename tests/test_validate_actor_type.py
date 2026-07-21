@@ -74,11 +74,9 @@ def _make_profile() -> CapabilityProfile:
     """Create a minimal CapabilityProfile for testing."""
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=["user prompts (input)"],
         confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
     )
 
 

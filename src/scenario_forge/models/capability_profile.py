@@ -19,7 +19,7 @@ import logging
 from enum import Enum
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -176,23 +176,13 @@ def derive_zones_from_kc(kc_subcodes: list[str]) -> list[str]:
 _KC4_PERSISTENT: frozenset[str] = frozenset({"KC4.3", "KC4.4", "KC4.5", "KC4.6"})
 
 
-def derive_flags_from_kc(kc_subcodes: list[str]) -> dict[str, bool]:
-    """Derive boolean capability flags from KC sub-codes.
+_KC_MULTI_AGENT: frozenset[str] = frozenset({"KC2.3", "KCX-MAGENT"})
+_KC_HITL: frozenset[str] = frozenset({"KCX-HITL"})
 
-    Returns a dict of flags that should be forced True based on KC evidence:
-    - has_persistent_memory: True if any KC4.3+ (cross-session memory)
-    - multi_agent: True if KC2.3 (multi-agent communication)
-
-    Only returns keys that should be set True; absent keys mean the KC
-    sub-codes provide no evidence for that flag (leave it as-is).
-    """
-    flags: dict[str, bool] = {}
-    for kc in kc_subcodes:
-        if kc in _KC4_PERSISTENT:
-            flags["has_persistent_memory"] = True
-        elif kc == "KC2.3":
-            flags["multi_agent"] = True
-    return flags
+# Legacy field names that are now computed from kc_subcodes on CapabilityProfile.
+_LEGACY_BOOL_FIELDS: frozenset[str] = frozenset({
+    "has_persistent_memory", "multi_agent", "hitl",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -490,17 +480,15 @@ class Stage1Profile(BaseModel):
     def to_capability_profile(self) -> CapabilityProfile:
         """Promote to a full CapabilityProfile (Stage 2 fields left as None).
 
-        zones_active and boolean flags are derived from kc_subcodes rather
-        than trusting LLM-inferred values.
+        zones_active is derived from kc_subcodes.  Boolean flags
+        (has_persistent_memory, multi_agent, hitl) are computed properties
+        on CapabilityProfile derived solely from kc_subcodes, so they are
+        excluded from the data dict.
         """
-        data = self.model_dump()
+        data = self.model_dump(
+            exclude={"has_persistent_memory", "multi_agent", "hitl"},
+        )
         data["zones_active"] = derive_zones_from_kc(self.kc_subcodes)
-        # Derive boolean flags — KC evidence upgrades False→True, never downgrades
-        flags = derive_flags_from_kc(self.kc_subcodes)
-        if flags.get("has_persistent_memory"):
-            data["has_persistent_memory"] = True
-        if flags.get("multi_agent"):
-            data["multi_agent"] = True
         return CapabilityProfile(**data)
 
 
@@ -514,6 +502,11 @@ class CapabilityProfile(BaseModel):
 
     Stage 1 fields (required) determine threat scope.
     Stage 2 fields (optional) determine scenario specificity.
+
+    Boolean capability flags (``has_persistent_memory``, ``multi_agent``,
+    ``hitl``) are computed properties derived solely from ``kc_subcodes``.
+    They cannot be set directly.  Legacy YAML profiles that include these
+    fields will have them silently stripped with a deprecation warning.
     """
 
     # --- Stage 1 (required) ---
@@ -524,15 +517,6 @@ class CapabilityProfile(BaseModel):
             "Minimum ['input', 'reasoning']. "
             "Other zones: 'tool_execution', 'memory', 'inter_agent'."
         ),
-    )
-    has_persistent_memory: bool = Field(
-        description="Whether the system maintains state across sessions or interactions.",
-    )
-    multi_agent: bool = Field(
-        description="Whether the system involves multiple AI agents that communicate or coordinate.",
-    )
-    hitl: bool = Field(
-        description="Whether the system includes human-in-the-loop checkpoints.",
     )
     entry_points: list[EntryPoint] = Field(
         description=(
@@ -548,12 +532,34 @@ class CapabilityProfile(BaseModel):
         description="How well the use-case description supported Stage 1 inferences.",
     )
     kc_subcodes: list[str] = Field(
-        default_factory=list,
+        min_length=1,
         description=(
             "OWASP KC (Key Component) sub-codes identifying the system's "
-            "granular capabilities. E.g. ['KC1.1', 'KC4.1', 'KC6.1.1']."
+            "granular capabilities. E.g. ['KC1.1', 'KC4.1', 'KC6.1.1']. "
+            "Must contain at least one code."
         ),
     )
+
+    # --- Computed boolean flags (derived from kc_subcodes) ---
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_persistent_memory(self) -> bool:
+        """True if any KC code implies cross-session persistence."""
+        kc_set = set(self.kc_subcodes)
+        return bool(kc_set & _KC4_PERSISTENT) or "KCX-PMEM" in kc_set
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def multi_agent(self) -> bool:
+        """True if KC codes indicate multi-agent collaboration."""
+        return bool(set(self.kc_subcodes) & _KC_MULTI_AGENT)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def hitl(self) -> bool:
+        """True if KC codes indicate human-in-the-loop controls."""
+        return "KCX-HITL" in self.kc_subcodes
 
     # --- Stage 2 (optional) ---
 
@@ -579,6 +585,31 @@ class CapabilityProfile(BaseModel):
     )
 
     # --- Validation ---
+
+    @model_validator(mode="before")
+    @classmethod
+    def strip_legacy_bool_fields(cls, data: dict) -> dict:  # type: ignore[override]
+        """Strip legacy boolean fields from input data.
+
+        These fields are now computed from kc_subcodes.  Hand-written YAML
+        profiles and older serialized profiles may still include them.
+        Stripping with a warning ensures backward compatibility while
+        surfacing that the values are no longer used.
+        """
+        if not isinstance(data, dict):
+            return data
+        stripped = []
+        for field_name in _LEGACY_BOOL_FIELDS:
+            if field_name in data:
+                stripped.append(field_name)
+                del data[field_name]
+        if stripped:
+            logger.warning(
+                "Stripped deprecated fields from CapabilityProfile input: %s. "
+                "These are now computed from kc_subcodes.",
+                ", ".join(sorted(stripped)),
+            )
+        return data
 
     @field_validator("entry_points", mode="before")
     @classmethod
@@ -610,20 +641,11 @@ class CapabilityProfile(BaseModel):
     def validate_zones_and_flags(self) -> CapabilityProfile:
         """Cross-field validation for zone/flag consistency.
 
-        When kc_subcodes is populated, zones_active and boolean flags are
-        derived from them, overriding any explicitly provided value.  When
-        kc_subcodes is empty (e.g. profile loaded from YAML via --profile),
-        explicit zones and flags are kept as-is.
+        Zones are derived from kc_subcodes.  Boolean flags are computed
+        properties so they always reflect the KC evidence.
         """
-        # Derive zones and flags from KC sub-codes when available
-        if self.kc_subcodes:
-            self.zones_active = derive_zones_from_kc(self.kc_subcodes)
-            # Derive boolean flags — KC evidence upgrades False→True, never downgrades
-            flags = derive_flags_from_kc(self.kc_subcodes)
-            if flags.get("has_persistent_memory"):
-                self.has_persistent_memory = True
-            if flags.get("multi_agent"):
-                self.multi_agent = True
+        # Derive zones from KC sub-codes
+        self.zones_active = derive_zones_from_kc(self.kc_subcodes)
 
         zones = set(self.zones_active)
 

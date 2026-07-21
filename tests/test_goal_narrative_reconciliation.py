@@ -55,13 +55,11 @@ def _make_sub_goals_with_ids(*ids: str) -> list[dict]:
 def _make_profile() -> CapabilityProfile:
     return CapabilityProfile(
         zones_active=["input", "reasoning", "tool_execution"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=[
             EntryPoint(name="user prompts via chat", direction="input"),
         ],
         confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1", "KC6.1.1"],
     )
 
 

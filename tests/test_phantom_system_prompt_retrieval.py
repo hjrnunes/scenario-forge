@@ -170,12 +170,9 @@ def _make_profile(
         entry_points = ["user prompts (zone 1)"]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=entry_points,
         confidence="high",
-        kc_subcodes=kc_subcodes or [],
+        kc_subcodes=kc_subcodes or ["KC1.1"],
     )
 
 
@@ -642,16 +639,13 @@ class TestSystemPromptRetrievalIntegration:
         ]
         profile = CapabilityProfile(
             zones_active=["input", "reasoning", "tool_execution", "memory"],
-            has_persistent_memory=True,
-            multi_agent=True,
-            hitl=True,
             entry_points=[
                 "user prompts (zone 1)",
                 "admin console (zone 2)",
                 "API gateway (zone 1)",
             ],
             confidence="high",
-            kc_subcodes=["KC6.1.2", "KC6.2.2", "KC6.4", "KC6.5"],
+            kc_subcodes=["KC1.1", "KC2.3", "KC4.3", "KC6.1.2", "KC6.2.2", "KC6.4", "KC6.5", "KCX-HITL"],
         )
         result = validate_phantom_capabilities(scenarios, profile)
 
