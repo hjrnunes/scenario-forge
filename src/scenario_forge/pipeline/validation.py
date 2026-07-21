@@ -5,7 +5,8 @@ Contains:
      capabilities the system does not possess.
   2. Structural validation — JSON Schema validation of scenario envelopes.
   3. Semantic validation — Python-based checks (technique existence, zone
-     validity, threat-ID consistency).
+     validity, threat-ID consistency, narrative technique orphan detection,
+     scenario-level threat_id completeness, zone omission hard flags).
   4. Leaf technique provenance — flags attack-work leaf nodes that
      lack a technique_id annotation.
   5. Blank-leaf validation — structural safety net that flags any leaf
@@ -1035,6 +1036,104 @@ def validate_scenario_structure(
 
 
 # ---------------------------------------------------------------------------
+# Cross-artifact consistency helpers (bv5s)
+# ---------------------------------------------------------------------------
+
+# Regex for technique IDs: bracketed [AML.T0054] and bare AML.T0054 references.
+_NARRATIVE_TECHNIQUE_RE = re.compile(
+    r"\[?(AML\.T\d{4}(?:\.\d{3})?)\]?"
+)
+
+
+def _extract_narrative_technique_ids(
+    narrative: Any,
+) -> set[str]:
+    """Extract technique IDs mentioned in narrative steps and summary.
+
+    Looks for both ``[AML.T0054]`` bracketed annotations and bare
+    ``AML.T0054`` references in step action/effect text and the summary.
+    """
+    ids: set[str] = set()
+    # Check summary
+    if hasattr(narrative, "summary") and narrative.summary:
+        for m in _NARRATIVE_TECHNIQUE_RE.finditer(narrative.summary):
+            ids.add(m.group(1))
+    # Check steps
+    if hasattr(narrative, "steps"):
+        for step in narrative.steps:
+            for field_name in ("action", "effect"):
+                text = getattr(step, field_name, "")
+                if text:
+                    for m in _NARRATIVE_TECHNIQUE_RE.finditer(text):
+                        ids.add(m.group(1))
+    return ids
+
+
+def _collect_tree_node_threat_ids(node: AttackTreeNode) -> set[str]:
+    """Recursively collect all non-None threat_id values from tree nodes."""
+    ids: set[str] = set()
+    if node.threat_id is not None:
+        ids.add(node.threat_id)
+    if node.children:
+        for child in node.children:
+            ids.update(_collect_tree_node_threat_ids(child))
+    return ids
+
+
+def _collect_tree_node_zones(node: AttackTreeNode) -> set[str]:
+    """Recursively collect all zone values from attack tree nodes."""
+    zones: set[str] = set()
+    if node.zone:
+        zones.add(node.zone)
+    if node.children:
+        for child in node.children:
+            zones.update(_collect_tree_node_zones(child))
+    return zones
+
+
+def _extract_gherkin_zones_for_validation(gherkin_text: str) -> set[str]:
+    """Extract zone annotations from Gherkin text for validation.
+
+    Supports:
+    - ``# Zone reasoning`` comments
+    - ``(zone_name)`` inline annotations in step text
+
+    Reuses the same zone name resolution as the eval layer.
+    """
+    from scenario_forge.models.capability_profile import (
+        ZONE_DISPLAY_NAMES,
+        ZONE_NAMES,
+    )
+
+    _INT_TO_NAME = dict(enumerate(ZONE_NAMES, 1))
+    valid_zone_set = set(ZONE_NAMES)
+    zones: set[str] = set()
+
+    # Match "# Zone <word_or_number>"
+    for match in re.finditer(r"#\s*[Zz]one\s+(\S+)", gherkin_text):
+        token = match.group(1)
+        if token.isdigit():
+            name = _INT_TO_NAME.get(int(token))
+            if name:
+                zones.add(name)
+        elif token in valid_zone_set:
+            zones.add(token)
+        else:
+            for zn, display in ZONE_DISPLAY_NAMES.items():
+                if token.lower() in display.lower():
+                    zones.add(zn)
+                    break
+
+    # Match "(zone_name)" inline annotations
+    for match in re.finditer(r"\((\w+)\)", gherkin_text):
+        token = match.group(1)
+        if token in valid_zone_set:
+            zones.add(token)
+
+    return zones
+
+
+# ---------------------------------------------------------------------------
 # Semantic validation (Python logic) — rwv2
 # ---------------------------------------------------------------------------
 
@@ -1050,8 +1149,13 @@ def validate_scenario_semantics(
          in ``ATLAS_TECHNIQUE_NAMES``.
       2. ``zone_in_profile``: every zone referenced in the narrative's
          zone_sequence is in the profile's ``zones_active``.
-      3. ``threat_id_matches_seed``: threat_id on attack tree nodes matches
-         the seed's threat (from ``scenario_seed_metadata``).
+      3. ``threat_id_range``: threat_id on attack tree nodes is in T1-T17.
+      4. ``missing_scenario_threat_id``: at least one tree node carries the
+         scenario's own threat_id from ``scenario_seed_metadata``.
+      5. ``narrative_technique_orphan``: technique IDs mentioned in narrative
+         text but absent from the attack tree.
+      6. ``zone_omission_tree``: narrative zones missing from attack tree.
+      7. ``zone_omission_gherkin``: narrative zones missing from Gherkin.
 
     Populates ``scenario.validation.semantic`` with results.
     Scenarios are never removed -- violations are recorded as warnings.
@@ -1071,6 +1175,7 @@ def validate_scenario_semantics(
 
         # 1. Check technique_ids in attack tree.
         tree_technique_ids = scenario.attack_tree.collect_technique_ids()
+        tree_technique_set = set(tree_technique_ids)
         for tid in tree_technique_ids:
             if tid not in valid_technique_ids:
                 violations.append(
@@ -1095,7 +1200,7 @@ def validate_scenario_semantics(
                     )
                 )
 
-        # 3. Check threat_id consistency on tree nodes.
+        # 3. Check threat_id range on tree nodes.
         seed_metadata = scenario.scenario_seed_metadata
         if seed_metadata and "threat_id" in seed_metadata:
             expected_threat = seed_metadata["threat_id"]
@@ -1104,6 +1209,76 @@ def validate_scenario_semantics(
                 expected_threat,
                 violations,
             )
+
+            # 4. Check that at least one node carries the scenario's own
+            #    threat_id (missing_scenario_threat_id — bv5s).
+            all_tree_threat_ids = _collect_tree_node_threat_ids(
+                scenario.attack_tree.root
+            )
+            if expected_threat not in all_tree_threat_ids:
+                violations.append(
+                    SemanticViolation(
+                        rule="missing_scenario_threat_id",
+                        message=(
+                            f"No tree node carries the scenario's threat_id "
+                            f"'{expected_threat}'; tree threat_ids are "
+                            f"{sorted(all_tree_threat_ids)}"
+                        ),
+                        severity="major",
+                    )
+                )
+
+        # 5. Narrative technique orphan detection (bv5s).
+        narrative_technique_ids = _extract_narrative_technique_ids(
+            scenario.narrative
+        )
+        orphan_techniques = narrative_technique_ids - tree_technique_set
+        for orphan_tid in sorted(orphan_techniques):
+            violations.append(
+                SemanticViolation(
+                    rule="narrative_technique_orphan",
+                    message=(
+                        f"Technique '{orphan_tid}' mentioned in narrative "
+                        f"but absent from attack tree nodes"
+                    ),
+                    severity="minor",
+                )
+            )
+
+        # 6. Zone omission checks (bv5s).
+        narrative_zones = set(scenario.narrative.zone_sequence)
+
+        # 6a. Zone omission — tree.
+        tree_zones = _collect_tree_node_zones(scenario.attack_tree.root)
+        for zone in sorted(narrative_zones - tree_zones):
+            violations.append(
+                SemanticViolation(
+                    rule="zone_omission_tree",
+                    message=(
+                        f"Zone '{zone}' in narrative zone_sequence "
+                        f"but absent from attack tree nodes"
+                    ),
+                    severity="minor",
+                )
+            )
+
+        # 6b. Zone omission — Gherkin.
+        gherkin_text = ""
+        if scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
+            gherkin_text = scenario.behavior_spec
+        if gherkin_text:
+            gherkin_zones = _extract_gherkin_zones_for_validation(gherkin_text)
+            for zone in sorted(narrative_zones - gherkin_zones):
+                violations.append(
+                    SemanticViolation(
+                        rule="zone_omission_gherkin",
+                        message=(
+                            f"Zone '{zone}' in narrative zone_sequence "
+                            f"but absent from Gherkin behavior_spec"
+                        ),
+                        severity="minor",
+                    )
+                )
 
         semantic = SemanticValidation(
             valid=len(violations) == 0,

@@ -85,23 +85,26 @@ def _make_envelope(
 
     children = []
     for i, tid in enumerate(technique_ids):
+        # Assign zones from zone_sequence to cover all narrative zones in the tree.
+        child_zone = zone_sequence[i % len(zone_sequence)]
         children.append(
             AttackTreeNode(
                 id=f"n1.{i + 1}",
                 label=f"Step {i + 1}",
                 gate=GateType.LEAF,
-                zone="input",
+                zone=child_zone,
                 technique_id=tid,
             )
         )
     # Ensure at least 2 children for OR gate
     while len(children) < 2:
+        child_zone = zone_sequence[len(children) % len(zone_sequence)]
         children.append(
             AttackTreeNode(
                 id=f"n1.{len(children) + 1}",
                 label=f"Step {len(children) + 1}",
                 gate=GateType.LEAF,
-                zone="input",
+                zone=child_zone,
             )
         )
 
