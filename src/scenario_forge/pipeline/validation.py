@@ -1214,6 +1214,8 @@ def validate_scenario_semantics(
       7. ``zone_omission_gherkin``: narrative zones missing from Gherkin.
       8. ``phantom_tool``: tool_execution leaf nodes referencing tools not
          in the profile's tool inventory.
+      9. ``seed_technique_provenance``: at least one seed technique from
+         ``laaf_technique_ids`` must appear in the attack tree.
 
     Populates ``scenario.validation.semantic`` with results.
     Scenarios are never removed -- violations are recorded as warnings.
@@ -1366,6 +1368,24 @@ def validate_scenario_semantics(
                             severity="major",
                         )
                     )
+
+        # 9. Seed technique provenance — at least one seed technique from
+        #    laaf_technique_ids must appear in the attack tree (0lfx).
+        if seed_metadata and seed_metadata.get("laaf_technique_ids"):
+            seed_techniques = set(seed_metadata["laaf_technique_ids"])
+            all_tree_techniques = _collect_technique_ids(scenario.attack_tree.root)
+            if not seed_techniques & all_tree_techniques:
+                violations.append(
+                    SemanticViolation(
+                        rule="seed_technique_provenance",
+                        message=(
+                            f"No seed techniques {sorted(seed_techniques)} "
+                            f"appear in the attack tree. "
+                            f"Tree contains {sorted(all_tree_techniques)}."
+                        ),
+                        severity="major",
+                    )
+                )
 
         semantic = SemanticValidation(
             valid=len(violations) == 0,
