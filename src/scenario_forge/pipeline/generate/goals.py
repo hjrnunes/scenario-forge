@@ -58,14 +58,22 @@ def filter_sub_goals_by_zones(
     for sg in sub_goals:
         sg_id = sg["id"]
 
+        # PR-2: System prompt theft is structurally phantom — system
+        # prompts are never accessible via tools in any profile.
+        if sg_id == "PR-2":
+            continue
+
         # Check zone requirements
         required_zones = _GOAL_ZONE_REQUIREMENTS.get(sg_id)
         if required_zones:
             if not any(z in active_set for z in required_zones):
                 continue
 
-        # Check memory requirement (IN-5, PR-5 need persistent memory)
-        if sg_id in ("IN-5", "PR-5") and not has_persistent_memory:
+        # Check memory requirement: IN-5, PR-4, PR-5, PR-6 need
+        # persistent memory.  PR-4 (Membership/Property Inference) and
+        # PR-6 (Credential/Identity Theft) involve cross-user data access
+        # patterns that require session state.
+        if sg_id in ("IN-5", "PR-4", "PR-5", "PR-6") and not has_persistent_memory:
             continue
 
         # Check HITL requirement
@@ -249,9 +257,14 @@ def compute_compatible_goal_ids(
     if "output" not in active_set:
         excluded_ids.add("IN-2")
 
-    # AB-2: Malware Generation / Distribution requires code generation capability.
-    # Heuristic: exclude when tool_execution not in zones.
-    if "tool_execution" not in active_set:
+    # AB-2: Malware Generation / Distribution requires code generation
+    # capability (KC6.2.2).  Without it, scenarios must invent phantom
+    # code execution to achieve the goal.  Falls back to the zone-level
+    # heuristic when kc_subcodes is not provided.
+    if kc_set:
+        if "KC6.2.2" not in kc_set:
+            excluded_ids.add("AB-2")
+    elif "tool_execution" not in active_set:
         excluded_ids.add("AB-2")
 
     # --- Capability-based exclusions ---

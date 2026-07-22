@@ -207,13 +207,13 @@ class TestNonAffectedThreats:
     """Threats not in exclusion rules keep their full sub-goal pools."""
 
     def test_t2_pool_without_excluded_ids(self):
-        """T2 keeps non-AB-1 goals untouched (with KCX-AUDIT for AB-8)."""
+        """T2 keeps non-AB-1 goals untouched (with KCX-AUDIT for AB-8, KC6.2.2 for AB-2)."""
         goals = _make_sub_goals_with_ids("IN-2", "AB-2", "AB-8", "AB-9", "PR-1")
         result = compute_compatible_goal_ids(
             threat_id="T2",
             sub_goals=goals,
             zones_active=["input", "reasoning", "output", "tool_execution"],
-            kc_subcodes=["KCX-AUDIT"],
+            kc_subcodes=["KCX-AUDIT", "KC6.2.2"],
         )
         assert len(result) == len(goals)
 
@@ -232,7 +232,7 @@ class TestNonAffectedThreats:
             threat_id=None,
             sub_goals=goals,
             zones_active=["input", "reasoning", "output", "tool_execution"],
-            kc_subcodes=["KCX-AUDIT"],
+            kc_subcodes=["KCX-AUDIT", "KC6.2.2"],
         )
         assert len(result) == len(goals)
 
