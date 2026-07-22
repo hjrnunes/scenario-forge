@@ -297,6 +297,7 @@ class TestCapabilityLevelPromptConstraint:
         prompt = render_prompt(
             "call0_system.j2",
             minimum_capability_level="intermediate",
+            tool_inventory=[],
         )
         assert "Capability Level Constraint (MANDATORY)" in prompt
         assert '"intermediate"' in prompt
@@ -305,6 +306,7 @@ class TestCapabilityLevelPromptConstraint:
         prompt = render_prompt(
             "call0_system.j2",
             minimum_capability_level="advanced",
+            tool_inventory=[],
         )
         assert "Capability Level Constraint (MANDATORY)" in prompt
         assert '"advanced"' in prompt
@@ -313,6 +315,7 @@ class TestCapabilityLevelPromptConstraint:
         prompt = render_prompt(
             "call0_system.j2",
             minimum_capability_level="novice",
+            tool_inventory=[],
         )
         assert "Capability Level Constraint (MANDATORY)" not in prompt
 
@@ -320,12 +323,13 @@ class TestCapabilityLevelPromptConstraint:
         prompt = render_prompt(
             "call0_system.j2",
             minimum_capability_level=None,
+            tool_inventory=[],
         )
         assert "Capability Level Constraint (MANDATORY)" not in prompt
 
     def test_default_no_floor(self):
         """Backward compat: no minimum_capability_level kwarg still works."""
-        prompt = render_prompt("call0_system.j2")
+        prompt = render_prompt("call0_system.j2", tool_inventory=[])
         assert "Capability Level Constraint (MANDATORY)" not in prompt
 
 

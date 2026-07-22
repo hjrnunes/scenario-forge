@@ -39,6 +39,20 @@ The actor_type field must be EXACTLY one of the values listed below (e.g. "cyber
 The actor_type MUST be one of: {{ compatible_actor_types | join(', ') }}. Other actor types are structurally incompatible with this scenario's technique, entry point, and threat characteristics. Do NOT select an actor type outside this set.
 {% endif %}
 
+{% if tool_inventory %}
+### Tool Inventory (MANDATORY)
+The system can ONLY invoke the tools listed below. Do NOT reference any tool, API, or capability not in this list.
+{% for tool in tool_inventory %}
+- {{ tool.name }}: {{ tool.description }}
+{% endfor %}
+The actor's desires and intentions MUST reference only data types, resources, and operations that the target system's tools actually handle. Do NOT reference data types from attack pattern examples if they are not handled by the system's tools. Do NOT introduce financial, billing, payment, medical, or any other data types not explicitly listed in the tool descriptions. If the attack pattern says "substitute payment details" but the system's tools handle questionnaire summaries, the actor's desire must be about questionnaire summaries, not payment details.
+
+Each tool can ONLY perform what its description states. Do NOT extrapolate additional functionality beyond the description.
+{% endif %}
+
+### Attack Pattern Example Adaptation (MANDATORY)
+Never literalize attack pattern examples. Attack pattern descriptions use illustrative examples (e.g., "such as payment details"). These are generic placeholders — the actor's goals MUST be expressed using the target system's actual data types{% if tool_inventory %} from the tool inventory{% endif %}. If the attack pattern references data types that the system does not handle, substitute them with data types the system actually processes.
+
 ## Actor Types (use EXACTLY one of these values for actor_type)
 - cybercriminal — External, financially motivated (data theft, fraud, ransomware)
 - nation-state — State-sponsored, well-resourced, strategic objectives

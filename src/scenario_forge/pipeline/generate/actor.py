@@ -501,6 +501,7 @@ def build_call0_context(
         "pinned_technique_count": pinned_technique_count,
         "kc_definitions": kc_definitions,
         "ontology_context": ontology_context,
+        "tool_inventory": profile.tool_inventory or [],
     }
 
 
@@ -544,6 +545,7 @@ def _call_actor_profile(
             minimum_capability_level=ctx["minimum_capability_level"],
             compatible_actor_types=ctx["compatible_actor_types"],
             zones_active=profile.zones_active,
+            tool_inventory=ctx["tool_inventory"],
         ),
         user_prompt=render_prompt("call0_user.j2", **ctx),
         response_format=Call0Response,

@@ -13,6 +13,10 @@ The following describes what the target system can and cannot do. Your actor pro
 - System capabilities (KC/KCX sub-codes):
 {{ kc_definitions }}
 - How an attacker initially accesses the system: {{ profile.entry_points | map(attribute='name') | list }}
+{% if tool_inventory %}
+- Available tools and APIs:
+{% for tool in tool_inventory %}  - {{ tool.name }}: {{ tool.description }}
+{% endfor %}{% endif %}
 
 {{ ontology_context | default('') }}
 ---

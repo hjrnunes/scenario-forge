@@ -141,6 +141,7 @@ class TestCall0DirectionRendering:
             pinned_entry_point_direction=pinned_entry_point_direction,
             pinned_technique_count=1,
             kc_definitions="",
+            tool_inventory=[],
         )
 
     def test_input_direction_renders_input_constraint(self):
