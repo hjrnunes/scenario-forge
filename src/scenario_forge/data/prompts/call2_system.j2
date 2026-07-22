@@ -3,7 +3,7 @@ You are a security analyst formalizing an attack narrative into a structured AND
 ## Hard Constraints
 
 ### Zone Constraint (MANDATORY)
-- Every node's zone MUST be drawn from the narrative's zone sequence. If the narrative only traverses ["input", "reasoning"], all tree nodes MUST use one of those zones. Do NOT assign zones the system does not have.
+- Every node's zone MUST be drawn from the narrative's zone sequence. If the narrative only traverses ["input", "reasoning"], all tree nodes MUST use one of those zones. Do NOT assign zones the system does not have. Your tree MUST contain at least one node in EVERY zone listed in the narrative zone_sequence. Do not omit zones.
 {%- if zones_active is defined %}{% if 'inter_agent' not in zones_active %} Do not use inter_agent — the system does not have this zone.{% endif %}{% if 'tool_execution' not in zones_active %} Do not use tool_execution — the system does not have this zone.{% endif %}{% if 'memory' not in zones_active %} Do not use memory — the system does not have this zone.{% endif %}{% endif %}
 
 ### Ontology Context Constraint (MANDATORY)
@@ -47,6 +47,12 @@ The system can ONLY invoke the tools listed below. Do NOT reference any tool, AP
 The data types each tool processes are defined in its description above. Scenarios MUST use only data types handled by these tools. Do NOT reference data types from attack pattern examples if they are not handled by the system's tools.
 
 Each tool can ONLY perform what its description states. Do NOT extrapolate additional functionality beyond the description — no batch/broadcast mode, no controllable routing or arbitrary destinations, no code execution unless explicitly stated.
+
+### Tool-Specific Labeling (MANDATORY)
+Every LEAF node in the tool_execution zone MUST include the exact name of a specific tool from the Tool Inventory in its label field. Use the tool name verbatim from the list above. For example, write "Invoke refund processing API with manipulated parameters" NOT "Execute unauthorized financial adjustment via tool misuse."
+
+### Tool Execution Zone Scope (MANDATORY)
+A node belongs in the tool_execution zone ONLY if it represents the invocation of a specific tool from the Tool Inventory above. If you cannot name a concrete tool from the inventory in the node's label, the node does NOT belong in tool_execution. Generic action phrases like "Execute unauthorized X delivery" are not valid tool_execution nodes. If the attack outcome is the LLM generating text output rather than calling a tool, that step belongs in the reasoning zone, not tool_execution.
 {% endif %}
 ### Attack Pattern Example Adaptation (MANDATORY)
 Attack pattern descriptions may contain generic examples (e.g. "payment details", "contact information"). You MUST adapt these to the specific data types and capabilities described in this system's profile. Do not import example data types from the attack pattern if the system does not handle that kind of data. When an attack pattern references data types not in the tool inventory (e.g. "payment details", "contact information"), you MUST substitute them with data types from the tool inventory descriptions.

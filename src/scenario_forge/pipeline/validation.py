@@ -905,6 +905,36 @@ def validate_phantom_capabilities(
                         )
                     )
 
+        # Check tool_execution leaf nodes against tool inventory.
+        # Mirrors the semantic phantom_tool check so that phantom.valid
+        # is set to false when a tool_execution leaf references a phantom tool.
+        if profile.tool_inventory and scenario.attack_tree and scenario.attack_tree.root:
+            tool_names_normalized = [
+                _normalize_tool_name(t.name) for t in profile.tool_inventory
+            ]
+            leaves = _collect_leaves(scenario.attack_tree.root)
+            for leaf in leaves:
+                if leaf.zone != "tool_execution":
+                    continue
+                label_normalized = _normalize_tool_name(leaf.label)
+                found = any(
+                    tn in label_normalized or label_normalized in tn
+                    for tn in tool_names_normalized
+                )
+                if not found:
+                    violations.append(
+                        PhantomViolation(
+                            step_number=0,
+                            field="attack_tree",
+                            category="phantom_tool_invocation",
+                            matched_text=leaf.label,
+                            reason=(
+                                f"Leaf node '{leaf.id}' in tool_execution zone "
+                                f"does not reference any tool from the inventory"
+                            ),
+                        )
+                    )
+
         # Populate the validation.phantom block on the scenario.
         phantom_records = [
             PhantomViolationRecord(
@@ -1423,7 +1453,15 @@ def validate_scenario_semantics(
 
         # 6a. Zone omission — tree.
         tree_zones = _collect_tree_node_zones(scenario.attack_tree.root)
-        for zone in sorted(narrative_zones - tree_zones):
+        omitted_tree_zones = sorted(narrative_zones - tree_zones)
+        zone_seq = scenario.narrative.zone_sequence
+        terminal_zone = zone_seq[-1] if zone_seq else None
+        compound_omission = len(omitted_tree_zones) >= 2
+        for zone in omitted_tree_zones:
+            is_terminal = zone == terminal_zone
+            severity = (
+                "major" if is_terminal or compound_omission else "minor"
+            )
             violations.append(
                 SemanticViolation(
                     rule="zone_omission_tree",
@@ -1431,7 +1469,7 @@ def validate_scenario_semantics(
                         f"Zone '{zone}' in narrative zone_sequence "
                         f"but absent from attack tree nodes"
                     ),
-                    severity="minor",
+                    severity=severity,
                 )
             )
 
