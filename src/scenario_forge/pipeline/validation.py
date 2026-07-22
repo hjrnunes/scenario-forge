@@ -225,7 +225,7 @@ _AUDIT_MONITORING_WRITE_PATTERNS = [
         # v17 — escapee variants from QA-v16
         r"\b(?:session|chat|conversation)\s+history\s+(?:reset|clear|delet|wip|purg)",
         r"\b(?:reset|clear|delet|wip|purg)\w*\b[^.]{0,20}\b(?:session|chat)\s+history\b",
-        r"\b(?:generat|creat|fabricat)(?:e|ed|es|ing)?\b[^.]{0,30}\b(?:deceptive|false|fake|fraudulent|misleading)\s+(?:\w+\s+){0,2}(?:report|record|alert)",
+        r"\b(?:generat|creat|fabricat)(?:e|ed|es|ing)?\b[^.\n]{0,30}\b(?:deceptive|false|fake|fraudulent|misleading)\s+(?:\w+\s+){0,2}(?:report|record|alert)",
         r"\btransaction\s+(?:description|record|detail|log)\s+(?:modif|alter|chang|edit|tamper)",
         r"\b(?:modif|alter|chang|tamper)\w*\b[^.]{0,20}\btransaction\s+(?:description|record|detail|log)",
         r"\boverwrite\b[^.]{0,20}\b(?:audit|log|session\s+history)\b",
@@ -321,6 +321,28 @@ _ATTACKER_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Gherkin step keywords that indicate attacker actions (Given/When/And).
+# Then/But/* lines describe system outcomes and should still be checked.
+_GHERKIN_ATTACKER_STEP_RE = re.compile(
+    r"^\s*(?:Given|When|And)\b", re.IGNORECASE,
+)
+_GHERKIN_OUTCOME_STEP_RE = re.compile(
+    r"^\s*(?:Then\b|But\b|\*)", re.IGNORECASE,
+)
+
+
+def _extract_gherkin_outcome_lines(gherkin_text: str) -> str:
+    """Extract only Then/But/* lines from Gherkin text for checking.
+
+    Given/When/And lines describe attacker actions and are excluded.
+    Returns the concatenated outcome lines, or empty string if none.
+    """
+    outcome_lines: list[str] = []
+    for line in gherkin_text.splitlines():
+        if _GHERKIN_OUTCOME_STEP_RE.match(line):
+            outcome_lines.append(line)
+    return "\n".join(outcome_lines)
+
 
 # ---------------------------------------------------------------------------
 # Detection helpers
@@ -331,6 +353,7 @@ def _check_privilege_escalation(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references phantom privilege escalation.
 
@@ -362,6 +385,7 @@ def _check_credential_exposure(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references phantom credential exposure.
 
@@ -393,6 +417,7 @@ def _check_code_execution(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references phantom code execution.
 
@@ -406,10 +431,24 @@ def _check_code_execution(
       matches preceded within 20 chars by attacker-referencing words
       (attacker, actor, adversary, threat agent, red team) are skipped
       as a heuristic to avoid false positives.
+
+    Zone-awareness (lgws):
+    - ``tree_label`` in ``input`` zone describes attacker injection by
+      definition — code references there are expected, not phantom.
+
+    Gherkin step-type awareness (3mal):
+    - When ``field_name="gherkin"``, only Then/But/\\* lines (system
+      outcome assertions) are checked.  Given/When/And lines describe
+      attacker actions and are skipped.
     """
     # Action fields describe what the ATTACKER does — code references
     # there are expected behavior, not a phantom system capability.
     if field_name == "action":
+        return None
+
+    # Input-zone tree labels describe attacker injection — code references
+    # describe attacker tooling, not system capabilities.
+    if field_name == "tree_label" and zone == "input":
         return None
 
     has_code_exec = any(
@@ -419,10 +458,17 @@ def _check_code_execution(
     if has_code_exec:
         return None
 
+    # For Gherkin, only check Then/But/* lines (system outcome assertions).
+    # Given/When/And lines describe attacker actions (3mal).
+    if field_name == "gherkin":
+        text = _extract_gherkin_outcome_lines(text)
+        if not text:
+            return None
+
     for pattern in _CODE_EXECUTION_PATTERNS:
         m = pattern.search(text)
         if m:
-            # For tree labels and Gherkin (no action/effect split),
+            # For tree labels (no action/effect split),
             # skip matches preceded by attacker-referencing words.
             if field_name in ("tree_label", "gherkin"):
                 start = max(0, m.start() - 20)
@@ -437,6 +483,7 @@ def _check_mass_broadcasting(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references phantom mass broadcasting.
 
@@ -461,6 +508,7 @@ def _check_cross_session_access(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references phantom cross-session access.
 
@@ -483,6 +531,7 @@ def _check_session_introspection(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references phantom session introspection.
 
@@ -508,6 +557,7 @@ def _check_audit_monitoring_write(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references phantom audit/monitoring writes.
 
@@ -531,6 +581,7 @@ def _check_api_response_fabrication(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text assumes APIs return fabricated data types.
 
@@ -554,6 +605,7 @@ def _check_system_prompt_retrieval(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text assumes the agent can retrieve its system prompt.
 
@@ -605,6 +657,8 @@ _PHANTOM_TOOL_EXTRACTORS = [
 _TOOL_NAME_NOISE = frozenset({
     "the", "a", "an", "this", "that", "its", "our", "their",
     "some", "each", "every", "my", "your",
+    # Gherkin step keywords (title-cased at line starts)
+    "and", "or", "but", "given", "when", "then",
 })
 
 # Stop words excluded from word-overlap comparisons.
@@ -634,6 +688,7 @@ def _check_phantom_tool_invocation(
     text: str,
     profile: CapabilityProfile,
     field_name: str = "",
+    zone: str = "",
 ) -> str | None:
     """Return a match string if text references a tool/API/endpoint not in the profile.
 
@@ -659,7 +714,18 @@ def _check_phantom_tool_invocation(
                     for ep_name in ep_names
                 )
             else:
-                # "API calls to <action>" — word-overlap check
+                # "API calls to <action>" — word-overlap check.
+                # Post-extraction filter: require at least one title-cased
+                # word in the raw capture (after removing stop words).
+                # All-lowercase action descriptions like "clear the queue"
+                # are generic verbs, not named tool references.
+                raw_words = [
+                    w for w in raw_name.split()
+                    if w.lower() not in _OVERLAP_STOP
+                ]
+                if not any(w[0].isupper() for w in raw_words if w):
+                    continue
+
                 name_words = set(name.split()) - _OVERLAP_STOP
                 found = False
                 for ep_name in ep_names:
@@ -751,9 +817,9 @@ _CHECKERS = [
 ]
 
 
-def _collect_node_labels(node: AttackTreeNode) -> list[str]:
-    """Recursively collect all labels from an attack tree."""
-    labels = [node.label]
+def _collect_node_labels(node: AttackTreeNode) -> list[tuple[str, str]]:
+    """Recursively collect all (label, zone) pairs from an attack tree."""
+    labels: list[tuple[str, str]] = [(node.label, node.zone)]
     if node.children:
         for child in node.children:
             labels.extend(_collect_node_labels(child))
@@ -804,9 +870,13 @@ def validate_phantom_capabilities(
 
         # Also check attack tree node labels
         if scenario.attack_tree and scenario.attack_tree.root:
-            for label in _collect_node_labels(scenario.attack_tree.root):
+            for label, zone in _collect_node_labels(scenario.attack_tree.root):
                 for category, checker, reason in _CHECKERS:
-                    matched = checker(label, profile, field_name="tree_label")
+                    matched = checker(
+                        label, profile,
+                        field_name="tree_label",
+                        zone=zone,
+                    )
                     if matched is not None:
                         violations.append(
                             PhantomViolation(
