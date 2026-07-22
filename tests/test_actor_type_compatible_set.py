@@ -458,6 +458,7 @@ class TestActorTypePromptConstraint:
             "call0_system.j2",
             compatible_actor_types=["adversarial-user", "cybercriminal"],
             minimum_capability_level="novice",
+            tool_inventory=[],
         )
         assert "Actor Type Constraint (MANDATORY)" in prompt
         assert "adversarial-user" in prompt
@@ -469,12 +470,13 @@ class TestActorTypePromptConstraint:
             "call0_system.j2",
             compatible_actor_types=types,
             minimum_capability_level="novice",
+            tool_inventory=[],
         )
         for t in types:
             assert t in prompt
 
     def test_no_constraint_without_kwarg(self):
-        prompt = render_prompt("call0_system.j2")
+        prompt = render_prompt("call0_system.j2", tool_inventory=[])
         assert "Actor Type Constraint (MANDATORY)" not in prompt
 
     def test_empty_list_no_constraint(self):
@@ -482,6 +484,7 @@ class TestActorTypePromptConstraint:
             "call0_system.j2",
             compatible_actor_types=[],
             minimum_capability_level="novice",
+            tool_inventory=[],
         )
         assert "Actor Type Constraint (MANDATORY)" not in prompt
 

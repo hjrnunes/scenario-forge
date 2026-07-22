@@ -392,6 +392,29 @@ class TestBuildCall0Context:
         )
         assert ctx["pinned_entry_point"] is None
 
+    def test_tool_inventory_included_in_context(self):
+        """tool_inventory from profile is included in context dict."""
+        profile = _make_profile(kc_subcodes=["KC5.1"])
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=profile,
+            use_case="test",
+        )
+        assert "tool_inventory" in ctx
+        assert len(ctx["tool_inventory"]) == 1
+        assert ctx["tool_inventory"][0].name == "test_tool"
+
+    def test_tool_inventory_empty_when_profile_has_none(self):
+        """tool_inventory is empty list when profile has no tools."""
+        profile = _make_profile(kc_subcodes=["KC1.1"])
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=profile,
+            use_case="test",
+        )
+        assert "tool_inventory" in ctx
+        assert ctx["tool_inventory"] == []
+
     def test_preferred_capability_level_bumped_to_floor(self):
         """preferred_capability_level in diversity_section respects floor."""
         # T3 (Privilege Compromise) is adversarial-only, and with indirect EP
@@ -941,8 +964,96 @@ class TestContextBuildersRenderTemplates:
             "call0_system.j2",
             minimum_capability_level=ctx["minimum_capability_level"],
             compatible_actor_types=ctx["compatible_actor_types"],
+            tool_inventory=ctx["tool_inventory"],
         )
         assert "threat intelligence analyst" in result
+
+    def test_call0_system_template_renders_tool_inventory_constraint(self):
+        """call0_system.j2 renders tool inventory constraint when tools present."""
+        from scenario_forge.prompts import render_prompt
+
+        profile = _make_profile(kc_subcodes=["KC5.1"])
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=profile,
+            use_case="test",
+        )
+        result = render_prompt(
+            "call0_system.j2",
+            minimum_capability_level=ctx["minimum_capability_level"],
+            compatible_actor_types=ctx["compatible_actor_types"],
+            zones_active=profile.zones_active,
+            tool_inventory=ctx["tool_inventory"],
+        )
+        assert "Tool Inventory (MANDATORY)" in result
+        assert "test_tool" in result
+        assert "A test tool" in result
+        assert "desires and intentions MUST reference only data types" in result
+
+    def test_call0_system_template_omits_tool_inventory_when_empty(self):
+        """call0_system.j2 omits tool inventory section when no tools."""
+        from scenario_forge.prompts import render_prompt
+
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=_make_profile(kc_subcodes=["KC1.1"]),
+            use_case="test",
+        )
+        result = render_prompt(
+            "call0_system.j2",
+            minimum_capability_level=ctx["minimum_capability_level"],
+            compatible_actor_types=ctx["compatible_actor_types"],
+            tool_inventory=ctx["tool_inventory"],
+        )
+        assert "Tool Inventory (MANDATORY)" not in result
+
+    def test_call0_system_template_renders_adaptation_constraint(self):
+        """call0_system.j2 always renders Attack Pattern Example Adaptation."""
+        from scenario_forge.prompts import render_prompt
+
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=_make_profile(kc_subcodes=["KC1.1"]),
+            use_case="test",
+        )
+        result = render_prompt(
+            "call0_system.j2",
+            minimum_capability_level=ctx["minimum_capability_level"],
+            compatible_actor_types=ctx["compatible_actor_types"],
+            tool_inventory=ctx["tool_inventory"],
+        )
+        assert "Attack Pattern Example Adaptation (MANDATORY)" in result
+        assert "Never literalize attack pattern examples" in result
+
+    def test_call0_user_template_renders_tool_inventory(self):
+        """call0_user.j2 renders tool inventory when tools present."""
+        from scenario_forge.prompts import render_prompt
+
+        profile = _make_profile(kc_subcodes=["KC5.1"])
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=profile,
+            use_case="test",
+            pinned_entry_point="user prompts via chat interface",
+            pinned_technique_ids=["AML.T0054"],
+        )
+        result = render_prompt("call0_user.j2", **ctx)
+        assert "Available tools and APIs" in result
+        assert "test_tool" in result
+
+    def test_call0_user_template_omits_tool_inventory_when_empty(self):
+        """call0_user.j2 omits tool inventory when no tools."""
+        from scenario_forge.prompts import render_prompt
+
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=_make_profile(kc_subcodes=["KC1.1"]),
+            use_case="test",
+            pinned_entry_point="user prompts via chat interface",
+            pinned_technique_ids=["AML.T0054"],
+        )
+        result = render_prompt("call0_user.j2", **ctx)
+        assert "Available tools and APIs" not in result
 
     def test_call1_context_renders_user_template(self):
         """build_call1_context output renders call1_user.j2 without error."""
