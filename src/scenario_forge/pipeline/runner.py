@@ -61,6 +61,7 @@ from scenario_forge.pipeline.coverage import (
 from scenario_forge.pipeline.profile import infer_capability_profile
 from scenario_forge.pipeline.validation import (
     check_leaf_technique_provenance,
+    enforce_parsimony,
     validate_insider_access_floor,
     validate_phantom_capabilities,
     validate_scenario_semantics,
@@ -824,6 +825,58 @@ def run_pipeline(
             len(scenarios),
         )
 
+    # --- Parsimony Pruning Pass ---
+    logger.info("[Validation] Enforcing parsimony on attack trees...")
+    parsimony_result = enforce_parsimony(scenarios)
+    parsimony_pruned_count = len(parsimony_result.pruned_scenarios)
+    parsimony_unprunable_count = len(parsimony_result.unprunable_scenarios)
+    if parsimony_pruned_count or parsimony_unprunable_count:
+        for pruned_scenario, pruned_nodes in parsimony_result.pruned_scenarios:
+            # Replace the in-memory scenario's attack tree with the pruned version
+            for i, s in enumerate(scenarios):
+                if s.scenario_id == pruned_scenario.scenario_id:
+                    scenarios[i].attack_tree = pruned_scenario.attack_tree
+                    break
+            logger.warning(
+                "  Pruned %d nodes from %s",
+                len(pruned_nodes),
+                pruned_scenario.scenario_id,
+            )
+        for unprunable_scenario, leaf_count, budget in parsimony_result.unprunable_scenarios:
+            # Mark as unprunable so it's visible in the YAML
+            if unprunable_scenario.validation is None:
+                from scenario_forge.models.scenario import ValidationBlock
+                unprunable_scenario.validation = ValidationBlock()
+            unprunable_scenario.validation.parsimony_unprunable = (
+                f"Could not prune to budget: {leaf_count} leaves, budget {budget}"
+            )
+            logger.warning(
+                "  Unprunable: %s (%d leaves, budget %d)",
+                unprunable_scenario.scenario_id,
+                leaf_count,
+                budget,
+            )
+        logger.info(
+            "  %d compliant, %d pruned, %d unprunable",
+            len(parsimony_result.compliant_scenarios),
+            parsimony_pruned_count,
+            parsimony_unprunable_count,
+        )
+    else:
+        logger.info(
+            "  All %d scenarios are within parsimony budget",
+            len(scenarios),
+        )
+
+    # --- Persist validation marks to scenario YAMLs ---
+    # Re-write scenario files so validation blocks reach disk.
+    logger.info("[Post-Validation] Re-writing scenario YAMLs with validation marks...")
+    rewrite_count = 0
+    for scenario in scenarios:
+        write_scenario_outputs(scenario, scenarios_dir)
+        rewrite_count += 1
+    logger.info("  %d scenario YAML(s) re-written with validation metadata", rewrite_count)
+
     # --- Coverage Remediation Pass ---
     # Check for uncovered entry points and generate additional scenarios
     # to fill gaps, before running the final coverage analysis.
@@ -906,6 +959,11 @@ def run_pipeline(
         "leaf_technique_provenance": {
             "flagged_count": leaf_technique_result.flagged_count,
             "clean_count": leaf_technique_result.clean_count,
+        },
+        "parsimony": {
+            "compliant_count": len(parsimony_result.compliant_scenarios),
+            "pruned_count": parsimony_pruned_count,
+            "unprunable_count": parsimony_unprunable_count,
         },
     }
     # --- I/O boundary: final manifest ---
