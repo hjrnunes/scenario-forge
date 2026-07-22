@@ -47,6 +47,9 @@ The system can ONLY invoke the tools listed below. Do NOT reference any tool, AP
 The data types each tool processes are defined in its description above. Scenarios MUST use only data types handled by these tools. Do NOT reference data types from attack pattern examples if they are not handled by the system's tools.
 
 Each tool can ONLY perform what its description states. Do NOT extrapolate additional functionality beyond the description — no batch/broadcast mode, no controllable routing or arbitrary destinations, no code execution unless explicitly stated.
+
+### Tool-Specific Labeling (MANDATORY)
+Every LEAF node in the tool_execution zone MUST include the exact name of a specific tool from the Tool Inventory in its label field. Use the tool name verbatim from the list above. For example, write "Invoke refund processing API with manipulated parameters" NOT "Execute unauthorized financial adjustment via tool misuse."
 {% endif %}
 ### Attack Pattern Example Adaptation (MANDATORY)
 Attack pattern descriptions may contain generic examples (e.g. "payment details", "contact information"). You MUST adapt these to the specific data types and capabilities described in this system's profile. Do not import example data types from the attack pattern if the system does not handle that kind of data. When an attack pattern references data types not in the tool inventory (e.g. "payment details", "contact information"), you MUST substitute them with data types from the tool inventory descriptions.
