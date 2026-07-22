@@ -15,10 +15,12 @@ from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateTy
 from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel, ToolInventoryEntry
 from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
 from scenario_forge.pipeline.generate import (
+    MAX_OR_PATHS,
     THREAT_VIOLATION_CATEGORY,
     _build_gherkin_template,
     _call_behavior_spec,
     _collect_leaf_nodes_dfs,
+    _enumerate_paths,
     _ASSERTIONS_MARKER,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -180,6 +182,91 @@ def _make_tree_single_leaf() -> AttackTree:
             gate=GateType.LEAF,
             zone="input",
             technique_id="AML.T0051",
+        ),
+    )
+
+
+def _make_tree_with_or_gate() -> AttackTree:
+    """Tree with an OR gate: root(AND) -> step_A(LEAF), choice(OR) -> opt1(LEAF)/opt2(LEAF), step_B(LEAF)."""
+    return AttackTree(
+        id="tree-AP-T7-01",
+        seed_id="AP-T7-01",
+        goal="Test OR gate",
+        root=AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
+            zone="input",
+            children=[
+                _make_leaf("n1.1", "Step A initial access", "input", "AML.T0051"),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Choose attack vector",
+                    gate=GateType.OR,
+                    zone="reasoning",
+                    children=[
+                        _make_leaf("n1.2.1", "Option 1 prompt injection", "reasoning", "AML.T0054"),
+                        _make_leaf("n1.2.2", "Option 2 data poisoning", "reasoning", "AML.T0020"),
+                    ],
+                ),
+                _make_leaf("n1.3", "Step B exfiltrate data", "reasoning"),
+            ],
+        ),
+    )
+
+
+def _make_tree_with_dual_or_gates() -> AttackTree:
+    """Tree with two OR gates under AND root: cross-product of 2x2 = 4 paths."""
+    return AttackTree(
+        id="tree-AP-T7-01",
+        seed_id="AP-T7-01",
+        goal="Test dual OR gates",
+        root=AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
+            zone="input",
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Choice 1",
+                    gate=GateType.OR,
+                    zone="input",
+                    children=[
+                        _make_leaf("n1.1.1", "Path A inject", "input", "AML.T0051"),
+                        _make_leaf("n1.1.2", "Path B poison", "input", "AML.T0020"),
+                    ],
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Choice 2",
+                    gate=GateType.OR,
+                    zone="reasoning",
+                    children=[
+                        _make_leaf("n1.2.1", "Method X jailbreak", "reasoning", "AML.T0054"),
+                        _make_leaf("n1.2.2", "Method Y exploit", "reasoning", "AML.T0043"),
+                    ],
+                ),
+            ],
+        ),
+    )
+
+
+def _make_tree_or_at_root() -> AttackTree:
+    """Tree with OR gate as root: two alternative attack paths."""
+    return AttackTree(
+        id="tree-AP-T7-01",
+        seed_id="AP-T7-01",
+        goal="Test OR at root",
+        root=AttackTreeNode(
+            id="n1",
+            label="Root alternatives",
+            gate=GateType.OR,
+            zone="input",
+            children=[
+                _make_leaf("n1.1", "Direct attack via input", "input", "AML.T0051"),
+                _make_leaf("n1.2", "Indirect attack via reasoning", "reasoning", "AML.T0054"),
+            ],
         ),
     )
 
@@ -918,3 +1005,278 @@ class TestRawTechniqueNameSubstitution:
         )
         assert "When Craft malicious payload [AML.T0051] (input)" in template
         assert "And Exploit trust boundary (reasoning)" in template
+
+
+# ---------------------------------------------------------------------------
+# Tests: _enumerate_paths
+# ---------------------------------------------------------------------------
+
+
+class TestEnumeratePaths:
+    def test_and_only_tree_single_path(self):
+        """Pure AND tree produces a single path with all leaves."""
+        tree = _make_tree_simple()
+        paths = _enumerate_paths(tree.root)
+        assert len(paths) == 1
+        assert [n.id for n in paths[0]] == ["n1.1", "n1.2"]
+
+    def test_single_leaf_tree_one_path(self):
+        """Single-leaf tree produces one path with one leaf."""
+        tree = _make_tree_single_leaf()
+        paths = _enumerate_paths(tree.root)
+        assert len(paths) == 1
+        assert len(paths[0]) == 1
+        assert paths[0][0].id == "n1"
+
+    def test_or_gate_produces_alternative_paths(self):
+        """Tree with OR gate produces one path per OR alternative."""
+        tree = _make_tree_with_or_gate()
+        paths = _enumerate_paths(tree.root)
+        # OR gate with 2 children under AND with 2 other leaves -> 2 paths
+        assert len(paths) == 2
+        # Path 1: n1.1 + n1.2.1 + n1.3
+        assert [n.id for n in paths[0]] == ["n1.1", "n1.2.1", "n1.3"]
+        # Path 2: n1.1 + n1.2.2 + n1.3
+        assert [n.id for n in paths[1]] == ["n1.1", "n1.2.2", "n1.3"]
+
+    def test_dual_or_gates_cross_product(self):
+        """Two OR gates under AND produce a cross-product of paths."""
+        tree = _make_tree_with_dual_or_gates()
+        paths = _enumerate_paths(tree.root)
+        # 2x2 = 4 paths
+        assert len(paths) == 4
+        path_ids = {tuple(n.id for n in p) for p in paths}
+        assert ("n1.1.1", "n1.2.1") in path_ids
+        assert ("n1.1.1", "n1.2.2") in path_ids
+        assert ("n1.1.2", "n1.2.1") in path_ids
+        assert ("n1.1.2", "n1.2.2") in path_ids
+
+    def test_or_at_root(self):
+        """OR gate at root produces one path per child."""
+        tree = _make_tree_or_at_root()
+        paths = _enumerate_paths(tree.root)
+        assert len(paths) == 2
+        assert [n.id for n in paths[0]] == ["n1.1"]
+        assert [n.id for n in paths[1]] == ["n1.2"]
+
+    def test_deep_tree_with_nested_or(self):
+        """Deep tree with OR gate produces correct paths."""
+        tree = _make_tree_deep()
+        # n1 (AND) -> n1.1 (OR) -> [n1.1.1, n1.1.2], n1.2 (AND) -> [n1.2.1, n1.2.2]
+        # Paths: n1.1.1+n1.2.1+n1.2.2, n1.1.2+n1.2.1+n1.2.2
+        paths = _enumerate_paths(tree.root)
+        assert len(paths) == 2
+        assert [n.id for n in paths[0]] == ["n1.1.1", "n1.2.1", "n1.2.2"]
+        assert [n.id for n in paths[1]] == ["n1.1.2", "n1.2.1", "n1.2.2"]
+
+    def test_preserves_leaf_data(self):
+        """Enumerated paths preserve technique_id and zone on leaves."""
+        tree = _make_tree_with_or_gate()
+        paths = _enumerate_paths(tree.root)
+        # First leaf in path 1 should have technique_id
+        first_leaf = paths[0][0]
+        assert first_leaf.technique_id == "AML.T0051"
+        assert first_leaf.zone == "input"
+
+
+# ---------------------------------------------------------------------------
+# Tests: OR-gate-aware _build_gherkin_template
+# ---------------------------------------------------------------------------
+
+
+class TestBuildGherkinTemplateOrGates:
+    def test_or_gate_produces_multiple_scenario_blocks(self):
+        """Tree with OR gate generates separate Scenario blocks."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Should have 2 Scenario blocks
+        import re
+        scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
+        assert scenario_count == 2
+
+    def test_or_gate_path_names(self):
+        """Multi-path scenarios have '(Path N)' suffix."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        assert "Scenario: Deceptive Response Generation (Path 1)" in template
+        assert "Scenario: Deceptive Response Generation (Path 2)" in template
+
+    def test_or_gate_each_scenario_has_assertions_marker(self):
+        """Each Scenario block has its own {ASSERTIONS} marker."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        assert template.count(_ASSERTIONS_MARKER) == 2
+
+    def test_or_gate_shared_and_steps(self):
+        """AND-gate steps appear in BOTH scenarios."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Step A (AND-required leaf) appears in both scenarios
+        import re
+        step_a_count = len(re.findall(r"Step A initial access", template))
+        assert step_a_count == 2, f"Step A should appear in both scenarios, found {step_a_count}"
+        # Step B appears in both too
+        step_b_count = len(re.findall(r"Step B exfiltrate data", template))
+        assert step_b_count == 2, f"Step B should appear in both scenarios, found {step_b_count}"
+
+    def test_or_gate_alternatives_in_separate_scenarios(self):
+        """Each OR alternative appears in exactly one Scenario block."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        # Split by Scenario blocks
+        import re
+        blocks = re.split(r"^\s*Scenario:", template, flags=re.MULTILINE)
+        # blocks[0] is header, blocks[1] is Path 1, blocks[2] is Path 2
+        assert len(blocks) == 3
+        assert "Option 1 prompt injection" in blocks[1]
+        assert "Option 2 data poisoning" in blocks[2]
+        # Each option should NOT appear in the other scenario
+        assert "Option 2 data poisoning" not in blocks[1]
+        assert "Option 1 prompt injection" not in blocks[2]
+
+    def test_dual_or_gates_four_scenarios(self):
+        """Two OR gates produce 4 scenarios (2x2 cross-product)."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_dual_or_gates(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        import re
+        scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
+        assert scenario_count == 4
+        assert template.count(_ASSERTIONS_MARKER) == 4
+
+    def test_or_at_root_two_scenarios(self):
+        """OR gate at root produces 2 Scenario blocks."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_or_at_root(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        import re
+        scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
+        assert scenario_count == 2
+        assert "Direct attack via input" in template
+        assert "Indirect attack via reasoning" in template
+
+    def test_no_or_gate_single_scenario(self):
+        """AND-only tree still produces single Scenario block without path suffix."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_simple(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        import re
+        scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
+        assert scenario_count == 1
+        assert "(Path " not in template
+        assert template.count(_ASSERTIONS_MARKER) == 1
+
+    def test_shared_background_across_scenarios(self):
+        """Background section appears once, shared by all scenarios."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        assert template.count("Background: Preconditions") == 1
+
+    def test_or_gate_feature_header_once(self):
+        """Feature header appears exactly once."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        assert template.count("Feature:") == 1
+
+    def test_or_gate_correct_when_and_keywords(self):
+        """Each Scenario block starts with When and uses And for subsequent steps."""
+        template = _build_gherkin_template(
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            seed=_make_seed(),
+            scenario_tag="AP-T7-01-abc123",
+        )
+        import re
+        blocks = re.split(r"^\s*Scenario:", template, flags=re.MULTILINE)
+        for block in blocks[1:]:  # skip header
+            attack_lines = [
+                line.strip() for line in block.split("\n")
+                if line.strip().startswith(("When ", "And ")) and "(" in line
+            ]
+            assert len(attack_lines) >= 1
+            assert attack_lines[0].startswith("When ")
+            for line in attack_lines[1:]:
+                assert line.startswith("And ")
+
+
+# ---------------------------------------------------------------------------
+# Tests: OR-gate Call 3 assertion splicing
+# ---------------------------------------------------------------------------
+
+
+class TestCallBehaviorSpecOrGates:
+    def test_all_assertion_markers_replaced_with_or_gates(self):
+        """All {ASSERTIONS} markers are replaced when tree has OR gates."""
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.content = "Then the attack succeeds\nBut defenses fail"
+        mock_result.prompt_tokens = 100
+        mock_result.completion_tokens = 50
+        mock_result.duration_ms = 1000
+        mock_result.system_prompt = "test"
+        mock_result.user_prompt = "test"
+        mock_client.complete.return_value = mock_result
+
+        gherkin, _ = _call_behavior_spec(
+            seed=_make_seed(),
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_with_or_gate(),
+            profile=_make_profile(),
+            client=mock_client,
+            use_case="Test system",
+            scenario_hash="abc123",
+        )
+
+        assert _ASSERTIONS_MARKER not in gherkin
+        # Assertions should appear in both scenarios
+        import re
+        then_count = len(re.findall(r"Then the attack succeeds", gherkin))
+        assert then_count == 2, f"Expected 2 Then blocks, got {then_count}"

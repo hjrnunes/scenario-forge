@@ -2087,6 +2087,125 @@ def check_goal_narrative_alignment(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Gate-logic consistency validation (var8)
+# ---------------------------------------------------------------------------
+
+
+def _has_or_gates(node: AttackTreeNode) -> bool:
+    """Check whether an attack tree contains any OR gates."""
+    if node.gate == GateType.OR:
+        return True
+    if node.children:
+        return any(_has_or_gates(child) for child in node.children)
+    return False
+
+
+def _count_or_gates(node: AttackTreeNode) -> int:
+    """Count OR gates in an attack tree."""
+    count = 1 if node.gate == GateType.OR else 0
+    if node.children:
+        for child in node.children:
+            count += _count_or_gates(child)
+    return count
+
+
+@dataclass
+class GateLogicViolation:
+    """OR-gate in tree but Gherkin lacks multiple Scenario blocks."""
+
+    scenario_id: str
+    or_gate_count: int
+    gherkin_scenario_count: int
+    reason: str
+
+
+@dataclass
+class GateLogicResult:
+    """Result of gate-logic consistency validation across a batch."""
+
+    clean_scenarios: list[ScenarioEnvelope] = field(default_factory=list)
+    flagged_scenarios: list[tuple[ScenarioEnvelope, GateLogicViolation]] = field(
+        default_factory=list
+    )
+
+    @property
+    def flagged_count(self) -> int:
+        return len(self.flagged_scenarios)
+
+    @property
+    def clean_count(self) -> int:
+        return len(self.clean_scenarios)
+
+
+# Regex to count Scenario: blocks in Gherkin text.
+_GHERKIN_SCENARIO_RE = re.compile(r"^\s*Scenario:", re.MULTILINE)
+
+
+def validate_gate_logic_consistency(
+    scenarios: list[ScenarioEnvelope],
+) -> GateLogicResult:
+    """Check that OR gates in attack trees are reflected as multiple Gherkin scenarios.
+
+    Backstop validator: if the attack tree has OR gates, the Gherkin
+    behavior_spec should contain multiple ``Scenario:`` blocks (one per
+    alternative path).  A single ``Scenario:`` block in the presence of
+    OR gates indicates a semantic inversion -- the Gherkin treats all
+    OR-branch children as sequential steps (AND semantics) when the tree
+    says ANY ONE path suffices.
+
+    With the deterministic skeleton builder fixed to handle OR gates, new
+    scenarios will always pass this check.  This validator catches
+    regressions and legacy scenarios generated before the fix.
+
+    Scenarios are never removed -- violations are recorded as warnings.
+    """
+    result = GateLogicResult()
+
+    for scenario in scenarios:
+        if not scenario.attack_tree or not scenario.attack_tree.root:
+            result.clean_scenarios.append(scenario)
+            continue
+
+        or_gate_count = _count_or_gates(scenario.attack_tree.root)
+        if or_gate_count == 0:
+            result.clean_scenarios.append(scenario)
+            continue
+
+        # Tree has OR gates -- check that Gherkin has multiple Scenario blocks.
+        gherkin = scenario.behavior_spec
+        if not gherkin or not isinstance(gherkin, str):
+            result.clean_scenarios.append(scenario)
+            continue
+
+        scenario_block_count = len(_GHERKIN_SCENARIO_RE.findall(gherkin))
+
+        if scenario_block_count <= 1:
+            violation = GateLogicViolation(
+                scenario_id=scenario.scenario_id,
+                or_gate_count=or_gate_count,
+                gherkin_scenario_count=scenario_block_count,
+                reason=(
+                    f"Attack tree has {or_gate_count} OR gate(s) but Gherkin "
+                    f"contains only {scenario_block_count} Scenario block(s). "
+                    f"OR branches should produce multiple Scenario blocks "
+                    f"(one per alternative path)."
+                ),
+            )
+            logger.warning(
+                "Gate-logic consistency: %s has %d OR gate(s) but "
+                "Gherkin has %d Scenario block(s)",
+                scenario.scenario_id,
+                or_gate_count,
+                scenario_block_count,
+            )
+            result.flagged_scenarios.append((scenario, violation))
+        else:
+            result.clean_scenarios.append(scenario)
+
+    return result
+
+
 def _extract_mechanism_keywords(attack_pattern_name: str) -> list[str]:
     """Extract meaningful mechanism keywords from an attack pattern name.
 

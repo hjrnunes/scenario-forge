@@ -143,9 +143,11 @@ from scenario_forge.pipeline.generate.tree import (
 
 # gherkin
 from scenario_forge.pipeline.generate.gherkin import (
+    MAX_OR_PATHS,
     _build_gherkin_template,
     _call_behavior_spec,
     _collect_leaf_nodes_dfs,
+    _enumerate_paths,
     build_call3_context,
 )
 
@@ -261,9 +263,11 @@ __all__ = [
     "_warn_dominant_threat_id_crossref",
     "build_call2_context",
     # gherkin
+    "MAX_OR_PATHS",
     "_build_gherkin_template",
     "_call_behavior_spec",
     "_collect_leaf_nodes_dfs",
+    "_enumerate_paths",
     "build_call3_context",
     # External dependencies
     "LLMClient",

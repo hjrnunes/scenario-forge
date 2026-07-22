@@ -21,6 +21,10 @@ from scenario_forge.pipeline.generate.constants import (
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of Scenario blocks generated from OR-gate cross-products.
+# Beyond this, paths are truncated to avoid Gherkin explosion.
+MAX_OR_PATHS = 6
+
 
 def _collect_leaf_nodes_dfs(node: AttackTreeNode) -> list[AttackTreeNode]:
     """Collect leaf nodes from an attack tree in depth-first order.
@@ -39,6 +43,45 @@ def _collect_leaf_nodes_dfs(node: AttackTreeNode) -> list[AttackTreeNode]:
     return leaves
 
 
+def _enumerate_paths(node: AttackTreeNode) -> list[list[AttackTreeNode]]:
+    """Enumerate all distinct attack paths through an AND/OR tree.
+
+    At AND gates, all children are required — their paths are combined via
+    cross-product (each resulting path contains leaves from every child).
+    At OR gates, each child is an alternative — their paths are appended
+    as separate alternatives.
+
+    Returns a list of paths, where each path is a list of leaf nodes
+    in depth-first order.
+    """
+    from scenario_forge.models.attack_tree import GateType
+
+    if node.gate == GateType.LEAF:
+        return [[node]]
+
+    if not node.children:
+        return [[]]
+
+    if node.gate == GateType.AND:
+        # All children required — cross-product of each child's paths.
+        result: list[list[AttackTreeNode]] = [[]]
+        for child in node.children:
+            child_paths = _enumerate_paths(child)
+            new_result: list[list[AttackTreeNode]] = []
+            for existing in result:
+                for cp in child_paths:
+                    new_result.append(existing + cp)
+            result = new_result
+        return result
+
+    # node.gate == GateType.OR
+    # Each child is an alternative — collect all children's paths.
+    result = []
+    for child in node.children:
+        result.extend(_enumerate_paths(child))
+    return result
+
+
 def _build_gherkin_template(
     narrative: NarrativeLayer,
     attack_tree: AttackTree,
@@ -49,12 +92,19 @@ def _build_gherkin_template(
     """Build a deterministic Gherkin skeleton from the tree and narrative.
 
     The mechanical parts (tags, Feature, Background, When/And steps) are
-    projected directly from the attack tree and narrative.  The function
-    returns the skeleton with a ``{ASSERTIONS}`` marker where the LLM-
-    generated Then/But/* block should be spliced in.
+    projected directly from the attack tree and narrative.
+
+    When the tree contains OR gates, alternative paths are rendered as
+    separate ``Scenario:`` blocks (one per OR-branch combination).  If
+    the cross-product of OR branches exceeds :data:`MAX_OR_PATHS`, only
+    the first ``MAX_OR_PATHS`` paths are rendered.
+
+    Each ``Scenario:`` block contains a ``{ASSERTIONS}`` marker where
+    the LLM-generated Then/But/* block will be spliced in.
 
     Returns:
-        A Gherkin template string containing ``{ASSERTIONS}`` exactly once.
+        A Gherkin template string containing ``{ASSERTIONS}`` once per
+        ``Scenario:`` block.
     """
     # --- Violation category tag ---
     violation_tag = THREAT_VIOLATION_CATEGORY.get(
@@ -102,10 +152,19 @@ def _build_gherkin_template(
         lines.append(f"    And the system has {display_name} capabilities ({zone})")
     lines.append("")
 
-    # --- Scenario: attack steps from tree leaves ---
-    lines.append(f"  Scenario: {narrative.title}")
-    lines.append("    Given the system is in its normal operating state")
-    lines.append("")
+    # --- Enumerate attack paths (OR-gate aware) ---
+    paths = _enumerate_paths(attack_tree.root)
+
+    if len(paths) > MAX_OR_PATHS:
+        logger.warning(
+            "Attack tree produces %d paths (OR-gate cross-product), "
+            "capping at %d",
+            len(paths),
+            MAX_OR_PATHS,
+        )
+        paths = paths[:MAX_OR_PATHS]
+
+    multi_path = len(paths) > 1
 
     _TECHNIQUE_ID_PATTERN = re.compile(r"^AML\.T\d+(\.\d+)?$")
 
@@ -116,34 +175,48 @@ def _build_gherkin_template(
         for tid, name in ATLAS_TECHNIQUE_NAMES.items()
     }
 
-    for i, leaf in enumerate(leaf_nodes):
-        # Build step text: label [technique_id] (zone)
-        step_text = leaf.label
+    for path_idx, path_leaves in enumerate(paths, 1):
+        # --- Scenario header ---
+        if multi_path:
+            lines.append(f"  Scenario: {narrative.title} (Path {path_idx})")
+        else:
+            lines.append(f"  Scenario: {narrative.title}")
+        lines.append("    Given the system is in its normal operating state")
+        lines.append("")
 
-        # Bug fix: when the label is just a raw technique ID (e.g. "AML.T0052"),
-        # replace it with the human-readable technique name
-        if _TECHNIQUE_ID_PATTERN.match(step_text):
-            step_text = ATLAS_TECHNIQUE_NAMES.get(step_text, step_text)
+        # --- Attack steps from path leaves ---
+        for i, leaf in enumerate(path_leaves):
+            # Build step text: label [technique_id] (zone)
+            step_text = leaf.label
 
-        # Bug fix: when the label is a verbatim ATLAS technique name
-        # (e.g. "AI Agent Tool Invocation"), replace with the node's
-        # description or a generic action label — the technique name
-        # alone is not a meaningful Gherkin step.
-        elif step_text.lower() in _known_technique_names:
-            if leaf.description:
-                step_text = leaf.description
-            else:
-                step_text = f"Execute attack step via {step_text}"
+            # Bug fix: when the label is just a raw technique ID (e.g. "AML.T0052"),
+            # replace it with the human-readable technique name
+            if _TECHNIQUE_ID_PATTERN.match(step_text):
+                step_text = ATLAS_TECHNIQUE_NAMES.get(step_text, step_text)
 
-        if leaf.technique_id:
-            step_text += f" [{leaf.technique_id}]"
-        step_text += f" ({leaf.zone})"
+            # Bug fix: when the label is a verbatim ATLAS technique name
+            # (e.g. "AI Agent Tool Invocation"), replace with the node's
+            # description or a generic action label — the technique name
+            # alone is not a meaningful Gherkin step.
+            elif step_text.lower() in _known_technique_names:
+                if leaf.description:
+                    step_text = leaf.description
+                else:
+                    step_text = f"Execute attack step via {step_text}"
 
-        keyword = "When" if i == 0 else "And"
-        lines.append(f"    {keyword} {step_text}")
+            if leaf.technique_id:
+                step_text += f" [{leaf.technique_id}]"
+            step_text += f" ({leaf.zone})"
 
-    lines.append("")
-    lines.append(f"    {_ASSERTIONS_MARKER}")
+            keyword = "When" if i == 0 else "And"
+            lines.append(f"    {keyword} {step_text}")
+
+        lines.append("")
+        lines.append(f"    {_ASSERTIONS_MARKER}")
+
+        # Blank line between scenarios (not after the last one)
+        if path_idx < len(paths):
+            lines.append("")
 
     return "\n".join(lines) + "\n"
 
