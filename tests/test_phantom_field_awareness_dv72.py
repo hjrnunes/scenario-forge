@@ -80,11 +80,13 @@ def _make_envelope(
     step_effects: list[str] | None = None,
     scenario_id: str = "AP-T1-01-abc123",
     tree_labels: list[str] | None = None,
+    tree_zones: list[str] | None = None,
     behavior_spec: str | dict | None = None,
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing.
 
     If tree_labels is provided, uses those as tree node labels.
+    If tree_zones is provided, assigns zones per label; defaults to "input".
     """
     if step_actions is None:
         step_actions = ["I craft a malicious prompt to inject commands."]
@@ -112,12 +114,14 @@ def _make_envelope(
     )
 
     if tree_labels:
+        if tree_zones is None:
+            tree_zones = ["input"] * len(tree_labels)
         children = [
             AttackTreeNode(
                 id=f"n1.{i + 1}",
                 label=label,
                 gate=GateType.LEAF,
-                zone="input",
+                zone=tree_zones[i],
             )
             for i, label in enumerate(tree_labels)
         ]
@@ -505,6 +509,7 @@ class TestFieldAwarenessIntegration:
                 "Execute Python script for exfiltration",
                 "Normal path B",
             ],
+            tree_zones=["tool_execution", "reasoning"],
         )
         profile = _make_profile()
         result = validate_phantom_capabilities([scenario], profile)
@@ -539,8 +544,8 @@ class TestFieldAwarenessIntegration:
         scenario.behavior_spec = (
             "Feature: Code generation\n"
             "  Scenario: Script synthesis\n"
-            "    When the system generates a Python script\n"
-            "    Then the exploit is delivered\n"
+            "    When the user sends a prompt\n"
+            "    Then the system generates a Python script\n"
         )
         profile = _make_profile()
         result = validate_phantom_capabilities([scenario], profile)
