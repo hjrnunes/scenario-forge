@@ -400,6 +400,10 @@ class ValidationBlock(BaseModel):
     phantom: PhantomValidation = Field(default_factory=PhantomValidation)
     structural: StructuralValidation = Field(default_factory=StructuralValidation)
     semantic: SemanticValidation = Field(default_factory=SemanticValidation)
+    parsimony_unprunable: Optional[str] = Field(
+        default=None,
+        description="Set when parsimony pruning could not bring the tree within budget.",
+    )
 
 
 # ---------------------------------------------------------------------------
