@@ -117,8 +117,10 @@ class TestFilterSubGoalsByZones:
         taxonomy = load_attack_goals_taxonomy()
         return get_all_sub_goals(taxonomy)
 
-    def test_full_system_keeps_all(self, all_sub_goals: list[dict]) -> None:
-        """A system with all zones, memory, HITL, and multi-agent keeps all goals."""
+    def test_full_system_keeps_all_except_structurally_phantom(self, all_sub_goals: list[dict]) -> None:
+        """A system with all zones, memory, HITL, and multi-agent keeps all goals
+        except PR-2 which is structurally phantom (system prompts are never
+        accessible via tools)."""
         filtered = filter_sub_goals_by_zones(
             all_sub_goals,
             zones_active=[
@@ -132,7 +134,9 @@ class TestFilterSubGoalsByZones:
             hitl=True,
             multi_agent=True,
         )
-        assert len(filtered) == 27
+        # 27 total sub-goals minus PR-2 (always excluded) = 26
+        assert len(filtered) == 26
+        assert "PR-2" not in {g["id"] for g in filtered}
 
     def test_minimal_system_filters(self, all_sub_goals: list[dict]) -> None:
         """A minimal system (input + reasoning only, no memory, no HITL, no multi-agent)

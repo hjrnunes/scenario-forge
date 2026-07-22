@@ -794,6 +794,25 @@ _ALL_RULES = [
 # the entire candidate regardless of technique.
 
 
+def _rule_seed_profile_compatibility(
+    seed_id: str,
+    profile: CapabilityProfile,
+) -> tuple[bool, str | None]:
+    """Reject seeds that are structurally infeasible for the given profile.
+
+    AP-T9-05 "false attribution via identity proxy" requires persistent
+    memory for cross-user identity manipulation.  Without persistent
+    session state, the attack pattern is infeasible.
+    """
+    if seed_id == "AP-T9-05" and not profile.has_persistent_memory:
+        return True, (
+            f"Rejected: seed {seed_id} (false attribution via identity proxy) "
+            f"requires persistent memory for cross-user identity manipulation, "
+            f"but profile has has_persistent_memory=False."
+        )
+    return False, None
+
+
 def _rule_threat_requires_zone(
     threat_id: str,
     profile: CapabilityProfile,
@@ -923,10 +942,16 @@ def apply_rule_based_filter(
     rejection_verdicts: list[FilterVerdict] = []
 
     for candidate in candidates:
-        # --- Threat-level prerequisite checks (reject entire candidate) ---
-        threat_reject, threat_rationale = _rule_threat_requires_zone(
-            candidate.threat_id, profile,
+        # --- Seed-level compatibility checks (reject entire candidate) ---
+        threat_reject, threat_rationale = _rule_seed_profile_compatibility(
+            candidate.seed_id, profile,
         )
+
+        # --- Threat-level prerequisite checks (reject entire candidate) ---
+        if not threat_reject:
+            threat_reject, threat_rationale = _rule_threat_requires_zone(
+                candidate.threat_id, profile,
+            )
         if not threat_reject:
             threat_reject, threat_rationale = _rule_threat_requires_capability(
                 candidate.threat_id, profile,
