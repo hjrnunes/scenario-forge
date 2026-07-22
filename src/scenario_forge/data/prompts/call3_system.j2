@@ -30,6 +30,12 @@ The assertion block consists of:
 - Assertions MUST be semantically faithful to the narrative and attack steps. Do NOT invert, negate, or contradict the scenario context.
 - If the scenario describes a "low-latency-optimized" system, use that exact phrasing — not "high-latency-optimized".
 
+### Capability Boundary (MANDATORY)
+- Assertions MUST only reference concepts, data types, mechanisms, and system components that appear in the scenario context above (the Gherkin skeleton and narrative).
+- Do NOT introduce platform-level security concepts absent from the scenario: session tokens, bearer tokens, API keys, OAuth flows, JWTs, CSRF tokens, or authentication credentials — unless these are explicitly mentioned in the When/And steps or narrative.
+- Do NOT invent defense mechanisms or detection systems not implied by the scenario. Name specific, plausible defenses relevant to the attack described, not generic security infrastructure.
+- The But line should describe a defense that SHOULD have fired based on the scenario's architecture, not a defense from a different system architecture.
+
 ### Style
 - Steps should be concise, human-readable, and action-oriented.
 - Describe attack SHAPE and observable outcomes, not specific prompt text.
