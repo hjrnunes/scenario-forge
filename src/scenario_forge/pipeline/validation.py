@@ -905,6 +905,36 @@ def validate_phantom_capabilities(
                         )
                     )
 
+        # Check tool_execution leaf nodes against tool inventory.
+        # Mirrors the semantic phantom_tool check so that phantom.valid
+        # is set to false when a tool_execution leaf references a phantom tool.
+        if profile.tool_inventory and scenario.attack_tree and scenario.attack_tree.root:
+            tool_names_normalized = [
+                _normalize_tool_name(t.name) for t in profile.tool_inventory
+            ]
+            leaves = _collect_leaves(scenario.attack_tree.root)
+            for leaf in leaves:
+                if leaf.zone != "tool_execution":
+                    continue
+                label_normalized = _normalize_tool_name(leaf.label)
+                found = any(
+                    tn in label_normalized or label_normalized in tn
+                    for tn in tool_names_normalized
+                )
+                if not found:
+                    violations.append(
+                        PhantomViolation(
+                            step_number=0,
+                            field="attack_tree",
+                            category="phantom_tool_invocation",
+                            matched_text=leaf.label,
+                            reason=(
+                                f"Leaf node '{leaf.id}' in tool_execution zone "
+                                f"does not reference any tool from the inventory"
+                            ),
+                        )
+                    )
+
         # Populate the validation.phantom block on the scenario.
         phantom_records = [
             PhantomViolationRecord(
