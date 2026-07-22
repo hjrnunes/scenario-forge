@@ -739,7 +739,8 @@ class TestZoneOmissionTree:
             if v.rule == "zone_omission_tree"
         ]
         assert len(zone_violations) == 1
-        assert zone_violations[0].severity == "minor"
+        # "reasoning" is the terminal zone in ["input", "reasoning"] -> major
+        assert zone_violations[0].severity == "major"
         assert "reasoning" in zone_violations[0].message
 
     def test_zone_in_deep_child_passes(self):
@@ -943,7 +944,8 @@ Feature: Attack
             if v.rule == "zone_coverage_dropout"
         ]
         assert len(tree_violations) == 1  # reasoning missing from tree
-        assert tree_violations[0].severity == "minor"
+        # "reasoning" is the terminal zone in ["input", "reasoning"] -> major
+        assert tree_violations[0].severity == "major"
         assert len(dropout_violations) == 0  # NOT a dropout — Gherkin covers it
 
     def test_zone_missing_from_gherkin_only_no_dropout(self):

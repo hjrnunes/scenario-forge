@@ -1423,7 +1423,15 @@ def validate_scenario_semantics(
 
         # 6a. Zone omission — tree.
         tree_zones = _collect_tree_node_zones(scenario.attack_tree.root)
-        for zone in sorted(narrative_zones - tree_zones):
+        omitted_tree_zones = sorted(narrative_zones - tree_zones)
+        zone_seq = scenario.narrative.zone_sequence
+        terminal_zone = zone_seq[-1] if zone_seq else None
+        compound_omission = len(omitted_tree_zones) >= 2
+        for zone in omitted_tree_zones:
+            is_terminal = zone == terminal_zone
+            severity = (
+                "major" if is_terminal or compound_omission else "minor"
+            )
             violations.append(
                 SemanticViolation(
                     rule="zone_omission_tree",
@@ -1431,7 +1439,7 @@ def validate_scenario_semantics(
                         f"Zone '{zone}' in narrative zone_sequence "
                         f"but absent from attack tree nodes"
                     ),
-                    severity="minor",
+                    severity=severity,
                 )
             )
 

@@ -3,7 +3,7 @@ You are a security analyst formalizing an attack narrative into a structured AND
 ## Hard Constraints
 
 ### Zone Constraint (MANDATORY)
-- Every node's zone MUST be drawn from the narrative's zone sequence. If the narrative only traverses ["input", "reasoning"], all tree nodes MUST use one of those zones. Do NOT assign zones the system does not have.
+- Every node's zone MUST be drawn from the narrative's zone sequence. If the narrative only traverses ["input", "reasoning"], all tree nodes MUST use one of those zones. Do NOT assign zones the system does not have. Your tree MUST contain at least one node in EVERY zone listed in the narrative zone_sequence. Do not omit zones.
 {%- if zones_active is defined %}{% if 'inter_agent' not in zones_active %} Do not use inter_agent — the system does not have this zone.{% endif %}{% if 'tool_execution' not in zones_active %} Do not use tool_execution — the system does not have this zone.{% endif %}{% if 'memory' not in zones_active %} Do not use memory — the system does not have this zone.{% endif %}{% endif %}
 
 ### Ontology Context Constraint (MANDATORY)
