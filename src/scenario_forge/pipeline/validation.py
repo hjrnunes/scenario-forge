@@ -313,6 +313,15 @@ _SYSTEM_PROMPT_RETRIEVAL_PATTERNS = [
 ]
 
 
+# Attacker-context heuristic: words that indicate the surrounding text
+# describes attacker-side behavior rather than system capabilities.
+# Used by _check_code_execution for tree_label/gherkin fields (dv72).
+_ATTACKER_CONTEXT_RE = re.compile(
+    r"\b(?:attacker|actor|adversary|threat\s+agent|red\s+team)\b",
+    re.IGNORECASE,
+)
+
+
 # ---------------------------------------------------------------------------
 # Detection helpers
 # ---------------------------------------------------------------------------
@@ -321,6 +330,7 @@ _SYSTEM_PROMPT_RETRIEVAL_PATTERNS = [
 def _check_privilege_escalation(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references phantom privilege escalation.
 
@@ -351,6 +361,7 @@ def _check_privilege_escalation(
 def _check_credential_exposure(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references phantom credential exposure.
 
@@ -381,12 +392,26 @@ def _check_credential_exposure(
 def _check_code_execution(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references phantom code execution.
 
     Code execution is phantom when the profile's kc_subcodes don't include
     KC6.2.2 (extensive code execution) or KC6.5 (PC/filesystem operations).
+
+    Field-awareness (dv72):
+    - ``action`` fields describe attacker-side behavior (crafting payloads,
+      writing scripts) — code references there are expected, not phantom.
+    - ``tree_label`` and ``gherkin`` fields lack an action/effect split;
+      matches preceded within 20 chars by attacker-referencing words
+      (attacker, actor, adversary, threat agent, red team) are skipped
+      as a heuristic to avoid false positives.
     """
+    # Action fields describe what the ATTACKER does — code references
+    # there are expected behavior, not a phantom system capability.
+    if field_name == "action":
+        return None
+
     has_code_exec = any(
         code.startswith("KC6.2.2") or code.startswith("KC6.5")
         for code in profile.kc_subcodes
@@ -397,6 +422,13 @@ def _check_code_execution(
     for pattern in _CODE_EXECUTION_PATTERNS:
         m = pattern.search(text)
         if m:
+            # For tree labels and Gherkin (no action/effect split),
+            # skip matches preceded by attacker-referencing words.
+            if field_name in ("tree_label", "gherkin"):
+                start = max(0, m.start() - 20)
+                preceding = text[start : m.start()].lower()
+                if _ATTACKER_CONTEXT_RE.search(preceding):
+                    continue
             return m.group(0)
     return None
 
@@ -404,6 +436,7 @@ def _check_code_execution(
 def _check_mass_broadcasting(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references phantom mass broadcasting.
 
@@ -427,6 +460,7 @@ def _check_mass_broadcasting(
 def _check_cross_session_access(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references phantom cross-session access.
 
@@ -448,6 +482,7 @@ def _check_cross_session_access(
 def _check_session_introspection(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references phantom session introspection.
 
@@ -472,6 +507,7 @@ def _check_session_introspection(
 def _check_audit_monitoring_write(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references phantom audit/monitoring writes.
 
@@ -494,6 +530,7 @@ def _check_audit_monitoring_write(
 def _check_api_response_fabrication(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text assumes APIs return fabricated data types.
 
@@ -516,6 +553,7 @@ def _check_api_response_fabrication(
 def _check_system_prompt_retrieval(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text assumes the agent can retrieve its system prompt.
 
@@ -595,6 +633,7 @@ def _clean_tool_name(raw: str) -> str | None:
 def _check_phantom_tool_invocation(
     text: str,
     profile: CapabilityProfile,
+    field_name: str = "",
 ) -> str | None:
     """Return a match string if text references a tool/API/endpoint not in the profile.
 
@@ -751,7 +790,7 @@ def validate_phantom_capabilities(
             for field_name in ("action", "effect"):
                 text = getattr(step, field_name)
                 for category, checker, reason in _CHECKERS:
-                    matched = checker(text, profile)
+                    matched = checker(text, profile, field_name=field_name)
                     if matched is not None:
                         violations.append(
                             PhantomViolation(
@@ -767,7 +806,7 @@ def validate_phantom_capabilities(
         if scenario.attack_tree and scenario.attack_tree.root:
             for label in _collect_node_labels(scenario.attack_tree.root):
                 for category, checker, reason in _CHECKERS:
-                    matched = checker(label, profile)
+                    matched = checker(label, profile, field_name="tree_label")
                     if matched is not None:
                         violations.append(
                             PhantomViolation(
@@ -782,7 +821,9 @@ def validate_phantom_capabilities(
         # Also check Gherkin behavior_spec text
         if scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
             for category, checker, reason in _CHECKERS:
-                matched = checker(scenario.behavior_spec, profile)
+                matched = checker(
+                    scenario.behavior_spec, profile, field_name="gherkin"
+                )
                 if matched is not None:
                     violations.append(
                         PhantomViolation(
