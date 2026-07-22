@@ -1025,6 +1025,25 @@ class TestContextBuildersRenderTemplates:
         assert "Attack Pattern Example Adaptation (MANDATORY)" in result
         assert "Never literalize attack pattern examples" in result
 
+    def test_call0_system_template_renders_system_introspection_constraint(self):
+        """call0_system.j2 always renders the system-introspection negative constraint."""
+        from scenario_forge.prompts import render_prompt
+
+        ctx = build_call0_context(
+            seed=_make_seed(),
+            profile=_make_profile(kc_subcodes=["KC1.1"]),
+            use_case="test",
+        )
+        result = render_prompt(
+            "call0_system.j2",
+            minimum_capability_level=ctx["minimum_capability_level"],
+            compatible_actor_types=ctx["compatible_actor_types"],
+            tool_inventory=ctx["tool_inventory"],
+        )
+        assert "System-Introspection Negative Constraint (MANDATORY)" in result
+        assert "desires MUST NOT target system prompts" in result
+        assert "reframed to target the closest domain-data equivalent" in result
+
     def test_call0_user_template_renders_tool_inventory(self):
         """call0_user.j2 renders tool inventory when tools present."""
         from scenario_forge.prompts import render_prompt
