@@ -62,6 +62,7 @@ from scenario_forge.pipeline.profile import infer_capability_profile
 from scenario_forge.pipeline.validation import (
     check_leaf_technique_provenance,
     enforce_parsimony,
+    validate_gate_logic_consistency,
     validate_insider_access_floor,
     validate_phantom_capabilities,
     validate_scenario_semantics,
@@ -780,6 +781,24 @@ def run_pipeline(
         )
     else:
         logger.info("  All %d scenarios passed semantic validation", len(scenarios))
+
+    # --- Gate-Logic Consistency Pass ---
+    logger.info("[Validation] Checking gate-logic consistency...")
+    gate_logic_result = validate_gate_logic_consistency(scenarios)
+    if gate_logic_result.flagged_count:
+        for flagged_scenario, violation in gate_logic_result.flagged_scenarios:
+            logger.warning(
+                "  Gate-logic mismatch: %s — %s",
+                violation.scenario_id,
+                violation.reason,
+            )
+        logger.info(
+            "  %d/%d scenarios flagged for gate-logic inconsistency (warn only)",
+            gate_logic_result.flagged_count,
+            gate_logic_result.flagged_count + gate_logic_result.clean_count,
+        )
+    else:
+        logger.info("  All scenarios passed gate-logic consistency check")
 
     # --- Insider Access Floor Pass ---
     logger.info("[Validation] Checking insider access floor...")
