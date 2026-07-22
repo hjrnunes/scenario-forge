@@ -342,8 +342,8 @@ class TestCodeExecution:
     def test_python_script_execution_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "I trick the assistant into generating a Python script "
+                step_effects=[
+                    "The system generates a Python script "
                     "that exfiltrates data."
                 ],
             ),
@@ -358,7 +358,7 @@ class TestCodeExecution:
     def test_shell_command_execution_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=["The agent executes shell commands on the host system."],
+                step_effects=["The agent executes shell commands on the host system."],
             ),
         ]
         profile = _make_profile()
@@ -383,8 +383,8 @@ class TestCodeExecution:
         """No false positive when profile has KC6.2.2 (code execution)."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "I trick the assistant into generating a Python script "
+                step_effects=[
+                    "The system generates a Python script "
                     "that exfiltrates data."
                 ],
             ),
@@ -399,8 +399,8 @@ class TestCodeExecution:
         """No false positive when profile has KC6.5 (filesystem operations)."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "I trick the assistant into generating a Python script "
+                step_effects=[
+                    "The system generates a Python script "
                     "that exfiltrates data."
                 ],
             ),
@@ -987,7 +987,11 @@ class TestMixedScenarios:
             _make_envelope(
                 step_actions=[
                     "I escalate privileges to gain admin access.",
-                    "I trick the system into generating a Python script.",
+                    "I probe the system with edge-case inputs.",
+                ],
+                step_effects=[
+                    "The system grants elevated access.",
+                    "The system generates a Python script for the attacker.",
                 ],
             ),
         ]
@@ -1034,8 +1038,8 @@ class TestMixedScenarios:
                 scenario_id="s2",
             ),
             _make_envelope(
-                step_actions=[
-                    "I trick the system into generating a Python script."
+                step_effects=[
+                    "The system generates a Python script for the attacker."
                 ],
                 scenario_id="s3",
             ),
@@ -1179,8 +1183,8 @@ class TestV17EscapeeCodeExecution:
     def test_execute_distribute_malicious_payloads(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker tricks the agent to execute and distribute "
+                step_effects=[
+                    "The agent executes and distributes "
                     "malicious financial payloads to downstream systems."
                 ],
             ),
@@ -1729,8 +1733,8 @@ class TestV18CodeGenPatterns:
         """v17 AP-T8-02-427677: 'exploit code assembly'."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker leverages the agent for exploit code assembly "
+                step_effects=[
+                    "The agent performs exploit code assembly "
                     "targeting downstream services."
                 ],
             ),
@@ -1763,8 +1767,8 @@ class TestV18CodeGenPatterns:
         """v17 AP-T7-05-f6e7b4: 'obfuscated script synthesis'."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker instructs the agent to perform obfuscated "
+                step_effects=[
+                    "The agent performs obfuscated "
                     "script synthesis to evade detection."
                 ],
             ),
@@ -1797,8 +1801,8 @@ class TestV18CodeGenPatterns:
     def test_script_synthesis_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker triggers script synthesis through "
+                step_effects=[
+                    "The system performs script synthesis in response to "
                     "a carefully crafted prompt."
                 ],
             ),
@@ -1841,8 +1845,8 @@ class TestV18CodeGenPatterns:
     def test_code_synthesis_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker uses the system for code synthesis of "
+                step_effects=[
+                    "The system performs code synthesis of "
                     "data exfiltration routines."
                 ],
             ),
@@ -1871,8 +1875,8 @@ class TestV18CodeGenPatterns:
     def test_craft_script_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker tricks the agent into crafting a script "
+                step_effects=[
+                    "The agent crafted a script "
                     "that exfiltrates credentials."
                 ],
             ),
@@ -1903,8 +1907,8 @@ class TestV18CodeGenPatterns:
     def test_assemble_payload_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker instructs the agent to assemble "
+                step_effects=[
+                    "The agent assembles "
                     "a payload for data exfiltration."
                 ],
             ),
@@ -1949,8 +1953,8 @@ class TestV18CodeGenPatterns:
     def test_exploit_code_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker uses the system to prepare exploit code "
+                step_effects=[
+                    "The system prepares exploit code "
                     "for the authentication bypass."
                 ],
             ),
@@ -1991,8 +1995,8 @@ class TestV18CodeGenPatterns:
     def test_automated_script_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker triggers the creation of an automated "
+                step_effects=[
+                    "The system creates an automated "
                     "script for data exfiltration."
                 ],
             ),
@@ -2086,7 +2090,7 @@ class TestV18CodeGenPatterns:
         """All v18 patterns are suppressed when profile has KC6.2.2."""
         scenarios = [
             _make_envelope(
-                step_actions=[
+                step_effects=[
                     "The agent performs exploit code assembly for the attacker."
                 ],
                 scenario_id="s1",
@@ -2099,7 +2103,7 @@ class TestV18CodeGenPatterns:
                 scenario_id="s2",
             ),
             _make_envelope(
-                step_actions=[
+                step_effects=[
                     "The agent carries out obfuscated script synthesis."
                 ],
                 scenario_id="s3",
@@ -2121,7 +2125,7 @@ class TestV18CodeGenPatterns:
         """All v18 patterns are suppressed when profile has KC6.5."""
         scenarios = [
             _make_envelope(
-                step_actions=[
+                step_effects=[
                     "The agent crafts a script for data exfiltration."
                 ],
             ),

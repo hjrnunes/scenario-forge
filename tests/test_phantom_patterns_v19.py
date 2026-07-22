@@ -297,9 +297,9 @@ class TestEscapee2CodeExecutionAutomationScripts:
         """Full pipeline catches 'automation scripts'."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The attacker wraps requests for complex automation "
-                    "scripts within fragmented customer inquiries."
+                step_effects=[
+                    "The system produces complex automation "
+                    "scripts in response to fragmented customer inquiries."
                 ],
             ),
         ]
