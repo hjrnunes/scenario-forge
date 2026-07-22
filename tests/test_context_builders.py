@@ -1095,3 +1095,13 @@ class TestContextBuildersRenderTemplates:
         )
         result = render_prompt("call3_user.j2", **ctx)
         assert "Test narrative" in result
+
+    def test_call3_system_template_contains_capability_boundary_constraint(self):
+        """call3_system.j2 contains the capability boundary constraint."""
+        from scenario_forge.prompts import render_prompt
+
+        result = render_prompt("call3_system.j2")
+        assert "Capability Boundary (MANDATORY)" in result
+        assert "session tokens" in result
+        assert "Do NOT introduce platform-level security concepts" in result
+        assert "based on the scenario's architecture" in result
