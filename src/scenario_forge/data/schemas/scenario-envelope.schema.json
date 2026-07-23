@@ -179,6 +179,12 @@
             { "type": "null" }
           ]
         },
+        "tactic": {
+          "oneOf": [
+            { "type": "string", "pattern": "^AML\\.TA\\d{4}$" },
+            { "type": "null" }
+          ]
+        },
         "maestro_layer": {
           "oneOf": [
             { "type": "integer", "minimum": 1, "maximum": 7 },
