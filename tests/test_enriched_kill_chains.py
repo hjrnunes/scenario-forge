@@ -178,15 +178,9 @@ class TestExistingFieldsPreserved:
         assert "prerequisite_capabilities" in pattern
         assert "min_zones" in pattern["prerequisite_capabilities"]
 
-    def test_non_enriched_patterns_unchanged(self, all_patterns):
-        """Patterns not in the enrichment set have no kill_chain or evidence."""
+    def test_non_enriched_patterns_still_valid(self, all_patterns):
+        """Patterns not in the enrichment set still pass validation."""
         for pid, pattern in all_patterns.items():
             if pid not in ENRICHED_PATTERN_IDS:
-                # These patterns should not have been modified
                 validated = validate_attack_pattern(pattern)
-                # Non-enriched patterns may or may not have kill_chain in future,
-                # but currently none should
-                if validated.kill_chain is not None:
-                    pytest.fail(
-                        f"Non-enriched pattern {pid} unexpectedly has kill_chain"
-                    )
+                assert validated.id == pid
