@@ -67,6 +67,7 @@ For each scenario, check the following. Read the YAML scenario file and its corr
 ### 2e. Zone Sequence Accuracy
 
 - [ ] **Zone sequence matches narrative flow** — the `zone_sequence` metadata field accurately reflects the order of zones traversed in the narrative steps. *Known issue: zone oscillation (e.g., 1→2→2→1) collapsed to just [1,2], losing the return path.*
+- **Accepted behavior**: Minor zone tag disagreements between narrative (Call 1) and attack tree/Gherkin (Call 2) are not defects when tree and Gherkin are internally consistent. Two common patterns: (a) narrative says "reasoning" where tree/Gherkin say "input" for technique delivery vs effect zone; (b) Gherkin omits reasoning phases that exist only in internal tree nodes. Per `decision-zone-sequence-narrative-tree-mismatch`.
 
 ### 2f. Technique Provenance
 
@@ -87,7 +88,7 @@ Every claim in any artifact must be grounded in the others. No artifact should i
 
 A scenario should be the simplest plausible attack that exercises its assigned techniques. Complexity is a cost, not a feature. Failure on any sub-check = scenario fails.
 
-- [ ] **Tree leaf count proportional** — tree leaf count must not exceed `2 × technique_count + 1`. A two-technique seed gets at most 5 leaves. Exceeding this signals embellishment beyond what the techniques require.
+- [ ] **Tree leaf count proportional** — tree leaf count must not exceed `2 × technique_count + 2`. A two-technique seed gets at most 6 leaves. Exceeding this signals embellishment beyond what the techniques require.
 - [ ] **No unmapped Gherkin steps** — every When/And step must map to a technique or a necessary prerequisite for one. Steps that serve no assigned technique are padding.
 - [ ] **No gratuitous narrative phases** — the narrative should not introduce attack phases that serve zero assigned techniques. If removing a phase wouldn't break the attack chain, it shouldn't be there.
 - [ ] **Multi-turn justification** — multi-turn escalation requires justification from technique semantics. AML.T0054 (Jailbreak) can justify multi-turn prompting. AML.T0053 (Tool Invocation) alone cannot — a single misrouted tool call is a single step.

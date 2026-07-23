@@ -1,54 +1,42 @@
 # Mayor Dashboard
 
-**Updated**: 2026-07-16T11:00
+**Updated**: 2026-07-21T14:00
 **Resume**: `You are the mayor for this repository.`
-
-## Needs operator now
-
-**Discussing Stage 4 architecture changes.** Two proposals from the generation flow audit:
-1. Tree-anchored flow — deterministic skeleton from pinned techniques, LLM fills in structure (option A proposed)
-2. Deterministic Gherkin — template mechanical parts, LLM writes only Then/But/* assertions
-
-Awaiting operator decision on approach before filing beads.
-
-**Also pending:**
-- Dispatch 8dqn + s15f (ready, disjoint surfaces, can go parallel)
-- v17 QA triage priorities 4-6 undiscussed
-- Parsimony approach: superseded if tree-anchored flow adopted
 
 ## In-flight work
 
-None. Quiescent.
+None.
 
 ### Open PRs: 0
 
-### Tracker: 3 open / 272 closed
+Merged this session: #221 (bv5s), #222 (cu1p+prx7), #223 (an8v), #224 (4w56), #225 (suke+5l55), #226 (0lfx), #227 (oo3g), #228 (cxy4).
 
-| Bead | Task | Priority | Status |
-|------|------|----------|--------|
-| scenario-forge-8dqn | Gate T3-01 seeds with KCX-PRIV prerequisite | P2 | open, dispatchable |
-| scenario-forge-s15f | Expand phantom checker for code gen patterns | P2 | open, dispatchable |
-| scenario-forge-7ls4 | Cross-artifact consistency + parsimony validation passes | P2 | open |
+### Tracker: 0 open, 0 in progress, 3 deferred
 
-### Recently closed
+**Deferred:** 9t4c, 7ov6, is98
 
-| Bead | Result |
-|------|--------|
-| es23 | BDI voice experiment — rejected (phantom reduction modest, plausibility regressed) |
+## Session summary
 
-### Recently merged
+8 beads filed and closed from OcciAI v2 QA:
+- **an8v** — Boolean flags computed from KC codes (PR #223)
+- **4w56** — Tool inventory required when tool_execution active (PR #224)
+- **cu1p** — Static conditionals → Jinja2 conditionals in prompts (PR #222)
+- **prx7** — Attack pattern example adaptation instruction (PR #222)
+- **bv5s** — Cross-artifact consistency validators (PR #221)
 
-| PR | Title | Bead |
-|----|-------|------|
-| #167 | feat(pipeline): log all LLM calls and show in report | 24be |
-| #166 | fix(report): streamline capability profile section | ght7 |
-| #165 | fix(prompts): clean up user prompt structure | 6gyn |
+3 beads filed and closed from OcciAI v3 QA:
+- **suke** — Data-type grounding in prompts (PR #225)
+- **5l55** — Tool capability bounding (PR #225)
+- **0lfx** — Seed technique provenance validator (PR #226)
+
+QA progression: v2 (66.7%) → v3 (82.1%) → v4 (81.5%, flat but 6 fixes / 6 new).
+Key v4 finding: hard post-generation gates (0lfx) categorically eliminate defects; soft prompt signals (suke, 5l55) fix specific instances but don't prevent variant modes.
+
+New capability profiles: Klarna (6 tools), OcciAI (2 tools), Airbnb-Amadeus (7 tools).
 
 ## Posture
 
 - **Stance**: Pre-alpha, correctness-first. Merge-on-green.
-- **Latest pushed**: `82ce86f`
-- **Branch**: master (clean)
-- **Local-only commits**: 0
-- **Worktrees**: 0
-- **Uncommitted files**: dashboard, beads, CLAUDE.md, mayor commands, QA checklist
+- **Latest pushed**: `ffc3c96`
+- **Branch**: master (clean), 1991 tests passing
+- **Next**: Re-run OcciAI v5 and Airbnb v2 with oo3g+cxy4 fixes to measure impact.
