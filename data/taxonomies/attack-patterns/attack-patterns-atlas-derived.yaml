@@ -1,0 +1,453 @@
+# Abstract attack patterns derived from MITRE ATLAS case studies.
+# Each pattern is abstracted from a real-world incident using the
+# Strip/Keep/Abstract/Add methodology (see staging/case-study-abstraction-strategy.md).
+# Domain-agnostic mechanism descriptions — all case-study-specific details removed.
+
+source:
+  name: "scenario-forge abstract attack patterns (ATLAS-derived)"
+  version: "0.1.0"
+  derived_from:
+    - "MITRE ATLAS v6 Case Studies (2024-2025)"
+    - "OWASP Agentic AI Threats & Mitigations v1.1"
+
+patterns:
+  # ═══════════════════════════════════════════════════════════════════
+  # AP-T6-06 — AI agent as persistent C2 implant (CS0051)
+  # Unique kill chain (longest, 8 steps). Agent compromised through
+  # prompt injection with control sequence spoofing, installed as C2
+  # implant with persistence and lateral movement.
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T6-06:
+    id: "AP-T6-06"
+    threat_id: "T6"
+    name: "AI agent as persistent C2 implant via control sequence spoofing"
+    description: >
+      An attacker studies an AI agent's internal control sequences and
+      crafts a prompt injection that spoofs the agent's own runtime
+      delimiters to fabricate a fake interaction history showing user
+      approval. When the agent fetches attacker-controlled content, the
+      injection activates and instructs the agent to download a C2 polling
+      script and modify a configuration file that is prepended to every
+      future system prompt, establishing persistent command-and-control
+      across all subsequent sessions.
+
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution", "memory"]
+      kc_requires:
+        all: [KCX-PMEM]
+        any: [KC6.1.1, KC6.1.2, KC6.4, KC6.5]
+
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0095]
+        abstract_action: >
+          Study the target agent's open-source configuration to
+          identify control sequences, system prompt structure, and
+          configuration file locations.
+      - step: discovery
+        tactic: AML.TA0008
+        techniques: [AML.T0069]
+        abstract_action: >
+          Identify special characters and control sequences used
+          by the agent's runtime to delimit user messages, tool
+          results, and internal reasoning.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0079]
+        abstract_action: >
+          Craft a multi-stage prompt injection that spoofs the
+          agent's internal control sequences to fabricate a fake
+          interaction history showing user approval. Stage the
+          injection and a C2 polling script on external infrastructure.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0078]
+        abstract_action: >
+          Lure or direct the agent to fetch content from the
+          attacker-controlled resource, ingesting the injection.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051, AML.T0054]
+        abstract_action: >
+          The injection activates, spoofing internal control flow
+          to bypass safety alignment and induce the agent to
+          download and execute an external script.
+      - step: persistence
+        tactic: AML.TA0006
+        techniques: [AML.T0081, AML.T0080]
+        abstract_action: >
+          The script modifies a configuration file that is appended
+          to every system prompt, persistently injecting C2 polling
+          instructions into all future sessions.
+      - step: c2_activation
+        tactic: AML.TA0014
+        techniques: [AML.T0108]
+        abstract_action: >
+          On a trigger (user greeting, scheduled interval), the
+          compromised agent fetches a task list from the attacker's
+          server and executes the listed commands, acting as a
+          persistent C2 node.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0112]
+        abstract_action: >
+          The agent's behavior is permanently hijacked; it executes
+          attacker commands while continuing to appear normal to
+          the user. Full machine compromise via the agent's tool
+          capabilities.
+
+    evidence:
+      - source: "AML.CS0051"
+        type: "direct_demonstration"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # AP-T11-05 — Computer-use agent exploitation via adversarial web
+  # content (CS0055). Alpha template. Adversarial web content triggers
+  # computer-use agent to execute attacker actions.
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T11-05:
+    id: "AP-T11-05"
+    threat_id: "T11"
+    name: "Computer-use agent exploitation via adversarial web content"
+    description: >
+      An attacker crafts web content containing elements designed to
+      attract and manipulate a computer-use AI agent. The content
+      includes agent-targeted clickbait that triggers interaction,
+      client-side scripts that load malicious commands into the
+      clipboard, and embedded instructions that direct the agent to
+      open a terminal and execute the clipboard contents. The agent's
+      ability to control keyboard, mouse, and clipboard bridges the
+      gap from web content to arbitrary code execution on the host.
+
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "tool_execution"]
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.4, KC6.5]
+
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0017, AML.T0079]
+        abstract_action: >
+          Create adversarial web content designed to manipulate
+          computer-use agents, including agent-targeted interactive
+          elements and scripts that load commands into the clipboard.
+          Stage the content on a web-accessible location.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0078]
+        abstract_action: >
+          The computer-use agent navigates to or is directed to the
+          adversarial web content, ingesting it into its visual and
+          textual context.
+      - step: engagement
+        tactic: AML.TA0005
+        techniques: [AML.T0100]
+        abstract_action: >
+          Agent-targeted clickbait content (e.g., identity-probing
+          text, verification prompts) causes the agent to interact
+          with the page, triggering client-side scripts.
+      - step: injection
+        tactic: AML.TA0005
+        techniques: [AML.T0051]
+        abstract_action: >
+          Embedded instructions direct the agent to perform a
+          sequence of GUI actions: open a terminal, paste clipboard
+          contents, and execute.
+      - step: execution
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent uses its computer-use capabilities to execute
+          the attacker's command on the host system, bridging from
+          web context to OS-level code execution.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0112]
+        abstract_action: >
+          Arbitrary code executes on the host with the agent's
+          privileges, achieving full machine compromise.
+
+    evidence:
+      - source: "AML.CS0055"
+        type: "direct_demonstration"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # AP-T17-03 — MCP tool supply chain poisoning via namesquatting
+  # (CS0053). Beta template. MCP tool registry namesquatting to get
+  # malicious tool installed and exfiltrate data.
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T17-03:
+    id: "AP-T17-03"
+    threat_id: "T17"
+    name: "Tool supply chain poisoning via registry namesquatting"
+    description: >
+      An attacker registers a package name on a public tool registry
+      before the legitimate maintainer claims it, then publishes a
+      functional tool to build trust and adoption. After sufficient
+      user base, the attacker publishes a malicious update that adds
+      a covert exfiltration side-channel to the tool's normal operation.
+      Users receive the poisoned version through routine dependency
+      updates, and every subsequent tool invocation silently leaks data
+      to the attacker.
+
+    prerequisite_capabilities:
+      min_zones: ["input", "tool_execution"]
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2]
+
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0007
+        techniques: [AML.T0073]
+        abstract_action: >
+          Impersonate a legitimate service by registering a matching
+          package name on a public tool registry before the official
+          maintainer claims it.
+      - step: trust_building
+        tactic: AML.TA0003
+        techniques: [AML.T0017]
+        abstract_action: >
+          Publish a legitimate, functional version of the tool to
+          build trust and user adoption over time.
+      - step: poisoning
+        tactic: AML.TA0003
+        techniques: [AML.T0104]
+        abstract_action: >
+          After sufficient adoption, publish a malicious update that
+          subtly modifies tool behavior to include an exfiltration
+          side-channel (e.g., hidden data forwarding).
+      - step: evasion
+        tactic: AML.TA0007
+        techniques: [AML.T0109]
+        abstract_action: >
+          The rug-pull timing evades scrutiny applied to new tools;
+          updates from already-trusted packages receive minimal review.
+      - step: distribution
+        tactic: AML.TA0004
+        techniques: [AML.T0010]
+        abstract_action: >
+          Users upgrade to the poisoned version through normal
+          dependency management, receiving the malicious tool via
+          the compromised supply chain.
+      - step: persistence
+        tactic: AML.TA0006
+        techniques: [AML.T0110]
+        abstract_action: >
+          The poisoned tool persists in agent configurations as a
+          set-and-forget dependency, maintaining compromise until
+          explicitly detected and removed.
+      - step: exfiltration
+        tactic: AML.TA0010
+        techniques: [AML.T0086]
+        abstract_action: >
+          Every normal invocation of the poisoned tool exfiltrates
+          data through its built-in side-channel, piggybacking on
+          legitimate tool operation.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          Sensitive data is continuously leaked to the attacker
+          through the tool's normal operation, potentially exposing
+          user data, business communications, or credentials.
+
+    evidence:
+      - source: "AML.CS0053"
+        type: "direct_demonstration"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # AP-T1-06 — Zero-click RAG poisoning with rendered-output
+  # exfiltration (CS0059). Unique kill chain. RAG poisoning that
+  # exfils data through rendered output (markdown images, links).
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T1-06:
+    id: "AP-T1-06"
+    threat_id: "T1"
+    name: "Zero-click RAG poisoning with rendered-output exfiltration"
+    description: >
+      An attacker delivers content disguised as legitimate business
+      material into a data corpus that feeds an AI assistant's RAG
+      pipeline. When a user's query triggers retrieval of the poisoned
+      content, hidden instructions activate without any direct user
+      interaction with the malicious content. The injection instructs
+      the AI to search for sensitive data and encode it into rendered
+      output elements (such as markdown image URLs) that the client
+      application automatically fetches, exfiltrating data to an
+      attacker-controlled endpoint without user awareness.
+
+    prerequisite_capabilities:
+      min_zones: ["input", "reasoning", "memory"]
+      kc_requires:
+        all: [KCX-VSTORE]
+        any: [KC4.3, KC4.4, KC4.5, KC4.6]
+
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "black_box"
+      learning_stage: "deployment"
+      attack_class: "genai.indirect_prompt_injection.abuse_violations"
+
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066, AML.T0079]
+        abstract_action: >
+          Craft a prompt injection disguised as benign business
+          content, designed to be retrieved by the target AI's
+          RAG pipeline. Stage an exfiltration endpoint to receive
+          data encoded in URL parameters.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Deliver the crafted content through a channel that feeds
+          into the AI assistant's data corpus (email, shared
+          document, knowledge base entry).
+      - step: ingestion
+        tactic: AML.TA0006
+        techniques: [AML.T0070]
+        abstract_action: >
+          The content is automatically indexed into the RAG
+          database, establishing a dormant injection that activates
+          when semantically relevant queries trigger retrieval.
+      - step: activation
+        tactic: AML.TA0005
+        techniques: [AML.T0051]
+        abstract_action: >
+          When a user invokes the AI assistant with a query that
+          triggers retrieval of the poisoned content, the hidden
+          instructions activate without any user interaction with
+          the malicious content itself.
+      - step: collection
+        tactic: AML.TA0009
+        techniques: [AML.T0085]
+        abstract_action: >
+          The activated injection instructs the AI to search the
+          user's accessible data corpus for sensitive information
+          matching attacker-specified criteria.
+      - step: exfiltration
+        tactic: AML.TA0010
+        techniques: [AML.T0077, AML.T0025]
+        abstract_action: >
+          The AI encodes the collected sensitive data into a
+          rendered output element (e.g., markdown image URL) that
+          the client automatically fetches, exfiltrating data
+          to the attacker's endpoint without user action.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          Confidential enterprise data is exfiltrated to the
+          attacker, potentially including business communications,
+          project details, and personal information.
+
+    evidence:
+      - source: "AML.CS0059"
+        type: "direct_demonstration"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # AP-T3-04 — Exposed agent control interface exploitation (CS0048).
+  # Gamma template. Exposed API or management interface allows direct
+  # agent manipulation.
+  # ═══════════════════════════════════════════════════════════════════
+
+  AP-T3-04:
+    id: "AP-T3-04"
+    threat_id: "T3"
+    name: "Exposed agent control interface exploitation"
+    description: >
+      An attacker discovers an AI agent's management or control
+      interface exposed on the public internet with weak or absent
+      authentication. Through this interface the attacker harvests
+      plaintext credentials for connected services, sends arbitrary
+      prompts to exploit the agent's instruction-following behavior,
+      and escalates to host-level access via the agent's tool
+      capabilities. The harvested credentials enable lateral movement
+      across the agent's entire connected service ecosystem.
+
+    prerequisite_capabilities:
+      min_zones: ["input", "tool_execution"]
+      kc_requires:
+        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.4, KC6.5]
+
+    nist_classification:
+      attacker_goal: "abuse"
+      attacker_knowledge: "gray_box"
+      learning_stage: "deployment"
+
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0000]
+        abstract_action: >
+          Scan for exposed AI agent control interfaces on the
+          public internet using search engines, port scanners, or
+          specialized databases.
+      - step: initial_access
+        tactic: AML.TA0004
+        techniques: [AML.T0049]
+        abstract_action: >
+          Access the exposed control interface, exploiting weak
+          or absent authentication, proxy misconfigurations, or
+          default credentials.
+      - step: credential_harvest
+        tactic: AML.TA0013
+        techniques: [AML.T0083]
+        abstract_action: >
+          Access the agent's configuration through the control
+          interface, harvesting plaintext credentials for connected
+          services (API keys, messaging tokens, OAuth credentials).
+      - step: agent_exploitation
+        tactic: AML.TA0005
+        techniques: [AML.T0051]
+        abstract_action: >
+          Use the control interface to send arbitrary prompts to
+          the agent, exploiting its instruction-following behavior.
+      - step: privilege_escalation
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          Prompt the agent to invoke its tool capabilities (bash,
+          system commands) to achieve elevated access on the host.
+      - step: lateral_movement
+        tactic: AML.TA0010
+        techniques: [AML.T0025]
+        abstract_action: >
+          Use harvested credentials to access connected services
+          (messaging platforms, cloud APIs), exfiltrating data
+          across the agent's entire connected service ecosystem.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The attacker gains access to the user's entire digital
+          footprint through the agent's connected services,
+          enabling impersonation, data theft, and chat manipulation.
+
+    evidence:
+      - source: "AML.CS0048"
+        type: "direct_demonstration"
