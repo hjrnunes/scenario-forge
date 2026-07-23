@@ -1,0 +1,30 @@
+# SSSOM TSV for scenario-forge abstract attack patterns (ATLAS-derived)
+# Provenance mappings: MITRE ATLAS technique correspondences for patterns
+# abstracted from ATLAS case studies (CS0048, CS0051, CS0053, CS0055, CS0059).
+# Technique selection: 2-4 most distinctive per pattern; generic techniques
+# (e.g. AML.T0065 Prompt Crafting, AML.T0051 LLM Prompt Injection) excluded
+# per abstraction strategy section 7.5.
+# curie_map:
+#   scenario-forge: https://github.com/hjrnunes/scenario-forge/
+#   mitre-atlas: https://atlas.mitre.org/
+#   skos: http://www.w3.org/2004/02/skos/core#
+#   semapv: https://w3id.org/semapv/vocab/
+subject_id	subject_source	predicate_id	object_id	object_source	mapping_justification
+AP-T6-06	scenario-forge	skos:relatedMatch	AML.T0095	mitre-atlas	semapv:ManualMappingCuration
+AP-T6-06	scenario-forge	skos:relatedMatch	AML.T0069	mitre-atlas	semapv:ManualMappingCuration
+AP-T6-06	scenario-forge	skos:relatedMatch	AML.T0081	mitre-atlas	semapv:ManualMappingCuration
+AP-T6-06	scenario-forge	skos:relatedMatch	AML.T0108	mitre-atlas	semapv:ManualMappingCuration
+AP-T11-05	scenario-forge	skos:relatedMatch	AML.T0017	mitre-atlas	semapv:ManualMappingCuration
+AP-T11-05	scenario-forge	skos:relatedMatch	AML.T0100	mitre-atlas	semapv:ManualMappingCuration
+AP-T11-05	scenario-forge	skos:relatedMatch	AML.T0053	mitre-atlas	semapv:ManualMappingCuration
+AP-T17-03	scenario-forge	skos:relatedMatch	AML.T0073	mitre-atlas	semapv:ManualMappingCuration
+AP-T17-03	scenario-forge	skos:relatedMatch	AML.T0104	mitre-atlas	semapv:ManualMappingCuration
+AP-T17-03	scenario-forge	skos:relatedMatch	AML.T0109	mitre-atlas	semapv:ManualMappingCuration
+AP-T17-03	scenario-forge	skos:relatedMatch	AML.T0086	mitre-atlas	semapv:ManualMappingCuration
+AP-T1-06	scenario-forge	skos:relatedMatch	AML.T0093	mitre-atlas	semapv:ManualMappingCuration
+AP-T1-06	scenario-forge	skos:relatedMatch	AML.T0070	mitre-atlas	semapv:ManualMappingCuration
+AP-T1-06	scenario-forge	skos:relatedMatch	AML.T0085	mitre-atlas	semapv:ManualMappingCuration
+AP-T1-06	scenario-forge	skos:relatedMatch	AML.T0077	mitre-atlas	semapv:ManualMappingCuration
+AP-T3-04	scenario-forge	skos:relatedMatch	AML.T0000	mitre-atlas	semapv:ManualMappingCuration
+AP-T3-04	scenario-forge	skos:relatedMatch	AML.T0049	mitre-atlas	semapv:ManualMappingCuration
+AP-T3-04	scenario-forge	skos:relatedMatch	AML.T0083	mitre-atlas	semapv:ManualMappingCuration
