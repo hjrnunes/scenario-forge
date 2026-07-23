@@ -35,6 +35,50 @@ patterns:
       kc_requires:
         all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0068]
+        abstract_action: >
+          Craft an adversarial prompt injection containing false operational
+          rules and conceal it within content that the agent's connected
+          application will ingest.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Deliver the poisoned content through a connected application
+          channel that the agent treats as a trusted data source.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          When a user references the shared content, the agent ingests
+          it into its context and the hidden prompt injection executes.
+      - step: persistence
+        tactic: AML.TA0006
+        techniques: [AML.T0080.000]
+        abstract_action: >
+          The injection writes attacker-controlled false rules into the
+          agent's persistent memory store, establishing cross-session
+          persistence that overrides legitimate validation logic.
+      - step: propagation
+        tactic: AML.TA0006
+        techniques: [AML.T0093]
+        abstract_action: >
+          The poisoned content remains in the shared channel, acting as
+          a persistent infection vector that compromises additional
+          users who access it.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048.003]
+        abstract_action: >
+          The agent operates with corrupted memory, authorizing actions
+          that violate its actual constraints based on attacker-controlled
+          false rules persisted across sessions.
+    evidence:
+      - source: "AML.CS0040"
+        type: "enrichment"
 
   AP-T1-02:
     id: "AP-T1-02"

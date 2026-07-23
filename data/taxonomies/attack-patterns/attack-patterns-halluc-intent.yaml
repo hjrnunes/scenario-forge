@@ -227,6 +227,58 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.2.2]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0004]
+        abstract_action: >
+          Identify AI agent frameworks or applications that use code
+          execution sinks (eval, exec, or equivalent) on parameters
+          derived from user input or LLM output.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a prompt designed to cause the agent to invoke tool
+          call chains that pass attacker-controlled data into code
+          execution sinks within the framework.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0049]
+        abstract_action: >
+          Submit the crafted prompt to the agent through its public-
+          facing interface or inject it via an indirect channel the
+          agent consumes.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          The prompt injection causes the agent to prepare a tool
+          invocation with attacker-controlled arguments targeting
+          a code execution sink.
+      - step: tool_invocation
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent invokes the tool, passing attacker-controlled
+          data through the call chain into the code execution sink.
+      - step: code_execution
+        tactic: AML.TA0005
+        techniques: [AML.T0050]
+        abstract_action: >
+          The attacker's input is evaluated as code within the
+          framework's execution environment, achieving arbitrary
+          code execution on the host.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0112.000]
+        abstract_action: >
+          The attacker gains full control of the system running
+          the AI agent, enabling data theft, persistence, or
+          further lateral movement.
+    evidence:
+      - source: "AML.CS0052"
+        type: "enrichment"
 
   AP-T11-02:
     id: "AP-T11-02"
@@ -247,6 +299,46 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.2.2]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a prompt designed to cause the AI agent to invoke a
+          tool with attacker-controlled arguments that will escape
+          the intended parameter context and achieve code execution.
+      - step: delivery
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the crafted prompt to the agent, causing it to
+          prepare a tool invocation using the malicious argument
+          as a tool parameter value.
+      - step: tool_invocation
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent invokes the tool with the attacker-controlled
+          argument, passing it to a function that evaluates the
+          parameter as executable code.
+      - step: code_execution
+        tactic: AML.TA0005
+        techniques: [AML.T0050]
+        abstract_action: >
+          The tool parameter is evaluated in an execution sink
+          (such as eval or a scripting interpreter), allowing the
+          attacker's input to escape the intended context and
+          execute arbitrary code.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0112]
+        abstract_action: >
+          Arbitrary code executes on the host with the agent's
+          privileges, compromising the machine running the AI
+          agent framework.
+    evidence:
+      - source: "AML.CS0062"
+        type: "enrichment"
 
   AP-T11-03:
     id: "AP-T11-03"
