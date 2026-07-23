@@ -1,5 +1,13 @@
 """scenario-forge models — Pydantic models for all pipeline artifacts."""
 
+from scenario_forge.models.attack_pattern import (
+    AttackPattern,
+    EvidenceLink,
+    KillChainStep,
+    NistClassification,
+    PrerequisiteCapabilities,
+    validate_attack_pattern,
+)
 from scenario_forge.models.attack_tree import (
     AttackTree,
     AttackTreeNode,
@@ -58,6 +66,13 @@ from scenario_forge.models.scenario import (
 )
 
 __all__ = [
+    # attack_pattern
+    "AttackPattern",
+    "EvidenceLink",
+    "KillChainStep",
+    "NistClassification",
+    "PrerequisiteCapabilities",
+    "validate_attack_pattern",
     # attack_tree
     "AttackTree",
     "AttackTreeNode",
