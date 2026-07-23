@@ -95,6 +95,11 @@ class AttackTreeNode(BaseModel):
         description="Technique ID applicable to this node — MITRE ATLAS (e.g. 'AML.T0051') or LAAF (e.g. 'S1', 'M2').",
         pattern=r"^(AML\.T\d{4}(\.\d{3})?|[SML]\d+)$",
     )
+    tactic: Optional[str] = Field(
+        default=None,
+        description="MITRE ATLAS tactic phase for this attack step (e.g. 'AML.TA0005' for Execution).",
+        pattern=r"^AML\.TA\d{4}$",
+    )
     maestro_layer: Optional[int] = Field(
         default=None,
         description="MAESTRO architectural layer targeted by this step (1-7).",

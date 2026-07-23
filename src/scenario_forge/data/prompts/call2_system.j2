@@ -110,6 +110,23 @@ root:
     to T1 for prompt injection — prompt injection that alters agent goals is T6, not T1.
     T1 is strictly about corrupting the agent's persistent or session memory stores.
   - technique_id: see Technique ID Constraint above
+  - tactic: MITRE ATLAS tactic phase ID (format: AML.TAnnnn). Assign when the node represents an action that aligns with a recognized ATLAS tactic phase. Optional for intermediate logical nodes (AND/OR gates representing conditions rather than actions). Valid values:
+      AML.TA0000: AI Model Access
+      AML.TA0001: AI Attack Staging
+      AML.TA0002: Reconnaissance
+      AML.TA0003: Resource Development
+      AML.TA0004: Initial Access
+      AML.TA0005: Execution
+      AML.TA0006: Persistence
+      AML.TA0007: Defense Evasion
+      AML.TA0008: Discovery
+      AML.TA0009: Collection
+      AML.TA0010: Exfiltration
+      AML.TA0011: Impact
+      AML.TA0012: Privilege Escalation
+      AML.TA0013: Credential Access
+      AML.TA0014: Command and Control
+      AML.TA0015: Lateral Movement
   - maestro_layer: MAESTRO architectural layer (1-7)
   - control_point: the defensive control that should block or detect this step
   - structural_exposure: one of single_point_of_failure, convergence_point, probabilistic_control, defense_in_depth_claim
