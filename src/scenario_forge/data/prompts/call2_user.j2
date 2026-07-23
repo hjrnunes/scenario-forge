@@ -5,6 +5,16 @@ The attack tree must formalize the narrative below, which is a concrete instance
 - Threat category: {{ seed.threat_name }} — {{ seed.threat_description }}
 - Use case: {{ use_case }}
 {{ ontology_context | default('') }}
+{% if kill_chain is defined and kill_chain %}
+## Kill Chain Scaffold
+Align the attack tree structure with this tactical progression. Each kill chain step should map to one or more tree nodes. Use the `tactic` field on nodes to indicate which phase each step belongs to.
+
+{% for step in kill_chain %}
+{{ loop.index }}. **{{ step.step | title }}** ({{ step.tactic }})
+   Techniques: {{ step.techniques | join(', ') }}
+   {{ step.abstract_action }}
+{% endfor %}
+{% endif %}
 {{ arch_section }}{% if tool_inventory %}
 ## Available Tools (MANDATORY — do NOT reference tools outside this list)
 {% for tool in tool_inventory %}

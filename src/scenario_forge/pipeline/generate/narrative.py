@@ -380,6 +380,7 @@ def build_call1_context(
         "kc_definitions": kc_definitions,
         "ontology_context": ontology_context,
         "tool_inventory": profile.tool_inventory or [],
+        "kill_chain": seed.kill_chain,
     }
 
 
