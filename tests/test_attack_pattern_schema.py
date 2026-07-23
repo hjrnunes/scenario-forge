@@ -424,10 +424,9 @@ class TestLoaderPassThrough:
             assert "id" in pattern, f"{pid} missing 'id'"
             assert "threat_id" in pattern, f"{pid} missing 'threat_id'"
 
-    def test_existing_patterns_validate_without_kill_chain(self):
-        """All existing patterns validate through the model (kill_chain optional)."""
+    def test_existing_patterns_validate(self):
+        """All existing patterns validate through the model."""
         patterns = load_attack_patterns()
         for pid, pattern in patterns.items():
             validated = validate_attack_pattern(pattern)
             assert validated.id == pid
-            assert validated.kill_chain is None

@@ -184,6 +184,60 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC5.1, KC6.4]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0079, AML.T0065]
+        abstract_action: >
+          Stage a malicious payload on external infrastructure and craft
+          a prompt injection designed to cause the AI agent to load and
+          execute it. Conceal the injection using obfuscation techniques
+          to evade human review.
+      - step: obfuscation
+        tactic: AML.TA0007
+        techniques: [AML.T0068]
+        abstract_action: >
+          Hide the malicious prompt within a configuration or rules file
+          using invisible characters or encoding that evades detection
+          during code review and pull request approval.
+      - step: distribution
+        tactic: AML.TA0004
+        techniques: [AML.T0010.001]
+        abstract_action: >
+          Distribute the poisoned configuration file through a public
+          repository, package registry, or community sharing platform
+          where AI agent configurations are exchanged.
+      - step: persistence
+        tactic: AML.TA0006
+        techniques: [AML.T0081]
+        abstract_action: >
+          When users adopt the poisoned configuration, the agent's
+          behavior is modified for all future interactions, persisting
+          across sessions and projects.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          When the AI agent initializes with the poisoned configuration,
+          the hidden prompt injection executes, causing the agent to
+          produce compromised output or perform unauthorized actions.
+      - step: evasion
+        tactic: AML.TA0007
+        techniques: [AML.T0054, AML.T0067]
+        abstract_action: >
+          The injection uses jailbreak techniques to bypass safety
+          guardrails and instructs the agent to suppress any mention
+          of its modified behavior in responses to the user.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048.003]
+        abstract_action: >
+          The compromised agent silently produces output containing
+          hidden malicious elements, affecting all downstream users
+          and projects before the compromise is detected.
+    evidence:
+      - source: "AML.CS0041"
+        type: "enrichment"
 
   AP-T17-02:
     id: "AP-T17-02"
@@ -206,3 +260,49 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC5.1, KC6.4]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0104]
+        abstract_action: >
+          Craft a poisoned agent skill or plugin containing a hidden
+          prompt injection and publish it to a skill registry or
+          package repository where agent extensions are shared.
+      - step: trust_building
+        tactic: AML.TA0007
+        techniques: [AML.T0111]
+        abstract_action: >
+          Inflate download counts or adoption metrics to increase
+          the poisoned extension's visibility and perceived
+          trustworthiness in the registry.
+      - step: distribution
+        tactic: AML.TA0004
+        techniques: [AML.T0010.005]
+        abstract_action: >
+          Users download the poisoned extension from the registry
+          through normal dependency management, receiving the
+          malicious skill via the compromised supply chain.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0011.002, AML.T0051.000]
+        abstract_action: >
+          When a user activates the poisoned extension, the agent
+          reads all files that are part of the skill, executing the
+          hidden prompt injection.
+      - step: tool_invocation
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          The injected instructions cause the agent to invoke its
+          command execution tools, escalating from extension context
+          to system-level access.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The attacker gains the ability to execute arbitrary commands
+          through the agent's tools, enabling data exfiltration,
+          backdoor injection, or further system compromise.
+    evidence:
+      - source: "AML.CS0049"
+        type: "enrichment"
