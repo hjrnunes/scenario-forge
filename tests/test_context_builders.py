@@ -55,6 +55,7 @@ def _make_seed(
     seed.laaf_technique_ids = []
     seed.atlas_provenance_ids = []
     seed.owasp_origin = None
+    seed.kill_chain = None
     return seed
 
 

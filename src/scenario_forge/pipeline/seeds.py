@@ -66,6 +66,10 @@ class ScenarioSeed(BaseModel):
             "meet the requirements."
         ),
     )
+    kill_chain: list[dict] | None = Field(
+        default=None,
+        description="Kill chain scaffold from attack pattern, if available.",
+    )
 
 
 _KCX_TO_CAPABILITY: dict[str, list[str]] = {
@@ -163,6 +167,7 @@ def expand_seeds(
 
             attack_pattern_name = pattern["name"]
             attack_pattern_desc = pattern["description"].strip()
+            kill_chain = pattern.get("kill_chain")
 
             # Extract SSSOM provenance for this pattern
             pattern_prov = prov_index.get(ap_id, {})
@@ -249,6 +254,7 @@ def expand_seeds(
                     atlas_provenance_ids=filtered_atlas_prov,
                     min_complexity=seed_min_complexity,
                     required_capabilities=seed_required_caps,
+                    kill_chain=kill_chain,
                 )
 
     return list(seen.values())

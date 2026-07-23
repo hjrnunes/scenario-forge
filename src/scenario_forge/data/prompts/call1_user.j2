@@ -24,6 +24,16 @@ Ground the narrative in these taxonomy categories. The attack pattern above is a
 - Agentic Threat: {{ seed.threat_name }}
 
 {{ ontology_context | default('') }}
+{% if kill_chain is defined and kill_chain %}
+## Kill Chain Scaffold
+The following tactical progression is derived from real-world case study evidence. Use it to structure your narrative — follow the phase sequence but adapt detail level to the scenario.
+
+{% for step in kill_chain %}
+{{ loop.index }}. **{{ step.step | title }}** ({{ step.tactic }})
+   Techniques: {{ step.techniques | join(', ') }}
+   {{ step.abstract_action }}
+{% endfor %}
+{% endif %}
 ---
 
 ## Your Task

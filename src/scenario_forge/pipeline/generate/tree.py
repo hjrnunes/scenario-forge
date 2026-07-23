@@ -424,6 +424,7 @@ def build_call2_context(
         "skeleton_section": skeleton_section,
         "ontology_context": ontology_context,
         "tool_inventory": (profile.tool_inventory if profile else None) or [],
+        "kill_chain": seed.kill_chain,
         # Non-template data for post-generation validation
         "skeleton": skeleton,
     }
