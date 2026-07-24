@@ -38,3 +38,9 @@ Steps:
 
 ## Your Task
 Produce the attack tree YAML for seed_id={{ seed.seed_id }}. The tree id must be "tree-{{ seed.seed_id }}".
+{% if consistency_feedback is defined and consistency_feedback %}
+
+## Consistency Corrections Required
+Your previous attempt had these violations. Fix them in this attempt:
+{{ consistency_feedback }}
+{% endif %}

@@ -827,6 +827,26 @@ class TestBuildCall2Context:
         assert ctx["technique_count"] == 1
         assert ctx["leaf_budget"] == 4  # 2*1+2
 
+    def test_consistency_feedback_included_when_provided(self):
+        """consistency_feedback appears in context when provided."""
+        feedback = "- parsimony: 10 leaves > 4 budget"
+        ctx = build_call2_context(
+            seed=_make_seed(),
+            narrative=_make_narrative(),
+            use_case="test",
+            consistency_feedback=feedback,
+        )
+        assert ctx["consistency_feedback"] == feedback
+
+    def test_consistency_feedback_none_when_omitted(self):
+        """consistency_feedback is None when not provided."""
+        ctx = build_call2_context(
+            seed=_make_seed(),
+            narrative=_make_narrative(),
+            use_case="test",
+        )
+        assert ctx["consistency_feedback"] is None
+
 
 # ---------------------------------------------------------------------------
 # Tests: build_call3_context
