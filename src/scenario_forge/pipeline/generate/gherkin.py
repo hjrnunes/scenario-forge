@@ -205,6 +205,7 @@ def _build_gherkin_template(
                     step_text = f"Execute attack step via {step_text}"
 
             if leaf.technique_id:
+                step_text = re.sub(r'\s*\[AML\.T\d+(?:\.\d+)?\]', '', step_text)
                 step_text += f" [{leaf.technique_id}]"
             step_text += f" ({leaf.zone})"
 

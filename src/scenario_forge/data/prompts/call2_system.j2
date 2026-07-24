@@ -105,8 +105,12 @@ root:
       T15: Human Manipulation — using AI trust to mislead human decision-making
       T16: Insecure Inter-Agent Protocol Abuse — abusing MCP/A2A protocol trust
       T17: Supply Chain Compromise — malicious components in models, libraries, or tools
-    Prefer omitting threat_id over guessing. Only assign a threat_id when the node's
-    attack action clearly maps to one of the threat categories above. Do NOT default
+    The scenario's primary threat category (stated as "Threat category" in the
+    user prompt) MUST appear as threat_id on at least one tree node — typically
+    the node representing the attack's primary exploitation or impact action.
+    For other nodes, only assign additional threat_ids when the node's attack
+    action clearly maps to a different threat category. Prefer omitting
+    threat_id on intermediate nodes over guessing. Do NOT default
     to T1 for prompt injection — prompt injection that alters agent goals is T6, not T1.
     T1 is strictly about corrupting the agent's persistent or session memory stores.
   - technique_id: see Technique ID Constraint above

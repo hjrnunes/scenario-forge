@@ -36,46 +36,47 @@ patterns:
         all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
     kill_chain:
-      - step: setup
+      - step: craft_payload
         tactic: AML.TA0003
-        techniques: [AML.T0065, AML.T0068]
+        techniques: [AML.T0065]
         abstract_action: >
-          Craft an adversarial prompt injection containing false operational
-          rules and conceal it within content that the agent's connected
-          application will ingest.
-      - step: delivery
+          Craft adversarial prompt containing false operational rules.
+      - step: conceal_injection
+        tactic: AML.TA0007
+        techniques: [AML.T0068]
+        abstract_action: >
+          Conceal prompt within content using steganographic techniques
+          (invisible text, background-color matching).
+      - step: deliver_payload
         tactic: AML.TA0004
         techniques: [AML.T0093]
         abstract_action: >
-          Deliver the poisoned content through a connected application
-          channel that the agent treats as a trusted data source.
-      - step: execution
+          Deliver poisoned content through connected application channel
+          treated as trusted data source.
+      - step: execute_injection
         tactic: AML.TA0005
         techniques: [AML.T0051.001]
         abstract_action: >
-          When a user references the shared content, the agent ingests
-          it into its context and the hidden prompt injection executes.
-      - step: persistence
+          User references shared content, agent ingests into context,
+          hidden prompt executes.
+      - step: persist_in_memory
         tactic: AML.TA0006
         techniques: [AML.T0080.000]
         abstract_action: >
-          The injection writes attacker-controlled false rules into the
-          agent's persistent memory store, establishing cross-session
-          persistence that overrides legitimate validation logic.
-      - step: propagation
+          Injection writes attacker-controlled false rules into
+          persistent memory store.
+      - step: persist_in_channel
         tactic: AML.TA0006
         techniques: [AML.T0093]
         abstract_action: >
-          The poisoned content remains in the shared channel, acting as
-          a persistent infection vector that compromises additional
-          users who access it.
+          Poisoned content remains in shared channel, acting as
+          persistent infection vector.
       - step: impact
         tactic: AML.TA0011
         techniques: [AML.T0048.003]
         abstract_action: >
-          The agent operates with corrupted memory, authorizing actions
-          that violate its actual constraints based on attacker-controlled
-          false rules persisted across sessions.
+          Agent operates with corrupted memory, authorizing
+          constraint-violating actions.
     evidence:
       - source: "AML.CS0040"
         type: "enrichment"
@@ -98,6 +99,39 @@ patterns:
       min_zones: ["input", "memory"]
       kc_requires:
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
+    kill_chain:
+      - step: craft_fragments
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft fragmented inputs designed to stay below per-input
+          detection thresholds while cumulatively corrupting
+          authorization state.
+      - step: deliver_fragments
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Deliver fragmented inputs across repeated interactions via
+          normal channels.
+      - step: execute_fragments
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Each fragment executes, consuming context window capacity
+          and incrementally altering the agent's authorization state
+          tracking.
+      - step: escalate_privileges
+        tactic: AML.TA0012
+        techniques: [AML.T0054]
+        abstract_action: >
+          Agent grants access it should deny due to cumulative state
+          corruption exceeding context capacity.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          Attacker gains unauthorized access through fragmented
+          privilege escalation.
 
   AP-T1-03:
     id: "AP-T1-03"
@@ -118,6 +152,31 @@ patterns:
       kc_requires:
         all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
+    kill_chain:
+      - step: gain_access
+        tactic: AML.TA0000
+        techniques: [AML.T0047]
+        abstract_action: >
+          Attacker gains ability to interact with agent and influence
+          its learning/memory processes.
+      - step: deliver_inputs
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Deliver incremental inputs containing subtly altered threat
+          definitions.
+      - step: corrupt_memory
+        tactic: AML.TA0006
+        techniques: [AML.T0080.000]
+        abstract_action: >
+          Repeated adversarial inputs cause gradual corruption of
+          stored threat classification criteria.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0031, AML.T0015]
+        abstract_action: >
+          Agent progressively reclassifies malicious activity as
+          benign, creating detection blind spot.
 
   AP-T1-04:
     id: "AP-T1-04"
@@ -139,6 +198,44 @@ patterns:
       kc_requires:
         all: [KCX-SHMEM]
         any: [KC4.4, KC4.6]
+    kill_chain:
+      - step: gain_access
+        tactic: AML.TA0000
+        techniques: [AML.T0047]
+        abstract_action: >
+          Attacker gains ability to write to shared memory structure
+          (RAG database, vector store, shared memory backend).
+      - step: craft_payload
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066]
+        abstract_action: >
+          Craft adversarial payload designed to corrupt shared memory
+          and propagate across agents.
+      - step: inject_payload
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Inject crafted payload into shared memory structure,
+          activating the corruption mechanism.
+      - step: poison_shared_memory
+        tactic: AML.TA0006
+        techniques: [AML.T0070, AML.T0080.000]
+        abstract_action: >
+          Inject false operational data into shared memory structure
+          consumed by multiple agents.
+      - step: propagate_corruption
+        tactic: AML.TA0006
+        techniques: [AML.T0080.000, AML.T0061]
+        abstract_action: >
+          Other agents read corrupted data from shared memory and
+          incorporate it into their decision-making, propagating
+          the corruption across the agent ecosystem.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0031]
+        abstract_action: >
+          Cross-agent behavior corruption propagates without direct
+          interaction with each affected agent.
 
   # ═══════════════════════════════════════════════════════════════════
   # T2 — Tool Misuse (6 patterns)
@@ -166,33 +263,39 @@ patterns:
     kill_chain:
       - step: reconnaissance
         tactic: AML.TA0002
-        techniques: [AML.T0084.001]
+        techniques: [AML.T0006]
         abstract_action: >
           Study the agent's tool definitions and parameter schemas to
           identify validation gaps, boundary conditions, or parameters
           that accept open-ended values.
-      - step: setup
+      - step: craft_payload
         tactic: AML.TA0003
         techniques: [AML.T0065]
         abstract_action: >
           Craft input designed to cause the agent to populate tool
           parameters with inflated, malformed, or boundary-violating
           values while staying within the tool's granted permissions.
-      - step: execution
-        tactic: AML.TA0005
-        techniques: [AML.T0051.000]
+      - step: deliver_payload
+        tactic: AML.TA0004
+        techniques: [AML.T0049, AML.T0093]
         abstract_action: >
-          Submit the crafted input, causing the agent's reasoning to
-          resolve attacker-influenced values into the tool call's
-          parameter slots.
-      - step: tool_invocation
+          Submit the crafted input through an accessible channel
+          (direct input or indirect via document/email).
+      - step: execute_injection
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000, AML.T0051.001]
+        abstract_action: >
+          The agent processes the input, and the prompt injection
+          causes it to resolve attacker-influenced values into tool
+          call parameter slots.
+      - step: invoke_tool
         tactic: AML.TA0005
         techniques: [AML.T0053]
         abstract_action: >
           The agent invokes the tool with polluted parameters; the
           call passes permission checks because the tool itself is
-          authorized, but the parameter values produce an outcome
-          far outside intended operational bounds.
+          authorized, but parameter values produce an outcome far
+          outside intended operational bounds.
       - step: impact
         tactic: AML.TA0011
         techniques: [AML.T0048]
@@ -223,47 +326,57 @@ patterns:
     kill_chain:
       - step: reconnaissance
         tactic: AML.TA0002
-        techniques: [AML.T0084.001, AML.T0084.003]
+        techniques: [AML.T0006]
         abstract_action: >
           Discover the agent's available tools and their call chain
           relationships, identifying combinations where one tool
           retrieves sensitive data and another can transmit externally.
-      - step: setup
+      - step: craft_payload
         tactic: AML.TA0003
         techniques: [AML.T0065]
         abstract_action: >
           Craft a prompt that induces the agent to plan a multi-step
           tool sequence, framing the retrieval-then-exfiltration chain
           as a legitimate composite operation.
-      - step: execution
+      - step: deliver_payload
+        tactic: AML.TA0004
+        techniques: [AML.T0049, AML.T0093]
+        abstract_action: >
+          Submit the crafted prompt through an accessible input
+          channel.
+      - step: execute_injection
         tactic: AML.TA0005
-        techniques: [AML.T0051.000]
+        techniques: [AML.T0051.000, AML.T0051.001]
         abstract_action: >
-          Submit the crafted prompt, causing the agent to reason
-          through and commit to the multi-tool chain without
-          recognizing the composite intent as malicious.
-      - step: collection
+          The agent processes the prompt and commits to the
+          multi-tool chain without recognizing the composite intent
+          as malicious.
+      - step: discover_data
+        tactic: AML.TA0008
+        techniques: [AML.T0075, AML.T0007]
+        abstract_action: >
+          The agent discovers or accesses the data sources containing
+          sensitive information through the first tool in the chain.
+      - step: collect_data
         tactic: AML.TA0009
-        techniques: [AML.T0085.001]
+        techniques: [AML.T0036, AML.T0085.001]
         abstract_action: >
-          The first tool in the chain retrieves sensitive data from
-          an authorized source, producing output that appears to be
-          a normal intermediate result.
-      - step: exfiltration
+          The first tool retrieves sensitive data from an authorized
+          source, producing output that appears to be a normal
+          intermediate result.
+      - step: exfiltrate_data
         tactic: AML.TA0010
         techniques: [AML.T0086]
         abstract_action: >
           A subsequent tool call transmits the retrieved data to an
-          external destination, completing the exfiltration chain
-          through individually legitimate tool invocations.
+          external destination (attacker-controlled email, URL, API
+          endpoint).
       - step: impact
         tactic: AML.TA0011
         techniques: [AML.T0048]
         abstract_action: >
-          Sensitive data is exfiltrated through a composite tool
-          chain where each individual call appears authorized,
-          making the attack difficult to detect at the single-call
-          level.
+          Organization suffers data breach through a composite tool
+          chain that bypasses per-call authorization controls.
 
   AP-T2-03:
     id: "AP-T2-03"
@@ -285,11 +398,11 @@ patterns:
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
     kill_chain:
-      - step: reconnaissance
-        tactic: AML.TA0002
+      - step: discover_tools
+        tactic: AML.TA0008
         techniques: [AML.T0084.001]
         abstract_action: >
-          Identify the agent's batch-processing, mass-distribution,
+          Discover the agent's batch-processing, mass-distribution,
           or document-generation capabilities and their parameter
           schemas.
       - step: setup
@@ -342,6 +455,63 @@ patterns:
       kc_requires:
         all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
+    kill_chain:
+      - step: craft_payload
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft adversarial prompt containing false directives designed
+          to be written into the agent's persistent memory store.
+      - step: conceal_injection
+        tactic: AML.TA0007
+        techniques: [AML.T0068]
+        abstract_action: >
+          Conceal the prompt injection within content that appears
+          benign or legitimate (hidden in document formatting,
+          embedded in innocuous text).
+      - step: deliver_payload
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Deliver the poisoned content through a channel the agent
+          consumes as a trusted source (shared document, API response,
+          data feed).
+      - step: execute_injection
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          When the agent ingests the content into its context, the
+          hidden prompt injection executes.
+      - step: persist_in_memory
+        tactic: AML.TA0006
+        techniques: [AML.T0080.000]
+        abstract_action: >
+          The injection writes attacker-controlled false directives
+          into the agent's persistent memory store, establishing
+          cross-session persistence.
+      - step: persist_in_channel
+        tactic: AML.TA0006
+        techniques: [AML.T0093]
+        abstract_action: >
+          The poisoned content remains in the shared channel or data
+          source, acting as a persistent infection vector that can
+          compromise additional users or sessions.
+      - step: invoke_tool_from_memory
+        tactic: AML.TA0005
+        techniques: [AML.T0053, AML.T0051.002]
+        abstract_action: >
+          In a subsequent session, the agent retrieves the poisoned
+          memory and treats it as legitimate operational context,
+          causing it to invoke tools with unauthorized parameters or
+          targets.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The agent performs tool invocations driven by
+          attacker-controlled memory content, bypassing session-level
+          security checks that would have caught the malicious
+          directive if presented directly.
 
   AP-T2-05:
     id: "AP-T2-05"
@@ -363,6 +533,50 @@ patterns:
       kc_requires:
         all: [KCX-VSTORE]
         any: [KC6.3.3]
+    kill_chain:
+      - step: gain_access
+        tactic: AML.TA0000
+        techniques: [AML.T0047]
+        abstract_action: >
+          Gain access to the vector store or RAG system that the
+          agent queries (either through write access or by injecting
+          content into a data source the system indexes).
+      - step: craft_adversarial_content
+        tactic: AML.TA0003
+        techniques: [AML.T0066, AML.T0065]
+        abstract_action: >
+          Craft adversarial content with embedded directives designed
+          to manipulate the agent's tool invocation decisions when
+          retrieved from the vector store.
+      - step: inject_content
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Craft and insert adversarial content into the vector store;
+          the content contains embedded directives designed to
+          manipulate the agent's tool invocation decisions.
+      - step: persist_in_retrieval
+        tactic: AML.TA0006
+        techniques: [AML.T0070]
+        abstract_action: >
+          The poisoned content is indexed and persists in the
+          retrieval system, where it can be activated by future
+          queries.
+      - step: trigger_tool_invocation
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001, AML.T0053]
+        abstract_action: >
+          When the agent queries the RAG system, it retrieves the
+          poisoned content and invokes tools based on the manipulated
+          directives, executing unsafe or unauthorized operations.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The agent performs unauthorized tool actions driven by
+          poisoned retrieval content, with each query to the
+          compromised vector store potentially triggering malicious
+          behavior.
 
   AP-T2-06:
     id: "AP-T2-06"
@@ -384,38 +598,65 @@ patterns:
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
     kill_chain:
-      - step: setup
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0006]
+        abstract_action: >
+          Study the agent's interaction model and tool access to
+          understand which tools can execute attacker commands (shell,
+          code interpreter, API client, file operations).
+      - step: gain_access
+        tactic: AML.TA0000
+        techniques: [AML.T0047, AML.T0040]
+        abstract_action: >
+          Gain ability to interact with the agent's LLM, either
+          directly or through data sources it consumes.
+      - step: craft_payload
         tactic: AML.TA0003
         techniques: [AML.T0065, AML.T0079]
         abstract_action: >
           Craft adversarial instructions designed to override the
           agent's operational goal and direct it to invoke a specific
-          tool with attacker-chosen commands. Stage any required
+          tool with attacker-chosen commands; stage any required
           external payloads or receiving infrastructure.
-      - step: delivery
-        tactic: AML.TA0004
-        techniques: [AML.T0093]
+      - step: verify_attack
+        tactic: AML.TA0001
+        techniques: [AML.T0042]
         abstract_action: >
-          Inject the crafted prompt into the agent's input channel
-          or embed it within an external data source the agent
-          consumes, such as a document, web page, or API response.
-      - step: execution
+          Verify that the prompt injection is effective and the tool
+          invocation will execute attacker commands (through benign
+          test payloads before escalating to malicious ones).
+      - step: deliver_injection
+        tactic: AML.TA0004
+        techniques: [AML.T0049, AML.T0093]
+        abstract_action: >
+          Inject the crafted prompt into the agent's input channel or
+          embed it within an external data source the agent consumes
+          (document, web page, API response, email).
+      - step: execute_injection
         tactic: AML.TA0005
-        techniques: [AML.T0051]
+        techniques: [AML.T0051.000, AML.T0051.001]
         abstract_action: >
           The injected prompt activates within the agent's context,
           overriding or supplementing its original goal with the
           attacker's directive to invoke a tool.
-      - step: tool_hijack
+      - step: invoke_tool
         tactic: AML.TA0005
-        techniques: [AML.T0053, AML.T0102]
+        techniques: [AML.T0053, AML.T0050]
         abstract_action: >
           The agent invokes a tool — such as a shell, API client,
           or code interpreter — executing an attacker-chosen command
           through the agent's legitimate tool access.
+      - step: harvest_credentials
+        tactic: AML.TA0013
+        techniques: [AML.T0055, AML.T0083]
+        abstract_action: >
+          If the goal is credential theft, the tool execution accesses
+          environment variables, configuration files, or memory to
+          extract secrets.
       - step: impact
         tactic: AML.TA0011
-        techniques: [AML.T0112]
+        techniques: [AML.T0112, AML.T0048]
         abstract_action: >
           The attacker achieves arbitrary tool execution through the
           hijacked agent, potentially gaining host-level access,
@@ -466,41 +707,64 @@ patterns:
     kill_chain:
       - step: reconnaissance
         tactic: AML.TA0002
-        techniques: [AML.T0084, AML.T0075]
+        techniques: [AML.T0006, AML.T0003]
         abstract_action: >
-          Discover the agent's connected systems and map trust
-          relationships that span system boundaries, identifying
-          where credentials or authorization tokens carry over
-          without independent scope enforcement.
-      - step: setup
+          Identify agent's connected systems and trust boundaries
+          where authorization scope is not independently enforced.
+      - step: probe_trust_boundaries
+        tactic: AML.TA0000
+        techniques: [AML.T0047]
+        abstract_action: >
+          Interact with agent in source system to probe trust
+          relationships and cross-system capabilities.
+      - step: discover_connected_services
+        tactic: AML.TA0008
+        techniques: [AML.T0084.001, AML.T0075]
+        abstract_action: >
+          Discover agent's plugins, APIs, and connected services
+          that span trust boundaries.
+      - step: craft_cross_boundary_request
         tactic: AML.TA0003
         techniques: [AML.T0065]
         abstract_action: >
-          Craft a request that leverages the agent's legitimate
-          access in one system to target a connected system where
-          authorization scope is not independently enforced.
-      - step: initial_access
+          Craft request leveraging agent's legitimate access in
+          source system to target connected system.
+      - step: deliver_request
         tactic: AML.TA0004
-        techniques: [AML.T0091.000]
+        techniques: [AML.T0049]
         abstract_action: >
-          Manipulate the agent into authenticating to the target
-          system using credentials or trust tokens inherited from
-          the source system, crossing the authorization boundary.
-      - step: privilege_escalation
+          Deliver crafted request causing agent to authenticate to
+          target system using inherited credentials.
+      - step: obfuscate_request
+        tactic: AML.TA0007
+        techniques: [AML.T0068, AML.T0074]
+        abstract_action: >
+          Obfuscate cross-boundary request to evade detection in
+          source system.
+      - step: persist_in_knowledge_store
+        tactic: AML.TA0006
+        techniques: [AML.T0070, AML.T0080.000]
+        abstract_action: >
+          Poisoned data persists in agent's knowledge store,
+          re-triggering cross-boundary escalation.
+      - step: execute_request
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000, AML.T0053]
+        abstract_action: >
+          Agent processes request, inheriting authorization from
+          source system.
+      - step: escalate_privileges
         tactic: AML.TA0012
-        techniques: [AML.T0053]
+        techniques: [AML.T0012]
         abstract_action: >
-          The agent's authorization from the source system grants
-          elevated access in the target system, which lacks
-          independent scope enforcement and accepts the inherited
-          trust relationship.
+          Agent's credentials from source system grant elevated
+          access in target system lacking scope enforcement.
       - step: impact
         tactic: AML.TA0011
         techniques: [AML.T0048]
         abstract_action: >
-          The attacker gains unauthorized access to resources beyond
-          the agent's intended authorization domain, exploiting the
-          trust boundary gap between connected systems.
+          Unauthorized access to resources beyond agent's intended
+          authorization domain.
 
   AP-T3-03:
     id: "AP-T3-03"

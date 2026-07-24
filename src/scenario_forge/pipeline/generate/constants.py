@@ -29,7 +29,7 @@ THREAT_VIOLATION_CATEGORY: dict[str, str] = {
     "T6": "goal-manipulation",
     "T7": "misaligned-and-deceptive-behavior",
     "T8": "repudiation-and-untraceability",
-    "T9": "improper-output-handling",
+    "T9": "identity-spoofing",
     "T10": "hitl-bypass",
     "T11": "unexpected-code-execution",
     "T12": "agent-communication-poisoning",

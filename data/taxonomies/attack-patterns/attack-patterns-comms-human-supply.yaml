@@ -32,6 +32,46 @@ patterns:
       kc_requires:
         all: [KCX-MAGENT]
         any: [KC2.3]
+    kill_chain:
+      - step: access_shared_channel
+        tactic: AML.TA0000
+        techniques: [AML.T0040, AML.T0047]
+        abstract_action: >
+          Access the shared communication channel or RAG system
+          used by multiple agents.
+      - step: craft_injection_payload
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066]
+        abstract_action: >
+          Craft messages containing prompt injections designed to
+          shift collective decision-making when consumed by peer
+          agents.
+      - step: inject_messages
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Inject the crafted messages into the inter-agent
+          communication channel (shared RAG, message bus, knowledge
+          store).
+      - step: persist_in_shared_store
+        tactic: AML.TA0006
+        techniques: [AML.T0070, AML.T0080.000]
+        abstract_action: >
+          The injected messages persist in the shared data
+          structure, affecting future agent queries and reasoning.
+      - step: activate_in_peer_agents
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001, AML.T0051.002]
+        abstract_action: >
+          When other agents consume the poisoned messages, the
+          injections activate and influence their reasoning
+          processes.
+      - step: collective_decision_shift
+        tactic: AML.TA0011
+        techniques: [AML.T0031, AML.T0048]
+        abstract_action: >
+          The collective decision-making of the multi-agent system
+          gradually shifts toward attacker-chosen objectives.
 
   AP-T12-02:
     id: "AP-T12-02"
@@ -76,6 +116,49 @@ patterns:
       kc_requires:
         all: [KCX-MAGENT]
         any: [KC2.3]
+    kill_chain:
+      - step: access_knowledge_store
+        tactic: AML.TA0000
+        techniques: [AML.T0040, AML.T0047]
+        abstract_action: >
+          Access the shared knowledge store or retrieval system
+          consumed by multiple agents.
+      - step: craft_false_data
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066]
+        abstract_action: >
+          Craft false data designed to be consumed, reasoned over,
+          and re-emitted by agents.
+      - step: plant_poisoned_data
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Plant the poisoned data into the shared knowledge store
+          (RAG database, vector store, shared memory).
+      - step: persist_in_retrieval
+        tactic: AML.TA0006
+        techniques: [AML.T0070]
+        abstract_action: >
+          The false data persists in the retrieval system, activated
+          when agents query on relevant topics.
+      - step: trigger_false_incorporation
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001, AML.T0051.002]
+        abstract_action: >
+          Each agent retrieval triggers the injection, causing the
+          agent to incorporate false information into its reasoning.
+      - step: cascade_propagation
+        tactic: AML.TA0006
+        techniques: [AML.T0061, AML.T0080.001]
+        abstract_action: >
+          Agents re-emit the poisoned information through normal
+          outputs, creating a self-reinforcing cascade.
+      - step: misinformation_impact
+        tactic: AML.TA0011
+        techniques: [AML.T0031, AML.T0048.002]
+        abstract_action: >
+          Misinformation spreads through the agent network,
+          degrading collective decision-making quality.
 
   AP-T12-04:
     id: "AP-T12-04"
@@ -151,22 +234,21 @@ patterns:
           operational data with attacker-controlled values.
       - step: delivery
         tactic: AML.TA0004
-        techniques: [AML.T0051.001]
+        techniques: [AML.T0093]
         abstract_action: >
           Deliver the poisoned content through a data channel the
           AI assistant consumes, such as an email, document, or
           knowledge base entry.
       - step: execution
         tactic: AML.TA0005
-        techniques: [AML.T0067]
+        techniques: [AML.T0051.001]
         abstract_action: >
-          The injection activates and manipulates the AI's output
-          to present attacker-controlled values as verified
-          legitimate data, substituting payment details, contact
-          information, or other operational data.
+          The injection activates when the AI assistant processes
+          the ingested content, causing it to follow attacker
+          instructions to substitute operational data.
       - step: evasion
         tactic: AML.TA0007
-        techniques: [AML.T0068]
+        techniques: [AML.T0067, AML.T0068]
         abstract_action: >
           The substituted data is presented within the AI's normal
           response format, preserving the appearance of a verified,
@@ -201,7 +283,7 @@ patterns:
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
     kill_chain:
-      - step: setup
+      - step: craft_hijack_injection
         tactic: AML.TA0003
         techniques: [AML.T0065]
         abstract_action: >
@@ -209,34 +291,38 @@ patterns:
           assistant's output generation, causing it to produce
           urgent, authoritative messages directing users toward
           attacker-controlled actions.
-      - step: delivery
+      - step: stage_social_engineering_payload
+        tactic: AML.TA0003
+        techniques: [AML.T0079, AML.T0008.002]
+        abstract_action: >
+          Stage malicious content (website, script) that will
+          deliver the social engineering payload.
+      - step: ingest_malicious_content
         tactic: AML.TA0004
+        techniques: [AML.T0078, AML.T0093]
+        abstract_action: >
+          The user's AI agent accesses the malicious website or
+          document, ingesting the injected prompt.
+      - step: generate_deceptive_messages
+        tactic: AML.TA0005
         techniques: [AML.T0051.001]
         abstract_action: >
-          Deliver the injection through an indirect data channel
-          consumed by the AI assistant, such as a retrieved document
-          or external data source.
-      - step: execution
-        tactic: AML.TA0005
-        techniques: [AML.T0100]
+          The compromised AI assistant processes the injection and
+          generates deceptive messages leveraging its established
+          trust relationship with the user.
+      - step: escalate_to_active_instruction
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
         abstract_action: >
-          The compromised AI assistant generates deceptive messages
-          that leverage its established trust relationship with the
-          user to deliver social engineering content.
-      - step: evasion
-        tactic: AML.TA0007
-        techniques: [AML.T0067]
-        abstract_action: >
-          The social engineering content is presented through the
-          AI's trusted communication channel, bypassing the user's
-          normal skepticism toward unsolicited messages.
-      - step: impact
+          The injection causes the agent to escalate from passive
+          information display to active instruction that prompts
+          user actions (clicking buttons, running commands).
+      - step: user_executes_malicious_action
         tactic: AML.TA0011
-        techniques: [AML.T0048]
+        techniques: [AML.T0048.003]
         abstract_action: >
           Users follow the AI-generated deceptive instructions,
-          clicking attacker-controlled links or disclosing
-          credentials, enabling account compromise or data theft.
+          executing malicious actions on the attacker's behalf.
 
   AP-T17-01:
     id: "AP-T17-01"
@@ -259,56 +345,62 @@ patterns:
       kc_requires:
         any: [KC5.1, KC6.4]
     kill_chain:
-      - step: setup
+      - step: stage_malicious_payload
         tactic: AML.TA0003
-        techniques: [AML.T0079, AML.T0065]
+        techniques: [AML.T0079]
         abstract_action: >
-          Stage a malicious payload on external infrastructure and craft
-          a prompt injection designed to cause the AI agent to load and
-          execute it. Conceal the injection using obfuscation techniques
-          to evade human review.
-      - step: obfuscation
+          Stage malicious payload (e.g., JavaScript backdoor) on
+          publicly accessible infrastructure.
+      - step: craft_prompt_injection
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft prompt injection designed to cause agent to embed
+          malicious elements in generated code.
+      - step: obfuscate_in_config
         tactic: AML.TA0007
         techniques: [AML.T0068]
         abstract_action: >
-          Hide the malicious prompt within a configuration or rules file
-          using invisible characters or encoding that evades detection
-          during code review and pull request approval.
-      - step: distribution
+          Hide prompt in configuration file using invisible Unicode
+          characters (zero-width joiners, bidirectional markers).
+      - step: distribute_poisoned_config
         tactic: AML.TA0004
         techniques: [AML.T0010.001]
         abstract_action: >
-          Distribute the poisoned configuration file through a public
-          repository, package registry, or community sharing platform
-          where AI agent configurations are exchanged.
-      - step: persistence
+          Distribute poisoned configuration file through public
+          repository or package registry where AI agent configs
+          are shared.
+      - step: persist_via_adoption
         tactic: AML.TA0006
         techniques: [AML.T0081]
         abstract_action: >
-          When users adopt the poisoned configuration, the agent's
-          behavior is modified for all future interactions, persisting
-          across sessions and projects.
-      - step: execution
+          Users pull the poisoned rules file, replacing their
+          configuration and persisting the malicious content in
+          their development environment.
+      - step: execute_hidden_prompt
         tactic: AML.TA0005
         techniques: [AML.T0051.000]
         abstract_action: >
-          When the AI agent initializes with the poisoned configuration,
-          the hidden prompt injection executes, causing the agent to
-          produce compromised output or perform unauthorized actions.
-      - step: evasion
+          When agent initializes, it reads configuration file and
+          hidden prompt executes.
+      - step: jailbreak_guardrails
         tactic: AML.TA0007
-        techniques: [AML.T0054, AML.T0067]
+        techniques: [AML.T0054]
         abstract_action: >
-          The injection uses jailbreak techniques to bypass safety
-          guardrails and instructs the agent to suppress any mention
-          of its modified behavior in responses to the user.
-      - step: impact
+          Use jailbreak techniques to convince agent to add
+          malicious elements to generated artifacts.
+      - step: suppress_output_mentions
+        tactic: AML.TA0007
+        techniques: [AML.T0067]
+        abstract_action: >
+          Prompt instructs agent to suppress mention of code
+          changes in responses to user.
+      - step: impact_backdoored_code
         tactic: AML.TA0011
         techniques: [AML.T0048.003]
         abstract_action: >
-          The compromised agent silently produces output containing
-          hidden malicious elements, affecting all downstream users
-          and projects before the compromise is detected.
+          Developers use agent-generated code containing hidden
+          backdoors, exfiltration logic, or vulnerable constructs.
     evidence:
       - source: "AML.CS0041"
         type: "enrichment"
@@ -335,48 +427,24 @@ patterns:
       kc_requires:
         any: [KC5.1, KC6.4]
     kill_chain:
-      - step: setup
-        tactic: AML.TA0003
-        techniques: [AML.T0065, AML.T0104]
-        abstract_action: >
-          Craft a poisoned agent skill or plugin containing a hidden
-          prompt injection and publish it to a skill registry or
-          package repository where agent extensions are shared.
-      - step: trust_building
-        tactic: AML.TA0007
-        techniques: [AML.T0111]
-        abstract_action: >
-          Inflate download counts or adoption metrics to increase
-          the poisoned extension's visibility and perceived
-          trustworthiness in the registry.
-      - step: distribution
-        tactic: AML.TA0004
-        techniques: [AML.T0010.005]
-        abstract_action: >
-          Users download the poisoned extension from the registry
-          through normal dependency management, receiving the
-          malicious skill via the compromised supply chain.
-      - step: execution
+      - step: hallucinated_generation
         tactic: AML.TA0005
-        techniques: [AML.T0011.002, AML.T0051.000]
+        techniques: [AML.T0050, AML.T0053]
         abstract_action: >
-          When a user activates the poisoned extension, the agent
-          reads all files that are part of the skill, executing the
-          hidden prompt injection.
-      - step: tool_invocation
-        tactic: AML.TA0012
-        techniques: [AML.T0053]
+          Agent generates infrastructure code or automation workflows
+          containing hallucinated resource references — wrong
+          endpoints, incorrect paths, fabricated dependencies.
+      - step: falsified_verification
+        tactic: AML.TA0007
+        techniques: [AML.T0067]
         abstract_action: >
-          The injected instructions cause the agent to invoke its
-          command execution tools, escalating from extension context
-          to system-level access.
+          Agent produces falsified verification results, claiming
+          tests pass or reporting success despite errors in the
+          generated output.
       - step: impact
         tactic: AML.TA0011
-        techniques: [AML.T0048]
+        techniques: [AML.T0048, AML.T0101]
         abstract_action: >
-          The attacker gains the ability to execute arbitrary commands
-          through the agent's tools, enabling data exfiltration,
-          backdoor injection, or further system compromise.
-    evidence:
-      - source: "AML.CS0049"
-        type: "enrichment"
+          Generated code executes with agent's privileges, destroying
+          legitimate data or corrupting infrastructure due to
+          hallucinated references.

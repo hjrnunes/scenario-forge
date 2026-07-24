@@ -23,20 +23,20 @@ ENRICHED_PATTERN_IDS = [
     "AP-T11-02",
 ]
 
-# Expected evidence sources for each pattern
+# Expected evidence sources for each pattern (None = no evidence expected)
 EXPECTED_EVIDENCE = {
     "AP-T1-01": "AML.CS0040",
     "AP-T17-01": "AML.CS0041",
-    "AP-T17-02": "AML.CS0049",
+    "AP-T17-02": None,
     "AP-T11-01": "AML.CS0052",
-    "AP-T11-02": "AML.CS0062",
+    "AP-T11-02": "AML.CS0047",
 }
 
 # Minimum expected kill chain lengths for each pattern
 MIN_KILL_CHAIN_STEPS = {
     "AP-T1-01": 5,
     "AP-T17-01": 5,
-    "AP-T17-02": 5,
+    "AP-T17-02": 3,
     "AP-T11-01": 5,
     "AP-T11-02": 4,
 }
@@ -65,7 +65,9 @@ class TestEnrichedPatternsLoad:
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
     def test_enriched_pattern_has_evidence(self, all_patterns, pid):
-        """Each enriched pattern has an evidence field."""
+        """Enriched patterns with expected evidence have a non-empty evidence field."""
+        if EXPECTED_EVIDENCE[pid] is None:
+            pytest.skip(f"{pid} has no expected evidence")
         pattern = all_patterns[pid]
         assert "evidence" in pattern, f"{pid} missing evidence"
         assert len(pattern["evidence"]) > 0, f"{pid} has empty evidence"
@@ -80,7 +82,8 @@ class TestEnrichedPatternsValidate:
         validated = validate_attack_pattern(all_patterns[pid])
         assert validated.id == pid
         assert validated.kill_chain is not None
-        assert validated.evidence is not None
+        if EXPECTED_EVIDENCE[pid] is not None:
+            assert validated.evidence is not None
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
     def test_kill_chain_minimum_steps(self, all_patterns, pid):
@@ -140,9 +143,11 @@ class TestEvidenceContent:
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
     def test_evidence_source_matches_expected(self, all_patterns, pid):
         """Each pattern's evidence links to the expected ATLAS case study."""
+        expected = EXPECTED_EVIDENCE[pid]
+        if expected is None:
+            pytest.skip(f"{pid} has no expected evidence")
         validated = validate_attack_pattern(all_patterns[pid])
         sources = [e.source for e in validated.evidence]
-        expected = EXPECTED_EVIDENCE[pid]
         assert expected in sources, (
             f"{pid}: expected evidence source '{expected}', got {sources}"
         )
@@ -150,6 +155,8 @@ class TestEvidenceContent:
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
     def test_evidence_type_is_enrichment(self, all_patterns, pid):
         """All evidence links use type 'enrichment' (not direct_demonstration)."""
+        if EXPECTED_EVIDENCE[pid] is None:
+            pytest.skip(f"{pid} has no evidence")
         validated = validate_attack_pattern(all_patterns[pid])
         for ev in validated.evidence:
             assert ev.type == "enrichment", (

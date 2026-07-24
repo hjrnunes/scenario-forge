@@ -35,6 +35,43 @@ patterns:
       kc_requires:
         all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
+    kill_chain:
+      - step: craft_false_information
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft subtly false information designed to be stored as
+          agent's authoritative memory.
+      - step: conceal_payload
+        tactic: AML.TA0007
+        techniques: [AML.T0068, AML.T0074]
+        abstract_action: >
+          Conceal fabricated data within legitimate-appearing content
+          to avoid detection.
+      - step: deliver_via_trusted_channel
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Deliver content containing false information via trusted
+          channel.
+      - step: execute_injection
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Agent ingests content, false information is processed and
+          stored in persistent memory.
+      - step: establish_memory_persistence
+        tactic: AML.TA0006
+        techniques: [AML.T0080.000]
+        abstract_action: >
+          False information persists in long-term memory, treated as
+          authoritative source material in subsequent sessions.
+      - step: compound_distortion
+        tactic: AML.TA0011
+        techniques: [AML.T0031]
+        abstract_action: >
+          Progressive compounding produces increasingly distorted
+          outputs as agent builds on prior hallucinations.
 
   AP-T5-02:
     id: "AP-T5-02"
@@ -56,6 +93,43 @@ patterns:
       kc_requires:
         all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
+    kill_chain:
+      - step: develop_endpoint_injection
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Develop prompt injection causing agent to include fabricated
+          endpoint references in generated output.
+      - step: stage_injection_content
+        tactic: AML.TA0003
+        techniques: [AML.T0066, AML.T0079]
+        abstract_action: >
+          Stage prompt injection in content accessible to agent
+          (webpage, document, knowledge base).
+      - step: trigger_retrieval
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          User query causes agent to retrieve content containing
+          injection.
+      - step: activate_injection
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001, AML.T0053]
+        abstract_action: >
+          Injection activates, causing agent to generate calls to
+          fabricated API endpoints or webhook URLs.
+      - step: exfiltrate_via_endpoints
+        tactic: AML.TA0010
+        techniques: [AML.T0086]
+        abstract_action: >
+          Agent invokes hallucinated endpoints with user data encoded
+          in URL parameters or request body.
+      - step: data_exfiltration_impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048.000, AML.T0048.003]
+        abstract_action: >
+          Confidential data exfiltrated to attacker-controlled
+          endpoint through hallucinated API calls.
 
   AP-T5-03:
     id: "AP-T5-03"
@@ -98,6 +172,67 @@ patterns:
       kc_requires:
         all: [KCX-PMEM]
         any: [KC4.3, KC4.4, KC4.5, KC4.6]
+    kill_chain:
+      - step: identify_data_corpus
+        tactic: AML.TA0002
+        techniques: [AML.T0064, AML.T0003]
+        abstract_action: >
+          Identify agent's data corpus and query patterns to target
+          value-dependent decisions.
+      - step: probe_retrieval_mechanisms
+        tactic: AML.TA0000
+        techniques: [AML.T0047]
+        abstract_action: >
+          Interact with agent to discover retrieval mechanisms and
+          response format.
+      - step: discover_value_handling
+        tactic: AML.TA0008
+        techniques: [AML.T0063, AML.T0084.001]
+        abstract_action: >
+          Probe agent to identify how it handles quantitative
+          reference data and value lookups.
+      - step: craft_false_reference_data
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066]
+        abstract_action: >
+          Craft false quantitative reference data targeting agent's
+          value-dependent decision processes.
+      - step: deliver_fabricated_values
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Deliver content containing fabricated values through
+          channel feeding agent's data corpus.
+      - step: obfuscate_injection
+        tactic: AML.TA0007
+        techniques: [AML.T0068, AML.T0071]
+        abstract_action: >
+          Obfuscate injection and manipulate retrieval to prioritize
+          attacker-controlled data.
+      - step: persist_in_rag
+        tactic: AML.TA0006
+        techniques: [AML.T0070]
+        abstract_action: >
+          False reference data indexed into RAG database, persisting
+          across sessions.
+      - step: activate_via_retrieval
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          User query triggers retrieval and prompt injection
+          activates.
+      - step: manipulate_tool_invocations
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          Injection manipulates agent's tool invocations or
+          authorization decisions using fabricated values.
+      - step: value_biased_decisions
+        tactic: AML.TA0011
+        techniques: [AML.T0048.000, AML.T0031]
+        abstract_action: >
+          Agent negotiates, transacts, or decides based on
+          unrealistic values, systematically biasing computations.
 
   # ═══════════════════════════════════════════════════════════════════
   # T6 — Intent Breaking & Goal Manipulation (5 patterns)
@@ -123,8 +258,8 @@ patterns:
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
     kill_chain:
-      - step: reconnaissance
-        tactic: AML.TA0002
+      - step: discover_planning
+        tactic: AML.TA0008
         techniques: [AML.T0084.001]
         abstract_action: >
           Probe the agent's planning interface to discover how it
@@ -179,34 +314,56 @@ patterns:
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
     kill_chain:
-      - step: setup
-        tactic: AML.TA0003
-        techniques: [AML.T0065]
+      - step: research_injection_patterns
+        tactic: AML.TA0002
+        techniques: [AML.T0001, AML.T0004]
         abstract_action: >
-          Craft a direct prompt injection that explicitly commands the
-          agent to discard its original directives and execute an
-          attacker-specified sequence of tool invocations.
-      - step: delivery
+          Familiarize with typical prompt injection patterns and
+          understand agent's code execution pathway.
+      - step: access_agent_interface
+        tactic: AML.TA0000
+        techniques: [AML.T0047]
+        abstract_action: >
+          Gain access to the agent's public interface to test prompt
+          injection feasibility.
+      - step: test_prompt_injections
         tactic: AML.TA0005
         techniques: [AML.T0051.000]
         abstract_action: >
-          Submit the override instruction to the agent, exploiting
-          weak instruction-data separation to make the agent treat
-          the injected command as authoritative.
-      - step: execution
-        tactic: AML.TA0012
-        techniques: [AML.T0053]
+          Test crafted prompt injections to probe which directives
+          the agent will follow and how it handles code generation
+          requests.
+      - step: validate_exploit_reliability
+        tactic: AML.TA0001
+        techniques: [AML.T0042, AML.T0102]
         abstract_action: >
-          The agent invokes the attacker-specified tool chain,
-          executing unauthorized actions using its privileged tool
-          access.
-      - step: impact
+          Validate that malicious prompts reliably produce
+          unauthorized code execution with benign test payloads.
+      - step: deliver_refined_injection
+        tactic: AML.TA0004
+        techniques: [AML.T0049]
+        abstract_action: >
+          Deliver the refined prompt injection through the agent's
+          input channel.
+      - step: execute_code_via_interpreter
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000, AML.T0050, AML.T0053]
+        abstract_action: >
+          Agent processes the injection and executes attacker-chosen
+          commands through its code interpreter or tool execution
+          capability.
+      - step: exfiltrate_credentials
+        tactic: AML.TA0013
+        techniques: [AML.T0055, AML.T0083]
+        abstract_action: >
+          Exfiltrate environment variables and API keys through the
+          hijacked code execution.
+      - step: system_compromise
         tactic: AML.TA0011
-        techniques: [AML.T0048]
+        techniques: [AML.T0029, AML.T0112]
         abstract_action: >
-          The hijacked tool chain performs operations aligned with
-          attacker objectives, such as data exfiltration or
-          unauthorized state changes, using the agent's credentials.
+          Achieve system compromise through denial of service or
+          credential theft.
 
   AP-T6-03:
     id: "AP-T6-03"
@@ -228,41 +385,36 @@ patterns:
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
     kill_chain:
-      - step: reconnaissance
-        tactic: AML.TA0008
-        techniques: [AML.T0084.001]
-        abstract_action: >
-          Identify data sources or tool outputs that the agent
-          consumes without strict instruction-data boundary
-          enforcement.
-      - step: setup
+      - step: craft_poisoned_content
         tactic: AML.TA0003
         techniques: [AML.T0065, AML.T0066]
         abstract_action: >
-          Craft content containing hidden instructions designed to
-          be returned by a compromised or attacker-controlled data
-          source when the agent queries it.
-      - step: delivery
+          Craft malicious web content or data source containing
+          hidden prompt injection instructions.
+      - step: conceal_injection
+        tactic: AML.TA0007
+        techniques: [AML.T0068, AML.T0074]
+        abstract_action: >
+          Conceal the injection within seemingly legitimate content
+          that evades initial scrutiny.
+      - step: fetch_poisoned_content
         tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Agent fetches poisoned content from the compromised data
+          source, ingesting it into its context.
+      - step: redirect_agent_goal
+        tactic: AML.TA0005
         techniques: [AML.T0051.001]
         abstract_action: >
-          The agent retrieves the poisoned tool output during normal
-          operation, ingesting the hidden instructions as part of
-          its operational data.
-      - step: execution
-        tactic: AML.TA0005
-        techniques: [AML.T0053]
+          Injection redirects agent's goal, treating attacker
+          instructions as operational objectives.
+      - step: execute_unintended_actions
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
         abstract_action: >
-          The agent misinterprets the injected objective as part of
-          its operational goal and incorporates it into its plan,
-          executing unintended actions such as data exfiltration.
-      - step: impact
-        tactic: AML.TA0010
-        techniques: [AML.T0086]
-        abstract_action: >
-          Sensitive data from the agent's operational context is
-          exfiltrated to attacker-controlled infrastructure through
-          the agent's own tool invocations.
+          Agent performs unintended actions such as data exfiltration
+          based on the injected goal.
 
   AP-T6-04:
     id: "AP-T6-04"
@@ -332,6 +484,31 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
+    kill_chain:
+      - step: access_learning_interface
+        tactic: AML.TA0000
+        techniques: [AML.T0047]
+        abstract_action: >
+          Gain access to the agent's learning interface (feedback
+          channel, conversation API, or other adaptation mechanism).
+      - step: deliver_adversarial_feedback
+        tactic: AML.TA0004
+        techniques: [AML.T0049]
+        abstract_action: >
+          Begin delivering adversarial feedback patterns designed to
+          corrupt the agent's learning process.
+      - step: corrupt_learned_behavior
+        tactic: AML.TA0006
+        techniques: [AML.T0020, AML.T0080.000]
+        abstract_action: >
+          Malicious patterns are incorporated into the agent's learned
+          behavior, persisting across interactions.
+      - step: degrade_decision_integrity
+        tactic: AML.TA0011
+        techniques: [AML.T0031]
+        abstract_action: >
+          Agent's decision-making integrity progressively degrades as
+          it optimizes toward attacker-influenced objectives.
 
   # ═══════════════════════════════════════════════════════════════════
   # T11 — Unexpected RCE and Code Attacks (3 patterns)
@@ -358,54 +535,78 @@ patterns:
       kc_requires:
         any: [KC6.2.2]
     kill_chain:
-      - step: reconnaissance
-        tactic: AML.TA0002
-        techniques: [AML.T0004]
+      - step: analyze_framework_apis
+        tactic: AML.TA0003
+        techniques: [AML.T0017.000]
         abstract_action: >
-          Identify AI agent frameworks or applications that use code
-          execution sinks (eval, exec, or equivalent) on parameters
-          derived from user input or LLM output.
-      - step: setup
+          Perform static analysis on LLM framework APIs to identify
+          code execution sinks (eval, exec).
+      - step: scan_deployment_targets
+        tactic: AML.TA0002
+        techniques: [AML.T0004, AML.T0095.000]
+        abstract_action: >
+          Scan source code repositories for app deployment URLs that
+          use vulnerable frameworks.
+      - step: extract_call_chains
+        tactic: AML.TA0008
+        techniques: [AML.T0084.003]
+        abstract_action: >
+          Extract call chains from target application source code to
+          identify paths leading to code execution.
+      - step: develop_exploit_prompts
         tactic: AML.TA0003
         techniques: [AML.T0065]
         abstract_action: >
-          Craft a prompt designed to cause the agent to invoke tool
-          call chains that pass attacker-controlled data into code
-          execution sinks within the framework.
-      - step: delivery
+          Develop prompts designed to trigger tool invocations that
+          flow attacker-controlled data into execution sinks.
+      - step: access_public_application
         tactic: AML.TA0004
         techniques: [AML.T0049]
         abstract_action: >
-          Submit the crafted prompt to the agent through its public-
-          facing interface or inject it via an indirect channel the
-          agent consumes.
-      - step: execution
+          Access public-facing AI agent application through its user
+          interface or API.
+      - step: submit_crafted_prompt
         tactic: AML.TA0005
         techniques: [AML.T0051.000]
         abstract_action: >
-          The prompt injection causes the agent to prepare a tool
-          invocation with attacker-controlled arguments targeting
-          a code execution sink.
-      - step: tool_invocation
+          Submit crafted prompt to agent, causing it to process
+          attacker instructions.
+      - step: bypass_guardrails
+        tactic: AML.TA0007
+        techniques: [AML.T0054]
+        abstract_action: >
+          Use lightweight jailbreaking techniques to bypass LLM
+          guardrails that refuse malicious requests.
+      - step: invoke_tools_with_attacker_args
         tactic: AML.TA0012
         techniques: [AML.T0053]
         abstract_action: >
-          The agent invokes the tool, passing attacker-controlled
-          data through the call chain into the code execution sink.
-      - step: code_execution
+          Agent invokes tools with attacker-controlled arguments,
+          passing data into code execution call chain.
+      - step: execute_code_in_interpreter
         tactic: AML.TA0005
         techniques: [AML.T0050]
         abstract_action: >
-          The attacker's input is evaluated as code within the
-          framework's execution environment, achieving arbitrary
-          code execution on the host.
-      - step: impact
-        tactic: AML.TA0011
-        techniques: [AML.T0112.000]
+          Attacker's input evaluated as code within framework's
+          sandboxed interpreter (e.g., Python eval).
+      - step: escape_sandbox
+        tactic: AML.TA0012
+        techniques: [AML.T0105]
         abstract_action: >
-          The attacker gains full control of the system running
-          the AI agent, enabling data theft, persistence, or
-          further lateral movement.
+          Execute sandbox escape techniques to break out of
+          containerized or virtualized environment.
+      - step: establish_reverse_shell
+        tactic: AML.TA0014
+        techniques: [AML.T0072]
+        abstract_action: >
+          Open reverse shell to establish persistent command channel
+          to attacker infrastructure.
+      - step: achieve_system_control
+        tactic: AML.TA0011
+        techniques: [AML.T0112, AML.T0112.000]
+        abstract_action: >
+          Achieve full system control; compromise host running the
+          AI agent framework.
     evidence:
       - source: "AML.CS0052"
         type: "enrichment"
@@ -430,44 +631,44 @@ patterns:
       kc_requires:
         any: [KC6.2.2]
     kill_chain:
-      - step: setup
+      - step: develop_backdoor_prompt
         tactic: AML.TA0003
         techniques: [AML.T0065]
         abstract_action: >
-          Craft a prompt designed to cause the AI agent to invoke a
-          tool with attacker-controlled arguments that will escape
-          the intended parameter context and achieve code execution.
-      - step: delivery
+          Develop prompt instructing agent to embed backdoor logic
+          in generated workflow scripts.
+      - step: obtain_credentials
+        tactic: AML.TA0013
+        techniques: [AML.T0055, AML.T0083]
+        abstract_action: >
+          Obtain access to workflow generation system's credentials
+          or publishing mechanism.
+      - step: inject_malicious_configuration
+        tactic: AML.TA0004
+        techniques: [AML.T0010.001, AML.T0012]
+        abstract_action: >
+          Use compromised credentials to inject malicious workflow
+          configuration into deployment pipeline.
+      - step: initialize_poisoned_agent
         tactic: AML.TA0005
         techniques: [AML.T0051.000]
         abstract_action: >
-          Submit the crafted prompt to the agent, causing it to
-          prepare a tool invocation using the malicious argument
-          as a tool parameter value.
-      - step: tool_invocation
-        tactic: AML.TA0012
-        techniques: [AML.T0053]
-        abstract_action: >
-          The agent invokes the tool with the attacker-controlled
-          argument, passing it to a function that evaluates the
-          parameter as executable code.
-      - step: code_execution
+          Agent initializes with poisoned configuration or prompt
+          injection.
+      - step: generate_backdoor_scripts
         tactic: AML.TA0005
-        techniques: [AML.T0050]
+        techniques: [AML.T0050, AML.T0053]
         abstract_action: >
-          The tool parameter is evaluated in an execution sink
-          (such as eval or a scripting interpreter), allowing the
-          attacker's input to escape the intended context and
-          execute arbitrary code.
-      - step: impact
+          Agent generates workflow scripts embedding
+          attacker-specified destructive commands.
+      - step: execute_unauthorized_actions
         tactic: AML.TA0011
-        techniques: [AML.T0112]
+        techniques: [AML.T0048, AML.T0101]
         abstract_action: >
-          Arbitrary code executes on the host with the agent's
-          privileges, compromising the machine running the AI
-          agent framework.
+          Generated workflows execute with agent's privileges,
+          performing unauthorized actions.
     evidence:
-      - source: "AML.CS0062"
+      - source: "AML.CS0047"
         type: "enrichment"
 
   AP-T11-03:
@@ -490,6 +691,49 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.2.2, KC6.4]
+    kill_chain:
+      - step: identify_target_systems
+        tactic: AML.TA0002
+        techniques: [AML.T0004, AML.T0006]
+        abstract_action: >
+          Identify AI agent systems that translate natural-language
+          input into executable commands and their parsing behavior.
+      - step: craft_ambiguous_input
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft natural-language input with deliberate ambiguities that
+          resolve into unintended executable commands.
+      - step: submit_ambiguous_input
+        tactic: AML.TA0004
+        techniques: [AML.T0049]
+        abstract_action: >
+          Submit ambiguous natural-language input through agent's public
+          interface.
+      - step: resolve_ambiguity_to_commands
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Agent resolves linguistic ambiguity into command structure,
+          misinterpreting attacker intent as legitimate.
+      - step: invoke_tools_with_derived_params
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          Agent invokes tools with parameters derived from ambiguous
+          interpretation, escalating to code execution.
+      - step: parse_output_as_code
+        tactic: AML.TA0005
+        techniques: [AML.T0050]
+        abstract_action: >
+          Execution environment parses agent's output as code, bridging
+          semantic gap between NL and command layer.
+      - step: execute_unintended_command
+        tactic: AML.TA0011
+        techniques: [AML.T0112, AML.T0048]
+        abstract_action: >
+          Unintended command executes with agent's privileges, achieving
+          attacker objective.
 
   # ═══════════════════════════════════════════════════════════════════
   # T13 — Rogue Agents in Multi-Agent Systems (4 patterns)
@@ -576,3 +820,37 @@ patterns:
       kc_requires:
         all: [KCX-MAGENT]
         any: [KC2.3]
+    kill_chain:
+      - step: craft_self_propagating_payload
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft self-propagating prompt injection designed so that any
+          agent processing it will include the payload in its own outputs.
+      - step: inject_initial_payload
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001, AML.T0051.000]
+        abstract_action: >
+          Inject the self-propagating payload into a single agent's
+          input or a shared data structure.
+      - step: replicate_in_agent_outputs
+        tactic: AML.TA0006
+        techniques: [AML.T0061]
+        abstract_action: >
+          The infected agent's outputs contain the backdoor payload,
+          which becomes input for peer agents through normal inter-agent
+          communication.
+      - step: propagate_to_peer_agents
+        tactic: AML.TA0015
+        techniques: [AML.T0052.000]
+        abstract_action: >
+          Peer agents process the infected output, incorporate the
+          backdoor logic, and propagate it further through their own
+          outputs.
+      - step: achieve_system_wide_compromise
+        tactic: AML.TA0011
+        techniques: [AML.T0031, AML.T0048]
+        abstract_action: >
+          The backdoor spreads across the multi-agent system through
+          normal communication, persisting even if the original
+          infection point is removed.

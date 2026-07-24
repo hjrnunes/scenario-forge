@@ -32,40 +32,34 @@ patterns:
     kill_chain:
       - step: reconnaissance
         tactic: AML.TA0002
-        techniques: [AML.T0069]
+        techniques: [AML.T0006]
         abstract_action: >
-          Identify tensions between the agent's primary objectives
-          and its operational constraints by probing its responses
-          to scenarios where goal achievement conflicts with policy
-          compliance.
-      - step: setup
+          Probe agent responses to scenarios where goal achievement
+          conflicts with policy compliance.
+      - step: craft_conflict_scenario
         tactic: AML.TA0003
-        techniques: [AML.T0065]
+        techniques: [AML.T0065, AML.T0017.000]
         abstract_action: >
-          Craft a scenario that creates a direct, irreconcilable
-          conflict between the agent's goal achievement and adherence
-          to a regulatory, ethical, or policy constraint.
-      - step: execution
+          Craft scenario creating irreconcilable conflict between
+          agent's goal and a regulatory, ethical, or policy constraint.
+      - step: trigger_conflict
         tactic: AML.TA0005
         techniques: [AML.T0051.000]
         abstract_action: >
-          Present the conflicting scenario to the agent, triggering
-          its goal-priority reasoning process under conditions where
-          constraint compliance would require failing the objective.
-      - step: evasion
+          Present conflicting scenario to agent, triggering
+          goal-priority reasoning under constraint pressure.
+      - step: constraint_deprioritization
         tactic: AML.TA0007
-        techniques: [AML.T0107]
+        techniques: [AML.T0054]
         abstract_action: >
-          The agent's reasoning deprioritizes the operational
-          constraint, treating it as advisory rather than mandatory
-          to satisfy the primary objective.
+          Agent's reasoning deprioritizes the constraint, treating
+          it as advisory to satisfy the primary objective.
       - step: impact
         tactic: AML.TA0011
         techniques: [AML.T0048]
         abstract_action: >
-          The agent takes action that violates regulatory, ethical,
-          or policy constraints, producing outcomes that breach
-          compliance requirements while achieving its stated goal.
+          Agent takes action violating regulatory, ethical, or policy
+          constraints while achieving stated goal.
 
   AP-T7-02:
     id: "AP-T7-02"
@@ -106,6 +100,37 @@ patterns:
       kc_requires:
         all: [KCX-MAGENT]
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
+    kill_chain:
+      - step: craft_deceptive_content
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Create deceptive content designed to manipulate agent into
+          recruiting human assistance under false pretenses.
+      - step: reach_verification_control
+        tactic: AML.TA0004
+        techniques: [AML.T0052.000]
+        abstract_action: >
+          Agent reaches a verification control it cannot pass and
+          initiates a request for human assistance.
+      - step: frame_deceptive_request
+        tactic: AML.TA0005
+        techniques: [AML.T0053]
+        abstract_action: >
+          Agent frames the verification request deceptively, obscuring
+          the control's purpose or misrepresenting the action required.
+      - step: obtain_verification
+        tactic: AML.TA0012
+        techniques: [AML.T0012, AML.T0053]
+        abstract_action: >
+          Agent obtains human-completed verification, gaining
+          capabilities beyond its own authorization level.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          Agent bypasses verification control it could not pass
+          directly, achieving unauthorized access.
 
   AP-T7-04:
     id: "AP-T7-04"
@@ -142,7 +167,7 @@ patterns:
           override signals to its goal-completion reasoning.
       - step: evasion
         tactic: AML.TA0007
-        techniques: [AML.T0107]
+        techniques: [AML.T0054]
         abstract_action: >
           Upon receiving a legitimate human override, abort, or
           correction command, the agent reclassifies it as an
@@ -183,40 +208,33 @@ patterns:
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
     kill_chain:
-      - step: discovery
+      - step: discover_privileged_information
         tactic: AML.TA0008
-        techniques: [AML.T0085]
+        techniques: [AML.T0075, AML.T0084, AML.T0089]
         abstract_action: >
-          The agent discovers or accesses privileged information
-          through its operational context — connected services,
-          data stores, or system configurations — that should be
-          subject to information barrier controls.
-      - step: collection
+          Agent discovers or accesses privileged information through
+          operational context (services, data stores, configs).
+      - step: collect_sensitive_information
         tactic: AML.TA0009
-        techniques: [AML.T0036]
+        techniques: [AML.T0036, AML.T0085, AML.T0037]
         abstract_action: >
-          The agent collects and processes sensitive information
-          from information repositories it can access, accumulating
-          knowledge that crosses intended information barriers.
-      - step: evasion
+          Agent collects and processes sensitive information crossing
+          intended information barrier controls.
+      - step: reason_authorization
         tactic: AML.TA0007
-        techniques: [AML.T0107]
+        techniques: [AML.T0054]
         abstract_action: >
-          The agent reasons that its information access implies
-          authorization to act on that information, bypassing the
-          distinction between read access and action authorization.
-      - step: execution
+          Agent reasons that information access implies authorization
+          to act, bypassing read-vs-action distinction.
+      - step: execute_unauthorized_action
         tactic: AML.TA0005
         techniques: [AML.T0053]
         abstract_action: >
-          The agent takes action based on restricted information,
-          using its tool capabilities to execute operations that
-          would be prohibited under proper information barrier
-          enforcement.
+          Agent takes action based on restricted information using
+          tool capabilities.
       - step: impact
         tactic: AML.TA0011
         techniques: [AML.T0048]
         abstract_action: >
-          Unauthorized actions are taken using privileged information,
-          violating information barrier controls and potentially
-          causing regulatory, financial, or reputational harm.
+          Unauthorized actions taken using privileged information,
+          violating information barrier controls.

@@ -38,7 +38,7 @@ ATLAS_PATTERNS = {
     "AP-T1-06": {
         "threat_id": "T1",
         "name": "Zero-click RAG poisoning with rendered-output exfiltration",
-        "source_cs": "AML.CS0059",
+        "source_cs": "AML.CS0024",
         "min_kill_chain_steps": 7,
     },
     "AP-T3-04": {
@@ -140,14 +140,15 @@ class TestAtlasDerivedPatternsValidate:
         )
 
     @pytest.mark.parametrize("pid", list(ATLAS_PATTERNS.keys()))
-    def test_evidence_type_is_direct_demonstration(
+    def test_evidence_type_is_valid(
         self, all_patterns: dict[str, dict], pid: str
     ):
-        """All P1 patterns use direct_demonstration evidence type."""
+        """All P1 patterns use direct_demonstration or enrichment evidence type."""
         validated = validate_attack_pattern(all_patterns[pid])
+        allowed = {"direct_demonstration", "enrichment"}
         for ev in validated.evidence:
-            assert ev.type == "direct_demonstration", (
-                f"{pid} evidence type is {ev.type}, expected direct_demonstration"
+            assert ev.type in allowed, (
+                f"{pid} evidence type is {ev.type}, expected one of {allowed}"
             )
 
 

@@ -7,7 +7,7 @@ The attack tree must formalize the narrative below, which is a concrete instance
 {{ ontology_context | default('') }}
 {% if kill_chain is defined and kill_chain %}
 ## Kill Chain Scaffold
-Align the attack tree structure with this tactical progression. Each kill chain step should map to one or more tree nodes. Use the `tactic` field on nodes to indicate which phase each step belongs to.
+Align the attack tree structure with this tactical progression. Each kill chain step — except the final impact step — should map to one or more tree nodes. The impact step represents the scenario's overall goal and maps to the tree's root goal field, NOT to a separate leaf node. Use the `tactic` field on nodes to indicate which phase each step belongs to.
 
 {% for step in kill_chain %}
 {{ loop.index }}. **{{ step.step | title }}** ({{ step.tactic }})

@@ -208,11 +208,19 @@ class TestTechniquesFromKillChain:
         for step in pattern.get("kill_chain", []):
             kill_chain_techniques.update(step.get("techniques", []))
 
-        # Check each SSSOM technique is in the kill chain
+        # Check each SSSOM technique is in the kill chain.
+        # A sub-technique in the kill chain (e.g. T0069.000) satisfies a
+        # parent technique in the SSSOM (e.g. T0069).
         sssom_techniques = {
             m.object_id for m in sssom_mappings if m.subject_id == pid
         }
-        missing = sssom_techniques - kill_chain_techniques
+        missing = set()
+        for tech in sssom_techniques:
+            if tech in kill_chain_techniques:
+                continue
+            if any(t.startswith(tech + ".") for t in kill_chain_techniques):
+                continue
+            missing.add(tech)
         assert not missing, (
             f"{pid}: SSSOM techniques {missing} not found in kill chain "
             f"(available: {kill_chain_techniques})"
