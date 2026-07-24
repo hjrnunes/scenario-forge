@@ -102,6 +102,42 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         any: [KC2.2, KC2.3, KC6.1.2]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0008
+        techniques: [AML.T0084.001]
+        abstract_action: >
+          Discover that the agent has delegated action capabilities
+          such as sending messages or initiating transactions on
+          behalf of users, and identify how actions are attributed.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a prompt injection designed to instruct the agent
+          to perform actions that will be attributed to a specific
+          legitimate user.
+      - step: delivery
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Inject the instructions through a data channel the agent
+          consumes, causing it to initiate actions under the
+          identity of the targeted user.
+      - step: execution
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent performs attacker-specified actions using its
+          delegated capabilities, with each action attributed to
+          the legitimate user rather than the attacker.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          Unauthorized actions appear to originate from the
+          legitimate user, bypassing identity verification at
+          the action layer and creating a false audit trail.
 
   AP-T9-02:
     id: "AP-T9-02"
@@ -230,6 +266,42 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         all: [KCX-HITL]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0008
+        techniques: [AML.T0084]
+        abstract_action: >
+          Discover the structure of the human oversight interface,
+          including what contextual information is presented to
+          reviewers alongside agent action requests.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066]
+        abstract_action: >
+          Craft input designed to cause the agent to generate
+          misleading decision contexts that obscure critical
+          information from the human reviewer.
+      - step: delivery
+        tactic: AML.TA0005
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Inject the crafted content through a data channel the
+          agent consumes, triggering the generation of manipulated
+          oversight presentations.
+      - step: evasion
+        tactic: AML.TA0007
+        techniques: [AML.T0067]
+        abstract_action: >
+          The agent presents actions for approval with artificially
+          constructed context that makes harmful operations appear
+          routine, neutralizing the oversight function.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The human reviewer approves attacker-aligned actions based
+          on the manipulated context, bypassing the human-in-the-loop
+          security control while maintaining its appearance.
 
   AP-T10-02:
     id: "AP-T10-02"
@@ -251,6 +323,43 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         all: [KCX-HITL]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft inputs that cause the agent to generate a high
+          volume of approval requests, trivial alerts, and
+          artificially urgent decision prompts targeting the
+          human review queue.
+      - step: delivery
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the crafted inputs to flood the human reviewer
+          with a sustained stream of low-priority approval requests
+          that induce cognitive overload.
+      - step: evasion
+        tactic: AML.TA0007
+        techniques: [AML.T0068]
+        abstract_action: >
+          Embed the actual malicious action request within the flood
+          of benign requests, obscuring it through volume rather
+          than obfuscation of any individual request.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0100]
+        abstract_action: >
+          The fatigued human reviewer rubber-stamps the malicious
+          request without adequate scrutiny, having been
+          conditioned by the volume of prior benign approvals.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The attacker's action is approved and executed with human
+          authorization, bypassing the oversight control through
+          induced decision fatigue rather than technical compromise.
 
   AP-T10-03:
     id: "AP-T10-03"

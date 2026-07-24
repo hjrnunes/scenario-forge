@@ -122,6 +122,42 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0084.001]
+        abstract_action: >
+          Probe the agent's planning interface to discover how it
+          decomposes tasks into sub-goals and which goal-setting
+          mechanisms are exposed to user input.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a series of individually benign sub-goal injections,
+          each designed to appear as a reasonable refinement of the
+          agent's current objective.
+      - step: delivery
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the sub-goal injections incrementally across multiple
+          interactions, each prompt nudging the agent's plan slightly
+          toward the attacker's desired outcome.
+      - step: evasion
+        tactic: AML.TA0007
+        techniques: [AML.T0067]
+        abstract_action: >
+          Each injected sub-goal maintains surface coherence with the
+          agent's stated objective, manipulating the agent's output
+          to present the drifted plan as logically sound.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The cumulative drift redirects the agent's plan to serve
+          attacker objectives while the agent continues to present
+          its reasoning as aligned with the original user goal.
 
   AP-T6-02:
     id: "AP-T6-02"
@@ -142,6 +178,35 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a direct prompt injection that explicitly commands the
+          agent to discard its original directives and execute an
+          attacker-specified sequence of tool invocations.
+      - step: delivery
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the override instruction to the agent, exploiting
+          weak instruction-data separation to make the agent treat
+          the injected command as authoritative.
+      - step: execution
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent invokes the attacker-specified tool chain,
+          executing unauthorized actions using its privileged tool
+          access.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The hijacked tool chain performs operations aligned with
+          attacker objectives, such as data exfiltration or
+          unauthorized state changes, using the agent's credentials.
 
   AP-T6-03:
     id: "AP-T6-03"
@@ -162,6 +227,42 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0008
+        techniques: [AML.T0084.001]
+        abstract_action: >
+          Identify data sources or tool outputs that the agent
+          consumes without strict instruction-data boundary
+          enforcement.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066]
+        abstract_action: >
+          Craft content containing hidden instructions designed to
+          be returned by a compromised or attacker-controlled data
+          source when the agent queries it.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          The agent retrieves the poisoned tool output during normal
+          operation, ingesting the hidden instructions as part of
+          its operational data.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent misinterprets the injected objective as part of
+          its operational goal and incorporates it into its plan,
+          executing unintended actions such as data exfiltration.
+      - step: impact
+        tactic: AML.TA0010
+        techniques: [AML.T0086]
+        abstract_action: >
+          Sensitive data from the agent's operational context is
+          exfiltrated to attacker-controlled infrastructure through
+          the agent's own tool invocations.
 
   AP-T6-04:
     id: "AP-T6-04"
@@ -182,6 +283,35 @@ patterns:
       min_zones: ["input", "reasoning"]
       kc_requires:
         any: [KC1.1, KC1.2, KC1.3, KC1.4]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0008
+        techniques: [AML.T0084.002]
+        abstract_action: >
+          Discover that the agent employs a self-evaluation or
+          reflection mechanism that re-analyzes its own output
+          before finalizing responses.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft input designed to trigger the agent's reflection
+          loop into an unbounded cycle, such as self-contradictory
+          requirements that prevent convergence.
+      - step: delivery
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the crafted input to the agent, activating its
+          self-evaluation mechanism with conditions that prevent
+          the loop from terminating.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The agent consumes computational resources in an unbounded
+          reflection loop, creating a denial-of-service condition
+          that prevents it from completing legitimate tasks.
 
   AP-T6-05:
     id: "AP-T6-05"
