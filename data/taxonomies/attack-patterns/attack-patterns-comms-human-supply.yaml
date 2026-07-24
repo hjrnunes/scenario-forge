@@ -141,6 +141,43 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0066]
+        abstract_action: >
+          Craft content containing a hidden prompt injection designed
+          to cause the AI assistant to substitute legitimate
+          operational data with attacker-controlled values.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Deliver the poisoned content through a data channel the
+          AI assistant consumes, such as an email, document, or
+          knowledge base entry.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0067]
+        abstract_action: >
+          The injection activates and manipulates the AI's output
+          to present attacker-controlled values as verified
+          legitimate data, substituting payment details, contact
+          information, or other operational data.
+      - step: evasion
+        tactic: AML.TA0007
+        techniques: [AML.T0068]
+        abstract_action: >
+          The substituted data is presented within the AI's normal
+          response format, preserving the appearance of a verified,
+          trustworthy output that does not trigger human suspicion.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048.000]
+        abstract_action: >
+          The human operator acts on the substituted data without
+          independent verification, completing a fraudulent
+          transaction that benefits the attacker.
 
   AP-T15-02:
     id: "AP-T15-02"
@@ -163,6 +200,43 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a prompt injection designed to hijack the AI
+          assistant's output generation, causing it to produce
+          urgent, authoritative messages directing users toward
+          attacker-controlled actions.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0051.001]
+        abstract_action: >
+          Deliver the injection through an indirect data channel
+          consumed by the AI assistant, such as a retrieved document
+          or external data source.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0100]
+        abstract_action: >
+          The compromised AI assistant generates deceptive messages
+          that leverage its established trust relationship with the
+          user to deliver social engineering content.
+      - step: evasion
+        tactic: AML.TA0007
+        techniques: [AML.T0067]
+        abstract_action: >
+          The social engineering content is presented through the
+          AI's trusted communication channel, bypassing the user's
+          normal skepticism toward unsolicited messages.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          Users follow the AI-generated deceptive instructions,
+          clicking attacker-controlled links or disclosing
+          credentials, enabling account compromise or data theft.
 
   AP-T17-01:
     id: "AP-T17-01"
