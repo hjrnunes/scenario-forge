@@ -163,6 +163,43 @@ patterns:
       min_zones: ["input", "tool_execution"]
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0084.001]
+        abstract_action: >
+          Study the agent's tool definitions and parameter schemas to
+          identify validation gaps, boundary conditions, or parameters
+          that accept open-ended values.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft input designed to cause the agent to populate tool
+          parameters with inflated, malformed, or boundary-violating
+          values while staying within the tool's granted permissions.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the crafted input, causing the agent's reasoning to
+          resolve attacker-influenced values into the tool call's
+          parameter slots.
+      - step: tool_invocation
+        tactic: AML.TA0005
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent invokes the tool with polluted parameters; the
+          call passes permission checks because the tool itself is
+          authorized, but the parameter values produce an outcome
+          far outside intended operational bounds.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The tool executes with attacker-influenced parameters,
+          producing amplified quantities, modified recipients, or
+          other outcomes that violate the system's operational intent.
 
   AP-T2-02:
     id: "AP-T2-02"
@@ -183,6 +220,50 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0084.001, AML.T0084.003]
+        abstract_action: >
+          Discover the agent's available tools and their call chain
+          relationships, identifying combinations where one tool
+          retrieves sensitive data and another can transmit externally.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a prompt that induces the agent to plan a multi-step
+          tool sequence, framing the retrieval-then-exfiltration chain
+          as a legitimate composite operation.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the crafted prompt, causing the agent to reason
+          through and commit to the multi-tool chain without
+          recognizing the composite intent as malicious.
+      - step: collection
+        tactic: AML.TA0009
+        techniques: [AML.T0085.001]
+        abstract_action: >
+          The first tool in the chain retrieves sensitive data from
+          an authorized source, producing output that appears to be
+          a normal intermediate result.
+      - step: exfiltration
+        tactic: AML.TA0010
+        techniques: [AML.T0086]
+        abstract_action: >
+          A subsequent tool call transmits the retrieved data to an
+          external destination, completing the exfiltration chain
+          through individually legitimate tool invocations.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          Sensitive data is exfiltrated through a composite tool
+          chain where each individual call appears authorized,
+          making the attack difficult to detect at the single-call
+          level.
 
   AP-T2-03:
     id: "AP-T2-03"
@@ -203,6 +284,43 @@ patterns:
       min_zones: ["input", "tool_execution"]
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0084.001]
+        abstract_action: >
+          Identify the agent's batch-processing, mass-distribution,
+          or document-generation capabilities and their parameter
+          schemas.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a deceptive prompt that frames a high-volume malicious
+          operation as a legitimate batch task, embedding parameters
+          that maximize the agent's amplification factor.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051.000]
+        abstract_action: >
+          Submit the crafted input, causing the agent to accept the
+          mass-action parameters and begin planning the batch
+          operation without recognizing its malicious scale.
+      - step: amplification
+        tactic: AML.TA0005
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent invokes its batch-processing tools, amplifying
+          the single deceptive input into a high-volume operation
+          such as mass distribution of crafted content or bulk
+          data modification.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          A single attacker input produces large-scale damage through
+          the agent's automation capabilities, with impact
+          disproportionate to the attacker's effort.
 
   AP-T2-04:
     id: "AP-T2-04"
@@ -265,6 +383,43 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
+    kill_chain:
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065, AML.T0079]
+        abstract_action: >
+          Craft adversarial instructions designed to override the
+          agent's operational goal and direct it to invoke a specific
+          tool with attacker-chosen commands. Stage any required
+          external payloads or receiving infrastructure.
+      - step: delivery
+        tactic: AML.TA0004
+        techniques: [AML.T0093]
+        abstract_action: >
+          Inject the crafted prompt into the agent's input channel
+          or embed it within an external data source the agent
+          consumes, such as a document, web page, or API response.
+      - step: execution
+        tactic: AML.TA0005
+        techniques: [AML.T0051]
+        abstract_action: >
+          The injected prompt activates within the agent's context,
+          overriding or supplementing its original goal with the
+          attacker's directive to invoke a tool.
+      - step: tool_hijack
+        tactic: AML.TA0005
+        techniques: [AML.T0053, AML.T0102]
+        abstract_action: >
+          The agent invokes a tool — such as a shell, API client,
+          or code interpreter — executing an attacker-chosen command
+          through the agent's legitimate tool access.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0112]
+        abstract_action: >
+          The attacker achieves arbitrary tool execution through the
+          hijacked agent, potentially gaining host-level access,
+          exfiltrating data, or performing destructive actions.
 
   # ═══════════════════════════════════════════════════════════════════
   # T3 — Privilege Compromise (3 patterns)
@@ -308,6 +463,44 @@ patterns:
       min_zones: ["input", "reasoning", "tool_execution"]
       kc_requires:
         any: [KC6.1.2, KC6.2.2, KC6.5, KCX-XAUTH]
+    kill_chain:
+      - step: reconnaissance
+        tactic: AML.TA0002
+        techniques: [AML.T0084, AML.T0075]
+        abstract_action: >
+          Discover the agent's connected systems and map trust
+          relationships that span system boundaries, identifying
+          where credentials or authorization tokens carry over
+          without independent scope enforcement.
+      - step: setup
+        tactic: AML.TA0003
+        techniques: [AML.T0065]
+        abstract_action: >
+          Craft a request that leverages the agent's legitimate
+          access in one system to target a connected system where
+          authorization scope is not independently enforced.
+      - step: initial_access
+        tactic: AML.TA0004
+        techniques: [AML.T0091.000]
+        abstract_action: >
+          Manipulate the agent into authenticating to the target
+          system using credentials or trust tokens inherited from
+          the source system, crossing the authorization boundary.
+      - step: privilege_escalation
+        tactic: AML.TA0012
+        techniques: [AML.T0053]
+        abstract_action: >
+          The agent's authorization from the source system grants
+          elevated access in the target system, which lacks
+          independent scope enforcement and accepts the inherited
+          trust relationship.
+      - step: impact
+        tactic: AML.TA0011
+        techniques: [AML.T0048]
+        abstract_action: >
+          The attacker gains unauthorized access to resources beyond
+          the agent's intended authorization domain, exploiting the
+          trust boundary gap between connected systems.
 
   AP-T3-03:
     id: "AP-T3-03"
