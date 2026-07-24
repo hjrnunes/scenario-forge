@@ -437,11 +437,18 @@ class TestConsistencyRetryLoop:
     """Verify the retry loop re-invokes Call 2 on consistency violations."""
 
     def _make_call_attack_tree_result(
-        self, leaf_count: int, zones: list[str]
+        self,
+        leaf_count: int,
+        zones: list[str],
+        threat_id: str | None = None,
     ):
         """Build a mock return value for _call_attack_tree."""
         children = [
-            _make_leaf(f"n1.{i+1}", zone=zones[i % len(zones)])
+            _make_leaf(
+                f"n1.{i+1}",
+                zone=zones[i % len(zones)],
+                **({"threat_id": threat_id} if threat_id else {}),
+            )
             for i in range(leaf_count)
         ]
         root = _make_or_root(*children)
@@ -476,9 +483,9 @@ class TestConsistencyRetryLoop:
         bad_tree, bad_result = self._make_call_attack_tree_result(
             10, ["input", "reasoning"]
         )
-        # Second call: 4 leaves -> passes
+        # Second call: 4 leaves with matching threat_id -> passes
         good_tree, good_result = self._make_call_attack_tree_result(
-            4, ["input", "reasoning"]
+            4, ["input", "reasoning"], threat_id="T1"
         )
 
         mock_call2.side_effect = [
@@ -555,7 +562,7 @@ class TestConsistencyRetryLoop:
     ) -> None:
         """Call 2 is not retried when the first attempt is clean."""
         good_tree, good_result = self._make_call_attack_tree_result(
-            3, ["input", "reasoning"]
+            3, ["input", "reasoning"], threat_id="T1"
         )
         mock_call2.return_value = (good_tree, good_result)
 
@@ -669,3 +676,163 @@ class TestConsistencyRetryLoop:
 
         # 1 initial + 2 retries = 3
         assert mock_call2.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Tests: missing scenario threat_id check (k4ja)
+# ---------------------------------------------------------------------------
+
+
+class TestMissingScenarioThreatId:
+    """Check 4: at least one tree node must carry the scenario's threat_id."""
+
+    def test_matching_threat_id_no_violation(self) -> None:
+        """Tree with a node carrying the scenario's threat_id passes."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input", threat_id="T7"),
+            _make_leaf("n1.2", zone="reasoning"),
+        )
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "reasoning"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10, threat_id="T7"
+        )
+
+        assert not any("missing-scenario-threat-id" in v for v in violations)
+
+    def test_different_threat_ids_but_not_scenario(self) -> None:
+        """Tree with threat_ids that don't include the scenario's triggers violation."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input", threat_id="T1"),
+            _make_leaf("n1.2", zone="reasoning", threat_id="T3"),
+        )
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "reasoning"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10, threat_id="T7"
+        )
+
+        threat_violations = [
+            v for v in violations if "missing-scenario-threat-id" in v
+        ]
+        assert len(threat_violations) == 1
+        assert "T7" in threat_violations[0]
+
+    def test_no_threat_ids_at_all(self) -> None:
+        """Tree with no threat_ids triggers violation."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="reasoning"),
+        )
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "reasoning"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10, threat_id="T7"
+        )
+
+        threat_violations = [
+            v for v in violations if "missing-scenario-threat-id" in v
+        ]
+        assert len(threat_violations) == 1
+        assert "'none'" in threat_violations[0] or "none" in threat_violations[0]
+
+    def test_threat_id_none_skips_check(self) -> None:
+        """When threat_id is None, the check is skipped entirely."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="reasoning"),
+        )
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "reasoning"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10, threat_id=None
+        )
+
+        assert not any("missing-scenario-threat-id" in v for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# Tests: tool-execution leaf grounding check (xij7)
+# ---------------------------------------------------------------------------
+
+
+class TestToolExecutionLeafGrounding:
+    """Check 5: tool_execution leaves must reference a tool from inventory."""
+
+    def test_leaf_with_tool_name_no_violation(self) -> None:
+        """Leaf with tool name in label passes."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="tool_execution"),
+        )
+        # Set a label containing the tool name
+        root.children[1].label = "Invoke database_query to extract data"
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "tool_execution"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10,
+            tool_names=["database_query", "send_email"],
+        )
+
+        assert not any("ungrounded-tool-leaf" in v for v in violations)
+
+    def test_leaf_with_generic_label_violation(self) -> None:
+        """Leaf with generic label triggers violation."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="tool_execution"),
+        )
+        root.children[1].label = "Execute malicious operation"
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "tool_execution"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10,
+            tool_names=["database_query", "send_email"],
+        )
+
+        tool_violations = [
+            v for v in violations if "ungrounded-tool-leaf" in v
+        ]
+        assert len(tool_violations) == 1
+        assert "Execute malicious operation" in tool_violations[0]
+
+    def test_no_tool_names_skips_check(self) -> None:
+        """When tool_names is None, the check is skipped."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="tool_execution"),
+        )
+        root.children[1].label = "Execute malicious operation"
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "tool_execution"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10,
+            tool_names=None,
+        )
+
+        assert not any("ungrounded-tool-leaf" in v for v in violations)
+
+    def test_non_tool_execution_leaf_not_checked(self) -> None:
+        """Non-tool_execution leaf with generic label is not checked."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="reasoning"),
+        )
+        root.children[0].label = "Generic attacker action"
+        root.children[1].label = "Generic reasoning step"
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "reasoning"], step_count=2)
+
+        violations = _check_consistency(
+            tree, narrative, parsimony_budget=10,
+            tool_names=["database_query"],
+        )
+
+        assert not any("ungrounded-tool-leaf" in v for v in violations)
