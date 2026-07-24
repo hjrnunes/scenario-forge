@@ -309,6 +309,7 @@ def build_call2_context(
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
+    consistency_feedback: str | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 2 (Attack Tree).
 
@@ -425,6 +426,7 @@ def build_call2_context(
         "ontology_context": ontology_context,
         "tool_inventory": (profile.tool_inventory if profile else None) or [],
         "kill_chain": seed.kill_chain,
+        "consistency_feedback": consistency_feedback,
         # Non-template data for post-generation validation
         "skeleton": skeleton,
     }
@@ -439,6 +441,7 @@ def _call_attack_tree(
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
+    consistency_feedback: str | None = None,
 ) -> tuple[AttackTree, LLMResult]:
     """Generate an attack tree for a scenario seed (Call 2).
 
@@ -457,6 +460,7 @@ def _call_attack_tree(
         actor_profile=actor_profile,
         pinned_technique_ids=pinned_technique_ids,
         pinned_technique_names=pinned_technique_names,
+        consistency_feedback=consistency_feedback,
     )
 
     skeleton = ctx["skeleton"]
@@ -633,6 +637,8 @@ def _check_consistency(
     narrative: NarrativeLayer,
     parsimony_budget: int,
     step_node_floor: float = _STEP_NODE_CORRESPONDENCE_FLOOR,
+    threat_id: str | None = None,
+    tool_names: list[str] | None = None,
 ) -> list[str]:
     """Run post-generation consistency checks on the attack tree.
 
@@ -641,6 +647,10 @@ def _check_consistency(
       1. Parsimony — leaf count must not exceed budget.
       2. Zone-sequence — every narrative zone must appear in the tree.
       3. Step-node correspondence — ratio must meet the floor.
+      4. Missing scenario threat_id — at least one tree node must carry the
+         scenario's assigned threat_id.
+      5. Tool-execution leaf grounding — every leaf in tool_execution zone
+         must reference a tool from the inventory.
     """
     violations: list[str] = []
 
@@ -657,7 +667,9 @@ def _check_consistency(
     missing_zones = narrative_zones - tree_zones
     if missing_zones:
         violations.append(
-            f"zone-sequence: zones {missing_zones} in narrative but not tree"
+            f"zone-sequence: zones {missing_zones} in narrative but not tree; "
+            f"add at least one node in each missing zone: "
+            f"{', '.join(sorted(missing_zones))}"
         )
 
     # Check 3: step-node correspondence
@@ -676,4 +688,72 @@ def _check_consistency(
     elif leaf_count == 0:
         violations.append("step-node: 0 leaves in tree")
 
+    # Check 4: missing scenario threat_id
+    if threat_id is not None:
+        all_threat_ids = {
+            tid
+            for tid in (
+                n_tid
+                for n_tid in _collect_threat_ids_from_tree_set(tree.root)
+            )
+        }
+        if threat_id not in all_threat_ids:
+            violations.append(
+                f"missing-scenario-threat-id: no tree node carries "
+                f"threat_id '{threat_id}'; tree has "
+                f"{sorted(all_threat_ids) if all_threat_ids else 'none'}. "
+                f"At least one node must have threat_id='{threat_id}'"
+            )
+
+    # Check 5: tool-execution leaf grounding
+    if tool_names is not None:
+        tool_names_lower = [tn.lower() for tn in tool_names]
+        _check_tool_execution_leaf_grounding(
+            tree.root, tool_names_lower, violations
+        )
+
     return violations
+
+
+def _collect_threat_ids_from_tree_set(
+    node: AttackTreeNode,
+) -> set[str]:
+    """Collect all non-None threat_id values from tree nodes as a set."""
+    ids: set[str] = set()
+    if node.threat_id is not None:
+        ids.add(node.threat_id)
+    if node.children:
+        for child in node.children:
+            ids.update(_collect_threat_ids_from_tree_set(child))
+    return ids
+
+
+def _check_tool_execution_leaf_grounding(
+    node: AttackTreeNode,
+    tool_names_lower: list[str],
+    violations: list[str],
+) -> None:
+    """Check that tool_execution leaf nodes reference a known tool.
+
+    Appends a violation for each tool_execution leaf whose label does not
+    contain any tool name from the inventory (case-insensitive).
+    """
+    if node.gate == GateType.LEAF:
+        if node.zone == "tool_execution":
+            label_lower = node.label.lower()
+            found = any(
+                tn in label_lower or label_lower in tn
+                for tn in tool_names_lower
+            )
+            if not found:
+                violations.append(
+                    f"ungrounded-tool-leaf: leaf '{node.id}' in "
+                    f"tool_execution zone has label '{node.label}' which "
+                    f"does not reference any tool from the inventory. "
+                    f"Use a specific tool name in the label."
+                )
+    elif node.children:
+        for child in node.children:
+            _check_tool_execution_leaf_grounding(
+                child, tool_names_lower, violations
+            )

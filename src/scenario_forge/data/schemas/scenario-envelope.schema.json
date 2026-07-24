@@ -455,7 +455,7 @@
         "message": { "type": "string" },
         "severity": {
           "type": "string",
-          "enum": ["major", "minor"],
+          "enum": ["major", "moderate", "minor"],
           "default": "major"
         }
       }

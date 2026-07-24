@@ -540,8 +540,17 @@ def generate_scenario(
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
 
     # --- Post-generation consistency enforcement ---
+    _tool_names_for_check = (
+        [t.name for t in profile.tool_inventory]
+        if profile and profile.tool_inventory
+        else None
+    )
     consistency_violations = _check_consistency(
-        attack_tree, narrative, parsimony_budget
+        attack_tree,
+        narrative,
+        parsimony_budget,
+        threat_id=seed.threat_id,
+        tool_names=_tool_names_for_check,
     )
     consistency_retry = 0
     while consistency_violations and consistency_retry < _CONSISTENCY_MAX_RETRIES:
@@ -553,6 +562,7 @@ def generate_scenario(
             _CONSISTENCY_MAX_RETRIES,
             "; ".join(consistency_violations),
         )
+        feedback = "- " + "\n- ".join(consistency_violations)
         try:
             attack_tree, result2 = _call_attack_tree(
                 seed,
@@ -563,6 +573,7 @@ def generate_scenario(
                 actor_profile=actor_profile,
                 pinned_technique_ids=pinned_technique_ids,
                 pinned_technique_names=pinned_technique_names,
+                consistency_feedback=feedback,
             )
         except Exception as exc:
             logger.warning(
@@ -574,7 +585,11 @@ def generate_scenario(
             )
             break
         consistency_violations = _check_consistency(
-            attack_tree, narrative, parsimony_budget
+            attack_tree,
+            narrative,
+            parsimony_budget,
+            threat_id=seed.threat_id,
+            tool_names=_tool_names_for_check,
         )
 
     if consistency_violations:

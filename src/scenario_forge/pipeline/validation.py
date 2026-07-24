@@ -1554,6 +1554,99 @@ def validate_scenario_semantics(
                     )
                 )
 
+        # 11. Goal-category alignment — flag mismatches between goal_category
+        #     and the actor type or attack mechanism (kum3).
+        _goal_cat = (
+            scenario.actor_profile.goal_category
+            if scenario.actor_profile
+            else None
+        )
+        if _goal_cat and isinstance(_goal_cat, str):
+            _actor_type = (
+                scenario.actor_profile.actor_type
+                if scenario.actor_profile
+                else None
+            )
+
+            # 11a. Supply-chain goal on non-supply-chain actor.
+            _NON_SUPPLY_CHAIN_ACTORS = {
+                "negligent-insider",
+                "adversarial-user",
+                "cybercriminal",
+            }
+            if (
+                _goal_cat.startswith("IN-7")
+                and _actor_type in _NON_SUPPLY_CHAIN_ACTORS
+            ):
+                violations.append(
+                    SemanticViolation(
+                        rule="goal_actor_mismatch",
+                        message=(
+                            f"Supply-chain goal '{_goal_cat}' assigned to "
+                            f"actor_type '{_actor_type}' which is not a "
+                            f"supply-chain actor"
+                        ),
+                        severity="moderate",
+                    )
+                )
+
+            # 11b. Data exfiltration goal on financial fraud attack.
+            if _goal_cat.startswith("PR-1"):
+                _financial_keywords = [
+                    "refund", "payment", "billing", "transaction",
+                ]
+                leaves = _collect_leaves(scenario.attack_tree.root)
+                _has_financial_tool_leaf = any(
+                    leaf.zone == "tool_execution"
+                    and any(
+                        kw in leaf.label.lower()
+                        for kw in _financial_keywords
+                    )
+                    for leaf in leaves
+                )
+                if _has_financial_tool_leaf:
+                    violations.append(
+                        SemanticViolation(
+                            rule="goal_mechanism_mismatch",
+                            message=(
+                                f"Data exfiltration goal '{_goal_cat}' "
+                                f"assigned but attack tree contains "
+                                f"financial tool leaves (refund/payment/"
+                                f"billing/transaction)"
+                            ),
+                            severity="minor",
+                        )
+                    )
+
+            # 11c. Safety bypass goal on social engineering attack.
+            if _goal_cat.startswith("AB-1"):
+                _se_keywords = [
+                    "phishing", "credential", "social engineering",
+                    "impersonat",
+                ]
+                _narrative_text = " ".join(
+                    [scenario.narrative.title, scenario.narrative.summary]
+                    + [
+                        f"{s.action} {s.effect}"
+                        for s in scenario.narrative.steps
+                    ]
+                ).lower()
+                _has_social_engineering = any(
+                    kw in _narrative_text for kw in _se_keywords
+                )
+                if _has_social_engineering:
+                    violations.append(
+                        SemanticViolation(
+                            rule="goal_mechanism_mismatch",
+                            message=(
+                                f"Safety bypass goal '{_goal_cat}' assigned "
+                                f"but narrative describes a social "
+                                f"engineering attack"
+                            ),
+                            severity="minor",
+                        )
+                    )
+
         semantic = SemanticValidation(
             valid=len(violations) == 0,
             violations=violations,

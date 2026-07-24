@@ -378,7 +378,7 @@ class SemanticViolation(BaseModel):
 
     rule: str = Field(description="Rule identifier (e.g. technique_exists, zone_in_profile).")
     message: str = Field(description="Human-readable description of the violation.")
-    severity: Literal["major", "minor"] = Field(
+    severity: Literal["major", "moderate", "minor"] = Field(
         default="major",
         description="Severity of the violation.",
     )
