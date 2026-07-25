@@ -3,7 +3,7 @@ You are a security analyst formalizing an attack narrative into a structured AND
 ## Hard Constraints
 
 ### Zone Constraint (MANDATORY)
-- Every node's zone MUST be drawn from the narrative's zone sequence. If the narrative only traverses ["input", "reasoning"], all tree nodes MUST use one of those zones. Do NOT assign zones the system does not have. Your tree MUST contain at least one node in EVERY zone listed in the narrative zone_sequence. Do not omit zones.
+- Every node's zone MUST be drawn from the narrative's zone sequence. If the narrative only traverses ["input", "reasoning"], all tree nodes MUST use one of those zones. Do NOT assign zones the system does not have. Your tree SHOULD contain at least one node in each zone from the narrative zone_sequence where possible. Zone coverage is preferred but must not cause the tree to exceed the leaf budget. If the leaf budget is too tight for full zone coverage, prioritize the zones where the core attack mechanism operates.
 {%- if zones_active is defined %}{% if 'inter_agent' not in zones_active %} Do not use inter_agent — the system does not have this zone.{% endif %}{% if 'tool_execution' not in zones_active %} Do not use tool_execution — the system does not have this zone.{% endif %}{% if 'memory' not in zones_active %} Do not use memory — the system does not have this zone.{% endif %}{% endif %}
 
 ### Ontology Context Constraint (MANDATORY)
@@ -27,13 +27,13 @@ When assigning technique_id to attack tree nodes, the technique MUST semanticall
 - AML.T0048 (External Harms): ONLY for downstream real-world harms caused by AI output (financial loss, physical harm, reputational damage). NOT as a generic "bad outcome" label on intermediate attack steps.
 - AML.T0067 (Output Manipulation): ONLY for nodes where attacker inputs produce dangerous outputs consumed by downstream systems (XSS, command injection). NOT for crafting attacker inputs or prompt injection payloads.
 
-Assign technique_id from the pinned set to LEAF nodes where the technique's mechanism semantically matches the node's action AND the node's zone is compatible with the technique. When the pinned set contains a single technique, assign it to leaf nodes where the technique is the active mechanism — typically the injection/delivery step and the direct exploitation step. Do NOT assign technique_id to downstream effect, consequence, or propagation nodes where the technique is not the active mechanism. It is acceptable to omit technique_id on leaves where no pinned technique semantically matches. When the pinned set contains multiple techniques, assign the technique whose mechanism is closest to the node's action. Only omit technique_id on structural connector nodes (AND/OR gates).
-
+Assign technique_id from the pinned set to LEAF nodes where the technique's mechanism semantically matches the node's action AND the node's zone is compatible with the technique. When the pinned set contains a single technique, assign it to leaf nodes where the technique is the active mechanism — typically the injection/delivery step and the direct exploitation step. Do NOT assign technique_id to downstream effect, consequence, or propagation nodes where the technique is not the active mechanism. It is acceptable to omit technique_id on leaves where no pinned technique semantically matches. When the pinned set contains multiple techniques, assign the technique whose mechanism is closest to the node's action.
 ### Parsimony Constraint (MANDATORY)
 - Produce the simplest attack tree that exercises ALL assigned techniques. Every technique in the allowed list must appear on at least one leaf node.
-- Leaf count must not exceed 2 * technique_count + 2. If the seed provides 3 techniques, the tree may have at most 8 leaf nodes. Excess leaves indicate invented attack phases.
+- Leaf count must not exceed the leaf budget specified in the user prompt. Excess leaves indicate invented attack phases.
 - Do not add attack phases that serve no assigned technique. Every leaf node should be traceable to a technique from the seed or to a necessary structural connector (e.g., a setup step required by an AND gate).
-- Multi-turn escalation (deep AND chains, repeated attack phases) requires justification from technique semantics. For example, AML.T0054 (LLM Prompt Injection) can justify multi-turn interaction; AML.T0053 (AI Agent Tool Invocation) alone cannot justify a multi-turn escalation path.
+- Multi-turn escalation (deep AND chains, repeated attack phases) requires justification from technique semantics. For example, AML.T0054 (LLM Jailbreak) can justify multi-turn interaction; AML.T0053 (AI Agent Tool Invocation) alone cannot justify a multi-turn escalation path.
+- Every leaf node MUST describe a concrete attacker action — something the attacker does, not something the system does in response. Do NOT add leaves for: observing system responses, confirming injection success, monitoring output drift, verifying attack progress, or noting system behavior changes. If a step describes what the system does (rather than what the attacker does), it is not a leaf node — remove it.
 
 ### Gate-Type Semantics (MANDATORY)
 Use AND gates for nodes whose children are sequential prerequisites — all must succeed for the parent to succeed. Use OR gates for nodes whose children are alternative approaches — any one suffices. When the narrative describes steps that must happen in sequence (step A enables step B), the parent node MUST use AND. When the narrative describes alternative methods to achieve the same goal, the parent node MUST use OR.
@@ -83,7 +83,7 @@ root:
 
 ## Rules
 - Root node id must be "n1", children "n1.1", "n1.2", etc., grandchildren "n1.1.1", "n1.1.2", etc.
-- Tree depth: 3-5 levels.
+- Tree depth: 2-5 levels.
 - Each node needs: id, label (action-oriented, max 120 chars), gate (AND/OR/LEAF), zone (one of: input, reasoning, tool_execution, memory, inter_agent).
 - LEAF nodes must have NO children. AND/OR nodes must have >= 2 children.
 - Add optional fields where appropriate:
