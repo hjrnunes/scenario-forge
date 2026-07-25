@@ -222,6 +222,17 @@ def _build_gherkin_template(
     return "\n".join(lines) + "\n"
 
 
+def _collect_control_points(node: AttackTreeNode) -> list[str]:
+    """Collect unique non-None control_point values from tree nodes."""
+    points: set[str] = set()
+    if node.control_point:
+        points.add(node.control_point)
+    if node.children:
+        for child in node.children:
+            points.update(_collect_control_points(child))
+    return sorted(points)
+
+
 def build_call3_context(
     seed: ScenarioSeed,
     narrative: NarrativeLayer,
@@ -248,10 +259,14 @@ def build_call3_context(
         scenario_tag=scenario_tag,
     )
 
+    # Collect defensive control points from attack tree nodes
+    control_points = _collect_control_points(attack_tree.root)
+
     return {
         "gherkin_skeleton": gherkin_template,
         "narrative": narrative,
         "seed": seed,
+        "control_points": control_points,
     }
 
 
