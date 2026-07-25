@@ -10,9 +10,6 @@ Use these zone identifiers when annotating entry_points:
 - "inter_agent" — Inter-Agent Communication (agent-to-agent messaging)
 
 ## Rules
-- has_persistent_memory: true if the system stores state across sessions or interactions.
-- multi_agent: true if multiple AI agents coordinate or communicate.
-- hitl: true if humans review, approve, or intervene in the workflow.
 - entry_points: list of entry point objects, each with "name", "direction", and optionally "controllability" fields.
   - name: short description of the entry point, annotated with its zone, e.g. "user prompts via chat widget (input)".
   - direction: one of "input", "output", or "bidirectional".
@@ -24,6 +21,7 @@ Use these zone identifiers when annotating entry_points:
     - "indirect" — attacker can influence a data source that feeds into the system but does not interact with it directly (e.g. poisoning RAG knowledge bases, manipulating third-party data feeds, injecting content into documents the system retrieves).
     - "system" — fully system-controlled; not attacker-accessible as an ingress channel (e.g. internal service buses, cron jobs, backend orchestration calls).
     - null — omit the field when controllability cannot be determined from the description; it will be inferred by a downstream heuristic.
+  - **Relationship:** `direction` describes data flow (input/output/bidirectional). `controllability` describes attacker access level (direct/indirect/system). These axes are related but not redundant: a `bidirectional` entry point is typically `direct` controllability; an `input` entry point may be `direct` (user-facing) or `indirect` (upstream data feed); an `output` entry point is typically `system` controllability. When in doubt, `controllability` is the authoritative axis for downstream access decisions.
   - Examples:
     - {"name": "user prompts via chat widget (input)", "direction": "input", "controllability": "direct"}
     - {"name": "backend service API calls for refunds and payments (tool_execution)", "direction": "output", "controllability": "system"}
