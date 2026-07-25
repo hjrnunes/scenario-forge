@@ -1,3 +1,14 @@
+{% if control_points %}
+## Available Defense Mechanisms
+The following defensive controls exist at various points in the attack path. Select from these for the But assertion:
+{% for cp in control_points %}
+- {{ cp }}
+{% endfor %}
+{% endif %}
+## Attack Context
+- Attack pattern: {{ seed.attack_pattern_name }}
+- Threat category: {{ seed.threat_name }}
+
 ## Pre-built Gherkin Scenario
 
 {{ gherkin_skeleton }}
@@ -6,17 +17,6 @@ Title: {{ narrative.title }}
 Summary: {{ narrative.summary }}
 Entry point: {{ narrative.entry_point }}
 
-## Attack Context
-- Attack pattern: {{ seed.attack_pattern_name }}
-- Threat category: {{ seed.threat_name }}
-
-{% if control_points %}
-## Available Defense Mechanisms
-The following defensive controls exist at various points in the attack path. Select from these for the But assertion:
-{% for cp in control_points %}
-- {{ cp }}
-{% endfor %}
-{% endif %}
 ---
 
 ## Your Task
