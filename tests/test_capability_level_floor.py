@@ -291,46 +291,63 @@ class TestMaxCapabilityLevel:
 
 
 class TestCapabilityLevelPromptConstraint:
-    """The call0_system.j2 template includes the constraint when minimum > novice."""
+    """The call0_user.j2 template includes the capability level constraint
+    when minimum > novice."""
+
+    # Minimal user-prompt context needed to render call0_user.j2
+    _USER_CTX: dict = {
+        "use_case": "test",
+        "seed": type("S", (), {
+            "attack_pattern_name": "X",
+            "attack_pattern_description": "X",
+            "threat_name": "X",
+            "threat_description": "X",
+        })(),
+        "profile": type("P", (), {
+            "zones_active": ["input"],
+            "entry_points": [],
+        })(),
+        "kc_definitions": "",
+        "tool_inventory": [],
+        "ontology_context": "",
+        "pinned_entry_point": None,
+        "pinned_entry_point_direction": None,
+        "pinned_technique_count": 1,
+        "technique_context": "",
+        "technique_framing_0": "",
+        "goal_section": "",
+        "diversity_section": "",
+        "compatible_actor_types": [],
+    }
 
     def test_intermediate_floor_appears_in_prompt(self):
-        prompt = render_prompt(
-            "call0_system.j2",
-            minimum_capability_level="intermediate",
-            tool_inventory=[],
-        )
-        assert "Capability Level Constraint (MANDATORY)" in prompt
+        ctx = {**self._USER_CTX, "minimum_capability_level": "intermediate"}
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Capability Level Constraint" in prompt
         assert '"intermediate"' in prompt
 
     def test_advanced_floor_appears_in_prompt(self):
-        prompt = render_prompt(
-            "call0_system.j2",
-            minimum_capability_level="advanced",
-            tool_inventory=[],
-        )
-        assert "Capability Level Constraint (MANDATORY)" in prompt
+        ctx = {**self._USER_CTX, "minimum_capability_level": "advanced"}
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Capability Level Constraint" in prompt
         assert '"advanced"' in prompt
 
     def test_novice_floor_not_shown(self):
-        prompt = render_prompt(
-            "call0_system.j2",
-            minimum_capability_level="novice",
-            tool_inventory=[],
-        )
-        assert "Capability Level Constraint (MANDATORY)" not in prompt
+        ctx = {**self._USER_CTX, "minimum_capability_level": "novice"}
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Capability Level Constraint" not in prompt
 
     def test_none_floor_not_shown(self):
-        prompt = render_prompt(
-            "call0_system.j2",
-            minimum_capability_level=None,
-            tool_inventory=[],
-        )
-        assert "Capability Level Constraint (MANDATORY)" not in prompt
+        ctx = {**self._USER_CTX, "minimum_capability_level": None}
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Capability Level Constraint" not in prompt
 
     def test_default_no_floor(self):
         """Backward compat: no minimum_capability_level kwarg still works."""
-        prompt = render_prompt("call0_system.j2", tool_inventory=[])
-        assert "Capability Level Constraint (MANDATORY)" not in prompt
+        ctx = {**self._USER_CTX}
+        ctx.pop("minimum_capability_level", None)
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Capability Level Constraint" not in prompt
 
 
 # ---------------------------------------------------------------------------

@@ -450,43 +450,59 @@ class TestAllActorTypes:
 
 
 class TestActorTypePromptConstraint:
-    """The call0_system.j2 template includes the constraint when compatible
+    """The call0_user.j2 template includes the constraint when compatible
     set is narrower than full."""
 
+    # Minimal user-prompt context needed to render call0_user.j2
+    _USER_CTX: dict = {
+        "use_case": "test",
+        "seed": type("S", (), {
+            "attack_pattern_name": "X",
+            "attack_pattern_description": "X",
+            "threat_name": "X",
+            "threat_description": "X",
+        })(),
+        "profile": type("P", (), {
+            "zones_active": ["input"],
+            "entry_points": [],
+        })(),
+        "kc_definitions": "",
+        "tool_inventory": [],
+        "ontology_context": "",
+        "pinned_entry_point": None,
+        "pinned_entry_point_direction": None,
+        "pinned_technique_count": 1,
+        "technique_context": "",
+        "technique_framing_0": "",
+        "goal_section": "",
+        "diversity_section": "",
+        "minimum_capability_level": "novice",
+    }
+
     def test_constraint_appears_when_narrowed(self):
-        prompt = render_prompt(
-            "call0_system.j2",
-            compatible_actor_types=["adversarial-user", "cybercriminal"],
-            minimum_capability_level="novice",
-            tool_inventory=[],
-        )
-        assert "Actor Type Constraint (MANDATORY)" in prompt
+        ctx = {**self._USER_CTX, "compatible_actor_types": ["adversarial-user", "cybercriminal"]}
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Actor Type Constraint" in prompt
         assert "adversarial-user" in prompt
         assert "cybercriminal" in prompt
 
     def test_constraint_lists_all_compatible(self):
         types = sorted(["nation-state", "malicious-insider", "supply-chain-actor"])
-        prompt = render_prompt(
-            "call0_system.j2",
-            compatible_actor_types=types,
-            minimum_capability_level="novice",
-            tool_inventory=[],
-        )
+        ctx = {**self._USER_CTX, "compatible_actor_types": types}
+        prompt = render_prompt("call0_user.j2", **ctx)
         for t in types:
             assert t in prompt
 
     def test_no_constraint_without_kwarg(self):
-        prompt = render_prompt("call0_system.j2", tool_inventory=[])
-        assert "Actor Type Constraint (MANDATORY)" not in prompt
+        ctx = {**self._USER_CTX}
+        ctx.pop("compatible_actor_types", None)
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Actor Type Constraint" not in prompt
 
     def test_empty_list_no_constraint(self):
-        prompt = render_prompt(
-            "call0_system.j2",
-            compatible_actor_types=[],
-            minimum_capability_level="novice",
-            tool_inventory=[],
-        )
-        assert "Actor Type Constraint (MANDATORY)" not in prompt
+        ctx = {**self._USER_CTX, "compatible_actor_types": []}
+        prompt = render_prompt("call0_user.j2", **ctx)
+        assert "Actor Type Constraint" not in prompt
 
 
 # ---------------------------------------------------------------------------
