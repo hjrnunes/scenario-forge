@@ -304,7 +304,7 @@ def build_call1_context(
             "If satisfying this goal would require abandoning the seed's core "
             "attack mechanism, prioritise seed fidelity — the goal is a guiding "
             "preference, not a hard override. The seed's 'Seed Attack Objective "
-            "Fidelity (MANDATORY)' constraint always takes precedence.\n"
+            "Fidelity (INVARIANT)' constraint always takes precedence.\n"
         )
 
     # Resolve creativity-vs-simplicity conflict for novice actors

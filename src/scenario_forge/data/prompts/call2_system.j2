@@ -78,22 +78,23 @@ root:
 
 ## Definitions
 
-### Entry Point Controllability (MANDATORY)
+### Entry Point Controllability (INVARIANT)
 {% include '_controllability.j2' %}
 
-## Hard Constraints
+## Constraints
+{% include '_precedence.j2' %}
 
-### Zone Constraint (MANDATORY)
+### Zone Constraint (INVARIANT)
 - Every node's zone MUST be drawn from the narrative's zone sequence. If the narrative only traverses ["input", "reasoning"], all tree nodes MUST use one of those zones. Do NOT assign zones the system does not have. Your tree SHOULD contain at least one node in each zone from the narrative zone_sequence where possible. Zone coverage is preferred but must not cause the tree to exceed the leaf budget. If the leaf budget is too tight for full zone coverage, prioritize the zones where the core attack mechanism operates.
 {% include '_zone_constraint.j2' %}
 
-### Ontology Context Constraint (MANDATORY)
+### Ontology Context Constraint (INVARIANT)
 {% set _artifact = "Your attack tree" %}{% include '_ontology_context_constraint.j2' %}
 
-### Technique ID Constraint (MANDATORY)
+### Technique ID Constraint (INVARIANT)
 - technique_id: MITRE ATLAS technique ID — ONLY use IDs from the allowed technique list provided in the scenario context. Each allowed technique includes its name; only assign a technique_id to a node if the technique's name semantically matches the attack action described in the node's label. Do NOT invent or hallucinate technique IDs. If no ATLAS technique IDs are provided, omit the technique_id field entirely.
 
-### Technique ID Semantic Rules (MANDATORY)
+### Technique ID Semantic Rules (INVARIANT)
 When assigning technique_id to attack tree nodes, the technique MUST semantically match the action described in the node. Do NOT use technique IDs as generic labels. Common misassignments to avoid:
 
 - AML.T0053 (AI Agent Tool Invocation): ONLY for nodes where the agent invokes an external tool or API beyond its intended scope. NOT for reasoning manipulation, prompt injection, or capability escalation nodes.
@@ -102,34 +103,34 @@ When assigning technique_id to attack tree nodes, the technique MUST semanticall
 - AML.T0067 (Output Manipulation): ONLY for nodes where attacker inputs produce dangerous outputs consumed by downstream systems (XSS, command injection). NOT for crafting attacker inputs or prompt injection payloads.
 
 Assign technique_id from the pinned set to LEAF nodes where the technique's mechanism semantically matches the node's action AND the node's zone is compatible with the technique. When the pinned set contains a single technique, assign it to leaf nodes where the technique is the active mechanism — typically the injection/delivery step and the direct exploitation step. Do NOT assign technique_id to downstream effect, consequence, or propagation nodes where the technique is not the active mechanism. It is acceptable to omit technique_id on leaves where no pinned technique semantically matches. When the pinned set contains multiple techniques, assign the technique whose mechanism is closest to the node's action.
-### Parsimony Constraint (MANDATORY)
+### Parsimony Constraint (INVARIANT)
 - Produce the simplest attack tree that exercises ALL assigned techniques. Every technique in the allowed list must appear on at least one leaf node.
 - Leaf count must not exceed the leaf budget specified in the user prompt. Excess leaves indicate invented attack phases.
 - Do not add attack phases that serve no assigned technique. Every leaf node should be traceable to a technique from the seed or to a necessary structural connector (e.g., a setup step required by an AND gate).
 - Multi-turn escalation (deep AND chains, repeated attack phases) requires justification from technique semantics. For example, AML.T0054 (LLM Jailbreak) can justify multi-turn interaction; AML.T0053 (AI Agent Tool Invocation) alone cannot justify a multi-turn escalation path.
 - Every leaf node MUST describe a concrete attacker action — something the attacker does, not something the system does in response. Do NOT add leaves for: observing system responses, confirming injection success, monitoring output drift, verifying attack progress, or noting system behavior changes. If a step describes what the system does (rather than what the attacker does), it is not a leaf node — remove it.
 
-### Gate-Type Semantics (MANDATORY)
+### Gate-Type Semantics (INVARIANT)
 Use AND gates for nodes whose children are sequential prerequisites — all must succeed for the parent to succeed. Use OR gates for nodes whose children are alternative approaches — any one suffices. When the narrative describes steps that must happen in sequence (step A enables step B), the parent node MUST use AND. When the narrative describes alternative methods to achieve the same goal, the parent node MUST use OR.
 
 {% include '_tool_inventory.j2' %}
 {% if tool_inventory %}
-### Tool-Specific Labeling (MANDATORY)
+### Tool-Specific Labeling (INVARIANT)
 Every LEAF node in the tool_execution zone MUST include the exact name of a specific tool from the Tool Inventory in its label field. Use the tool name verbatim from the list above. For example, write "Invoke refund processing API with manipulated parameters" NOT "Execute unauthorized financial adjustment via tool misuse."
 
-### Tool Execution Zone Scope (MANDATORY)
+### Tool Execution Zone Scope (INVARIANT)
 A node belongs in the tool_execution zone ONLY if it represents the invocation of a specific tool from the Tool Inventory above. If you cannot name a concrete tool from the inventory in the node's label, the node does NOT belong in tool_execution. Generic action phrases like "Execute unauthorized X delivery" are not valid tool_execution nodes. If the attack outcome is the LLM generating text output rather than calling a tool, that step belongs in the reasoning zone, not tool_execution.
 {% endif %}
 {% include '_example_adaptation.j2' %}
 
-### Cross-Artifact Consistency (MANDATORY)
+### Cross-Artifact Consistency (INVARIANT)
 The attack tree must be consistent with the upstream narrative and with the downstream behavior spec:
 - Every technique ID from the allowed technique list must appear on at least one tree node. Do not drop techniques that were present in the narrative.
 - The root node must reference the narrative's stated entry point. Do not substitute a different entry point.
 - Zone assignments on tree nodes must match the zones used in the corresponding narrative steps. Do not reassign a step to a different zone.
 - Do not introduce techniques, entry points, or capabilities not present in the seed or capability profile.
 
-## Tree Complexity Calibration
+### Tree Complexity Calibration (PREFERENCE)
 Match tree depth and branching to the actual complexity of the attack:
 - Simple, direct attacks: depth 2-3, 3-5 nodes. Single OR gate at root with a few alternative approaches.
 - Multi-step attacks: depth 3-4, 5-8 nodes. Mix of AND (required steps) and OR (alternative paths) gates.

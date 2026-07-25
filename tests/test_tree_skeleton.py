@@ -496,7 +496,7 @@ class TestSkeletonInCall2Prompt:
             pinned_ids=["AML.T0054"],
             pinned_names=["LLM Jailbreak"],
         )
-        assert "## Leaf Budget (MANDATORY)" in prompt
+        assert "## Leaf Budget (INVARIANT)" in prompt
         assert "## Mandatory Leaf Nodes" in prompt
 
 

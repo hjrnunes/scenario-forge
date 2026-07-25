@@ -222,7 +222,7 @@ class TestToolInventoryPromptRendering:
             kc_subcodes=["KC1.1", "KC6.1.1"],
             tool_inventory=tools,
         )
-        assert "Tool Inventory (MANDATORY)" in rendered
+        assert "Tool Inventory (INVARIANT)" in rendered
         assert "query_db: Query the database" in rendered
         assert "send_email: Send email" in rendered
         assert "Do NOT reference any tool, API, or capability not in this list" in rendered
@@ -238,7 +238,7 @@ class TestToolInventoryPromptRendering:
             kc_subcodes=["KC1.1"],
             tool_inventory=[],
         )
-        assert "Tool Inventory (MANDATORY)" not in rendered
+        assert "Tool Inventory (INVARIANT)" not in rendered
 
     def test_call2_system_with_tool_inventory(self) -> None:
         """call2_system.j2 includes tool inventory section when provided."""
@@ -250,7 +250,7 @@ class TestToolInventoryPromptRendering:
             zones_active=["input", "reasoning", "tool_execution"],
             tool_inventory=tools,
         )
-        assert "Tool Inventory (MANDATORY)" in rendered
+        assert "Tool Inventory (INVARIANT)" in rendered
         assert "process_refund: Process refunds" in rendered
 
     def test_call2_system_without_tool_inventory(self) -> None:
@@ -260,7 +260,7 @@ class TestToolInventoryPromptRendering:
             zones_active=["input", "reasoning"],
             tool_inventory=[],
         )
-        assert "Tool Inventory (MANDATORY)" not in rendered
+        assert "Tool Inventory (INVARIANT)" not in rendered
 
 
 # ---------------------------------------------------------------------------

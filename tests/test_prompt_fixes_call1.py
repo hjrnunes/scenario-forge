@@ -1,7 +1,7 @@
 """Tests for Call 1 prompt constraint fixes (ksur, bto7, wwjz, h1a2).
 
 Covers:
-- ksur: Actor Profile Grounding elevated to MANDATORY with capability-level bounds
+- ksur: Actor Profile Grounding elevated to INVARIANT with capability-level bounds
 - bto7: Actor-Type Entry Point Access bridging constraint
 - wwjz: goal_category passed to Call 1 via goal_section
 - h1a2: Creativity-vs-simplicity conflict resolution for novice actors
@@ -118,16 +118,16 @@ def _render_call1_user(**overrides: object) -> str:
 
 
 # ---------------------------------------------------------------------------
-# ksur — Actor Profile Grounding elevated to MANDATORY
+# ksur — Actor Profile Grounding elevated to INVARIANT
 # ---------------------------------------------------------------------------
 
 
 class TestKsurActorProfileGroundingMandatory:
-    """call1_system.j2 must contain MANDATORY actor profile grounding."""
+    """call1_system.j2 must contain INVARIANT actor profile grounding."""
 
     def test_section_header_is_mandatory(self):
         prompt = _render_call1_system()
-        assert "Actor Profile Grounding (MANDATORY)" in prompt
+        assert "Actor Profile Grounding (INVARIANT)" in prompt
 
     def test_capability_level_novice(self):
         prompt = _render_call1_system()
@@ -153,7 +153,7 @@ class TestKsurActorProfileGroundingMandatory:
         """Constraint language uses MUST, not soft 'should'."""
         prompt = _render_call1_system()
         # Find the actor profile grounding section
-        section_start = prompt.index("Actor Profile Grounding (MANDATORY)")
+        section_start = prompt.index("Actor Profile Grounding (INVARIANT)")
         # Look for the next ## heading to bound the section
         section_end = prompt.index("##", section_start + 1)
         section = prompt[section_start:section_end]
@@ -176,12 +176,12 @@ class TestBto7ActorTypeEntryPointAccess:
 
     def test_section_header_present(self):
         prompt = _render_call1_system()
-        assert "Actor-Type Entry Point Access (MANDATORY)" in prompt
+        assert "Actor-Type Entry Point Access (INVARIANT)" in prompt
 
     def test_supply_chain_actor_mentioned(self):
         prompt = _render_call1_system()
         # Find the actor-type EP section
-        idx = prompt.index("Actor-Type Entry Point Access (MANDATORY)")
+        idx = prompt.index("Actor-Type Entry Point Access (INVARIANT)")
         # Extract from there to end or next section
         section_end = prompt.index("###", idx + 1)
         section = prompt[idx:section_end]
@@ -193,7 +193,7 @@ class TestBto7ActorTypeEntryPointAccess:
 
     def test_indirect_controllability_constraint(self):
         prompt = _render_call1_system()
-        idx = prompt.index("Actor-Type Entry Point Access (MANDATORY)")
+        idx = prompt.index("Actor-Type Entry Point Access (INVARIANT)")
         section_end = prompt.index("###", idx + 1)
         section = prompt[idx:section_end]
         assert "INDIRECT controllability" in section
@@ -267,7 +267,7 @@ class TestWwjzGoalSectionRendering:
                 "If satisfying this goal would require abandoning the seed's core "
                 "attack mechanism, prioritise seed fidelity — the goal is a guiding "
                 "preference, not a hard override. The seed's 'Seed Attack Objective "
-                "Fidelity (MANDATORY)' constraint always takes precedence.\n"
+                "Fidelity (INVARIANT)' constraint always takes precedence.\n"
             )
         assert "## Attack Goal Guidance (SHOULD)" in goal_section
         assert "**Category:** abuse" in goal_section
