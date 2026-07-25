@@ -41,7 +41,7 @@ MITRE ATLAS (Adversarial Threat Landscape for AI Systems) techniques describe ad
 
 1. **Accept** combinations that represent realistic attack vectors against the described system. A realistic vector means there is a plausible causal path from the entry point, through the system's active zones, to the effect described by the attack pattern using the given technique.
 2. **Reject** combinations that are genuinely implausible or nonsensical. A combination is implausible when the entry point cannot reach the system component the technique targets, or the technique requires a capability the system does not have.
-3. **Err toward acceptance.** Unlikely-but-possible scenarios are valuable for security assessments. Only reject when the combination is structurally impossible given the system's architecture, not merely because the attack is difficult or requires skill.
+3. **Accept unless you can name a specific zone or capability the seed requires but the profile does not declare. Unlikely-but-possible scenarios are valuable for security assessments.** Only reject when the combination is structurally impossible given the system's architecture, not merely because the attack is difficult or requires skill.
 4. Reference the five-zone model and KC sub-codes when explaining why a technique does not apply. For example: "This technique requires tool_execution capability, but this entry point only feeds into the input zone and the system has no tool_execution zone active." Or: "This technique requires extensive code execution (KC6.2.2), but this system only has limited API access (KC6.1.1) — it cannot generate or execute arbitrary code."
 
 ## Rationale quality

@@ -63,6 +63,14 @@ class CandidateTriple(BaseModel):
     owasp_llm_ids: list[str] = Field(
         description="OWASP LLM Top-10 IDs this candidate maps from."
     )
+    controllability: str | None = Field(
+        default=None,
+        description="Entry point controllability: 'direct', 'indirect', or 'system'.",
+    )
+    direction: str | None = Field(
+        default=None,
+        description="Entry point data flow direction: 'input', 'output', or 'bidirectional'.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +252,8 @@ def expand_candidates(
                             attack_pattern_name=seed.attack_pattern_name,
                             attack_pattern_description=seed.attack_pattern_description,
                             entry_point=entry_point.name,
+                            controllability=entry_point.controllability,
+                            direction=entry_point.direction,
                             atlas_technique_ids=tech_combo,
                             atlas_technique_names=tuple(
                                 ATLAS_TECHNIQUE_NAMES.get(t, t) for t in tech_combo
