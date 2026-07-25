@@ -1,12 +1,6 @@
 ## Use Case
 {{ use_case }}
 
-## Attack Pattern (your scenario must instantiate this)
-The scenario you generate must be a concrete instance of this attack pattern applied to the target system described above.
-- Attack pattern: {{ seed.attack_pattern_name }}
-- How it works: {{ seed.attack_pattern_description }}
-- Threat category: {{ seed.threat_name }} — {{ seed.threat_description }}
-
 ## Target System Architecture
 The following describes what the target system can and cannot do. Your attack narrative must only reference capabilities the system actually has. Use `zones_active` to constrain which system components appear in narrative steps. Use `entry_points` to ground the attacker's initial access.
 - System components (zones) the attacker can interact with: {{ profile.zones_active }}
@@ -17,6 +11,12 @@ The following describes what the target system can and cannot do. Your attack na
 - Available tools and APIs:
 {% for tool in tool_inventory %}  - {{ tool.name }}: {{ tool.description }}
 {% endfor %}{% endif %}
+
+## Attack Pattern (your scenario must instantiate this)
+The scenario you generate must be a concrete instance of this attack pattern applied to the target system described above.
+- Attack pattern: {{ seed.attack_pattern_name }}
+- How it works: {{ seed.attack_pattern_description }}
+- Threat category: {{ seed.threat_name }} — {{ seed.threat_description }}
 
 ## Related Taxonomy Entries
 Ground the narrative in these taxonomy categories. The attack pattern above is a specific instance of these broader threat categories.
