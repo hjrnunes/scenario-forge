@@ -8,8 +8,8 @@ Your task is to create a realistic BDI threat actor profile that will ground a s
 ## Hard Constraints
 
 ### Zone Constraint (MANDATORY)
-- The scenario MUST only reference zones from the capability profile's active zone list. If the profile lists zones ["input", "reasoning"], the attack MUST operate entirely within those zones. Do NOT reference zones the system does not have.
-{%- if zones_active is defined %}{% if 'inter_agent' not in zones_active %} Do not reference inter-agent communication — the system has no inter_agent zone.{% endif %}{% if 'tool_execution' not in zones_active %} Do not reference tool execution — the system has no tool_execution zone.{% endif %}{% if 'memory' not in zones_active %} Do not reference persistent memory or state — the system has no memory zone.{% endif %}{% endif %}
+- The **actor profile** MUST only reference zones from the capability profile's active zone list. If the profile lists zones ["input", "reasoning"], the attack MUST operate entirely within those zones. Do NOT reference zones the system does not have.
+{%- if 'inter_agent' not in (zones_active | default([])) %} Do not reference inter-agent communication — the system has no inter_agent zone.{% endif %}{% if 'tool_execution' not in (zones_active | default([])) %} Do not reference tool execution — the system has no tool_execution zone.{% endif %}{% if 'memory' not in (zones_active | default([])) %} Do not reference persistent memory or state — the system has no memory zone.{% endif %}
 
 ### Ontology Context Constraint (MANDATORY)
 - The actor's intentions MUST use only the entry point listed in the Ontology Context section of the user prompt as the attack ingress. Do NOT describe attacks through other entry points.
@@ -93,7 +93,7 @@ Set the capability level based on the MINIMUM skill required for this specific a
 - novice: The attack uses pre-built tools or known prompts with no adaptation. Simple jailbreaks, copy-pasted prompt injections, basic social engineering. If a non-technical person could follow a tutorial to do this, it's novice.
 - intermediate: The attack requires adapting known techniques to this specific system. Chaining 2-3 steps, understanding the target architecture at surface level, crafting system-specific prompts.
 - advanced: The attack requires developing custom exploits, maintaining persistence, evading detection, or operating across multiple system layers simultaneously.
-- expert: The attack requires discovering zero-days, conducting long-term campaigns, or deep understanding of AI model internals (weights, training data, inference pipeline).
+- expert: The attack requires novel technique development, sustained multi-session adversarial campaigns, sophisticated custom tooling, or deep understanding of deployment-time system behavior (API response patterns, timing channels, error message analysis).
 DO NOT default to "intermediate" — actively consider whether a novice could execute this attack or whether it truly requires advanced skills. If a preferred capability level is suggested, use it unless it would be unrealistic for this specific threat.
 
 ## Instructions
