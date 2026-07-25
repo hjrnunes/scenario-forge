@@ -10,6 +10,13 @@ Entry point: {{ narrative.entry_point }}
 - Attack pattern: {{ seed.attack_pattern_name }}
 - Threat category: {{ seed.threat_name }}
 
+{% if control_points %}
+## Available Defense Mechanisms
+The following defensive controls exist at various points in the attack path. Select from these for the But assertion:
+{% for cp in control_points %}
+- {{ cp }}
+{% endfor %}
+{% endif %}
 ---
 
 ## Your Task
