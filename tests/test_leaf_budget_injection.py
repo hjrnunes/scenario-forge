@@ -153,7 +153,7 @@ class TestLeafBudgetComputation:
     def test_leaf_budget_section_header_present(self) -> None:
         """The rendered prompt contains the Leaf Budget section header."""
         prompt = self._call_and_capture_prompt(technique_ids=["AML.T0051"])
-        assert "## Leaf Budget (MANDATORY)" in prompt
+        assert "## Leaf Budget (INVARIANT)" in prompt
 
 
 class TestLeafBudgetTemplateRendering:

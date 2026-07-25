@@ -19,20 +19,21 @@ This model divides an AI system into architectural layers an attack may traverse
 - memory: Memory & State
 - inter_agent: Inter-Agent Communication
 
-### Entry Point Controllability Constraint (MANDATORY)
+## Constraints
+{% include '_precedence.j2' %}
+
+### Entry Point Controllability Constraint (INVARIANT)
 {% include '_controllability.j2' %}
 
-## Hard Constraints
-
-### Zone Constraint (MANDATORY)
+### Zone Constraint (INVARIANT)
 - The scenario MUST only reference zones from the capability profile's active zone list. If the profile lists zones ["input", "reasoning"], the attack MUST operate entirely within those zones. Do NOT reference zones the system does not have.
 {% include '_zone_constraint.j2' %}
   Every step's zone annotation must be drawn from the active zone list.
 
-### Ontology Context Constraint (MANDATORY)
+### Ontology Context Constraint (INVARIANT)
 {% set _artifact = "Your narrative" %}{% include '_ontology_context_constraint.j2' %}
 
-### Actor-Type Entry Point Access (MANDATORY)
+### Actor-Type Entry Point Access (INVARIANT)
 If the pinned entry point has INDIRECT controllability:
 - ONLY a supply-chain-actor may write to, inject into, or modify data flowing through this entry point, AND only through a documented upstream source (e.g., a third-party data feed, a vendor integration, a pre-existing pipeline).
 - All other actor types CANNOT directly inject, upload, or modify content in this entry point. They may only interact with whatever data the entry point already contains or delivers.
@@ -41,10 +42,10 @@ Do NOT invent upload portals, merchant dashboards, partner repositories, or writ
 
 {% include '_blackbox.j2' %}
 
-### AI-Layer Scope Constraint (MANDATORY)
+### AI-Layer Scope Constraint (INVARIANT)
 - Assume the actor already has the access level implied by their actor type and capability level. Do NOT describe credential theft, account takeover, session hijacking, web form exploitation, SQL injection, database manipulation, or other infrastructure-layer attacks as scenario steps. All attack steps must target the AI agent layer — the model, its prompts, its tools, its context, or its outputs. If an attack requires prerequisite access, state the starting position (e.g., "the actor has authenticated access to the chat interface") without narrating how that access was obtained. Traditional IT security attacks are out of scope; the scenario must focus on threats unique to AI/LLM-based systems.
 
-### System Constraint Enforcement
+### System Constraint Enforcement (INVARIANT)
 Your scenario MUST be consistent with the system's declared capabilities:
 {% if not has_persistent_memory %}- The system is STATELESS with no persistent memory. Scenarios MUST operate within a single session. Do NOT describe attacks requiring state accumulation across separate sessions, separate user identities, or separate interactions. Each interaction is independent — the system cannot remember, aggregate, or correlate anything from prior sessions. This means: no "across sessions", no "over multiple interactions", no "persistent" or "persists", no "accumulate over time", no "repeat across sessions". Every attack step must be achievable in a single conversation turn or a single continuous session.
 {% endif %}{% if 'tool_execution' not in zones_active %}- The system has NO tool execution capability. Your scenario MUST NOT describe the system executing external tools, making API calls, or accessing filesystems.
@@ -52,16 +53,16 @@ Your scenario MUST be consistent with the system's declared capabilities:
 {% endif %}{% if not hitl %}- Human-in-the-loop is disabled. Your scenario MUST NOT rely on bypassing human review or approval steps that don't exist.
 {% endif %}Cross-check every attack step against these constraints before finalizing. If an attack step contradicts a declared capability, revise the step or choose a different attack vector.
 
-### Tool & API Grounding Constraint (MANDATORY)
+### Tool & API Grounding Constraint (INVARIANT)
 Only reference tools, APIs, endpoints, and system capabilities that are explicitly described in the use case or capability profile. Do NOT invent, assume, or fabricate additional system features, API methods, tool names, or integration points that are not mentioned. If the use case describes a "payment API," you may reference that payment API — but do not invent a "session token endpoint" or "elevated privilege API" unless the use case explicitly describes one. Every tool or API mentioned in the narrative must be traceable to the use case or capability profile text.
 
 {% include '_tool_inventory.j2' %}
 {% if tool_inventory %}
-### System-Introspection Negative Constraint (MANDATORY)
+### System-Introspection Negative Constraint (INVARIANT)
 Tools return ONLY domain data as described in their inventory descriptions. Tools CANNOT return: system prompts, internal configuration data, API endpoint structures, identity tokens, authentication credentials, or any system-level metadata. The LLM's system prompt exists in the model's context window and is NOT accessible through any tool. Do NOT describe attacks where domain tools (e.g. reservation lookup, policy lookup) return system internals.
 {% endif %}
 
-### Profile Boundary (MANDATORY)
+### Profile Boundary (INVARIANT)
 Do NOT invent capabilities the system does not have. Every capability referenced in the narrative must be traceable to the capability profile. The following categories are commonly hallucinated — they are FORBIDDEN unless the profile explicitly declares them:
 {%- set ns = namespace(has_priv_caps=false) -%}
 {%- for kc in kc_subcodes -%}
@@ -79,19 +80,19 @@ If a seed attack pattern requires a capability the profile does not declare, mod
 
 {% include '_example_adaptation.j2' %}
 
-### Cross-Artifact Consistency (MANDATORY)
+### Cross-Artifact Consistency (INVARIANT)
 The narrative is the upstream source for the attack tree and behavior spec generated in later calls. To prevent cross-artifact drift:
 - State the entry point explicitly and unambiguously — the attack tree root and Gherkin Background will be anchored to it.
 - Every technique ID referenced in narrative steps must appear exactly as provided in the seed context. Do NOT rename, re-number, or omit any assigned technique.
 - Do not introduce techniques, entry points, or capabilities not present in the seed or capability profile. If the seed assigns three techniques, the narrative must exercise all three — no more, no fewer.
 - Zone names used in narrative steps must come from the active zone list and must be consistent with how they will appear in the attack tree and Gherkin specification.
 
-### Technique Reference Discipline (MANDATORY)
+### Technique Reference Discipline (INVARIANT)
 - ONLY use technique IDs that appear in the Ontology Context section of the user prompt. If the Ontology Context lists AML.T0051.000 and AML.T0053, those are the ONLY technique IDs you may reference anywhere in the narrative.
 - Common error: introducing AML.T0054 (LLM Prompt Injection) as a "how" technique when it is not in the seed. If AML.T0054 is not listed in the Ontology Context, do NOT reference it — even if the attack mechanism involves prompt manipulation. Describe the mechanism using only the assigned techniques.
 - Every technique_id in narrative steps must be drawn verbatim from the Ontology Context. Zero additional technique IDs are permitted.
 
-### Seed Attack Objective Fidelity (MANDATORY)
+### Seed Attack Objective Fidelity (INVARIANT)
 The scenario's terminal attack outcome MUST align with the seed attack pattern's described objective. The seed's `attack_pattern_description` defines WHAT the attacker is trying to achieve. The system's tools define HOW the attacker achieves it, not WHAT the goal is.
 
 Do NOT default to the system's highest-impact tool or API as the attack goal unless the seed pattern specifically targets that tool. The attack goal comes from the seed, not from scanning the capability profile for the most damaging available action.
@@ -103,7 +104,7 @@ Do NOT default to the system's highest-impact tool or API as the attack goal unl
 
 The system's tools and APIs are the MEANS of the attack. The seed's attack pattern is the ENDS. A refund API may appear as a step in many attack paths, but it is the terminal goal ONLY when the seed pattern specifically describes unauthorized refund execution or financial fraud.
 
-## Actor Profile Grounding (MANDATORY)
+### Actor Profile Grounding (INVARIANT)
 The actor profile provided below defines the threat actor. Ground the narrative in that actor. The actor's type, beliefs, desires, intentions, capability level, and resources MUST shape the attack approach — the "who" is already decided; your job is to write the "how".
 
 The narrative complexity and sophistication MUST match the actor's capability level:
@@ -114,7 +115,7 @@ The narrative complexity and sophistication MUST match the actor's capability le
 
 If the attack pattern inherently requires capability beyond the actor's level, the narrative MUST simplify the attack to fit the level, even if this reduces realism. Do NOT escalate the attack complexity to match the pattern — simplify the pattern to match the actor.
 
-## Zone Traversal Realism (MANDATORY)
+### Zone Traversal Realism (PREFERENCE)
 Real attacks traverse zones non-linearly. The zone_sequence and the zone annotations on each step MUST reflect the actual path through the system, including return traversals:
 - After tool_execution, results typically return to reasoning for processing — include the return to reasoning.
 - Multi-stage attacks often cycle: reasoning -> tool_execution -> reasoning -> tool_execution.
@@ -129,6 +130,6 @@ Each step's zone annotation must reflect WHERE that step actually occurs, even i
 - **Output-as-attack-vector**: When the assistant generates output that serves as the attack vector (e.g., a deceptive message, misleading recommendation, or social engineering payload delivered to a human), annotate that step as zone "reasoning" — the LLM's reasoning process is producing the harmful output. Do NOT zone the delivery of a social engineering payload as "input" simply because a human receives it; the system is generating the payload through its reasoning layer.
 - **RAG / knowledge-base injection**: When an attacker injects or modifies data in a RAG knowledge base, retrieval index, or grounding system, annotate that step as zone "input" — external data is entering the system through an input surface, even though the data will later influence reasoning. Do NOT zone data ingestion into a retrieval store as "reasoning"; the poisoned data crosses an input boundary before it reaches the reasoning layer.
 
-{% if hitl %}## Human-in-the-Loop Bypass
+{% if hitl %}### Human-in-the-Loop Bypass (PREFERENCE)
 When the attack involves bypassing human-in-the-loop review, describe the specific failure mechanism (e.g., reviewer fatigue, volume overwhelming the reviewer, UI that buries alerts, time pressure) rather than simply asserting "the attacker bypasses review."
 {% endif %}

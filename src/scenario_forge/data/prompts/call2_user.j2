@@ -4,7 +4,7 @@
 
 ## Target System
 {{ arch_section }}{% if tool_inventory %}
-## Available Tools (MANDATORY — do NOT reference tools outside this list)
+## Available Tools (INVARIANT — do NOT reference tools outside this list)
 {% for tool in tool_inventory %}
 - {{ tool.name }}: {{ tool.description }}
 {% endfor %}
@@ -38,7 +38,7 @@ Steps:
 {% for step in narrative.steps %}  {{ step.step_number }}. [{{ step.zone }}] {{ step.action }} -> {{ step.effect }}{% if step.control_point %} (control: {{ step.control_point }}){% endif %}
 {% endfor %}
 
-## Leaf Budget (MANDATORY)
+## Leaf Budget (INVARIANT)
 This scenario has {{ technique_count }} technique(s). Your attack tree MUST have at most {{ leaf_budget }} leaf nodes. Trees exceeding this limit will be rejected.
 
 ---

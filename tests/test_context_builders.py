@@ -1004,7 +1004,7 @@ class TestContextBuildersRenderTemplates:
             zones_active=profile.zones_active,
             tool_inventory=ctx["tool_inventory"],
         )
-        assert "Tool Inventory (MANDATORY)" in result
+        assert "Tool Inventory (INVARIANT)" in result
         assert "test_tool" in result
         assert "A test tool" in result
 
@@ -1022,7 +1022,7 @@ class TestContextBuildersRenderTemplates:
             zones_active=["input", "reasoning"],
             tool_inventory=ctx["tool_inventory"],
         )
-        assert "Tool Inventory (MANDATORY)" not in result
+        assert "Tool Inventory (INVARIANT)" not in result
 
     def test_call0_system_template_renders_adaptation_constraint(self):
         """call0_system.j2 always renders Attack Pattern Example Adaptation."""
@@ -1038,7 +1038,7 @@ class TestContextBuildersRenderTemplates:
             zones_active=["input", "reasoning"],
             tool_inventory=ctx["tool_inventory"],
         )
-        assert "Attack Pattern Example Adaptation (MANDATORY)" in result
+        assert "Attack Pattern Example Adaptation (PREFERENCE)" in result
         assert "Never literalize attack pattern examples" in result
 
     def test_call0_system_template_renders_system_introspection_constraint(self):
@@ -1055,7 +1055,7 @@ class TestContextBuildersRenderTemplates:
             zones_active=["input", "reasoning"],
             tool_inventory=ctx["tool_inventory"],
         )
-        assert "System-Introspection Negative Constraint (MANDATORY)" in result
+        assert "System-Introspection Negative Constraint (INVARIANT)" in result
         assert "desires MUST NOT target system prompts" in result
         assert "reframed to target the closest domain-data equivalent" in result
 
@@ -1135,7 +1135,7 @@ class TestContextBuildersRenderTemplates:
         from scenario_forge.prompts import render_prompt
 
         result = render_prompt("call3_system.j2")
-        assert "Capability Boundary (MANDATORY)" in result
+        assert "Capability Boundary (INVARIANT)" in result
         assert "session tokens" in result
         assert "Do NOT introduce platform-level security concepts" in result
         assert "based on the scenario's architecture" in result
