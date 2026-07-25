@@ -537,8 +537,8 @@ class TestEdgeCases:
         # score = 0 / len(ep_zones) = 0.0
         assert scores["chat input (zone 1)"] == pytest.approx(0.0)
 
-    def test_system_prompt_mentions_overuse_avoidance(self):
-        """The system prompt for Call 1 includes instructions about exclusion lists."""
+    def test_system_prompt_mentions_pinned_entry_point(self):
+        """The system prompt for Call 1 instructs use of the pinned entry point."""
         from scenario_forge.prompts import render_prompt
 
         prompt = render_prompt(
@@ -550,4 +550,4 @@ class TestEdgeCases:
             kc_subcodes=[],
             tool_inventory=[],
         )
-        assert "exclusion list" in prompt.lower()
+        assert "pinned entry point" in prompt.lower()
