@@ -21,11 +21,11 @@ _GENERATOR_VERSION = "0.1.0"
 # ---------------------------------------------------------------------------
 
 THREAT_VIOLATION_CATEGORY: dict[str, str] = {
-    "T1": "uncontrolled-autonomy",
-    "T2": "insufficient-access-controls",
+    "T1": "memory-poisoning",
+    "T2": "tool-misuse",
     "T3": "privilege-compromise",
     "T4": "resource-overload",
-    "T5": "memory-integrity-breach",
+    "T5": "cascading-hallucination-attacks",
     "T6": "goal-manipulation",
     "T7": "misaligned-and-deceptive-behavior",
     "T8": "repudiation-and-untraceability",
@@ -37,7 +37,7 @@ THREAT_VIOLATION_CATEGORY: dict[str, str] = {
     "T14": "human-attack-on-multi-agent",
     "T15": "human-manipulation",
     "T16": "insecure-inter-agent-protocol",
-    "T17": "insufficient-logging",
+    "T17": "supply-chain-compromise",
 }
 
 
@@ -440,3 +440,16 @@ _CONSISTENCY_MAX_RETRIES = 2
 # ---------------------------------------------------------------------------
 
 _ASSERTIONS_MARKER = "{ASSERTIONS}"
+
+
+# ---------------------------------------------------------------------------
+# Leaf budget computation
+# ---------------------------------------------------------------------------
+
+
+def compute_leaf_budget(technique_count: int) -> int:
+    """Compute the parsimony leaf budget for an attack tree.
+
+    Formula: 2 * technique_count + 2 (minimum 5 when no techniques).
+    """
+    return 2 * technique_count + 2 if technique_count > 0 else 5

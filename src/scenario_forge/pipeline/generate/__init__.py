@@ -37,6 +37,7 @@ from scenario_forge.pipeline.generate.constants import (
     _PHASE_KEYWORDS,
     _THREAT_GOAL_EXCLUSIONS,
     _ZONE_TO_DEFAULT_MAESTRO,
+    compute_leaf_budget,
 )
 
 # ontology
@@ -127,6 +128,7 @@ from scenario_forge.pipeline.generate.tree import (
     _build_tree_skeleton,
     _call_attack_tree,
     _check_consistency,
+    _check_non_actionable_leaves,
     _collect_threat_ids_from_tree,
     _count_leaves,
     _format_skeleton_yaml,
@@ -184,6 +186,7 @@ __all__ = [
     "_PHASE_KEYWORDS",
     "_THREAT_GOAL_EXCLUSIONS",
     "_ZONE_TO_DEFAULT_MAESTRO",
+    "compute_leaf_budget",
     # ontology
     "_build_ontology_context",
     "_build_technique_context_block",
@@ -250,6 +253,7 @@ __all__ = [
     "_build_tree_skeleton",
     "_call_attack_tree",
     "_check_consistency",
+    "_check_non_actionable_leaves",
     "_collect_threat_ids_from_tree",
     "_count_leaves",
     "_format_skeleton_yaml",
