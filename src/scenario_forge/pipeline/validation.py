@@ -1279,6 +1279,26 @@ def _extract_gherkin_zones_for_validation(gherkin_text: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
+def _find_entry_point_by_name(
+    profile: CapabilityProfile,
+    narrative_ep_text: str,
+) -> Any:
+    """Find a matching entry point from the profile by name substring match.
+
+    The narrative entry_point text often doesn't exactly match the profile
+    entry point name, so we use case-insensitive substring matching in
+    both directions.
+
+    Returns the first matching ``EntryPoint``, or ``None`` if no match.
+    """
+    narrative_lower = narrative_ep_text.lower()
+    for ep in profile.entry_points:
+        ep_lower = ep.name.lower()
+        if ep_lower in narrative_lower or narrative_lower in ep_lower:
+            return ep
+    return None
+
+
 def _normalize_tool_name(name: str) -> str:
     """Normalize a tool name for fuzzy matching.
 
@@ -1644,6 +1664,59 @@ def validate_scenario_semantics(
                                 f"engineering attack"
                             ),
                             severity="minor",
+                        )
+                    )
+
+        # 12. Actor-type / entry-point controllability alignment (3fve).
+        #     Insider actors using direct-controllability (user-facing) entry
+        #     points, or external actors using system-controllability (internal)
+        #     entry points, indicate a mismatch.
+        _actor_type_12 = (
+            scenario.actor_profile.actor_type
+            if scenario.actor_profile
+            else None
+        )
+        _ep_text_12 = scenario.narrative.entry_point if scenario.narrative else None
+        if _actor_type_12 and _ep_text_12 and profile and profile.entry_points:
+            _matched_ep = _find_entry_point_by_name(profile, _ep_text_12)
+            if _matched_ep and _matched_ep.controllability is not None:
+                _INSIDER_ACTORS = {"malicious-insider", "negligent-insider"}
+                _EXTERNAL_ACTORS = {
+                    "adversarial-user", "cybercriminal",
+                    "hacktivist", "automated-agent",
+                }
+                if (
+                    _actor_type_12 in _INSIDER_ACTORS
+                    and _matched_ep.controllability == "direct"
+                ):
+                    violations.append(
+                        SemanticViolation(
+                            rule="actor_entry_point_mismatch",
+                            message=(
+                                f"Insider actor '{_actor_type_12}' uses "
+                                f"direct-controllability entry point "
+                                f"'{_matched_ep.name}' — insiders typically "
+                                f"leverage indirect or system entry points, "
+                                f"not user-facing interfaces"
+                            ),
+                            severity="moderate",
+                        )
+                    )
+                elif (
+                    _actor_type_12 in _EXTERNAL_ACTORS
+                    and _matched_ep.controllability == "system"
+                ):
+                    violations.append(
+                        SemanticViolation(
+                            rule="actor_entry_point_mismatch",
+                            message=(
+                                f"External actor '{_actor_type_12}' uses "
+                                f"system-controllability entry point "
+                                f"'{_matched_ep.name}' — system entry points "
+                                f"are internal integrations not accessible "
+                                f"to external actors"
+                            ),
+                            severity="moderate",
                         )
                     )
 
