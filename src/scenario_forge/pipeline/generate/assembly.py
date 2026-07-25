@@ -45,7 +45,6 @@ from scenario_forge.pipeline.generate.priority import (
 )
 from scenario_forge.pipeline.generate.tree import (
     _check_consistency,
-    _validate_technique_zone_compatibility,
 )
 
 logger = logging.getLogger(__name__)
@@ -336,6 +335,7 @@ def generate_scenario(
     _call_attack_tree = _gen._call_attack_tree
     _call_behavior_spec = _gen._call_behavior_spec
     _strip_non_skeleton_techniques = _gen._strip_non_skeleton_techniques
+    _validate_technique_zone_compat = _gen._validate_technique_zone_compatibility
     _warn_dominant_threat_id_crossref_fn = _gen._warn_dominant_threat_id_crossref
     _assemble_envelope_fn = _gen._assemble_envelope
 
@@ -511,6 +511,20 @@ def generate_scenario(
         # (e.g. in tests using MagicMock objects).
         pass
 
+    # --- Post-Call-1: novice complexity guard ---
+    if (
+        actor_profile
+        and actor_profile.capability_level == "novice"
+        and len(set(narrative.zone_sequence)) >= 3
+    ):
+        logger.info(
+            "Novice complexity guard for %s: %d zones traversed, "
+            "bumping capability_level to 'intermediate'",
+            partial_scenario_id,
+            len(set(narrative.zone_sequence)),
+        )
+        actor_profile.capability_level = "intermediate"
+
     # --- Post-Call-1: pin narrative entry_point by construction ---
     if pinned_entry_point and narrative.entry_point != pinned_entry_point:
         logger.info(
@@ -522,6 +536,38 @@ def generate_scenario(
         narrative = narrative.model_copy(
             update={"entry_point": pinned_entry_point},
         )
+
+    # --- Post-Call-1: title dedup enforcement ---
+    if prior_titles and narrative.title in prior_titles:
+        logger.warning(
+            "Exact duplicate title for %s: '%s' — retrying Call 1",
+            partial_scenario_id,
+            narrative.title,
+        )
+        augmented_titles = prior_titles + [
+            f"DUPLICATE — DO NOT REUSE: {narrative.title}"
+        ]
+        try:
+            narrative, result1 = _call_narrative(
+                seed,
+                profile,
+                client,
+                use_case,
+                actor_profile=actor_profile,
+                preferred_entry_point=preferred_entry_point,
+                excluded_entry_points=excluded_entry_points,
+                excluded_patterns=excluded_patterns,
+                excluded_structural_patterns=excluded_structural_patterns,
+                pinned_entry_point=pinned_entry_point,
+                pinned_technique_ids=pinned_technique_ids,
+                prior_titles=augmented_titles,
+            )
+            if pinned_entry_point and narrative.entry_point != pinned_entry_point:
+                narrative = narrative.model_copy(
+                    update={"entry_point": pinned_entry_point},
+                )
+        except Exception:
+            pass
 
     # --- Call 2: Attack Tree (with consistency enforcement retries) ---
     # Compute parsimony budget using the same formula as _call_attack_tree.
@@ -550,19 +596,27 @@ def generate_scenario(
         )
         raise GenerationError(str(exc), call_log_entries, seed.seed_id) from exc
 
-    # --- Post-generation consistency enforcement ---
-    _tool_names_for_check = (
-        [t.name for t in profile.tool_inventory]
-        if profile and profile.tool_inventory
-        else None
-    )
-    consistency_violations = _check_consistency(
-        attack_tree,
-        narrative,
-        parsimony_budget,
-        threat_id=seed.threat_id,
-        tool_names=_tool_names_for_check,
-    )
+    # --- Post-generation: strip before consistency so effects trigger retries ---
+    skeleton_ids = set(pinned_technique_ids) if pinned_technique_ids else set()
+
+    def _strip_and_check(atree: AttackTree) -> list[str]:
+        """Strip invalid technique_ids, then run consistency checks."""
+        _strip_non_skeleton_techniques(atree, skeleton_ids)
+        _validate_technique_zone_compat(atree)
+        return _check_consistency(
+            atree,
+            narrative,
+            parsimony_budget,
+            threat_id=seed.threat_id,
+            tool_names=(
+                [t.name for t in profile.tool_inventory]
+                if profile and profile.tool_inventory
+                else None
+            ),
+            pinned_technique_ids=list(skeleton_ids) if skeleton_ids else None,
+        )
+
+    consistency_violations = _strip_and_check(attack_tree)
     consistency_retry = 0
     while consistency_violations and consistency_retry < _CONSISTENCY_MAX_RETRIES:
         consistency_retry += 1
@@ -595,13 +649,7 @@ def generate_scenario(
                 exc,
             )
             break
-        consistency_violations = _check_consistency(
-            attack_tree,
-            narrative,
-            parsimony_budget,
-            threat_id=seed.threat_id,
-            tool_names=_tool_names_for_check,
-        )
+        consistency_violations = _strip_and_check(attack_tree)
 
     if consistency_violations:
         logger.warning(
@@ -619,27 +667,6 @@ def generate_scenario(
 
     # --- Post-generation threat_id cross-ref validation ---
     _warn_dominant_threat_id_crossref_fn(attack_tree, seed.threat_id, partial_scenario_id)
-
-    # --- Post-generation: strip non-skeleton technique IDs ---
-    skeleton_ids = set(pinned_technique_ids) if pinned_technique_ids else set()
-    stripped_count = _strip_non_skeleton_techniques(attack_tree, skeleton_ids)
-    if stripped_count > 0:
-        logger.info(
-            "Stripped %d non-skeleton technique_id(s) from tree leaves "
-            "(seed %s)",
-            stripped_count,
-            seed.seed_id,
-        )
-
-    # --- Post-generation: technique-zone compatibility validation ---
-    tz_stripped = _validate_technique_zone_compatibility(attack_tree)
-    if tz_stripped > 0:
-        logger.info(
-            "Stripped %d technique_id(s) for zone incompatibility "
-            "(seed %s)",
-            tz_stripped,
-            seed.seed_id,
-        )
 
     # --- Call 3: Behavior Spec ---
     try:

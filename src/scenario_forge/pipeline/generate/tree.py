@@ -681,6 +681,7 @@ def _check_consistency(
     step_node_floor: float = _STEP_NODE_CORRESPONDENCE_FLOOR,
     threat_id: str | None = None,
     tool_names: list[str] | None = None,
+    pinned_technique_ids: list[str] | None = None,
 ) -> list[str]:
     """Run post-generation consistency checks on the attack tree.
 
@@ -693,6 +694,9 @@ def _check_consistency(
          scenario's assigned threat_id.
       5. Tool-execution leaf grounding — every leaf in tool_execution zone
          must reference a tool from the inventory.
+      6. Non-actionable leaf padding.
+      7. Technique coverage — every pinned technique must appear on at least
+         one leaf node.
     """
     violations: list[str] = []
 
@@ -756,6 +760,19 @@ def _check_consistency(
 
     # Check 6: non-actionable leaf padding
     _check_non_actionable_leaves(tree.root, violations)
+
+    # Check 7: pinned technique coverage
+    if pinned_technique_ids:
+        tree_technique_ids = set(tree.collect_technique_ids())
+        missing_techniques = set(pinned_technique_ids) - tree_technique_ids
+        if missing_techniques:
+            violations.append(
+                f"missing-pinned-technique: pinned technique(s) "
+                f"{sorted(missing_techniques)} not found on any tree leaf; "
+                f"tree has {sorted(tree_technique_ids) if tree_technique_ids else 'none'}. "
+                f"Assign each missing technique_id to the leaf whose action "
+                f"best matches the technique's mechanism."
+            )
 
     return violations
 
