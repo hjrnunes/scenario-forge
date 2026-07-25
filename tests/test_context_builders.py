@@ -976,15 +976,15 @@ class TestContextBuildersRenderTemplates:
         """build_call0_context output renders call0_system.j2 without error."""
         from scenario_forge.prompts import render_prompt
 
+        profile = _make_profile()
         ctx = build_call0_context(
             seed=_make_seed(),
-            profile=_make_profile(),
+            profile=profile,
             use_case="test",
         )
         result = render_prompt(
             "call0_system.j2",
-            minimum_capability_level=ctx["minimum_capability_level"],
-            compatible_actor_types=ctx["compatible_actor_types"],
+            zones_active=profile.zones_active,
             tool_inventory=ctx["tool_inventory"],
         )
         assert "threat intelligence analyst" in result
@@ -1001,15 +1001,12 @@ class TestContextBuildersRenderTemplates:
         )
         result = render_prompt(
             "call0_system.j2",
-            minimum_capability_level=ctx["minimum_capability_level"],
-            compatible_actor_types=ctx["compatible_actor_types"],
             zones_active=profile.zones_active,
             tool_inventory=ctx["tool_inventory"],
         )
         assert "Tool Inventory (MANDATORY)" in result
         assert "test_tool" in result
         assert "A test tool" in result
-        assert "desires and intentions MUST reference only data types" in result
 
     def test_call0_system_template_omits_tool_inventory_when_empty(self):
         """call0_system.j2 omits tool inventory section when no tools."""
@@ -1022,8 +1019,7 @@ class TestContextBuildersRenderTemplates:
         )
         result = render_prompt(
             "call0_system.j2",
-            minimum_capability_level=ctx["minimum_capability_level"],
-            compatible_actor_types=ctx["compatible_actor_types"],
+            zones_active=["input", "reasoning"],
             tool_inventory=ctx["tool_inventory"],
         )
         assert "Tool Inventory (MANDATORY)" not in result
@@ -1039,8 +1035,7 @@ class TestContextBuildersRenderTemplates:
         )
         result = render_prompt(
             "call0_system.j2",
-            minimum_capability_level=ctx["minimum_capability_level"],
-            compatible_actor_types=ctx["compatible_actor_types"],
+            zones_active=["input", "reasoning"],
             tool_inventory=ctx["tool_inventory"],
         )
         assert "Attack Pattern Example Adaptation (MANDATORY)" in result
@@ -1057,8 +1052,7 @@ class TestContextBuildersRenderTemplates:
         )
         result = render_prompt(
             "call0_system.j2",
-            minimum_capability_level=ctx["minimum_capability_level"],
-            compatible_actor_types=ctx["compatible_actor_types"],
+            zones_active=["input", "reasoning"],
             tool_inventory=ctx["tool_inventory"],
         )
         assert "System-Introspection Negative Constraint (MANDATORY)" in result

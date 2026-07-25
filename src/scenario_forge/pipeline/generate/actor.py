@@ -542,8 +542,6 @@ def _call_actor_profile(
     result = client.complete(
         system_prompt=render_prompt(
             "call0_system.j2",
-            minimum_capability_level=ctx["minimum_capability_level"],
-            compatible_actor_types=ctx["compatible_actor_types"],
             zones_active=profile.zones_active,
             tool_inventory=ctx["tool_inventory"],
         ),
