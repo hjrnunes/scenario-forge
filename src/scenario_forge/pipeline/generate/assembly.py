@@ -511,6 +511,18 @@ def generate_scenario(
         # (e.g. in tests using MagicMock objects).
         pass
 
+    # --- Post-Call-1: pin narrative entry_point by construction ---
+    if pinned_entry_point and narrative.entry_point != pinned_entry_point:
+        logger.info(
+            "Entry-point override for %s: '%s' -> '%s'",
+            partial_scenario_id,
+            narrative.entry_point,
+            pinned_entry_point,
+        )
+        narrative = narrative.model_copy(
+            update={"entry_point": pinned_entry_point},
+        )
+
     # --- Call 2: Attack Tree (with consistency enforcement retries) ---
     # Compute parsimony budget using the same formula as _call_attack_tree.
     _tech_ids_for_budget = (
