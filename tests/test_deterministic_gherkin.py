@@ -328,8 +328,8 @@ class TestThreatViolationCategory:
             assert "&" not in tag, f"{threat_id}: tag contains ampersand: {tag}"
 
     def test_known_mappings(self):
-        assert THREAT_VIOLATION_CATEGORY["T1"] == "uncontrolled-autonomy"
-        assert THREAT_VIOLATION_CATEGORY["T5"] == "memory-integrity-breach"
+        assert THREAT_VIOLATION_CATEGORY["T1"] == "memory-poisoning"
+        assert THREAT_VIOLATION_CATEGORY["T5"] == "cascading-hallucination-attacks"
         assert THREAT_VIOLATION_CATEGORY["T10"] == "hitl-bypass"
         assert THREAT_VIOLATION_CATEGORY["T15"] == "human-manipulation"
 
@@ -358,7 +358,7 @@ class TestBuildGherkinTemplate:
             seed=_make_seed(threat_id="T5"),
             scenario_tag="AP-T5-01-abc123",
         )
-        assert "@memory-integrity-breach" in template
+        assert "@cascading-hallucination-attacks" in template
 
     def test_violation_category_for_each_threat_id(self):
         """Each threat_id produces its correct violation category tag."""

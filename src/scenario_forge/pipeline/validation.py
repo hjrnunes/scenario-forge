@@ -2082,11 +2082,11 @@ def enforce_parsimony(
     """Prune excess unannotated leaves from attack trees.
 
     For each scenario, computes a leaf budget based on the number of
-    unique technique_ids in the tree:
+    unique technique_ids in the tree using :func:`compute_leaf_budget`.
 
-        budget = max_leaf_factor * technique_count + max_leaf_offset
-
-    If technique_count is 0, a fallback budget of 5 is used.
+    The ``max_leaf_factor`` and ``max_leaf_offset`` parameters are
+    deprecated and ignored -- the canonical formula lives in
+    ``compute_leaf_budget()``.  They are retained for API compatibility.
 
     Leaves without a technique_id are pruning candidates.  They are
     removed one at a time (most redundant first) until the leaf count
@@ -2095,6 +2095,8 @@ def enforce_parsimony(
     After pruning, single-child AND/OR gates are collapsed via
     ``_repair_node`` and the resulting tree is re-validated with Pydantic.
     """
+    from scenario_forge.pipeline.generate.constants import compute_leaf_budget
+
     result = ParsimonyResult()
 
     for scenario in scenarios:
@@ -2102,10 +2104,7 @@ def enforce_parsimony(
         technique_ids = _collect_technique_ids(tree.root)
         technique_count = len(technique_ids)
 
-        if technique_count == 0:
-            budget = 5
-        else:
-            budget = max_leaf_factor * technique_count + max_leaf_offset
+        budget = compute_leaf_budget(technique_count)
 
         leaves = _collect_leaves(tree.root)
         leaf_count = len(leaves)

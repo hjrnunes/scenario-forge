@@ -24,6 +24,7 @@ from scenario_forge.prompts import render_prompt
 
 from scenario_forge.pipeline.generate.constants import (
     _STEP_NODE_CORRESPONDENCE_FLOOR,
+    compute_leaf_budget,
 )
 from scenario_forge.pipeline.generate.ontology import (
     _build_ontology_context,
@@ -386,7 +387,7 @@ def build_call2_context(
 
     # Compute concrete leaf budget so the LLM sees the exact number
     technique_count = len(tech_ids_for_tree) if tech_ids_for_tree else 0
-    leaf_budget = 2 * technique_count + 2 if technique_count > 0 else 5
+    leaf_budget = compute_leaf_budget(technique_count)
 
     # Build tree skeleton from pinned techniques (tree-anchored flow)
     skeleton: list[dict[str, str]] = []
@@ -632,6 +633,47 @@ def _count_leaves(node: AttackTreeNode) -> int:
     return total
 
 
+def _check_non_actionable_leaves(
+    root: AttackTreeNode, violations: list[str]
+) -> None:
+    """Check 6: flag non-actionable observation leaves.
+
+    Walks the tree collecting LEAF nodes without a technique_id whose
+    labels match observation-pattern keywords.  If >=2 such leaves exist,
+    appends a violation describing them.
+    """
+    _OBSERVATION_KEYWORDS = [
+        "confirm", "observe", "verify", "monitor",
+        "validate", "note ", "detect ", "assess ",
+    ]
+
+    def _collect_leaves_recursive(node: AttackTreeNode) -> list[AttackTreeNode]:
+        if node.gate == GateType.LEAF:
+            return [node]
+        leaves: list[AttackTreeNode] = []
+        if node.children:
+            for child in node.children:
+                leaves.extend(_collect_leaves_recursive(child))
+        return leaves
+
+    leaves = _collect_leaves_recursive(root)
+    matching_ids: list[str] = []
+    for leaf in leaves:
+        if leaf.technique_id:
+            continue
+        label_lower = leaf.label.lower()
+        if any(kw in label_lower for kw in _OBSERVATION_KEYWORDS):
+            matching_ids.append(leaf.id)
+
+    if len(matching_ids) >= 2:
+        violations.append(
+            f"non-actionable-leaves: {len(matching_ids)} leaf node(s) appear "
+            f"to describe observations rather than attacker actions "
+            f"({', '.join(matching_ids)}). Remove non-actionable leaves or "
+            f"assign a technique_id."
+        )
+
+
 def _check_consistency(
     tree: AttackTree,
     narrative: NarrativeLayer,
@@ -711,6 +753,9 @@ def _check_consistency(
         _check_tool_execution_leaf_grounding(
             tree.root, tool_names_lower, violations
         )
+
+    # Check 6: non-actionable leaf padding
+    _check_non_actionable_leaves(tree.root, violations)
 
     return violations
 

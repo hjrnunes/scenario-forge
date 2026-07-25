@@ -37,6 +37,7 @@ from scenario_forge.pipeline.generate.constants import (
     _CONSISTENCY_MAX_RETRIES,
     _GENERATOR_VERSION,
     _ZONE_TO_DEFAULT_MAESTRO,
+    compute_leaf_budget,
 )
 from scenario_forge.pipeline.generate.priority import (
     _compute_priority,
@@ -516,9 +517,7 @@ def generate_scenario(
         pinned_technique_ids if pinned_technique_ids else seed.atlas_technique_ids
     )
     _technique_count = len(_tech_ids_for_budget) if _tech_ids_for_budget else 0
-    parsimony_budget = (
-        2 * _technique_count + 2 if _technique_count > 0 else 5
-    )
+    parsimony_budget = compute_leaf_budget(_technique_count)
 
     try:
         attack_tree, result2 = _call_attack_tree(

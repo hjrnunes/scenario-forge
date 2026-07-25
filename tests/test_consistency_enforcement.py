@@ -24,6 +24,7 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.generate import (
     _check_consistency,
+    _check_non_actionable_leaves,
     _count_leaves,
 )
 
@@ -836,3 +837,78 @@ class TestToolExecutionLeafGrounding:
         )
 
         assert not any("ungrounded-tool-leaf" in v for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# Tests: non-actionable leaf check (Check 6)
+# ---------------------------------------------------------------------------
+
+
+class TestNonActionableLeaves:
+    """Check 6: flag unannotated observation leaves."""
+
+    def test_two_observation_leaves_violation(self) -> None:
+        """Tree with 2 unannotated observation leaves triggers violation."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="reasoning"),
+            _make_leaf("n1.3", zone="reasoning"),
+        )
+        root.children[1].label = "Confirm exfiltration channel is open"
+        root.children[2].label = "Observe system response patterns"
+        tree = _make_tree(root)
+        narrative = _make_narrative(
+            ["input", "reasoning"], step_count=3
+        )
+
+        violations = _check_consistency(tree, narrative, parsimony_budget=10)
+
+        non_actionable = [
+            v for v in violations if "non-actionable-leaves" in v
+        ]
+        assert len(non_actionable) == 1
+        assert "n1.2" in non_actionable[0]
+        assert "n1.3" in non_actionable[0]
+
+    def test_one_observation_leaf_no_violation(self) -> None:
+        """Tree with only 1 observation leaf does not trigger (below threshold)."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="reasoning"),
+        )
+        root.children[1].label = "Verify credentials are valid"
+
+        violations: list[str] = []
+        _check_non_actionable_leaves(root, violations)
+
+        assert not any("non-actionable-leaves" in v for v in violations)
+
+    def test_observation_keyword_with_technique_id_no_violation(self) -> None:
+        """Observation keyword present but leaf has technique_id -- not flagged."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="reasoning", technique_id="AML.T0051"),
+            _make_leaf("n1.3", zone="reasoning", technique_id="AML.T0067"),
+        )
+        root.children[1].label = "Confirm injection path via tool"
+        root.children[2].label = "Monitor agent response to exploit"
+
+        violations: list[str] = []
+        _check_non_actionable_leaves(root, violations)
+
+        assert not any("non-actionable-leaves" in v for v in violations)
+
+    def test_non_observation_unannotated_no_violation(self) -> None:
+        """Unannotated leaf with non-observation label is not flagged."""
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            _make_leaf("n1.2", zone="tool_execution"),
+            _make_leaf("n1.3", zone="reasoning"),
+        )
+        root.children[1].label = "Invoke database query tool"
+        root.children[2].label = "Craft malicious prompt"
+
+        violations: list[str] = []
+        _check_non_actionable_leaves(root, violations)
+
+        assert not any("non-actionable-leaves" in v for v in violations)
