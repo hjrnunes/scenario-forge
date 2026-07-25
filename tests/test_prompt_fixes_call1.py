@@ -132,7 +132,7 @@ class TestKsurActorProfileGroundingMandatory:
     def test_capability_level_novice(self):
         prompt = _render_call1_system()
         assert "**novice**:" in prompt
-        assert "At most 2 simple steps" in prompt
+        assert "At most 3-4 simple steps" in prompt
 
     def test_capability_level_intermediate(self):
         prompt = _render_call1_system()
