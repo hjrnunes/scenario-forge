@@ -1629,3 +1629,62 @@ class TestStructuredEntryPointGaps:
         assert "EP Alpha" in html
         # The attribution label for "rejected" is "filtered out".
         assert "filtered out" in html.lower()
+
+
+# ---------------------------------------------------------------------------
+# 17. Ingress-only fallback: output EPs don't make unique ingress ambiguous
+# ---------------------------------------------------------------------------
+
+
+class TestIngressOnlyFallback:
+    """Fallback name→ID map excludes output-only EPs so a unique ingress
+    name is not made ambiguous by a same-name output EP."""
+
+    def _make_profile(self) -> CapabilityProfile:
+        return CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(name="shared channel", direction="input"),
+                EntryPoint(name="shared channel", direction="output"),
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+
+    def test_eval_fallback_resolves_unique_ingress_not_ambiguous(self):
+        """Legacy narrative with same name as input+output EP resolves to
+        the unique ingress ID, yielding coverage 1.0."""
+        profile = self._make_profile()
+        ingress_ep = next(ep for ep in profile.entry_points if ep.direction == "input")
+        scenarios = [
+            {
+                "narrative": {"entry_point": "shared channel", "zone_sequence": []},
+                "candidate_filter": {},
+            },
+        ]
+        result = entry_point_entropy(
+            scenarios, expected_entry_points=1, profile=profile
+        )
+        assert result["entry_point_coverage"] == 1.0
+        assert result["covered_entry_point_count"] == 1
+        assert result["expected_entry_point_count"] == 1
+        assert ingress_ep.entry_point_id in result["covered_entry_point_ids"]
+
+    def test_pipeline_coverage_no_gap_for_unique_ingress_fallback(self):
+        """A legacy/no-provenance scenario covering the unique ingress EP
+        by name produces no ingress coverage gap."""
+        from scenario_forge.pipeline.coverage import analyze_coverage_gaps
+        from scenario_forge.pipeline.threats import ThreatSurface
+
+        profile = self._make_profile()
+        threat_surface = ThreatSurface(entries=[], governance_only=[])
+
+        scenario = MagicMock()
+        scenario.narrative.entry_point = "shared channel"
+        scenario.narrative.zone_sequence = ["input"]
+        scenario.faceting.taxonomy_chain.agentic_threat_ids = []
+        scenario.faceting.taxonomy_chain.scenario_seed = "AP-T1-01"
+        scenario.candidate_filter = {}
+
+        gaps = analyze_coverage_gaps(profile, threat_surface, [scenario])
+        assert gaps.uncovered_entry_points == []

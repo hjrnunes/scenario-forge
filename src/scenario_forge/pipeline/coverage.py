@@ -171,8 +171,14 @@ def analyze_coverage_gaps(
     # entry points with different canonical identities (e.g. different
     # direction or controllability).  Normalization matches the old
     # _normalize_entry_point behaviour (case, whitespace, punctuation).
+    # Only ingress-capable EPs are in the coverage universe, so the
+    # fallback map excludes output-only entries — otherwise an output EP
+    # with the same display name as a unique ingress EP would make the
+    # fallback appear ambiguous.
     ep_name_to_ids: dict[str, set[str]] = {}
     for ep in profile.entry_points:
+        if ep.direction == "output":
+            continue
         key = _normalize_entry_point(ep.name)
         ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
 

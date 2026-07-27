@@ -133,7 +133,13 @@ def entry_point_entropy(
 
     ep_name_to_ids: dict[str, set[str]] = {}
     if profile is not None:
+        # Only ingress-capable EPs are in the coverage universe, so the
+        # fallback map must exclude output-only entries — otherwise an
+        # output EP with the same display name as a unique ingress EP
+        # would make the fallback appear ambiguous.
         for ep in profile.entry_points:
+            if ep.direction == "output":
+                continue
             key = _canonical_entry_point_name(ep.name)
             ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
 
