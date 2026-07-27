@@ -148,6 +148,7 @@ class TestCandidateTriple:
             ),
             risk_card_ref=_make_ref(),
             owasp_llm_ids=["LLM01", "LLM06"],
+            direction="input",
             entry_point_id=ep_id,
             candidate_id=cand_id,
         )
@@ -183,6 +184,7 @@ class TestCandidateTriple:
             atlas_technique_descriptions=("Crafting inputs", "Bypassing guardrails"),
             risk_card_ref=_make_ref(),
             owasp_llm_ids=["LLM01"],
+            direction="input",
             entry_point_id=ep_id,
             candidate_id=cand_id,
         )
@@ -1399,6 +1401,8 @@ def _make_candidate(
         atlas_technique_descriptions=technique_descs,
         risk_card_ref=_make_ref(),
         owasp_llm_ids=["LLM01"],
+        direction=direction,
+        controllability=controllability,
         entry_point_id=ep_id,
         candidate_id=cand_id,
     )
@@ -1631,6 +1635,7 @@ class TestApplyRuleBasedFilter:
         candidate = _make_candidate(
             entry_point="some generic channel",
             technique_ids=("AML.T0051.000",),
+            controllability="indirect",
         )
         passed, rejected, _ = apply_rule_based_filter([candidate], profile)
         # Without explicit controllability, "some generic channel" would default
@@ -1658,6 +1663,7 @@ class TestApplyRuleBasedFilter:
         candidate = _make_candidate(
             entry_point="RAG knowledge interface",
             technique_ids=("AML.T0054",),
+            controllability="direct",
         )
         passed, rejected, _ = apply_rule_based_filter([candidate], profile)
         # Without explicit controllability, "RAG knowledge interface" would be
@@ -1991,6 +1997,8 @@ def _make_threat_candidate(
         atlas_technique_descriptions=tuple(f"Desc {t}" for t in technique_ids),
         risk_card_ref=_make_ref(),
         owasp_llm_ids=["LLM01"],
+        direction=direction,
+        controllability=controllability,
         entry_point_id=ep_id,
         candidate_id=cand_id,
     )

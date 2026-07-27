@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import combinations
 from typing import Literal, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
@@ -26,6 +26,7 @@ from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     classify_entry_point,
+    compute_entry_point_id,
 )
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -52,11 +53,11 @@ def compute_candidate_id(
     technique IDs)`` so that the same combination always produces the
     same ID regardless of technique ordering.
 
-    Format: ``cand:<version>:<12-char hex digest>``
+    Format: ``cand:<version>:<32-char hex digest (128-bit)>``
     """
     sorted_tech = tuple(sorted(set(technique_ids)))
     identity = f"{seed_id}|{entry_point_id}|{','.join(sorted_tech)}"
-    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
     return f"cand:{_CANDIDATE_ID_VERSION}:{h}"
 
 
@@ -66,7 +67,15 @@ def compute_candidate_id(
 
 
 class CandidateTriple(BaseModel):
-    """One (attack_pattern, entry_point, atlas_technique_combo) candidate before filtering."""
+    """One (attack_pattern, entry_point, atlas_technique_combo) candidate before filtering.
+
+    The model is frozen (immutable) so that submitted metadata cannot be
+    mutated after the filter protocol has been engaged.  Supplied
+    ``entry_point_id`` and ``candidate_id`` are validated against
+    canonical recomputation on construction.
+    """
+
+    model_config = ConfigDict(frozen=True)
 
     seed_id: str = Field(description="Attack pattern ID, e.g. 'AP-T7-01'.")
     threat_id: str = Field(description="Parent threat ID, e.g. 'T7'.")
@@ -107,6 +116,39 @@ class CandidateTriple(BaseModel):
     candidate_id: str = Field(
         description="Canonical, deterministic candidate identity (cand:v1:<hash>).",
     )
+
+    @model_validator(mode="after")
+    def _validate_canonical_ids(self) -> CandidateTriple:
+        """Validate that supplied IDs match canonical recomputation.
+
+        This prevents forged or stale IDs from being used as join keys
+        in the filter protocol or downstream provenance.
+        """
+        expected_ep_id = compute_entry_point_id(
+            self.entry_point,
+            self.direction or "bidirectional",
+            self.controllability,
+        )
+        if self.entry_point_id != expected_ep_id:
+            raise ValueError(
+                f"entry_point_id '{self.entry_point_id}' does not match "
+                f"canonical recomputation '{expected_ep_id}' for "
+                f"entry_point='{self.entry_point}', "
+                f"direction={self.direction}, "
+                f"controllability={self.controllability}"
+            )
+        expected_cand_id = compute_candidate_id(
+            self.seed_id, self.entry_point_id, self.atlas_technique_ids
+        )
+        if self.candidate_id != expected_cand_id:
+            raise ValueError(
+                f"candidate_id '{self.candidate_id}' does not match "
+                f"canonical recomputation '{expected_cand_id}' for "
+                f"seed_id='{self.seed_id}', "
+                f"entry_point_id='{self.entry_point_id}', "
+                f"technique_ids={self.atlas_technique_ids}"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +421,52 @@ def expand_candidates(
             len(candidates),
         )
 
+    _check_candidate_collisions(candidates)
     return candidates
+
+
+def _check_candidate_collisions(candidates: list[CandidateTriple]) -> None:
+    """Reject candidates with same candidate_id but different identity inputs.
+
+    Two candidates are *semantic duplicates* when they share the same
+    ``candidate_id`` and the same ``(seed_id, entry_point_id, sorted
+    unique technique IDs)`` — this is expected from duplicate expansion
+    and is silently deduplicated elsewhere.
+
+    Two candidates *collide* when they share the same ``candidate_id``
+    but have different identity inputs (a hash collision or forged ID).
+    This is rejected because the filter protocol cannot distinguish them.
+
+    Args:
+        candidates: List of candidates to check.
+
+    Raises:
+        ValueError: If two candidates with different identity inputs
+            produce the same ``candidate_id``.
+    """
+    seen: dict[str, tuple[str, str, tuple[str, ...]]] = {}
+    for c in candidates:
+        identity = (
+            c.seed_id,
+            c.entry_point_id,
+            tuple(sorted(set(c.atlas_technique_ids))),
+        )
+        if c.candidate_id in seen:
+            existing = seen[c.candidate_id]
+            if existing != identity:
+                raise ValueError(
+                    f"Candidate collision: candidate_id '{c.candidate_id}' "
+                    f"maps to different identity inputs "
+                    f"({identity} vs {existing}). "
+                    f"Remove or disambiguate one of them."
+                )
+            # Semantic duplicate — not an error here, just a debug log.
+            logger.debug(
+                "Semantic duplicate candidate_id '%s' in expansion",
+                c.candidate_id,
+            )
+        else:
+            seen[c.candidate_id] = identity
 
 
 # ---------------------------------------------------------------------------
@@ -550,6 +637,14 @@ def filter_candidates(
             c.candidate_id: c for c in seed_candidates
         }
 
+        # Snapshot the seed batch before prompt render so application-
+        # resolved metadata cannot change after submission.  Frozen models
+        # prevent mutation, but deep-copying ensures the submitted set is
+        # a stable snapshot even if the caller reuses the list.
+        submitted_snapshot: list[CandidateTriple] = [
+            c.model_copy() for c in seed_candidates
+        ]
+
         user_prompt = render_prompt(
             "filter_user.j2",
             seed_id=seed_id,
@@ -559,7 +654,7 @@ def filter_candidates(
             threat_name=first.threat_name,
             owasp_llm_ids=first.owasp_llm_ids,
             risk_card_ref=first.risk_card_ref,
-            candidates=seed_candidates,
+            candidates=submitted_snapshot,
         )
 
         seed_call_logs: list[dict] = []
@@ -567,13 +662,57 @@ def filter_candidates(
         reconciliation_error: str | None = None
 
         for attempt in (1, 2):
-            llm_result = client.complete(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                response_format=BatchFilterResponse,
-            )
+            try:
+                llm_result = client.complete(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    response_format=BatchFilterResponse,
+                )
+            except Exception as exc:
+                # Infrastructure/parse exception — record a synthetic
+                # call log entry since we have no LLMResult.
+                seed_call_logs.append(
+                    {
+                        "call": "candidate_filter",
+                        "seed_id": seed_id,
+                        "attempt": attempt,
+                        "system_prompt": system_prompt,
+                        "user_prompt": user_prompt,
+                        "response": None,
+                        "error": f"Exception during complete(): {exc}",
+                        "prompt_tokens": None,
+                        "completion_tokens": None,
+                        "duration_ms": None,
+                    }
+                )
+                reconciliation_error = f"Exception during complete(): {exc}"
+                if attempt == 1:
+                    logger.warning(
+                        "Filter call failed for seed %s (attempt 1): %s — retrying",
+                        seed_id,
+                        exc,
+                    )
+                    continue
+                break
+
             seed_call_logs.append(_build_call_log_entry(seed_id, llm_result, attempt))
             batch_response = llm_result.content
+
+            if batch_response is None:
+                # Parsed None (refusal, empty content, etc.)
+                reconciliation_error = (
+                    "LLM returned None content (refusal or empty response)"
+                )
+                if attempt == 1:
+                    logger.warning(
+                        "Filter reconciliation failed for seed %s "
+                        "(attempt 1): %s — retrying",
+                        seed_id,
+                        reconciliation_error,
+                    )
+                    continue
+                break
+
             ok, err = _reconcile_filter_response(
                 batch_response,
                 seed_id,
@@ -687,9 +826,18 @@ def filter_candidates(
             except FilterProtocolError as exc:
                 logger.error("Filter protocol failure for seed %s: %s", seed_id, exc)
                 protocol_errors.append(exc)
-            except Exception:
-                logger.exception("Filter failed for seed %s", seed_id)
-                total_rejected += len(groups[seed_id])
+            except Exception as exc:
+                # Any unexpected exception from _filter_one_seed is an
+                # infrastructure/protocol failure, not an ordinary rejection.
+                # Convert to FilterProtocolError so the run fails cleanly
+                # with evidence rather than silently dropping a seed.
+                logger.exception("Filter infrastructure failure for seed %s", seed_id)
+                protocol_errors.append(
+                    FilterProtocolError(
+                        f"Filter infrastructure failure for seed {seed_id}: {exc}",
+                        call_log_entries=[],
+                    )
+                )
 
     if protocol_errors:
         # Collect all call logs (including from successful seeds) so the
@@ -1091,14 +1239,6 @@ def apply_rule_based_filter(
     if not candidates:
         return [], [], []
 
-    # Build entry-point direction and controllability lookups from the profile.
-    ep_direction: dict[str, str] = {
-        ep.name: ep.direction for ep in profile.entry_points
-    }
-    ep_controllability: dict[str, str | None] = {
-        ep.name: ep.controllability for ep in profile.entry_points
-    }
-
     rule_passed: list[CandidateTriple] = []
     rule_rejected: list[CandidateTriple] = []
     rejection_verdicts: list[RejectionRecord] = []
@@ -1133,8 +1273,11 @@ def apply_rule_based_filter(
             )
             continue
 
-        direction = ep_direction.get(candidate.entry_point, "bidirectional")
-        ctrl = ep_controllability.get(candidate.entry_point)
+        # Use the candidate's own direction and controllability, not a
+        # name-keyed profile lookup — same-name EPs with different
+        # canonical identities must not overwrite each other.
+        direction = candidate.direction or "bidirectional"
+        ctrl = candidate.controllability
         ep_type = classify_entry_point(candidate.entry_point, direction, ctrl)
 
         # Check each technique in the combo.
@@ -1207,6 +1350,11 @@ def apply_rule_based_filter(
             len(rule_rejected) + len(rule_passed),
             len(rule_passed),
         )
+
+    # Re-check for candidate collisions after rule pruning — pruning
+    # techniques may cause two formerly-distinct candidates to converge
+    # to the same candidate_id.
+    _check_candidate_collisions(rule_passed)
 
     return rule_passed, rule_rejected, rejection_verdicts
 

@@ -108,6 +108,7 @@ def _make_candidate(
         atlas_technique_descriptions=tuple(f"Desc {t}" for t in technique_ids),
         risk_card_ref=_make_ref(),
         owasp_llm_ids=["LLM01"],
+        direction="input",
     )
 
 

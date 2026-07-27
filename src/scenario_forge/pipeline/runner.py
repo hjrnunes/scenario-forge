@@ -19,7 +19,11 @@ from scenario_forge.data.loaders import (
 )
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
-from scenario_forge.models.capability_profile import ZONE_NAMES, CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    ZONE_NAMES,
+    CapabilityProfile,
+    EntryPoint,
+)
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
@@ -99,6 +103,7 @@ def _compute_gap_attributions(
     candidates: list[CandidateTriple],
     filtered_seeds: list[FilteredSeed],
     scenarios: list[ScenarioEnvelope],
+    profile: CapabilityProfile | None = None,
     phantom_seed_ids: set[str] | None = None,
 ) -> GapAttributions:
     """Attribute each coverage gap to the pipeline funnel stage where it fell out.
@@ -194,22 +199,36 @@ def _compute_gap_attributions(
             ap_attrs[ap_id] = "generation_failed"
 
     # --- Entry-point attribution ---
-    # Build a name → entry_point_id lookup from candidates so we can
-    # compare uncovered entry point names against canonical IDs.
-    ep_name_to_id: dict[str, str] = {
-        c.entry_point: c.entry_point_id for c in candidates
-    }
+    # Build a normalized-name → set-of-entry_point_ids lookup from the
+    # profile so we can resolve uncovered entry point names to canonical
+    # IDs without collapsing same-name EPs with different identities.
+    ep_name_to_ids: dict[str, set[str]] = {}
+    if profile is not None:
+        for ep in profile.entry_points:
+            key = ep.name.lower().strip()
+            ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
+    # Also build a direct name→ID map from candidates for legacy compat.
+    # When a name uniquely maps to one candidate EP, use that ID.
+    candidate_ep_name_to_ids: dict[str, set[str]] = {}
+    for c in candidates:
+        key = c.entry_point.lower().strip()
+        candidate_ep_name_to_ids.setdefault(key, set()).add(c.entry_point_id)
+
     ep_attrs: dict[str, str] = {}
     for ep in coverage_gaps.uncovered_entry_points:
-        ep_id = ep_name_to_id.get(ep, ep)  # fallback to name if not found
-        if ep_id not in candidate_entry_points_norm:
-            # Seeds don't track entry points; candidates are the first stage
-            # that does. If no candidate has this entry point, it means all
-            # seeds for this entry point were skipped (e.g. no ATLAS techniques).
+        # Resolve the uncovered entry point name to canonical ID(s).
+        # Prefer profile lookup; fall back to candidate lookup.
+        matched_ids = ep_name_to_ids.get(ep.lower().strip())
+        if not matched_ids:
+            matched_ids = candidate_ep_name_to_ids.get(ep.lower().strip(), set())
+        if not matched_ids:
+            # Name doesn't match any profile or candidate entry point.
             ep_attrs[ep] = "no_candidate"
-        elif ep_id not in filtered_entry_points_norm:
+        elif matched_ids.isdisjoint(candidate_entry_points_norm):
+            ep_attrs[ep] = "no_candidate"
+        elif matched_ids.isdisjoint(filtered_entry_points_norm):
             ep_attrs[ep] = "rejected"
-        elif ep_id in phantom_entry_points_norm:
+        elif not matched_ids.isdisjoint(phantom_entry_points_norm):
             ep_attrs[ep] = "phantom_flagged"
         else:
             ep_attrs[ep] = "generation_failed"
@@ -312,17 +331,49 @@ def _remediate_coverage_gaps(
         uncovered,
     )
 
-    for ep in uncovered:
-        seed = _pick_best_seed_for_entry_point(ep, seeds, profile)
+    # Build a normalized-name → list-of-EntryPoint lookup from the profile
+    # so we can resolve uncovered entry point names to canonical IDs without
+    # collapsing same-name EPs with different identities.
+    ep_name_to_eps: dict[str, list[EntryPoint]] = {}
+    for ep in profile.entry_points:
+        key = ep.name.lower().strip()
+        ep_name_to_eps.setdefault(key, []).append(ep)
+    # Track which entry_point_ids have already been remediated to avoid
+    # duplicate remediation when the same name appears multiple times.
+    remediated_ids: set[str] = set()
+
+    for ep_name in uncovered:
+        matched_eps = ep_name_to_eps.get(ep_name.lower().strip(), [])
+        # Find the first unremediated EP matching this name.
+        ep_obj: EntryPoint | None = None
+        for mep in matched_eps:
+            if mep.entry_point_id not in remediated_ids:
+                ep_obj = mep
+                break
+        if ep_obj is not None:
+            remediated_ids.add(ep_obj.entry_point_id)
+            pinned_ep_id: str | None = ep_obj.entry_point_id
+        elif matched_eps:
+            # All matching EPs already remediated — skip.
+            continue
+        else:
+            # Name doesn't match any profile EP — proceed without
+            # a canonical ID (edge case for manually constructed gaps).
+            pinned_ep_id = None
+
+        seed = _pick_best_seed_for_entry_point(ep_name, seeds, profile)
         if seed is None:
-            note = f"Remediation skipped for entry point '{ep}': no seeds available"
+            note = (
+                f"Remediation skipped for entry point '{ep_name}': no seeds available"
+            )
             logger.warning("  %s", note)
             generation_notes.append(note)
             continue
 
         logger.info(
-            "  Remediating entry point '%s' with seed %s (%s)...",
-            ep,
+            "  Remediating entry point '%s' (id=%s) with seed %s (%s)...",
+            ep_name,
+            pinned_ep_id or "none",
             seed.seed_id,
             seed.attack_pattern_name,
         )
@@ -351,9 +402,19 @@ def _remediate_coverage_gaps(
                 profile,
                 client,
                 use_case,
-                pinned_entry_point=ep,
+                pinned_entry_point=ep_name,
+                pinned_entry_point_id=pinned_ep_id,
                 attack_goal=selected_goal,
             )
+            # Attach candidate filter provenance so downstream coverage
+            # analysis resolves this scenario by canonical ID.
+            envelope.candidate_filter = {
+                "entry_point_id": pinned_ep_id,
+                "pinned_entry_point": ep_name,
+                "pinned_technique_ids": [],
+                "pinned_technique_names": [],
+                "rejection_rationales": [],
+            }
             write_scenario_outputs(envelope, scenarios_dir)
             write_call_log(call_log_entries, scenarios_dir)
             remediation_scenarios.append(envelope)
@@ -369,14 +430,14 @@ def _remediate_coverage_gaps(
             if exc.call_log_entries:
                 write_call_log(exc.call_log_entries, scenarios_dir)
             note = (
-                f"Remediation generation failed for entry point '{ep}' "
+                f"Remediation generation failed for entry point '{ep_name}' "
                 f"with seed {seed.seed_id}: {exc}"
             )
             logger.error("    %s", note)
             generation_notes.append(note)
         except Exception as exc:
             note = (
-                f"Remediation generation failed for entry point '{ep}' "
+                f"Remediation generation failed for entry point '{ep_name}' "
                 f"with seed {seed.seed_id}: {exc}"
             )
             logger.error("    %s", note)
@@ -519,7 +580,14 @@ def run_pipeline(
             else:
                 cleaned_entry_points.append(ep)
         if entry_points_changed:
-            updates["entry_points"] = cleaned_entry_points
+            # Re-run canonical dedup after zone-tag stripping — removing
+            # zone tags may cause two formerly-distinct entry points to
+            # become semantic duplicates or collide.
+            from scenario_forge.models.capability_profile import (
+                deduplicate_entry_points,
+            )
+
+            updates["entry_points"] = deduplicate_entry_points(cleaned_entry_points)
         profile = profile.model_copy(update=updates)
         logger.info("  Zone filter applied: %s", filtered)
 
@@ -938,6 +1006,7 @@ def run_pipeline(
             candidates,
             filtered_seeds,
             scenarios,
+            profile=profile,
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 

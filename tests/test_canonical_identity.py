@@ -100,6 +100,8 @@ def _make_candidate(
         atlas_technique_descriptions=technique_descs,
         risk_card_ref=_make_ref(),
         owasp_llm_ids=["LLM01"],
+        direction=direction,
+        controllability=controllability,
         entry_point_id=ep_id,
         candidate_id=cand_id,
     )
@@ -172,11 +174,11 @@ class TestEntryPointIdStability:
         assert id1 == id2
 
     def test_id_format(self):
-        """ID follows the ep:v1:<12 hex> format."""
+        """ID follows the ep:v1:<32 hex> format (128-bit digest)."""
         eid = compute_entry_point_id("user prompts", "input", None)
         assert eid.startswith("ep:v1:")
         hex_part = eid.split(":")[2]
-        assert len(hex_part) == 12
+        assert len(hex_part) == 32
         int(hex_part, 16)  # valid hex
 
     def test_entry_point_model_has_entry_point_id(self):
@@ -319,11 +321,11 @@ class TestCandidateIdStability:
         assert id1 != id2
 
     def test_id_format(self):
-        """ID follows the cand:v1:<12 hex> format."""
+        """ID follows the cand:v1:<32 hex> format (128-bit digest)."""
         cid = compute_candidate_id("AP-T7-01", "ep:v1:abc123", ("AML.T0051",))
         assert cid.startswith("cand:v1:")
         hex_part = cid.split(":")[2]
-        assert len(hex_part) == 12
+        assert len(hex_part) == 32
         int(hex_part, 16)  # valid hex
 
 
@@ -827,3 +829,501 @@ class TestBoundedCoverage:
         result = entry_point_entropy(scenarios, expected_entry_points=5)
         # Only 1 unique entry_point_id despite 2 scenarios.
         assert result["entry_point_coverage"] == round(1 / 5, 4)
+
+
+# ---------------------------------------------------------------------------
+# 8. Retry / infrastructure: exceptions, parsed None, concurrent evidence
+# ---------------------------------------------------------------------------
+
+
+class TestFilterRetryInfrastructure:
+    """Exceptions and parsed None inside the two-attempt loop are handled."""
+
+    def _make_two_candidates(self) -> list[CandidateTriple]:
+        return [
+            _make_candidate(
+                seed_id="AP-T7-01",
+                entry_point="user prompts",
+                technique_ids=("AML.T0051",),
+            ),
+            _make_candidate(
+                seed_id="AP-T7-01",
+                entry_point="RAG knowledge",
+                technique_ids=("AML.T0051.001",),
+            ),
+        ]
+
+    def _make_valid_response(
+        self, seed_id: str, candidates: list[CandidateTriple]
+    ) -> BatchFilterResponse:
+        return BatchFilterResponse(
+            seed_id=seed_id,
+            verdicts=[
+                FilterVerdict(
+                    candidate_id=c.candidate_id,
+                    verdict="accept" if i == 0 else "reject",
+                    rationale=f"verdict {i}",
+                )
+                for i, c in enumerate(candidates)
+            ],
+        )
+
+    def test_exception_then_success(self):
+        """Exception on attempt 1, valid response on attempt 2 — filter succeeds."""
+        candidates = self._make_two_candidates()
+        seeds = [_make_seed("AP-T7-01")]
+        profile = _make_profile()
+
+        valid_resp = self._make_valid_response("AP-T7-01", candidates)
+        client = MagicMock()
+        client.complete.side_effect = [
+            RuntimeError("network error"),
+            _make_llm_result(valid_resp),
+        ]
+
+        results, logs = filter_candidates(candidates, seeds, client, "test", profile)
+        assert len(results) == 1
+        assert len(logs) == 2  # two attempts logged
+        # First log should be a synthetic error entry.
+        assert logs[0]["error"] is not None
+        assert "network error" in logs[0]["error"]
+        # Second log should be a normal entry with a response.
+        assert logs[1]["response"] is not None
+
+    def test_exception_twice_raises(self):
+        """Two exceptions raise FilterProtocolError with two evidence entries."""
+        candidates = self._make_two_candidates()
+        seeds = [_make_seed("AP-T7-01")]
+        profile = _make_profile()
+
+        client = MagicMock()
+        client.complete.side_effect = [
+            RuntimeError("error 1"),
+            RuntimeError("error 2"),
+        ]
+
+        with pytest.raises(FilterProtocolError) as exc_info:
+            filter_candidates(candidates, seeds, client, "test", profile)
+        assert len(exc_info.value.call_log_entries) == 2
+        assert "error 1" in exc_info.value.call_log_entries[0]["error"]
+        assert "error 2" in exc_info.value.call_log_entries[1]["error"]
+
+    def test_parsed_none_retries_then_raises(self):
+        """Parsed None on both attempts raises FilterProtocolError."""
+        candidates = self._make_two_candidates()
+        seeds = [_make_seed("AP-T7-01")]
+        profile = _make_profile()
+
+        client = MagicMock()
+        client.complete.side_effect = [
+            _make_llm_result(None),
+            _make_llm_result(None),
+        ]
+
+        with pytest.raises(FilterProtocolError) as exc_info:
+            filter_candidates(candidates, seeds, client, "test", profile)
+        assert len(exc_info.value.call_log_entries) == 2
+
+    def test_parsed_none_then_success(self):
+        """Parsed None on attempt 1, valid response on attempt 2 — succeeds."""
+        candidates = self._make_two_candidates()
+        seeds = [_make_seed("AP-T7-01")]
+        profile = _make_profile()
+
+        valid_resp = self._make_valid_response("AP-T7-01", candidates)
+        client = MagicMock()
+        client.complete.side_effect = [
+            _make_llm_result(None),
+            _make_llm_result(valid_resp),
+        ]
+
+        results, logs = filter_candidates(candidates, seeds, client, "test", profile)
+        assert len(results) == 1
+        assert len(logs) == 2
+
+    def test_concurrent_successful_seed_evidence_aggregated(self):
+        """When one seed exhausts retries, successful seed logs are included."""
+        c1 = _make_candidate(
+            seed_id="AP-T7-01",
+            entry_point="user prompts",
+            technique_ids=("AML.T0051",),
+        )
+        c2 = _make_candidate(
+            seed_id="AP-T7-02",
+            entry_point="user prompts",
+            technique_ids=("AML.T0051",),
+        )
+        seeds = [_make_seed("AP-T7-01"), _make_seed("AP-T7-02")]
+        profile = _make_profile()
+
+        valid_resp_1 = self._make_valid_response("AP-T7-01", [c1])
+        client = MagicMock()
+        client.complete.side_effect = [
+            _make_llm_result(valid_resp_1),  # seed 1 succeeds
+            RuntimeError("error"),  # seed 2 attempt 1
+            RuntimeError("error"),  # seed 2 attempt 2
+        ]
+
+        with pytest.raises(FilterProtocolError) as exc_info:
+            filter_candidates([c1, c2], seeds, client, "test", profile)
+        # All call logs (from successful seed 1 + failed seed 2) should
+        # be aggregated in the raised error.
+        all_logs = exc_info.value.call_log_entries
+        # At least 3 entries: 1 from seed 1, 2 from seed 2.
+        assert len(all_logs) >= 3
+
+
+# ---------------------------------------------------------------------------
+# 9. Coverage: exact canonical set arithmetic with profile
+# ---------------------------------------------------------------------------
+
+
+class TestCanonicalCoverage:
+    """Coverage uses exact canonical set arithmetic from the profile."""
+
+    def _make_profile_with_eps(self) -> CapabilityProfile:
+        return CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(name="user prompts", direction="input"),
+                EntryPoint(name="RAG knowledge", direction="input"),
+                EntryPoint(name="admin console", direction="output"),
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+
+    def test_mixed_canonical_and_fallback_covers_both(self):
+        """Canonical candidate + fallback narrative covers both expected IDs."""
+        profile = self._make_profile_with_eps()
+        ep_id_1 = compute_entry_point_id("user prompts", "input", None)
+        scenarios = [
+            {
+                "narrative": {"entry_point": "user prompts"},
+                "candidate_filter": {"entry_point_id": ep_id_1},
+            },
+            {
+                "narrative": {"entry_point": "RAG knowledge"},
+                "candidate_filter": {},
+            },
+        ]
+        result = entry_point_entropy(
+            scenarios, expected_entry_points=2, profile=profile
+        )
+        # Both ingress EPs covered (output EP excluded).
+        assert result["entry_point_coverage"] == 1.0
+
+    def test_unknown_id_does_not_inflate_coverage(self):
+        """An unknown provenance ID must not inflate the numerator."""
+        profile = self._make_profile_with_eps()
+        scenarios = [
+            {
+                "narrative": {"entry_point": "unknown ep"},
+                "candidate_filter": {"entry_point_id": "ep:v1:unknown"},
+            },
+        ]
+        result = entry_point_entropy(
+            scenarios, expected_entry_points=2, profile=profile
+        )
+        # 0 covered out of 2 expected ingress EPs.
+        assert result["entry_point_coverage"] == 0.0
+
+    def test_duplicate_representation_counts_once(self):
+        """Canonical ID + fallback display of same EP counts once."""
+        profile = self._make_profile_with_eps()
+        ep_id_1 = compute_entry_point_id("user prompts", "input", None)
+        scenarios = [
+            {
+                "narrative": {"entry_point": "user prompts"},
+                "candidate_filter": {"entry_point_id": ep_id_1},
+            },
+            {
+                "narrative": {"entry_point": "User Prompts"},
+                "candidate_filter": {},
+            },
+        ]
+        result = entry_point_entropy(
+            scenarios, expected_entry_points=2, profile=profile
+        )
+        # Only 1 unique EP covered out of 2.
+        assert result["entry_point_coverage"] == 0.5
+
+    def test_exact_numerator_denominator(self):
+        """Coverage is exactly len(used & expected) / len(expected)."""
+        profile = self._make_profile_with_eps()
+        ep_id_1 = compute_entry_point_id("user prompts", "input", None)
+        scenarios = [
+            {
+                "narrative": {"entry_point": "user prompts"},
+                "candidate_filter": {"entry_point_id": ep_id_1},
+            },
+        ]
+        result = entry_point_entropy(
+            scenarios, expected_entry_points=2, profile=profile
+        )
+        # 1 out of 2 ingress EPs.
+        assert result["entry_point_coverage"] == round(1 / 2, 4)
+
+    def test_ambiguous_same_name_not_arbitrarily_resolved(self):
+        """Two same-name EPs with different direction: fallback covers both."""
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(name="shared channel", direction="input"),
+                EntryPoint(name="shared channel", direction="bidirectional"),
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+        # Fallback narrative with ambiguous name should cover both IDs,
+        # not arbitrarily pick one.
+        scenarios = [
+            {
+                "narrative": {"entry_point": "shared channel"},
+                "candidate_filter": {},
+            },
+        ]
+        result = entry_point_entropy(
+            scenarios, expected_entry_points=2, profile=profile
+        )
+        # Both same-name EPs are covered (not arbitrarily resolved to one).
+        assert result["entry_point_coverage"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# 10. Join behaviour: same-name different-identity EPs remain distinct
+# ---------------------------------------------------------------------------
+
+
+class TestSameNameDifferentIdentity:
+    """Same display name with different direction/controllability stays distinct."""
+
+    def test_same_name_different_direction_different_id(self):
+        """EPs with same name but different direction have different IDs."""
+        id_input = compute_entry_point_id("shared channel", "input", None)
+        id_output = compute_entry_point_id("shared channel", "output", None)
+        assert id_input != id_output
+
+    def test_same_name_different_controllability_different_id(self):
+        """EPs with same name but different controllability have different IDs."""
+        id_direct = compute_entry_point_id("shared channel", "input", "direct")
+        id_indirect = compute_entry_point_id("shared channel", "input", "indirect")
+        assert id_direct != id_indirect
+
+    def test_dedup_keeps_same_name_different_direction(self):
+        """Dedup keeps both same-name EPs with different directions."""
+        eps = [
+            EntryPoint(name="shared channel", direction="input"),
+            EntryPoint(name="shared channel", direction="output"),
+        ]
+        result = deduplicate_entry_points(eps)
+        assert len(result) == 2
+
+    def test_rule_filter_uses_candidate_own_metadata(self):
+        """Rule filter uses each candidate's own direction/controllability."""
+        profile = _make_profile(
+            entry_points=[
+                EntryPoint(name="shared channel", direction="input"),
+            ]
+        )
+        # Two candidates with same name but different controllability.
+        c_direct = _make_candidate(
+            entry_point="shared channel",
+            technique_ids=("AML.T0051.000",),
+            direction="input",
+            controllability="direct",
+        )
+        c_indirect = _make_candidate(
+            entry_point="shared channel",
+            technique_ids=("AML.T0051.000",),
+            direction="input",
+            controllability="indirect",
+        )
+        # They should have different entry_point_ids.
+        assert c_direct.entry_point_id != c_indirect.entry_point_id
+
+        passed, rejected, _ = apply_rule_based_filter([c_direct, c_indirect], profile)
+        # T0051.000 is direct-only; direct candidate passes, indirect rejected.
+        assert len(passed) == 1
+        assert len(rejected) == 1
+        # The passed candidate should be the direct one.
+        assert passed[0].entry_point_id == c_direct.entry_point_id
+
+
+# ---------------------------------------------------------------------------
+# 11. Immutability / ID validation
+# ---------------------------------------------------------------------------
+
+
+class TestImmutabilityAndIdValidation:
+    """Frozen models and canonical ID validation."""
+
+    def test_entry_point_frozen(self):
+        """EntryPoint is frozen — assignment raises."""
+        ep = EntryPoint(name="test", direction="input")
+        with pytest.raises(ValidationError):
+            ep.name = "changed"  # type: ignore[misc]
+
+    def test_candidate_triple_frozen(self):
+        """CandidateTriple is frozen — assignment raises."""
+        c = _make_candidate()
+        with pytest.raises(ValidationError):
+            c.entry_point = "changed"  # type: ignore[misc]
+
+    def test_inconsistent_entry_point_id_rejected(self):
+        """Supplied entry_point_id that doesn't match recomputation is rejected."""
+        wrong_ep_id = compute_entry_point_id("other ep", "input", None)
+        with pytest.raises(ValidationError, match="entry_point_id"):
+            CandidateTriple(
+                seed_id="AP-T7-01",
+                threat_id="T7",
+                threat_name="T7",
+                attack_pattern_name="P",
+                attack_pattern_description="D",
+                entry_point="user prompts",
+                atlas_technique_ids=("AML.T0051",),
+                atlas_technique_names=("T1",),
+                atlas_technique_descriptions=("D1",),
+                risk_card_ref=_make_ref(),
+                owasp_llm_ids=["LLM01"],
+                direction="input",
+                entry_point_id=wrong_ep_id,
+                candidate_id=compute_candidate_id(
+                    "AP-T7-01", wrong_ep_id, ("AML.T0051",)
+                ),
+            )
+
+    def test_inconsistent_candidate_id_rejected(self):
+        """Supplied candidate_id that doesn't match recomputation is rejected."""
+        ep_id = compute_entry_point_id("user prompts", "input", None)
+        wrong_cand_id = "cand:v1:00000000000000000000000000000000"
+        with pytest.raises(ValidationError, match="candidate_id"):
+            CandidateTriple(
+                seed_id="AP-T7-01",
+                threat_id="T7",
+                threat_name="T7",
+                attack_pattern_name="P",
+                attack_pattern_description="D",
+                entry_point="user prompts",
+                atlas_technique_ids=("AML.T0051",),
+                atlas_technique_names=("T1",),
+                atlas_technique_descriptions=("D1",),
+                risk_card_ref=_make_ref(),
+                owasp_llm_ids=["LLM01"],
+                direction="input",
+                entry_point_id=ep_id,
+                candidate_id=wrong_cand_id,
+            )
+
+    def test_mutation_during_submission_cannot_alter_result(self):
+        """Frozen models prevent mutation during submission."""
+        candidates = [
+            _make_candidate(
+                seed_id="AP-T7-01",
+                entry_point="user prompts",
+                technique_ids=("AML.T0051",),
+            ),
+            _make_candidate(
+                seed_id="AP-T7-01",
+                entry_point="RAG knowledge",
+                technique_ids=("AML.T0051.001",),
+            ),
+        ]
+        seeds = [_make_seed("AP-T7-01")]
+        profile = _make_profile()
+
+        valid_resp = BatchFilterResponse(
+            seed_id="AP-T7-01",
+            verdicts=[
+                FilterVerdict(
+                    candidate_id=c.candidate_id,
+                    verdict="accept" if i == 0 else "reject",
+                    rationale="ok",
+                )
+                for i, c in enumerate(candidates)
+            ],
+        )
+        client = MagicMock()
+        client.complete.return_value = _make_llm_result(valid_resp)
+
+        results, _ = filter_candidates(candidates, seeds, client, "test", profile)
+        assert len(results) == 1
+        # Result metadata comes from the frozen candidate, not from any
+        # mutable copy.
+        assert results[0].pinned_entry_point == candidates[0].entry_point
+        assert results[0].entry_point_id == candidates[0].entry_point_id
+
+
+# ---------------------------------------------------------------------------
+# 12. Collisions / digest width
+# ---------------------------------------------------------------------------
+
+
+class TestCollisionsAndDigest:
+    """128-bit digests and forced collision detection."""
+
+    def test_entry_point_id_is_32_hex_chars(self):
+        """Entry-point ID has 32 hex characters (128 bits)."""
+        eid = compute_entry_point_id("user prompts", "input", None)
+        hex_part = eid.split(":")[2]
+        assert len(hex_part) == 32
+        int(hex_part, 16)
+
+    def test_candidate_id_is_32_hex_chars(self):
+        """Candidate ID has 32 hex characters (128 bits)."""
+        ep_id = compute_entry_point_id("user prompts", "input", None)
+        cid = compute_candidate_id("AP-T7-01", ep_id, ("AML.T0051",))
+        hex_part = cid.split(":")[2]
+        assert len(hex_part) == 32
+        int(hex_part, 16)
+
+    def test_forced_ep_collision_same_name_different_direction_raises(self):
+        """Forced collision: same name, different direction must raise."""
+        with patch(
+            "scenario_forge.models.capability_profile.compute_entry_point_id",
+            return_value="ep:v1:collision0000000000000000000000",
+        ):
+            eps = [
+                EntryPoint(name="shared channel", direction="input"),
+                EntryPoint(name="shared channel", direction="output"),
+            ]
+            with pytest.raises(ValueError, match="Ambiguous entry point identity"):
+                deduplicate_entry_points(eps)
+
+    def test_forced_ep_collision_same_name_different_controllability_raises(self):
+        """Forced collision: same name, different controllability must raise."""
+        with patch(
+            "scenario_forge.models.capability_profile.compute_entry_point_id",
+            return_value="ep:v1:collision0000000000000000000000",
+        ):
+            eps = [
+                EntryPoint(
+                    name="shared channel", direction="input", controllability="direct"
+                ),
+                EntryPoint(
+                    name="shared channel",
+                    direction="input",
+                    controllability="indirect",
+                ),
+            ]
+            with pytest.raises(ValueError, match="Ambiguous entry point identity"):
+                deduplicate_entry_points(eps)
+
+    def test_candidate_collision_raises(self):
+        """Forced candidate collision at population boundary raises."""
+        c1 = _make_candidate(
+            seed_id="AP-T7-01",
+            entry_point="user prompts",
+            technique_ids=("AML.T0051",),
+        )
+        c2 = _make_candidate(
+            seed_id="AP-T7-02",
+            entry_point="RAG knowledge",
+            technique_ids=("AML.T0054",),
+        )
+        # Force same candidate_id but different identity inputs.
+        c2_forged = c2.model_copy(update={"candidate_id": c1.candidate_id})
+        with pytest.raises(ValueError, match="Candidate collision"):
+            from scenario_forge.pipeline.candidates import _check_candidate_collisions
+
+            _check_candidate_collisions([c1, c2_forged])

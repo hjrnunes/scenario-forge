@@ -1124,6 +1124,7 @@ def _make_candidate(
         atlas_technique_descriptions=("Inject instructions into LLM prompts.",),
         risk_card_ref=_make_risk_card_ref(),
         owasp_llm_ids=["LLM01"],
+        direction="input",
         entry_point_id=ep_id,
         candidate_id=cand_id,
     )

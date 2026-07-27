@@ -14,7 +14,10 @@ import math
 from collections import Counter
 from typing import Any
 
-from scenario_forge.models.capability_profile import ZONE_NAMES
+from scenario_forge.models.capability_profile import (
+    ZONE_NAMES,
+    CapabilityProfile,
+)
 
 
 def _shannon_entropy(values: list[str], normalize: bool = True) -> float:
@@ -93,26 +96,47 @@ def _extract_domain_stopwords(titles: list[str], threshold: float = 0.5) -> set[
 def entry_point_entropy(
     scenarios: list[dict[str, Any]],
     expected_entry_points: int | None = None,
+    profile: CapabilityProfile | None = None,
 ) -> float | dict[str, Any]:
     """Shannon entropy of entry points across scenarios (normalized).
 
     Extracts entry point identity from each scenario.  Prefers the
     canonical ``entry_point_id`` from ``candidate_filter`` provenance;
-    falls back to ``narrative.entry_point`` for scenarios without
-    provenance.
+    falls back to ``narrative.entry_point`` resolved against the profile
+    for scenarios without provenance.
 
-    Coverage is set-based and bounded in [0, 1].
+    When *expected_entry_points* is given as an integer count and
+    *profile* is provided, coverage is computed as exact canonical set
+    arithmetic: ``len(used_ids & expected_ids) / len(expected_ids)``
+    where ``expected_ids`` are the canonical ingress entry-point IDs
+    from the profile.  Unknown IDs do not inflate coverage.
+
+    When *profile* is not provided, falls back to the integer-count
+    approach (clamped to [0, 1]).
 
     Args:
         scenarios: List of scenario dicts.
-        expected_entry_points: If provided, also compute entry_point_coverage
-            (actual unique / expected, clamped to [0, 1]).  When set,
-            returns a dict instead of a bare float.
+        expected_entry_points: If provided, also compute entry_point_coverage.
+        profile: If provided, use canonical profile entry-point IDs for
+            exact set-based coverage.
 
     Returns:
         float (entropy) when expected_entry_points is None, otherwise a dict
         with 'entropy' and 'entry_point_coverage'.
     """
+    # Build a normalized-name → set-of-entry_point_ids lookup from the
+    # profile for fallback resolution of narrative display names.  Using
+    # a set per name avoids collapsing same-name entry points with
+    # different canonical identities.  Normalization uses the same
+    # canonical name function as entry_point_id computation.
+    from scenario_forge.models.capability_profile import _canonical_entry_point_name
+
+    ep_name_to_ids: dict[str, set[str]] = {}
+    if profile is not None:
+        for ep in profile.entry_points:
+            key = _canonical_entry_point_name(ep.name)
+            ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
+
     entry_points: list[str] = []
     for s in scenarios:
         # Prefer canonical entry_point_id from provenance.
@@ -123,17 +147,36 @@ def entry_point_entropy(
         else:
             ep = s.get("narrative", {}).get("entry_point", "")
             if ep:
-                entry_points.append(ep.lower().strip())
+                # Resolve display name to canonical ID(s) when possible.
+                # When a name maps to multiple canonical IDs (ambiguous),
+                # add all matching IDs — this does not arbitrarily resolve.
+                matched_ids = ep_name_to_ids.get(_canonical_entry_point_name(ep))
+                if matched_ids:
+                    entry_points.extend(matched_ids)
+                else:
+                    entry_points.append(_canonical_entry_point_name(ep))
 
     entropy = round(_shannon_entropy(entry_points), 4)
 
     if expected_entry_points is None:
         return entropy
 
-    actual_unique = len(set(entry_points))
-    raw_coverage = (
-        actual_unique / expected_entry_points if expected_entry_points > 0 else 0.0
-    )
+    if profile is not None:
+        # Exact canonical set arithmetic.
+        expected_ids = {
+            ep.entry_point_id for ep in profile.entry_points if ep.direction != "output"
+        }
+        used_ids = set(entry_points)
+        # Only count IDs that are in the expected set — unknown IDs
+        # must not inflate coverage.
+        covered = len(used_ids & expected_ids)
+        raw_coverage = covered / len(expected_ids) if expected_ids else 0.0
+    else:
+        actual_unique = len(set(entry_points))
+        raw_coverage = (
+            actual_unique / expected_entry_points if expected_entry_points > 0 else 0.0
+        )
+
     coverage = round(min(1.0, max(0.0, raw_coverage)), 4)
     return {
         "entropy": entropy,

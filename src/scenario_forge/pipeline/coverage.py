@@ -134,13 +134,25 @@ def analyze_coverage_gaps(
         CoverageGaps with lists of uncovered entry points, zones, and threats.
     """
     # Collect entry point IDs used across all scenario provenance.
-    # Prefer canonical entry_point_id from candidate_filter provenance;
-    # fall back to normalized narrative.entry_point for backward compat.
+    # Resolve canonical entry_point_id from candidate_filter provenance
+    # when available; for scenarios without provenance (e.g. remediation),
+    # resolve the narrative entry point name against the profile's
+    # canonical IDs.
     used_entry_point_ids: set[str] = set()
-    used_entry_points_normalized: set[str] = set()
     traversed_zones: set[str] = set()
     covered_threat_ids: set[str] = set()
     covered_attack_pattern_ids: set[str] = set()
+
+    # Build a normalized-name → set-of-entry_point_ids lookup from the
+    # profile so we can resolve fallback narrative display names to
+    # canonical IDs.  Using a set per name avoids collapsing same-name
+    # entry points with different canonical identities (e.g. different
+    # direction or controllability).  Normalization matches the old
+    # _normalize_entry_point behaviour (case, whitespace, punctuation).
+    ep_name_to_ids: dict[str, set[str]] = {}
+    for ep in profile.entry_points:
+        key = _normalize_entry_point(ep.name)
+        ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
 
     for envelope in scenarios:
         cf = envelope.candidate_filter or {}
@@ -148,27 +160,29 @@ def analyze_coverage_gaps(
         if ep_id:
             used_entry_point_ids.add(ep_id)
         else:
-            used_entry_points_normalized.add(
-                _normalize_entry_point(envelope.narrative.entry_point)
-            )
+            # Fallback: resolve narrative entry point name against the
+            # profile's canonical IDs.  This handles remediation scenarios
+            # that don't carry candidate_filter provenance.  When a name
+            # maps to multiple canonical IDs (ambiguous), add ALL matching
+            # IDs — this does not arbitrarily resolve the ambiguity.
+            narrative_ep = envelope.narrative.entry_point
+            matched_ids = ep_name_to_ids.get(_normalize_entry_point(narrative_ep))
+            if matched_ids:
+                used_entry_point_ids.update(matched_ids)
+            # If the name doesn't match any profile entry point, it's an
+            # unknown ID and must NOT inflate coverage.
         traversed_zones.update(envelope.narrative.zone_sequence)
         covered_threat_ids.update(envelope.faceting.taxonomy_chain.agentic_threat_ids)
         covered_attack_pattern_ids.add(envelope.faceting.taxonomy_chain.scenario_seed)
 
-    # 1. Uncovered entry points — compare using canonical IDs when available,
-    # falling back to normalized strings for scenarios without provenance.
+    # 1. Uncovered entry points — compare using canonical entry_point_id.
+    # Only consider ingress-capable entry points (input/bidirectional).
     uncovered_entry_points = []
     for ep in profile.entry_points:
         if ep.direction == "output":
             continue
-        if used_entry_point_ids:
-            # Modern path: compare by canonical entry_point_id.
-            if ep.entry_point_id not in used_entry_point_ids:
-                uncovered_entry_points.append(ep.name)
-        else:
-            # Legacy path: no scenario has entry_point_id provenance.
-            if _normalize_entry_point(ep.name) not in used_entry_points_normalized:
-                uncovered_entry_points.append(ep.name)
+        if ep.entry_point_id not in used_entry_point_ids:
+            uncovered_entry_points.append(ep.name)
 
     # 2. Uncovered active zones
     uncovered_zones = sorted(

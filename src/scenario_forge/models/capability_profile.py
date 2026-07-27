@@ -21,7 +21,14 @@ import re
 from enum import Enum
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -517,6 +524,22 @@ def _canonical_entry_point_name(name: str) -> str:
     return s
 
 
+def _entry_point_identity_tuple(
+    name: str,
+    direction: str,
+    controllability: str | None,
+) -> tuple[str, str, str]:
+    """Return the canonical identity tuple used for both hashing and collision comparison.
+
+    This single definition ensures that the hash preimage and the
+    collision-detection comparison use exactly the same canonical
+    representation — no drift between the two.
+    """
+    effective_ctrl = classify_entry_point(name, direction, controllability)
+    canonical = _canonical_entry_point_name(name)
+    return (canonical, direction, effective_ctrl)
+
+
 def compute_entry_point_id(
     name: str,
     direction: str,
@@ -530,7 +553,7 @@ def compute_entry_point_id(
     semantically identical produce the same ID; semantically distinct
     entry points produce different IDs (barring a hash collision).
 
-    Format: ``ep:<version>:<12-char hex digest>``
+    Format: ``ep:<version>:<32-char hex digest (128-bit)``
 
     Args:
         name: Human-readable entry point name.
@@ -540,10 +563,11 @@ def compute_entry_point_id(
     Returns:
         A stable, opaque entry point identifier.
     """
-    effective_ctrl = classify_entry_point(name, direction, controllability)
-    canonical = _canonical_entry_point_name(name)
+    canonical, direction, effective_ctrl = _entry_point_identity_tuple(
+        name, direction, controllability
+    )
     identity = f"{canonical}|{direction}|{effective_ctrl}"
-    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
     return f"ep:{_ENTRY_POINT_ID_VERSION}:{h}"
 
 
@@ -553,12 +577,12 @@ def deduplicate_entry_points(
     """Deduplicate semantic duplicates and reject ambiguous/colliding identities.
 
     Two entry points are *semantic duplicates* when they share the same
-    :attr:`EntryPoint.entry_point_id` and the same canonical name — only
-    the first is kept.
+    :attr:`EntryPoint.entry_point_id` and the same canonical identity
+    tuple — only the first is kept.
 
     Two entry points *collide* when they share the same
-    ``entry_point_id`` but have different canonical names (a hash
-    collision or ambiguous identity).  This is rejected with a
+    ``entry_point_id`` but have different canonical identity tuples (a
+    hash collision or ambiguous identity).  This is rejected with a
     :class:`ValueError` because the pipeline cannot distinguish them.
 
     Args:
@@ -568,32 +592,35 @@ def deduplicate_entry_points(
         Deduplicated list preserving first-encounter order.
 
     Raises:
-        ValueError: If two entry points with different canonical names
-            produce the same ``entry_point_id``.
+        ValueError: If two entry points with different canonical identity
+            tuples produce the same ``entry_point_id``.
     """
-    seen: dict[str, EntryPoint] = {}
+    seen: dict[str, tuple[tuple[str, str, str], EntryPoint]] = {}
     for ep in entry_points:
         eid = ep.entry_point_id
-        canonical = _canonical_entry_point_name(ep.name)
+        identity_tuple = _entry_point_identity_tuple(
+            ep.name, ep.direction, ep.controllability
+        )
         if eid in seen:
-            existing = seen[eid]
-            existing_canonical = _canonical_entry_point_name(existing.name)
-            if existing_canonical != canonical:
+            existing_tuple, existing_ep = seen[eid]
+            if existing_tuple != identity_tuple:
                 raise ValueError(
                     f"Ambiguous entry point identity: '{ep.name}' and "
-                    f"'{existing.name}' resolve to the same entry_point_id "
-                    f"{eid} but have different canonical names. "
+                    f"'{existing_ep.name}' resolve to the same "
+                    f"entry_point_id {eid} but have different canonical "
+                    f"identity tuples "
+                    f"({identity_tuple} vs {existing_tuple}). "
                     f"Remove or disambiguate one of them."
                 )
             # Exact semantic duplicate — silently dedup (keep first).
             logger.debug(
                 "Deduplicating entry point '%s' (same identity as '%s')",
                 ep.name,
-                existing.name,
+                existing_ep.name,
             )
             continue
-        seen[eid] = ep
-    return list(seen.values())
+        seen[eid] = (identity_tuple, ep)
+    return [ep for _, ep in seen.values()]
 
 
 class EntryPoint(BaseModel):
@@ -611,7 +638,12 @@ class EntryPoint(BaseModel):
     - ``indirect``: attacker can influence a data source (e.g. RAG poisoning)
     - ``system``: fully system-controlled, not attacker-accessible
     - ``None``: inferred at runtime by keyword heuristic
+
+    The model is frozen (immutable) so that submitted metadata cannot be
+    mutated after the filter protocol has been engaged.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     name: str = Field(
         description="Entry point description, e.g. 'user prompts via chat widget'."
