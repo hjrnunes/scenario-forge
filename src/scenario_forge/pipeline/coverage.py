@@ -133,29 +133,42 @@ def analyze_coverage_gaps(
     Returns:
         CoverageGaps with lists of uncovered entry points, zones, and threats.
     """
-    # Collect normalized entry points used across all scenario narratives.
+    # Collect entry point IDs used across all scenario provenance.
+    # Prefer canonical entry_point_id from candidate_filter provenance;
+    # fall back to normalized narrative.entry_point for backward compat.
+    used_entry_point_ids: set[str] = set()
     used_entry_points_normalized: set[str] = set()
     traversed_zones: set[str] = set()
     covered_threat_ids: set[str] = set()
     covered_attack_pattern_ids: set[str] = set()
 
     for envelope in scenarios:
-        used_entry_points_normalized.add(
-            _normalize_entry_point(envelope.narrative.entry_point)
-        )
+        cf = envelope.candidate_filter or {}
+        ep_id = cf.get("entry_point_id")
+        if ep_id:
+            used_entry_point_ids.add(ep_id)
+        else:
+            used_entry_points_normalized.add(
+                _normalize_entry_point(envelope.narrative.entry_point)
+            )
         traversed_zones.update(envelope.narrative.zone_sequence)
         covered_threat_ids.update(envelope.faceting.taxonomy_chain.agentic_threat_ids)
         covered_attack_pattern_ids.add(envelope.faceting.taxonomy_chain.scenario_seed)
 
-    # 1. Uncovered entry points — compare using normalized strings.
-    # Only consider ingress-capable entry points (input/bidirectional) for
-    # coverage analysis — output-only entry points are not attacker ingress.
-    uncovered_entry_points = [
-        ep.name
-        for ep in profile.entry_points
-        if ep.direction != "output"
-        and _normalize_entry_point(ep.name) not in used_entry_points_normalized
-    ]
+    # 1. Uncovered entry points — compare using canonical IDs when available,
+    # falling back to normalized strings for scenarios without provenance.
+    uncovered_entry_points = []
+    for ep in profile.entry_points:
+        if ep.direction == "output":
+            continue
+        if used_entry_point_ids:
+            # Modern path: compare by canonical entry_point_id.
+            if ep.entry_point_id not in used_entry_point_ids:
+                uncovered_entry_points.append(ep.name)
+        else:
+            # Legacy path: no scenario has entry_point_id provenance.
+            if _normalize_entry_point(ep.name) not in used_entry_points_normalized:
+                uncovered_entry_points.append(ep.name)
 
     # 2. Uncovered active zones
     uncovered_zones = sorted(

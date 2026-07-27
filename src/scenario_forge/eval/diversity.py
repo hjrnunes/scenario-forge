@@ -96,23 +96,34 @@ def entry_point_entropy(
 ) -> float | dict[str, Any]:
     """Shannon entropy of entry points across scenarios (normalized).
 
-    Extracts narrative.entry_point from each scenario.
+    Extracts entry point identity from each scenario.  Prefers the
+    canonical ``entry_point_id`` from ``candidate_filter`` provenance;
+    falls back to ``narrative.entry_point`` for scenarios without
+    provenance.
+
+    Coverage is set-based and bounded in [0, 1].
 
     Args:
         scenarios: List of scenario dicts.
         expected_entry_points: If provided, also compute entry_point_coverage
-            (actual unique / expected). When set, returns a dict instead of
-            a bare float.
+            (actual unique / expected, clamped to [0, 1]).  When set,
+            returns a dict instead of a bare float.
 
     Returns:
         float (entropy) when expected_entry_points is None, otherwise a dict
         with 'entropy' and 'entry_point_coverage'.
     """
-    entry_points = []
+    entry_points: list[str] = []
     for s in scenarios:
-        ep = s.get("narrative", {}).get("entry_point", "")
-        if ep:
-            entry_points.append(ep.lower().strip())
+        # Prefer canonical entry_point_id from provenance.
+        cf = s.get("candidate_filter") or {}
+        ep_id = cf.get("entry_point_id")
+        if ep_id:
+            entry_points.append(ep_id)
+        else:
+            ep = s.get("narrative", {}).get("entry_point", "")
+            if ep:
+                entry_points.append(ep.lower().strip())
 
     entropy = round(_shannon_entropy(entry_points), 4)
 
@@ -120,11 +131,10 @@ def entry_point_entropy(
         return entropy
 
     actual_unique = len(set(entry_points))
-    coverage = (
-        round(actual_unique / expected_entry_points, 4)
-        if expected_entry_points > 0
-        else 0.0
+    raw_coverage = (
+        actual_unique / expected_entry_points if expected_entry_points > 0 else 0.0
     )
+    coverage = round(min(1.0, max(0.0, raw_coverage)), 4)
     return {
         "entropy": entropy,
         "entry_point_coverage": coverage,

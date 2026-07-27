@@ -22,12 +22,26 @@ logger = logging.getLogger(__name__)
 def _lookup_entry_point_direction(
     profile: CapabilityProfile,
     entry_point_name: str | None,
+    entry_point_id: str | None = None,
 ) -> str | None:
-    """Look up the direction for a named entry point in the capability profile.
+    """Look up the direction for an entry point in the capability profile.
+
+    When *entry_point_id* is provided, looks up by canonical ID (preferred).
+    Otherwise falls back to matching by *entry_point_name*.
 
     Returns the direction string ('input', 'output', or 'bidirectional'),
-    or ``None`` if *entry_point_name* is ``None`` or not found in the profile.
+    or ``None`` if the entry point is not found.
     """
+    if entry_point_id is not None:
+        for ep in profile.entry_points:
+            if ep.entry_point_id == entry_point_id:
+                return ep.direction
+        logger.warning(
+            "Entry point with entry_point_id '%s' not found in profile "
+            "entry_points; direction lookup returning None",
+            entry_point_id,
+        )
+        return None
     if entry_point_name is None:
         return None
     for ep in profile.entry_points:
@@ -44,12 +58,26 @@ def _lookup_entry_point_direction(
 def _lookup_entry_point_controllability(
     profile: CapabilityProfile,
     entry_point_name: str | None,
+    entry_point_id: str | None = None,
 ) -> str | None:
-    """Look up the controllability for a named entry point in the capability profile.
+    """Look up the controllability for an entry point in the capability profile.
+
+    When *entry_point_id* is provided, looks up by canonical ID (preferred).
+    Otherwise falls back to matching by *entry_point_name*.
 
     Returns the controllability string ('direct', 'indirect', or 'system'),
-    or ``None`` if *entry_point_name* is ``None`` or not found in the profile.
+    or ``None`` if the entry point is not found.
     """
+    if entry_point_id is not None:
+        for ep in profile.entry_points:
+            if ep.entry_point_id == entry_point_id:
+                return ep.controllability
+        logger.warning(
+            "Entry point with entry_point_id '%s' not found in profile "
+            "entry_points; controllability lookup returning None",
+            entry_point_id,
+        )
+        return None
     if entry_point_name is None:
         return None
     for ep in profile.entry_points:

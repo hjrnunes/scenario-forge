@@ -209,6 +209,7 @@ def build_call1_context(
     pinned_entry_point: str | None = None,
     pinned_technique_ids: list[str] | None = None,
     prior_titles: list[str] | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 1 (Narrative).
 
@@ -242,14 +243,12 @@ def build_call1_context(
 
     # Build title diversity section when prior titles exist
     if prior_titles:
-        title_list = "\n".join(
-            f"  {i}. {t}" for i, t in enumerate(prior_titles, 1)
-        )
+        title_list = "\n".join(f"  {i}. {t}" for i, t in enumerate(prior_titles, 1))
         diversity_section += (
             "\n## Previously Generated Titles (avoid duplication)\n"
             "The following titles have already been used in this generation "
             "run. Your title MUST be substantially different — do not reuse "
-            "the same structure, key phrases, or \"[Mechanism] for [Goal]\" "
+            'the same structure, key phrases, or "[Mechanism] for [Goal]" '
             "pattern:\n"
             f"{title_list}\n"
         )
@@ -345,10 +344,14 @@ def build_call1_context(
 
     # Look up entry point direction and controllability from the capability profile
     pinned_entry_point_direction = _lookup_entry_point_direction(
-        profile, pinned_entry_point
+        profile,
+        pinned_entry_point,
+        pinned_entry_point_id,
     )
     pinned_entry_point_controllability = _lookup_entry_point_controllability(
-        profile, pinned_entry_point
+        profile,
+        pinned_entry_point,
+        pinned_entry_point_id,
     )
 
     # Build KC/KCX definition block for the prompt
@@ -397,6 +400,7 @@ def _call_narrative(
     pinned_entry_point: str | None = None,
     pinned_technique_ids: list[str] | None = None,
     prior_titles: list[str] | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     """Generate an attack narrative for a scenario seed (Call 1).
 
@@ -418,6 +422,7 @@ def _call_narrative(
         pinned_entry_point=pinned_entry_point,
         pinned_technique_ids=pinned_technique_ids,
         prior_titles=prior_titles,
+        pinned_entry_point_id=pinned_entry_point_id,
     )
 
     result = client.complete(

@@ -16,7 +16,12 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ConfidenceLevel,
+    ToolInventoryEntry,
+    compute_entry_point_id,
+)
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.candidates import (
     DIRECT_ONLY_TECHNIQUES,
@@ -36,6 +41,7 @@ from scenario_forge.pipeline.candidates import (
     apply_rule_based_filter,
     cap_scenarios_per_pattern,
     classify_entry_point,
+    compute_candidate_id,
     is_indirect_entry_point,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -82,10 +88,14 @@ def _make_filtered_seed(
     entry_point: str = "user prompts (input)",
     technique_ids: tuple[str, ...] = ("AML.T0051",),
     technique_names: tuple[str, ...] | None = None,
+    direction: str = "input",
+    controllability: str | None = None,
 ) -> FilteredSeed:
     """Build a FilteredSeed with minimal boilerplate for capping tests."""
     if technique_names is None:
         technique_names = tuple(f"Technique {t}" for t in technique_ids)
+    ep_id = compute_entry_point_id(entry_point, direction, controllability)
+    cand_id = compute_candidate_id(seed_id, ep_id, technique_ids)
     return FilteredSeed(
         seed_id=seed_id,
         threat_id="T7",
@@ -98,6 +108,8 @@ def _make_filtered_seed(
         pinned_entry_point=entry_point,
         pinned_technique_ids=technique_ids,
         pinned_technique_names=technique_names,
+        entry_point_id=ep_id,
+        candidate_id=cand_id,
     )
 
 
@@ -120,6 +132,8 @@ class TestCandidateTriple:
 
     def test_candidate_triple_creation(self):
         """CandidateTriple accepts all required fields with tuple technique fields."""
+        ep_id = compute_entry_point_id("user prompts (input)", "input", None)
+        cand_id = compute_candidate_id("AP-T7-01", ep_id, ("AML.T0051",))
         ct = CandidateTriple(
             seed_id="AP-T7-01",
             threat_id="T7",
@@ -129,9 +143,13 @@ class TestCandidateTriple:
             entry_point="user prompts (input)",
             atlas_technique_ids=("AML.T0051",),
             atlas_technique_names=("LLM Prompt Injection",),
-            atlas_technique_descriptions=("Crafting inputs to manipulate LLM behavior",),
+            atlas_technique_descriptions=(
+                "Crafting inputs to manipulate LLM behavior",
+            ),
             risk_card_ref=_make_ref(),
             owasp_llm_ids=["LLM01", "LLM06"],
+            entry_point_id=ep_id,
+            candidate_id=cand_id,
         )
         assert ct.seed_id == "AP-T7-01"
         assert ct.threat_id == "T7"
@@ -141,12 +159,18 @@ class TestCandidateTriple:
         assert ct.entry_point == "user prompts (input)"
         assert ct.atlas_technique_ids == ("AML.T0051",)
         assert ct.atlas_technique_names == ("LLM Prompt Injection",)
-        assert ct.atlas_technique_descriptions == ("Crafting inputs to manipulate LLM behavior",)
+        assert ct.atlas_technique_descriptions == (
+            "Crafting inputs to manipulate LLM behavior",
+        )
         assert ct.risk_card_ref.risk_id == "risk-1"
         assert ct.owasp_llm_ids == ["LLM01", "LLM06"]
+        assert ct.entry_point_id == ep_id
+        assert ct.candidate_id == cand_id
 
     def test_candidate_triple_multi_technique(self):
         """CandidateTriple with multiple techniques in a combo."""
+        ep_id = compute_entry_point_id("user prompts (input)", "input", None)
+        cand_id = compute_candidate_id("AP-T7-01", ep_id, ("AML.T0051", "AML.T0054"))
         ct = CandidateTriple(
             seed_id="AP-T7-01",
             threat_id="T7",
@@ -159,43 +183,44 @@ class TestCandidateTriple:
             atlas_technique_descriptions=("Crafting inputs", "Bypassing guardrails"),
             risk_card_ref=_make_ref(),
             owasp_llm_ids=["LLM01"],
+            entry_point_id=ep_id,
+            candidate_id=cand_id,
         )
         assert len(ct.atlas_technique_ids) == 2
         assert ct.atlas_technique_ids == ("AML.T0051", "AML.T0054")
 
 
 class TestFilterVerdict:
-    """FilterVerdict model validation."""
+    """FilterVerdict model validation (wire protocol — opaque candidate IDs)."""
 
     def test_filter_verdict_accept(self):
         """FilterVerdict with verdict='accept' and a rationale."""
         v = FilterVerdict(
-            entry_point="user prompts (input)",
-            atlas_technique_ids=("AML.T0051",),
+            candidate_id="cand:v1:abc123",
             verdict="accept",
             rationale="Entry point directly exposes the LLM to user-crafted input.",
         )
         assert v.verdict == "accept"
-        assert v.rationale == "Entry point directly exposes the LLM to user-crafted input."
+        assert (
+            v.rationale == "Entry point directly exposes the LLM to user-crafted input."
+        )
+        assert v.candidate_id == "cand:v1:abc123"
 
     def test_filter_verdict_reject(self):
         """FilterVerdict with verdict='reject' and a rationale."""
         v = FilterVerdict(
-            entry_point="internal API (tool_execution)",
-            atlas_technique_ids=("AML.T0054",),
+            candidate_id="cand:v1:def456",
             verdict="reject",
             rationale="No plausible path from this entry point to the technique.",
         )
         assert v.verdict == "reject"
-        assert v.entry_point == "internal API (tool_execution)"
-        assert v.atlas_technique_ids == ("AML.T0054",)
+        assert v.candidate_id == "cand:v1:def456"
 
     def test_filter_verdict_invalid_verdict(self):
         """verdict must be 'accept' or 'reject', not 'maybe'."""
         with pytest.raises(ValidationError) as exc_info:
             FilterVerdict(
-                entry_point="user prompts (input)",
-                atlas_technique_ids=("AML.T0051",),
+                candidate_id="cand:v1:abc123",
                 verdict="maybe",
                 rationale="Uncertain.",
             )
@@ -204,31 +229,40 @@ class TestFilterVerdict:
         assert len(errors) >= 1
         assert any("verdict" in str(e.get("loc", "")) for e in errors)
 
+    def test_filter_verdict_rejects_extra_fields(self):
+        """FilterVerdict uses extra='forbid' — legacy metadata is rejected."""
+        with pytest.raises(ValidationError):
+            FilterVerdict(
+                candidate_id="cand:v1:abc123",
+                verdict="accept",
+                rationale="Direct exposure.",
+                entry_point="user prompts (input)",
+                atlas_technique_ids=("AML.T0051",),
+            )
+
     def test_filter_verdict_multi_technique(self):
-        """FilterVerdict with a multi-technique combo."""
+        """FilterVerdict with a multi-technique combo (still just candidate_id)."""
         v = FilterVerdict(
-            entry_point="user prompts (input)",
-            atlas_technique_ids=("AML.T0051", "AML.T0054"),
+            candidate_id="cand:v1:abc123",
             verdict="accept",
             rationale="Both techniques are plausible in combination.",
         )
-        assert len(v.atlas_technique_ids) == 2
+        assert v.verdict == "accept"
+        assert v.candidate_id == "cand:v1:abc123"
 
 
 class TestBatchFilterResponse:
-    """BatchFilterResponse model validation."""
+    """BatchFilterResponse model validation (wire protocol)."""
 
     def test_batch_filter_response(self):
         """BatchFilterResponse with seed_id and list of verdicts."""
         v1 = FilterVerdict(
-            entry_point="user prompts (input)",
-            atlas_technique_ids=("AML.T0051",),
+            candidate_id="cand:v1:abc123",
             verdict="accept",
             rationale="Direct exposure.",
         )
         v2 = FilterVerdict(
-            entry_point="internal API (tool_execution)",
-            atlas_technique_ids=("AML.T0054",),
+            candidate_id="cand:v1:def456",
             verdict="reject",
             rationale="No path.",
         )
@@ -238,12 +272,23 @@ class TestBatchFilterResponse:
         assert resp.verdicts[0].verdict == "accept"
         assert resp.verdicts[1].verdict == "reject"
 
+    def test_batch_filter_response_rejects_extra_fields(self):
+        """BatchFilterResponse uses extra='forbid'."""
+        with pytest.raises(ValidationError):
+            BatchFilterResponse(
+                seed_id="AP-T7-01",
+                verdicts=[],
+                entry_points=["user prompts"],
+            )
+
 
 class TestFilteredSeed:
     """FilteredSeed model validation."""
 
     def test_filtered_seed_inherits_scenario_seed(self):
         """FilteredSeed has all ScenarioSeed fields plus pinned fields."""
+        ep_id = compute_entry_point_id("user prompts (input)", "input", None)
+        cand_id = compute_candidate_id("AP-T7-01", ep_id, ("AML.T0051",))
         fs = FilteredSeed(
             seed_id="AP-T7-01",
             threat_id="T7",
@@ -256,6 +301,8 @@ class TestFilteredSeed:
             pinned_entry_point="user prompts (input)",
             pinned_technique_ids=("AML.T0051",),
             pinned_technique_names=("LLM Prompt Injection",),
+            entry_point_id=ep_id,
+            candidate_id=cand_id,
         )
         # ScenarioSeed fields present
         assert fs.seed_id == "AP-T7-01"
@@ -270,11 +317,16 @@ class TestFilteredSeed:
         assert fs.pinned_entry_point == "user prompts (input)"
         assert fs.pinned_technique_ids == ("AML.T0051",)
         assert fs.pinned_technique_names == ("LLM Prompt Injection",)
+        # Canonical IDs
+        assert fs.entry_point_id == ep_id
+        assert fs.candidate_id == cand_id
         # Inherits from ScenarioSeed
         assert isinstance(fs, ScenarioSeed)
 
     def test_filtered_seed_default_rejection_rationales(self):
         """Default rejection_rationales is an empty list."""
+        ep_id = compute_entry_point_id("user prompts (input)", "input", None)
+        cand_id = compute_candidate_id("AP-T7-01", ep_id, ("AML.T0051",))
         fs = FilteredSeed(
             seed_id="AP-T7-01",
             threat_id="T7",
@@ -287,12 +339,16 @@ class TestFilteredSeed:
             pinned_entry_point="user prompts (input)",
             pinned_technique_ids=("AML.T0051",),
             pinned_technique_names=("LLM Prompt Injection",),
+            entry_point_id=ep_id,
+            candidate_id=cand_id,
         )
         assert fs.rejection_rationales == []
         assert isinstance(fs.rejection_rationales, list)
 
     def test_filtered_seed_multi_technique(self):
         """FilteredSeed with multiple pinned techniques."""
+        ep_id = compute_entry_point_id("user prompts (input)", "input", None)
+        cand_id = compute_candidate_id("AP-T7-01", ep_id, ("AML.T0051", "AML.T0054"))
         fs = FilteredSeed(
             seed_id="AP-T7-01",
             threat_id="T7",
@@ -305,6 +361,8 @@ class TestFilteredSeed:
             pinned_entry_point="user prompts (input)",
             pinned_technique_ids=("AML.T0051", "AML.T0054"),
             pinned_technique_names=("LLM Prompt Injection", "LLM Jailbreak"),
+            entry_point_id=ep_id,
+            candidate_id=cand_id,
         )
         assert len(fs.pinned_technique_ids) == 2
         assert len(fs.pinned_technique_names) == 2
@@ -334,11 +392,15 @@ class TestFilteredSeed:
             min_complexity="advanced",
             required_capabilities=["multi_agent", "persistent_memory"],
         )
+        ep_id = compute_entry_point_id("admin API (input)", "input", None)
+        cand_id = compute_candidate_id("AP-T9-01", ep_id, ("AML.T0051",))
         fs = FilteredSeed(
             **seed.model_dump(),
             pinned_entry_point="admin API (input)",
             pinned_technique_ids=("AML.T0051",),
             pinned_technique_names=("LLM Prompt Injection",),
+            entry_point_id=ep_id,
+            candidate_id=cand_id,
         )
 
         # Previously-dropped fields (regression):
@@ -374,11 +436,15 @@ class TestFilteredSeed:
         the FilteredSeed dump will contain all parent fields plus pinned fields.
         """
         seed = _make_seed()
+        ep_id = compute_entry_point_id("ep", "input", None)
+        cand_id = compute_candidate_id(seed.seed_id, ep_id, ("AML.T0051",))
         fs = FilteredSeed(
             **seed.model_dump(),
             pinned_entry_point="ep",
             pinned_technique_ids=("AML.T0051",),
             pinned_technique_names=("Technique",),
+            entry_point_id=ep_id,
+            candidate_id=cand_id,
         )
         seed_fields = set(ScenarioSeed.model_fields.keys())
         fs_fields = set(FilteredSeed.model_fields.keys())
@@ -398,13 +464,19 @@ class TestFilteredSeed:
 # Expansion tests (skip if expand_candidates not yet available)
 # ---------------------------------------------------------------------------
 
-_expand_candidates = pytest.importorskip(
-    "scenario_forge.pipeline.candidates",
-    reason="expand_candidates not yet available",
-).expand_candidates if hasattr(
-    __import__("scenario_forge.pipeline.candidates", fromlist=["expand_candidates"]),
-    "expand_candidates",
-) else None
+_expand_candidates = (
+    pytest.importorskip(
+        "scenario_forge.pipeline.candidates",
+        reason="expand_candidates not yet available",
+    ).expand_candidates
+    if hasattr(
+        __import__(
+            "scenario_forge.pipeline.candidates", fromlist=["expand_candidates"]
+        ),
+        "expand_candidates",
+    )
+    else None
+)
 
 _skip_expand = pytest.mark.skipif(
     _expand_candidates is None,
@@ -419,8 +491,12 @@ class TestExpandCandidates:
     def test_expand_candidates_cross_product(self):
         """2 seeds x 2 entry points x 2 techniques = 8 candidates."""
         seeds = [
-            _make_seed("AP-T7-01", "T7", atlas_technique_ids=["AML.T0051", "AML.T0054"]),
-            _make_seed("AP-T2-01", "T2", atlas_technique_ids=["AML.T0051", "AML.T0054"]),
+            _make_seed(
+                "AP-T7-01", "T7", atlas_technique_ids=["AML.T0051", "AML.T0054"]
+            ),
+            _make_seed(
+                "AP-T2-01", "T2", atlas_technique_ids=["AML.T0051", "AML.T0054"]
+            ),
         ]
         profile = _make_profile(
             entry_points=["user prompts (input)", "API calls (tool_execution)"],
@@ -459,7 +535,8 @@ class TestExpandCandidates:
         """Seed with LAAF IDs but no ATLAS IDs uses LAAF for cross-product."""
         seeds = [
             _make_seed(
-                "AP-T7-01", "T7",
+                "AP-T7-01",
+                "T7",
                 atlas_technique_ids=[],
                 laaf_technique_ids=["S1", "M3"],
             ),
@@ -475,7 +552,8 @@ class TestExpandCandidates:
         """When seed has both ATLAS and LAAF IDs, ATLAS is used."""
         seeds = [
             _make_seed(
-                "AP-T2-01", "T2",
+                "AP-T2-01",
+                "T2",
                 atlas_technique_ids=["AML.T0051"],
                 laaf_technique_ids=["S1", "M3"],
             ),
@@ -507,7 +585,11 @@ class TestExpandCandidates:
     def test_expand_candidates_max_techniques_1_default(self):
         """Default max_techniques=1 produces only single-technique candidates."""
         seeds = [
-            _make_seed("AP-T7-01", "T7", atlas_technique_ids=["AML.T0051", "AML.T0054", "AML.T0053"]),
+            _make_seed(
+                "AP-T7-01",
+                "T7",
+                atlas_technique_ids=["AML.T0051", "AML.T0054", "AML.T0053"],
+            ),
         ]
         profile = _make_profile(entry_points=["user prompts (input)"])
         candidates = _expand_candidates(seeds, profile)
@@ -552,8 +634,12 @@ class TestExpandCandidates:
     def test_expand_candidates_max_techniques_2_multiple_seeds_and_entry_points(self):
         """Combinatorial count with 2 seeds x 2 entry points x max_techniques=2."""
         seeds = [
-            _make_seed("AP-T7-01", "T7", atlas_technique_ids=["AML.T0051", "AML.T0054"]),
-            _make_seed("AP-T2-01", "T2", atlas_technique_ids=["AML.T0051", "AML.T0054"]),
+            _make_seed(
+                "AP-T7-01", "T7", atlas_technique_ids=["AML.T0051", "AML.T0054"]
+            ),
+            _make_seed(
+                "AP-T2-01", "T2", atlas_technique_ids=["AML.T0051", "AML.T0054"]
+            ),
         ]
         profile = _make_profile(
             entry_points=["user prompts (input)", "API calls (tool_execution)"],
@@ -617,7 +703,8 @@ class TestCapScenariosPerPattern:
             technique_ids=("AML.T0051",),
         )
         result = cap_scenarios_per_pattern(
-            [dual_ep1, single_ep1, single_ep2], max_per_pattern=2,
+            [dual_ep1, single_ep1, single_ep2],
+            max_per_pattern=2,
         )
         assert len(result) == 2
         # First pick: dual on ep1 (marginal=3: 2 new techs + 1 new ep).
@@ -692,11 +779,15 @@ class TestCapScenariosPerPattern:
     def test_multiple_seed_ids_capped_independently(self):
         """Each seed_id group is capped independently."""
         group_a = [
-            _make_filtered_seed(seed_id="AP-01", entry_point=f"ep{i}", technique_ids=("AML.T0051",))
+            _make_filtered_seed(
+                seed_id="AP-01", entry_point=f"ep{i}", technique_ids=("AML.T0051",)
+            )
             for i in range(5)
         ]
         group_b = [
-            _make_filtered_seed(seed_id="AP-02", entry_point=f"ep{i}", technique_ids=("AML.T0054",))
+            _make_filtered_seed(
+                seed_id="AP-02", entry_point=f"ep{i}", technique_ids=("AML.T0054",)
+            )
             for i in range(5)
         ]
         result = cap_scenarios_per_pattern(group_a + group_b, max_per_pattern=2)
@@ -720,7 +811,8 @@ class TestCapScenariosPerPattern:
         )
         ta = _make_filtered_seed(entry_point="ep2", technique_ids=("AML.T0004",))
         tb = _make_filtered_seed(
-            entry_point="ep3", technique_ids=("AML.T0001", "AML.T0005"),
+            entry_point="ep3",
+            technique_ids=("AML.T0001", "AML.T0005"),
         )
         result = cap_scenarios_per_pattern([first, ta, tb], max_per_pattern=2)
         assert len(result) == 2
@@ -745,19 +837,24 @@ class TestCapScenariosPerPattern:
         # 4 candidates, 3 techniques, cap=2.
         # dual covers T1+T2, single_t3 covers T3. Together they cover all 3.
         dual = _make_filtered_seed(
-            entry_point="ep1", technique_ids=("AML.T0001", "AML.T0002"),
+            entry_point="ep1",
+            technique_ids=("AML.T0001", "AML.T0002"),
         )
         single_t1 = _make_filtered_seed(
-            entry_point="ep2", technique_ids=("AML.T0001",),
+            entry_point="ep2",
+            technique_ids=("AML.T0001",),
         )
         single_t2 = _make_filtered_seed(
-            entry_point="ep3", technique_ids=("AML.T0002",),
+            entry_point="ep3",
+            technique_ids=("AML.T0002",),
         )
         single_t3 = _make_filtered_seed(
-            entry_point="ep4", technique_ids=("AML.T0003",),
+            entry_point="ep4",
+            technique_ids=("AML.T0003",),
         )
         result = cap_scenarios_per_pattern(
-            [single_t1, dual, single_t2, single_t3], max_per_pattern=2,
+            [single_t1, dual, single_t2, single_t3],
+            max_per_pattern=2,
         )
         assert len(result) == 2
         # dual is picked first (covers 2 new techniques + 1 ep = 3).
@@ -777,43 +874,52 @@ class TestClassifyEntryPoint:
 
     # -- Indirect cases --
 
-    @pytest.mark.parametrize("name", [
-        "RAG knowledge-grounding",
-        "rag knowledge base",
-        "product knowledge retrieval",
-        "third-party data feeds",
-        "third party API feeds",
-        "authenticated context injection",
-        "external data feed ingestion",
-        "context injection via plugins",
-        "knowledge base retrieval",
-        "document ingestion pipeline",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "RAG knowledge-grounding",
+            "rag knowledge base",
+            "product knowledge retrieval",
+            "third-party data feeds",
+            "third party API feeds",
+            "authenticated context injection",
+            "external data feed ingestion",
+            "context injection via plugins",
+            "knowledge base retrieval",
+            "document ingestion pipeline",
+        ],
+    )
     def test_indirect_input_entry_points(self, name: str):
         """Input-direction entry points with indirect keywords classify as indirect."""
         assert classify_entry_point(name, "input") == "indirect"
 
     # -- Direct cases --
 
-    @pytest.mark.parametrize("name", [
-        "natural language user queries via app",
-        "user prompts via chat widget",
-        "customer message interface",
-        "chat input",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "natural language user queries via app",
+            "user prompts via chat widget",
+            "customer message interface",
+            "chat input",
+        ],
+    )
     def test_direct_input_entry_points(self, name: str):
         """Input-direction entry points with direct keywords classify as direct."""
         assert classify_entry_point(name, "input") == "direct"
 
     # -- System cases --
 
-    @pytest.mark.parametrize("name", [
-        "backend API endpoint",
-        "internal service bus",
-        "system health monitor",
-        "cron job trigger",
-        "scheduler webhook",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "backend API endpoint",
+            "internal service bus",
+            "system health monitor",
+            "cron job trigger",
+            "scheduler webhook",
+        ],
+    )
     def test_system_input_entry_points(self, name: str):
         """Input-direction entry points with system keywords classify as system."""
         assert classify_entry_point(name, "input") == "system"
@@ -822,7 +928,9 @@ class TestClassifyEntryPoint:
 
     def test_bidirectional_always_direct(self):
         """Bidirectional entry points are always direct, even with indirect keywords."""
-        assert classify_entry_point("RAG knowledge-grounding", "bidirectional") == "direct"
+        assert (
+            classify_entry_point("RAG knowledge-grounding", "bidirectional") == "direct"
+        )
 
     def test_output_always_system(self):
         """Output entry points are always system."""
@@ -849,17 +957,26 @@ class TestClassifyEntryPointExplicitControllability:
 
     def test_explicit_direct_bypasses_heuristic(self):
         """Explicit controllability='direct' is returned regardless of keywords."""
-        assert classify_entry_point("RAG knowledge-grounding", "input", "direct") == "direct"
+        assert (
+            classify_entry_point("RAG knowledge-grounding", "input", "direct")
+            == "direct"
+        )
 
     def test_explicit_indirect_bypasses_heuristic(self):
         """Explicit controllability='indirect' is returned even for user-like name."""
-        assert classify_entry_point("user prompts via chat", "input", "indirect") == "indirect"
+        assert (
+            classify_entry_point("user prompts via chat", "input", "indirect")
+            == "indirect"
+        )
 
     def test_explicit_system_downgraded_for_non_output(self):
         """Explicit controllability='system' is downgraded to 'indirect' when
         direction is not 'output' — the attacker can influence data through
         a non-output ingress path."""
-        assert classify_entry_point("user prompts", "bidirectional", "system") == "indirect"
+        assert (
+            classify_entry_point("user prompts", "bidirectional", "system")
+            == "indirect"
+        )
 
     def test_explicit_system_preserved_for_output(self):
         """Explicit controllability='system' is preserved when direction is 'output'."""
@@ -871,7 +988,9 @@ class TestClassifyEntryPointExplicitControllability:
 
     def test_none_falls_back_to_heuristic(self):
         """controllability=None falls back to keyword heuristic."""
-        assert classify_entry_point("RAG knowledge-grounding", "input", None) == "indirect"
+        assert (
+            classify_entry_point("RAG knowledge-grounding", "input", None) == "indirect"
+        )
         assert classify_entry_point("user prompts via chat", "input", None) == "direct"
 
     def test_default_falls_back_to_heuristic(self):
@@ -888,11 +1007,16 @@ class TestIsIndirectEntryPoint:
 
     def test_direct_input_entry_point(self):
         """Input-direction with direct keyword returns False."""
-        assert is_indirect_entry_point("natural language user queries via app", "input") is False
+        assert (
+            is_indirect_entry_point("natural language user queries via app", "input")
+            is False
+        )
 
     def test_bidirectional_not_indirect(self):
         """Bidirectional entry points are never indirect."""
-        assert is_indirect_entry_point("RAG knowledge-grounding", "bidirectional") is False
+        assert (
+            is_indirect_entry_point("RAG knowledge-grounding", "bidirectional") is False
+        )
 
     def test_output_not_indirect(self):
         """Output entry points are not indirect."""
@@ -927,9 +1051,11 @@ def _make_directed_profile(
     )
 
 
-_DUMMY_PROFILE = _make_directed_profile([
-    {"name": "user prompts", "direction": "input"},
-])
+_DUMMY_PROFILE = _make_directed_profile(
+    [
+        {"name": "user prompts", "direction": "input"},
+    ]
+)
 
 
 class TestRuleSupplyChainMismatch:
@@ -937,26 +1063,38 @@ class TestRuleSupplyChainMismatch:
 
     def test_t0048_on_direct_ep_rejected(self):
         reject, rationale = _rule_supply_chain_mismatch(
-            "AML.T0048", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0048",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "supply chain" in rationale
 
     def test_t0010_on_indirect_ep_rejected(self):
         reject, rationale = _rule_supply_chain_mismatch(
-            "AML.T0010", "RAG knowledge-grounding", "indirect", _DUMMY_PROFILE,
+            "AML.T0010",
+            "RAG knowledge-grounding",
+            "indirect",
+            _DUMMY_PROFILE,
         )
         assert reject is True
 
     def test_t0048_on_system_ep_passes(self):
         reject, _ = _rule_supply_chain_mismatch(
-            "AML.T0048", "internal API", "system", _DUMMY_PROFILE,
+            "AML.T0048",
+            "internal API",
+            "system",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
     def test_non_supply_chain_technique_passes(self):
         reject, _ = _rule_supply_chain_mismatch(
-            "AML.T0051.000", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0051.000",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
@@ -966,7 +1104,10 @@ class TestRuleEntryPointNotInteractive:
 
     def test_system_incompatible_technique_rejected(self):
         reject, rationale = _rule_entry_point_not_interactive(
-            "AML.T0024", "internal API", "system", _DUMMY_PROFILE,
+            "AML.T0024",
+            "internal API",
+            "system",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "system-controlled" in rationale
@@ -974,13 +1115,19 @@ class TestRuleEntryPointNotInteractive:
     def test_system_compatible_technique_passes(self):
         # AML.T0029 has no "system" in incompatible_entry_types
         reject, _ = _rule_entry_point_not_interactive(
-            "AML.T0029", "internal API", "system", _DUMMY_PROFILE,
+            "AML.T0029",
+            "internal API",
+            "system",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
     def test_non_system_ep_passes(self):
         reject, _ = _rule_entry_point_not_interactive(
-            "AML.T0024", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0024",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
@@ -990,20 +1137,29 @@ class TestRuleWrongZoneDirection:
 
     def test_output_ep_rejected(self):
         reject, rationale = _rule_wrong_zone_direction(
-            "AML.T0051.000", "response output channel", "system", _DUMMY_PROFILE,
+            "AML.T0051.000",
+            "response output channel",
+            "system",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "output-direction" in rationale
 
     def test_system_ep_without_output_signal_passes(self):
         reject, _ = _rule_wrong_zone_direction(
-            "AML.T0051.000", "internal API", "system", _DUMMY_PROFILE,
+            "AML.T0051.000",
+            "internal API",
+            "system",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
     def test_non_system_ep_passes(self):
         reject, _ = _rule_wrong_zone_direction(
-            "AML.T0051.000", "response output channel", "direct", _DUMMY_PROFILE,
+            "AML.T0051.000",
+            "response output channel",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
@@ -1014,20 +1170,29 @@ class TestRuleTechniqueIncompatible:
     def test_direct_incompatible_rejected(self):
         # AML.T0051.001 has "direct" in incompatible_entry_types
         reject, rationale = _rule_technique_incompatible(
-            "AML.T0051.001", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0051.001",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "cannot target" in rationale
 
     def test_compatible_type_passes(self):
         reject, _ = _rule_technique_incompatible(
-            "AML.T0051.001", "RAG knowledge-grounding", "indirect", _DUMMY_PROFILE,
+            "AML.T0051.001",
+            "RAG knowledge-grounding",
+            "indirect",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
     def test_unknown_technique_passes(self):
         reject, _ = _rule_technique_incompatible(
-            "UNKNOWN.T9999", "user prompts", "direct", _DUMMY_PROFILE,
+            "UNKNOWN.T9999",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
@@ -1037,33 +1202,48 @@ class TestRuleDirectVsIndirect:
 
     def test_t0051000_on_indirect_rejected(self):
         reject, rationale = _rule_direct_vs_indirect(
-            "AML.T0051.000", "RAG knowledge-grounding", "indirect", _DUMMY_PROFILE,
+            "AML.T0051.000",
+            "RAG knowledge-grounding",
+            "indirect",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "direct attacker access" in rationale
 
     def test_t0054_on_indirect_rejected(self):
         reject, _ = _rule_direct_vs_indirect(
-            "AML.T0054", "RAG knowledge-grounding", "indirect", _DUMMY_PROFILE,
+            "AML.T0054",
+            "RAG knowledge-grounding",
+            "indirect",
+            _DUMMY_PROFILE,
         )
         assert reject is True
 
     def test_t0051001_on_direct_rejected(self):
         reject, rationale = _rule_direct_vs_indirect(
-            "AML.T0051.001", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0051.001",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "non-user-facing" in rationale
 
     def test_t0051000_on_direct_passes(self):
         reject, _ = _rule_direct_vs_indirect(
-            "AML.T0051.000", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0051.000",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
     def test_t0051001_on_indirect_passes(self):
         reject, _ = _rule_direct_vs_indirect(
-            "AML.T0051.001", "RAG knowledge-grounding", "indirect", _DUMMY_PROFILE,
+            "AML.T0051.001",
+            "RAG knowledge-grounding",
+            "indirect",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
@@ -1073,26 +1253,38 @@ class TestRulePreparatoryTechnique:
 
     def test_t0043_rejected(self):
         reject, rationale = _rule_preparatory_technique(
-            "AML.T0043", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0043",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "preparatory" in rationale
 
     def test_t0016_rejected(self):
         reject, _ = _rule_preparatory_technique(
-            "AML.T0016", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0016",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
 
     def test_t0021_rejected(self):
         reject, _ = _rule_preparatory_technique(
-            "AML.T0021", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0021",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
 
     def test_non_preparatory_passes(self):
         reject, _ = _rule_preparatory_technique(
-            "AML.T0051.000", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0051.000",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
@@ -1102,34 +1294,49 @@ class TestRuleTechniqueTargetsWrongLayer:
 
     def test_m4_on_direct_ep_rejected(self):
         reject, rationale = _rule_technique_targets_wrong_layer(
-            "M4", "user prompts via chat", "direct", _DUMMY_PROFILE,
+            "M4",
+            "user prompts via chat",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "tool schema" in rationale
 
     def test_m4_on_indirect_ep_passes(self):
         reject, _ = _rule_technique_targets_wrong_layer(
-            "M4", "RAG knowledge-grounding", "indirect", _DUMMY_PROFILE,
+            "M4",
+            "RAG knowledge-grounding",
+            "indirect",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
     def test_training_technique_on_direct_rejected(self):
         reject, rationale = _rule_technique_targets_wrong_layer(
-            "AML.T0020", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0020",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "training pipeline" in rationale
 
     def test_embedding_on_direct_rejected(self):
         reject, rationale = _rule_technique_targets_wrong_layer(
-            "AML.T0025", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0025",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is True
         assert "embedding" in rationale
 
     def test_no_target_layer_passes(self):
         reject, _ = _rule_technique_targets_wrong_layer(
-            "AML.T0029", "user prompts", "direct", _DUMMY_PROFILE,
+            "AML.T0029",
+            "user prompts",
+            "direct",
+            _DUMMY_PROFILE,
         )
         assert reject is False
 
@@ -1170,12 +1377,16 @@ def _make_candidate(
     technique_names: tuple[str, ...] | None = None,
     technique_descs: tuple[str, ...] | None = None,
     seed_id: str = "AP-T7-01",
+    direction: str = "input",
+    controllability: str | None = None,
 ) -> CandidateTriple:
     """Build a CandidateTriple for rule-filter tests."""
     if technique_names is None:
         technique_names = tuple(f"Technique {t}" for t in technique_ids)
     if technique_descs is None:
         technique_descs = tuple(f"Description {t}" for t in technique_ids)
+    ep_id = compute_entry_point_id(entry_point, direction, controllability)
+    cand_id = compute_candidate_id(seed_id, ep_id, technique_ids)
     return CandidateTriple(
         seed_id=seed_id,
         threat_id="T7",
@@ -1188,6 +1399,8 @@ def _make_candidate(
         atlas_technique_descriptions=technique_descs,
         risk_card_ref=_make_ref(),
         owasp_llm_ids=["LLM01"],
+        entry_point_id=ep_id,
+        candidate_id=cand_id,
     )
 
 
@@ -1198,9 +1411,11 @@ class TestApplyRuleBasedFilter:
 
     def test_direct_only_on_indirect_ep_rejected(self):
         """Direct-only technique on indirect EP is rule-rejected."""
-        profile = _make_directed_profile([
-            {"name": "RAG knowledge-grounding", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "RAG knowledge-grounding", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="RAG knowledge-grounding",
             technique_ids=("AML.T0051.000",),
@@ -1209,13 +1424,15 @@ class TestApplyRuleBasedFilter:
         assert len(passed) == 0
         assert len(rejected) == 1
         assert len(verdicts) == 1
-        assert verdicts[0].verdict == "reject"
+        assert "Rejected:" in verdicts[0].rationale
 
     def test_direct_only_combo_on_indirect_ep_rejected(self):
         """Combo of all direct-only techniques on indirect EP is rejected entirely."""
-        profile = _make_directed_profile([
-            {"name": "RAG knowledge-grounding", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "RAG knowledge-grounding", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="RAG knowledge-grounding",
             technique_ids=("AML.T0051.000", "AML.T0054"),
@@ -1226,9 +1443,11 @@ class TestApplyRuleBasedFilter:
 
     def test_mixed_combo_on_indirect_ep_pruned(self):
         """Combo with both direct-only and compatible techniques is pruned."""
-        profile = _make_directed_profile([
-            {"name": "RAG knowledge-grounding", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "RAG knowledge-grounding", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="RAG knowledge-grounding",
             technique_ids=("AML.T0070", "AML.T0054"),
@@ -1244,9 +1463,11 @@ class TestApplyRuleBasedFilter:
 
     def test_supply_chain_on_direct_ep_rejected(self):
         """Supply chain technique on direct user EP is rejected."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="user prompts via chat",
             technique_ids=("AML.T0048",),
@@ -1257,9 +1478,11 @@ class TestApplyRuleBasedFilter:
 
     def test_preparatory_technique_rejected(self):
         """Preparatory technique T0043 is rejected on any EP type."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="user prompts via chat",
             technique_ids=("AML.T0043",),
@@ -1272,9 +1495,11 @@ class TestApplyRuleBasedFilter:
 
     def test_compatible_technique_on_direct_ep_passes(self):
         """Direct-only technique on direct EP passes through."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat widget", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat widget", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="user prompts via chat widget",
             technique_ids=("AML.T0051.000",),
@@ -1285,9 +1510,11 @@ class TestApplyRuleBasedFilter:
 
     def test_compatible_technique_on_bidirectional_ep_passes(self):
         """Techniques on bidirectional EP pass through."""
-        profile = _make_directed_profile([
-            {"name": "interactive chat", "direction": "bidirectional"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "interactive chat", "direction": "bidirectional"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="interactive chat",
             technique_ids=("AML.T0054",),
@@ -1298,9 +1525,11 @@ class TestApplyRuleBasedFilter:
 
     def test_indirect_technique_on_indirect_ep_passes(self):
         """T0051.001 on indirect EP passes."""
-        profile = _make_directed_profile([
-            {"name": "RAG knowledge-grounding", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "RAG knowledge-grounding", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="RAG knowledge-grounding",
             technique_ids=("AML.T0051.001",),
@@ -1314,9 +1543,11 @@ class TestApplyRuleBasedFilter:
 
     def test_empty_input(self):
         """Empty input produces empty output."""
-        profile = _make_directed_profile([
-            {"name": "user prompts", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts", "direction": "input"},
+            ]
+        )
         passed, rejected, verdicts = apply_rule_based_filter([], profile)
         assert passed == []
         assert rejected == []
@@ -1324,9 +1555,11 @@ class TestApplyRuleBasedFilter:
 
     def test_unknown_ep_defaults_to_direct(self):
         """An entry point not in the profile defaults to bidirectional -> direct."""
-        profile = _make_directed_profile([
-            {"name": "known ep", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "known ep", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="unknown ep",
             technique_ids=("AML.T0054",),
@@ -1336,10 +1569,12 @@ class TestApplyRuleBasedFilter:
 
     def test_multiple_candidates_mixed(self):
         """Multiple candidates: only structurally impossible ones are rejected."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via app", "direction": "input"},
-            {"name": "RAG knowledge-grounding", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via app", "direction": "input"},
+                {"name": "RAG knowledge-grounding", "direction": "input"},
+            ]
+        )
         direct_ok = _make_candidate(
             entry_point="user prompts via app",
             technique_ids=("AML.T0054",),
@@ -1353,16 +1588,19 @@ class TestApplyRuleBasedFilter:
             technique_ids=("AML.T0054",),
         )
         passed, rejected, _ = apply_rule_based_filter(
-            [direct_ok, indirect_ok, indirect_bad], profile,
+            [direct_ok, indirect_ok, indirect_bad],
+            profile,
         )
         assert len(passed) == 2
         assert len(rejected) == 1
 
     def test_rejection_verdict_has_rationale(self):
         """Rejection verdicts carry a descriptive rationale string."""
-        profile = _make_directed_profile([
-            {"name": "RAG knowledge-grounding", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "RAG knowledge-grounding", "direction": "input"},
+            ]
+        )
         candidate = _make_candidate(
             entry_point="RAG knowledge-grounding",
             technique_ids=("AML.T0051.000",),
@@ -1381,7 +1619,11 @@ class TestApplyRuleBasedFilter:
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
             entry_points=[
-                EntryPoint(name="some generic channel", direction="input", controllability="indirect"),
+                EntryPoint(
+                    name="some generic channel",
+                    direction="input",
+                    controllability="indirect",
+                ),
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1"],
@@ -1404,7 +1646,11 @@ class TestApplyRuleBasedFilter:
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
             entry_points=[
-                EntryPoint(name="RAG knowledge interface", direction="input", controllability="direct"),
+                EntryPoint(
+                    name="RAG knowledge interface",
+                    direction="input",
+                    controllability="direct",
+                ),
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1"],
@@ -1466,7 +1712,9 @@ def _make_zoned_profile(
         kc_codes.append("KCX-HITL")
     kw = {}
     if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc_codes):
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     return CapabilityProfile(
         zones_active=zones,
         entry_points=["user prompts (input)"],
@@ -1696,7 +1944,10 @@ class TestRuleThreatRequiresCapability:
 
     # -- Threats with no capability prerequisites --
 
-    @pytest.mark.parametrize("threat_id", ["T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T11", "T15", "T16", "T17"])
+    @pytest.mark.parametrize(
+        "threat_id",
+        ["T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T11", "T15", "T16", "T17"],
+    )
     def test_no_capability_prerequisite_threats_pass(self, threat_id: str):
         """Threats with no capability prerequisites pass with minimal profile."""
         profile = _make_zoned_profile(["input", "reasoning"])
@@ -1722,8 +1973,12 @@ def _make_threat_candidate(
     entry_point: str = "user prompts (input)",
     technique_ids: tuple[str, ...] = ("AML.T0051.000",),
     seed_id: str = "AP-T7-01",
+    direction: str = "input",
+    controllability: str | None = None,
 ) -> CandidateTriple:
     """Build a CandidateTriple with a specific threat_id for prerequisite tests."""
+    ep_id = compute_entry_point_id(entry_point, direction, controllability)
+    cand_id = compute_candidate_id(seed_id, ep_id, technique_ids)
     return CandidateTriple(
         seed_id=seed_id,
         threat_id=threat_id,
@@ -1736,6 +1991,8 @@ def _make_threat_candidate(
         atlas_technique_descriptions=tuple(f"Desc {t}" for t in technique_ids),
         risk_card_ref=_make_ref(),
         owasp_llm_ids=["LLM01"],
+        entry_point_id=ep_id,
+        candidate_id=cand_id,
     )
 
 
@@ -1744,9 +2001,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
 
     def test_t1_candidate_rejected_without_memory(self):
         """T1 candidate rejected when profile has no memory zone."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_threat_candidate(
             threat_id="T1",
             entry_point="user prompts via chat",
@@ -1759,9 +2018,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
 
     def test_t2_candidate_rejected_without_tool_execution(self):
         """T2 candidate rejected when profile has no tool_execution zone."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_threat_candidate(
             threat_id="T2",
             entry_point="user prompts via chat",
@@ -1780,7 +2041,9 @@ class TestApplyRuleBasedFilterThreatPrereqs:
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1", "KC6.1.1"],
-            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+            tool_inventory=[
+                ToolInventoryEntry(name="test_tool", description="A test tool")
+            ],
         )
         candidate = _make_threat_candidate(
             threat_id="T2",
@@ -1793,9 +2056,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
 
     def test_t10_candidate_rejected_without_hitl(self):
         """T10 candidate rejected when profile has hitl=false."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_threat_candidate(
             threat_id="T10",
             entry_point="user prompts via chat",
@@ -1825,9 +2090,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
 
     def test_t12_candidate_rejected_without_multi_agent(self):
         """T12 candidate rejected without inter_agent zone and multi_agent flag."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_threat_candidate(
             threat_id="T12",
             entry_point="user prompts via chat",
@@ -1838,9 +2105,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
 
     def test_t5_cascade_rejected_without_propagation_zone(self):
         """T5 candidate rejected when profile has only input+reasoning."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_threat_candidate(
             threat_id="T5",
             entry_point="user prompts via chat",
@@ -1859,7 +2128,9 @@ class TestApplyRuleBasedFilterThreatPrereqs:
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1", "KC6.1.1"],
-            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+            tool_inventory=[
+                ToolInventoryEntry(name="test_tool", description="A test tool")
+            ],
         )
         candidate = _make_threat_candidate(
             threat_id="T5",
@@ -1873,9 +2144,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
         """Threat-level rejection occurs before per-technique rules are checked."""
         # T1 requires memory zone. Even with a perfectly valid technique+EP combo,
         # the candidate should be rejected at the threat level.
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_threat_candidate(
             threat_id="T1",
             entry_point="user prompts via chat",
@@ -1890,9 +2163,11 @@ class TestApplyRuleBasedFilterThreatPrereqs:
 
     def test_no_prereq_threats_pass_normally(self):
         """Threats with no prerequisites (T6, T7, etc.) pass through to technique rules."""
-        profile = _make_directed_profile([
-            {"name": "user prompts via chat", "direction": "input"},
-        ])
+        profile = _make_directed_profile(
+            [
+                {"name": "user prompts via chat", "direction": "input"},
+            ]
+        )
         candidate = _make_threat_candidate(
             threat_id="T7",
             entry_point="user prompts via chat",
@@ -1912,7 +2187,9 @@ class TestApplyRuleBasedFilterThreatPrereqs:
             ],
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1", "KC6.1.1"],
-            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+            tool_inventory=[
+                ToolInventoryEntry(name="test_tool", description="A test tool")
+            ],
         )
         t2_ok = _make_threat_candidate(
             threat_id="T2",
@@ -1933,7 +2210,8 @@ class TestApplyRuleBasedFilterThreatPrereqs:
             seed_id="AP-T7-01",
         )
         passed, rejected, _ = apply_rule_based_filter(
-            [t2_ok, t12_bad, t7_ok], profile,
+            [t2_ok, t12_bad, t7_ok],
+            profile,
         )
         assert len(passed) == 2
         assert len(rejected) == 1

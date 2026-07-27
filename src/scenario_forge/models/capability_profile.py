@@ -15,7 +15,9 @@ Architecture model: Schneider's five-zone model
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from enum import Enum
 from typing import Literal, Optional, Union
 
@@ -39,16 +41,41 @@ ZONE_NAMES: tuple[str, ...] = (
 # OWASP KC sub-code constants
 # ---------------------------------------------------------------------------
 
-VALID_KC_SUBCODES: frozenset[str] = frozenset({
-    "KC1.1", "KC1.2", "KC1.3", "KC1.4",
-    "KC2.1", "KC2.2", "KC2.3",
-    "KC3.1", "KC3.2", "KC3.3", "KC3.4",
-    "KC4.1", "KC4.2", "KC4.3", "KC4.4", "KC4.5", "KC4.6",
-    "KC5.1", "KC5.2", "KC5.3",
-    "KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2",
-    "KC6.3.1", "KC6.3.2", "KC6.3.3",
-    "KC6.4", "KC6.5", "KC6.6", "KC6.7",
-})
+VALID_KC_SUBCODES: frozenset[str] = frozenset(
+    {
+        "KC1.1",
+        "KC1.2",
+        "KC1.3",
+        "KC1.4",
+        "KC2.1",
+        "KC2.2",
+        "KC2.3",
+        "KC3.1",
+        "KC3.2",
+        "KC3.3",
+        "KC3.4",
+        "KC4.1",
+        "KC4.2",
+        "KC4.3",
+        "KC4.4",
+        "KC4.5",
+        "KC4.6",
+        "KC5.1",
+        "KC5.2",
+        "KC5.3",
+        "KC6.1.1",
+        "KC6.1.2",
+        "KC6.2.1",
+        "KC6.2.2",
+        "KC6.3.1",
+        "KC6.3.2",
+        "KC6.3.3",
+        "KC6.4",
+        "KC6.5",
+        "KC6.6",
+        "KC6.7",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # scenario-forge KC extensions — NOT from OWASP.
@@ -58,30 +85,16 @@ VALID_KC_SUBCODES: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 KCX_SUBCODES: dict[str, str] = {
-    "KCX-PRIV": (
-        "System has dynamic privilege tiers or permission escalation paths"
-    ),
+    "KCX-PRIV": ("System has dynamic privilege tiers or permission escalation paths"),
     "KCX-XAUTH": (
         "System has cross-boundary credential propagation between trust domains"
     ),
-    "KCX-PMEM": (
-        "System has persistent memory architecture (cross-session state)"
-    ),
-    "KCX-SHMEM": (
-        "System has shared writable memory accessible to multiple agents"
-    ),
-    "KCX-MAGENT": (
-        "System has multi-agent or outbound inter-agent communication"
-    ),
-    "KCX-VSTORE": (
-        "System has vector store or RAG write access"
-    ),
-    "KCX-HITL": (
-        "System has human-in-the-loop review or approval controls"
-    ),
-    "KCX-AUDIT": (
-        "System has exploitable audit or logging architecture"
-    ),
+    "KCX-PMEM": ("System has persistent memory architecture (cross-session state)"),
+    "KCX-SHMEM": ("System has shared writable memory accessible to multiple agents"),
+    "KCX-MAGENT": ("System has multi-agent or outbound inter-agent communication"),
+    "KCX-VSTORE": ("System has vector store or RAG write access"),
+    "KCX-HITL": ("System has human-in-the-loop review or approval controls"),
+    "KCX-AUDIT": ("System has exploitable audit or logging architecture"),
     "KCX-PSTATE": (
         "System has persistent state enabling self-model or self-preservation"
     ),
@@ -180,9 +193,13 @@ _KC_MULTI_AGENT: frozenset[str] = frozenset({"KC2.3", "KCX-MAGENT"})
 _KC_HITL: frozenset[str] = frozenset({"KCX-HITL"})
 
 # Legacy field names that are now computed from kc_subcodes on CapabilityProfile.
-_LEGACY_BOOL_FIELDS: frozenset[str] = frozenset({
-    "has_persistent_memory", "multi_agent", "hitl",
-})
+_LEGACY_BOOL_FIELDS: frozenset[str] = frozenset(
+    {
+        "has_persistent_memory",
+        "multi_agent",
+        "hitl",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -294,28 +311,48 @@ class ToolInventoryEntry(BaseModel):
 class ToolType(BaseModel):
     """A tool or API the system can invoke, with risk-relevant properties."""
 
-    name: str = Field(description="Tool or API name (e.g. 'database_query', 'send_email')")
-    zone: str = Field(description="Schneider zone where this tool operates (typically 'tool_execution')")
-    can_modify_state: bool = Field(description="Whether the tool can write/modify external systems")
-    data_sensitivity: DataSensitivity = Field(description="Sensitivity of data the tool can access")
-    code_execution: bool = Field(description="Whether the tool can execute arbitrary code")
+    name: str = Field(
+        description="Tool or API name (e.g. 'database_query', 'send_email')"
+    )
+    zone: str = Field(
+        description="Schneider zone where this tool operates (typically 'tool_execution')"
+    )
+    can_modify_state: bool = Field(
+        description="Whether the tool can write/modify external systems"
+    )
+    data_sensitivity: DataSensitivity = Field(
+        description="Sensitivity of data the tool can access"
+    )
+    code_execution: bool = Field(
+        description="Whether the tool can execute arbitrary code"
+    )
 
 
 class DataFlow(BaseModel):
     """A data flow between zones and components."""
 
-    source: str = Field(description="Origin of the data (e.g. 'user input', 'RAG store')")
+    source: str = Field(
+        description="Origin of the data (e.g. 'user input', 'RAG store')"
+    )
     source_zone: str = Field(description="Schneider zone of the data source")
-    destination: str = Field(description="Where the data flows to (e.g. 'LLM context', 'tool parameter')")
+    destination: str = Field(
+        description="Where the data flows to (e.g. 'LLM context', 'tool parameter')"
+    )
     destination_zone: str = Field(description="Schneider zone of the destination")
-    data_type: str = Field(description="Nature of the data (e.g. 'user query', 'retrieved document')")
-    validated: bool = Field(description="Whether the data is validated/sanitized at this boundary")
+    data_type: str = Field(
+        description="Nature of the data (e.g. 'user query', 'retrieved document')"
+    )
+    validated: bool = Field(
+        description="Whether the data is validated/sanitized at this boundary"
+    )
 
 
 class TrustBoundary(BaseModel):
     """A trust boundary in the system architecture."""
 
-    name: str = Field(description="Descriptive name for the boundary (e.g. 'user-to-LLM')")
+    name: str = Field(
+        description="Descriptive name for the boundary (e.g. 'user-to-LLM')"
+    )
     from_zone: str = Field(description="Schneider zone on the untrusted side")
     to_zone: str = Field(description="Schneider zone on the trusted side")
     controls: list[str] = Field(
@@ -331,7 +368,9 @@ class MemoryMechanism(BaseModel):
     """A memory and state persistence mechanism."""
 
     type: MemoryType = Field(description="Category of memory mechanism")
-    scope: MemoryScope = Field(description="Whether memory is isolated per user, shared, or global")
+    scope: MemoryScope = Field(
+        description="Whether memory is isolated per user, shared, or global"
+    )
     persistence: MemoryPersistence = Field(description="How long data persists")
     writable_by_agent: bool = Field(
         description="Whether the agent can write to this store (vs read-only retrieval)",
@@ -341,8 +380,12 @@ class MemoryMechanism(BaseModel):
 class ExternalIntegration(BaseModel):
     """An external system or service the agent integrates with."""
 
-    name: str = Field(description="Name of the external system (e.g. 'CRM', 'payment gateway')")
-    integration_type: IntegrationType = Field(description="How the agent connects to this system")
+    name: str = Field(
+        description="Name of the external system (e.g. 'CRM', 'payment gateway')"
+    )
+    integration_type: IntegrationType = Field(
+        description="How the agent connects to this system"
+    )
     auth_method: AuthMethod = Field(description="Authentication mechanism used")
     data_sensitivity: DataSensitivity = Field(
         description="Sensitivity of data accessible through this integration",
@@ -352,6 +395,205 @@ class ExternalIntegration(BaseModel):
 # ---------------------------------------------------------------------------
 # Entry point with direction tag
 # ---------------------------------------------------------------------------
+
+# --- Entry point controllability classification ---
+#
+# Classifies entry point names as "direct", "indirect", or "system"
+# using keyword matching.  When the capability profile provides an
+# explicit ``controllability`` value on the entry point, the heuristic
+# is bypassed.
+
+_DIRECT_KEYWORDS: tuple[str, ...] = (
+    "user",
+    "customer",
+    "query",
+    "chat",
+    "prompt",
+    "message",
+)
+
+_INDIRECT_KEYWORDS: tuple[str, ...] = (
+    "rag",
+    "knowledge",
+    "retrieval",
+    "third-party",
+    "third party",
+    "data feed",
+    "data_feed",
+    "context injection",
+    "authenticated context",
+    "document",
+)
+
+_SYSTEM_KEYWORDS: tuple[str, ...] = (
+    "api",
+    "backend",
+    "service",
+    "internal",
+    "system",
+    "cron",
+    "scheduler",
+)
+
+
+def classify_entry_point(
+    entry_point_name: str,
+    direction: str,
+    controllability: str | None = None,
+) -> str:
+    """Classify an entry point as 'direct', 'indirect', or 'system'.
+
+    When *controllability* is provided (not None), it is used — with one
+    safety override: ``"system"`` is downgraded to ``"indirect"`` when
+    *direction* is not ``"output"``, because a non-output direction means
+    data flows in through this entry point and the attacker can influence
+    it at least indirectly (e.g. backend API calls triggered by user
+    requests).
+
+    When *controllability* is None, falls back to a keyword heuristic on
+    the entry point name, refined by the direction tag:
+
+    - Bidirectional entry points are always ``"direct"`` (attacker has
+      full interactive access).
+    - Output-only entry points are always ``"system"`` (not attacker-
+      accessible as ingress).
+    - Input-direction entry points are classified by keyword matching:
+      indirect keywords (RAG, knowledge, etc.) win over direct keywords
+      (user, chat, etc.), which win over system keywords.  If no keyword
+      matches, defaults to ``"direct"`` (conservative -- let LLM decide).
+
+    Args:
+        entry_point_name: Human-readable entry point name.
+        direction: Data flow direction (``"input"``, ``"output"``, ``"bidirectional"``).
+        controllability: Explicit controllability from the capability profile.
+            When not None, used directly (bypasses heuristic) unless the
+            ``"system"`` / non-output override applies.
+
+    Returns:
+        One of ``"direct"``, ``"indirect"``, ``"system"``.
+    """
+    # Use explicit controllability when available — but override "system"
+    # when the direction indicates an attacker-accessible ingress path.
+    if controllability is not None:
+        if controllability == "system" and direction != "output":
+            return "indirect"
+        return controllability
+
+    if direction == "output":
+        return "system"
+    if direction == "bidirectional":
+        return "direct"
+
+    # direction == "input": use keyword heuristic.
+    name_lower = entry_point_name.lower()
+
+    # Indirect keywords take priority (more specific).
+    if any(kw in name_lower for kw in _INDIRECT_KEYWORDS):
+        return "indirect"
+    if any(kw in name_lower for kw in _SYSTEM_KEYWORDS):
+        return "system"
+    if any(kw in name_lower for kw in _DIRECT_KEYWORDS):
+        return "direct"
+
+    # Default: treat as direct (conservative -- let LLM decide).
+    return "direct"
+
+
+# --- Canonical entry point identity ---
+
+_ENTRY_POINT_ID_VERSION = "v1"
+
+
+def _canonical_entry_point_name(name: str) -> str:
+    """Normalize an entry point name for canonical identity comparison.
+
+    Collapses case, whitespace, and trailing punctuation differences so
+    that semantically identical entry point names share the same
+    canonical form.
+    """
+    s = name.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.rstrip(".,;:")
+    return s
+
+
+def compute_entry_point_id(
+    name: str,
+    direction: str,
+    controllability: str | None,
+) -> str:
+    """Compute a deterministic, versioned, collision-resistant entry_point_id.
+
+    The ID is derived from the canonical (normalized) name, direction,
+    and *effective* controllability (explicit or inferred via
+    :func:`classify_entry_point`).  Two entry points that are
+    semantically identical produce the same ID; semantically distinct
+    entry points produce different IDs (barring a hash collision).
+
+    Format: ``ep:<version>:<12-char hex digest>``
+
+    Args:
+        name: Human-readable entry point name.
+        direction: Data flow direction.
+        controllability: Explicit controllability (``None`` for inference).
+
+    Returns:
+        A stable, opaque entry point identifier.
+    """
+    effective_ctrl = classify_entry_point(name, direction, controllability)
+    canonical = _canonical_entry_point_name(name)
+    identity = f"{canonical}|{direction}|{effective_ctrl}"
+    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    return f"ep:{_ENTRY_POINT_ID_VERSION}:{h}"
+
+
+def deduplicate_entry_points(
+    entry_points: list[EntryPoint],
+) -> list[EntryPoint]:
+    """Deduplicate semantic duplicates and reject ambiguous/colliding identities.
+
+    Two entry points are *semantic duplicates* when they share the same
+    :attr:`EntryPoint.entry_point_id` and the same canonical name — only
+    the first is kept.
+
+    Two entry points *collide* when they share the same
+    ``entry_point_id`` but have different canonical names (a hash
+    collision or ambiguous identity).  This is rejected with a
+    :class:`ValueError` because the pipeline cannot distinguish them.
+
+    Args:
+        entry_points: Raw list of entry points (may contain duplicates).
+
+    Returns:
+        Deduplicated list preserving first-encounter order.
+
+    Raises:
+        ValueError: If two entry points with different canonical names
+            produce the same ``entry_point_id``.
+    """
+    seen: dict[str, EntryPoint] = {}
+    for ep in entry_points:
+        eid = ep.entry_point_id
+        canonical = _canonical_entry_point_name(ep.name)
+        if eid in seen:
+            existing = seen[eid]
+            existing_canonical = _canonical_entry_point_name(existing.name)
+            if existing_canonical != canonical:
+                raise ValueError(
+                    f"Ambiguous entry point identity: '{ep.name}' and "
+                    f"'{existing.name}' resolve to the same entry_point_id "
+                    f"{eid} but have different canonical names. "
+                    f"Remove or disambiguate one of them."
+                )
+            # Exact semantic duplicate — silently dedup (keep first).
+            logger.debug(
+                "Deduplicating entry point '%s' (same identity as '%s')",
+                ep.name,
+                existing.name,
+            )
+            continue
+        seen[eid] = ep
+    return list(seen.values())
 
 
 class EntryPoint(BaseModel):
@@ -371,7 +613,9 @@ class EntryPoint(BaseModel):
     - ``None``: inferred at runtime by keyword heuristic
     """
 
-    name: str = Field(description="Entry point description, e.g. 'user prompts via chat widget'.")
+    name: str = Field(
+        description="Entry point description, e.g. 'user prompts via chat widget'."
+    )
     direction: Literal["input", "output", "bidirectional"] = Field(
         default="bidirectional",
         description=(
@@ -393,6 +637,21 @@ class EntryPoint(BaseModel):
         """Return the entry point name for backward-compatible string formatting."""
         return self.name
 
+    @computed_field
+    @property
+    def entry_point_id(self) -> str:
+        """Deterministic, versioned, collision-resistant canonical identity.
+
+        Computed from the canonical (normalized) name, direction, and
+        effective controllability.  See :func:`compute_entry_point_id`.
+        """
+        return compute_entry_point_id(self.name, self.direction, self.controllability)
+
+    @property
+    def effective_controllability(self) -> str:
+        """The resolved controllability (explicit or inferred via heuristic)."""
+        return classify_entry_point(self.name, self.direction, self.controllability)
+
 
 def _coerce_entry_points(
     v: list[Union[str, dict, EntryPoint]],
@@ -411,6 +670,10 @@ def _coerce_entry_points(
         elif isinstance(item, str):
             result.append(EntryPoint(name=item, direction="bidirectional"))
         elif isinstance(item, dict):
+            # entry_point_id is a computed field — strip it if present in
+            # serialized data so EntryPoint(**dict) doesn't receive an
+            # unsettable keyword argument.
+            item = {k: val for k, val in item.items() if k != "entry_point_id"}
             result.append(EntryPoint(**item))
         else:
             raise ValueError(
@@ -475,7 +738,8 @@ class Stage1Profile(BaseModel):
     @field_validator("entry_points", mode="before")
     @classmethod
     def coerce_entry_points(
-        cls, v: list[Union[str, dict, EntryPoint]],
+        cls,
+        v: list[Union[str, dict, EntryPoint]],
     ) -> list[EntryPoint]:
         return _coerce_entry_points(v)
 
@@ -487,7 +751,8 @@ class Stage1Profile(BaseModel):
         # KCX-prefixed codes are scenario-forge extensions (NOT from OWASP)
         # and pass through without checking against VALID_KC_SUBCODES.
         invalid = [
-            code for code in v
+            code
+            for code in v
             if not code.startswith(KCX_PREFIX) and code not in VALID_KC_SUBCODES
         ]
         if invalid:
@@ -646,7 +911,8 @@ class CapabilityProfile(BaseModel):
     @field_validator("entry_points", mode="before")
     @classmethod
     def coerce_entry_points(
-        cls, v: list[Union[str, dict, EntryPoint]],
+        cls,
+        v: list[Union[str, dict, EntryPoint]],
     ) -> list[EntryPoint]:
         return _coerce_entry_points(v)
 
@@ -658,7 +924,8 @@ class CapabilityProfile(BaseModel):
         # KCX-prefixed codes are scenario-forge extensions (NOT from OWASP)
         # and pass through without checking against VALID_KC_SUBCODES.
         invalid = [
-            code for code in v
+            code
+            for code in v
             if not code.startswith(KCX_PREFIX) and code not in VALID_KC_SUBCODES
         ]
         if invalid:
@@ -724,5 +991,9 @@ class CapabilityProfile(BaseModel):
                     "    - name: my_tool\n"
                     "      description: What the tool does"
                 )
+
+        # Deduplicate entry points by canonical identity and reject
+        # ambiguous/colliding identities.
+        self.entry_points = deduplicate_entry_points(self.entry_points)
 
         return self

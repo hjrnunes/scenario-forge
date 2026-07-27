@@ -284,6 +284,7 @@ def generate_scenario(
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
     prior_titles: list[str] | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> tuple[ScenarioEnvelope, list[dict]]:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -329,6 +330,7 @@ def generate_scenario(
     # so that unittest.mock.patch("scenario_forge.pipeline.generate.X")
     # correctly intercepts them.
     import scenario_forge.pipeline.generate as _gen
+
     _call_actor_profile = _gen._call_actor_profile
     _validate_actor_type = _gen._validate_actor_type
     _call_narrative = _gen._call_narrative
@@ -354,12 +356,13 @@ def generate_scenario(
 
     # --- Pre-filter: exclude negligent-insider for adversarial-only threats ---
     if seed.threat_id in _ADVERSARIAL_ONLY_THREATS:
-        excluded_actor_types = list(excluded_actor_types) if excluded_actor_types else []
+        excluded_actor_types = (
+            list(excluded_actor_types) if excluded_actor_types else []
+        )
         if "negligent-insider" not in excluded_actor_types:
             excluded_actor_types.append("negligent-insider")
             logger.debug(
-                "Excluding negligent-insider for adversarial-only threat %s "
-                "(seed %s)",
+                "Excluding negligent-insider for adversarial-only threat %s (seed %s)",
                 seed.threat_id,
                 seed.seed_id,
             )
@@ -377,6 +380,7 @@ def generate_scenario(
             attack_goal=attack_goal,
             pinned_technique_ids=pinned_technique_ids,
             pinned_entry_point=pinned_entry_point,
+            pinned_entry_point_id=pinned_entry_point_id,
         )
     except Exception as exc:
         call_log_entries.append(
@@ -412,6 +416,7 @@ def generate_scenario(
                 pinned_technique_ids=pinned_technique_ids,
                 forced_actor_type=corrected_type,
                 pinned_entry_point=pinned_entry_point,
+                pinned_entry_point_id=pinned_entry_point_id,
             )
         except Exception as exc:
             call_log_entries.append(
@@ -465,6 +470,7 @@ def generate_scenario(
             pinned_entry_point=pinned_entry_point,
             pinned_technique_ids=pinned_technique_ids,
             prior_titles=prior_titles,
+            pinned_entry_point_id=pinned_entry_point_id,
         )
     except Exception as exc:
         call_log_entries.append(
@@ -490,22 +496,16 @@ def generate_scenario(
         # Part C: Goal-narrative alignment
         _goal_id = actor_profile.goal_category if actor_profile else None
         if isinstance(_goal_id, str):
-            _goal_warn = check_goal_narrative_alignment(
-                _goal_id, _narrative_text
-            )
+            _goal_warn = check_goal_narrative_alignment(_goal_id, _narrative_text)
             if _goal_warn:
-                logger.warning(
-                    "Scenario %s: %s", partial_scenario_id, _goal_warn
-                )
+                logger.warning("Scenario %s: %s", partial_scenario_id, _goal_warn)
 
         # Part D: Seed mechanism fidelity
         _mechanism_warn = check_seed_mechanism_fidelity(
             seed.attack_pattern_name, _narrative_text
         )
         if _mechanism_warn:
-            logger.warning(
-                "Scenario %s: %s", partial_scenario_id, _mechanism_warn
-            )
+            logger.warning("Scenario %s: %s", partial_scenario_id, _mechanism_warn)
     except (TypeError, AttributeError):
         # Defensive: skip heuristic checks if narrative fields are not strings
         # (e.g. in tests using MagicMock objects).
@@ -561,6 +561,7 @@ def generate_scenario(
                 pinned_entry_point=pinned_entry_point,
                 pinned_technique_ids=pinned_technique_ids,
                 prior_titles=augmented_titles,
+                pinned_entry_point_id=pinned_entry_point_id,
             )
             if pinned_entry_point and narrative.entry_point != pinned_entry_point:
                 narrative = narrative.model_copy(
@@ -666,7 +667,9 @@ def generate_scenario(
     )
 
     # --- Post-generation threat_id cross-ref validation ---
-    _warn_dominant_threat_id_crossref_fn(attack_tree, seed.threat_id, partial_scenario_id)
+    _warn_dominant_threat_id_crossref_fn(
+        attack_tree, seed.threat_id, partial_scenario_id
+    )
 
     # --- Call 3: Behavior Spec ---
     try:
