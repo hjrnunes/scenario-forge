@@ -137,26 +137,35 @@ def entry_point_entropy(
             key = _canonical_entry_point_name(ep.name)
             ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
 
-    entry_points: list[str] = []
+    used_ids: set[str] = set()
+    entry_point_list: list[str] = []
     for s in scenarios:
         # Prefer canonical entry_point_id from provenance.
         cf = s.get("candidate_filter") or {}
         ep_id = cf.get("entry_point_id")
         if ep_id:
-            entry_points.append(ep_id)
+            used_ids.add(ep_id)
+            entry_point_list.append(ep_id)
         else:
             ep = s.get("narrative", {}).get("entry_point", "")
             if ep:
                 # Resolve display name to canonical ID(s) when possible.
-                # When a name maps to multiple canonical IDs (ambiguous),
-                # add all matching IDs — this does not arbitrarily resolve.
+                # Unique match: credit the single ID.
+                # Ambiguous match (multiple IDs): unresolved — credit none.
+                # Unknown name without profile: use canonical name as identity.
                 matched_ids = ep_name_to_ids.get(_canonical_entry_point_name(ep))
-                if matched_ids:
-                    entry_points.extend(matched_ids)
-                else:
-                    entry_points.append(_canonical_entry_point_name(ep))
+                if matched_ids and len(matched_ids) == 1:
+                    resolved = next(iter(matched_ids))
+                    used_ids.add(resolved)
+                    entry_point_list.append(resolved)
+                elif profile is None:
+                    # No profile — fall back to canonical name as identity.
+                    canonical = _canonical_entry_point_name(ep)
+                    used_ids.add(canonical)
+                    entry_point_list.append(canonical)
+                # Ambiguous or unknown with profile — do not inflate coverage.
 
-    entropy = round(_shannon_entropy(entry_points), 4)
+    entropy = round(_shannon_entropy(entry_point_list), 4)
 
     if expected_entry_points is None:
         return entropy
@@ -166,22 +175,32 @@ def entry_point_entropy(
         expected_ids = {
             ep.entry_point_id for ep in profile.entry_points if ep.direction != "output"
         }
-        used_ids = set(entry_points)
         # Only count IDs that are in the expected set — unknown IDs
         # must not inflate coverage.
-        covered = len(used_ids & expected_ids)
+        covered_ids = used_ids & expected_ids
+        covered = len(covered_ids)
         raw_coverage = covered / len(expected_ids) if expected_ids else 0.0
     else:
-        actual_unique = len(set(entry_points))
+        actual_unique = len(set(entry_point_list))
         raw_coverage = (
             actual_unique / expected_entry_points if expected_entry_points > 0 else 0.0
         )
 
     coverage = round(min(1.0, max(0.0, raw_coverage)), 4)
-    return {
+    result: dict[str, Any] = {
         "entropy": entropy,
         "entry_point_coverage": coverage,
     }
+    if profile is not None:
+        expected_ids = {
+            ep.entry_point_id for ep in profile.entry_points if ep.direction != "output"
+        }
+        covered_ids = used_ids & expected_ids
+        result["covered_entry_point_count"] = len(covered_ids)
+        result["expected_entry_point_count"] = len(expected_ids)
+        result["covered_entry_point_ids"] = sorted(covered_ids)
+        result["expected_entry_point_ids"] = sorted(expected_ids)
+    return result
 
 
 def zone_coverage(
@@ -323,6 +342,7 @@ def score_diversity(
     *,
     expected_entry_points: int | None = None,
     active_zones: set[str] | None = None,
+    profile: CapabilityProfile | None = None,
 ) -> dict[str, Any]:
     """Compute all batch diversity metrics.
 
@@ -334,6 +354,9 @@ def score_diversity(
         active_zones: Set of active Schneider zones from the capability
             profile. When provided, zone_coverage includes contextualized
             coverage and out-of-scope violation detection.
+        profile: When provided, entry_point_entropy uses exact canonical
+            set arithmetic against the profile's ingress entry-point IDs
+            and returns numerator/denominator evidence.
 
     Returns:
         Dict with entry_point_entropy, zone_coverage, actor_type_entropy,
@@ -343,7 +366,9 @@ def score_diversity(
     """
     return {
         "entry_point_entropy": entry_point_entropy(
-            scenarios, expected_entry_points=expected_entry_points
+            scenarios,
+            expected_entry_points=expected_entry_points,
+            profile=profile,
         ),
         "zone_coverage": zone_coverage(scenarios, active_zones=active_zones),
         "actor_type_entropy": actor_type_entropy(scenarios),

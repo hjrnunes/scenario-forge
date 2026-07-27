@@ -8,13 +8,14 @@ batch filter stage and downstream scenario generation.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import combinations
 from typing import Literal, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from scenario_forge.data.atlas import (
     ATLAS_TECHNIQUE_DESCRIPTIONS,
@@ -616,15 +617,13 @@ def filter_candidates(
         Returns (accepted, n_accepted, n_rejected, call_log_entries).
         Raises FilterProtocolError on irreconcilable response.
         """
-        first = seed_candidates[0]
-        submitted_ids: set[str] = {c.candidate_id for c in seed_candidates}
-
         # Reject duplicate candidate IDs in the submitted input — this
         # indicates a bug in candidate expansion or rule-based pruning.
-        if len(submitted_ids) != len(seed_candidates):
+        raw_ids = [c.candidate_id for c in seed_candidates]
+        if len(set(raw_ids)) != len(seed_candidates):
             from collections import Counter
 
-            id_counts = Counter(c.candidate_id for c in seed_candidates)
+            id_counts = Counter(raw_ids)
             dupes = sorted(cid for cid, count in id_counts.items() if count > 1)
             raise FilterProtocolError(
                 f"Duplicate candidate IDs in submitted input for seed "
@@ -632,18 +631,24 @@ def filter_candidates(
                 call_log_entries=[],
             )
 
-        # Build candidate_id → CandidateTriple lookup for metadata resolution.
-        candidate_lookup: dict[str, CandidateTriple] = {
-            c.candidate_id: c for c in seed_candidates
-        }
-
-        # Snapshot the seed batch before prompt render so application-
-        # resolved metadata cannot change after submission.  Frozen models
-        # prevent mutation, but deep-copying ensures the submitted set is
-        # a stable snapshot even if the caller reuses the list.
+        # Deep-validated submission snapshot: reconstruct each candidate
+        # through model_validate so forged model_copy(update=...) objects
+        # are rejected and nested mutable collections are not shared with
+        # the originals.  The prompt and candidate lookup are both derived
+        # from this snapshot so application-resolved metadata cannot change
+        # after submission.
         submitted_snapshot: list[CandidateTriple] = [
-            c.model_copy() for c in seed_candidates
+            CandidateTriple.model_validate(c.model_dump(mode="python"))
+            for c in seed_candidates
         ]
+
+        first = submitted_snapshot[0]
+        submitted_ids: set[str] = {c.candidate_id for c in submitted_snapshot}
+
+        # Build candidate_id → CandidateTriple lookup from the snapshot.
+        candidate_lookup: dict[str, CandidateTriple] = {
+            c.candidate_id: c for c in submitted_snapshot
+        }
 
         user_prompt = render_prompt(
             "filter_user.j2",
@@ -696,16 +701,39 @@ def filter_candidates(
                 break
 
             seed_call_logs.append(_build_call_log_entry(seed_id, llm_result, attempt))
-            batch_response = llm_result.content
 
-            if batch_response is None:
-                # Parsed None (refusal, empty content, etc.)
+            # Validate llm_result.content as BatchFilterResponse inside
+            # each attempt so wrong content types and validation errors
+            # are caught and retried.
+            try:
+                raw_content = llm_result.content
+                if raw_content is None:
+                    raise ValueError("LLM returned None content (refusal or empty)")
+                if isinstance(raw_content, BatchFilterResponse):
+                    batch_response = raw_content
+                elif isinstance(raw_content, dict):
+                    batch_response = BatchFilterResponse.model_validate(raw_content)
+                elif isinstance(raw_content, str):
+                    # Some clients may return raw JSON strings.
+                    batch_response = BatchFilterResponse.model_validate(
+                        json.loads(raw_content)
+                    )
+                else:
+                    # Wrong content type — try to coerce via model_validate.
+                    batch_response = BatchFilterResponse.model_validate(raw_content)
+            except (
+                ValidationError,
+                ValueError,
+                TypeError,
+                json.JSONDecodeError,
+            ) as exc:
+                batch_response = None
                 reconciliation_error = (
-                    "LLM returned None content (refusal or empty response)"
+                    f"Failed to parse LLM content as BatchFilterResponse: {exc}"
                 )
                 if attempt == 1:
                     logger.warning(
-                        "Filter reconciliation failed for seed %s "
+                        "Filter content validation failed for seed %s "
                         "(attempt 1): %s — retrying",
                         seed_id,
                         reconciliation_error,
@@ -713,11 +741,16 @@ def filter_candidates(
                     continue
                 break
 
-            ok, err = _reconcile_filter_response(
-                batch_response,
-                seed_id,
-                submitted_ids,
-            )
+            try:
+                ok, err = _reconcile_filter_response(
+                    batch_response,
+                    seed_id,
+                    submitted_ids,
+                )
+            except Exception as exc:
+                ok = False
+                err = f"Reconciliation exception: {exc}"
+
             if ok:
                 reconciliation_error = None
                 break
@@ -740,68 +773,81 @@ def filter_candidates(
             )
 
         # Reconciliation passed — resolve metadata from candidate lookup.
-        accepted_verdicts: list[FilterVerdict] = []
-        rejected_verdicts: list[FilterVerdict] = []
-        for v in batch_response.verdicts:
-            if v.verdict == "accept":
-                accepted_verdicts.append(v)
-            else:
-                rejected_verdicts.append(v)
+        # Wrap post-reconciliation work so unexpected exceptions carry
+        # accumulated seed_call_logs rather than empty evidence.
+        try:
+            accepted_verdicts: list[FilterVerdict] = []
+            rejected_verdicts: list[FilterVerdict] = []
+            for v in batch_response.verdicts:
+                if v.verdict == "accept":
+                    accepted_verdicts.append(v)
+                else:
+                    rejected_verdicts.append(v)
 
-        # Build enriched rejection records from candidate lookup.
-        rejection_records: list[RejectionRecord] = []
-        for v in rejected_verdicts:
-            cand = candidate_lookup.get(v.candidate_id)
-            if cand is not None:
-                rejection_records.append(
-                    RejectionRecord(
-                        candidate_id=v.candidate_id,
-                        entry_point=cand.entry_point,
-                        atlas_technique_ids=cand.atlas_technique_ids,
-                        rationale=v.rationale,
+            # Build enriched rejection records from candidate lookup.
+            rejection_records: list[RejectionRecord] = []
+            for v in rejected_verdicts:
+                cand = candidate_lookup.get(v.candidate_id)
+                if cand is not None:
+                    rejection_records.append(
+                        RejectionRecord(
+                            candidate_id=v.candidate_id,
+                            entry_point=cand.entry_point,
+                            atlas_technique_ids=cand.atlas_technique_ids,
+                            rationale=v.rationale,
+                        )
+                    )
+
+            original_seed = seed_lookup.get(seed_id)
+            if original_seed is None:
+                logger.warning(
+                    "Seed %s not found in seed lookup — skipping %d accepted verdicts",
+                    seed_id,
+                    len(accepted_verdicts),
+                )
+                return [], 0, len(seed_candidates), seed_call_logs
+
+            seed_results: list[FilteredSeed] = []
+            for verdict in accepted_verdicts:
+                cand = candidate_lookup.get(verdict.candidate_id)
+                if cand is None:
+                    # Should not happen after reconciliation, but guard anyway.
+                    logger.error(
+                        "Candidate %s not in lookup after reconciliation — skipping",
+                        verdict.candidate_id,
+                    )
+                    continue
+                seed_results.append(
+                    FilteredSeed(
+                        **original_seed.model_dump(),
+                        pinned_entry_point=cand.entry_point,
+                        pinned_technique_ids=cand.atlas_technique_ids,
+                        pinned_technique_names=cand.atlas_technique_names,
+                        entry_point_id=cand.entry_point_id,
+                        candidate_id=cand.candidate_id,
+                        rejection_rationales=rejection_records,
                     )
                 )
 
-        original_seed = seed_lookup.get(seed_id)
-        if original_seed is None:
-            logger.warning(
-                "Seed %s not found in seed lookup — skipping %d accepted verdicts",
+            seed_accepted = len(accepted_verdicts)
+            seed_total = len(seed_candidates)
+            logger.info(
+                "Seed %s: %d/%d candidates accepted",
                 seed_id,
-                len(accepted_verdicts),
+                seed_accepted,
+                seed_total,
             )
-            return [], 0, len(seed_candidates), seed_call_logs
-
-        seed_results: list[FilteredSeed] = []
-        for verdict in accepted_verdicts:
-            cand = candidate_lookup.get(verdict.candidate_id)
-            if cand is None:
-                # Should not happen after reconciliation, but guard anyway.
-                logger.error(
-                    "Candidate %s not in lookup after reconciliation — skipping",
-                    verdict.candidate_id,
-                )
-                continue
-            seed_results.append(
-                FilteredSeed(
-                    **original_seed.model_dump(),
-                    pinned_entry_point=cand.entry_point,
-                    pinned_technique_ids=cand.atlas_technique_ids,
-                    pinned_technique_names=cand.atlas_technique_names,
-                    entry_point_id=cand.entry_point_id,
-                    candidate_id=cand.candidate_id,
-                    rejection_rationales=rejection_records,
-                )
+            return (
+                seed_results,
+                seed_accepted,
+                seed_total - seed_accepted,
+                seed_call_logs,
             )
-
-        seed_accepted = len(accepted_verdicts)
-        seed_total = len(seed_candidates)
-        logger.info(
-            "Seed %s: %d/%d candidates accepted",
-            seed_id,
-            seed_accepted,
-            seed_total,
-        )
-        return seed_results, seed_accepted, seed_total - seed_accepted, seed_call_logs
+        except Exception as exc:
+            raise FilterProtocolError(
+                f"Unexpected post-reconciliation failure for seed {seed_id}: {exc}",
+                call_log_entries=seed_call_logs,
+            ) from exc
 
     total_accepted = 0
     total_rejected = 0
@@ -831,13 +877,17 @@ def filter_candidates(
                 # infrastructure/protocol failure, not an ordinary rejection.
                 # Convert to FilterProtocolError so the run fails cleanly
                 # with evidence rather than silently dropping a seed.
+                # Preserve any call logs the exception already carries.
                 logger.exception("Filter infrastructure failure for seed %s", seed_id)
-                protocol_errors.append(
-                    FilterProtocolError(
-                        f"Filter infrastructure failure for seed {seed_id}: {exc}",
-                        call_log_entries=[],
+                if isinstance(exc, FilterProtocolError):
+                    protocol_errors.append(exc)
+                else:
+                    protocol_errors.append(
+                        FilterProtocolError(
+                            f"Filter infrastructure failure for seed {seed_id}: {exc}",
+                            call_log_entries=[],
+                        )
                     )
-                )
 
     if protocol_errors:
         # Collect all call logs (including from successful seeds) so the
@@ -1332,8 +1382,14 @@ def apply_rule_based_filter(
                 candidate.entry_point_id,
                 compatible_ids,
             )
-            candidate = candidate.model_copy(
-                update={
+            # Reconstruct the pruned candidate through model_validate so
+            # canonical IDs are re-validated and nested collections are
+            # not shared with the original.  Using model_validate instead
+            # of model_copy(update=...) ensures the new candidate_id is
+            # checked against the canonical recomputation.
+            candidate = CandidateTriple.model_validate(
+                candidate.model_dump(mode="python")
+                | {
                     "atlas_technique_ids": tuple(compatible_ids),
                     "atlas_technique_names": tuple(compatible_names),
                     "atlas_technique_descriptions": tuple(compatible_descs),

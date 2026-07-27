@@ -22,7 +22,6 @@ from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import (
     ZONE_NAMES,
     CapabilityProfile,
-    EntryPoint,
 )
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
@@ -199,39 +198,20 @@ def _compute_gap_attributions(
             ap_attrs[ap_id] = "generation_failed"
 
     # --- Entry-point attribution ---
-    # Build a normalized-name → set-of-entry_point_ids lookup from the
-    # profile so we can resolve uncovered entry point names to canonical
-    # IDs without collapsing same-name EPs with different identities.
-    ep_name_to_ids: dict[str, set[str]] = {}
-    if profile is not None:
-        for ep in profile.entry_points:
-            key = ep.name.lower().strip()
-            ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
-    # Also build a direct name→ID map from candidates for legacy compat.
-    # When a name uniquely maps to one candidate EP, use that ID.
-    candidate_ep_name_to_ids: dict[str, set[str]] = {}
-    for c in candidates:
-        key = c.entry_point.lower().strip()
-        candidate_ep_name_to_ids.setdefault(key, set()).add(c.entry_point_id)
-
+    # Attribution is keyed by entry_point_id (canonical identity), not by
+    # display name.  EntryPointGap records carry both the ID and the name,
+    # so we join directly by ID.
     ep_attrs: dict[str, str] = {}
-    for ep in coverage_gaps.uncovered_entry_points:
-        # Resolve the uncovered entry point name to canonical ID(s).
-        # Prefer profile lookup; fall back to candidate lookup.
-        matched_ids = ep_name_to_ids.get(ep.lower().strip())
-        if not matched_ids:
-            matched_ids = candidate_ep_name_to_ids.get(ep.lower().strip(), set())
-        if not matched_ids:
-            # Name doesn't match any profile or candidate entry point.
-            ep_attrs[ep] = "no_candidate"
-        elif matched_ids.isdisjoint(candidate_entry_points_norm):
-            ep_attrs[ep] = "no_candidate"
-        elif matched_ids.isdisjoint(filtered_entry_points_norm):
-            ep_attrs[ep] = "rejected"
-        elif not matched_ids.isdisjoint(phantom_entry_points_norm):
-            ep_attrs[ep] = "phantom_flagged"
+    for ep_gap in coverage_gaps.uncovered_entry_points:
+        ep_id = ep_gap.entry_point_id
+        if ep_id not in candidate_entry_points_norm:
+            ep_attrs[ep_id] = "no_candidate"
+        elif ep_id not in filtered_entry_points_norm:
+            ep_attrs[ep_id] = "rejected"
+        elif ep_id in phantom_entry_points_norm:
+            ep_attrs[ep_id] = "phantom_flagged"
         else:
-            ep_attrs[ep] = "generation_failed"
+            ep_attrs[ep_id] = "generation_failed"
 
     # --- Zone attribution ---
     zone_attrs: dict[str, str] = {}
@@ -328,38 +308,22 @@ def _remediate_coverage_gaps(
     logger.info(
         "[Remediation] %d uncovered entry point(s) to remediate: %s",
         len(uncovered),
-        uncovered,
+        [ep.name for ep in uncovered],
     )
 
-    # Build a normalized-name → list-of-EntryPoint lookup from the profile
-    # so we can resolve uncovered entry point names to canonical IDs without
-    # collapsing same-name EPs with different identities.
-    ep_name_to_eps: dict[str, list[EntryPoint]] = {}
-    for ep in profile.entry_points:
-        key = ep.name.lower().strip()
-        ep_name_to_eps.setdefault(key, []).append(ep)
     # Track which entry_point_ids have already been remediated to avoid
-    # duplicate remediation when the same name appears multiple times.
+    # duplicate remediation.  EntryPointGap records carry the canonical
+    # entry_point_id directly, so no name-based guessing is needed.
     remediated_ids: set[str] = set()
 
-    for ep_name in uncovered:
-        matched_eps = ep_name_to_eps.get(ep_name.lower().strip(), [])
-        # Find the first unremediated EP matching this name.
-        ep_obj: EntryPoint | None = None
-        for mep in matched_eps:
-            if mep.entry_point_id not in remediated_ids:
-                ep_obj = mep
-                break
-        if ep_obj is not None:
-            remediated_ids.add(ep_obj.entry_point_id)
-            pinned_ep_id: str | None = ep_obj.entry_point_id
-        elif matched_eps:
-            # All matching EPs already remediated — skip.
+    for ep_gap in uncovered:
+        ep_id: str | None = ep_gap.entry_point_id
+        ep_name: str = ep_gap.name
+
+        if ep_id in remediated_ids:
             continue
-        else:
-            # Name doesn't match any profile EP — proceed without
-            # a canonical ID (edge case for manually constructed gaps).
-            pinned_ep_id = None
+        if ep_id is not None:
+            remediated_ids.add(ep_id)
 
         seed = _pick_best_seed_for_entry_point(ep_name, seeds, profile)
         if seed is None:
@@ -373,7 +337,7 @@ def _remediate_coverage_gaps(
         logger.info(
             "  Remediating entry point '%s' (id=%s) with seed %s (%s)...",
             ep_name,
-            pinned_ep_id or "none",
+            ep_id or "none",
             seed.seed_id,
             seed.attack_pattern_name,
         )
@@ -403,13 +367,13 @@ def _remediate_coverage_gaps(
                 client,
                 use_case,
                 pinned_entry_point=ep_name,
-                pinned_entry_point_id=pinned_ep_id,
+                pinned_entry_point_id=ep_id,
                 attack_goal=selected_goal,
             )
             # Attach candidate filter provenance so downstream coverage
             # analysis resolves this scenario by canonical ID.
             envelope.candidate_filter = {
-                "entry_point_id": pinned_ep_id,
+                "entry_point_id": ep_id,
                 "pinned_entry_point": ep_name,
                 "pinned_technique_ids": [],
                 "pinned_technique_names": [],

@@ -2865,8 +2865,7 @@ def _build_kc_descriptions() -> dict[str, str]:
     """Load KC sub-code → description mapping for report tooltips."""
     mapping = load_kc_threat_mapping()
     return {
-        sc["kc_subcode"]: sc["description"]
-        for sc in mapping.get("kc_subcodes", [])
+        sc["kc_subcode"]: sc["description"] for sc in mapping.get("kc_subcodes", [])
     }
 
 
@@ -3417,15 +3416,29 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     threat_attributions = attributions.get("threats", {})
     ap_attributions = attributions.get("attack_patterns", {})
 
-    total_gaps = len(uncovered_eps) + len(uncovered_zones) + len(uncovered_threats) + len(uncovered_aps)
+    total_gaps = (
+        len(uncovered_eps)
+        + len(uncovered_zones)
+        + len(uncovered_threats)
+        + len(uncovered_aps)
+    )
 
     # Entry points card
     ep_cls, ep_label = _coverage_status(len(uncovered_eps))
     if uncovered_eps:
-        ep_items = "".join(
-            f"<li>{_esc(ep)}{_attribution_span(ep_attributions[ep]) if ep in ep_attributions else ''}</li>"
-            for ep in uncovered_eps
-        )
+        ep_items_parts: list[str] = []
+        for ep in uncovered_eps:
+            if isinstance(ep, dict):
+                name = ep.get("name", "")
+                ep_id = ep.get("entry_point_id", "")
+                attr = ep_attributions.get(ep_id, "")
+            else:
+                # Legacy string fallback.
+                name = str(ep)
+                attr = ep_attributions.get(ep, "")
+            attr_span = _attribution_span(attr) if attr else ""
+            ep_items_parts.append(f"<li>{_esc(name)}{attr_span}</li>")
+        ep_items = "".join(ep_items_parts)
         ep_body = f'<ul class="coverage-list">{ep_items}</ul>'
     else:
         ep_body = (
@@ -3735,12 +3748,18 @@ def build_threat_technique_section(
             pinned_names_list = row["pinned_technique_names"]
             if len(pinned_ids) == 1:
                 pinned_name_display = pinned_names_list[0] if pinned_names_list else ""
-                tech_tip = f' data-tooltip="{_esc(pinned_name_display)}"' if pinned_name_display else ""
+                tech_tip = (
+                    f' data-tooltip="{_esc(pinned_name_display)}"'
+                    if pinned_name_display
+                    else ""
+                )
                 tech_spans = f"<span{tech_tip}>{_esc(pinned_ids[0])}</span>"
             else:
                 # Multi-technique: show count badge with tooltip of all IDs
                 combo_display = " + ".join(pinned_ids)
-                names_display = ", ".join(pinned_names_list) if pinned_names_list else combo_display
+                names_display = (
+                    ", ".join(pinned_names_list) if pinned_names_list else combo_display
+                )
                 tech_tip = f' data-tooltip="{_esc(names_display)}"'
                 tech_spans = f'<span class="count-badge"{tech_tip}>{len(pinned_ids)} techniques</span>'
         else:
@@ -4559,8 +4578,12 @@ def _build_seed_metadata_block(scenario: dict[str, Any]) -> str:
     if not meta:
         return ""
 
-    attack_pattern_name = meta.get("attack_pattern_name") or meta.get("mechanism_name", "")
-    attack_pattern_description = meta.get("attack_pattern_description") or meta.get("mechanism_description", "")
+    attack_pattern_name = meta.get("attack_pattern_name") or meta.get(
+        "mechanism_name", ""
+    )
+    attack_pattern_description = meta.get("attack_pattern_description") or meta.get(
+        "mechanism_description", ""
+    )
     seed_id = meta.get("seed_id", "")
     threat_id = meta.get("threat_id", "")
     threat_name = meta.get("threat_name", "")
@@ -4717,7 +4740,9 @@ def _build_generation_inputs_block(scenario: dict[str, Any]) -> str:
 
     # --- shared values ---
     attack_pattern = _val(meta.get("attack_pattern_name") or meta.get("mechanism_name"))
-    attack_pattern_desc = _val(meta.get("attack_pattern_description") or meta.get("mechanism_description"))
+    attack_pattern_desc = _val(
+        meta.get("attack_pattern_description") or meta.get("mechanism_description")
+    )
     threat_html = _enriched_threat(
         meta.get("threat_id", ""), meta.get("threat_name", "")
     )
@@ -5926,9 +5951,7 @@ def build_pipeline_calls_section(call_logs: list[dict[str, Any]]) -> str:
         usr_prompt = _esc(entry.get("user_prompt", ""))
         response_raw = entry.get("response", "")
         if isinstance(response_raw, (dict, list)):
-            response_text = _esc(
-                json.dumps(response_raw, indent=2, ensure_ascii=False)
-            )
+            response_text = _esc(json.dumps(response_raw, indent=2, ensure_ascii=False))
         else:
             response_text = _esc(str(response_raw))
 

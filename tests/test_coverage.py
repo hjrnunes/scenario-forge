@@ -63,6 +63,7 @@ from scenario_forge.models.scenario import ActorProfile
 from scenario_forge.pipeline.coverage import (
     AttackerDiversityResult,
     CoverageGaps,
+    EntryPointGap,
     _normalize_entry_point,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
@@ -322,7 +323,8 @@ class TestCoverageGaps:
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {"ep-b (zone 2)", "ep-c (zone 3)"}
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {"ep-b (zone 2)", "ep-c (zone 3)"}
         assert gaps.has_gaps
 
     def test_all_entry_points_missing(self):
@@ -334,7 +336,8 @@ class TestCoverageGaps:
         scenarios: list[ScenarioEnvelope] = []
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {"ep-a (zone 1)", "ep-b (zone 2)"}
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {"ep-a (zone 1)", "ep-b (zone 2)"}
 
     def test_all_zones_covered(self):
         """When all active zones are traversed, no zone gaps."""
@@ -394,7 +397,7 @@ class TestCoverageGaps:
         threat_surface = _make_threat_surface([["T1"]])
 
         gaps = analyze_coverage_gaps(profile, threat_surface, [])
-        assert gaps.uncovered_entry_points == ["ep-a (zone 1)"]
+        assert [ep.name for ep in gaps.uncovered_entry_points] == ["ep-a (zone 1)"]
         assert gaps.uncovered_zones == ["input", "reasoning"]
         assert gaps.uncovered_threats == ["T1"]
         assert gaps.uncovered_attack_patterns == ["AP-T1-01"]
@@ -428,13 +431,17 @@ class TestCoverageGaps:
     def test_to_dict(self):
         """CoverageGaps.to_dict returns a serializable dict."""
         gaps = CoverageGaps(
-            uncovered_entry_points=["ep-a"],
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-a-id", name="ep-a")
+            ],
             uncovered_zones=["tool_execution"],
             uncovered_threats=["T5"],
             uncovered_attack_patterns=["AP-T5-01"],
         )
         d = gaps.to_dict()
-        assert d["uncovered_entry_points"] == ["ep-a"]
+        assert d["uncovered_entry_points"] == [
+            {"entry_point_id": "ep-a-id", "name": "ep-a"}
+        ]
         assert d["uncovered_zones"] == ["tool_execution"]
         assert d["uncovered_threats"] == ["T5"]
         assert d["uncovered_attack_patterns"] == ["AP-T5-01"]
@@ -445,7 +452,11 @@ class TestCoverageGaps:
         assert not gaps.has_gaps
 
     def test_has_gaps_true_for_entry_points(self):
-        gaps = CoverageGaps(uncovered_entry_points=["ep-a"])
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-a-id", name="ep-a")
+            ]
+        )
         assert gaps.has_gaps
 
     def test_has_gaps_true_for_zones(self):
@@ -607,7 +618,8 @@ class TestCoverageGapsEntryPointMatching:
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {
             "document uploads (zone 1)",
             "message queue (zone 3)",
         }
@@ -657,7 +669,8 @@ class TestCoverageGapsEntryPointMatching:
         scenarios: list[ScenarioEnvelope] = []
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {
             "user prompts (zone 1)",
             "document uploads (zone 1)",
             "admin console (zone 2)",
@@ -744,8 +757,9 @@ class TestCoverageGapsEntryPointMatching:
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
         # Should preserve original casing from the profile
-        assert "User Prompts (Zone 1)" in gaps.uncovered_entry_points
-        assert "Admin Console (Zone 2)" in gaps.uncovered_entry_points
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert "User Prompts (Zone 1)" in uncovered_names
+        assert "Admin Console (Zone 2)" in uncovered_names
 
 
 # ---------------------------------------------------------------------------
@@ -868,7 +882,9 @@ class TestWriteCoverageReport:
 
     def test_writes_json_file(self, tmp_path: Path):
         gaps = CoverageGaps(
-            uncovered_entry_points=["ep-a"],
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-a-id", name="ep-a")
+            ],
             uncovered_zones=["tool_execution"],
             uncovered_threats=["T5"],
         )
@@ -884,7 +900,9 @@ class TestWriteCoverageReport:
         assert path.name == "coverage-gaps.json"
 
         data = json.loads(path.read_text())
-        assert data["coverage_gaps"]["uncovered_entry_points"] == ["ep-a"]
+        assert data["coverage_gaps"]["uncovered_entry_points"] == [
+            {"entry_point_id": "ep-a-id", "name": "ep-a"}
+        ]
         assert data["coverage_gaps"]["uncovered_zones"] == ["tool_execution"]
         assert data["coverage_gaps"]["uncovered_threats"] == ["T5"]
         assert data["attacker_diversity"]["is_flagged"] is True
@@ -988,7 +1006,13 @@ class TestRemediateCoverageGaps:
 
     def test_no_seeds_records_skip_note(self, tmp_path: Path):
         """When seeds are empty, each uncovered EP gets a skip note."""
-        gaps = CoverageGaps(uncovered_entry_points=["chat input (zone 1)"])
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(
+                    entry_point_id="chat-input-id", name="chat input (zone 1)"
+                )
+            ]
+        )
         profile = _make_profile()
         client = MagicMock()
 
@@ -1007,7 +1031,12 @@ class TestRemediateCoverageGaps:
     ):
         """Each uncovered entry point should trigger one generate_scenario call."""
         uncovered = ["chat input (zone 1)", "admin dashboard (zone 2)"]
-        gaps = CoverageGaps(uncovered_entry_points=uncovered)
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id=f"ep-{i}-id", name=name)
+                for i, name in enumerate(uncovered)
+            ]
+        )
         profile = _make_profile(
             entry_points=[
                 "existing ep",
@@ -1048,7 +1077,10 @@ class TestRemediateCoverageGaps:
     ):
         """When generate_scenario raises, we record a note and continue."""
         gaps = CoverageGaps(
-            uncovered_entry_points=["ep-fail (zone 1)", "ep-ok (zone 2)"]
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-fail-id", name="ep-fail (zone 1)"),
+                EntryPointGap(entry_point_id="ep-ok-id", name="ep-ok (zone 2)"),
+            ]
         )
         profile = _make_profile(zones_active=["input", "reasoning"])
         seeds = [_make_seed()]
@@ -1079,7 +1111,13 @@ class TestRemediateCoverageGaps:
         self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """Verify generate_scenario receives the correct seed, profile, and use_case."""
-        gaps = CoverageGaps(uncovered_entry_points=["api gateway (zone 3)"])
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(
+                    entry_point_id="api-gateway-id", name="api gateway (zone 3)"
+                )
+            ]
+        )
         profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         seed = _make_seed(seed_id="AP-T5-01")
         client = MagicMock()
@@ -1281,7 +1319,14 @@ class TestComputeGapAttributions:
 
     def test_phantom_flagged_entry_point_attribution(self):
         """Entry point whose only scenarios were phantom-flagged gets phantom_flagged."""
-        gaps = CoverageGaps(uncovered_entry_points=["admin console (zone 2)"])
+        entry_point_id = compute_entry_point_id("admin console (zone 2)", "input", None)
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(
+                    entry_point_id=entry_point_id, name="admin console (zone 2)"
+                )
+            ]
+        )
         seeds = [_make_seed(seed_id="AP-T9-03", threat_id="T9")]
         candidates = [
             _make_candidate(
@@ -1308,7 +1353,7 @@ class TestComputeGapAttributions:
             scenarios,
             phantom_seed_ids=phantom_seed_ids,
         )
-        assert result.entry_points["admin console (zone 2)"] == "phantom_flagged"
+        assert result.entry_points[entry_point_id] == "phantom_flagged"
 
     def test_no_phantom_seed_ids_falls_through_to_generation_failed(self):
         """Without phantom_seed_ids, filtered seed with no scenario is generation_failed."""

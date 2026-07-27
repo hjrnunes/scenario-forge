@@ -1075,8 +1075,8 @@ class TestCanonicalCoverage:
             confidence=ConfidenceLevel.high,
             kc_subcodes=["KC1.1"],
         )
-        # Fallback narrative with ambiguous name should cover both IDs,
-        # not arbitrarily pick one.
+        # Fallback narrative with ambiguous name must NOT credit any ID.
+        # Ambiguous same-name fallback is unresolved — coverage stays 0.
         scenarios = [
             {
                 "narrative": {"entry_point": "shared channel"},
@@ -1086,8 +1086,10 @@ class TestCanonicalCoverage:
         result = entry_point_entropy(
             scenarios, expected_entry_points=2, profile=profile
         )
-        # Both same-name EPs are covered (not arbitrarily resolved to one).
-        assert result["entry_point_coverage"] == 1.0
+        # Ambiguous name unresolved — neither ID credited.
+        assert result["entry_point_coverage"] == 0.0
+        assert result["covered_entry_point_count"] == 0
+        assert result["expected_entry_point_count"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1327,3 +1329,303 @@ class TestCollisionsAndDigest:
             from scenario_forge.pipeline.candidates import _check_candidate_collisions
 
             _check_candidate_collisions([c1, c2_forged])
+
+
+# ---------------------------------------------------------------------------
+# 13. Wrong content type retry and evidence
+# ---------------------------------------------------------------------------
+
+
+class TestWrongContentTypeRetry:
+    """Malformed non-model content bypasses retry and evidence path."""
+
+    def _make_two_candidates(self) -> list[CandidateTriple]:
+        return [
+            _make_candidate(
+                seed_id="AP-T7-01",
+                entry_point="user prompts",
+                technique_ids=("AML.T0051",),
+            ),
+            _make_candidate(
+                seed_id="AP-T7-01",
+                entry_point="RAG knowledge",
+                technique_ids=("AML.T0051.001",),
+            ),
+        ]
+
+    def _make_valid_response(
+        self, seed_id: str, candidates: list[CandidateTriple]
+    ) -> BatchFilterResponse:
+        return BatchFilterResponse(
+            seed_id=seed_id,
+            verdicts=[
+                FilterVerdict(
+                    candidate_id=c.candidate_id,
+                    verdict="accept" if i == 0 else "reject",
+                    rationale=f"verdict {i}",
+                )
+                for i, c in enumerate(candidates)
+            ],
+        )
+
+    def test_wrong_content_type_then_success(self):
+        """Wrong content type on attempt 1, valid on attempt 2 — succeeds."""
+        candidates = self._make_two_candidates()
+        seeds = [_make_seed("AP-T7-01")]
+        profile = _make_profile()
+
+        valid_resp = self._make_valid_response("AP-T7-01", candidates)
+        client = MagicMock()
+        client.complete.side_effect = [
+            _make_llm_result("this is not a BatchFilterResponse"),
+            _make_llm_result(valid_resp),
+        ]
+
+        results, logs = filter_candidates(candidates, seeds, client, "test", profile)
+        assert len(results) == 1
+        assert len(logs) == 2  # two attempts logged
+
+    def test_wrong_content_type_twice_raises(self):
+        """Wrong content type on both attempts raises FilterProtocolError."""
+        candidates = self._make_two_candidates()
+        seeds = [_make_seed("AP-T7-01")]
+        profile = _make_profile()
+
+        client = MagicMock()
+        client.complete.side_effect = [
+            _make_llm_result({"bad": "shape"}),
+            _make_llm_result("not valid"),
+        ]
+
+        with pytest.raises(FilterProtocolError) as exc_info:
+            filter_candidates(candidates, seeds, client, "test", profile)
+        assert len(exc_info.value.call_log_entries) == 2
+
+    def test_unexpected_post_call_exception_retains_logs(self):
+        """Unexpected exception after a completed call carries accumulated logs."""
+        candidates = self._make_two_candidates()
+        profile = _make_profile()
+
+        valid_resp = self._make_valid_response("AP-T7-01", candidates)
+        client = MagicMock()
+        client.complete.return_value = _make_llm_result(valid_resp)
+
+        # Use a mock seed that raises on model_dump() to trigger a
+        # post-reconciliation exception after the call log is recorded.
+        exploding_seed = MagicMock()
+        exploding_seed.seed_id = "AP-T7-01"
+        exploding_seed.model_dump.side_effect = RuntimeError("model_dump explosion")
+        seeds = [exploding_seed]
+
+        with pytest.raises(FilterProtocolError) as exc_info:
+            filter_candidates(candidates, seeds, client, "test", profile)
+        # The exception should carry accumulated call logs, not empty.
+        assert len(exc_info.value.call_log_entries) >= 1
+
+
+# ---------------------------------------------------------------------------
+# 14. Forged model_copy and deep-validated snapshot
+# ---------------------------------------------------------------------------
+
+
+class TestForgedModelCopyAndSnapshot:
+    """model_copy(update=...) bypasses validation; snapshot must revalidate."""
+
+    def test_forged_candidate_id_via_model_copy_rejected(self):
+        """A candidate forged with model_copy(update={candidate_id: ...})
+        is rejected when revalidated through model_validate in the snapshot.
+        """
+        c = _make_candidate(
+            seed_id="AP-T7-01",
+            entry_point="user prompts",
+            technique_ids=("AML.T0051",),
+        )
+        # Forge a candidate with a wrong candidate_id via model_copy.
+        forged = c.model_copy(
+            update={"candidate_id": "cand:v1:forged00000000000000000000"}
+        )
+        # The forged candidate has the wrong ID — model_validate should reject it.
+        with pytest.raises(ValidationError, match="candidate_id"):
+            CandidateTriple.model_validate(forged.model_dump(mode="python"))
+
+    def test_nested_metadata_snapshot_not_shared(self):
+        """Deep-validated snapshot does not share nested mutable collections."""
+        c = _make_candidate(
+            seed_id="AP-T7-01",
+            entry_point="user prompts",
+            technique_ids=("AML.T0051",),
+        )
+        # Reconstruct through model_validate (as the filter does).
+        snapshot = CandidateTriple.model_validate(c.model_dump(mode="python"))
+        # The owasp_llm_ids list should be a different object.
+        assert snapshot.owasp_llm_ids is not c.owasp_llm_ids
+        # Mutating the original should not affect the snapshot.
+        original_ids = list(c.owasp_llm_ids)
+        c.owasp_llm_ids.append("LLM99")
+        assert list(snapshot.owasp_llm_ids) == original_ids
+
+    def test_rule_pruned_candidate_validates_canonical_ids(self):
+        """Rule-pruned candidate is reconstructed via model_validate and
+        validates canonical IDs."""
+        # Make a candidate with two techniques, one of which is supply-chain.
+        c = _make_candidate(
+            seed_id="AP-T7-01",
+            entry_point="user prompts",
+            technique_ids=("AML.T0051", "AML.T0048"),
+            technique_names=("Prompt Injection", "Supply Chain Compromise"),
+            technique_descs=("Desc 1", "Desc 2"),
+        )
+        profile = _make_profile()
+        passed, rejected, verdicts = apply_rule_based_filter([c], profile)
+        # Supply chain technique should be pruned, candidate survives.
+        assert len(passed) == 1
+        assert len(rejected) == 0
+        pruned = passed[0]
+        # The pruned candidate should have a valid candidate_id matching
+        # canonical recomputation.
+        expected_id = compute_candidate_id(
+            pruned.seed_id, pruned.entry_point_id, pruned.atlas_technique_ids
+        )
+        assert pruned.candidate_id == expected_id
+        # Only the compatible technique should remain.
+        assert "AML.T0048" not in pruned.atlas_technique_ids
+
+
+# ---------------------------------------------------------------------------
+# 15. Score diversity with profile evidence
+# ---------------------------------------------------------------------------
+
+
+class TestScoreDiversityWithProfile:
+    """score_diversity threads CapabilityProfile and returns evidence."""
+
+    def _make_profile(self) -> CapabilityProfile:
+        return CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(name="user prompts", direction="input"),
+                EntryPoint(name="RAG knowledge", direction="input"),
+                EntryPoint(name="admin console", direction="output"),
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+
+    def test_score_diversity_with_profile_returns_evidence(self):
+        """score_diversity with profile returns numerator/denominator evidence."""
+        from scenario_forge.eval.diversity import score_diversity
+
+        profile = self._make_profile()
+        ep_id_1 = compute_entry_point_id("user prompts", "input", None)
+        scenarios = [
+            {
+                "narrative": {"entry_point": "user prompts", "zone_sequence": []},
+                "candidate_filter": {"entry_point_id": ep_id_1},
+            },
+        ]
+        result = score_diversity(
+            scenarios,
+            expected_entry_points=2,
+            profile=profile,
+        )
+        ep = result["entry_point_entropy"]
+        assert isinstance(ep, dict)
+        assert ep["covered_entry_point_count"] == 1
+        assert ep["expected_entry_point_count"] == 2
+        assert ep["covered_entry_point_ids"] == [ep_id_1]
+        assert len(ep["expected_entry_point_ids"]) == 2
+
+    def test_unique_fallback_credited(self):
+        """A narrative name that uniquely resolves to one ID is credited."""
+        from scenario_forge.eval.diversity import score_diversity
+
+        profile = self._make_profile()
+        ep_id_2 = compute_entry_point_id("RAG knowledge", "input", None)
+        scenarios = [
+            {
+                "narrative": {"entry_point": "RAG knowledge", "zone_sequence": []},
+                "candidate_filter": {},
+            },
+        ]
+        result = score_diversity(
+            scenarios,
+            expected_entry_points=2,
+            profile=profile,
+        )
+        ep = result["entry_point_entropy"]
+        assert ep["entry_point_coverage"] == 0.5
+        assert ep["covered_entry_point_count"] == 1
+        assert ep_id_2 in ep["covered_entry_point_ids"]
+
+
+# ---------------------------------------------------------------------------
+# 16. Structured entry-point gaps
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredEntryPointGaps:
+    """EntryPointGap carries canonical identity; names are labels only."""
+
+    def test_same_name_different_id_gaps_remain_distinct(self):
+        """Two same-name EPs with different IDs produce distinct gaps."""
+        from scenario_forge.pipeline.coverage import analyze_coverage_gaps
+        from scenario_forge.pipeline.threats import ThreatSurface
+
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                EntryPoint(name="shared channel", direction="input"),
+                EntryPoint(name="shared channel", direction="bidirectional"),
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+        threat_surface = ThreatSurface(entries=[], governance_only=[])
+        gaps = analyze_coverage_gaps(profile, threat_surface, [])
+        # Two distinct gaps with same name but different IDs.
+        assert len(gaps.uncovered_entry_points) == 2
+        ids = {g.entry_point_id for g in gaps.uncovered_entry_points}
+        assert len(ids) == 2
+        names = {g.name for g in gaps.uncovered_entry_points}
+        assert names == {"shared channel"}
+
+    def test_gap_serialization_emits_entry_point_id_and_name(self):
+        """to_dict emits list of {entry_point_id, name} dicts."""
+        from scenario_forge.pipeline.coverage import (
+            CoverageGaps,
+            EntryPointGap,
+        )
+
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep:v1:aaa", name="EP A"),
+                EntryPointGap(entry_point_id="ep:v1:bbb", name="EP B"),
+            ],
+        )
+        d = gaps.to_dict()
+        assert d["uncovered_entry_points"] == [
+            {"entry_point_id": "ep:v1:aaa", "name": "EP A"},
+            {"entry_point_id": "ep:v1:bbb", "name": "EP B"},
+        ]
+
+    def test_report_template_displays_name_looks_up_by_id(self):
+        """Report template displays gap names but looks up attribution by ID."""
+        from scenario_forge.report.template import build_coverage_section
+
+        coverage_data = {
+            "coverage_gaps": {
+                "uncovered_entry_points": [
+                    {"entry_point_id": "ep:v1:aaa", "name": "EP Alpha"},
+                ],
+                "uncovered_zones": [],
+                "uncovered_threats": [],
+                "uncovered_attack_patterns": [],
+                "gap_attributions": {
+                    "entry_points": {"ep:v1:aaa": "rejected"},
+                },
+            },
+        }
+        html = build_coverage_section(coverage_data)
+        assert "EP Alpha" in html
+        # The attribution label for "rejected" is "filtered out".
+        assert "filtered out" in html.lower()
