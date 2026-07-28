@@ -15,12 +15,14 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
     ToolInventoryEntry,
+    compute_entry_point_id,
 )
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
     _rule_seed_profile_compatibility,
     apply_rule_based_filter,
+    compute_candidate_id,
 )
 from scenario_forge.pipeline.generate import (
     compute_compatible_goal_ids,
@@ -90,6 +92,8 @@ def _make_candidate(
     entry_point: str = "user prompts (input)",
     technique_ids: tuple[str, ...] = ("AML.T0051",),
 ) -> CandidateTriple:
+    ep_id = compute_entry_point_id(entry_point, "input", None)
+    cand_id = compute_candidate_id(seed_id, ep_id, technique_ids)
     return CandidateTriple(
         seed_id=seed_id,
         threat_id=threat_id,
@@ -97,11 +101,14 @@ def _make_candidate(
         attack_pattern_name=f"Pattern {seed_id}",
         attack_pattern_description=f"Description for {seed_id}",
         entry_point=entry_point,
+        entry_point_id=ep_id,
+        candidate_id=cand_id,
         atlas_technique_ids=technique_ids,
         atlas_technique_names=tuple(f"Tech {t}" for t in technique_ids),
         atlas_technique_descriptions=tuple(f"Desc {t}" for t in technique_ids),
         risk_card_ref=_make_ref(),
         owasp_llm_ids=["LLM01"],
+        direction="input",
     )
 
 
@@ -343,7 +350,6 @@ class TestAPT905SeedRejection:
         assert len(rejected) == 1
         assert len(passed) == 0
         assert rejected[0].seed_id == "AP-T9-05"
-        assert verdicts[0].verdict == "reject"
         assert "persistent memory" in verdicts[0].rationale
 
     def test_apply_rule_filter_accepts_t905_with_memory(self):

@@ -442,6 +442,7 @@ class TestConsistencyRetryLoop:
         leaf_count: int,
         zones: list[str],
         threat_id: str | None = None,
+        technique_id: str | None = None,
     ):
         """Build a mock return value for _call_attack_tree."""
         children = [
@@ -449,6 +450,7 @@ class TestConsistencyRetryLoop:
                 f"n1.{i+1}",
                 zone=zones[i % len(zones)],
                 **({"threat_id": threat_id} if threat_id else {}),
+                **({"technique_id": technique_id} if technique_id and i == 0 else {}),
             )
             for i in range(leaf_count)
         ]
@@ -458,7 +460,8 @@ class TestConsistencyRetryLoop:
         result.content = "mock"
         return tree, result
 
-    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques")
+    @patch("scenario_forge.pipeline.generate._validate_technique_zone_compatibility", return_value=0)
+    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques", return_value=0)
     @patch(
         "scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref"
     )
@@ -478,15 +481,16 @@ class TestConsistencyRetryLoop:
         mock_validate_actor,
         mock_crossref,
         mock_strip,
+        mock_tz_compat,
     ) -> None:
         """Call 2 is retried once when first attempt has violations, second is clean."""
         # First call: 10 leaves with budget 4 -> parsimony violation
         bad_tree, bad_result = self._make_call_attack_tree_result(
             10, ["input", "reasoning"]
         )
-        # Second call: 4 leaves with matching threat_id -> passes
+        # Second call: 4 leaves with matching threat_id + technique -> passes
         good_tree, good_result = self._make_call_attack_tree_result(
-            4, ["input", "reasoning"], threat_id="T1"
+            4, ["input", "reasoning"], threat_id="T1", technique_id="AML.T0051"
         )
 
         mock_call2.side_effect = [
@@ -540,7 +544,8 @@ class TestConsistencyRetryLoop:
         # Call 2 should have been invoked twice (initial + 1 retry)
         assert mock_call2.call_count == 2
 
-    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques")
+    @patch("scenario_forge.pipeline.generate._validate_technique_zone_compatibility", return_value=0)
+    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques", return_value=0)
     @patch(
         "scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref"
     )
@@ -560,10 +565,11 @@ class TestConsistencyRetryLoop:
         mock_validate_actor,
         mock_crossref,
         mock_strip,
+        mock_tz_compat,
     ) -> None:
         """Call 2 is not retried when the first attempt is clean."""
         good_tree, good_result = self._make_call_attack_tree_result(
-            3, ["input", "reasoning"], threat_id="T1"
+            3, ["input", "reasoning"], threat_id="T1", technique_id="AML.T0051"
         )
         mock_call2.return_value = (good_tree, good_result)
 
@@ -608,6 +614,7 @@ class TestConsistencyRetryLoop:
         # Call 2 should have been invoked only once
         assert mock_call2.call_count == 1
 
+    @patch("scenario_forge.pipeline.generate._validate_technique_zone_compatibility", return_value=0)
     @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques")
     @patch(
         "scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref"
@@ -628,6 +635,7 @@ class TestConsistencyRetryLoop:
         mock_validate_actor,
         mock_crossref,
         mock_strip,
+        mock_tz_compat,
     ) -> None:
         """All retries exhausted: scenario is kept but Call 2 invoked 3 times total."""
         # All 3 calls return violation (10 leaves > budget 4)

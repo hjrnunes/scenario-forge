@@ -30,10 +30,30 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class EntryPointGap:
+    """A structured entry-point coverage gap carrying canonical identity.
+
+    Names are display labels only — canonical identity is carried by
+    ``entry_point_id``.  This prevents display text from being used as a
+    join key back to profile metadata.
+    """
+
+    entry_point_id: str
+    name: str
+
+    def to_dict(self) -> dict:
+        return {"entry_point_id": self.entry_point_id, "name": self.name}
+
+
+@dataclass
 class GapAttributions:
     """Funnel-stage attribution for each coverage gap.
 
-    Each dict maps an uncovered item name to one of:
+    Entry-point attributions are keyed by ``entry_point_id`` (canonical
+    identity), not by display name.  Other attributions (zones, threats,
+    attack patterns) remain keyed by their respective IDs.
+
+    Each dict maps an uncovered item key to one of:
       - ``"no_seed"``: no seed was generated for this item
       - ``"no_candidate"``: seed existed but no candidate was expanded
       - ``"rejected"``: candidate existed but was rejected at filtering
@@ -61,7 +81,7 @@ class GapAttributions:
 class CoverageGaps:
     """Structured result of coverage gap analysis."""
 
-    uncovered_entry_points: list[str] = field(default_factory=list)
+    uncovered_entry_points: list[EntryPointGap] = field(default_factory=list)
     uncovered_zones: list[str] = field(default_factory=list)
     uncovered_threats: list[str] = field(default_factory=list)
     uncovered_attack_patterns: list[str] = field(default_factory=list)
@@ -78,7 +98,9 @@ class CoverageGaps:
 
     def to_dict(self) -> dict:
         result: dict = {
-            "uncovered_entry_points": self.uncovered_entry_points,
+            "uncovered_entry_points": [
+                ep.to_dict() for ep in self.uncovered_entry_points
+            ],
             "uncovered_zones": self.uncovered_zones,
             "uncovered_threats": self.uncovered_threats,
             "uncovered_attack_patterns": self.uncovered_attack_patterns,
@@ -133,29 +155,64 @@ def analyze_coverage_gaps(
     Returns:
         CoverageGaps with lists of uncovered entry points, zones, and threats.
     """
-    # Collect normalized entry points used across all scenario narratives.
-    used_entry_points_normalized: set[str] = set()
+    # Collect entry point IDs used across all scenario provenance.
+    # Resolve canonical entry_point_id from candidate_filter provenance
+    # when available; for scenarios without provenance (e.g. remediation),
+    # resolve the narrative entry point name against the profile's
+    # canonical IDs.
+    used_entry_point_ids: set[str] = set()
     traversed_zones: set[str] = set()
     covered_threat_ids: set[str] = set()
     covered_attack_pattern_ids: set[str] = set()
 
+    # Build a normalized-name → set-of-entry_point_ids lookup from the
+    # profile so we can resolve fallback narrative display names to
+    # canonical IDs.  Using a set per name avoids collapsing same-name
+    # entry points with different canonical identities (e.g. different
+    # direction or controllability).  Normalization matches the old
+    # _normalize_entry_point behaviour (case, whitespace, punctuation).
+    # Only ingress-capable EPs are in the coverage universe, so the
+    # fallback map excludes output-only entries — otherwise an output EP
+    # with the same display name as a unique ingress EP would make the
+    # fallback appear ambiguous.
+    ep_name_to_ids: dict[str, set[str]] = {}
+    for ep in profile.entry_points:
+        if ep.direction == "output":
+            continue
+        key = _normalize_entry_point(ep.name)
+        ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
+
     for envelope in scenarios:
-        used_entry_points_normalized.add(
-            _normalize_entry_point(envelope.narrative.entry_point)
-        )
+        cf = envelope.candidate_filter or {}
+        ep_id = cf.get("entry_point_id")
+        if ep_id:
+            used_entry_point_ids.add(ep_id)
+        else:
+            # Fallback: resolve narrative entry point name against the
+            # profile's canonical IDs.  This handles remediation scenarios
+            # that don't carry candidate_filter provenance.  When a name
+            # maps to exactly one canonical ID (unique match), credit it.
+            # When a name maps to multiple canonical IDs (ambiguous), do
+            # NOT credit any — the identity is unresolved.
+            narrative_ep = envelope.narrative.entry_point
+            matched_ids = ep_name_to_ids.get(_normalize_entry_point(narrative_ep))
+            if matched_ids and len(matched_ids) == 1:
+                used_entry_point_ids.update(matched_ids)
+            # Ambiguous or unknown names must NOT inflate coverage.
         traversed_zones.update(envelope.narrative.zone_sequence)
         covered_threat_ids.update(envelope.faceting.taxonomy_chain.agentic_threat_ids)
         covered_attack_pattern_ids.add(envelope.faceting.taxonomy_chain.scenario_seed)
 
-    # 1. Uncovered entry points — compare using normalized strings.
-    # Only consider ingress-capable entry points (input/bidirectional) for
-    # coverage analysis — output-only entry points are not attacker ingress.
-    uncovered_entry_points = [
-        ep.name
-        for ep in profile.entry_points
-        if ep.direction != "output"
-        and _normalize_entry_point(ep.name) not in used_entry_points_normalized
-    ]
+    # 1. Uncovered entry points — compare using canonical entry_point_id.
+    # Only consider ingress-capable entry points (input/bidirectional).
+    uncovered_entry_points: list[EntryPointGap] = []
+    for ep in profile.entry_points:
+        if ep.direction == "output":
+            continue
+        if ep.entry_point_id not in used_entry_point_ids:
+            uncovered_entry_points.append(
+                EntryPointGap(entry_point_id=ep.entry_point_id, name=ep.name)
+            )
 
     # 2. Uncovered active zones
     uncovered_zones = sorted(
@@ -190,7 +247,7 @@ def analyze_coverage_gaps(
         logger.warning(
             "Coverage gap: %d entry point(s) with zero scenarios: %s",
             len(gaps.uncovered_entry_points),
-            gaps.uncovered_entry_points,
+            [ep.name for ep in gaps.uncovered_entry_points],
         )
     if gaps.uncovered_zones:
         logger.warning(

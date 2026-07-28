@@ -159,7 +159,9 @@ def compute_minimum_capability_level(
         if len(tech_ids) == 2:
             pair = (tech_ids[0], tech_ids[1])
             pair_rev = (tech_ids[1], tech_ids[0])
-            is_chain = pair in CHAIN_TECHNIQUE_PAIRS or pair_rev in CHAIN_TECHNIQUE_PAIRS
+            is_chain = (
+                pair in CHAIN_TECHNIQUE_PAIRS or pair_rev in CHAIN_TECHNIQUE_PAIRS
+            )
         if not is_chain:
             floor = _max_capability_level(floor, "intermediate")
 
@@ -219,9 +221,8 @@ def compute_compatible_actor_types(
     if ep_controllability == "indirect":
         # Exception: T2 + entry point contains "rag" or "knowledge"
         ep_name_lower = (entry_point_name or "").lower()
-        is_t2_rag = (
-            threat_id == "T2"
-            and ("rag" in ep_name_lower or "knowledge" in ep_name_lower)
+        is_t2_rag = threat_id == "T2" and (
+            "rag" in ep_name_lower or "knowledge" in ep_name_lower
         )
         if not is_t2_rag:
             compatible &= {"supply-chain-actor", "malicious-insider", "nation-state"}
@@ -311,6 +312,7 @@ def build_call0_context(
     pinned_technique_ids: list[str] | None = None,
     forced_actor_type: str | None = None,
     pinned_entry_point: str | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 0 (Actor Profile).
 
@@ -344,7 +346,9 @@ def build_call0_context(
     )
     # Look up EP controllability early so it's available for floor computation
     _ep_controllability_for_floor = _lookup_entry_point_controllability(
-        profile, pinned_entry_point
+        profile,
+        pinned_entry_point,
+        pinned_entry_point_id,
     )
     minimum_capability_level = compute_minimum_capability_level(
         _tech_ids_for_floor,
@@ -466,10 +470,14 @@ def build_call0_context(
 
     # Look up entry point direction and controllability from the capability profile
     pinned_entry_point_direction = _lookup_entry_point_direction(
-        profile, pinned_entry_point
+        profile,
+        pinned_entry_point,
+        pinned_entry_point_id,
     )
     pinned_entry_point_controllability = _lookup_entry_point_controllability(
-        profile, pinned_entry_point
+        profile,
+        pinned_entry_point,
+        pinned_entry_point_id,
     )
 
     # Build KC/KCX definition block for the prompt
@@ -517,6 +525,7 @@ def _call_actor_profile(
     pinned_technique_ids: list[str] | None = None,
     forced_actor_type: str | None = None,
     pinned_entry_point: str | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> tuple[ActorProfile, LLMResult]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
@@ -537,6 +546,7 @@ def _call_actor_profile(
         pinned_technique_ids=pinned_technique_ids,
         forced_actor_type=forced_actor_type,
         pinned_entry_point=pinned_entry_point,
+        pinned_entry_point_id=pinned_entry_point_id,
     )
 
     result = client.complete(

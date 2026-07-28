@@ -17,6 +17,7 @@ from scenario_forge.eval.diversity import score_diversity
 from scenario_forge.eval.gherkin import score_gherkin
 from scenario_forge.eval.grounding import score_grounding, score_technique_agreement
 from scenario_forge.eval.plausibility import score_plausibility
+from scenario_forge.models.capability_profile import CapabilityProfile
 
 
 def _load_scenarios(scenarios_dir: Path) -> list[tuple[str, dict[str, Any]]]:
@@ -130,22 +131,35 @@ def run_evaluation(
     cap_profile_path = output_dir / "capability-profile.yaml"
     expected_entry_points: int | None = None
     active_zones: set[str] | None = None
+    cap_profile: CapabilityProfile | None = None
 
     if cap_profile_path.exists():
         with open(cap_profile_path) as f:
             cap_data = yaml.safe_load(f)
         if cap_data and isinstance(cap_data, dict):
-            ep_list = cap_data.get("entry_points")
-            if isinstance(ep_list, list):
+            try:
+                cap_profile = CapabilityProfile.model_validate(cap_data)
                 # Only count ingress-capable entry points (direction != "output").
                 # Output-only EPs are structurally excluded from candidate
                 # expansion (candidates.py) and can never produce scenarios,
                 # so they must not inflate the coverage denominator.
                 ingress_eps = [
-                    ep for ep in ep_list
-                    if not (isinstance(ep, dict) and ep.get("direction") == "output")
+                    ep for ep in cap_profile.entry_points if ep.direction != "output"
                 ]
                 expected_entry_points = len(ingress_eps)
+            except Exception:
+                # If validation fails, fall back to raw dict extraction.
+                cap_profile = None
+                ep_list = cap_data.get("entry_points")
+                if isinstance(ep_list, list):
+                    ingress_eps = [
+                        ep
+                        for ep in ep_list
+                        if not (
+                            isinstance(ep, dict) and ep.get("direction") == "output"
+                        )
+                    ]
+                    expected_entry_points = len(ingress_eps)
             za_list = cap_data.get("zones_active")
             if isinstance(za_list, list):
                 active_zones = {str(z) for z in za_list}
@@ -155,6 +169,7 @@ def run_evaluation(
         scenarios,
         expected_entry_points=expected_entry_points,
         active_zones=active_zones,
+        profile=cap_profile,
     )
 
     # --- Plausibility ---

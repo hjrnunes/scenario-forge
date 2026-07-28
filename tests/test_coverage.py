@@ -34,7 +34,11 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+    compute_entry_point_id,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -59,12 +63,17 @@ from scenario_forge.models.scenario import ActorProfile
 from scenario_forge.pipeline.coverage import (
     AttackerDiversityResult,
     CoverageGaps,
+    EntryPointGap,
     _normalize_entry_point,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
     write_coverage_report,
 )
-from scenario_forge.pipeline.candidates import CandidateTriple, FilteredSeed
+from scenario_forge.pipeline.candidates import (
+    CandidateTriple,
+    FilteredSeed,
+    compute_candidate_id,
+)
 from scenario_forge.pipeline.runner import (
     _compute_gap_attributions,
     _pick_best_seed_for_entry_point,
@@ -230,7 +239,9 @@ def _make_profile(
         kc.append("KC2.3")
     kw = {}
     if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc):
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     return CapabilityProfile(
         zones_active=zones_active,
         entry_points=entry_points,
@@ -312,7 +323,8 @@ class TestCoverageGaps:
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {"ep-b (zone 2)", "ep-c (zone 3)"}
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {"ep-b (zone 2)", "ep-c (zone 3)"}
         assert gaps.has_gaps
 
     def test_all_entry_points_missing(self):
@@ -324,7 +336,8 @@ class TestCoverageGaps:
         scenarios: list[ScenarioEnvelope] = []
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {"ep-a (zone 1)", "ep-b (zone 2)"}
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {"ep-a (zone 1)", "ep-b (zone 2)"}
 
     def test_all_zones_covered(self):
         """When all active zones are traversed, no zone gaps."""
@@ -384,7 +397,7 @@ class TestCoverageGaps:
         threat_surface = _make_threat_surface([["T1"]])
 
         gaps = analyze_coverage_gaps(profile, threat_surface, [])
-        assert gaps.uncovered_entry_points == ["ep-a (zone 1)"]
+        assert [ep.name for ep in gaps.uncovered_entry_points] == ["ep-a (zone 1)"]
         assert gaps.uncovered_zones == ["input", "reasoning"]
         assert gaps.uncovered_threats == ["T1"]
         assert gaps.uncovered_attack_patterns == ["AP-T1-01"]
@@ -418,13 +431,17 @@ class TestCoverageGaps:
     def test_to_dict(self):
         """CoverageGaps.to_dict returns a serializable dict."""
         gaps = CoverageGaps(
-            uncovered_entry_points=["ep-a"],
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-a-id", name="ep-a")
+            ],
             uncovered_zones=["tool_execution"],
             uncovered_threats=["T5"],
             uncovered_attack_patterns=["AP-T5-01"],
         )
         d = gaps.to_dict()
-        assert d["uncovered_entry_points"] == ["ep-a"]
+        assert d["uncovered_entry_points"] == [
+            {"entry_point_id": "ep-a-id", "name": "ep-a"}
+        ]
         assert d["uncovered_zones"] == ["tool_execution"]
         assert d["uncovered_threats"] == ["T5"]
         assert d["uncovered_attack_patterns"] == ["AP-T5-01"]
@@ -435,7 +452,11 @@ class TestCoverageGaps:
         assert not gaps.has_gaps
 
     def test_has_gaps_true_for_entry_points(self):
-        gaps = CoverageGaps(uncovered_entry_points=["ep-a"])
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-a-id", name="ep-a")
+            ]
+        )
         assert gaps.has_gaps
 
     def test_has_gaps_true_for_zones(self):
@@ -460,12 +481,8 @@ class TestCoverageGaps:
         )
         profile = _make_profile()
         scenarios = [
-            _make_envelope(
-                agentic_threat_ids=["T1"], scenario_seed="AP-T1-01"
-            ),
-            _make_envelope(
-                agentic_threat_ids=["T1"], scenario_seed="AP-T1-02"
-            ),
+            _make_envelope(agentic_threat_ids=["T1"], scenario_seed="AP-T1-01"),
+            _make_envelope(agentic_threat_ids=["T1"], scenario_seed="AP-T1-02"),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -480,9 +497,7 @@ class TestCoverageGaps:
         profile = _make_profile()
         # Only AP-T9-03 produces a scenario; AP-T9-01 and AP-T9-05 have none.
         scenarios = [
-            _make_envelope(
-                agentic_threat_ids=["T9"], scenario_seed="AP-T9-03"
-            ),
+            _make_envelope(agentic_threat_ids=["T9"], scenario_seed="AP-T9-03"),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -503,9 +518,7 @@ class TestCoverageGaps:
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
         assert gaps.uncovered_threats == ["T8"]
-        assert gaps.uncovered_attack_patterns == [
-            "AP-T8-01", "AP-T8-02", "AP-T8-03"
-        ]
+        assert gaps.uncovered_attack_patterns == ["AP-T8-01", "AP-T8-02", "AP-T8-03"]
 
     def test_attack_patterns_across_multiple_entries(self):
         """AP coverage checks span all threat surface entries."""
@@ -515,12 +528,8 @@ class TestCoverageGaps:
         )
         profile = _make_profile()
         scenarios = [
-            _make_envelope(
-                agentic_threat_ids=["T1"], scenario_seed="AP-T1-01"
-            ),
-            _make_envelope(
-                agentic_threat_ids=["T2"], scenario_seed="AP-T2-01"
-            ),
+            _make_envelope(agentic_threat_ids=["T1"], scenario_seed="AP-T1-01"),
+            _make_envelope(agentic_threat_ids=["T2"], scenario_seed="AP-T2-01"),
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
@@ -609,7 +618,8 @@ class TestCoverageGapsEntryPointMatching:
         ]
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {
             "document uploads (zone 1)",
             "message queue (zone 3)",
         }
@@ -659,7 +669,8 @@ class TestCoverageGapsEntryPointMatching:
         scenarios: list[ScenarioEnvelope] = []
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        assert set(gaps.uncovered_entry_points) == {
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert uncovered_names == {
             "user prompts (zone 1)",
             "document uploads (zone 1)",
             "admin console (zone 2)",
@@ -746,8 +757,9 @@ class TestCoverageGapsEntryPointMatching:
 
         gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
         # Should preserve original casing from the profile
-        assert "User Prompts (Zone 1)" in gaps.uncovered_entry_points
-        assert "Admin Console (Zone 2)" in gaps.uncovered_entry_points
+        uncovered_names = {ep.name for ep in gaps.uncovered_entry_points}
+        assert "User Prompts (Zone 1)" in uncovered_names
+        assert "Admin Console (Zone 2)" in uncovered_names
 
 
 # ---------------------------------------------------------------------------
@@ -870,7 +882,9 @@ class TestWriteCoverageReport:
 
     def test_writes_json_file(self, tmp_path: Path):
         gaps = CoverageGaps(
-            uncovered_entry_points=["ep-a"],
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-a-id", name="ep-a")
+            ],
             uncovered_zones=["tool_execution"],
             uncovered_threats=["T5"],
         )
@@ -886,7 +900,9 @@ class TestWriteCoverageReport:
         assert path.name == "coverage-gaps.json"
 
         data = json.loads(path.read_text())
-        assert data["coverage_gaps"]["uncovered_entry_points"] == ["ep-a"]
+        assert data["coverage_gaps"]["uncovered_entry_points"] == [
+            {"entry_point_id": "ep-a-id", "name": "ep-a"}
+        ]
         assert data["coverage_gaps"]["uncovered_zones"] == ["tool_execution"]
         assert data["coverage_gaps"]["uncovered_threats"] == ["T5"]
         assert data["attacker_diversity"]["is_flagged"] is True
@@ -990,7 +1006,13 @@ class TestRemediateCoverageGaps:
 
     def test_no_seeds_records_skip_note(self, tmp_path: Path):
         """When seeds are empty, each uncovered EP gets a skip note."""
-        gaps = CoverageGaps(uncovered_entry_points=["chat input (zone 1)"])
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(
+                    entry_point_id="chat-input-id", name="chat input (zone 1)"
+                )
+            ]
+        )
         profile = _make_profile()
         client = MagicMock()
 
@@ -1009,7 +1031,12 @@ class TestRemediateCoverageGaps:
     ):
         """Each uncovered entry point should trigger one generate_scenario call."""
         uncovered = ["chat input (zone 1)", "admin dashboard (zone 2)"]
-        gaps = CoverageGaps(uncovered_entry_points=uncovered)
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id=f"ep-{i}-id", name=name)
+                for i, name in enumerate(uncovered)
+            ]
+        )
         profile = _make_profile(
             entry_points=[
                 "existing ep",
@@ -1050,7 +1077,10 @@ class TestRemediateCoverageGaps:
     ):
         """When generate_scenario raises, we record a note and continue."""
         gaps = CoverageGaps(
-            uncovered_entry_points=["ep-fail (zone 1)", "ep-ok (zone 2)"]
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id="ep-fail-id", name="ep-fail (zone 1)"),
+                EntryPointGap(entry_point_id="ep-ok-id", name="ep-ok (zone 2)"),
+            ]
         )
         profile = _make_profile(zones_active=["input", "reasoning"])
         seeds = [_make_seed()]
@@ -1081,7 +1111,13 @@ class TestRemediateCoverageGaps:
         self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """Verify generate_scenario receives the correct seed, profile, and use_case."""
-        gaps = CoverageGaps(uncovered_entry_points=["api gateway (zone 3)"])
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(
+                    entry_point_id="api-gateway-id", name="api gateway (zone 3)"
+                )
+            ]
+        )
         profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
         seed = _make_seed(seed_id="AP-T5-01")
         client = MagicMock()
@@ -1111,6 +1147,9 @@ def _make_candidate(
     entry_point: str = "user prompts (zone 1)",
 ) -> CandidateTriple:
     """Build a minimal CandidateTriple for testing."""
+    technique_ids = ("AML.T0051",)
+    ep_id = compute_entry_point_id(entry_point, "input", None)
+    cand_id = compute_candidate_id(seed_id, ep_id, technique_ids)
     return CandidateTriple(
         seed_id=seed_id,
         threat_id=threat_id,
@@ -1118,11 +1157,14 @@ def _make_candidate(
         attack_pattern_name=f"Attack pattern {seed_id}",
         attack_pattern_description=f"Description for {seed_id}.",
         entry_point=entry_point,
-        atlas_technique_ids=("AML.T0051",),
+        atlas_technique_ids=technique_ids,
         atlas_technique_names=("LLM Prompt Injection",),
         atlas_technique_descriptions=("Inject instructions into LLM prompts.",),
         risk_card_ref=_make_risk_card_ref(),
         owasp_llm_ids=["LLM01"],
+        direction="input",
+        entry_point_id=ep_id,
+        candidate_id=cand_id,
     )
 
 
@@ -1132,6 +1174,9 @@ def _make_filtered_seed(
     pinned_entry_point: str = "user prompts (zone 1)",
 ) -> FilteredSeed:
     """Build a minimal FilteredSeed for testing."""
+    technique_ids = ("AML.T0051",)
+    ep_id = compute_entry_point_id(pinned_entry_point, "input", None)
+    cand_id = compute_candidate_id(seed_id, ep_id, technique_ids)
     return FilteredSeed(
         seed_id=seed_id,
         threat_id=threat_id,
@@ -1142,8 +1187,10 @@ def _make_filtered_seed(
         owasp_llm_ids=["LLM01"],
         agentic_threat_ids=[threat_id],
         pinned_entry_point=pinned_entry_point,
-        pinned_technique_ids=("AML.T0051",),
+        pinned_technique_ids=technique_ids,
         pinned_technique_names=("LLM Prompt Injection",),
+        entry_point_id=ep_id,
+        candidate_id=cand_id,
     )
 
 
@@ -1232,7 +1279,11 @@ class TestComputeGapAttributions:
         phantom_seed_ids = {"AP-T9-03"}
 
         result = _compute_gap_attributions(
-            gaps, seeds, candidates, filtered, scenarios,
+            gaps,
+            seeds,
+            candidates,
+            filtered,
+            scenarios,
             phantom_seed_ids=phantom_seed_ids,
         )
         assert result.threats["T9"] == "phantom_flagged"
@@ -1256,7 +1307,11 @@ class TestComputeGapAttributions:
         phantom_seed_ids = {"AP-T9-03", "AP-T10-03"}
 
         result = _compute_gap_attributions(
-            gaps, seeds, candidates, filtered, scenarios,
+            gaps,
+            seeds,
+            candidates,
+            filtered,
+            scenarios,
             phantom_seed_ids=phantom_seed_ids,
         )
         assert result.attack_patterns["AP-T9-03"] == "phantom_flagged"
@@ -1264,17 +1319,26 @@ class TestComputeGapAttributions:
 
     def test_phantom_flagged_entry_point_attribution(self):
         """Entry point whose only scenarios were phantom-flagged gets phantom_flagged."""
-        gaps = CoverageGaps(uncovered_entry_points=["admin console (zone 2)"])
+        entry_point_id = compute_entry_point_id("admin console (zone 2)", "input", None)
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(
+                    entry_point_id=entry_point_id, name="admin console (zone 2)"
+                )
+            ]
+        )
         seeds = [_make_seed(seed_id="AP-T9-03", threat_id="T9")]
         candidates = [
             _make_candidate(
-                seed_id="AP-T9-03", threat_id="T9",
+                seed_id="AP-T9-03",
+                threat_id="T9",
                 entry_point="admin console (zone 2)",
             ),
         ]
         filtered = [
             _make_filtered_seed(
-                seed_id="AP-T9-03", threat_id="T9",
+                seed_id="AP-T9-03",
+                threat_id="T9",
                 pinned_entry_point="admin console (zone 2)",
             ),
         ]
@@ -1282,10 +1346,14 @@ class TestComputeGapAttributions:
         phantom_seed_ids = {"AP-T9-03"}
 
         result = _compute_gap_attributions(
-            gaps, seeds, candidates, filtered, scenarios,
+            gaps,
+            seeds,
+            candidates,
+            filtered,
+            scenarios,
             phantom_seed_ids=phantom_seed_ids,
         )
-        assert result.entry_points["admin console (zone 2)"] == "phantom_flagged"
+        assert result.entry_points[entry_point_id] == "phantom_flagged"
 
     def test_no_phantom_seed_ids_falls_through_to_generation_failed(self):
         """Without phantom_seed_ids, filtered seed with no scenario is generation_failed."""
@@ -1297,7 +1365,11 @@ class TestComputeGapAttributions:
 
         # No phantom_seed_ids passed -- old behavior
         result = _compute_gap_attributions(
-            gaps, seeds, candidates, filtered, scenarios,
+            gaps,
+            seeds,
+            candidates,
+            filtered,
+            scenarios,
         )
         assert result.attack_patterns["AP-T9-03"] == "generation_failed"
 
@@ -1321,7 +1393,11 @@ class TestComputeGapAttributions:
         phantom_seed_ids = {"AP-T9-03"}
 
         result = _compute_gap_attributions(
-            gaps, seeds, candidates, filtered, scenarios,
+            gaps,
+            seeds,
+            candidates,
+            filtered,
+            scenarios,
             phantom_seed_ids=phantom_seed_ids,
         )
         assert result.attack_patterns["AP-T9-03"] == "phantom_flagged"
@@ -1337,7 +1413,11 @@ class TestComputeGapAttributions:
         phantom_seed_ids = {"AP-T9-03"}
 
         result = _compute_gap_attributions(
-            gaps, seeds, candidates, filtered, scenarios,
+            gaps,
+            seeds,
+            candidates,
+            filtered,
+            scenarios,
             phantom_seed_ids=phantom_seed_ids,
         )
         # Earlier funnel stage (no_candidate) takes priority

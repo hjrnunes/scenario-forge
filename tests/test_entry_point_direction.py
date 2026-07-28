@@ -128,9 +128,7 @@ class TestBackwardCompatibility:
         assert result[0].direction == "bidirectional"
 
     def test_coerce_dict_with_direction(self):
-        result = _coerce_entry_points(
-            [{"name": "backend API", "direction": "output"}]
-        )
+        result = _coerce_entry_points([{"name": "backend API", "direction": "output"}])
         assert len(result) == 1
         assert result[0].name == "backend API"
         assert result[0].direction == "output"
@@ -141,11 +139,13 @@ class TestBackwardCompatibility:
         assert result[0] is ep
 
     def test_coerce_mixed_types(self):
-        result = _coerce_entry_points([
-            "plain string entry",
-            {"name": "dict entry", "direction": "output"},
-            EntryPoint(name="object entry", direction="input"),
-        ])
+        result = _coerce_entry_points(
+            [
+                "plain string entry",
+                {"name": "dict entry", "direction": "output"},
+                EntryPoint(name="object entry", direction="input"),
+            ]
+        )
         assert len(result) == 3
         assert result[0].name == "plain string entry"
         assert result[0].direction == "bidirectional"
@@ -206,7 +206,10 @@ class TestSerialization:
     def test_entry_point_to_dict(self):
         ep = EntryPoint(name="user chat", direction="input")
         d = ep.model_dump()
-        assert d == {"name": "user chat", "direction": "input", "controllability": None}
+        assert d["name"] == "user chat"
+        assert d["direction"] == "input"
+        assert d["controllability"] is None
+        assert d["entry_point_id"].startswith("ep:v1:")
 
     def test_entry_point_from_dict(self):
         d = {"name": "backend API", "direction": "output"}
@@ -230,8 +233,14 @@ class TestSerialization:
         )
         data = profile.model_dump(mode="json")
         ep_data = data["entry_points"]
-        assert ep_data[0] == {"name": "chat input", "direction": "input", "controllability": None}
-        assert ep_data[1] == {"name": "api calls", "direction": "output", "controllability": None}
+        assert ep_data[0]["name"] == "chat input"
+        assert ep_data[0]["direction"] == "input"
+        assert ep_data[0]["controllability"] is None
+        assert ep_data[0]["entry_point_id"].startswith("ep:v1:")
+        assert ep_data[1]["name"] == "api calls"
+        assert ep_data[1]["direction"] == "output"
+        assert ep_data[1]["controllability"] is None
+        assert ep_data[1]["entry_point_id"].startswith("ep:v1:")
 
     def test_profile_model_dump_reload(self):
         """Round-trip: profile -> dict -> profile preserves entry points."""
@@ -418,9 +427,21 @@ class TestStage1ToCapabilityProfile:
             multi_agent=False,
             hitl=False,
             entry_points=[
-                {"name": "user prompts", "direction": "input", "controllability": "direct"},
-                {"name": "RAG knowledge", "direction": "input", "controllability": "indirect"},
-                {"name": "backend calls", "direction": "output", "controllability": "system"},
+                {
+                    "name": "user prompts",
+                    "direction": "input",
+                    "controllability": "direct",
+                },
+                {
+                    "name": "RAG knowledge",
+                    "direction": "input",
+                    "controllability": "indirect",
+                },
+                {
+                    "name": "backend calls",
+                    "direction": "output",
+                    "controllability": "system",
+                },
                 {"name": "unknown", "direction": "input"},
             ],
             confidence="high",
@@ -447,11 +468,15 @@ class TestEntryPointControllability:
         assert ep.controllability == "direct"
 
     def test_controllability_indirect(self):
-        ep = EntryPoint(name="RAG knowledge", direction="input", controllability="indirect")
+        ep = EntryPoint(
+            name="RAG knowledge", direction="input", controllability="indirect"
+        )
         assert ep.controllability == "indirect"
 
     def test_controllability_system(self):
-        ep = EntryPoint(name="backend API", direction="output", controllability="system")
+        ep = EntryPoint(
+            name="backend API", direction="output", controllability="system"
+        )
         assert ep.controllability == "system"
 
     def test_controllability_default_none(self):
@@ -469,12 +494,18 @@ class TestEntryPointControllability:
     def test_model_dump_includes_controllability(self):
         ep = EntryPoint(name="chat", direction="input", controllability="direct")
         d = ep.model_dump()
-        assert d == {"name": "chat", "direction": "input", "controllability": "direct"}
+        assert d["name"] == "chat"
+        assert d["direction"] == "input"
+        assert d["controllability"] == "direct"
+        assert d["entry_point_id"].startswith("ep:v1:")
 
     def test_model_dump_controllability_none(self):
         ep = EntryPoint(name="chat", direction="input")
         d = ep.model_dump()
-        assert d == {"name": "chat", "direction": "input", "controllability": None}
+        assert d["name"] == "chat"
+        assert d["direction"] == "input"
+        assert d["controllability"] is None
+        assert d["entry_point_id"].startswith("ep:v1:")
 
     def test_json_round_trip_with_controllability(self):
         ep = EntryPoint(name="RAG store", direction="input", controllability="indirect")

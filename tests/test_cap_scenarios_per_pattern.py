@@ -14,8 +14,10 @@ import logging
 import pytest
 
 from scenario_forge.models.capability_profile import ConfidenceLevel
+from scenario_forge.models.capability_profile import compute_entry_point_id
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.candidates import FilteredSeed, cap_scenarios_per_pattern
+from scenario_forge.pipeline.candidates import compute_candidate_id
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +42,8 @@ def _make_filtered_seed(
     pinned_entry_point: str = "user prompts (input)",
     pinned_technique_ids: tuple[str, ...] = ("AML.T0051",),
 ) -> FilteredSeed:
+    ep_id = compute_entry_point_id(pinned_entry_point, "input", None)
+    cand_id = compute_candidate_id(seed_id, ep_id, pinned_technique_ids)
     return FilteredSeed(
         seed_id=seed_id,
         threat_id=threat_id,
@@ -52,6 +56,8 @@ def _make_filtered_seed(
         pinned_entry_point=pinned_entry_point,
         pinned_technique_ids=pinned_technique_ids,
         pinned_technique_names=tuple(f"Name-{t}" for t in pinned_technique_ids),
+        entry_point_id=ep_id,
+        candidate_id=cand_id,
     )
 
 
@@ -114,11 +120,31 @@ class TestCapScenariosPerPattern:
         # marginal coverage selects all 3 EPs (each one adds both a new
         # technique and a new entry point).
         seeds = [
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0051",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep2", pinned_technique_ids=("AML.T0054",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep3", pinned_technique_ids=("AML.T0053",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0051",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep2", pinned_technique_ids=("AML.T0054",)),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep1",
+                pinned_technique_ids=("AML.T0051",),
+            ),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep2",
+                pinned_technique_ids=("AML.T0054",),
+            ),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep3",
+                pinned_technique_ids=("AML.T0053",),
+            ),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep1",
+                pinned_technique_ids=("AML.T0051",),
+            ),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep2",
+                pinned_technique_ids=("AML.T0054",),
+            ),
         ]
         # Cap to 3: greedy picks ep1/T0051, ep2/T0054, ep3/T0053 (each
         # adds 1 new technique + 1 new entry point = marginal 2).
@@ -130,10 +156,26 @@ class TestCapScenariosPerPattern:
     def test_greedy_fills_remaining_slots(self):
         """After initial picks for technique/EP diversity, remaining slots fill greedily."""
         seeds = [
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0051",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0054",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep2", pinned_technique_ids=("AML.T0051",)),
-            _make_filtered_seed("AP-T7-01", pinned_entry_point="ep1", pinned_technique_ids=("AML.T0053",)),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep1",
+                pinned_technique_ids=("AML.T0051",),
+            ),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep1",
+                pinned_technique_ids=("AML.T0054",),
+            ),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep2",
+                pinned_technique_ids=("AML.T0051",),
+            ),
+            _make_filtered_seed(
+                "AP-T7-01",
+                pinned_entry_point="ep1",
+                pinned_technique_ids=("AML.T0053",),
+            ),
         ]
         # Cap to 3: greedy picks based on marginal technique + EP coverage.
         result = cap_scenarios_per_pattern(seeds, max_per_pattern=3)

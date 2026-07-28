@@ -19,10 +19,14 @@ from scenario_forge.data.loaders import (
 )
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
-from scenario_forge.models.capability_profile import ZONE_NAMES, CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    ZONE_NAMES,
+    CapabilityProfile,
+)
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateTriple,
+    FilterProtocolError,
     FilteredSeed,
     apply_rule_based_filter,
     cap_scenarios_per_pattern,
@@ -53,7 +57,6 @@ from scenario_forge.pipeline.io import (
 from scenario_forge.pipeline.coverage import (
     CoverageGaps,
     GapAttributions,
-    _normalize_entry_point,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
     write_coverage_report,
@@ -99,6 +102,7 @@ def _compute_gap_attributions(
     candidates: list[CandidateTriple],
     filtered_seeds: list[FilteredSeed],
     scenarios: list[ScenarioEnvelope],
+    profile: CapabilityProfile | None = None,
     phantom_seed_ids: set[str] | None = None,
 ) -> GapAttributions:
     """Attribute each coverage gap to the pipeline funnel stage where it fell out.
@@ -126,13 +130,8 @@ def _compute_gap_attributions(
     if phantom_seed_ids is None:
         _phantom_seed_ids: set[str] = set()
         for env in scenarios:
-            if (
-                env.validation is not None
-                and not env.validation.phantom.valid
-            ):
-                _phantom_seed_ids.add(
-                    env.faceting.taxonomy_chain.scenario_seed
-                )
+            if env.validation is not None and not env.validation.phantom.valid:
+                _phantom_seed_ids.add(env.faceting.taxonomy_chain.scenario_seed)
     else:
         _phantom_seed_ids = phantom_seed_ids
 
@@ -147,15 +146,11 @@ def _compute_gap_attributions(
     seed_ap_ids: set[str] = {s.seed_id for s in seeds}
     candidate_ap_ids: set[str] = {c.seed_id for c in candidates}
     filtered_ap_ids: set[str] = {f.seed_id for f in filtered_seeds}
-    # Normalized entry-point lookup sets.
+    # Entry-point lookup sets by canonical entry_point_id.
     # Note: seeds don't carry entry points; candidates are the first stage
     # that pairs seeds with entry points.
-    candidate_entry_points_norm: set[str] = {
-        _normalize_entry_point(c.entry_point) for c in candidates
-    }
-    filtered_entry_points_norm: set[str] = {
-        _normalize_entry_point(f.pinned_entry_point) for f in filtered_seeds
-    }
+    candidate_entry_points_norm: set[str] = {c.entry_point_id for c in candidates}
+    filtered_entry_points_norm: set[str] = {f.entry_point_id for f in filtered_seeds}
 
     # Phantom-flagged lookup: build threat/AP/EP sets from the seed IDs of
     # scenarios that were flagged by phantom validation.
@@ -165,9 +160,7 @@ def _compute_gap_attributions(
     for fs in filtered_seeds:
         if fs.seed_id in _phantom_seed_ids:
             phantom_threat_ids.add(fs.threat_id)
-            phantom_entry_points_norm.add(
-                _normalize_entry_point(fs.pinned_entry_point)
-            )
+            phantom_entry_points_norm.add(fs.entry_point_id)
 
     # Zone lookup sets (zones only exist in generated scenarios).
     scenario_zones: set[str] = set()
@@ -205,20 +198,20 @@ def _compute_gap_attributions(
             ap_attrs[ap_id] = "generation_failed"
 
     # --- Entry-point attribution ---
+    # Attribution is keyed by entry_point_id (canonical identity), not by
+    # display name.  EntryPointGap records carry both the ID and the name,
+    # so we join directly by ID.
     ep_attrs: dict[str, str] = {}
-    for ep in coverage_gaps.uncovered_entry_points:
-        ep_norm = _normalize_entry_point(ep)
-        if ep_norm not in candidate_entry_points_norm:
-            # Seeds don't track entry points; candidates are the first stage
-            # that does. If no candidate has this entry point, it means all
-            # seeds for this entry point were skipped (e.g. no ATLAS techniques).
-            ep_attrs[ep] = "no_candidate"
-        elif ep_norm not in filtered_entry_points_norm:
-            ep_attrs[ep] = "rejected"
-        elif ep_norm in phantom_entry_points_norm:
-            ep_attrs[ep] = "phantom_flagged"
+    for ep_gap in coverage_gaps.uncovered_entry_points:
+        ep_id = ep_gap.entry_point_id
+        if ep_id not in candidate_entry_points_norm:
+            ep_attrs[ep_id] = "no_candidate"
+        elif ep_id not in filtered_entry_points_norm:
+            ep_attrs[ep_id] = "rejected"
+        elif ep_id in phantom_entry_points_norm:
+            ep_attrs[ep_id] = "phantom_flagged"
         else:
-            ep_attrs[ep] = "generation_failed"
+            ep_attrs[ep_id] = "generation_failed"
 
     # --- Zone attribution ---
     zone_attrs: dict[str, str] = {}
@@ -315,20 +308,36 @@ def _remediate_coverage_gaps(
     logger.info(
         "[Remediation] %d uncovered entry point(s) to remediate: %s",
         len(uncovered),
-        uncovered,
+        [ep.name for ep in uncovered],
     )
 
-    for ep in uncovered:
-        seed = _pick_best_seed_for_entry_point(ep, seeds, profile)
+    # Track which entry_point_ids have already been remediated to avoid
+    # duplicate remediation.  EntryPointGap records carry the canonical
+    # entry_point_id directly, so no name-based guessing is needed.
+    remediated_ids: set[str] = set()
+
+    for ep_gap in uncovered:
+        ep_id: str | None = ep_gap.entry_point_id
+        ep_name: str = ep_gap.name
+
+        if ep_id in remediated_ids:
+            continue
+        if ep_id is not None:
+            remediated_ids.add(ep_id)
+
+        seed = _pick_best_seed_for_entry_point(ep_name, seeds, profile)
         if seed is None:
-            note = f"Remediation skipped for entry point '{ep}': no seeds available"
+            note = (
+                f"Remediation skipped for entry point '{ep_name}': no seeds available"
+            )
             logger.warning("  %s", note)
             generation_notes.append(note)
             continue
 
         logger.info(
-            "  Remediating entry point '%s' with seed %s (%s)...",
-            ep,
+            "  Remediating entry point '%s' (id=%s) with seed %s (%s)...",
+            ep_name,
+            ep_id or "none",
             seed.seed_id,
             seed.attack_pattern_name,
         )
@@ -357,9 +366,19 @@ def _remediate_coverage_gaps(
                 profile,
                 client,
                 use_case,
-                pinned_entry_point=ep,
+                pinned_entry_point=ep_name,
+                pinned_entry_point_id=ep_id,
                 attack_goal=selected_goal,
             )
+            # Attach candidate filter provenance so downstream coverage
+            # analysis resolves this scenario by canonical ID.
+            envelope.candidate_filter = {
+                "entry_point_id": ep_id,
+                "pinned_entry_point": ep_name,
+                "pinned_technique_ids": [],
+                "pinned_technique_names": [],
+                "rejection_rationales": [],
+            }
             write_scenario_outputs(envelope, scenarios_dir)
             write_call_log(call_log_entries, scenarios_dir)
             remediation_scenarios.append(envelope)
@@ -375,14 +394,14 @@ def _remediate_coverage_gaps(
             if exc.call_log_entries:
                 write_call_log(exc.call_log_entries, scenarios_dir)
             note = (
-                f"Remediation generation failed for entry point '{ep}' "
+                f"Remediation generation failed for entry point '{ep_name}' "
                 f"with seed {seed.seed_id}: {exc}"
             )
             logger.error("    %s", note)
             generation_notes.append(note)
         except Exception as exc:
             note = (
-                f"Remediation generation failed for entry point '{ep}' "
+                f"Remediation generation failed for entry point '{ep_name}' "
                 f"with seed {seed.seed_id}: {exc}"
             )
             logger.error("    %s", note)
@@ -466,15 +485,17 @@ def run_pipeline(
         elif not isinstance(raw_content, str):
             raw_content = str(raw_content)
         write_pipeline_call_log(
-            [{
-                "call": "capability_profile",
-                "system_prompt": profile_llm_result.system_prompt,
-                "user_prompt": profile_llm_result.user_prompt,
-                "response": raw_content,
-                "prompt_tokens": profile_llm_result.prompt_tokens,
-                "completion_tokens": profile_llm_result.completion_tokens,
-                "duration_ms": profile_llm_result.duration_ms,
-            }],
+            [
+                {
+                    "call": "capability_profile",
+                    "system_prompt": profile_llm_result.system_prompt,
+                    "user_prompt": profile_llm_result.user_prompt,
+                    "response": raw_content,
+                    "prompt_tokens": profile_llm_result.prompt_tokens,
+                    "completion_tokens": profile_llm_result.completion_tokens,
+                    "duration_ms": profile_llm_result.duration_ms,
+                }
+            ],
             output_dir,
         )
     if zones is not None:
@@ -492,14 +513,12 @@ def run_pipeline(
         kc_codes = list(profile.kc_subcodes)
         if "memory" not in filtered:
             kc_codes = [
-                kc for kc in kc_codes
+                kc
+                for kc in kc_codes
                 if kc not in {"KC4.3", "KC4.4", "KC4.5", "KC4.6", "KCX-PMEM"}
             ]
         if "inter_agent" not in filtered:
-            kc_codes = [
-                kc for kc in kc_codes
-                if kc not in {"KC2.3", "KCX-MAGENT"}
-            ]
+            kc_codes = [kc for kc in kc_codes if kc not in {"KC2.3", "KCX-MAGENT"}]
         if kc_codes != list(profile.kc_subcodes):
             updates["kc_subcodes"] = kc_codes
         # Strip zone tags from entry points whose zone is excluded.
@@ -525,7 +544,14 @@ def run_pipeline(
             else:
                 cleaned_entry_points.append(ep)
         if entry_points_changed:
-            updates["entry_points"] = cleaned_entry_points
+            # Re-run canonical dedup after zone-tag stripping — removing
+            # zone tags may cause two formerly-distinct entry points to
+            # become semantic duplicates or collide.
+            from scenario_forge.models.capability_profile import (
+                deduplicate_entry_points,
+            )
+
+            updates["entry_points"] = deduplicate_entry_points(cleaned_entry_points)
         profile = profile.model_copy(update=updates)
         logger.info("  Zone filter applied: %s", filtered)
 
@@ -595,9 +621,14 @@ def run_pipeline(
         )
 
     # Phase 2: LLM filter on survivors only.
-    filtered_seeds, filter_call_logs = filter_candidates(
-        rule_passed, seeds, client, use_case, profile
-    )
+    try:
+        filtered_seeds, filter_call_logs = filter_candidates(
+            rule_passed, seeds, client, use_case, profile
+        )
+    except FilterProtocolError as exc:
+        # Persist call/protocol evidence before failing the run.
+        write_pipeline_call_log(exc.call_log_entries, output_dir)
+        raise
     # Log candidate filter LLM calls to top-level calls.jsonl.
     write_pipeline_call_log(filter_call_logs, output_dir)
     candidates_accepted = len(filtered_seeds)
@@ -687,9 +718,12 @@ def run_pipeline(
                 pinned_technique_ids=list(fseed.pinned_technique_ids),
                 pinned_technique_names=list(fseed.pinned_technique_names),
                 prior_titles=tracker.prior_titles if tracker.prior_titles else None,
+                pinned_entry_point_id=fseed.entry_point_id,
             )
             # Attach candidate filter provenance data to the envelope.
             envelope.candidate_filter = {
+                "candidate_id": fseed.candidate_id,
+                "entry_point_id": fseed.entry_point_id,
                 "pinned_entry_point": fseed.pinned_entry_point,
                 "pinned_technique_ids": list(fseed.pinned_technique_ids),
                 "pinned_technique_names": list(fseed.pinned_technique_names),
@@ -754,7 +788,8 @@ def run_pipeline(
     logger.info("[Validation] Running structural (JSON Schema) validation...")
     validate_scenario_structure(scenarios)
     structural_fail_count = sum(
-        1 for s in scenarios
+        1
+        for s in scenarios
         if s.validation is not None and not s.validation.structural.valid
     )
     if structural_fail_count:
@@ -770,7 +805,8 @@ def run_pipeline(
     logger.info("[Validation] Running semantic validation...")
     validate_scenario_semantics(scenarios, profile)
     semantic_fail_count = sum(
-        1 for s in scenarios
+        1
+        for s in scenarios
         if s.validation is not None and not s.validation.semantic.valid
     )
     if semantic_fail_count:
@@ -861,10 +897,15 @@ def run_pipeline(
                 len(pruned_nodes),
                 pruned_scenario.scenario_id,
             )
-        for unprunable_scenario, leaf_count, budget in parsimony_result.unprunable_scenarios:
+        for (
+            unprunable_scenario,
+            leaf_count,
+            budget,
+        ) in parsimony_result.unprunable_scenarios:
             # Mark as unprunable so it's visible in the YAML
             if unprunable_scenario.validation is None:
                 from scenario_forge.models.scenario import ValidationBlock
+
                 unprunable_scenario.validation = ValidationBlock()
             unprunable_scenario.validation.parsimony_unprunable = (
                 f"Could not prune to budget: {leaf_count} leaves, budget {budget}"
@@ -894,7 +935,9 @@ def run_pipeline(
     for scenario in scenarios:
         write_scenario_outputs(scenario, scenarios_dir)
         rewrite_count += 1
-    logger.info("  %d scenario YAML(s) re-written with validation metadata", rewrite_count)
+    logger.info(
+        "  %d scenario YAML(s) re-written with validation metadata", rewrite_count
+    )
 
     # --- Coverage Remediation Pass ---
     # Check for uncovered entry points and generate additional scenarios
@@ -927,6 +970,7 @@ def run_pipeline(
             candidates,
             filtered_seeds,
             scenarios,
+            profile=profile,
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
