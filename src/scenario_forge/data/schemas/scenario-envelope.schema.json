@@ -19,7 +19,11 @@
     "scenario_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Stable identifier: <attack_pattern_id>-<hash>."
+      "description": "Collision-safe, run-specific identifier: scenario:<version>:<256-bit hex digest of run_id|candidate_id|attempt>."
+    },
+    "candidate_id": {
+      "type": ["string", "null"],
+      "description": "Stable canonical candidate identity (cand:v1:<128-bit hex>) that produced this scenario."
     },
     "version": {
       "type": "integer",

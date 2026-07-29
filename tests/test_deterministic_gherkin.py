@@ -12,10 +12,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
-from scenario_forge.models.capability_profile import CapabilityProfile, ConfidenceLevel, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ConfidenceLevel,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
 from scenario_forge.pipeline.generate import (
-    MAX_OR_PATHS,
     THREAT_VIOLATION_CATEGORY,
     _build_gherkin_template,
     _call_behavior_spec,
@@ -62,7 +65,9 @@ def _make_profile(
     kw = {}
     if "tool_execution" in z:
         kc.append("KC6.1.1")
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     if "memory" in z:
         kc.append("KC4.3")
     if "inter_agent" in z:
@@ -152,7 +157,9 @@ def _make_tree_deep() -> AttackTree:
                     zone="input",
                     children=[
                         _make_leaf("n1.1.1", "Direct injection", "input", "AML.T0051"),
-                        _make_leaf("n1.1.2", "Indirect injection", "input", "AML.T0043"),
+                        _make_leaf(
+                            "n1.1.2", "Indirect injection", "input", "AML.T0043"
+                        ),
                     ],
                 ),
                 AttackTreeNode(
@@ -161,7 +168,9 @@ def _make_tree_deep() -> AttackTree:
                     gate=GateType.AND,
                     zone="reasoning",
                     children=[
-                        _make_leaf("n1.2.1", "Manipulate reasoning", "reasoning", "AML.T0054"),
+                        _make_leaf(
+                            "n1.2.1", "Manipulate reasoning", "reasoning", "AML.T0054"
+                        ),
                         _make_leaf("n1.2.2", "Persist to memory", "memory"),
                     ],
                 ),
@@ -205,8 +214,18 @@ def _make_tree_with_or_gate() -> AttackTree:
                     gate=GateType.OR,
                     zone="reasoning",
                     children=[
-                        _make_leaf("n1.2.1", "Option 1 prompt injection", "reasoning", "AML.T0054"),
-                        _make_leaf("n1.2.2", "Option 2 data poisoning", "reasoning", "AML.T0020"),
+                        _make_leaf(
+                            "n1.2.1",
+                            "Option 1 prompt injection",
+                            "reasoning",
+                            "AML.T0054",
+                        ),
+                        _make_leaf(
+                            "n1.2.2",
+                            "Option 2 data poisoning",
+                            "reasoning",
+                            "AML.T0020",
+                        ),
                     ],
                 ),
                 _make_leaf("n1.3", "Step B exfiltrate data", "reasoning"),
@@ -243,8 +262,12 @@ def _make_tree_with_dual_or_gates() -> AttackTree:
                     gate=GateType.OR,
                     zone="reasoning",
                     children=[
-                        _make_leaf("n1.2.1", "Method X jailbreak", "reasoning", "AML.T0054"),
-                        _make_leaf("n1.2.2", "Method Y exploit", "reasoning", "AML.T0043"),
+                        _make_leaf(
+                            "n1.2.1", "Method X jailbreak", "reasoning", "AML.T0054"
+                        ),
+                        _make_leaf(
+                            "n1.2.2", "Method Y exploit", "reasoning", "AML.T0043"
+                        ),
                     ],
                 ),
             ],
@@ -265,7 +288,9 @@ def _make_tree_or_at_root() -> AttackTree:
             zone="input",
             children=[
                 _make_leaf("n1.1", "Direct attack via input", "input", "AML.T0051"),
-                _make_leaf("n1.2", "Indirect attack via reasoning", "reasoning", "AML.T0054"),
+                _make_leaf(
+                    "n1.2", "Indirect attack via reasoning", "reasoning", "AML.T0054"
+                ),
             ],
         ),
     )
@@ -465,7 +490,8 @@ class TestBuildGherkinTemplate:
         when_and_section = scenario_section.split(_ASSERTIONS_MARKER)[0]
         # Count lines starting with "    And " in the attack step block
         attack_and_lines = [
-            line for line in when_and_section.split("\n")
+            line
+            for line in when_and_section.split("\n")
             if line.strip().startswith("And ") and "(" in line and ")" in line
         ]
         assert len(attack_and_lines) == 0
@@ -485,7 +511,8 @@ class TestBuildGherkinTemplate:
         # Extract the attack step lines from the scenario section
         scenario_part = template.split("Scenario:")[1]
         attack_lines = [
-            line.strip() for line in scenario_part.split("\n")
+            line.strip()
+            for line in scenario_part.split("\n")
             if line.strip().startswith(("When ", "And "))
         ]
         # First is When (n1.1.1 Direct injection)
@@ -589,6 +616,7 @@ class TestBuildGherkinTemplate:
         assert "When AML.T0053 [AML.T0053]" not in template
         # Should use the ATLAS name instead
         from scenario_forge.data.atlas import ATLAS_TECHNIQUE_NAMES
+
         expected_name = ATLAS_TECHNIQUE_NAMES["AML.T0053"]
         assert f"When {expected_name} [AML.T0053] (input)" in template
         # Normal labels remain unchanged
@@ -645,11 +673,11 @@ class TestCallBehaviorSpecIntegration:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test chatbot system",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         # Verify complete structure
-        assert "@id:AP-T7-01-abc123" in gherkin
+        assert "@id:abc123" in gherkin
         assert "@misaligned-and-deceptive-behavior" in gherkin
         assert "Feature: Deceptive Response Generation" in gherkin
         assert "Background: Preconditions" in gherkin
@@ -678,7 +706,7 @@ class TestCallBehaviorSpecIntegration:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test system",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         assert _ASSERTIONS_MARKER not in gherkin
@@ -700,7 +728,7 @@ class TestCallBehaviorSpecIntegration:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         assert isinstance(result, tuple)
@@ -711,7 +739,9 @@ class TestCallBehaviorSpecIntegration:
         """Code fences in LLM output are stripped before splicing."""
         mock_client = MagicMock()
         mock_result = MagicMock()
-        mock_result.content = "```gherkin\nThen success criterion\nBut defense fails\n```"
+        mock_result.content = (
+            "```gherkin\nThen success criterion\nBut defense fails\n```"
+        )
         mock_result.prompt_tokens = 50
         mock_result.completion_tokens = 20
         mock_result.duration_ms = 500
@@ -724,7 +754,7 @@ class TestCallBehaviorSpecIntegration:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         assert "```" not in gherkin
@@ -746,7 +776,7 @@ class TestCallBehaviorSpecIntegration:
                 profile=_make_profile(),
                 client=mock_client,
                 use_case="Test",
-                scenario_hash="abc123",
+                scenario_tag="abc123",
             )
             assert False, "Should have raised ValueError"
         except ValueError as e:
@@ -769,12 +799,14 @@ class TestCallBehaviorSpecIntegration:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         # Verify the LLM was called with the skeleton in the user prompt
         call_args = mock_client.complete.call_args
-        user_prompt = call_args.kwargs.get("user_prompt", call_args[1] if len(call_args) > 1 else "")
+        user_prompt = call_args.kwargs.get(
+            "user_prompt", call_args[1] if len(call_args) > 1 else ""
+        )
         if not user_prompt:
             # Try positional args
             user_prompt = call_args[1][1] if len(call_args[1]) > 1 else ""
@@ -814,7 +846,7 @@ class TestAssertionIndentation:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test chatbot system",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         for line in gherkin.split("\n"):
@@ -829,9 +861,7 @@ class TestAssertionIndentation:
         mock_client = MagicMock()
         mock_result = MagicMock()
         mock_result.content = (
-            "Then attack succeeds\n"
-            "But defense is bypassed\n"
-            "* Data exfiltrated"
+            "Then attack succeeds\nBut defense is bypassed\n* Data exfiltrated"
         )
         mock_result.prompt_tokens = 50
         mock_result.completion_tokens = 20
@@ -847,18 +877,14 @@ class TestAssertionIndentation:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         lines = gherkin.split("\n")
         for line in lines:
             if line.strip().startswith("But ") or line.strip().startswith("* "):
-                assert not line.startswith("But "), (
-                    f"'But' at column 0: {line!r}"
-                )
-                assert not line.startswith("* "), (
-                    f"'*' at column 0: {line!r}"
-                )
+                assert not line.startswith("But "), f"'But' at column 0: {line!r}"
+                assert not line.startswith("* "), f"'*' at column 0: {line!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -904,7 +930,10 @@ class TestRawTechniqueNameSubstitution:
         # Should NOT contain the raw technique name as step text
         assert "When AI Agent Tool Invocation [AML.T0053]" not in template
         # Should use the description
-        assert "When Agent invokes external API beyond scope [AML.T0053] (tool_execution)" in template
+        assert (
+            "When Agent invokes external API beyond scope [AML.T0053] (tool_execution)"
+            in template
+        )
         # Normal labels remain unchanged
         assert "And Normal step label [AML.T0054] (reasoning)" in template
 
@@ -943,7 +972,10 @@ class TestRawTechniqueNameSubstitution:
         # Should NOT contain verbatim technique name as-is
         assert "When Indirect Prompt Injection [AML.T0051.001]" not in template
         # Should use generic fallback
-        assert "When Execute attack step via Indirect Prompt Injection [AML.T0051.001] (input)" in template
+        assert (
+            "When Execute attack step via Indirect Prompt Injection [AML.T0051.001] (input)"
+            in template
+        )
 
     def test_case_insensitive_technique_name_match(self):
         """Matching should be case-insensitive."""
@@ -1096,6 +1128,7 @@ class TestBuildGherkinTemplateOrGates:
         )
         # Should have 2 Scenario blocks
         import re
+
         scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
         assert scenario_count == 2
 
@@ -1133,11 +1166,16 @@ class TestBuildGherkinTemplateOrGates:
         )
         # Step A (AND-required leaf) appears in both scenarios
         import re
+
         step_a_count = len(re.findall(r"Step A initial access", template))
-        assert step_a_count == 2, f"Step A should appear in both scenarios, found {step_a_count}"
+        assert step_a_count == 2, (
+            f"Step A should appear in both scenarios, found {step_a_count}"
+        )
         # Step B appears in both too
         step_b_count = len(re.findall(r"Step B exfiltrate data", template))
-        assert step_b_count == 2, f"Step B should appear in both scenarios, found {step_b_count}"
+        assert step_b_count == 2, (
+            f"Step B should appear in both scenarios, found {step_b_count}"
+        )
 
     def test_or_gate_alternatives_in_separate_scenarios(self):
         """Each OR alternative appears in exactly one Scenario block."""
@@ -1150,6 +1188,7 @@ class TestBuildGherkinTemplateOrGates:
         )
         # Split by Scenario blocks
         import re
+
         blocks = re.split(r"^\s*Scenario:", template, flags=re.MULTILINE)
         # blocks[0] is header, blocks[1] is Path 1, blocks[2] is Path 2
         assert len(blocks) == 3
@@ -1169,6 +1208,7 @@ class TestBuildGherkinTemplateOrGates:
             scenario_tag="AP-T7-01-abc123",
         )
         import re
+
         scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
         assert scenario_count == 4
         assert template.count(_ASSERTIONS_MARKER) == 4
@@ -1183,6 +1223,7 @@ class TestBuildGherkinTemplateOrGates:
             scenario_tag="AP-T7-01-abc123",
         )
         import re
+
         scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
         assert scenario_count == 2
         assert "Direct attack via input" in template
@@ -1198,6 +1239,7 @@ class TestBuildGherkinTemplateOrGates:
             scenario_tag="AP-T7-01-abc123",
         )
         import re
+
         scenario_count = len(re.findall(r"^\s*Scenario:", template, re.MULTILINE))
         assert scenario_count == 1
         assert "(Path " not in template
@@ -1235,10 +1277,12 @@ class TestBuildGherkinTemplateOrGates:
             scenario_tag="AP-T7-01-abc123",
         )
         import re
+
         blocks = re.split(r"^\s*Scenario:", template, flags=re.MULTILINE)
         for block in blocks[1:]:  # skip header
             attack_lines = [
-                line.strip() for line in block.split("\n")
+                line.strip()
+                for line in block.split("\n")
                 if line.strip().startswith(("When ", "And ")) and "(" in line
             ]
             assert len(attack_lines) >= 1
@@ -1272,11 +1316,12 @@ class TestCallBehaviorSpecOrGates:
             profile=_make_profile(),
             client=mock_client,
             use_case="Test system",
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
 
         assert _ASSERTIONS_MARKER not in gherkin
         # Assertions should appear in both scenarios
         import re
+
         then_count = len(re.findall(r"Then the attack succeeds", gherkin))
         assert then_count == 2, f"Expected 2 Then blocks, got {then_count}"

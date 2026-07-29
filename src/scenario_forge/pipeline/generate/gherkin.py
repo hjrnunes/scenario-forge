@@ -157,8 +157,7 @@ def _build_gherkin_template(
 
     if len(paths) > MAX_OR_PATHS:
         logger.warning(
-            "Attack tree produces %d paths (OR-gate cross-product), "
-            "capping at %d",
+            "Attack tree produces %d paths (OR-gate cross-product), capping at %d",
             len(paths),
             MAX_OR_PATHS,
         )
@@ -171,8 +170,7 @@ def _build_gherkin_template(
     # Build a case-insensitive lookup of known ATLAS technique names so
     # we can detect when a leaf label is a verbatim technique name.
     _known_technique_names: dict[str, str] = {
-        name.lower(): tid
-        for tid, name in ATLAS_TECHNIQUE_NAMES.items()
+        name.lower(): tid for tid, name in ATLAS_TECHNIQUE_NAMES.items()
     }
 
     for path_idx, path_leaves in enumerate(paths, 1):
@@ -205,7 +203,7 @@ def _build_gherkin_template(
                     step_text = f"Execute attack step via {step_text}"
 
             if leaf.technique_id:
-                step_text = re.sub(r'\s*\[AML\.T\d+(?:\.\d+)?\]', '', step_text)
+                step_text = re.sub(r"\s*\[AML\.T\d+(?:\.\d+)?\]", "", step_text)
                 step_text += f" [{leaf.technique_id}]"
             step_text += f" ({leaf.zone})"
 
@@ -238,7 +236,7 @@ def build_call3_context(
     narrative: NarrativeLayer,
     attack_tree: AttackTree,
     profile: CapabilityProfile,
-    scenario_hash: str,
+    scenario_tag: str,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 3 (Behavior Spec).
 
@@ -248,7 +246,7 @@ def build_call3_context(
     Returns:
         Dict mapping template variable names to their values.
     """
-    scenario_tag = f"{seed.seed_id}-{scenario_hash}"
+    # scenario_tag is the full scenario_id (collision-safe, run-specific).
 
     # Build deterministic Gherkin skeleton from tree + narrative
     gherkin_template = _build_gherkin_template(
@@ -277,7 +275,7 @@ def _call_behavior_spec(
     profile: CapabilityProfile,
     client: LLMClient,
     use_case: str,
-    scenario_hash: str,
+    scenario_tag: str,
     pinned_technique_ids: list[str] | None = None,
 ) -> tuple[str, LLMResult]:
     """Generate a behavior spec for a scenario seed (Call 3).
@@ -293,7 +291,7 @@ def _call_behavior_spec(
         narrative=narrative,
         attack_tree=attack_tree,
         profile=profile,
-        scenario_hash=scenario_hash,
+        scenario_tag=scenario_tag,
     )
 
     result = client.complete(

@@ -347,7 +347,9 @@ class PhantomViolationRecord(BaseModel):
     """A single phantom capability violation persisted on the envelope."""
 
     step_number: int = Field(description="Narrative step number (0 for behavior_spec).")
-    field: str = Field(description="Which field triggered the match (action/effect/behavior_spec).")
+    field: str = Field(
+        description="Which field triggered the match (action/effect/behavior_spec)."
+    )
     category: str = Field(description="Violation category (e.g. privilege_escalation).")
     matched_text: str = Field(description="Substring that triggered the match.")
     reason: str = Field(description="Why this is phantom given the profile.")
@@ -356,7 +358,9 @@ class PhantomViolationRecord(BaseModel):
 class PhantomValidation(BaseModel):
     """Phantom capability validation results."""
 
-    valid: bool = Field(default=True, description="True if no phantom capabilities detected.")
+    valid: bool = Field(
+        default=True, description="True if no phantom capabilities detected."
+    )
     violations: list[PhantomViolationRecord] = Field(
         default_factory=list,
         description="List of phantom capability violations found.",
@@ -366,7 +370,9 @@ class PhantomValidation(BaseModel):
 class StructuralValidation(BaseModel):
     """Structural (JSON Schema) validation results."""
 
-    valid: bool = Field(default=True, description="True if the envelope passes JSON Schema validation.")
+    valid: bool = Field(
+        default=True, description="True if the envelope passes JSON Schema validation."
+    )
     violations: list[str] = Field(
         default_factory=list,
         description="List of JSON Schema validation error messages.",
@@ -376,7 +382,9 @@ class StructuralValidation(BaseModel):
 class SemanticViolation(BaseModel):
     """A single semantic validation violation."""
 
-    rule: str = Field(description="Rule identifier (e.g. technique_exists, zone_in_profile).")
+    rule: str = Field(
+        description="Rule identifier (e.g. technique_exists, zone_in_profile)."
+    )
     message: str = Field(description="Human-readable description of the violation.")
     severity: Literal["major", "moderate", "minor"] = Field(
         default="major",
@@ -387,7 +395,9 @@ class SemanticViolation(BaseModel):
 class SemanticValidation(BaseModel):
     """Semantic (Python logic) validation results."""
 
-    valid: bool = Field(default=True, description="True if no semantic violations detected.")
+    valid: bool = Field(
+        default=True, description="True if no semantic violations detected."
+    )
     violations: list[SemanticViolation] = Field(
         default_factory=list,
         description="List of semantic validation violations found.",
@@ -424,7 +434,19 @@ class ScenarioEnvelope(BaseModel):
     # --- Identity ---
 
     scenario_id: str = Field(
-        description="Stable identifier: <attack_pattern_id>-<hash>.",
+        description=(
+            "Collision-safe, run-specific identifier: "
+            "scenario:<version>:<256-bit hex digest of run_id|candidate_id|attempt>."
+        ),
+    )
+    candidate_id: str | None = Field(
+        default=None,
+        description=(
+            "Stable canonical candidate identity (cand:v1:<128-bit hex>) "
+            "that produced this scenario.  Separated from the run-specific "
+            "scenario_id so the same candidate across runs yields distinct "
+            "scenario IDs."
+        ),
     )
     version: int = Field(
         default=1,

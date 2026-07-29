@@ -46,7 +46,9 @@ def _make_seed(
     seed.threat_name = "Test Threat"
     seed.threat_description = "A test threat"
     seed.threat_id = threat_id
-    seed.atlas_technique_ids = technique_ids if technique_ids is not None else ["AML.T0054"]
+    seed.atlas_technique_ids = (
+        technique_ids if technique_ids is not None else ["AML.T0054"]
+    )
     seed.owasp_llm_ids = ["LLM01"]
     seed.agentic_threat_ids = ["T2"]
     seed.owasp_asi_ids = []
@@ -67,10 +69,16 @@ def _make_profile(
     codes = kc_subcodes if kc_subcodes is not None else ["KC1.1"]
     kw = {}
     if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     return CapabilityProfile(
-        zones_active=zones_active if zones_active is not None else ["input", "reasoning"],
-        entry_points=entry_points if entry_points is not None else [
+        zones_active=zones_active
+        if zones_active is not None
+        else ["input", "reasoning"],
+        entry_points=entry_points
+        if entry_points is not None
+        else [
             EntryPoint(
                 name="user prompts via chat interface",
                 direction="input",
@@ -481,7 +489,10 @@ class TestBuildCall1Context:
         )
         assert "adversarial-user" in ctx["actor_section"]
         assert "intermediate" in ctx["actor_section"]
-        assert "Beliefs" in ctx["actor_section"] or "beliefs" in ctx["actor_section"].lower()
+        assert (
+            "Beliefs" in ctx["actor_section"]
+            or "beliefs" in ctx["actor_section"].lower()
+        )
 
     def test_actor_section_empty_without_profile(self):
         """Actor section is empty when no actor_profile is provided."""
@@ -863,7 +874,7 @@ class TestBuildCall3Context:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         assert "gherkin_skeleton" in ctx
         assert "narrative" in ctx
@@ -876,7 +887,7 @@ class TestBuildCall3Context:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         assert "Feature: Test narrative" in ctx["gherkin_skeleton"]
 
@@ -887,9 +898,9 @@ class TestBuildCall3Context:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(seed_id="AP-T2-05"),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
-        assert "@id:AP-T2-05-abc123" in ctx["gherkin_skeleton"]
+        assert "@id:abc123" in ctx["gherkin_skeleton"]
 
     def test_gherkin_skeleton_contains_assertions_marker(self):
         """Gherkin skeleton contains the {ASSERTIONS} marker for splicing."""
@@ -898,7 +909,7 @@ class TestBuildCall3Context:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         assert "{ASSERTIONS}" in ctx["gherkin_skeleton"]
 
@@ -910,7 +921,7 @@ class TestBuildCall3Context:
             narrative=narrative,
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         assert ctx["narrative"] is narrative
 
@@ -922,7 +933,7 @@ class TestBuildCall3Context:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         assert ctx["seed"] is seed
 
@@ -933,7 +944,7 @@ class TestBuildCall3Context:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         assert "Background: Preconditions" in ctx["gherkin_skeleton"]
 
@@ -944,7 +955,7 @@ class TestBuildCall3Context:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         assert "user prompts via chat interface" in ctx["gherkin_skeleton"]
 
@@ -1125,7 +1136,7 @@ class TestContextBuildersRenderTemplates:
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
-            scenario_hash="abc123",
+            scenario_tag="abc123",
         )
         result = render_prompt("call3_user.j2", **ctx)
         assert "Test narrative" in result

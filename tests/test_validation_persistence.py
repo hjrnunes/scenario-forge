@@ -12,7 +12,6 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
-import pytest
 
 from scenario_forge.models.attack_tree import (
     AttackTree,
@@ -44,7 +43,10 @@ from scenario_forge.models.scenario import (
     TechniqueMaturity,
     ValidationBlock,
 )
-from scenario_forge.pipeline.generate import write_scenario_outputs
+from scenario_forge.pipeline.generate import (
+    replace_scenario_outputs,
+    write_scenario_outputs,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -220,12 +222,18 @@ class TestValidationPersistence:
     def test_validation_passed_false_when_phantom_fails(self, tmp_path: Path) -> None:
         """validation_passed should be False when phantom validation fails."""
         validation = ValidationBlock(
-            phantom=PhantomValidation(valid=False, violations=[
-                PhantomViolationRecord(
-                    step_number=1, field="action",
-                    category="network", matched_text="x", reason="y",
-                ),
-            ]),
+            phantom=PhantomValidation(
+                valid=False,
+                violations=[
+                    PhantomViolationRecord(
+                        step_number=1,
+                        field="action",
+                        category="network",
+                        matched_text="x",
+                        reason="y",
+                    ),
+                ],
+            ),
             structural=StructuralValidation(valid=True),
             semantic=SemanticValidation(valid=True),
         )
@@ -292,7 +300,7 @@ class TestRewriteIntegrity:
         )
         # Force sync
         envelope.validation_passed = True
-        write_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(envelope, tmp_path)
 
         rewritten_data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
 
@@ -317,7 +325,7 @@ class TestRewriteIntegrity:
         # Add validation and re-write
         envelope.validation = ValidationBlock()
         envelope.validation_passed = True
-        write_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(envelope, tmp_path)
 
         rewritten_data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
         rewritten_root = rewritten_data["attack_tree"]["root"]
@@ -339,7 +347,7 @@ class TestRewriteIntegrity:
         # Add validation and re-write
         envelope.validation = ValidationBlock()
         envelope.validation_passed = True
-        write_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(envelope, tmp_path)
 
         assert feature_path.read_text(encoding="utf-8") == original_feature
 
@@ -354,7 +362,7 @@ class TestRewriteIntegrity:
             semantic=SemanticValidation(valid=False, issues=["test issue"]),
         )
         envelope.validation_passed = False
-        write_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(envelope, tmp_path)
 
         yaml_path = tmp_path / "AP-T7-02-deadbeef.yaml"
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
@@ -438,6 +446,7 @@ class TestParsimonyIntegration:
 
         # The pruned tree should have fewer leaves
         from scenario_forge.pipeline.validation import _collect_leaves
+
         original_leaf_count = len(_collect_leaves(root))
         pruned_leaf_count = len(_collect_leaves(pruned_scenario.attack_tree.root))
         assert pruned_leaf_count < original_leaf_count
@@ -474,7 +483,10 @@ class TestParsimonyIntegration:
 
     def test_pruned_tree_written_to_yaml(self, tmp_path: Path) -> None:
         """After parsimony pruning, the re-written YAML should contain the pruned tree."""
-        from scenario_forge.pipeline.validation import enforce_parsimony, _collect_leaves
+        from scenario_forge.pipeline.validation import (
+            enforce_parsimony,
+            _collect_leaves,
+        )
 
         root = AttackTreeNode(
             id="n1",
@@ -547,6 +559,7 @@ class TestParsimonyIntegration:
 
         # The written tree should have fewer children than original
         written_root = data["attack_tree"]["root"]
+
         # Count leaves in the written tree (recursively)
         def count_leaves(node: dict) -> int:
             if not node.get("children"):

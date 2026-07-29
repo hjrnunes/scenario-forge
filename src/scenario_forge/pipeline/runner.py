@@ -25,22 +25,28 @@ from scenario_forge.models.capability_profile import (
 )
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
+    CandidateFunnel,
     CandidateTriple,
     FilterProtocolError,
     FilteredSeed,
+    StageRecord,
     apply_rule_based_filter,
     cap_scenarios_per_pattern,
+    compute_candidate_id,
     expand_candidates,
     filter_candidates,
 )
 from scenario_forge.pipeline.diversity import DiversityTracker
 from scenario_forge.pipeline.generate import (
     GenerationError,
+    compute_artifact_hash,
     compute_entry_point_affinity,
     compute_compatible_goal_ids,
     filter_sub_goals_by_zones,
+    generate_run_id,
     generate_scenario,
     get_all_sub_goals,
+    replace_scenario_outputs,
     select_attack_goal,
     write_call_log,
     write_scenario_outputs,
@@ -275,6 +281,7 @@ def _remediate_coverage_gaps(
     client: LLMClient,
     use_case: str,
     scenarios_dir: Path,
+    run_id: str = "",
     available_goals: list[dict] | None = None,
     goal_usage: Counter | None = None,
 ) -> tuple[list[ScenarioEnvelope], list[str]]:
@@ -361,6 +368,10 @@ def _remediate_coverage_gaps(
                 pass
 
         try:
+            # Compute a candidate_id for remediation scenarios.
+            remediation_candidate_id = compute_candidate_id(
+                seed.seed_id, ep_id or "", []
+            )
             envelope, call_log_entries = generate_scenario(
                 seed,
                 profile,
@@ -369,6 +380,8 @@ def _remediate_coverage_gaps(
                 pinned_entry_point=ep_name,
                 pinned_entry_point_id=ep_id,
                 attack_goal=selected_goal,
+                run_id=run_id,
+                candidate_id=remediation_candidate_id,
             )
             # Attach candidate filter provenance so downstream coverage
             # analysis resolves this scenario by canonical ID.
@@ -467,8 +480,12 @@ def run_pipeline(
 
     client = LLMClient(base_url=base_url, api_key=api_key, model=model)
 
+    # --- Per-invocation run identity (minimal seam for cmps.1) ---
+    run_id = generate_run_id()
+    logger.info("Run ID: %s", run_id)
+
     # --- I/O boundary: pipeline setup (output dir, use-case, manifest sentinel) ---
-    timestamp_start = setup_pipeline_output(output_dir, use_case)
+    timestamp_start = setup_pipeline_output(output_dir, use_case, run_id=run_id)
 
     # --- Stage 1: Capability Profile Inference ---
     if profile_path is not None:
@@ -604,20 +621,54 @@ def run_pipeline(
 
     # --- Stage 3.5: Candidate Expansion + Filtering (hybrid) ---
     logger.info("[Stage 3.5] Expanding and filtering candidates...")
-    candidates = expand_candidates(seeds, profile, max_techniques=max_techniques)
-    candidates_expanded = len(candidates)
+    stage_records: list[StageRecord] = []
+
+    # expand_candidates deduplicates internally and records its stage.
+    candidates = expand_candidates(
+        seeds,
+        profile,
+        max_techniques=max_techniques,
+        stage_records=stage_records,
+    )
+    expansion_record = (
+        stage_records[-1]
+        if stage_records
+        else StageRecord(
+            stage="expansion", input_count=0, output_count=0, collapsed_count=0
+        )
+    )
+    expanded_instances = expansion_record.input_count
+    unique_pre_rule_identities = expansion_record.output_count
 
     # Phase 1: Deterministic rule-based pre-filter.
+    # apply_rule_based_filter deduplicates internally and records its stage.
     rule_passed, rule_rejected, rule_verdicts = apply_rule_based_filter(
-        candidates, profile
+        candidates, profile, stage_records=stage_records
     )
     rule_rejected_count = len(rule_rejected)
+    # Count rule-transformed candidates (those with rule_pruning origins).
+    rule_transformed_count = sum(
+        1
+        for c in rule_passed
+        if any(o.transform_stage == "rule_pruning" for o in c.origins)
+    )
+    # Get post-rule collapse count from the typed stage record.
+    rule_stage = (
+        stage_records[-1]
+        if stage_records
+        else StageRecord(
+            stage="rule_pruning", input_count=0, output_count=0, collapsed_count=0
+        )
+    )
+    post_rule_collapsed = rule_stage.collapsed_count
+    filter_submitted = len(rule_passed)
+
     if rule_rejected_count:
         logger.info(
             "  Rule pre-filter: %d/%d candidates rejected, %d passed to LLM",
             rule_rejected_count,
-            candidates_expanded,
-            len(rule_passed),
+            unique_pre_rule_identities,
+            filter_submitted,
         )
 
     # Phase 2: LLM filter on survivors only.
@@ -631,14 +682,13 @@ def run_pipeline(
         raise
     # Log candidate filter LLM calls to top-level calls.jsonl.
     write_pipeline_call_log(filter_call_logs, output_dir)
-    candidates_accepted = len(filtered_seeds)
-    candidates_rejected = candidates_expanded - candidates_accepted
+    filter_accepted = len(filtered_seeds)
     logger.info(
         "  %d candidates -> %d rule-rejected, %d LLM-filtered -> %d accepted",
-        candidates_expanded,
+        unique_pre_rule_identities,
         rule_rejected_count,
-        len(rule_passed) - candidates_accepted,
-        candidates_accepted,
+        filter_submitted - filter_accepted,
+        filter_accepted,
     )
 
     # Apply per-pattern cap if requested.
@@ -646,7 +696,9 @@ def run_pipeline(
     if max_scenarios_per_pattern is not None:
         pre_cap_count = len(filtered_seeds)
         filtered_seeds = cap_scenarios_per_pattern(
-            filtered_seeds, max_scenarios_per_pattern
+            filtered_seeds,
+            max_scenarios_per_pattern,
+            stage_records=stage_records,
         )
         candidates_capped = pre_cap_count - len(filtered_seeds)
         if candidates_capped > 0:
@@ -657,12 +709,16 @@ def run_pipeline(
                 len(filtered_seeds),
                 candidates_capped,
             )
+    selected_count = len(filtered_seeds)
 
     # --- Stage 4: Scenario Generation ---
     logger.info("[Stage 4] Generating %d scenarios...", len(filtered_seeds))
     scenarios_dir = get_scenarios_dir(output_dir)
     scenarios: list[ScenarioEnvelope] = []
     failed_count = 0
+    attempted_count = 0
+    admitted_candidate_ids: set[str] = set()
+    admitted_scenario_ids: set[str] = set()
 
     tracker = DiversityTracker()
     total_seeds = len(filtered_seeds)
@@ -703,6 +759,16 @@ def run_pipeline(
         )
 
         try:
+            # Guard against duplicate candidate admission.
+            if fseed.candidate_id in admitted_candidate_ids:
+                raise GenerationError(
+                    f"Duplicate candidate admission: candidate_id "
+                    f"'{fseed.candidate_id}' already admitted. "
+                    f"This is a fatal integrity error.",
+                    seed_id=fseed.seed_id,
+                )
+
+            attempted_count += 1
             envelope, call_log_entries = generate_scenario(
                 fseed,
                 profile,
@@ -719,6 +785,8 @@ def run_pipeline(
                 pinned_technique_names=list(fseed.pinned_technique_names),
                 prior_titles=tracker.prior_titles if tracker.prior_titles else None,
                 pinned_entry_point_id=fseed.entry_point_id,
+                run_id=run_id,
+                candidate_id=fseed.candidate_id,
             )
             # Attach candidate filter provenance data to the envelope.
             envelope.candidate_filter = {
@@ -727,13 +795,24 @@ def run_pipeline(
                 "pinned_entry_point": fseed.pinned_entry_point,
                 "pinned_technique_ids": list(fseed.pinned_technique_ids),
                 "pinned_technique_names": list(fseed.pinned_technique_names),
+                "origins": [o.model_dump(mode="json") for o in fseed.origins],
                 "rejection_rationales": [
                     v.model_dump() for v in fseed.rejection_rationales
                 ],
             }
 
+            # Guard against duplicate scenario ID.
+            if envelope.scenario_id in admitted_scenario_ids:
+                raise GenerationError(
+                    f"Duplicate scenario ID: '{envelope.scenario_id}' "
+                    f"already admitted. This is a fatal integrity error.",
+                    seed_id=fseed.seed_id,
+                )
+
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
             write_call_log(call_log_entries, scenarios_dir)
+            admitted_candidate_ids.add(fseed.candidate_id)
+            admitted_scenario_ids.add(envelope.scenario_id)
             scenarios.append(envelope)
 
             # Update diversity counters for subsequent seeds.
@@ -929,11 +1008,13 @@ def run_pipeline(
         )
 
     # --- Persist validation marks to scenario YAMLs ---
-    # Re-write scenario files so validation blocks reach disk.
+    # Guarded replacement of scenario files so validation blocks reach disk.
+    # Uses replace_scenario_outputs (not write_scenario_outputs) to prove
+    # same scenario/stem and never silently overwrite.
     logger.info("[Post-Validation] Re-writing scenario YAMLs with validation marks...")
     rewrite_count = 0
     for scenario in scenarios:
-        write_scenario_outputs(scenario, scenarios_dir)
+        replace_scenario_outputs(scenario, scenarios_dir)
         rewrite_count += 1
     logger.info(
         "  %d scenario YAML(s) re-written with validation metadata", rewrite_count
@@ -951,6 +1032,7 @@ def run_pipeline(
             client,
             use_case,
             scenarios_dir,
+            run_id=run_id,
             available_goals=available_goals,
             goal_usage=tracker.goal_usage,
         )
@@ -974,9 +1056,61 @@ def run_pipeline(
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
+    # --- Compute artifact hashes for manifest provenance ---
+    artifact_records: list[dict] = []
+    scenarios_dir_final = get_scenarios_dir(output_dir)
+    if scenarios_dir_final.is_dir():
+        for yaml_file in sorted(scenarios_dir_final.glob("*.yaml")):
+            yaml_bytes = yaml_file.read_bytes()
+            record: dict = {
+                "yaml_path": f"scenarios/{yaml_file.name}",
+                "yaml_sha256": compute_artifact_hash(yaml_bytes),
+            }
+            feature_file = yaml_file.with_suffix(".feature")
+            if feature_file.exists():
+                feature_bytes = feature_file.read_bytes()
+                record["feature_path"] = f"scenarios/{feature_file.name}"
+                record["feature_sha256"] = compute_artifact_hash(feature_bytes)
+                # Verify stem match.
+                if feature_file.stem != yaml_file.stem:
+                    raise ValueError(
+                        f"YAML/feature stem mismatch: {yaml_file.name} vs "
+                        f"{feature_file.name}"
+                    )
+            artifact_records.append(record)
+
+    persisted_artifacts = len(artifact_records)
+
+    # --- Compute quarantine count ---
+    quarantined_count = sum(
+        1
+        for s in scenarios
+        if s.validation is not None
+        and (
+            not s.validation.phantom.valid
+            or not s.validation.structural.valid
+            or not s.validation.semantic.valid
+        )
+    )
+
     # --- Write final run manifest — single complete build ---
+    funnel = CandidateFunnel(
+        expanded_instances=expanded_instances,
+        unique_pre_rule_identities=unique_pre_rule_identities,
+        rule_rejected=rule_rejected_count,
+        rule_transformed=rule_transformed_count,
+        post_rule_collapsed=post_rule_collapsed,
+        filter_submitted=filter_submitted,
+        filter_accepted=filter_accepted,
+        selected=selected_count,
+        attempted=attempted_count,
+        admitted=len(scenarios),
+        quarantined=quarantined_count,
+        persisted_artifacts=persisted_artifacts,
+    )
     manifest = {
         "version": importlib.metadata.version("scenario-forge"),
+        "run_id": run_id,
         "timestamp_start": timestamp_start,
         "timestamp_end": datetime.now(timezone.utc).isoformat(),
         "inputs": {
@@ -993,10 +1127,8 @@ def run_pipeline(
             "prompt_template_hashes": hash_prompt_templates(),
         },
         "seeds_generated": len(seeds),
-        "candidates_expanded": candidates_expanded,
-        "candidates_rule_rejected": rule_rejected_count,
-        "candidates_accepted": candidates_accepted,
-        "candidates_rejected": candidates_rejected,
+        "funnel": funnel.model_dump(),
+        "stage_records": [r.model_dump() for r in stage_records],
         **(
             {
                 "max_scenarios_per_pattern": max_scenarios_per_pattern,
@@ -1007,6 +1139,7 @@ def run_pipeline(
         ),
         "scenarios_generated": len(scenarios),
         "scenarios_failed": failed_count,
+        "artifacts": artifact_records,
         "phantom_validation": {
             "flagged_count": validation_result.flagged_count,
             "violation_categories": validation_result.violation_categories,

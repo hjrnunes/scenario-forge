@@ -63,6 +63,133 @@ def compute_candidate_id(
 
 
 # ---------------------------------------------------------------------------
+# Typed stage / funnel records
+# ---------------------------------------------------------------------------
+
+
+class StageRecord(BaseModel):
+    """Typed record for a single candidate transform stage.
+
+    Captures exact input/output counts and the number of identities
+    that collapsed during canonicalization.  Counts are derived from
+    the canonical sets produced by ``canonicalize_and_dedup``, not
+    from potentially duplicated list lengths.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    stage: str = Field(
+        description=(
+            "Transform stage name: 'expansion', 'rule_pruning', or 'capping'."
+        ),
+    )
+    input_count: int = Field(
+        description="Number of candidates entering the stage (pre-dedup).",
+    )
+    output_count: int = Field(
+        description="Number of unique candidates after canonicalization.",
+    )
+    collapsed_count: int = Field(
+        description=(
+            "Number of identities that collapsed during dedup "
+            "(input_count - output_count)."
+        ),
+    )
+
+
+class CandidateFunnel(BaseModel):
+    """Typed container for the full candidate-to-scenario funnel.
+
+    Every count is derived from typed stage records or canonical sets,
+    never from potentially duplicated list lengths.  The funnel is
+    persisted in the run manifest and consumed by report templates.
+    """
+
+    expanded_instances: int = Field(
+        description="Raw candidate instances produced by expansion (pre-dedup).",
+    )
+    unique_pre_rule_identities: int = Field(
+        description="Unique canonical identities after expansion dedup.",
+    )
+    rule_rejected: int = Field(
+        description="Candidates fully rejected by deterministic rules.",
+    )
+    rule_transformed: int = Field(
+        description="Candidates that had at least one technique pruned by rules.",
+    )
+    post_rule_collapsed: int = Field(
+        description="Identities that collapsed during rule-pruning dedup.",
+    )
+    filter_submitted: int = Field(
+        description="Unique candidates submitted to the LLM filter.",
+    )
+    filter_accepted: int = Field(
+        description="Candidates accepted by the LLM filter.",
+    )
+    selected: int = Field(
+        description="Candidates remaining after capping/selection.",
+    )
+    attempted: int = Field(
+        description="Generation attempts made.",
+    )
+    admitted: int = Field(
+        description="Scenarios successfully generated and written to disk.",
+    )
+    quarantined: int = Field(
+        description="Scenarios that failed validation (quarantined).",
+    )
+    persisted_artifacts: int = Field(
+        description="YAML/feature artifact pairs persisted to disk.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Candidate origin provenance
+# ---------------------------------------------------------------------------
+
+
+class CandidateOrigin(BaseModel):
+    """Provenance record for one source candidate that contributed to a
+    merged/deduplicated candidate.
+
+    When identity-changing transforms (rule pruning, capping) cause
+    multiple candidates to converge to the same canonical identity,
+    each source candidate's provenance is retained in this record.
+    Never first-wins — all origins are preserved.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_candidate_id: str = Field(
+        description="Original candidate_id before the transform.",
+    )
+    original_technique_ids: tuple[str, ...] = Field(
+        description="Technique IDs in the source candidate before pruning.",
+    )
+    applied_rule: str | None = Field(
+        default=None,
+        description=(
+            "Rule that caused the transform (e.g. '_rule_direct_vs_indirect'). "
+            "None for expansion-stage origins."
+        ),
+    )
+    removed_technique_ids: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Technique IDs removed by the transform.",
+    )
+    removal_reasons: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Human-readable reason for each removed technique.",
+    )
+    transform_stage: str = Field(
+        description=(
+            "Pipeline stage where the origin was recorded: "
+            "'expansion', 'rule_pruning', or 'capping'."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pre-filter: one (attack_pattern, entry_point, atlas_technique) candidate
 # ---------------------------------------------------------------------------
 
@@ -116,6 +243,14 @@ class CandidateTriple(BaseModel):
     )
     candidate_id: str = Field(
         description="Canonical, deterministic candidate identity (cand:v1:<hash>).",
+    )
+    origins: tuple[CandidateOrigin, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "Source candidate origins (provenance for converged candidates). "
+            "Each entry records a source candidate_id, original technique set, "
+            "applied rule, removed techniques/reasons, and transform stage."
+        ),
     )
 
     @model_validator(mode="after")
@@ -250,6 +385,13 @@ class FilteredSeed(ScenarioSeed):
     candidate_id: str = Field(
         description="Canonical candidate identity of the accepted candidate.",
     )
+    origins: list[CandidateOrigin] = Field(
+        default_factory=list,
+        description=(
+            "Source candidate origins (provenance for converged candidates). "
+            "Carried from the candidate through to the scenario envelope."
+        ),
+    )
     rejection_rationales: list[RejectionRecord] = Field(
         default_factory=list,
         description="Sibling candidates that were rejected (for provenance tab).",
@@ -265,6 +407,7 @@ def expand_candidates(
     seeds: list[ScenarioSeed],
     profile: CapabilityProfile,
     max_techniques: int = 1,
+    stage_records: list[StageRecord] | None = None,
 ) -> list[CandidateTriple]:
     """Cross-product each seed with all entry points and ATLAS technique combos.
 
@@ -281,9 +424,13 @@ def expand_candidates(
         seeds: Output of ``expand_seeds()`` (Stage 3).
         profile: Capability profile with ``entry_points`` list.
         max_techniques: Maximum number of techniques in a combo (default 1).
+        stage_records: Optional list to append a :class:`StageRecord`
+            capturing pre-dedup/post-dedup counts.  When provided, the
+            caller receives typed records for funnel accounting.
 
     Returns:
-        Flat list of CandidateTriple, one per combination.
+        Flat list of deduplicated CandidateTriple, one per unique
+        canonical identity.
     """
     if not profile.entry_points:
         logger.warning("Profile has no entry points — returning empty candidate list")
@@ -401,6 +548,17 @@ def expand_candidates(
                             ),
                             risk_card_ref=seed.risk_card_ref,
                             owasp_llm_ids=seed.owasp_llm_ids,
+                            origins=(
+                                CandidateOrigin(
+                                    source_candidate_id=compute_candidate_id(
+                                        seed.seed_id,
+                                        ep_id,
+                                        tech_combo,
+                                    ),
+                                    original_technique_ids=tech_combo,
+                                    transform_stage="expansion",
+                                ),
+                            ),
                         )
                     )
 
@@ -423,6 +581,19 @@ def expand_candidates(
         )
 
     _check_candidate_collisions(candidates)
+
+    # Canonicalize and deduplicate immediately after expansion.
+    raw_count = len(candidates)
+    candidates = canonicalize_and_dedup(candidates, stage="expansion")
+    if stage_records is not None:
+        stage_records.append(
+            StageRecord(
+                stage="expansion",
+                input_count=raw_count,
+                output_count=len(candidates),
+                collapsed_count=raw_count - len(candidates),
+            )
+        )
     return candidates
 
 
@@ -468,6 +639,81 @@ def _check_candidate_collisions(candidates: list[CandidateTriple]) -> None:
             )
         else:
             seen[c.candidate_id] = identity
+
+
+def canonicalize_and_dedup(
+    candidates: list[CandidateTriple],
+    stage: str,
+) -> list[CandidateTriple]:
+    """Canonicalize by ``(seed_id, entry_point_id, sorted unique technique IDs)``
+    and deduplicate immediately.
+
+    When multiple candidates converge to the same canonical identity
+    (e.g. after rule-based technique pruning), produces **one** final
+    candidate carrying **all** source origins.  Never first-wins
+    provenance — every source candidate's origin is preserved.
+
+    Args:
+        candidates: List of candidates after an identity-changing transform.
+        stage: Transform stage name for origin records
+            (``"expansion"``, ``"rule_pruning"``, or ``"capping"``).
+
+    Returns:
+        Deduplicated list of candidates with merged origins.
+
+    Raises:
+        ValueError: If two candidates with the same canonical identity
+            but different ``candidate_id`` values are found (a hash
+            collision or forged ID — should be impossible given
+            ``compute_candidate_id`` is deterministic).
+    """
+    if not candidates:
+        return []
+
+    groups: dict[tuple[str, str, tuple[str, ...]], list[CandidateTriple]] = defaultdict(
+        list
+    )
+    for c in candidates:
+        key = (
+            c.seed_id,
+            c.entry_point_id,
+            tuple(sorted(set(c.atlas_technique_ids))),
+        )
+        groups[key].append(c)
+
+    result: list[CandidateTriple] = []
+    collapsed_count = 0
+    for key, group in groups.items():
+        if len(group) == 1:
+            result.append(group[0])
+            continue
+
+        # Multiple candidates converged — merge origins.
+        collapsed_count += len(group) - 1
+        all_origins: list[CandidateOrigin] = []
+        for c in group:
+            all_origins.extend(c.origins)
+
+        # Use the first as template but set merged origins.
+        template = group[0]
+        merged = CandidateTriple.model_validate(
+            template.model_dump(mode="python")
+            | {
+                "origins": tuple(all_origins),
+            }
+        )
+        result.append(merged)
+
+    if collapsed_count:
+        logger.info(
+            "Canonicalize (%s): %d candidates -> %d unique identities (%d collapsed)",
+            stage,
+            len(candidates),
+            len(result),
+            collapsed_count,
+        )
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -825,6 +1071,7 @@ def filter_candidates(
                         pinned_technique_names=cand.atlas_technique_names,
                         entry_point_id=cand.entry_point_id,
                         candidate_id=cand.candidate_id,
+                        origins=list(cand.origins),
                         rejection_rationales=rejection_records,
                     )
                 )
@@ -1252,21 +1499,23 @@ def _run_rules_on_technique(
     entry_point_name: str,
     ep_type: str,
     profile: CapabilityProfile,
-) -> tuple[bool, str | None]:
+) -> tuple[bool, str | None, str | None]:
     """Run all rules on a single (technique, entry_point) pair.
 
-    Returns (True, rationale) on first rejection, (False, None) if all pass.
+    Returns (True, rationale, rule_name) on first rejection,
+    (False, None, None) if all pass.
     """
     for rule in _ALL_RULES:
         reject, rationale = rule(technique_id, entry_point_name, ep_type, profile)
         if reject:
-            return True, rationale
-    return False, None
+            return True, rationale, rule.__name__
+    return False, None, None
 
 
 def apply_rule_based_filter(
     candidates: list[CandidateTriple],
     profile: CapabilityProfile,
+    stage_records: list[StageRecord] | None = None,
 ) -> tuple[list[CandidateTriple], list[CandidateTriple], list[RejectionRecord]]:
     """Run deterministic rules on candidates, rejecting structural impossibilities.
 
@@ -1279,12 +1528,15 @@ def apply_rule_based_filter(
     Args:
         candidates: Output of :func:`expand_candidates`.
         profile: Capability profile (provides entry-point directions).
+        stage_records: Optional list to append a :class:`StageRecord`
+            for the rule-pruning dedup stage.
 
     Returns:
         Tuple of (rule_passed, rule_rejected, rejection_verdicts).
-        ``rule_passed`` candidates proceed to the LLM filter.
-        ``rule_rejected`` candidates are dropped with rationales.
-        ``rejection_verdicts`` are RejectionRecord objects for provenance.
+        ``rule_passed`` candidates are deduplicated and proceed to the
+        LLM filter.  ``rule_rejected`` candidates are dropped with
+        rationales.  ``rejection_verdicts`` are RejectionRecord objects
+        for provenance.
     """
     if not candidates:
         return [], [], []
@@ -1335,13 +1587,16 @@ def apply_rule_based_filter(
         compatible_names: list[str] = []
         compatible_descs: list[str] = []
         combo_rationales: list[str] = []
+        removed_tids: list[str] = []
+        removed_reasons: list[str] = []
+        removed_rules: list[str] = []
 
         for tid, tname, tdesc in zip(
             candidate.atlas_technique_ids,
             candidate.atlas_technique_names,
             candidate.atlas_technique_descriptions,
         ):
-            reject, rationale = _run_rules_on_technique(
+            reject, rationale, rule_name = _run_rules_on_technique(
                 tid,
                 candidate.entry_point,
                 ep_type,
@@ -1349,6 +1604,9 @@ def apply_rule_based_filter(
             )
             if reject:
                 combo_rationales.append(rationale)  # type: ignore[arg-type]
+                removed_tids.append(tid)
+                removed_reasons.append(rationale)  # type: ignore[arg-type]
+                removed_rules.append(rule_name)  # type: ignore[arg-type]
             else:
                 compatible_ids.append(tid)
                 compatible_names.append(tname)
@@ -1377,10 +1635,24 @@ def apply_rule_based_filter(
                 pruned,
                 candidate.entry_point,
             )
+            original_candidate_id = candidate.candidate_id
+            original_technique_ids = candidate.atlas_technique_ids
             new_candidate_id = compute_candidate_id(
                 candidate.seed_id,
                 candidate.entry_point_id,
                 compatible_ids,
+            )
+            # Build origin record for this pruning transform.
+            # Use the first rejecting rule as the applied_rule (there
+            # may be multiple, but one per removed technique).
+            applied_rule = removed_rules[0] if removed_rules else None
+            pruning_origin = CandidateOrigin(
+                source_candidate_id=original_candidate_id,
+                original_technique_ids=original_technique_ids,
+                applied_rule=applied_rule,
+                removed_technique_ids=tuple(removed_tids),
+                removal_reasons=tuple(removed_reasons),
+                transform_stage="rule_pruning",
             )
             # Reconstruct the pruned candidate through model_validate so
             # canonical IDs are re-validated and nested collections are
@@ -1394,6 +1666,7 @@ def apply_rule_based_filter(
                     "atlas_technique_names": tuple(compatible_names),
                     "atlas_technique_descriptions": tuple(compatible_descs),
                     "candidate_id": new_candidate_id,
+                    "origins": candidate.origins + (pruning_origin,),
                 }
             )
 
@@ -1407,10 +1680,20 @@ def apply_rule_based_filter(
             len(rule_passed),
         )
 
-    # Re-check for candidate collisions after rule pruning — pruning
-    # techniques may cause two formerly-distinct candidates to converge
-    # to the same candidate_id.
-    _check_candidate_collisions(rule_passed)
+    # Canonicalize and deduplicate immediately after rule pruning —
+    # pruning techniques may cause two formerly-distinct candidates to
+    # converge to the same canonical identity.
+    raw_passed_count = len(rule_passed)
+    rule_passed = canonicalize_and_dedup(rule_passed, stage="rule_pruning")
+    if stage_records is not None:
+        stage_records.append(
+            StageRecord(
+                stage="rule_pruning",
+                input_count=raw_passed_count,
+                output_count=len(rule_passed),
+                collapsed_count=raw_passed_count - len(rule_passed),
+            )
+        )
 
     return rule_passed, rule_rejected, rejection_verdicts
 
@@ -1423,6 +1706,7 @@ def apply_rule_based_filter(
 def cap_scenarios_per_pattern(
     filtered_seeds: Sequence[FilteredSeed],
     max_per_pattern: int,
+    stage_records: list[StageRecord] | None = None,
 ) -> list[FilteredSeed]:
     """Cap the number of filtered seeds per attack pattern (seed_id).
 
@@ -1503,5 +1787,58 @@ def cap_scenarios_per_pattern(
             len(selected),
         )
         result.extend(selected)
+
+    # Canonicalize and deduplicate after capping — although capping
+    # selects a subset, canonicalization ensures no duplicate identities
+    # persist through the selection transform.
+    pre_dedup_count = len(result)
+    result = _dedup_filtered_seeds(result)
+    if stage_records is not None:
+        stage_records.append(
+            StageRecord(
+                stage="capping",
+                input_count=pre_dedup_count,
+                output_count=len(result),
+                collapsed_count=pre_dedup_count - len(result),
+            )
+        )
+
+    return result
+
+
+def _dedup_filtered_seeds(
+    filtered_seeds: list[FilteredSeed],
+) -> list[FilteredSeed]:
+    """Deduplicate FilteredSeeds by canonical identity.
+
+    Groups by ``(seed_id, entry_point_id, sorted unique pinned_technique_ids)``
+    and merges origins when duplicates are found.
+    """
+    if not filtered_seeds:
+        return []
+
+    groups: dict[tuple[str, str, tuple[str, ...]], list[FilteredSeed]] = defaultdict(
+        list
+    )
+    for fs in filtered_seeds:
+        key = (
+            fs.seed_id,
+            fs.entry_point_id,
+            tuple(sorted(set(fs.pinned_technique_ids))),
+        )
+        groups[key].append(fs)
+
+    result: list[FilteredSeed] = []
+    for group in groups.values():
+        if len(group) == 1:
+            result.append(group[0])
+            continue
+        # Merge origins from all duplicates.
+        all_origins: list[CandidateOrigin] = []
+        for fs in group:
+            all_origins.extend(fs.origins)
+        template = group[0]
+        merged = template.model_copy(update={"origins": all_origins})
+        result.append(merged)
 
     return result

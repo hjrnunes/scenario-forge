@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 import yaml
@@ -129,9 +129,7 @@ class TestWriteCapabilityProfile:
 
 
 class TestWriteThreatSurface:
-    def test_writes_yaml_file(
-        self, output_dir: Path, minimal_threat_surface
-    ) -> None:
+    def test_writes_yaml_file(self, output_dir: Path, minimal_threat_surface) -> None:
         output_dir.mkdir(parents=True)
         path = write_threat_surface(minimal_threat_surface, output_dir)
 
@@ -224,9 +222,7 @@ class TestWriteFinalManifest:
         output_dir.mkdir(parents=True)
         # Write sentinel first
         sentinel_path = output_dir / "run-manifest.yaml"
-        sentinel_path.write_text(
-            yaml.dump({"status": "started"}), encoding="utf-8"
-        )
+        sentinel_path.write_text(yaml.dump({"status": "started"}), encoding="utf-8")
 
         # Final manifest should overwrite
         manifest = {"version": "0.1.0", "scenarios_generated": 10}
@@ -444,7 +440,7 @@ class TestRunnerUsesIOBoundary:
             )
 
             # All I/O boundary functions should have been called
-            mock_setup.assert_called_once_with(output_dir, "A test chatbot")
+            mock_setup.assert_called_once_with(output_dir, "A test chatbot", run_id=ANY)
             mock_write_profile.assert_called_once()
             mock_write_ts.assert_called_once()
             mock_write_manifest.assert_called_once()

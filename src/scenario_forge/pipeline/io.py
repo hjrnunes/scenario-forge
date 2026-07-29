@@ -28,12 +28,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def setup_pipeline_output(output_dir: Path, use_case: str) -> str:
+def setup_pipeline_output(
+    output_dir: Path,
+    use_case: str,
+    run_id: str = "",
+) -> str:
     """Create output directory, persist the use-case, and write a manifest sentinel.
 
     Args:
         output_dir: Root output directory for this pipeline run.
         use_case: Free-text description of the AI system under assessment.
+        run_id: Per-invocation collision-safe run ID (optional, recorded
+            in the sentinel manifest).
 
     Returns:
         ISO-format UTC timestamp recorded as the pipeline start time.
@@ -43,16 +49,15 @@ def setup_pipeline_output(output_dir: Path, use_case: str) -> str:
 
     timestamp_start = datetime.now(timezone.utc).isoformat()
     manifest_path = output_dir / "run-manifest.yaml"
+    sentinel: dict = {
+        "status": "started",
+        "timestamp_start": timestamp_start,
+        "version": importlib.metadata.version("scenario-forge"),
+    }
+    if run_id:
+        sentinel["run_id"] = run_id
     manifest_path.write_text(
-        yaml.dump(
-            {
-                "status": "started",
-                "timestamp_start": timestamp_start,
-                "version": importlib.metadata.version("scenario-forge"),
-            },
-            default_flow_style=False,
-            sort_keys=False,
-        ),
+        yaml.dump(sentinel, default_flow_style=False, sort_keys=False),
         encoding="utf-8",
     )
     return timestamp_start
