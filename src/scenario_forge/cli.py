@@ -57,7 +57,7 @@ def generate(
     ),
     output_dir: Path = typer.Option(
         "output",
-        help="Output directory for pipeline artifacts.",
+        help="Output collection directory for pipeline artifacts (each run creates a child directory).",
     ),
     cross_taxonomy: Path | None = typer.Option(
         None,
@@ -114,7 +114,8 @@ def generate(
     """Run the full scenario generation pipeline (stages 1-4)."""
     from scenario_forge.log_config import setup_logging
 
-    setup_logging(log_level=log_level, output_dir=output_dir, structured=structured)
+    # Console-only logging until the run directory is resolved
+    setup_logging(log_level=log_level)
     typer.echo(f"\nscenario-forge v{_VERSION} — generate\n{'=' * 40}")
 
     use_case_text = _resolve_use_case(use_case)
@@ -145,6 +146,8 @@ def generate(
             max_scenarios_per_pattern=max_scenarios_per_pattern,
             zones=zones,
             eval=eval,
+            log_level=log_level,
+            structured=structured,
         )
 
         typer.echo("\nPipeline complete.")
@@ -152,7 +155,7 @@ def generate(
             f"  Scenarios generated: {len(result.scenarios)}/{len(result.seeds)}"
         )
         typer.echo(f"  Governance-only:     {result.governance_only_count}")
-        typer.echo(f"  Output directory:    {output_dir}")
+        typer.echo(f"  Run directory:       {result.run_dir}")
 
     except Exception as exc:
         msg = f"\nError: {exc}"
@@ -166,7 +169,7 @@ def generate(
 def report(
     output_dir: Path = typer.Option(
         "output",
-        help="Output directory containing pipeline artifacts.",
+        help="Run directory (or collection) containing pipeline artifacts.",
     ),
     log_level: str = typer.Option(
         "INFO",
@@ -181,11 +184,11 @@ def report(
     """Generate an HTML report from pipeline output."""
     from scenario_forge.log_config import setup_logging
 
-    setup_logging(log_level=log_level, output_dir=output_dir, structured=structured)
+    setup_logging(log_level=log_level, output_dir=None)
     typer.echo(f"\nscenario-forge v{_VERSION} — report\n{'=' * 40}")
 
     if not output_dir.exists():
-        typer.echo(f"Error: output directory not found: {output_dir}", err=True)
+        typer.echo(f"Error: directory not found: {output_dir}", err=True)
         raise typer.Exit(code=1)
 
     try:
@@ -193,7 +196,11 @@ def report(
         from scenario_forge.report.generator import generate_report
 
         report_data = load_report_data(output_dir)
-        report_path = generate_report(report_data, output_dir)
+        # Write report to the resolved run directory
+        from scenario_forge.manifest import find_run_dir
+
+        actual_run_dir = find_run_dir(output_dir)
+        report_path = generate_report(report_data, actual_run_dir)
         typer.echo(f"\nReport written to {report_path}")
 
     except Exception as exc:
@@ -288,7 +295,7 @@ def profile(
 def eval_cmd(
     output_dir: Path = typer.Option(
         ...,
-        help="Output directory containing pipeline artifacts.",
+        help="Run directory (or collection) containing pipeline artifacts.",
     ),
     format: str = typer.Option(
         "yaml",
@@ -307,15 +314,16 @@ def eval_cmd(
     """Evaluate generated scenario quality (Tier 1: deterministic metrics)."""
     from scenario_forge.log_config import setup_logging
 
-    setup_logging(log_level=log_level, output_dir=output_dir, structured=structured)
+    setup_logging(log_level=log_level, output_dir=None)
     typer.echo(f"\nscenario-forge v{_VERSION} — eval\n{'=' * 40}")
 
     if not output_dir.exists():
-        typer.echo(f"Error: output directory not found: {output_dir}", err=True)
+        typer.echo(f"Error: directory not found: {output_dir}", err=True)
         raise typer.Exit(code=1)
 
     try:
         from scenario_forge.eval.runner import run_evaluation
+        from scenario_forge.manifest import find_run_dir
 
         scorecard = run_evaluation(output_dir)
 
@@ -334,8 +342,9 @@ def eval_cmd(
         typer.echo("")
         typer.echo(output_text)
 
-        # Write scorecard to output directory
-        scorecard_path = output_dir / output_filename
+        # Write scorecard to the resolved run directory
+        actual_run_dir = find_run_dir(output_dir)
+        scorecard_path = actual_run_dir / output_filename
         scorecard_path.write_text(output_text, encoding="utf-8")
         typer.echo(f"Scorecard written to {scorecard_path}")
 

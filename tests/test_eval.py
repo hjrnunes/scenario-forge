@@ -36,6 +36,7 @@ from scenario_forge.eval.plausibility import (
     score_plausibility,
 )
 from scenario_forge.eval.runner import run_evaluation
+from tests.manifest_helpers import build_test_run_dir
 
 
 # ---------------------------------------------------------------------------
@@ -1021,11 +1022,9 @@ class TestScorePlausibility:
 class TestRunEvaluation:
     def test_with_synthetic_data(self, tmp_path: Path):
         """Integration test: write synthetic data and run full evaluation."""
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
-
         zone_names = ["input", "reasoning", "tool_execution", "memory", "inter_agent"]
-        # Write scenario YAML files
+        scenarios = []
+        feature_files = {}
         for i in range(3):
             s = _make_scenario(
                 scenario_id=f"T7-S{i + 1}-abc{i:03d}",
@@ -1035,16 +1034,13 @@ class TestRunEvaluation:
                 actor_type=["adversarial-user", "cybercriminal", "nation-state"][i],
                 capability_level=["novice", "intermediate", "advanced"][i],
             )
-            yaml_path = scenarios_dir / f"scenario-{i}.yaml"
-            yaml_path.write_text(
-                yaml.dump(s, default_flow_style=False), encoding="utf-8"
-            )
+            scenarios.append(s)
+            feature_files[s["scenario_id"]] = _GHERKIN_VALID
 
-            # Write matching .feature files
-            feature_path = scenarios_dir / f"scenario-{i}.feature"
-            feature_path.write_text(_GHERKIN_VALID, encoding="utf-8")
-
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(
+            tmp_path / "run", scenarios=scenarios, feature_files=feature_files
+        )
+        scorecard = run_evaluation(run_dir)
 
         assert "evaluation" in scorecard
         ev = scorecard["evaluation"]
@@ -1073,43 +1069,31 @@ class TestRunEvaluation:
 
     def test_empty_directory(self, tmp_path: Path):
         """Should handle empty output directory gracefully."""
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
-
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(tmp_path / "run")
+        scorecard = run_evaluation(run_dir)
         assert scorecard["evaluation"]["scenario_count"] == 0
 
     def test_no_scenarios_dir(self, tmp_path: Path):
         """Should handle missing scenarios directory."""
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(tmp_path / "run")
+        scorecard = run_evaluation(run_dir)
         assert scorecard["evaluation"]["scenario_count"] == 0
 
     def test_scenarios_without_features(self, tmp_path: Path):
         """Should work with YAML files but no .feature files."""
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
-
         s = _make_scenario()
-        yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
-
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(tmp_path / "run", scenarios=[s])
+        scorecard = run_evaluation(run_dir)
         assert scorecard["evaluation"]["scenario_count"] == 1
         assert scorecard["evaluation"]["feature_file_count"] == 0
 
     def test_with_capability_profile(self, tmp_path: Path):
         """Runner loads capability-profile.yaml and passes context to diversity."""
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
-
         s = _make_scenario(
             entry_point="user prompts",
             zone_sequence=["input", "reasoning"],
         )
-        yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
 
-        # Write a capability profile
         cap_profile = {
             "zones_active": ["input", "reasoning", "tool_execution"],
             "entry_points": [
@@ -1119,12 +1103,10 @@ class TestRunEvaluation:
             "confidence": "high",
             "kc_subcodes": ["KC1.1", "KC6.1.1"],
         }
-        cap_path = tmp_path / "capability-profile.yaml"
-        cap_path.write_text(
-            yaml.dump(cap_profile, default_flow_style=False), encoding="utf-8"
+        run_dir = build_test_run_dir(
+            tmp_path / "run", profile_data=cap_profile, scenarios=[s]
         )
-
-        scorecard = run_evaluation(tmp_path)
+        scorecard = run_evaluation(run_dir)
         ev = scorecard["evaluation"]
         diversity = ev["diversity"]
 
@@ -1142,14 +1124,9 @@ class TestRunEvaluation:
 
     def test_without_capability_profile(self, tmp_path: Path):
         """Without a capability profile, diversity returns bare floats."""
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
-
         s = _make_scenario()
-        yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
-
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(tmp_path / "run", scenarios=[s])
+        scorecard = run_evaluation(run_dir)
         diversity = scorecard["evaluation"]["diversity"]
 
         # Should be plain floats, not dicts
@@ -1158,14 +1135,9 @@ class TestRunEvaluation:
 
     def test_scorecard_yaml_serializable(self, tmp_path: Path):
         """Scorecard should be serializable to YAML and JSON."""
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
-
         s = _make_scenario()
-        yaml_path = scenarios_dir / "scenario-0.yaml"
-        yaml_path.write_text(yaml.dump(s, default_flow_style=False), encoding="utf-8")
-
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(tmp_path / "run", scenarios=[s])
+        scorecard = run_evaluation(run_dir)
 
         # YAML roundtrip
         yaml_text = yaml.dump(scorecard, default_flow_style=False)

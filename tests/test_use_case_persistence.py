@@ -79,13 +79,13 @@ def test_use_case_written_to_output_dir(
 
     from scenario_forge.pipeline.runner import run_pipeline
 
-    run_pipeline(
+    result = run_pipeline(
         use_case=use_case_text,
         risk_extraction_path=risk_path,
         sssom_path=sssom_path,
         output_dir=output_dir,
     )
 
-    use_case_file = output_dir / "use-case.txt"
-    assert use_case_file.exists(), "use-case.txt should be created in output_dir"
+    use_case_file = result.run_dir / "use-case.txt"
+    assert use_case_file.exists(), "use-case.txt should be created in run_dir"
     assert use_case_file.read_text() == use_case_text

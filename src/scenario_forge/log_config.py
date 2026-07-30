@@ -56,9 +56,7 @@ def setup_logging(
     # -- stderr console handler (always human-readable) --
     console = logging.StreamHandler()
     console.setLevel(numeric_level)
-    console.setFormatter(
-        logging.Formatter(_HUMAN_FORMAT, datefmt=_HUMAN_DATE_FORMAT)
-    )
+    console.setFormatter(logging.Formatter(_HUMAN_FORMAT, datefmt=_HUMAN_DATE_FORMAT))
     logger.addHandler(console)
 
     # -- file handler (DEBUG, optional structured format) --
@@ -67,7 +65,7 @@ def setup_logging(
         output_dir.mkdir(parents=True, exist_ok=True)
         log_path = output_dir / "pipeline.log"
 
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
 
         if structured:

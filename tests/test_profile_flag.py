@@ -106,9 +106,12 @@ def test_profile_flag_skips_inference(
 
     # Profile values must match the supplied YAML
     assert result.capability_profile.zones_active == valid_profile_data["zones_active"]
-    # entry_points are coerced from plain strings to EntryPoint objects
-    assert [ep.name for ep in result.capability_profile.entry_points] == valid_profile_data["entry_points"]
-    assert result.capability_profile.confidence.value == valid_profile_data["confidence"]
+    assert [
+        ep.name for ep in result.capability_profile.entry_points
+    ] == valid_profile_data["entry_points"]
+    assert (
+        result.capability_profile.confidence.value == valid_profile_data["confidence"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +179,7 @@ def test_profile_written_to_output_dir(
 
     risk_path, sssom_path = dummy_inputs
 
-    run_pipeline(
+    result = run_pipeline(
         use_case="A billing chatbot",
         risk_extraction_path=risk_path,
         sssom_path=sssom_path,
@@ -184,8 +187,10 @@ def test_profile_written_to_output_dir(
         profile_path=valid_profile_path,
     )
 
-    output_profile = output_dir / "capability-profile.yaml"
-    assert output_profile.exists(), "capability-profile.yaml should be written to output_dir"
+    output_profile = result.run_dir / "capability-profile.yaml"
+    assert output_profile.exists(), (
+        "capability-profile.yaml should be written to run_dir"
+    )
 
     written = yaml.safe_load(output_profile.read_text(encoding="utf-8"))
     assert written["zones_active"] == valid_profile_data["zones_active"]

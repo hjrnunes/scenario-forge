@@ -13,7 +13,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -21,6 +20,7 @@ import yaml
 
 from scenario_forge.report.data import ReportData, load_report_data
 from scenario_forge.report.generator import generate_report, generate_report_from_dir
+from tests.manifest_helpers import build_test_run_dir
 
 
 # ---------------------------------------------------------------------------
@@ -31,20 +31,11 @@ from scenario_forge.report.generator import generate_report, generate_report_fro
 @pytest.fixture()
 def mock_output_dir(tmp_path: Path) -> Path:
     """Create a mock output directory with all expected pipeline artifacts."""
-    out = tmp_path / "output"
-    out.mkdir()
-
-    # capability-profile.yaml
     profile = {
         "zones_active": ["input", "reasoning"],
         "entry_points": [{"name": "user_prompt", "direction": "input"}],
         "confidence": "high",
     }
-    (out / "capability-profile.yaml").write_text(
-        yaml.dump(profile, default_flow_style=False), encoding="utf-8"
-    )
-
-    # threat-surface.yaml
     ts = {
         "entries": [
             {
@@ -54,14 +45,6 @@ def mock_output_dir(tmp_path: Path) -> Path:
         ],
         "governance_only": [],
     }
-    (out / "threat-surface.yaml").write_text(
-        yaml.dump(ts, default_flow_style=False), encoding="utf-8"
-    )
-
-    # scenarios/
-    scenarios_dir = out / "scenarios"
-    scenarios_dir.mkdir()
-
     scenario = {
         "scenario_id": "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
         "priority": {"composite": 0.8},
@@ -78,28 +61,13 @@ def mock_output_dir(tmp_path: Path) -> Path:
         },
     }
     sid = "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab"
-    (scenarios_dir / f"{sid}.yaml").write_text(
-        yaml.dump(scenario, default_flow_style=False), encoding="utf-8"
-    )
-
     feature_content = "Feature: Test\n  Scenario: Attack\n    Given attacker\n"
-    (scenarios_dir / f"{sid}.feature").write_text(feature_content, encoding="utf-8")
-
-    # scenarios/calls.jsonl
     call_entry = {
         "scenario_id": "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
         "call": "call0",
         "tokens": 100,
     }
-    (scenarios_dir / "calls.jsonl").write_text(
-        json.dumps(call_entry) + "\n", encoding="utf-8"
-    )
-
-    # calls.jsonl (pipeline-level)
     pipeline_call = {"call": "capability_profile", "tokens": 200}
-    (out / "calls.jsonl").write_text(json.dumps(pipeline_call) + "\n", encoding="utf-8")
-
-    # coverage-gaps.json
     coverage = {
         "coverage_gaps": {
             "uncovered_entry_points": [],
@@ -107,31 +75,20 @@ def mock_output_dir(tmp_path: Path) -> Path:
             "uncovered_threats": [],
         }
     }
-    (out / "coverage-gaps.json").write_text(json.dumps(coverage), encoding="utf-8")
-
-    # eval-scorecard.yaml
     scorecard = {"overall_score": 0.85, "metrics": {"consistency": 0.9}}
-    (out / "eval-scorecard.yaml").write_text(
-        yaml.dump(scorecard, default_flow_style=False), encoding="utf-8"
-    )
 
-    # run-manifest.yaml
-    manifest = {
-        "version": "0.1.0",
-        "scenarios_generated": 1,
-        "timestamp_start": "2025-01-01T00:00:00Z",
-        "timestamp_end": "2025-01-01T00:01:00Z",
-    }
-    (out / "run-manifest.yaml").write_text(
-        yaml.dump(manifest, default_flow_style=False), encoding="utf-8"
+    return build_test_run_dir(
+        tmp_path / "output",
+        profile_data=profile,
+        threat_surface_data=ts,
+        scenarios=[scenario],
+        feature_files={sid: feature_content},
+        use_case="A financial AI assistant that manages user portfolios.",
+        pipeline_calls=[pipeline_call],
+        scenario_calls=[call_entry],
+        coverage_data=coverage,
+        eval_scorecard=scorecard,
     )
-
-    # use-case.txt
-    (out / "use-case.txt").write_text(
-        "A financial AI assistant that manages user portfolios.", encoding="utf-8"
-    )
-
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +152,8 @@ class TestLoadReportData:
         assert len(data.pipeline_call_logs) == 1
         assert data.coverage_data["coverage_gaps"]["uncovered_entry_points"] == []
         assert data.scorecard_data["overall_score"] == 0.85
-        assert data.manifest_data["version"] == "0.1.0"
+        assert data.manifest_data["run_id"] == "20260101T000000_abcdef0123456789"
+        assert data.manifest_data["status"] == "completed"
         assert "financial AI" in data.use_case_text
 
     def test_raw_files_populated(self, mock_output_dir: Path) -> None:
@@ -210,9 +168,8 @@ class TestLoadReportData:
         assert "eval-scorecard.yaml" in data.raw_files
 
     def test_handles_missing_files(self, tmp_path: Path) -> None:
-        """Empty output dir -> all defaults, no crash."""
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir()
+        """A manifest with no optional artifacts loads empty defaults."""
+        empty_dir = build_test_run_dir(tmp_path / "empty")
 
         data = load_report_data(empty_dir)
 
@@ -224,38 +181,18 @@ class TestLoadReportData:
         assert data.pipeline_call_logs == []
         assert data.coverage_data == {}
         assert data.scorecard_data == {}
-        assert data.manifest_data == {}
+        assert data.manifest_data["status"] == "completed"
+        assert data.manifest_data["inventory"]
         assert data.use_case_text == ""
         assert data.raw_files == {}
 
     def test_handles_empty_scenarios_dir(self, tmp_path: Path) -> None:
-        out = tmp_path / "output"
-        out.mkdir()
-        (out / "scenarios").mkdir()
+        out = build_test_run_dir(tmp_path / "output", scenarios=[])
 
         data = load_report_data(out)
 
         assert data.scenarios == []
         assert data.feature_files == {}
-
-    def test_skips_invalid_scenario_yaml(self, tmp_path: Path) -> None:
-        out = tmp_path / "output"
-        out.mkdir()
-        scenarios_dir = out / "scenarios"
-        scenarios_dir.mkdir()
-
-        # Write valid scenario
-        valid = {"scenario_id": "S1", "priority": {"composite": 0.5}}
-        (scenarios_dir / "valid.yaml").write_text(yaml.dump(valid), encoding="utf-8")
-        # Write invalid YAML
-        (scenarios_dir / "broken.yaml").write_text(
-            "{{invalid yaml: [", encoding="utf-8"
-        )
-
-        data = load_report_data(out)
-
-        assert len(data.scenarios) == 1
-        assert data.scenarios[0]["scenario_id"] == "S1"
 
 
 # ---------------------------------------------------------------------------

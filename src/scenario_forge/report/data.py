@@ -1,4 +1,9 @@
-"""ReportData — typed container for all report inputs, and a loader from disk."""
+"""ReportData — typed container for all report inputs, and a loader from disk.
+
+In cmps.1, ``load_report_data`` consumes **strict manifest inventory** entries
+rather than globbing the filesystem.  Paths, hashes, and roles are verified by
+the shared :class:`ManifestInventoryResolver`.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +13,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+from scenario_forge.manifest import (
+    ArtifactRole,
+    find_run_dir,
+    load_manifest,
+    load_strict_resolver,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +46,25 @@ class ReportData:
     raw_files: dict[str, str] = field(default_factory=dict)
 
 
-def load_report_data(output_dir: Path) -> ReportData:
-    """Read all pipeline artifacts from *output_dir* into a :class:`ReportData`.
+def load_report_data(run_dir: Path, require_final: bool = True) -> ReportData:
+    """Read all pipeline artifacts from *run_dir* into a :class:`ReportData`.
 
-    Missing files are tolerated (with warnings); the returned object will
-    have empty defaults for any artifact not found on disk.
+    In cmps.1, *run_dir* must be a run directory containing a manifest.
+    If a collection directory is passed with exactly one run, that run
+    is used; multiple runs raise (ambiguous).  All artifacts are loaded
+    strictly from manifest inventory entries — stale sibling files
+    cannot affect results.
+
+    Args:
+        run_dir: Path to a run directory (or collection with one run).
+        require_final: If True (default, standalone), require a finalized
+            manifest.  If False (in-pipeline), accept ``started`` manifests.
+
+    Missing inventory entries are tolerated (with warnings); the returned
+    object will have empty defaults for any artifact not in the manifest.
     """
-    output_dir = Path(output_dir)
+    actual_run_dir = find_run_dir(run_dir)
+    resolver = load_strict_resolver(actual_run_dir, require_final=require_final)
 
     profile_data: dict = {}
     threat_surface_data: dict = {}
@@ -54,175 +78,106 @@ def load_report_data(output_dir: Path) -> ReportData:
     manifest_data: dict = {}
     use_case_text: str = ""
 
-    # --- Check eval scorecard staleness ---
-    _scorecard_path = output_dir / "eval-scorecard.yaml"
-    _scenarios_dir = output_dir / "scenarios"
-    if not _scorecard_path.exists():
-        logger.warning(
-            "No eval scorecard found in %s. Run "
-            "'scenario-forge eval --output-dir %s' before generating "
-            "the report to embed quality metrics.",
-            output_dir,
-            output_dir,
-        )
-    elif _scenarios_dir.is_dir():
-        scenario_yamls = list(_scenarios_dir.glob("*.yaml"))
-        if scenario_yamls:
-            newest_scenario = max(f.stat().st_mtime for f in scenario_yamls)
-            if _scorecard_path.stat().st_mtime < newest_scenario:
-                logger.warning(
-                    "Eval scorecard is older than scenario files. Re-run "
-                    "'scenario-forge eval --output-dir %s' to refresh.",
-                    output_dir,
-                )
-
     # --- Capability profile ---
-    profile_path = output_dir / "capability-profile.yaml"
-    if profile_path.exists():
-        profile_data = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
-        raw_files["capability-profile.yaml"] = profile_path.read_text(encoding="utf-8")
-        logger.info("Loaded capability profile from %s", profile_path)
+    cap_entry = resolver.entry_by_role(ArtifactRole.CAPABILITY_PROFILE)
+    if cap_entry is not None:
+        text = resolver.read_text(cap_entry)
+        profile_data = yaml.safe_load(text) or {}
+        raw_files["capability-profile.yaml"] = text
+        logger.info("Loaded capability profile from manifest inventory")
     else:
-        logger.warning("capability-profile.yaml not found in %s", output_dir)
+        logger.warning("capability-profile not in manifest inventory")
 
     # --- Threat surface ---
-    ts_path = output_dir / "threat-surface.yaml"
-    if ts_path.exists():
-        threat_surface_data = yaml.safe_load(ts_path.read_text(encoding="utf-8")) or {}
-        raw_files["threat-surface.yaml"] = ts_path.read_text(encoding="utf-8")
-        logger.info("Loaded threat surface from %s", ts_path)
+    ts_entry = resolver.entry_by_role(ArtifactRole.THREAT_SURFACE)
+    if ts_entry is not None:
+        text = resolver.read_text(ts_entry)
+        threat_surface_data = yaml.safe_load(text) or {}
+        raw_files["threat-surface.yaml"] = text
+        logger.info("Loaded threat surface from manifest inventory")
     else:
-        logger.warning("threat-surface.yaml not found in %s", output_dir)
+        logger.warning("threat-surface not in manifest inventory")
 
     # --- Scenarios and feature files ---
-    scenarios_dir = output_dir / "scenarios"
-    if scenarios_dir.is_dir():
-        for yaml_file in sorted(scenarios_dir.glob("*.yaml")):
-            try:
-                data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-                if data and isinstance(data, dict):
-                    scenarios.append(data)
-                    raw_files[f"scenarios/{yaml_file.name}"] = yaml_file.read_text(
-                        encoding="utf-8"
-                    )
-                    logger.info("Loaded scenario %s", yaml_file.name)
-            except Exception as exc:
-                logger.warning("Failed to load %s: %s", yaml_file, exc)
+    for entry in resolver.scenario_yaml_entries():
+        text = resolver.read_text(entry)
+        data = yaml.safe_load(text)
+        if data and isinstance(data, dict):
+            scenarios.append(data)
+            raw_files[f"scenarios/{Path(entry.path).name}"] = text
+            logger.info("Loaded scenario %s", Path(entry.path).name)
 
-        for feature_file in sorted(scenarios_dir.glob("*.feature")):
-            content = feature_file.read_text(encoding="utf-8")
-            scenario_id = feature_file.stem
-            feature_files[scenario_id] = content
-            raw_files[f"scenarios/{feature_file.name}"] = content
+    for entry in resolver.scenario_feature_entries():
+        content = resolver.read_text(entry)
+        scenario_id = entry.scenario_id or Path(entry.path).stem
+        feature_files[scenario_id] = content
+        raw_files[f"scenarios/{Path(entry.path).name}"] = content
 
-        logger.info(
-            "Loaded %d scenarios, %d feature files",
-            len(scenarios),
-            len(feature_files),
-        )
-    else:
-        logger.warning("scenarios/ directory not found in %s", output_dir)
+    logger.info(
+        "Loaded %d scenarios, %d feature files",
+        len(scenarios),
+        len(feature_files),
+    )
 
     # --- Scenario LLM call logs ---
-    calls_path = output_dir / "scenarios" / "calls.jsonl"
-    if calls_path.exists():
+    calls_entry = resolver.entry_by_role(ArtifactRole.SCENARIO_CALL_LOG)
+    if calls_entry is not None:
         try:
-            for line in calls_path.read_text(encoding="utf-8").strip().splitlines():
-                entry = json.loads(line)
-                sid = entry.get("scenario_id", "")
-                call_logs.setdefault(sid, []).append(entry)
+            for line in resolver.read_text(calls_entry).strip().splitlines():
+                entry_dict = json.loads(line)
+                sid = entry_dict.get("scenario_id", "")
+                call_logs.setdefault(sid, []).append(entry_dict)
             logger.info(
-                "Loaded %d call log entries from %s",
+                "Loaded %d call log entries from manifest inventory",
                 sum(len(v) for v in call_logs.values()),
-                calls_path,
             )
         except Exception as exc:
-            logger.warning("Failed to load %s: %s", calls_path, exc)
-    else:
-        logger.info(
-            "calls.jsonl not found in %s (skipping call log section)",
-            output_dir / "scenarios",
-        )
+            logger.warning("Failed to load scenario call log: %s", exc)
 
     # --- Pipeline (non-scenario) LLM call logs ---
-    pipeline_calls_path = output_dir / "calls.jsonl"
-    if pipeline_calls_path.exists():
+    pipeline_calls_entry = resolver.entry_by_role(ArtifactRole.PIPELINE_CALL_LOG)
+    if pipeline_calls_entry is not None:
         try:
-            for line in (
-                pipeline_calls_path.read_text(encoding="utf-8").strip().splitlines()
-            ):
+            for line in resolver.read_text(pipeline_calls_entry).strip().splitlines():
                 pipeline_call_logs.append(json.loads(line))
             logger.info(
-                "Loaded %d pipeline call log entries from %s",
+                "Loaded %d pipeline call log entries from manifest inventory",
                 len(pipeline_call_logs),
-                pipeline_calls_path,
             )
         except Exception as exc:
-            logger.warning("Failed to load %s: %s", pipeline_calls_path, exc)
-    else:
-        logger.info(
-            "calls.jsonl not found in %s (skipping pipeline call log section)",
-            output_dir,
-        )
+            logger.warning("Failed to load pipeline call log: %s", exc)
 
     # --- Coverage gaps ---
-    coverage_path = output_dir / "coverage-gaps.json"
-    if coverage_path.exists():
+    coverage_entry = resolver.entry_by_role(ArtifactRole.COVERAGE_REPORT)
+    if coverage_entry is not None:
         try:
-            coverage_data = json.loads(coverage_path.read_text(encoding="utf-8")) or {}
-            raw_files["coverage-gaps.json"] = coverage_path.read_text(encoding="utf-8")
-            logger.info("Loaded coverage gaps from %s", coverage_path)
+            text = resolver.read_text(coverage_entry)
+            coverage_data = json.loads(text) or {}
+            raw_files["coverage-gaps.json"] = text
+            logger.info("Loaded coverage gaps from manifest inventory")
         except Exception as exc:
-            logger.warning("Failed to load %s: %s", coverage_path, exc)
-    else:
-        logger.info(
-            "coverage-gaps.json not found in %s (skipping coverage section)", output_dir
-        )
+            logger.warning("Failed to load coverage report: %s", exc)
 
     # --- Eval scorecard ---
-    scorecard_path = output_dir / "eval-scorecard.yaml"
-    if scorecard_path.exists():
+    scorecard_entry = resolver.entry_by_role(ArtifactRole.EVAL_SCORECARD)
+    if scorecard_entry is not None:
         try:
-            scorecard_data = (
-                yaml.safe_load(scorecard_path.read_text(encoding="utf-8")) or {}
-            )
-            raw_files["eval-scorecard.yaml"] = scorecard_path.read_text(
-                encoding="utf-8"
-            )
-            logger.info("Loaded eval scorecard from %s", scorecard_path)
+            text = resolver.read_text(scorecard_entry)
+            scorecard_data = yaml.safe_load(text) or {}
+            raw_files["eval-scorecard.yaml"] = text
+            logger.info("Loaded eval scorecard from manifest inventory")
         except Exception as exc:
-            logger.warning("Failed to load %s: %s", scorecard_path, exc)
-    else:
-        logger.info(
-            "eval-scorecard.yaml not found in %s (skipping scorecard section)",
-            output_dir,
-        )
+            logger.warning("Failed to load eval scorecard: %s", exc)
 
     # --- Run manifest ---
-    manifest_path = output_dir / "run-manifest.yaml"
-    if manifest_path.exists():
-        try:
-            manifest_data = (
-                yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
-            )
-            logger.info("Loaded run manifest from %s", manifest_path)
-        except Exception as exc:
-            logger.warning("Failed to load %s: %s", manifest_path, exc)
-    else:
-        logger.info(
-            "run-manifest.yaml not found in %s (skipping run summary section)",
-            output_dir,
-        )
+    manifest_data = load_manifest(actual_run_dir).model_dump(mode="json")
+    logger.info("Loaded run manifest")
 
     # --- Use case description ---
-    use_case_path = output_dir / "use-case.txt"
-    if use_case_path.exists():
-        use_case_text = use_case_path.read_text(encoding="utf-8")
-        logger.info("Loaded use case description from %s", use_case_path)
-    else:
-        logger.info(
-            "use-case.txt not found in %s (skipping use case section)", output_dir
-        )
+    uc_entry = resolver.entry_by_role(ArtifactRole.USE_CASE)
+    if uc_entry is not None:
+        use_case_text = resolver.read_text(uc_entry)
+        logger.info("Loaded use case description from manifest inventory")
 
     return ReportData(
         profile_data=profile_data,

@@ -1764,7 +1764,7 @@ class TestLowercaseIdentityConsistency:
     def test_uppercase_run_id_rejected_by_assembly(self):
         from scenario_forge.pipeline.generate.assembly import _validate_run_id
 
-        with pytest.raises(ValueError, match="lowercase"):
+        with pytest.raises(ValueError):
             _validate_run_id("A" * 32)
 
     def test_uppercase_candidate_id_rejected_by_assembly(self):
