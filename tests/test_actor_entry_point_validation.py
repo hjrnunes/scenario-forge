@@ -195,6 +195,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id="AP-T1-01-abc123",
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -212,11 +213,7 @@ def _find_violations(envelope: ScenarioEnvelope, rule: str) -> list:
     """Extract semantic violations matching a rule from the envelope."""
     if envelope.validation is None or envelope.validation.semantic is None:
         return []
-    return [
-        v
-        for v in envelope.validation.semantic.violations
-        if v.rule == rule
-    ]
+    return [v for v in envelope.validation.semantic.violations if v.rule == rule]
 
 
 # ---------------------------------------------------------------------------

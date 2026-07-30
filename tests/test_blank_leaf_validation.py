@@ -126,6 +126,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -626,8 +627,12 @@ class TestLogging:
         )
         scenario = _make_envelope(root)
 
-        with caplog.at_level(logging.WARNING, logger="scenario_forge.pipeline.validation"):
+        with caplog.at_level(
+            logging.WARNING, logger="scenario_forge.pipeline.validation"
+        ):
             validate_blank_leaves([scenario])
 
-        assert any("leaf node(s) without technique_id" in r.message for r in caplog.records)
+        assert any(
+            "leaf node(s) without technique_id" in r.message for r in caplog.records
+        )
         assert any("n1.2" in r.message for r in caplog.records)

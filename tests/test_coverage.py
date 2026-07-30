@@ -206,6 +206,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=f"{scenario_seed}-abc123",
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         actor_profile=actor_profile,
@@ -998,8 +999,18 @@ class TestRemediateCoverageGaps:
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, [_make_seed()], profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            [_make_seed()],
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
         assert scenarios == []
         assert notes == []
@@ -1016,8 +1027,18 @@ class TestRemediateCoverageGaps:
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, [], profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            [],
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
         assert scenarios == []
         assert len(notes) == 1
@@ -1048,17 +1069,28 @@ class TestRemediateCoverageGaps:
         seeds = [_make_seed(seed_id="AP-T1-01"), _make_seed(seed_id="AP-T2-01")]
         client = MagicMock()
 
-        # Create mock envelopes for each uncovered EP.
+        # Create mock envelopes for each uncovered EP (distinct seeds so
+        # scenario IDs are unique under collision-safe identity).
         mock_results = []
-        for ep in uncovered:
-            env = _make_envelope(entry_point=ep)
+        for i, ep in enumerate(uncovered):
+            env = _make_envelope(entry_point=ep, scenario_seed=f"AP-T{i + 1}-01")
             mock_results.append((env, []))
 
         mock_generate.side_effect = mock_results
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, seeds, profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            seeds,
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
 
         assert len(scenarios) == 2
@@ -1094,8 +1126,18 @@ class TestRemediateCoverageGaps:
         ]
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, seeds, profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            seeds,
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
 
         assert len(scenarios) == 1
@@ -1126,7 +1168,19 @@ class TestRemediateCoverageGaps:
         mock_generate.return_value = (mock_envelope, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        _remediate_coverage_gaps(gaps, [seed], profile, client, "my use case", tmp_path)
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            [seed],
+            profile,
+            client,
+            "my use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
+        )
 
         call_args = mock_generate.call_args
         assert call_args.args[0] is seed  # seed

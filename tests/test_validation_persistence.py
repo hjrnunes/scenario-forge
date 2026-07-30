@@ -152,6 +152,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:11111111111111111111111111111111",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -300,7 +301,9 @@ class TestRewriteIntegrity:
         )
         # Force sync
         envelope.validation_passed = True
-        replace_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(
+            envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
+        )
 
         rewritten_data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
 
@@ -325,7 +328,9 @@ class TestRewriteIntegrity:
         # Add validation and re-write
         envelope.validation = ValidationBlock()
         envelope.validation_passed = True
-        replace_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(
+            envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
+        )
 
         rewritten_data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
         rewritten_root = rewritten_data["attack_tree"]["root"]
@@ -347,7 +352,9 @@ class TestRewriteIntegrity:
         # Add validation and re-write
         envelope.validation = ValidationBlock()
         envelope.validation_passed = True
-        replace_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(
+            envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
+        )
 
         assert feature_path.read_text(encoding="utf-8") == original_feature
 
@@ -362,7 +369,9 @@ class TestRewriteIntegrity:
             semantic=SemanticValidation(valid=False, issues=["test issue"]),
         )
         envelope.validation_passed = False
-        replace_scenario_outputs(envelope, tmp_path)
+        replace_scenario_outputs(
+            envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
+        )
 
         yaml_path = tmp_path / "AP-T7-02-deadbeef.yaml"
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))

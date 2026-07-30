@@ -115,7 +115,10 @@ class CandidateFunnel(BaseModel):
         description="Candidates fully rejected by deterministic rules.",
     )
     rule_transformed: int = Field(
-        description="Candidates that had at least one technique pruned by rules.",
+        description=(
+            "Source candidate identities that had at least one technique "
+            "pruned by rules (pre-collapse, not post-dedup outputs)."
+        ),
     )
     post_rule_collapsed: int = Field(
         description="Identities that collapsed during rule-pruning dedup.",
@@ -130,7 +133,7 @@ class CandidateFunnel(BaseModel):
         description="Candidates remaining after capping/selection.",
     )
     attempted: int = Field(
-        description="Generation attempts made.",
+        description="Generation attempts made (including remediation).",
     )
     admitted: int = Field(
         description="Scenarios successfully generated and written to disk.",
@@ -142,10 +145,72 @@ class CandidateFunnel(BaseModel):
         description="YAML/feature artifact pairs persisted to disk.",
     )
 
+    @model_validator(mode="after")
+    def _validate_funnel(self) -> CandidateFunnel:
+        """Validate nonnegative counts and reconciliation equations."""
+        for field_name in type(self).model_fields:
+            val = getattr(self, field_name)
+            if val < 0:
+                raise ValueError(
+                    f"CandidateFunnel field '{field_name}' must be "
+                    f"nonnegative, got {val}"
+                )
+        if self.expanded_instances < self.unique_pre_rule_identities:
+            raise ValueError(
+                f"expanded_instances ({self.expanded_instances}) must be >= "
+                f"unique_pre_rule_identities ({self.unique_pre_rule_identities})"
+            )
+        expected_submitted = (
+            self.unique_pre_rule_identities
+            - self.rule_rejected
+            - self.post_rule_collapsed
+        )
+        if self.filter_submitted != expected_submitted:
+            raise ValueError(
+                f"filter_submitted ({self.filter_submitted}) must equal "
+                f"unique_pre_rule_identities - rule_rejected - "
+                f"post_rule_collapsed = {expected_submitted}"
+            )
+        if self.selected > self.filter_accepted:
+            raise ValueError(
+                f"selected ({self.selected}) must be <= "
+                f"filter_accepted ({self.filter_accepted})"
+            )
+        if self.admitted > self.attempted:
+            raise ValueError(
+                f"admitted ({self.admitted}) must be <= attempted ({self.attempted})"
+            )
+        if self.quarantined > self.admitted:
+            raise ValueError(
+                f"quarantined ({self.quarantined}) must be <= "
+                f"admitted ({self.admitted})"
+            )
+        if self.persisted_artifacts != self.admitted:
+            raise ValueError(
+                f"persisted_artifacts ({self.persisted_artifacts}) must equal "
+                f"admitted ({self.admitted})"
+            )
+        return self
+
 
 # ---------------------------------------------------------------------------
 # Candidate origin provenance
 # ---------------------------------------------------------------------------
+
+
+class RemovalDecision(BaseModel):
+    """Typed per-removal decision for a single technique pruned by a rule.
+
+    Records the technique ID, the rejecting rule name, and the rationale,
+    so that every removed technique carries its own provenance rather
+    than only the first rejecting rule.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    technique_id: str = Field(description="Removed technique ID.")
+    rule: str = Field(description="Name of the rule that rejected this technique.")
+    reason: str = Field(description="Human-readable rationale for the rejection.")
 
 
 class CandidateOrigin(BaseModel):
@@ -169,8 +234,9 @@ class CandidateOrigin(BaseModel):
     applied_rule: str | None = Field(
         default=None,
         description=(
-            "Rule that caused the transform (e.g. '_rule_direct_vs_indirect'). "
-            "None for expansion-stage origins."
+            "Primary rule that caused the transform.  None for expansion-stage "
+            "origins.  For rule pruning with multiple rules, this is the first "
+            "rejecting rule; see ``removal_decisions`` for per-technique detail."
         ),
     )
     removed_technique_ids: tuple[str, ...] = Field(
@@ -180,6 +246,14 @@ class CandidateOrigin(BaseModel):
     removal_reasons: tuple[str, ...] = Field(
         default_factory=tuple,
         description="Human-readable reason for each removed technique.",
+    )
+    removal_decisions: tuple[RemovalDecision, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "Per-removal decision records, one per removed technique, "
+            "carrying the specific rule and reason.  Ordered by the "
+            "original technique iteration order."
+        ),
     )
     transform_stage: str = Field(
         description=(
@@ -641,6 +715,54 @@ def _check_candidate_collisions(candidates: list[CandidateTriple]) -> None:
             seen[c.candidate_id] = identity
 
 
+def _canonicalize_techniques(
+    ids: tuple[str, ...],
+    names: tuple[str, ...],
+    descriptions: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Sort technique IDs and align names/descriptions deterministically.
+
+    Detects duplicate technique IDs with conflicting names/descriptions
+    (fatal), deduplicates duplicate IDs with identical metadata, and
+    sorts by ID so equivalent inputs serialize identically regardless
+    of input ordering.
+
+    Raises:
+        ValueError: If the same technique ID appears with conflicting
+            name or description metadata.
+    """
+    if not ids:
+        return tuple(), tuple(), tuple()
+
+    # Pad names/descriptions to match ids length (defensive).
+    padded_names = tuple(names) + ("",) * max(0, len(ids) - len(names))
+    padded_descs = tuple(descriptions) + ("",) * max(0, len(ids) - len(descriptions))
+
+    # Build per-ID metadata, detecting conflicts.
+    id_to_name: dict[str, str] = {}
+    id_to_desc: dict[str, str] = {}
+    for tid, name, desc in zip(ids, padded_names, padded_descs, strict=False):
+        if tid in id_to_name:
+            if id_to_name[tid] != name:
+                raise ValueError(
+                    f"Conflicting technique name for ID '{tid}': "
+                    f"{id_to_name[tid]!r} vs {name!r}"
+                )
+            if id_to_desc[tid] != desc:
+                raise ValueError(
+                    f"Conflicting technique description for ID '{tid}': "
+                    f"{id_to_desc[tid]!r} vs {desc!r}"
+                )
+        else:
+            id_to_name[tid] = name
+            id_to_desc[tid] = desc
+
+    sorted_ids = tuple(sorted(id_to_name))
+    sorted_names = tuple(id_to_name[tid] for tid in sorted_ids)
+    sorted_descs = tuple(id_to_desc[tid] for tid in sorted_ids)
+    return sorted_ids, sorted_names, sorted_descs
+
+
 def canonicalize_and_dedup(
     candidates: list[CandidateTriple],
     stage: str,
@@ -685,23 +807,120 @@ def canonicalize_and_dedup(
     collapsed_count = 0
     for key, group in groups.items():
         if len(group) == 1:
-            result.append(group[0])
+            # Canonicalize technique IDs/names/descriptions for singletons
+            # too, so output is deterministic regardless of input ordering.
+            c = group[0]
+            c_ids, c_names, c_descs = _canonicalize_techniques(
+                c.atlas_technique_ids,
+                c.atlas_technique_names,
+                c.atlas_technique_descriptions,
+            )
+            if c_ids != c.atlas_technique_ids:
+                c = CandidateTriple.model_validate(
+                    c.model_dump(mode="python")
+                    | {
+                        "atlas_technique_ids": c_ids,
+                        "atlas_technique_names": c_names,
+                        "atlas_technique_descriptions": c_descs,
+                    }
+                )
+            result.append(c)
             continue
 
         # Multiple candidates converged — merge origins.
         collapsed_count += len(group) - 1
+        # Collect all origins, then canonical-sort and dedup them so the
+        # result is deterministic regardless of input ordering.
         all_origins: list[CandidateOrigin] = []
         for c in group:
             all_origins.extend(c.origins)
+        # Dedup identical origins and sort by a stable key that includes
+        # all provenance fields (including removal_decisions and reasons)
+        # so semantically different provenance does not collapse.
+        seen_origins: set[tuple] = set()
+        unique_origins: list[CandidateOrigin] = []
+        for origin in all_origins:
+            sort_key = (
+                origin.source_candidate_id,
+                origin.transform_stage,
+                tuple(sorted(origin.original_technique_ids)),
+                tuple(sorted(origin.removed_technique_ids)),
+                origin.applied_rule,
+                tuple(origin.removal_reasons),
+                tuple(
+                    (rd.technique_id, rd.rule, rd.reason)
+                    for rd in origin.removal_decisions
+                ),
+            )
+            if sort_key not in seen_origins:
+                seen_origins.add(sort_key)
+                unique_origins.append(origin)
+        # Sort by the same canonical key for deterministic output.
+        unique_origins.sort(
+            key=lambda o: (
+                o.source_candidate_id,
+                o.transform_stage,
+                tuple(sorted(o.original_technique_ids)),
+                tuple(sorted(o.removed_technique_ids)),
+                o.applied_rule or "",
+                tuple(o.removal_reasons),
+                tuple(
+                    (rd.technique_id, rd.rule, rd.reason) for rd in o.removal_decisions
+                ),
+            )
+        )
 
-        # Use the first as template but set merged origins.
+        # Reject conflicting non-provenance metadata across converged
+        # candidates.  All candidates with the same canonical identity
+        # must agree on metadata fields.
         template = group[0]
+        _non_prov_fields = (
+            "seed_id",
+            "threat_id",
+            "threat_name",
+            "attack_pattern_name",
+            "attack_pattern_description",
+            "entry_point",
+            "entry_point_id",
+            "direction",
+            "risk_card_ref",
+            "owasp_llm_ids",
+            "controllability",
+        )
+        for c in group[1:]:
+            for field_name in _non_prov_fields:
+                tval = getattr(template, field_name)
+                cval = getattr(c, field_name)
+                if tval != cval:
+                    raise ValueError(
+                        f"Conflicting non-provenance metadata for "
+                        f"converged candidate '{template.candidate_id}': "
+                        f"field '{field_name}' differs "
+                        f"({tval!r} vs {cval!r})"
+                    )
+
         merged = CandidateTriple.model_validate(
             template.model_dump(mode="python")
             | {
-                "origins": tuple(all_origins),
+                "origins": tuple(unique_origins),
             }
         )
+        # Canonicalize technique IDs/names/descriptions: sort by ID and
+        # align names/descriptions so equivalent inputs serialize identically.
+        c_ids, c_names, c_descs = _canonicalize_techniques(
+            merged.atlas_technique_ids,
+            merged.atlas_technique_names,
+            merged.atlas_technique_descriptions,
+        )
+        if c_ids != merged.atlas_technique_ids:
+            merged = CandidateTriple.model_validate(
+                merged.model_dump(mode="python")
+                | {
+                    "atlas_technique_ids": c_ids,
+                    "atlas_technique_names": c_names,
+                    "atlas_technique_descriptions": c_descs,
+                }
+            )
         result.append(merged)
 
     if collapsed_count:
@@ -1642,9 +1861,17 @@ def apply_rule_based_filter(
                 candidate.entry_point_id,
                 compatible_ids,
             )
-            # Build origin record for this pruning transform.
-            # Use the first rejecting rule as the applied_rule (there
-            # may be multiple, but one per removed technique).
+            # Build per-removal decision records — one per removed technique.
+            removal_decisions = tuple(
+                RemovalDecision(
+                    technique_id=tid,
+                    rule=rule_name or "unknown",
+                    reason=reason,
+                )
+                for tid, rule_name, reason in zip(
+                    removed_tids, removed_rules, removed_reasons
+                )
+            )
             applied_rule = removed_rules[0] if removed_rules else None
             pruning_origin = CandidateOrigin(
                 source_candidate_id=original_candidate_id,
@@ -1652,6 +1879,7 @@ def apply_rule_based_filter(
                 applied_rule=applied_rule,
                 removed_technique_ids=tuple(removed_tids),
                 removal_reasons=tuple(removed_reasons),
+                removal_decisions=removal_decisions,
                 transform_stage="rule_pruning",
             )
             # Reconstruct the pruned candidate through model_validate so
@@ -1833,12 +2061,66 @@ def _dedup_filtered_seeds(
         if len(group) == 1:
             result.append(group[0])
             continue
-        # Merge origins from all duplicates.
+        # Merge origins from all duplicates, dedup and sort deterministically.
         all_origins: list[CandidateOrigin] = []
         for fs in group:
             all_origins.extend(fs.origins)
+        seen_origins: set[tuple] = set()
+        unique_origins: list[CandidateOrigin] = []
+        for origin in all_origins:
+            sort_key = (
+                origin.source_candidate_id,
+                origin.transform_stage,
+                tuple(sorted(origin.original_technique_ids)),
+                tuple(sorted(origin.removed_technique_ids)),
+                origin.applied_rule,
+                tuple(origin.removal_reasons),
+                tuple(
+                    (rd.technique_id, rd.rule, rd.reason)
+                    for rd in origin.removal_decisions
+                ),
+            )
+            if sort_key not in seen_origins:
+                seen_origins.add(sort_key)
+                unique_origins.append(origin)
+        unique_origins.sort(
+            key=lambda o: (
+                o.source_candidate_id,
+                o.transform_stage,
+                tuple(sorted(o.original_technique_ids)),
+                tuple(sorted(o.removed_technique_ids)),
+                o.applied_rule or "",
+                tuple(o.removal_reasons),
+                tuple(
+                    (rd.technique_id, rd.rule, rd.reason) for rd in o.removal_decisions
+                ),
+            )
+        )
+        # Reject conflicting non-provenance metadata.
         template = group[0]
-        merged = template.model_copy(update={"origins": all_origins})
+        _non_prov_fields = (
+            "seed_id",
+            "threat_id",
+            "threat_name",
+            "attack_pattern_name",
+            "attack_pattern_description",
+            "entry_point_id",
+            "risk_card_ref",
+            "owasp_llm_ids",
+            "agentic_threat_ids",
+        )
+        for fs in group[1:]:
+            for field_name in _non_prov_fields:
+                tval = getattr(template, field_name)
+                cval = getattr(fs, field_name)
+                if tval != cval:
+                    raise ValueError(
+                        f"Conflicting non-provenance metadata for "
+                        f"converged filtered seed '{template.candidate_id}': "
+                        f"field '{field_name}' differs "
+                        f"({tval!r} vs {cval!r})"
+                    )
+        merged = template.model_copy(update={"origins": unique_origins})
         result.append(merged)
 
     return result

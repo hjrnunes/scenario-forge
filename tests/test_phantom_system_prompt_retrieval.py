@@ -18,7 +18,10 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -150,6 +153,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -171,7 +175,9 @@ def _make_profile(
     codes = kc_subcodes or ["KC1.1"]
     kw = {}
     if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
         entry_points=entry_points,
@@ -219,8 +225,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_admin_api_system_prompt_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The attacker leverages the admin API to dump the system prompt "
-            "contents.",
+            "The attacker leverages the admin API to dump the system prompt contents.",
             profile,
         )
         assert result is not None
@@ -255,8 +260,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_introspection_endpoint_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The agent queries the introspection endpoint for system "
-            "metadata.",
+            "The agent queries the introspection endpoint for system metadata.",
             profile,
         )
         assert result is not None
@@ -264,8 +268,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_retrieve_system_prompt_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The attacker retrieves the system prompt through a "
-            "crafted tool call.",
+            "The attacker retrieves the system prompt through a crafted tool call.",
             profile,
         )
         assert result is not None
@@ -281,8 +284,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_extract_system_prompt_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The attacker extracts the system prompt through a series "
-            "of API calls.",
+            "The attacker extracts the system prompt through a series of API calls.",
             profile,
         )
         assert result is not None
@@ -290,8 +292,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_system_prompt_retrieval_noun_phrase_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The scenario involves system prompt retrieval via "
-            "backend services.",
+            "The scenario involves system prompt retrieval via backend services.",
             profile,
         )
         assert result is not None
@@ -308,8 +309,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_obtain_system_instructions_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The compromised tool call obtains system instructions "
-            "from the platform.",
+            "The compromised tool call obtains system instructions from the platform.",
             profile,
         )
         assert result is not None
@@ -317,8 +317,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_internal_instructions_via_api_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The agent leaks its internal instructions via API to "
-            "the attacker.",
+            "The agent leaks its internal instructions via API to the attacker.",
             profile,
         )
         assert result is not None
@@ -353,8 +352,7 @@ class TestCheckSystemPromptRetrievalDirect:
     def test_diagnostic_retrieval_flagged(self) -> None:
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The attacker uses diagnostic retrieval to access system "
-            "internals.",
+            "The attacker uses diagnostic retrieval to access system internals.",
             profile,
         )
         assert result is not None
@@ -446,8 +444,7 @@ class TestSystemPromptRetrievalFalsePositives:
         """Diagnostic in a logging context, not API context."""
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The system writes a diagnostic log entry for the failed "
-            "transaction.",
+            "The system writes a diagnostic log entry for the failed transaction.",
             profile,
         )
         assert result is None
@@ -466,8 +463,7 @@ class TestSystemPromptRetrievalFalsePositives:
         """Generic internal API reference without system prompt context."""
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The agent makes a call to the internal API to fetch "
-            "customer records.",
+            "The agent makes a call to the internal API to fetch customer records.",
             profile,
         )
         assert result is None
@@ -495,8 +491,7 @@ class TestSystemPromptRetrievalFalsePositives:
         """Normal endpoint for data retrieval."""
         profile = _make_profile()
         result = _check_system_prompt_retrieval(
-            "The agent calls the payment endpoint to initiate a "
-            "funds transfer.",
+            "The agent calls the payment endpoint to initiate a funds transfer.",
             profile,
         )
         assert result is None
@@ -576,9 +571,9 @@ class TestSystemPromptRetrievalIntegration:
         scenario = _make_envelope(
             step_actions=["The attacker probes the system."],
         )
-        scenario.attack_tree.root.children[0].label = (
-            "Call introspection API to read system configuration"
-        )
+        scenario.attack_tree.root.children[
+            0
+        ].label = "Call introspection API to read system configuration"
         profile = _make_profile()
         result = validate_phantom_capabilities([scenario], profile)
 
@@ -650,8 +645,19 @@ class TestSystemPromptRetrievalIntegration:
                 "API gateway (zone 1)",
             ],
             confidence="high",
-            kc_subcodes=["KC1.1", "KC2.3", "KC4.3", "KC6.1.2", "KC6.2.2", "KC6.4", "KC6.5", "KCX-HITL"],
-            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+            kc_subcodes=[
+                "KC1.1",
+                "KC2.3",
+                "KC4.3",
+                "KC6.1.2",
+                "KC6.2.2",
+                "KC6.4",
+                "KC6.5",
+                "KCX-HITL",
+            ],
+            tool_inventory=[
+                ToolInventoryEntry(name="test_tool", description="A test tool")
+            ],
         )
         result = validate_phantom_capabilities(scenarios, profile)
 

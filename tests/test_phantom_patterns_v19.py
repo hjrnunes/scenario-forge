@@ -17,7 +17,10 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -65,7 +68,9 @@ def _make_profile(
         codes.append("KC4.3")
     kw = {}
     if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
         entry_points=entry_points,
@@ -175,6 +180,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -198,8 +204,7 @@ class TestEscapee1AuditWriteTransactionLogs:
     def test_exact_escapee_text_step6_action(self) -> None:
         """Exact text from AP-T2-02-0193b9 step 6 action."""
         text = (
-            "overwrite the previous detailed transaction logs "
-            "with a high-level summary"
+            "overwrite the previous detailed transaction logs with a high-level summary"
         )
         profile = _make_profile()
         result = _check_audit_monitoring_write(text, profile)

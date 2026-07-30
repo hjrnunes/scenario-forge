@@ -68,6 +68,7 @@ from scenario_forge.pipeline.candidates import (
     expand_candidates,
 )
 from scenario_forge.pipeline.generate import (
+    ScenarioForgeIntegrityError,
     compute_artifact_hash,
     compute_scenario_id,
     generate_run_id,
@@ -241,6 +242,7 @@ def _make_envelope(
     )
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -514,7 +516,11 @@ class TestScenarioIdCollisionSafety:
     def test_scenario_id_includes_128_bit_min(self):
         """Scenario ID digest provides at least 128 bits of collision
         resistance (64 hex chars = 256 bits)."""
-        sid = compute_scenario_id("run123", "cand:v1:abc", 1)
+        sid = compute_scenario_id(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cand:v1:11111111111111111111111111111111",
+            1,
+        )
         assert sid.startswith("scenario:v2:")
         digest = sid.split("scenario:v2:")[1]
         assert len(digest) == 64  # SHA-256 = 256 bits
@@ -522,20 +528,44 @@ class TestScenarioIdCollisionSafety:
 
     def test_different_run_ids_different_scenario_ids(self):
         """Same candidate+attempt but different run → different scenario ID."""
-        sid1 = compute_scenario_id("run1", "cand:v1:abc", 1)
-        sid2 = compute_scenario_id("run2", "cand:v1:abc", 1)
+        sid1 = compute_scenario_id(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cand:v1:11111111111111111111111111111111",
+            1,
+        )
+        sid2 = compute_scenario_id(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "cand:v1:11111111111111111111111111111111",
+            1,
+        )
         assert sid1 != sid2
 
     def test_different_attempts_different_scenario_ids(self):
         """Same run+candidate but different attempt → different scenario ID."""
-        sid1 = compute_scenario_id("run1", "cand:v1:abc", 1)
-        sid2 = compute_scenario_id("run1", "cand:v1:abc", 2)
+        sid1 = compute_scenario_id(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cand:v1:11111111111111111111111111111111",
+            1,
+        )
+        sid2 = compute_scenario_id(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cand:v1:11111111111111111111111111111111",
+            2,
+        )
         assert sid1 != sid2
 
     def test_different_candidates_different_scenario_ids(self):
         """Same run+attempt but different candidate → different scenario ID."""
-        sid1 = compute_scenario_id("run1", "cand:v1:abc", 1)
-        sid2 = compute_scenario_id("run1", "cand:v1:def", 1)
+        sid1 = compute_scenario_id(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cand:v1:11111111111111111111111111111111",
+            1,
+        )
+        sid2 = compute_scenario_id(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cand:v1:22222222222222222222222222222222",
+            1,
+        )
         assert sid1 != sid2
 
     def test_run_id_is_128_bits(self):
@@ -560,7 +590,7 @@ class TestCrossRunScenarioIds:
 
     def test_same_candidate_distinct_across_runs(self):
         """Same candidate_id in 5 different runs → 5 distinct scenario IDs."""
-        candidate_id = "cand:v1:abcdef1234567890"
+        candidate_id = "cand:v1:11111111111111111111111111111111"
         run_ids = [generate_run_id() for _ in range(5)]
         scenario_ids = {compute_scenario_id(rid, candidate_id, 1) for rid in run_ids}
         assert len(scenario_ids) == 5
@@ -614,7 +644,7 @@ class TestExclusiveWriteCreation:
         """Second write of same scenario_id fails with FileExistsError."""
         env = _make_envelope(scenario_id="scenario:v2:abc")
         write_scenario_outputs(env, tmp_path)
-        with pytest.raises(FileExistsError, match="already exists"):
+        with pytest.raises(ScenarioForgeIntegrityError, match="already exists"):
             write_scenario_outputs(env, tmp_path)
 
     def test_write_fails_on_duplicate_feature(self, tmp_path: Path):
@@ -624,7 +654,7 @@ class TestExclusiveWriteCreation:
             behavior_spec="Feature: Test\n  Scenario: Basic\n    Given something",
         )
         write_scenario_outputs(env, tmp_path)
-        with pytest.raises(FileExistsError):
+        with pytest.raises(ScenarioForgeIntegrityError):
             write_scenario_outputs(env, tmp_path)
 
     def test_stem_mismatch_feature_without_behavior_spec(self, tmp_path: Path):
@@ -636,7 +666,7 @@ class TestExclusiveWriteCreation:
 
         # Now try to write a YAML without behavior_spec
         env = _make_envelope(scenario_id="scenario:v2:abc")
-        with pytest.raises(ValueError, match="Stem mismatch"):
+        with pytest.raises(ScenarioForgeIntegrityError, match="Stem mismatch"):
             write_scenario_outputs(env, tmp_path)
 
 
@@ -655,38 +685,50 @@ class TestGuardedReplacement:
 
         # Modify and replace
         env.narrative.title = "Updated Title"
-        yaml_path, _ = replace_scenario_outputs(env, tmp_path)
+        yaml_path, _ = replace_scenario_outputs(
+            env, tmp_path, admitted_scenario_id=env.scenario_id
+        )
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
         assert data["narrative"]["title"] == "Updated Title"
 
     def test_replace_fails_on_id_mismatch(self, tmp_path: Path):
-        """replace raises ValueError when expected_scenario_id doesn't match."""
+        """replace raises ScenarioForgeIntegrityError when admitted_scenario_id doesn't match."""
         env = _make_envelope(scenario_id="scenario:v2:abc")
         write_scenario_outputs(env, tmp_path)
 
-        with pytest.raises(ValueError, match="Scenario ID mismatch"):
+        with pytest.raises(ScenarioForgeIntegrityError, match="Scenario ID mismatch"):
             replace_scenario_outputs(
-                env, tmp_path, expected_scenario_id="scenario:v2:different"
+                env, tmp_path, admitted_scenario_id="scenario:v2:different"
             )
 
     def test_replace_fails_on_nonexistent(self, tmp_path: Path):
         """replace raises FileNotFoundError when the YAML doesn't exist."""
         env = _make_envelope(scenario_id="scenario:v2:nonexist")
-        with pytest.raises(FileNotFoundError):
-            replace_scenario_outputs(env, tmp_path)
+        with pytest.raises(ScenarioForgeIntegrityError):
+            replace_scenario_outputs(
+                env, tmp_path, admitted_scenario_id=env.scenario_id
+            )
 
     def test_replace_with_feature_preserves_feature(self, tmp_path: Path):
-        """Replacing a scenario with a feature file preserves and updates it."""
+        """Replacing a scenario YAML preserves feature bytes (not rewritten)."""
         env = _make_envelope(
             scenario_id="scenario:v2:abc",
             behavior_spec="Feature: Test\n  Scenario: Basic\n    Given something",
         )
         write_scenario_outputs(env, tmp_path)
+        original_feature = env.behavior_spec
 
-        env.behavior_spec = "Feature: Updated\n  Scenario: New\n    Given other"
-        yaml_path, feature_path = replace_scenario_outputs(env, tmp_path)
+        # Modify only the YAML (narrative title) — feature must be unchanged.
+        env.narrative.title = "Updated Title"
+        yaml_path, feature_path = replace_scenario_outputs(
+            env, tmp_path, admitted_scenario_id=env.scenario_id
+        )
         assert feature_path is not None
-        assert "Updated" in feature_path.read_text(encoding="utf-8")
+        # Feature bytes are verified, not rewritten.
+        assert feature_path.read_text(encoding="utf-8") == original_feature
+        # YAML was updated.
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        assert data["narrative"]["title"] == "Updated Title"
 
 
 # ---------------------------------------------------------------------------
@@ -981,7 +1023,7 @@ class TestDuplicateAdmissionCollisions:
         env2 = _make_envelope(scenario_id="scenario:v2:same")
 
         write_scenario_outputs(env1, tmp_path)
-        with pytest.raises(FileExistsError, match="already exists"):
+        with pytest.raises(ScenarioForgeIntegrityError, match="already exists"):
             write_scenario_outputs(env2, tmp_path)
 
     def test_duplicate_path_with_different_content_fails(self, tmp_path: Path):
@@ -992,16 +1034,16 @@ class TestDuplicateAdmissionCollisions:
 
         env2 = _make_envelope(scenario_id="scenario:v2:same")
         env2.narrative.title = "Different Title"
-        with pytest.raises(FileExistsError):
+        with pytest.raises(ScenarioForgeIntegrityError):
             write_scenario_outputs(env2, tmp_path)
 
     def test_replace_rejects_different_scenario_id(self, tmp_path: Path):
-        """replace_scenario_outputs rejects when expected_scenario_id
+        """replace_scenario_outputs rejects when admitted_scenario_id
         doesn't match — prevents overwriting the wrong scenario."""
         env = _make_envelope(scenario_id="scenario:v2:abc")
         write_scenario_outputs(env, tmp_path)
 
-        with pytest.raises(ValueError, match="Scenario ID mismatch"):
+        with pytest.raises(ScenarioForgeIntegrityError, match="Scenario ID mismatch"):
             replace_scenario_outputs(
-                env, tmp_path, expected_scenario_id="scenario:v2:different"
+                env, tmp_path, admitted_scenario_id="scenario:v2:different"
             )

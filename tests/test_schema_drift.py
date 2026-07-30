@@ -135,6 +135,7 @@ class TestSchemaDrift:
 
         envelope = ScenarioEnvelope(
             scenario_id="AP-T1-01-abc123",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             generated_at=datetime.now(),
             generator_version="0.1.0",
             narrative=NarrativeLayer(

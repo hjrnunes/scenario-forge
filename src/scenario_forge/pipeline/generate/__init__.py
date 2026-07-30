@@ -159,6 +159,7 @@ from scenario_forge.llm.client import LLMClient
 # assembly
 from scenario_forge.pipeline.generate.assembly import (
     GenerationError,
+    ScenarioForgeIntegrityError,
     _assemble_envelope,
     _call_log_entry,
     _call_log_entry_error,
@@ -280,6 +281,7 @@ __all__ = [
     "LLMClient",
     # assembly
     "GenerationError",
+    "ScenarioForgeIntegrityError",
     "_assemble_envelope",
     "_call_log_entry",
     "_call_log_entry_error",

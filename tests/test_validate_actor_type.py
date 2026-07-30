@@ -321,7 +321,13 @@ class TestBDIRegeneration:
     @patch(_PATCHES[3])
     @patch(_PATCHES[4])
     def test_regeneration_triggered_on_reassignment(
-        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble, caplog
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+        caplog,
     ):
         """When _validate_actor_type reassigns, _call_actor_profile is invoked a second time."""
         adversarial_profile = _make_actor(
@@ -348,6 +354,8 @@ class TestBDIRegeneration:
                 profile=_make_profile(),
                 client=_make_client_mock(),
                 use_case="Test AI chatbot",
+                run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                candidate_id="cand:v1:11111111111111111111111111111111",
             )
 
         assert mock_actor.call_count == 2
@@ -383,6 +391,8 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         assert mock_actor.call_count == 1
@@ -422,6 +432,8 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         _, assemble_kwargs = mock_assemble.call_args
@@ -455,6 +467,8 @@ class TestBDIRegeneration:
                 profile=_make_profile(),
                 client=_make_client_mock(),
                 use_case="Test AI chatbot",
+                run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                candidate_id="cand:v1:11111111111111111111111111111111",
             )
 
     @patch(_PATCHES[0])
@@ -463,7 +477,13 @@ class TestBDIRegeneration:
     @patch(_PATCHES[3])
     @patch(_PATCHES[4])
     def test_defence_in_depth_accepts_still_wrong_type(
-        self, mock_actor, mock_narrative, mock_behavior, mock_tree, mock_assemble, caplog
+        self,
+        mock_actor,
+        mock_narrative,
+        mock_behavior,
+        mock_tree,
+        mock_assemble,
+        caplog,
     ):
         """If regenerated profile still fails validation, accept it with a warning."""
         adversarial_profile = _make_actor(
@@ -490,6 +510,8 @@ class TestBDIRegeneration:
                 profile=_make_profile(),
                 client=_make_client_mock(),
                 use_case="Test AI chatbot",
+                run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                candidate_id="cand:v1:11111111111111111111111111111111",
             )
 
         # Re-validation reassigns again; _assemble_envelope gets adversarial-user
@@ -520,6 +542,8 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         assert mock_actor.call_count == 1
@@ -555,6 +579,8 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             preferred_actor_type="negligent-insider",
         )
 
@@ -634,6 +660,8 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         _, first_kwargs = mock_actor.call_args_list[0]
@@ -674,6 +702,8 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         _, first_kwargs = mock_actor.call_args_list[0]
@@ -712,6 +742,8 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=["cybercriminal"],
         )
 
@@ -750,6 +782,8 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=["negligent-insider"],
         )
 
@@ -787,12 +821,12 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=original_list,
         )
 
-        assert original_list == ["cybercriminal"], (
-            "caller's list was mutated in place"
-        )
+        assert original_list == ["cybercriminal"], "caller's list was mutated in place"
 
     @pytest.mark.parametrize("threat_id", ["T3", "T6", "T9", "T10", "T15"])
     @patch(_PATCHES[0])
@@ -846,6 +880,8 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         # Threat-based exclusion was applied

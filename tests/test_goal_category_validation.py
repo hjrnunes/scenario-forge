@@ -40,7 +40,6 @@ from scenario_forge.models.scenario import (
     StructuralExposureSignal,
     TaxonomyChain,
     TechniqueMaturity,
-    ValidationBlock,
 )
 from scenario_forge.pipeline.validation import validate_scenario_semantics
 
@@ -192,6 +191,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id="AP-T1-01-abc123",
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -209,11 +209,7 @@ def _find_violations(envelope: ScenarioEnvelope, rule: str) -> list:
     """Extract semantic violations matching a rule from the envelope."""
     if envelope.validation is None or envelope.validation.semantic is None:
         return []
-    return [
-        v
-        for v in envelope.validation.semantic.violations
-        if v.rule == rule
-    ]
+    return [v for v in envelope.validation.semantic.violations if v.rule == rule]
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +422,7 @@ class TestNonMatchingGoalCategoryPasses:
         validate_scenario_semantics([envelope], profile)
 
         actor_violations = _find_violations(envelope, "goal_actor_mismatch")
-        mechanism_violations = _find_violations(
-            envelope, "goal_mechanism_mismatch"
-        )
+        mechanism_violations = _find_violations(envelope, "goal_mechanism_mismatch")
         assert len(actor_violations) == 0
         assert len(mechanism_violations) == 0
 
@@ -442,8 +436,6 @@ class TestNonMatchingGoalCategoryPasses:
         validate_scenario_semantics([envelope], profile)
 
         actor_violations = _find_violations(envelope, "goal_actor_mismatch")
-        mechanism_violations = _find_violations(
-            envelope, "goal_mechanism_mismatch"
-        )
+        mechanism_violations = _find_violations(envelope, "goal_mechanism_mismatch")
         assert len(actor_violations) == 0
         assert len(mechanism_violations) == 0

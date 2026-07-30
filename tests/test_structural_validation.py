@@ -129,6 +129,7 @@ def _make_envelope(**overrides) -> ScenarioEnvelope:
 
     kwargs = dict(
         scenario_id="AP-T1-01-abc123",
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,

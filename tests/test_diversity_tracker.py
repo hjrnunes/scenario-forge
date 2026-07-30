@@ -6,7 +6,6 @@ import math
 from collections import Counter
 from datetime import datetime, timezone
 
-import pytest
 
 from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
 from scenario_forge.models.scenario import (
@@ -137,6 +136,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id="test-001",
+        candidate_id="cand:v1:test0000000000000000000000000000",
         version=1,
         generated_at=datetime.now(timezone.utc),
         generator_version="0.0.0-test",

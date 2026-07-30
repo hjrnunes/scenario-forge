@@ -39,6 +39,7 @@ from scenario_forge.pipeline.candidates import (
 from scenario_forge.pipeline.diversity import DiversityTracker
 from scenario_forge.pipeline.generate import (
     GenerationError,
+    ScenarioForgeIntegrityError,
     compute_artifact_hash,
     compute_entry_point_affinity,
     compute_compatible_goal_ids,
@@ -281,35 +282,34 @@ def _remediate_coverage_gaps(
     client: LLMClient,
     use_case: str,
     scenarios_dir: Path,
-    run_id: str = "",
+    run_id: str,
+    attempted_candidate_ids: set[str],
+    admitted_candidate_ids: set[str],
+    admitted_scenario_ids: set[str],
+    write_receipts: list[dict],
     available_goals: list[dict] | None = None,
     goal_usage: Counter | None = None,
-) -> tuple[list[ScenarioEnvelope], list[str]]:
+) -> tuple[list[ScenarioEnvelope], list[str], int, int]:
     """Generate additional scenarios for entry points that received none.
 
-    For each uncovered entry point identified by ``analyze_coverage_gaps``,
-    this function selects the most relevant existing seed (by zone affinity)
-    and calls ``generate_scenario`` with that entry point forced as the
-    preferred entry point.
-
-    Args:
-        coverage_gaps: Result from ``analyze_coverage_gaps``.
-        seeds: The scenario seeds from Stage 3.
-        profile: The capability profile from Stage 1.
-        client: LLM client for generation calls.
-        use_case: Free-text description of the AI system under assessment.
-        scenarios_dir: Directory for scenario output files.
-        available_goals: Filtered attack goal sub-goals for diversity.
-        goal_usage: Counter tracking goal usage across the batch.
+    Remediation scenarios go through the same generation, write, and
+    admission path as main candidates — they are counted in
+    attempted/admitted/failed funnel metrics.  The candidate ID is
+    computed from the actual pinned technique tuple (the seed's
+    ATLAS technique IDs for the selected entry point), not an empty
+    technique set.
 
     Returns:
-        Tuple of (remediation_scenarios, generation_notes).
+        Tuple of (remediation_scenarios, generation_notes,
+        remediation_attempted, remediation_failed).
     """
     if not coverage_gaps.uncovered_entry_points:
-        return [], []
+        return [], [], 0, 0
 
     remediation_scenarios: list[ScenarioEnvelope] = []
     generation_notes: list[str] = []
+    remediation_attempted = 0
+    remediation_failed = 0
 
     uncovered = coverage_gaps.uncovered_entry_points
     logger.info(
@@ -318,9 +318,6 @@ def _remediate_coverage_gaps(
         [ep.name for ep in uncovered],
     )
 
-    # Track which entry_point_ids have already been remediated to avoid
-    # duplicate remediation.  EntryPointGap records carry the canonical
-    # entry_point_id directly, so no name-based guessing is needed.
     remediated_ids: set[str] = set()
 
     for ep_gap in uncovered:
@@ -367,11 +364,24 @@ def _remediate_coverage_gaps(
             except ValueError:
                 pass
 
-        try:
-            # Compute a candidate_id for remediation scenarios.
-            remediation_candidate_id = compute_candidate_id(
-                seed.seed_id, ep_id or "", []
+        # Compute candidate_id from the actual pinned technique tuple
+        # (the seed's ATLAS technique IDs), not an empty set.
+        pinned_technique_ids = seed.atlas_technique_ids or []
+        remediation_candidate_id = compute_candidate_id(
+            seed.seed_id, ep_id or "", pinned_technique_ids
+        )
+
+        # Fatal: duplicate candidate admission aborts the run.
+        if remediation_candidate_id in attempted_candidate_ids:
+            raise ScenarioForgeIntegrityError(
+                f"Remediation duplicate candidate_id "
+                f"'{remediation_candidate_id}' already attempted. Aborting run."
             )
+
+        attempted_candidate_ids.add(remediation_candidate_id)
+        remediation_attempted += 1
+
+        try:
             envelope, call_log_entries = generate_scenario(
                 seed,
                 profile,
@@ -379,22 +389,53 @@ def _remediate_coverage_gaps(
                 use_case,
                 pinned_entry_point=ep_name,
                 pinned_entry_point_id=ep_id,
+                pinned_technique_ids=pinned_technique_ids,
                 attack_goal=selected_goal,
                 run_id=run_id,
                 candidate_id=remediation_candidate_id,
             )
-            # Attach candidate filter provenance so downstream coverage
-            # analysis resolves this scenario by canonical ID.
             envelope.candidate_filter = {
+                "candidate_id": remediation_candidate_id,
                 "entry_point_id": ep_id,
                 "pinned_entry_point": ep_name,
-                "pinned_technique_ids": [],
+                "pinned_technique_ids": pinned_technique_ids,
                 "pinned_technique_names": [],
+                "origins": [],
                 "rejection_rationales": [],
+                "is_remediation": True,
             }
-            write_scenario_outputs(envelope, scenarios_dir)
-            write_call_log(call_log_entries, scenarios_dir)
+
+            # Fatal: duplicate scenario ID.
+            if envelope.scenario_id in admitted_scenario_ids:
+                raise ScenarioForgeIntegrityError(
+                    f"Remediation duplicate scenario ID: "
+                    f"'{envelope.scenario_id}' already admitted. Aborting run."
+                )
+
+            yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
+
+            # Call-log failure after artifact creation is fatal.
+            try:
+                write_call_log(call_log_entries, scenarios_dir)
+            except Exception as exc:
+                raise ScenarioForgeIntegrityError(
+                    f"Remediation call-log write failed after artifact "
+                    f"creation for scenario '{envelope.scenario_id}': {exc}. "
+                    f"Aborting run."
+                ) from exc
+
+            admitted_candidate_ids.add(remediation_candidate_id)
+            admitted_scenario_ids.add(envelope.scenario_id)
             remediation_scenarios.append(envelope)
+            write_receipts.append(
+                {
+                    "scenario_id": envelope.scenario_id,
+                    "candidate_id": remediation_candidate_id,
+                    "yaml_path": str(yaml_path),
+                    "feature_path": str(feature_path) if feature_path else None,
+                }
+            )
+
             if goal_usage is not None and envelope.actor_profile is not None:
                 if envelope.actor_profile.goal_category is not None:
                     goal_usage[envelope.actor_profile.goal_category] += 1
@@ -403,6 +444,8 @@ def _remediate_coverage_gaps(
                 envelope.scenario_id,
                 envelope.narrative.entry_point,
             )
+        except ScenarioForgeIntegrityError:
+            raise
         except GenerationError as exc:
             if exc.call_log_entries:
                 write_call_log(exc.call_log_entries, scenarios_dir)
@@ -412,6 +455,7 @@ def _remediate_coverage_gaps(
             )
             logger.error("    %s", note)
             generation_notes.append(note)
+            remediation_failed += 1
         except Exception as exc:
             note = (
                 f"Remediation generation failed for entry point '{ep_name}' "
@@ -419,6 +463,7 @@ def _remediate_coverage_gaps(
             )
             logger.error("    %s", note)
             generation_notes.append(note)
+            remediation_failed += 1
 
     logger.info(
         "[Remediation] %d/%d uncovered entry points remediated",
@@ -426,7 +471,12 @@ def _remediate_coverage_gaps(
         len(uncovered),
     )
 
-    return remediation_scenarios, generation_notes
+    return (
+        remediation_scenarios,
+        generation_notes,
+        remediation_attempted,
+        remediation_failed,
+    )
 
 
 def run_profile_only(
@@ -646,11 +696,15 @@ def run_pipeline(
         candidates, profile, stage_records=stage_records
     )
     rule_rejected_count = len(rule_rejected)
-    # Count rule-transformed candidates (those with rule_pruning origins).
-    rule_transformed_count = sum(
-        1
-        for c in rule_passed
-        if any(o.transform_stage == "rule_pruning" for o in c.origins)
+    # Count unique source candidate identities that had at least one
+    # technique pruned by rules (pre-collapse, not post-dedup outputs).
+    rule_transformed_count = len(
+        {
+            o.source_candidate_id
+            for c in rule_passed
+            for o in c.origins
+            if o.transform_stage == "rule_pruning"
+        }
     )
     # Get post-rule collapse count from the typed stage record.
     rule_stage = (
@@ -714,11 +768,25 @@ def run_pipeline(
     # --- Stage 4: Scenario Generation ---
     logger.info("[Stage 4] Generating %d scenarios...", len(filtered_seeds))
     scenarios_dir = get_scenarios_dir(output_dir)
+
+    # Reject non-empty scenarios directory at setup — at this minimal seam
+    # we rely on write receipts as the sole source of truth for this run's
+    # artifacts.  A non-empty directory would introduce foreign artifacts.
+    if scenarios_dir.is_dir():
+        existing = list(scenarios_dir.iterdir())
+        if existing:
+            raise ScenarioForgeIntegrityError(
+                f"Scenarios directory is not empty at setup: "
+                f"{len(existing)} foreign file(s) found in {scenarios_dir}"
+            )
+
     scenarios: list[ScenarioEnvelope] = []
     failed_count = 0
     attempted_count = 0
     admitted_candidate_ids: set[str] = set()
+    attempted_candidate_ids: set[str] = set()
     admitted_scenario_ids: set[str] = set()
+    write_receipts: list[dict] = []
 
     tracker = DiversityTracker()
     total_seeds = len(filtered_seeds)
@@ -759,16 +827,18 @@ def run_pipeline(
         )
 
         try:
-            # Guard against duplicate candidate admission.
-            if fseed.candidate_id in admitted_candidate_ids:
-                raise GenerationError(
+            # Fatal: duplicate candidate admission aborts the run.
+            if fseed.candidate_id in attempted_candidate_ids:
+                raise ScenarioForgeIntegrityError(
                     f"Duplicate candidate admission: candidate_id "
-                    f"'{fseed.candidate_id}' already admitted. "
-                    f"This is a fatal integrity error.",
-                    seed_id=fseed.seed_id,
+                    f"'{fseed.candidate_id}' already attempted. Aborting run."
                 )
 
+            # Reserve candidate_id before LLM invocation — one attempt
+            # per candidate.
+            attempted_candidate_ids.add(fseed.candidate_id)
             attempted_count += 1
+
             envelope, call_log_entries = generate_scenario(
                 fseed,
                 profile,
@@ -801,25 +871,45 @@ def run_pipeline(
                 ],
             }
 
-            # Guard against duplicate scenario ID.
+            # Fatal: duplicate scenario ID aborts the run.
             if envelope.scenario_id in admitted_scenario_ids:
-                raise GenerationError(
+                raise ScenarioForgeIntegrityError(
                     f"Duplicate scenario ID: '{envelope.scenario_id}' "
-                    f"already admitted. This is a fatal integrity error.",
-                    seed_id=fseed.seed_id,
+                    f"already admitted. Aborting run."
                 )
 
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
-            write_call_log(call_log_entries, scenarios_dir)
+
+            # Call-log failure after artifact creation is fatal — it
+            # would leave manifest/admission state silently inconsistent.
+            try:
+                write_call_log(call_log_entries, scenarios_dir)
+            except Exception as exc:
+                raise ScenarioForgeIntegrityError(
+                    f"Call-log write failed after artifact creation for "
+                    f"scenario '{envelope.scenario_id}': {exc}. Aborting run."
+                ) from exc
+
             admitted_candidate_ids.add(fseed.candidate_id)
             admitted_scenario_ids.add(envelope.scenario_id)
             scenarios.append(envelope)
+            write_receipts.append(
+                {
+                    "scenario_id": envelope.scenario_id,
+                    "candidate_id": fseed.candidate_id,
+                    "yaml_path": str(yaml_path),
+                    "feature_path": str(feature_path) if feature_path else None,
+                }
+            )
 
             # Update diversity counters for subsequent seeds.
             tracker.update(envelope, attack_pattern_name=fseed.attack_pattern_name)
 
             notes = envelope.generation.notes or []
             generation_notes.extend(notes)
+        except ScenarioForgeIntegrityError:
+            # Fatal integrity errors propagate — do not catch as recoverable.
+            raise
         except GenerationError as exc:
             if exc.call_log_entries:
                 write_call_log(exc.call_log_entries, scenarios_dir)
@@ -838,6 +928,33 @@ def run_pipeline(
     )
     if generation_notes:
         logger.info("  %d note(s) recorded", len(generation_notes))
+
+    # --- Coverage Remediation Pass (before validation) ---
+    # Remediation scenarios go through the same generation/write/admission
+    # path as main candidates, then pass through all validation passes.
+    pre_remediation_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+    if pre_remediation_gaps.uncovered_entry_points:
+        remediation_scenarios, remediation_notes, rem_attempted, rem_failed = (
+            _remediate_coverage_gaps(
+                pre_remediation_gaps,
+                seeds,
+                profile,
+                client,
+                use_case,
+                scenarios_dir,
+                run_id=run_id,
+                attempted_candidate_ids=attempted_candidate_ids,
+                admitted_candidate_ids=admitted_candidate_ids,
+                admitted_scenario_ids=admitted_scenario_ids,
+                write_receipts=write_receipts,
+                available_goals=available_goals,
+                goal_usage=tracker.goal_usage,
+            )
+        )
+        scenarios.extend(remediation_scenarios)
+        generation_notes.extend(remediation_notes)
+        attempted_count += rem_attempted
+        failed_count += rem_failed
 
     # --- Phantom Capability Validation Pass ---
     logger.info("[Validation] Checking for phantom capabilities...")
@@ -1014,30 +1131,13 @@ def run_pipeline(
     logger.info("[Post-Validation] Re-writing scenario YAMLs with validation marks...")
     rewrite_count = 0
     for scenario in scenarios:
-        replace_scenario_outputs(scenario, scenarios_dir)
+        replace_scenario_outputs(
+            scenario, scenarios_dir, admitted_scenario_id=scenario.scenario_id
+        )
         rewrite_count += 1
     logger.info(
         "  %d scenario YAML(s) re-written with validation metadata", rewrite_count
     )
-
-    # --- Coverage Remediation Pass ---
-    # Check for uncovered entry points and generate additional scenarios
-    # to fill gaps, before running the final coverage analysis.
-    pre_remediation_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-    if pre_remediation_gaps.uncovered_entry_points:
-        remediation_scenarios, remediation_notes = _remediate_coverage_gaps(
-            pre_remediation_gaps,
-            seeds,
-            profile,
-            client,
-            use_case,
-            scenarios_dir,
-            run_id=run_id,
-            available_goals=available_goals,
-            goal_usage=tracker.goal_usage,
-        )
-        scenarios.extend(remediation_scenarios)
-        generation_notes.extend(remediation_notes)
 
     # --- Coverage Analysis ---
     logger.info("[Post-Generation] Analyzing coverage gaps...")
@@ -1056,28 +1156,52 @@ def run_pipeline(
         )
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
-    # --- Compute artifact hashes for manifest provenance ---
+    # --- Compute artifact hashes from this run's write receipts ---
+    # Inventory is built exclusively from write receipts (not glob), then
+    # the directory is scanned to detect extra/orphan artifacts.
     artifact_records: list[dict] = []
     scenarios_dir_final = get_scenarios_dir(output_dir)
+    receipt_stems: set[str] = set()
+    for receipt in write_receipts:
+        yaml_path = Path(receipt["yaml_path"])
+        if not yaml_path.exists():
+            raise ScenarioForgeIntegrityError(
+                f"Missing scenario YAML for admitted scenario "
+                f"'{receipt['scenario_id']}': {yaml_path}"
+            )
+        yaml_bytes = yaml_path.read_bytes()
+        record: dict = {
+            "yaml_path": f"scenarios/{yaml_path.name}",
+            "yaml_sha256": compute_artifact_hash(yaml_bytes),
+        }
+        receipt_stems.add(yaml_path.stem)
+
+        feature_path_str = receipt.get("feature_path")
+        if feature_path_str is not None:
+            feature_path = Path(feature_path_str)
+            if not feature_path.exists():
+                raise ScenarioForgeIntegrityError(
+                    f"Missing scenario feature for admitted scenario "
+                    f"'{receipt['scenario_id']}': {feature_path}"
+                )
+            feature_bytes = feature_path.read_bytes()
+            record["feature_path"] = f"scenarios/{feature_path.name}"
+            record["feature_sha256"] = compute_artifact_hash(feature_bytes)
+            if feature_path.stem != yaml_path.stem:
+                raise ScenarioForgeIntegrityError(
+                    f"YAML/feature stem mismatch: {yaml_path.name} vs "
+                    f"{feature_path.name}"
+                )
+        artifact_records.append(record)
+
+    # Detect extra/orphan .yaml/.feature files not in receipts.
     if scenarios_dir_final.is_dir():
-        for yaml_file in sorted(scenarios_dir_final.glob("*.yaml")):
-            yaml_bytes = yaml_file.read_bytes()
-            record: dict = {
-                "yaml_path": f"scenarios/{yaml_file.name}",
-                "yaml_sha256": compute_artifact_hash(yaml_bytes),
-            }
-            feature_file = yaml_file.with_suffix(".feature")
-            if feature_file.exists():
-                feature_bytes = feature_file.read_bytes()
-                record["feature_path"] = f"scenarios/{feature_file.name}"
-                record["feature_sha256"] = compute_artifact_hash(feature_bytes)
-                # Verify stem match.
-                if feature_file.stem != yaml_file.stem:
-                    raise ValueError(
-                        f"YAML/feature stem mismatch: {yaml_file.name} vs "
-                        f"{feature_file.name}"
+        for f in scenarios_dir_final.iterdir():
+            if f.suffix in (".yaml", ".feature"):
+                if f.stem not in receipt_stems:
+                    raise ScenarioForgeIntegrityError(
+                        f"Extra/orphan artifact not in write receipts: {f}"
                     )
-            artifact_records.append(record)
 
     persisted_artifacts = len(artifact_records)
 
@@ -1129,6 +1253,7 @@ def run_pipeline(
         "seeds_generated": len(seeds),
         "funnel": funnel.model_dump(),
         "stage_records": [r.model_dump() for r in stage_records],
+        "rule_verdicts": [v.model_dump() for v in rule_verdicts],
         **(
             {
                 "max_scenarios_per_pattern": max_scenarios_per_pattern,

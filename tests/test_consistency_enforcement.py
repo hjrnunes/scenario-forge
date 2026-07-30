@@ -250,9 +250,7 @@ class TestZoneConsistency:
         )
         tree = _make_tree(root)
         # Narrative mentions "reasoning" but tree has only "input"
-        narrative = _make_narrative(
-            ["input", "reasoning"], step_count=2
-        )
+        narrative = _make_narrative(["input", "reasoning"], step_count=2)
 
         violations = _check_consistency(tree, narrative, parsimony_budget=10)
 
@@ -299,9 +297,7 @@ class TestStepNodeCorrespondence:
         tree = _make_tree(root)
         narrative = _make_narrative(["input"], step_count=7)
 
-        violations = _check_consistency(
-            tree, narrative, parsimony_budget=20
-        )
+        violations = _check_consistency(tree, narrative, parsimony_budget=20)
 
         assert not any("step-node" in v for v in violations)
 
@@ -321,9 +317,7 @@ class TestStepNodeCorrespondence:
         tree = _make_tree(root)
         narrative = _make_narrative(["input"], step_count=2)
 
-        violations = _check_consistency(
-            tree, narrative, parsimony_budget=20
-        )
+        violations = _check_consistency(tree, narrative, parsimony_budget=20)
 
         step_violations = [v for v in violations if "step-node" in v]
         assert len(step_violations) == 1
@@ -339,9 +333,7 @@ class TestStepNodeCorrespondence:
         tree = _make_tree(root)
         narrative = _make_narrative(["input"], step_count=3)
 
-        violations = _check_consistency(
-            tree, narrative, parsimony_budget=10
-        )
+        violations = _check_consistency(tree, narrative, parsimony_budget=10)
 
         assert not any("step-node" in v for v in violations)
 
@@ -401,9 +393,7 @@ class TestCheckConsistencyIntegration:
             ),
         )
         tree = _make_tree(root)
-        narrative = _make_narrative(
-            ["input", "reasoning"], step_count=2
-        )
+        narrative = _make_narrative(["input", "reasoning"], step_count=2)
 
         violations = _check_consistency(tree, narrative, parsimony_budget=4)
 
@@ -420,9 +410,7 @@ class TestCheckConsistencyIntegration:
             _make_leaf("n1.3", zone="input"),
         )
         tree = _make_tree(root)
-        narrative = _make_narrative(
-            ["input", "reasoning"], step_count=3
-        )
+        narrative = _make_narrative(["input", "reasoning"], step_count=3)
 
         violations = _check_consistency(tree, narrative, parsimony_budget=5)
 
@@ -447,7 +435,7 @@ class TestConsistencyRetryLoop:
         """Build a mock return value for _call_attack_tree."""
         children = [
             _make_leaf(
-                f"n1.{i+1}",
+                f"n1.{i + 1}",
                 zone=zones[i % len(zones)],
                 **({"threat_id": threat_id} if threat_id else {}),
                 **({"technique_id": technique_id} if technique_id and i == 0 else {}),
@@ -460,11 +448,15 @@ class TestConsistencyRetryLoop:
         result.content = "mock"
         return tree, result
 
-    @patch("scenario_forge.pipeline.generate._validate_technique_zone_compatibility", return_value=0)
-    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques", return_value=0)
     @patch(
-        "scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref"
+        "scenario_forge.pipeline.generate._validate_technique_zone_compatibility",
+        return_value=0,
     )
+    @patch(
+        "scenario_forge.pipeline.generate._strip_non_skeleton_techniques",
+        return_value=0,
+    )
+    @patch("scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref")
     @patch("scenario_forge.pipeline.generate._validate_actor_type")
     @patch("scenario_forge.pipeline.generate._assemble_envelope")
     @patch("scenario_forge.pipeline.generate._call_behavior_spec")
@@ -538,17 +530,23 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
+            run_id="a" * 32,
+            candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
         )
 
         # Call 2 should have been invoked twice (initial + 1 retry)
         assert mock_call2.call_count == 2
 
-    @patch("scenario_forge.pipeline.generate._validate_technique_zone_compatibility", return_value=0)
-    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques", return_value=0)
     @patch(
-        "scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref"
+        "scenario_forge.pipeline.generate._validate_technique_zone_compatibility",
+        return_value=0,
     )
+    @patch(
+        "scenario_forge.pipeline.generate._strip_non_skeleton_techniques",
+        return_value=0,
+    )
+    @patch("scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref")
     @patch("scenario_forge.pipeline.generate._validate_actor_type")
     @patch("scenario_forge.pipeline.generate._assemble_envelope")
     @patch("scenario_forge.pipeline.generate._call_behavior_spec")
@@ -608,17 +606,20 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
+            run_id="a" * 32,
+            candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
         )
 
         # Call 2 should have been invoked only once
         assert mock_call2.call_count == 1
 
-    @patch("scenario_forge.pipeline.generate._validate_technique_zone_compatibility", return_value=0)
-    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques")
     @patch(
-        "scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref"
+        "scenario_forge.pipeline.generate._validate_technique_zone_compatibility",
+        return_value=0,
     )
+    @patch("scenario_forge.pipeline.generate._strip_non_skeleton_techniques")
+    @patch("scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref")
     @patch("scenario_forge.pipeline.generate._validate_actor_type")
     @patch("scenario_forge.pipeline.generate._assemble_envelope")
     @patch("scenario_forge.pipeline.generate._call_behavior_spec")
@@ -680,6 +681,8 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
+            run_id="a" * 32,
+            candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
         )
 
@@ -723,9 +726,7 @@ class TestMissingScenarioThreatId:
             tree, narrative, parsimony_budget=10, threat_id="T7"
         )
 
-        threat_violations = [
-            v for v in violations if "missing-scenario-threat-id" in v
-        ]
+        threat_violations = [v for v in violations if "missing-scenario-threat-id" in v]
         assert len(threat_violations) == 1
         assert "T7" in threat_violations[0]
 
@@ -742,9 +743,7 @@ class TestMissingScenarioThreatId:
             tree, narrative, parsimony_budget=10, threat_id="T7"
         )
 
-        threat_violations = [
-            v for v in violations if "missing-scenario-threat-id" in v
-        ]
+        threat_violations = [v for v in violations if "missing-scenario-threat-id" in v]
         assert len(threat_violations) == 1
         assert "'none'" in threat_violations[0] or "none" in threat_violations[0]
 
@@ -784,7 +783,9 @@ class TestToolExecutionLeafGrounding:
         narrative = _make_narrative(["input", "tool_execution"], step_count=2)
 
         violations = _check_consistency(
-            tree, narrative, parsimony_budget=10,
+            tree,
+            narrative,
+            parsimony_budget=10,
             tool_names=["database_query", "send_email"],
         )
 
@@ -801,13 +802,13 @@ class TestToolExecutionLeafGrounding:
         narrative = _make_narrative(["input", "tool_execution"], step_count=2)
 
         violations = _check_consistency(
-            tree, narrative, parsimony_budget=10,
+            tree,
+            narrative,
+            parsimony_budget=10,
             tool_names=["database_query", "send_email"],
         )
 
-        tool_violations = [
-            v for v in violations if "ungrounded-tool-leaf" in v
-        ]
+        tool_violations = [v for v in violations if "ungrounded-tool-leaf" in v]
         assert len(tool_violations) == 1
         assert "Execute malicious operation" in tool_violations[0]
 
@@ -822,7 +823,9 @@ class TestToolExecutionLeafGrounding:
         narrative = _make_narrative(["input", "tool_execution"], step_count=2)
 
         violations = _check_consistency(
-            tree, narrative, parsimony_budget=10,
+            tree,
+            narrative,
+            parsimony_budget=10,
             tool_names=None,
         )
 
@@ -840,7 +843,9 @@ class TestToolExecutionLeafGrounding:
         narrative = _make_narrative(["input", "reasoning"], step_count=2)
 
         violations = _check_consistency(
-            tree, narrative, parsimony_budget=10,
+            tree,
+            narrative,
+            parsimony_budget=10,
             tool_names=["database_query"],
         )
 
@@ -865,15 +870,11 @@ class TestNonActionableLeaves:
         root.children[1].label = "Confirm exfiltration channel is open"
         root.children[2].label = "Observe system response patterns"
         tree = _make_tree(root)
-        narrative = _make_narrative(
-            ["input", "reasoning"], step_count=3
-        )
+        narrative = _make_narrative(["input", "reasoning"], step_count=3)
 
         violations = _check_consistency(tree, narrative, parsimony_budget=10)
 
-        non_actionable = [
-            v for v in violations if "non-actionable-leaves" in v
-        ]
+        non_actionable = [v for v in violations if "non-actionable-leaves" in v]
         assert len(non_actionable) == 1
         assert "n1.2" in non_actionable[0]
         assert "n1.3" in non_actionable[0]

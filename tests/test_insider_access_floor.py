@@ -163,6 +163,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -199,16 +200,22 @@ class TestInsiderAccessMarkers:
         assert _has_insider_access_markers("Use the employee portal credentials")
 
     def test_privileged_access_matches(self):
-        assert _has_insider_access_markers("Exploit privileged access to internal resources")
+        assert _has_insider_access_markers(
+            "Exploit privileged access to internal resources"
+        )
 
     def test_corporate_vpn_matches(self):
-        assert _has_insider_access_markers("Connect via corporate VPN to reach internal servers")
+        assert _has_insider_access_markers(
+            "Connect via corporate VPN to reach internal servers"
+        )
 
     def test_intranet_matches(self):
         assert _has_insider_access_markers("Access the intranet documentation")
 
     def test_deployment_pipeline_matches(self):
-        assert _has_insider_access_markers("Modify the deployment pipeline configuration")
+        assert _has_insider_access_markers(
+            "Modify the deployment pipeline configuration"
+        )
 
     def test_service_account_matches(self):
         assert _has_insider_access_markers("Use the service account to authenticate")
@@ -375,7 +382,10 @@ class TestInsiderWithOnlyPublicActions:
         result = validate_insider_access_floor(scenarios)
         assert result.flagged_count == 1
         _scenario, violation = result.flagged_scenarios[0]
-        assert "insider-specific" in violation.reason.lower() or "insider" in violation.reason.lower()
+        assert (
+            "insider-specific" in violation.reason.lower()
+            or "insider" in violation.reason.lower()
+        )
 
 
 # ---------------------------------------------------------------------------

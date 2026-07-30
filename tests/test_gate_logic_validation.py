@@ -43,7 +43,9 @@ from scenario_forge.pipeline.validation import (
 # ---------------------------------------------------------------------------
 
 
-def _leaf(node_id: str, label: str, zone: str, technique_id: str | None = None) -> AttackTreeNode:
+def _leaf(
+    node_id: str, label: str, zone: str, technique_id: str | None = None
+) -> AttackTreeNode:
     return AttackTreeNode(
         id=node_id,
         label=label,
@@ -207,6 +209,7 @@ def _make_scenario(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         scenario_seed_metadata={
@@ -312,12 +315,7 @@ class TestCountOrGates:
 class TestValidateGateLogicConsistency:
     def test_and_only_tree_clean(self):
         """AND-only tree with single Scenario block passes."""
-        gherkin = (
-            "Feature: Test\n"
-            "  Scenario: Test\n"
-            "    When step A\n"
-            "    Then result\n"
-        )
+        gherkin = "Feature: Test\n  Scenario: Test\n    When step A\n    Then result\n"
         scenario = _make_scenario(_and_only_tree(), gherkin)
         result = validate_gate_logic_consistency([scenario])
         assert result.flagged_count == 0
@@ -370,10 +368,7 @@ class TestValidateGateLogicConsistency:
     def test_batch_mixed_results(self):
         """Batch with both clean and flagged scenarios."""
         clean_gherkin = (
-            "Feature: Test\n"
-            "  Scenario: Test\n"
-            "    When step\n"
-            "    Then result\n"
+            "Feature: Test\n  Scenario: Test\n    When step\n    Then result\n"
         )
         flagged_gherkin = (
             "Feature: Test\n"
@@ -391,12 +386,7 @@ class TestValidateGateLogicConsistency:
 
     def test_dual_or_tree_single_scenario_flagged(self):
         """Tree with 2 OR gates and single Scenario is flagged with correct count."""
-        gherkin = (
-            "Feature: Test\n"
-            "  Scenario: Test\n"
-            "    When step\n"
-            "    Then result\n"
-        )
+        gherkin = "Feature: Test\n  Scenario: Test\n    When step\n    Then result\n"
         scenario = _make_scenario(_dual_or_gate_tree(), gherkin)
         result = validate_gate_logic_consistency([scenario])
         assert result.flagged_count == 1

@@ -145,6 +145,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         scenario_seed_metadata=seed_metadata,
@@ -386,7 +387,9 @@ class TestFlaggedScenarios:
         assert result.clean_count == 0
         _, violations = result.flagged_scenarios[0]
         assert len(violations) == 1
-        assert "AML.T0098" in violations[0].reason or "AML.T0099" in violations[0].reason
+        assert (
+            "AML.T0098" in violations[0].reason or "AML.T0099" in violations[0].reason
+        )
         assert "atlas_provenance_ids" in violations[0].reason
 
     def test_all_unannotated_leaves(self) -> None:
@@ -775,10 +778,14 @@ class TestIsConsequenceLeaf:
         )
 
     def test_deliver_payload_not_consequence(self) -> None:
-        assert not _is_consequence_leaf(self._node("Deliver social engineering payload"))
+        assert not _is_consequence_leaf(
+            self._node("Deliver social engineering payload")
+        )
 
     def test_exploit_tool_not_consequence(self) -> None:
-        assert not _is_consequence_leaf(self._node("Exploit tool execution vulnerability"))
+        assert not _is_consequence_leaf(
+            self._node("Exploit tool execution vulnerability")
+        )
 
     def test_bypass_guardrails_not_consequence(self) -> None:
         assert not _is_consequence_leaf(self._node("Bypass input guardrails"))

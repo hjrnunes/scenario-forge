@@ -18,7 +18,10 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -58,7 +61,9 @@ def _make_profile(
         entry_points=["user prompts (zone 1)"],
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
-        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+        tool_inventory=[
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ],
     )
 
 
@@ -181,6 +186,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id="AP-T1-01-abc123",
+        candidate_id="cand:v1:test0000000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -331,7 +337,8 @@ class TestSemanticValidationThreatIdConsistency:
         assert envelope.validation is not None
         # Should pass since the check is skipped
         threat_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "threat_id_matches_seed"
         ]
         assert len(threat_violations) == 0
@@ -346,7 +353,8 @@ class TestSemanticValidationThreatIdConsistency:
 
         assert envelope.validation is not None
         threat_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "threat_id_matches_seed"
         ]
         assert len(threat_violations) == 0

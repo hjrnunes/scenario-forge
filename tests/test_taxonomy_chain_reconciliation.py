@@ -56,22 +56,25 @@ def _make_narrative() -> NarrativeLayer:
         entry_point="test entry point (zone 1)",
         zone_sequence=["input", "reasoning"],
         steps=[
-            NarrativeStep(
-                step_number=1, zone="input", action="act", effect="eff"
-            ),
+            NarrativeStep(step_number=1, zone="input", action="act", effect="eff"),
         ],
     )
 
 
 def _make_profile():
-    from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ToolInventoryEntry,
+    )
 
     return CapabilityProfile(
         zones_active=["input", "reasoning", "tool_execution"],
         entry_points=["test entry point (zone 1)"],
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
-        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+        tool_inventory=[
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ],
     )
 
 
@@ -112,8 +115,10 @@ def _make_tree(
 def _make_call_metas() -> list[CallMetadata]:
     return [
         CallMetadata(
-            call=CallName.narrative, prompt_tokens=10,
-            completion_tokens=10, duration_ms=100,
+            call=CallName.narrative,
+            prompt_tokens=10,
+            completion_tokens=10,
+            duration_ms=100,
         ),
     ]
 
@@ -185,9 +190,7 @@ class TestCollectTechniqueIds:
                 children=[inner_node, outer_leaf],
             ),
         )
-        assert tree.collect_technique_ids() == [
-            "AML.T0051", "AML.T0054", "AML.T0053"
-        ]
+        assert tree.collect_technique_ids() == ["AML.T0051", "AML.T0054", "AML.T0053"]
 
 
 # ===========================================================================
@@ -213,6 +216,8 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         # Should contain only the technique actually in the tree
@@ -234,6 +239,8 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids == ["AML.T0054"]
@@ -254,6 +261,8 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -273,6 +282,8 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -292,12 +303,15 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         # atlas_provenance_ids documents where the scenario came from (seed provenance)
         # and should NOT be reconciled with tree content
         assert envelope.scenario_seed_metadata["atlas_provenance_ids"] == [
-            "AML.T0051", "AML.T0054"
+            "AML.T0051",
+            "AML.T0054",
         ]
         # But taxonomy_chain.atlas_technique_ids should only have what's in tree
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids == ["AML.T0051"]
@@ -317,8 +331,11 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
         assert set(envelope.faceting.taxonomy_chain.atlas_technique_ids) == {
-            "AML.T0051", "AML.T0054"
+            "AML.T0051",
+            "AML.T0054",
         }

@@ -439,8 +439,7 @@ class ScenarioEnvelope(BaseModel):
             "scenario:<version>:<256-bit hex digest of run_id|candidate_id|attempt>."
         ),
     )
-    candidate_id: str | None = Field(
-        default=None,
+    candidate_id: str = Field(
         description=(
             "Stable canonical candidate identity (cand:v1:<128-bit hex>) "
             "that produced this scenario.  Separated from the run-specific "
