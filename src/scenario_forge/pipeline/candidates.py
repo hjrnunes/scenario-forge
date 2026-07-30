@@ -841,7 +841,10 @@ def _canonicalize_origin(origin: CandidateOrigin) -> CandidateOrigin:
     sorted_original = tuple(sorted(origin.original_technique_ids))
     sorted_removed = tuple(sorted(origin.removed_technique_ids))
     sorted_decisions = tuple(
-        sorted(origin.removal_decisions, key=lambda d: d.technique_id)
+        sorted(
+            origin.removal_decisions,
+            key=lambda d: (d.technique_id, d.rule, d.reason),
+        )
     )
     # Re-align removal_reasons to sorted removed_technique_ids order.
     if origin.removed_technique_ids and origin.removal_reasons:
@@ -979,13 +982,20 @@ def canonicalize_and_dedup(
                 c.atlas_technique_names,
                 c.atlas_technique_descriptions,
             )
-            if c_ids != c.atlas_technique_ids:
+            # Canonicalize origins for singletons too, so reversed
+            # technique/decision order serializes identically.
+            canonical_origins = _canonicalize_and_dedup_origins(list(c.origins))
+            needs_rebuild = c_ids != c.atlas_technique_ids
+            if canonical_origins != list(c.origins):
+                needs_rebuild = True
+            if needs_rebuild:
                 c = CandidateTriple.model_validate(
                     c.model_dump(mode="python")
                     | {
                         "atlas_technique_ids": c_ids,
                         "atlas_technique_names": c_names,
                         "atlas_technique_descriptions": c_descs,
+                        "origins": tuple(canonical_origins),
                     }
                 )
             result.append(c)

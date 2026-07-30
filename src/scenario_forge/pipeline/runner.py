@@ -496,6 +496,136 @@ def _remediate_coverage_gaps(
     )
 
 
+def _reconcile_artifacts(
+    scenarios: list[ScenarioEnvelope],
+    write_receipts: list[dict],
+    scenarios_dir: Path,
+) -> list[dict]:
+    """Reconcile write receipts against admitted scenarios and compute
+    artifact hashes.
+
+    Builds the exact expected resolved path set from receipts, requires
+    each receipt ``(scenario_id, candidate_id)`` belongs to admitted
+    scenarios, requires ``seen_receipt_keys == admitted_keys``, resolves
+    receipt paths and requires exact equality with canonical
+    ``scenarios_dir/scenario_id.{yaml,feature}``, detects
+    extra/orphan files, and returns artifact records with SHA-256 hashes.
+
+    Raises:
+        ScenarioForgeIntegrityError: On any mismatch.
+    """
+    artifact_records: list[dict] = []
+    scenarios_dir_resolved = scenarios_dir.resolve()
+    expected_yaml_paths: set[Path] = set()
+    expected_feature_paths: set[Path] = set()
+    seen_receipt_keys: set[tuple[str, str]] = set()
+    admitted_keys: set[tuple[str, str]] = set()
+    admitted_behavior_spec: dict[str, bool] = {}
+    for s in scenarios:
+        admitted_keys.add((s.scenario_id, s.candidate_id))
+        has_bs = s.behavior_spec is not None and isinstance(s.behavior_spec, str)
+        admitted_behavior_spec[s.scenario_id] = has_bs
+
+    for receipt in write_receipts:
+        receipt_key = (receipt["scenario_id"], receipt["candidate_id"])
+        if receipt_key in seen_receipt_keys:
+            raise ScenarioForgeIntegrityError(
+                f"Duplicate write receipt for (scenario_id={receipt['scenario_id']}, "
+                f"candidate_id={receipt['candidate_id']})"
+            )
+        seen_receipt_keys.add(receipt_key)
+
+        if receipt_key not in admitted_keys:
+            raise ScenarioForgeIntegrityError(
+                f"Write receipt (scenario_id={receipt['scenario_id']}, "
+                f"candidate_id={receipt['candidate_id']}) does not match any "
+                f"admitted scenario. Aborting run."
+            )
+
+        has_feature_receipt = receipt.get("feature_path") is not None
+        expected_has_feature = admitted_behavior_spec[receipt["scenario_id"]]
+        if has_feature_receipt != expected_has_feature:
+            raise ScenarioForgeIntegrityError(
+                f"Feature receipt presence ({has_feature_receipt}) does not "
+                f"match envelope behavior_spec ({expected_has_feature}) for "
+                f"scenario '{receipt['scenario_id']}'. Aborting run."
+            )
+
+        yaml_path = Path(receipt["yaml_path"]).resolve()
+        canonical_yaml = scenarios_dir_resolved / f"{receipt['scenario_id']}.yaml"
+        if yaml_path != canonical_yaml:
+            raise ScenarioForgeIntegrityError(
+                f"YAML path '{yaml_path}' does not match canonical path "
+                f"'{canonical_yaml}'. Aborting run."
+            )
+        if not yaml_path.exists():
+            raise ScenarioForgeIntegrityError(
+                f"Missing scenario YAML for admitted scenario "
+                f"'{receipt['scenario_id']}': {yaml_path}"
+            )
+        yaml_bytes = yaml_path.read_bytes()
+        record: dict = {
+            "yaml_path": f"scenarios/{yaml_path.name}",
+            "yaml_sha256": compute_artifact_hash(yaml_bytes),
+        }
+        expected_yaml_paths.add(yaml_path)
+
+        feature_path_str = receipt.get("feature_path")
+        if feature_path_str is not None:
+            feature_path = Path(feature_path_str).resolve()
+            canonical_feature = (
+                scenarios_dir_resolved / f"{receipt['scenario_id']}.feature"
+            )
+            if feature_path != canonical_feature:
+                raise ScenarioForgeIntegrityError(
+                    f"Feature path '{feature_path}' does not match canonical "
+                    f"path '{canonical_feature}'. Aborting run."
+                )
+            if not feature_path.exists():
+                raise ScenarioForgeIntegrityError(
+                    f"Missing scenario feature for admitted scenario "
+                    f"'{receipt['scenario_id']}': {feature_path}"
+                )
+            feature_bytes = feature_path.read_bytes()
+            record["feature_path"] = f"scenarios/{feature_path.name}"
+            record["feature_sha256"] = compute_artifact_hash(feature_bytes)
+            if feature_path.stem != yaml_path.stem:
+                raise ScenarioForgeIntegrityError(
+                    f"YAML/feature stem mismatch: {yaml_path.name} vs "
+                    f"{feature_path.name}"
+                )
+            expected_feature_paths.add(feature_path)
+        artifact_records.append(record)
+
+    if seen_receipt_keys != admitted_keys:
+        missing = admitted_keys - seen_receipt_keys
+        extra = seen_receipt_keys - admitted_keys
+        parts: list[str] = []
+        if missing:
+            parts.append(f"missing receipts for {sorted(missing)}")
+        if extra:
+            parts.append(f"extra receipts for {sorted(extra)}")
+        raise ScenarioForgeIntegrityError(
+            f"Receipt/admission mismatch: {'; '.join(parts)}. Aborting run."
+        )
+
+    # Detect extra/orphan .yaml/.feature files not in expected path set.
+    if scenarios_dir.is_dir():
+        for f in scenarios_dir.iterdir():
+            if f.suffix == ".yaml":
+                if f.resolve() not in expected_yaml_paths:
+                    raise ScenarioForgeIntegrityError(
+                        f"Extra/orphan YAML artifact not in write receipts: {f}"
+                    )
+            elif f.suffix == ".feature":
+                if f.resolve() not in expected_feature_paths:
+                    raise ScenarioForgeIntegrityError(
+                        f"Extra/orphan feature artifact not in write receipts: {f}"
+                    )
+
+    return artifact_records
+
+
 def run_profile_only(
     use_case: str,
     base_url: str | None = None,
@@ -1197,98 +1327,12 @@ def run_pipeline(
     write_coverage_report(coverage_gaps, output_dir, attacker_diversity)
 
     # --- Compute artifact hashes from this run's write receipts ---
-    # Inventory is built exclusively from write receipts (not glob), then
-    # the directory is scanned to detect extra/orphan artifacts.
-    artifact_records: list[dict] = []
     scenarios_dir_final = get_scenarios_dir(output_dir)
-    # Build exact expected resolved path set from receipts (not stems).
-    expected_yaml_paths: set[Path] = set()
-    expected_feature_paths: set[Path] = set()
-    seen_receipt_keys: set[tuple[str, str]] = set()
-    # Build a map from scenario_id to has_behavior_spec for receipt
-    # reconciliation against admitted envelopes.
-    admitted_behavior_spec: dict[str, bool] = {}
-    for s in scenarios:
-        has_bs = s.behavior_spec is not None and isinstance(s.behavior_spec, str)
-        admitted_behavior_spec[s.scenario_id] = has_bs
-
-    for receipt in write_receipts:
-        # Reconcile exactly one unique receipt per admitted (scenario_id, candidate_id).
-        receipt_key = (receipt["scenario_id"], receipt["candidate_id"])
-        if receipt_key in seen_receipt_keys:
-            raise ScenarioForgeIntegrityError(
-                f"Duplicate write receipt for (scenario_id={receipt['scenario_id']}, "
-                f"candidate_id={receipt['candidate_id']})"
-            )
-        seen_receipt_keys.add(receipt_key)
-
-        # Verify feature receipt presence matches envelope behavior_spec.
-        has_feature_receipt = receipt.get("feature_path") is not None
-        expected_has_feature = admitted_behavior_spec.get(receipt["scenario_id"])
-        if expected_has_feature is None:
-            raise ScenarioForgeIntegrityError(
-                f"Write receipt for scenario '{receipt['scenario_id']}' "
-                f"has no matching admitted scenario. Aborting run."
-            )
-        if has_feature_receipt != expected_has_feature:
-            raise ScenarioForgeIntegrityError(
-                f"Feature receipt presence ({has_feature_receipt}) does not "
-                f"match envelope behavior_spec ({expected_has_feature}) for "
-                f"scenario '{receipt['scenario_id']}'. Aborting run."
-            )
-
-        yaml_path = Path(receipt["yaml_path"])
-        # YAML filename must equal scenario_id.
-        if yaml_path.stem != receipt["scenario_id"]:
-            raise ScenarioForgeIntegrityError(
-                f"YAML filename '{yaml_path.name}' does not match scenario_id "
-                f"'{receipt['scenario_id']}'"
-            )
-        if not yaml_path.exists():
-            raise ScenarioForgeIntegrityError(
-                f"Missing scenario YAML for admitted scenario "
-                f"'{receipt['scenario_id']}': {yaml_path}"
-            )
-        yaml_bytes = yaml_path.read_bytes()
-        record: dict = {
-            "yaml_path": f"scenarios/{yaml_path.name}",
-            "yaml_sha256": compute_artifact_hash(yaml_bytes),
-        }
-        expected_yaml_paths.add(yaml_path)
-
-        feature_path_str = receipt.get("feature_path")
-        if feature_path_str is not None:
-            feature_path = Path(feature_path_str)
-            if not feature_path.exists():
-                raise ScenarioForgeIntegrityError(
-                    f"Missing scenario feature for admitted scenario "
-                    f"'{receipt['scenario_id']}': {feature_path}"
-                )
-            feature_bytes = feature_path.read_bytes()
-            record["feature_path"] = f"scenarios/{feature_path.name}"
-            record["feature_sha256"] = compute_artifact_hash(feature_bytes)
-            if feature_path.stem != yaml_path.stem:
-                raise ScenarioForgeIntegrityError(
-                    f"YAML/feature stem mismatch: {yaml_path.name} vs "
-                    f"{feature_path.name}"
-                )
-            expected_feature_paths.add(feature_path)
-        artifact_records.append(record)
-
-    # Detect extra/orphan .yaml/.feature files not in expected path set.
-    # A same-stem feature for a YAML-only receipt must be rejected.
-    if scenarios_dir_final.is_dir():
-        for f in scenarios_dir_final.iterdir():
-            if f.suffix == ".yaml":
-                if f not in expected_yaml_paths:
-                    raise ScenarioForgeIntegrityError(
-                        f"Extra/orphan YAML artifact not in write receipts: {f}"
-                    )
-            elif f.suffix == ".feature":
-                if f not in expected_feature_paths:
-                    raise ScenarioForgeIntegrityError(
-                        f"Extra/orphan feature artifact not in write receipts: {f}"
-                    )
+    artifact_records = _reconcile_artifacts(
+        scenarios=scenarios,
+        write_receipts=write_receipts,
+        scenarios_dir=scenarios_dir_final,
+    )
 
     persisted_artifacts = len(artifact_records)
 

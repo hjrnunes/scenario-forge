@@ -57,6 +57,7 @@ from scenario_forge.pipeline.candidates import (
     CandidateFunnel,
     CandidateOrigin,
     CandidateTriple,
+    RemovalDecision,
     apply_rule_based_filter,
     canonicalize_and_dedup,
     compute_candidate_id,
@@ -1635,3 +1636,375 @@ class TestFullyRejectedAllDecisions:
         # Serialized verdict must contain all decisions.
         dumped = verdict.model_dump(mode="json")
         assert len(dumped["removal_decisions"]) == 3
+
+
+# ---------------------------------------------------------------------------#
+# V. Third-review: receipt/admission exactness and canonical paths
+# ---------------------------------------------------------------------------#
+
+
+class TestReceiptAdmissionExactness:
+    """Receipts must exactly match admitted scenarios and canonical paths."""
+
+    def test_forged_swapped_candidate_receipt_is_fatal(self, tmp_path: Path):
+        """A receipt with a swapped candidate_id for an admitted scenario
+        must be rejected — the (scenario_id, candidate_id) pair must
+        belong to admitted_keys."""
+        from scenario_forge.pipeline.generate.assembly import (
+            ScenarioForgeIntegrityError as SIE,
+        )
+        from scenario_forge.pipeline.runner import _reconcile_artifacts
+
+        sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
+        env = _make_envelope(scenario_id=sid, candidate_id=_VALID_CANDIDATE_ID)
+        wrong_cid = "cand:v1:22222222222222222222222222222222"
+        receipts = [
+            {
+                "scenario_id": sid,
+                "candidate_id": wrong_cid,
+                "yaml_path": str(tmp_path / f"{sid}.yaml"),
+                "feature_path": None,
+            }
+        ]
+        with pytest.raises(SIE, match="does not match any admitted"):
+            _reconcile_artifacts(
+                scenarios=[env],
+                write_receipts=receipts,
+                scenarios_dir=tmp_path,
+            )
+
+    def test_missing_admitted_receipt_is_fatal(self, tmp_path: Path):
+        """An admitted scenario with no corresponding receipt must be
+        rejected — seen_receipt_keys must equal admitted_keys."""
+        from scenario_forge.pipeline.generate.assembly import (
+            ScenarioForgeIntegrityError as SIE,
+        )
+        from scenario_forge.pipeline.runner import _reconcile_artifacts
+
+        sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
+        env = _make_envelope(scenario_id=sid, candidate_id=_VALID_CANDIDATE_ID)
+        # Empty receipts — no receipt for the admitted scenario.
+        with pytest.raises(SIE, match="Receipt/admission mismatch.*missing"):
+            _reconcile_artifacts(
+                scenarios=[env],
+                write_receipts=[],
+                scenarios_dir=tmp_path,
+            )
+
+    def test_noncanonical_same_stem_path_is_fatal(self, tmp_path: Path):
+        """A receipt whose yaml_path is in the wrong directory (even if
+        the stem matches the scenario_id) must be rejected."""
+        from scenario_forge.pipeline.generate.assembly import (
+            ScenarioForgeIntegrityError as SIE,
+        )
+        from scenario_forge.pipeline.runner import _reconcile_artifacts
+
+        sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
+        env = _make_envelope(scenario_id=sid, candidate_id=_VALID_CANDIDATE_ID)
+        wrong_dir = tmp_path / "wrong_dir"
+        wrong_dir.mkdir()
+        yaml_path = wrong_dir / f"{sid}.yaml"
+        yaml_path.write_text("dummy", encoding="utf-8")
+        receipts = [
+            {
+                "scenario_id": sid,
+                "candidate_id": _VALID_CANDIDATE_ID,
+                "yaml_path": str(yaml_path),
+                "feature_path": None,
+            }
+        ]
+        with pytest.raises(SIE, match="does not match canonical path"):
+            _reconcile_artifacts(
+                scenarios=[env],
+                write_receipts=receipts,
+                scenarios_dir=tmp_path / "scenarios",
+            )
+
+    def test_noncanonical_suffix_is_fatal(self, tmp_path: Path):
+        """A receipt whose yaml_path has a wrong suffix must be rejected."""
+        from scenario_forge.pipeline.generate.assembly import (
+            ScenarioForgeIntegrityError as SIE,
+        )
+        from scenario_forge.pipeline.runner import _reconcile_artifacts
+
+        sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
+        env = _make_envelope(scenario_id=sid, candidate_id=_VALID_CANDIDATE_ID)
+        scenarios_dir = tmp_path / "scenarios"
+        scenarios_dir.mkdir()
+        wrong_path = scenarios_dir / f"{sid}.txt"
+        wrong_path.write_text("dummy", encoding="utf-8")
+        receipts = [
+            {
+                "scenario_id": sid,
+                "candidate_id": _VALID_CANDIDATE_ID,
+                "yaml_path": str(wrong_path),
+                "feature_path": None,
+            }
+        ]
+        with pytest.raises(SIE, match="does not match canonical path"):
+            _reconcile_artifacts(
+                scenarios=[env],
+                write_receipts=receipts,
+                scenarios_dir=scenarios_dir,
+            )
+
+
+# ---------------------------------------------------------------------------#
+# W. Third-review: lowercase identity consistency
+# ---------------------------------------------------------------------------#
+
+
+class TestLowercaseIdentityConsistency:
+    """run_id, candidate_id, and scenario_id must be lowercase hex.
+    Pydantic and assembly validators must reject uppercase, matching
+    the JSON Schema [0-9a-f] pattern."""
+
+    # --- Assembly/generation validators ---
+
+    def test_uppercase_run_id_rejected_by_assembly(self):
+        from scenario_forge.pipeline.generate.assembly import _validate_run_id
+
+        with pytest.raises(ValueError, match="lowercase"):
+            _validate_run_id("A" * 32)
+
+    def test_uppercase_candidate_id_rejected_by_assembly(self):
+        from scenario_forge.pipeline.generate.assembly import _validate_candidate_id
+
+        upper = "cand:v1:" + "A" * 32
+        with pytest.raises(ValueError, match="lowercase"):
+            _validate_candidate_id(upper)
+
+    def test_uppercase_scenario_id_rejected_by_compute(self):
+        with pytest.raises(ValueError, match="lowercase"):
+            compute_scenario_id(
+                _VALID_RUN_ID,
+                "cand:v1:" + "A" * 32,
+                1,
+            )
+
+    def test_lowercase_run_id_accepted_by_assembly(self):
+        from scenario_forge.pipeline.generate.assembly import _validate_run_id
+
+        _validate_run_id(_VALID_RUN_ID)  # no exception
+
+    # --- Pydantic validators ---
+
+    def test_uppercase_candidate_id_rejected_by_pydantic(self):
+        with pytest.raises(ValueError, match="lowercase"):
+            ScenarioEnvelope.model_validate(
+                {
+                    **_make_envelope().model_dump(mode="json"),
+                    "candidate_id": "cand:v1:" + "A" * 32,
+                }
+            )
+
+    def test_uppercase_scenario_id_rejected_by_pydantic(self):
+        sid_upper = "scenario:v2:" + "A" * 64
+        with pytest.raises(ValueError, match="lowercase"):
+            ScenarioEnvelope.model_validate(
+                {
+                    **_make_envelope().model_dump(mode="json"),
+                    "scenario_id": sid_upper,
+                }
+            )
+
+    # --- JSON Schema boundary ---
+
+    def test_uppercase_scenario_id_rejected_by_json_schema(self):
+        import json
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        schema = json.loads(schema_path.read_text())
+
+        env = _make_envelope()
+        env_dict = env.model_dump(mode="json")
+        env_dict["scenario_id"] = "scenario:v2:" + "A" * 64
+
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(env_dict, schema)
+
+    def test_uppercase_candidate_id_rejected_by_json_schema(self):
+        import json
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        schema = json.loads(schema_path.read_text())
+
+        env = _make_envelope()
+        env_dict = env.model_dump(mode="json")
+        env_dict["candidate_id"] = "cand:v1:" + "A" * 32
+
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(env_dict, schema)
+
+
+# ---------------------------------------------------------------------------#
+# X. Third-review: canonicalize singleton origins
+# ---------------------------------------------------------------------------#
+
+
+class TestCanonicalizeSingletonOrigins:
+    """Singleton candidates must also have canonicalized origins, and
+    removal decisions must sort by full (technique_id, rule, reason)."""
+
+    def test_singleton_reversed_origins_identical_serialized(self):
+        """A singleton candidate with reversed original/removed technique
+        IDs, aligned reasons, and reversed decisions must produce
+        identical serialized origins after canonicalization."""
+        # Build two identical candidates with origins in reversed order.
+        origin_forward = CandidateOrigin(
+            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_technique_ids=("AML.T0051", "AML.T0052", "AML.T0053"),
+            applied_rule="_rule_a",
+            removed_technique_ids=("AML.T0052", "AML.T0053"),
+            removal_reasons=("T2 reason", "T3 reason"),
+            removal_decisions=(
+                RemovalDecision(
+                    technique_id="AML.T0052",
+                    rule="_rule_a",
+                    reason="T2 reason",
+                ),
+                RemovalDecision(
+                    technique_id="AML.T0053",
+                    rule="_rule_b",
+                    reason="T3 reason",
+                ),
+            ),
+            transform_stage="rule_pruning",
+        )
+        origin_reverse = CandidateOrigin(
+            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_technique_ids=("AML.T0053", "AML.T0052", "AML.T0051"),
+            applied_rule="_rule_a",
+            removed_technique_ids=("AML.T0053", "AML.T0052"),
+            removal_reasons=("T3 reason", "T2 reason"),
+            removal_decisions=(
+                RemovalDecision(
+                    technique_id="AML.T0053",
+                    rule="_rule_b",
+                    reason="T3 reason",
+                ),
+                RemovalDecision(
+                    technique_id="AML.T0052",
+                    rule="_rule_a",
+                    reason="T2 reason",
+                ),
+            ),
+            transform_stage="rule_pruning",
+        )
+
+        c_forward = _make_candidate(
+            technique_ids=("AML.T0051",),
+            origins=(origin_forward,),
+        )
+        c_reverse = _make_candidate(
+            technique_ids=("AML.T0051",),
+            origins=(origin_reverse,),
+        )
+
+        result_f = canonicalize_and_dedup([c_forward], "rule_pruning")
+        result_r = canonicalize_and_dedup([c_reverse], "rule_pruning")
+
+        # Serialized origins must be identical.
+        import json
+
+        origins_f = json.dumps(
+            [o.model_dump(mode="json") for o in result_f[0].origins],
+            sort_keys=True,
+        )
+        origins_r = json.dumps(
+            [o.model_dump(mode="json") for o in result_r[0].origins],
+            sort_keys=True,
+        )
+        assert origins_f == origins_r, (
+            "Singleton origins must serialize identically regardless of "
+            "input ordering after canonicalization"
+        )
+
+    def test_removal_decisions_sort_by_full_key(self):
+        """Two decisions with the same technique_id but different rules
+        must sort by (technique_id, rule, reason), not technique_id alone."""
+        origin_a = CandidateOrigin(
+            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_technique_ids=("AML.T0051", "AML.T0052"),
+            applied_rule="_rule_a",
+            removed_technique_ids=("AML.T0051",),
+            removal_reasons=("reason a",),
+            removal_decisions=(
+                RemovalDecision(
+                    technique_id="AML.T0051",
+                    rule="_rule_b",
+                    reason="reason b",
+                ),
+                RemovalDecision(
+                    technique_id="AML.T0051",
+                    rule="_rule_a",
+                    reason="reason a",
+                ),
+            ),
+            transform_stage="rule_pruning",
+        )
+        origin_b = CandidateOrigin(
+            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            original_technique_ids=("AML.T0051", "AML.T0052"),
+            applied_rule="_rule_a",
+            removed_technique_ids=("AML.T0051",),
+            removal_reasons=("reason a",),
+            removal_decisions=(
+                RemovalDecision(
+                    technique_id="AML.T0051",
+                    rule="_rule_a",
+                    reason="reason a",
+                ),
+                RemovalDecision(
+                    technique_id="AML.T0051",
+                    rule="_rule_b",
+                    reason="reason b",
+                ),
+            ),
+            transform_stage="rule_pruning",
+        )
+
+        c_a = _make_candidate(
+            technique_ids=("AML.T0052",),
+            origins=(origin_a,),
+        )
+        c_b = _make_candidate(
+            technique_ids=("AML.T0052",),
+            origins=(origin_b,),
+        )
+
+        result_a = canonicalize_and_dedup([c_a], "rule_pruning")
+        result_b = canonicalize_and_dedup([c_b], "rule_pruning")
+
+        import json
+
+        origins_a = json.dumps(
+            [o.model_dump(mode="json") for o in result_a[0].origins],
+            sort_keys=True,
+        )
+        origins_b = json.dumps(
+            [o.model_dump(mode="json") for o in result_b[0].origins],
+            sort_keys=True,
+        )
+        assert origins_a == origins_b, (
+            "Removal decisions with same technique_id but different rules "
+            "must sort by full (technique_id, rule, reason) key"
+        )

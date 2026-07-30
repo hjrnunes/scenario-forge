@@ -111,12 +111,14 @@ def generate_run_id() -> str:
 
 
 def _validate_run_id(run_id: str) -> None:
-    """Validate that run_id is a 32-char hex string (128 bits)."""
+    """Validate that run_id is a 32-char lowercase hex string (128 bits)."""
     if not run_id or len(run_id) != _RUN_ID_LEN:
         raise ValueError(
             f"run_id must be a {_RUN_ID_LEN}-char hex string, "
             f"got length {len(run_id) if run_id else 0}"
         )
+    if run_id != run_id.lower():
+        raise ValueError("run_id must be lowercase hex")
     try:
         int(run_id, 16)
     except ValueError:
@@ -124,7 +126,7 @@ def _validate_run_id(run_id: str) -> None:
 
 
 def _validate_candidate_id(candidate_id: str) -> None:
-    """Validate that candidate_id follows cand:v1:<32-char hex> format."""
+    """Validate that candidate_id follows cand:v1:<32-char lowercase hex> format."""
     if not candidate_id or not candidate_id.startswith(_CANDIDATE_ID_PREFIX):
         raise ValueError(
             f"candidate_id must follow '{_CANDIDATE_ID_PREFIX}<32-char hex>'"
@@ -132,6 +134,8 @@ def _validate_candidate_id(candidate_id: str) -> None:
     hex_part = candidate_id[len(_CANDIDATE_ID_PREFIX) :]
     if len(hex_part) != _CANDIDATE_ID_HEX_LEN:
         raise ValueError(f"candidate_id hex part must be {_CANDIDATE_ID_HEX_LEN} chars")
+    if hex_part != hex_part.lower():
+        raise ValueError("candidate_id hex part must be lowercase")
     try:
         int(hex_part, 16)
     except ValueError:

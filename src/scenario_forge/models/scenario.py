@@ -451,7 +451,7 @@ class ScenarioEnvelope(BaseModel):
     @field_validator("candidate_id")
     @classmethod
     def _validate_candidate_id_format(cls, v: str) -> str:
-        """Validate that candidate_id follows cand:v1:<32-char hex> format."""
+        """Validate that candidate_id follows cand:v1:<32-char lowercase hex> format."""
         if not v or not v.startswith("cand:v1:"):
             raise ValueError("candidate_id must follow 'cand:v1:<32-char hex>' format")
         hex_part = v[len("cand:v1:") :]
@@ -459,6 +459,8 @@ class ScenarioEnvelope(BaseModel):
             raise ValueError(
                 f"candidate_id hex part must be 32 chars, got {len(hex_part)}"
             )
+        if hex_part != hex_part.lower():
+            raise ValueError("candidate_id hex part must be lowercase")
         try:
             int(hex_part, 16)
         except ValueError:
@@ -468,7 +470,7 @@ class ScenarioEnvelope(BaseModel):
     @field_validator("scenario_id")
     @classmethod
     def _validate_scenario_id_format(cls, v: str) -> str:
-        """Validate that scenario_id follows scenario:v2:<64-char hex> format."""
+        """Validate that scenario_id follows scenario:v2:<64-char lowercase hex> format."""
         if not v or not v.startswith("scenario:v2:"):
             raise ValueError(
                 "scenario_id must follow 'scenario:v2:<64-char hex>' format"
@@ -478,6 +480,8 @@ class ScenarioEnvelope(BaseModel):
             raise ValueError(
                 f"scenario_id hex part must be 64 chars, got {len(hex_part)}"
             )
+        if hex_part != hex_part.lower():
+            raise ValueError("scenario_id hex part must be lowercase")
         try:
             int(hex_part, 16)
         except ValueError:
