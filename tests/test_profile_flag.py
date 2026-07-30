@@ -90,6 +90,19 @@ def test_profile_flag_skips_inference(
     gaps = MagicMock()
     gaps.uncovered_entry_points = []
     mock_gaps.return_value = gaps
+    mock_diversity.return_value = None
+
+    # Side effects that actually write files so strict inventory passes.
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+        (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
+
+    def _write_report(data, out_dir):
+        p = Path(out_dir) / "report.html"
+        p.write_text("<html>mock</html>")
+        return p
+
+    mock_coverage_report.side_effect = _write_coverage
+    mock_report.side_effect = _write_report
 
     risk_path, sssom_path = dummy_inputs
 
@@ -176,6 +189,19 @@ def test_profile_written_to_output_dir(
     gaps = MagicMock()
     gaps.uncovered_entry_points = []
     mock_gaps.return_value = gaps
+    mock_diversity.return_value = None
+
+    # Side effects that actually write files so strict inventory passes.
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+        (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
+
+    def _write_report(data, out_dir):
+        p = Path(out_dir) / "report.html"
+        p.write_text("<html>mock</html>")
+        return p
+
+    mock_coverage_report.side_effect = _write_coverage
+    mock_report.side_effect = _write_report
 
     risk_path, sssom_path = dummy_inputs
 

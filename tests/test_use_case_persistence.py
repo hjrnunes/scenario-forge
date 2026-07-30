@@ -68,6 +68,19 @@ def test_use_case_written_to_output_dir(
     gaps = MagicMock()
     gaps.uncovered_entry_points = []
     mock_gaps.return_value = gaps
+    mock_diversity.return_value = None
+
+    # Side effects that actually write files so strict inventory passes.
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+        (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
+
+    def _write_report(data, out_dir):
+        p = Path(out_dir) / "report.html"
+        p.write_text("<html>mock</html>")
+        return p
+
+    mock_coverage_report.side_effect = _write_coverage
+    mock_report.side_effect = _write_report
 
     use_case_text = "An AI chatbot that helps customers with billing inquiries"
 

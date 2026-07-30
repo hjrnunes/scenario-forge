@@ -94,7 +94,7 @@ class ScenarioForgeIntegrityError(Exception):
 # ---------------------------------------------------------------------------
 
 _SCENARIO_ID_VERSION = "v2"
-_RUN_ID_LEN = 32  # UUID4 hex = 128 bits
+_RUN_ID_LEN = 48  # YYYYMMDDTHHMMSS_<32hex> = 128-bit entropy suffix
 _CANDIDATE_ID_PREFIX = "cand:v1:"
 _CANDIDATE_ID_HEX_LEN = 32
 
@@ -102,9 +102,9 @@ _CANDIDATE_ID_HEX_LEN = 32
 def generate_run_id() -> str:
     """Generate a sortable, collision-safe per-invocation run ID.
 
-    Uses the cmps.1 sortable format: ``YYYYMMDDTHHMMSS_<16hex>`` (32 chars).
+    Uses the cmps.1 sortable format: ``YYYYMMDDTHHMMSS_<32hex>`` (48 chars).
     The timestamp prefix makes run directories sortable by lexical order.
-    The 64-bit random suffix prevents collisions within the same second.
+    The 128-bit random suffix prevents collisions within the same second.
     """
     from scenario_forge.manifest import generate_sortable_run_id
 
@@ -115,7 +115,7 @@ def _validate_run_id(run_id: str) -> None:
     """Validate that run_id is a valid per-invocation identifier.
 
     Accepts:
-    - The cmps.1 sortable format: ``YYYYMMDDTHHMMSS_<16hex>`` (32 chars)
+    - The cmps.1 sortable format: ``YYYYMMDDTHHMMSS_<32hex>`` (48 chars)
     - The legacy 32-char lowercase hex format (UUID4 without dashes)
     """
     from scenario_forge.manifest import validate_run_id
@@ -147,8 +147,8 @@ def compute_scenario_id(
 ) -> str:
     """Compute a collision-safe, run-specific scenario ID.
 
-    The ID incorporates the per-invocation ``run_id`` (128 bits), the
-    stable ``candidate_id`` (128 bits), and the generation ``attempt``
+    The ID incorporates the per-invocation ``run_id`` (128 bits of entropy),
+    the stable ``candidate_id`` (128 bits), and the generation ``attempt``
     so that distinct generated narratives are not falsely the same
     scenario.
 

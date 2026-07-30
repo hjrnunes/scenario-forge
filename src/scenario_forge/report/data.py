@@ -3,6 +3,10 @@
 In cmps.1, ``load_report_data`` consumes **strict manifest inventory** entries
 rather than globbing the filesystem.  Paths, hashes, and roles are verified by
 the shared :class:`ManifestInventoryResolver`.
+
+Internal (in-pipeline) callers pass an in-memory resolver via *resolver*.
+Standalone callers pass a *run_dir* and the manifest must be authoritative
+(``completed``) unless *allow_non_authoritative* is set.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import yaml
 
 from scenario_forge.manifest import (
     ArtifactRole,
+    ManifestInventoryResolver,
     find_run_dir,
     load_manifest,
     load_strict_resolver,
@@ -46,25 +51,36 @@ class ReportData:
     raw_files: dict[str, str] = field(default_factory=dict)
 
 
-def load_report_data(run_dir: Path, require_final: bool = True) -> ReportData:
-    """Read all pipeline artifacts from *run_dir* into a :class:`ReportData`.
-
-    In cmps.1, *run_dir* must be a run directory containing a manifest.
-    If a collection directory is passed with exactly one run, that run
-    is used; multiple runs raise (ambiguous).  All artifacts are loaded
-    strictly from manifest inventory entries — stale sibling files
-    cannot affect results.
+def load_report_data(
+    run_dir: Path | None = None,
+    *,
+    resolver: ManifestInventoryResolver | None = None,
+    allow_non_authoritative: bool = False,
+) -> ReportData:
+    """Read all pipeline artifacts into a :class:`ReportData`.
 
     Args:
         run_dir: Path to a run directory (or collection with one run).
-        require_final: If True (default, standalone), require a finalized
-            manifest.  If False (in-pipeline), accept ``started`` manifests.
+            Used for **standalone** report loading.  The manifest must be
+            authoritative (``completed``) unless *allow_non_authoritative*
+            is set.
+        resolver: Pre-built in-memory resolver for **internal** pipeline
+            use.  When provided, *run_dir* is ignored.
+        allow_non_authoritative: When True (standalone only), accept
+            non-``completed`` finalized manifests for forensic reading.
 
     Missing inventory entries are tolerated (with warnings); the returned
     object will have empty defaults for any artifact not in the manifest.
     """
-    actual_run_dir = find_run_dir(run_dir)
-    resolver = load_strict_resolver(actual_run_dir, require_final=require_final)
+    if resolver is not None:
+        actual_run_dir = resolver.run_dir
+    else:
+        actual_run_dir = find_run_dir(run_dir)
+        resolver = load_strict_resolver(
+            actual_run_dir,
+            require_final=True,
+            require_authoritative=not allow_non_authoritative,
+        )
 
     profile_data: dict = {}
     threat_surface_data: dict = {}

@@ -171,6 +171,18 @@ def report(
         "output",
         help="Run directory (or collection) containing pipeline artifacts.",
     ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write report HTML to this path (default: stdout). "
+        "Must be outside the run directory.",
+    ),
+    allow_non_authoritative: bool = typer.Option(
+        False,
+        "--allow-non-authoritative",
+        help="Allow reading non-completed (non-authoritative) runs for forensic analysis.",
+    ),
     log_level: str = typer.Option(
         "INFO",
         help="Log level for console output.",
@@ -181,7 +193,12 @@ def report(
         help="Use JSON-lines format for the log file.",
     ),
 ) -> None:
-    """Generate an HTML report from pipeline output."""
+    """Generate an HTML report from pipeline output.
+
+    Requires an authoritative (``completed``) run by default.
+    The report is emitted to stdout or *output* (which must be outside
+    the run directory — finalized runs are immutable).
+    """
     from scenario_forge.log_config import setup_logging
 
     setup_logging(log_level=log_level, output_dir=None)
@@ -192,16 +209,43 @@ def report(
         raise typer.Exit(code=1)
 
     try:
+        from scenario_forge.manifest import find_run_dir
         from scenario_forge.report.data import load_report_data
         from scenario_forge.report.generator import generate_report
 
-        report_data = load_report_data(output_dir)
-        # Write report to the resolved run directory
-        from scenario_forge.manifest import find_run_dir
-
         actual_run_dir = find_run_dir(output_dir)
-        report_path = generate_report(report_data, actual_run_dir)
-        typer.echo(f"\nReport written to {report_path}")
+        report_data = load_report_data(
+            actual_run_dir, allow_non_authoritative=allow_non_authoritative
+        )
+
+        if output is not None:
+            # Reject destination inside the run directory (immutable)
+            output_resolved = output.resolve()
+            run_resolved = actual_run_dir.resolve()
+            try:
+                output_resolved.relative_to(run_resolved)
+                typer.echo(
+                    f"Error: output path {output} is inside the immutable run "
+                    f"directory {actual_run_dir}. Choose a destination outside.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+            except ValueError:
+                pass  # output is outside — OK
+            output.parent.mkdir(parents=True, exist_ok=True)
+            report_path = generate_report(report_data, output.parent)
+            # generate_report writes to <parent>/report.html; rename if needed
+            if report_path.name != output.name:
+                report_path = report_path.rename(output)
+            typer.echo(f"\nReport written to {report_path}")
+        else:
+            # Emit to stdout
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                generate_report(report_data, tmp_path)
+                typer.echo((tmp_path / "report.html").read_text(encoding="utf-8"))
 
     except Exception as exc:
         msg = f"\nError: {exc}"
@@ -301,6 +345,11 @@ def eval_cmd(
         "yaml",
         help="Output format: yaml or json.",
     ),
+    allow_non_authoritative: bool = typer.Option(
+        False,
+        "--allow-non-authoritative",
+        help="Allow reading non-completed (non-authoritative) runs for forensic analysis.",
+    ),
     log_level: str = typer.Option(
         "INFO",
         help="Log level for console output.",
@@ -311,7 +360,12 @@ def eval_cmd(
         help="Use JSON-lines format for the log file.",
     ),
 ) -> None:
-    """Evaluate generated scenario quality (Tier 1: deterministic metrics)."""
+    """Evaluate generated scenario quality (Tier 1: deterministic metrics).
+
+    Requires an authoritative (``completed``) run by default.
+    The scorecard is emitted to stdout — finalized runs are immutable
+    and must not be written to.
+    """
     from scenario_forge.log_config import setup_logging
 
     setup_logging(log_level=log_level, output_dir=None)
@@ -323,13 +377,13 @@ def eval_cmd(
 
     try:
         from scenario_forge.eval.runner import run_evaluation
-        from scenario_forge.manifest import find_run_dir
 
-        scorecard = run_evaluation(output_dir)
+        scorecard = run_evaluation(
+            output_dir, allow_non_authoritative=allow_non_authoritative
+        )
 
         if format.lower() == "json":
             output_text = json.dumps(scorecard, indent=2, default=str)
-            output_filename = "eval-scorecard.json"
         else:
             output_text = yaml.dump(
                 scorecard,
@@ -337,16 +391,9 @@ def eval_cmd(
                 sort_keys=False,
                 allow_unicode=True,
             )
-            output_filename = "eval-scorecard.yaml"
 
         typer.echo("")
         typer.echo(output_text)
-
-        # Write scorecard to the resolved run directory
-        actual_run_dir = find_run_dir(output_dir)
-        scorecard_path = actual_run_dir / output_filename
-        scorecard_path.write_text(output_text, encoding="utf-8")
-        typer.echo(f"Scorecard written to {scorecard_path}")
 
     except Exception as exc:
         msg = f"\nError: {exc}"

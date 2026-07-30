@@ -152,7 +152,10 @@ class TestLoadReportData:
         assert len(data.pipeline_call_logs) == 1
         assert data.coverage_data["coverage_gaps"]["uncovered_entry_points"] == []
         assert data.scorecard_data["overall_score"] == 0.85
-        assert data.manifest_data["run_id"] == "20260101T000000_abcdef0123456789"
+        assert (
+            data.manifest_data["run_id"]
+            == "20260101T000000_abcdef0123456789abcdef0123456789"
+        )
         assert data.manifest_data["status"] == "completed"
         assert "financial AI" in data.use_case_text
 

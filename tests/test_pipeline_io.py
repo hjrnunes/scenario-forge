@@ -82,7 +82,7 @@ class TestRunSetup:
     def test_generated_run_id_is_sortable(self) -> None:
         run_id = generate_sortable_run_id()
 
-        assert len(run_id) == 32
+        assert len(run_id) == 48
         assert run_id[8] == "T"
         assert run_id[15] == "_"
         int(run_id[16:], 16)

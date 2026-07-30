@@ -3,6 +3,10 @@
 In cmps.1, scenario and feature discovery consumes **strict manifest inventory**
 entries rather than globbing the filesystem.  Paths, hashes, and roles are
 verified by the shared :class:`ManifestInventoryResolver`.
+
+Internal (in-pipeline) callers pass an in-memory resolver via *resolver*.
+Standalone callers pass a *run_dir* and the manifest must be authoritative
+(``completed``) unless *allow_non_authoritative* is set.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from scenario_forge.eval.grounding import score_grounding, score_technique_agree
 from scenario_forge.eval.plausibility import score_plausibility
 from scenario_forge.manifest import (
     ArtifactRole,
+    ManifestInventoryResolver,
     find_run_dir,
     load_strict_resolver,
 )
@@ -25,30 +30,37 @@ from scenario_forge.models.capability_profile import CapabilityProfile
 
 
 def run_evaluation(
-    run_dir: Path,
+    run_dir: Path | None = None,
+    *,
+    resolver: ManifestInventoryResolver | None = None,
     threats_path: Path | None = None,
-    require_final: bool = True,
+    allow_non_authoritative: bool = False,
 ) -> dict[str, Any]:
     """Run all Tier 1 evaluation metrics and produce a scorecard.
 
-    In cmps.1, *run_dir* must be a run directory containing a manifest.
-    If a collection directory is passed with exactly one run, that run
-    is used; multiple runs raise (ambiguous).  Scenario and feature
-    files are loaded strictly from manifest inventory entries — stale
-    sibling files cannot affect results.
-
     Args:
         run_dir: Path to a run directory (or collection with one run).
+            Used for **standalone** evaluation.  The manifest must be
+            authoritative (``completed``) unless *allow_non_authoritative*
+            is set.
+        resolver: Pre-built in-memory resolver for **internal** pipeline
+            use.  When provided, *run_dir* is ignored.
         threats_path: Optional path to OWASP agentic threats YAML.
-        require_final: If True (default, standalone), require a finalized
-            manifest.  If False (in-pipeline), accept ``started`` manifests.
+        allow_non_authoritative: When True (standalone only), accept
+            non-``completed`` finalized manifests for forensic reading.
 
     Returns:
         Structured scorecard dict ready for YAML/JSON serialization.
     """
-    # Resolve to a run directory and load strict manifest inventory
-    actual_run_dir = find_run_dir(run_dir)
-    resolver = load_strict_resolver(actual_run_dir, require_final=require_final)
+    if resolver is not None:
+        actual_run_dir = resolver.run_dir
+    else:
+        actual_run_dir = find_run_dir(run_dir)
+        resolver = load_strict_resolver(
+            actual_run_dir,
+            require_final=True,
+            require_authoritative=not allow_non_authoritative,
+        )
 
     # Load scenarios from manifest inventory
     scenario_items: list[tuple[str, dict[str, Any]]] = []
@@ -94,7 +106,6 @@ def run_evaluation(
     gherkin_texts = [
         gherkin_files[stem] for stem in scenario_ids if stem in gherkin_files
     ]
-    # Include any feature files not matched to a scenario YAML
     for stem, text in gherkin_files.items():
         if stem not in scenario_ids:
             gherkin_texts.append(text)

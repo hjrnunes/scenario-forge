@@ -62,19 +62,25 @@ from scenario_forge.pipeline.io import (
     write_use_case,
 )
 from scenario_forge.manifest import (
+    MANIFEST_VERSION,
+    AttemptDisposition,
+    AttemptRecord,
     ArtifactEntry,
     ArtifactRole,
     InputHashes,
-    MANIFEST_FILENAME,
     ModelConfig,
+    Provenance,
     RunManifest,
     RunStatus,
-    atomic_write_yaml,
     build_artifact_entry,
+    build_in_memory_resolver,
     capture_provenance,
+    compute_bytes_sha256,
     compute_config_digest,
+    compute_file_sha256,
     finalize_manifest,
     resolve_run_dir,
+    validate_completed_inventory,
     write_failed_manifest,
     write_manifest_sentinel,
 )
@@ -655,57 +661,121 @@ def run_profile_only(
     return infer_capability_profile(use_case, client)
 
 
+def _capture_input_hashes(
+    use_case: str,
+    risk_extraction_path: Path,
+    sssom_path: Path,
+    ct_path: Path,
+    threats_path: Path | None,
+    profile_path: Path | None,
+) -> InputHashes:
+    """Capture SHA-256 hashes of all effective inputs at run start.
+
+    Hashes every effective input before any processing can change them:
+    use case, risk extraction, SSSOM, explicit/default cross taxonomy,
+    explicit/default threats, optional source profile, and bundled
+    taxonomies (attack patterns, attack goals, threat-goal affinity).
+    """
+    from scenario_forge.data.loaders import (
+        _THREAT_GOAL_AFFINITY_PATH,
+    )
+    from scenario_forge.pipeline.seeds import _DEFAULT_THREATS_PATH
+
+    effective_threats = threats_path or _DEFAULT_THREATS_PATH
+
+    # Bundled data paths
+    data_root = Path(__file__).resolve().parents[3] / "data" / "taxonomies"
+    attack_patterns_yaml = data_root / "attack-patterns" / "attack-patterns.yaml"
+    attack_patterns_sssom = data_root / "attack-patterns" / "attack-patterns.sssom.tsv"
+    attack_goals_json = data_root / "attack-goals" / "attack-goals.json"
+
+    hashes = InputHashes(
+        use_case_hash=compute_bytes_sha256(use_case.encode("utf-8")),
+        risk_extraction_hash=compute_file_sha256(risk_extraction_path),
+        sssom_hash=compute_file_sha256(sssom_path),
+        cross_taxonomy_hash=compute_file_sha256(ct_path),
+        threats_hash=compute_file_sha256(effective_threats),
+    )
+    if profile_path is not None:
+        hashes.source_profile_hash = compute_file_sha256(profile_path)
+    if attack_patterns_yaml.exists():
+        hashes.attack_patterns_hash = compute_file_sha256(attack_patterns_yaml)
+    if attack_patterns_sssom.exists():
+        hashes.attack_patterns_sssom_hash = compute_file_sha256(attack_patterns_sssom)
+    if attack_goals_json.exists():
+        hashes.attack_goals_taxonomy_hash = compute_file_sha256(attack_goals_json)
+    if _THREAT_GOAL_AFFINITY_PATH.exists():
+        hashes.threat_goal_affinity_hash = compute_file_sha256(
+            _THREAT_GOAL_AFFINITY_PATH
+        )
+    return hashes
+
+
 def _build_run_inventory(
     run_dir: Path,
     write_receipts: list[dict],
     scenarios: list[ScenarioEnvelope],
+    include_eval: bool = False,
     include_final: bool = False,
 ) -> list[ArtifactEntry]:
     """Build the typed artifact inventory for a run directory.
 
     Maps every persisted file to a typed :class:`ArtifactEntry` with role,
-    canonical relative path, SHA-256, and scenario/candidate IDs where
-    applicable.  When *include_final* is True, also inventory the eval
-    scorecard, report, pipeline log, and manifest itself.
+    canonical relative path, SHA-256, media_type, schema_version, and
+    scenario/candidate IDs where applicable.
 
-    The manifest itself is inventoried with ``sha256=None`` because it
-    is self-referential — its hash would change as it records its own hash.
+    Expected-but-missing outputs **raise** :class:`ManifestIntegrityError`
+    rather than being silently omitted.  Optional artifacts (call logs
+    that may be empty) are only added when they exist.
+
+    The manifest container file (``run-manifest.yaml``) is **not** an
+    inventory entry — it is the sole orphan exception.
     """
     inventory: list[ArtifactEntry] = []
 
-    def _add(
+    def _add_required(
         role: ArtifactRole,
         rel_path: str,
         scenario_id: str | None = None,
         candidate_id: str | None = None,
-        compute_hash: bool = True,
     ) -> None:
+        """Add an entry that must exist — raises if missing."""
+        inventory.append(
+            build_artifact_entry(
+                role=role,
+                run_dir=run_dir,
+                rel_path=rel_path,
+                scenario_id=scenario_id,
+                candidate_id=candidate_id,
+            )
+        )
+
+    def _add_optional(
+        role: ArtifactRole,
+        rel_path: str,
+        scenario_id: str | None = None,
+        candidate_id: str | None = None,
+    ) -> None:
+        """Add an entry only if the file exists (optional artifacts)."""
         full = run_dir / rel_path
         if full.exists():
-            inventory.append(
-                build_artifact_entry(
-                    role=role,
-                    run_dir=run_dir,
-                    rel_path=rel_path,
-                    scenario_id=scenario_id,
-                    candidate_id=candidate_id,
-                    compute_hash=compute_hash,
-                )
-            )
+            _add_required(role, rel_path, scenario_id, candidate_id)
 
-    # Top-level artifacts
-    _add(ArtifactRole.USE_CASE, "use-case.txt")
-    _add(ArtifactRole.CAPABILITY_PROFILE, "capability-profile.yaml")
-    _add(ArtifactRole.THREAT_SURFACE, "threat-surface.yaml")
-    _add(ArtifactRole.PIPELINE_CALL_LOG, "calls.jsonl")
-    _add(ArtifactRole.COVERAGE_REPORT, "coverage-gaps.json")
+    # Required top-level artifacts
+    _add_required(ArtifactRole.USE_CASE, "use-case.txt")
+    _add_required(ArtifactRole.CAPABILITY_PROFILE, "capability-profile.yaml")
+    _add_required(ArtifactRole.THREAT_SURFACE, "threat-surface.yaml")
+    _add_required(ArtifactRole.COVERAGE_REPORT, "coverage-gaps.json")
 
-    # Scenario artifacts from write receipts
+    # Optional call logs (may not exist if no calls were made)
+    _add_optional(ArtifactRole.PIPELINE_CALL_LOG, "calls.jsonl")
+
+    # Scenario artifacts from write receipts (all required)
     for receipt in write_receipts:
         sid = receipt["scenario_id"]
         cid = receipt["candidate_id"]
         yaml_name = Path(receipt["yaml_path"]).name
-        _add(
+        _add_required(
             ArtifactRole.SCENARIO_YAML,
             f"scenarios/{yaml_name}",
             scenario_id=sid,
@@ -714,27 +784,24 @@ def _build_run_inventory(
         feat_path = receipt.get("feature_path")
         if feat_path:
             feat_name = Path(feat_path).name
-            _add(
+            _add_required(
                 ArtifactRole.SCENARIO_FEATURE,
                 f"scenarios/{feat_name}",
                 scenario_id=sid,
                 candidate_id=cid,
             )
 
-    # Scenario call log (shared calls.jsonl in scenarios/)
-    _add(ArtifactRole.SCENARIO_CALL_LOG, "scenarios/calls.jsonl")
+    # Optional scenario call log
+    _add_optional(ArtifactRole.SCENARIO_CALL_LOG, "scenarios/calls.jsonl")
 
-    # Final artifacts (eval scorecard, report, log, manifest)
+    # Eval scorecard (added if present; required only for completed validation)
+    if include_eval or include_final:
+        _add_optional(ArtifactRole.EVAL_SCORECARD, "eval-scorecard.yaml")
+
+    # Final artifacts (report, pipeline log)
     if include_final:
-        _add(ArtifactRole.EVAL_SCORECARD, "eval-scorecard.yaml")
-        _add(ArtifactRole.REPORT, "report.html")
-        _add(ArtifactRole.PIPELINE_LOG, "pipeline.log")
-        # Manifest itself: sha256=None (self-referential)
-        _add(
-            ArtifactRole.RUN_MANIFEST,
-            "run-manifest.yaml",
-            compute_hash=False,
-        )
+        _add_optional(ArtifactRole.REPORT, "report.html")
+        _add_required(ArtifactRole.PIPELINE_LOG, "pipeline.log")
 
     return inventory
 
@@ -782,35 +849,74 @@ def run_pipeline(
     ct_path = cross_taxonomy_path or _DEFAULT_CROSS_TAXONOMY_PATH
     generation_notes: list[str] = []
 
-    client = LLMClient(base_url=base_url, api_key=api_key, model=model)
-
     # --- Per-invocation run identity (cmps.1 sortable format) ---
     run_id = generate_run_id()
 
-    # --- Collection -> run directory resolution (single ownership boundary) ---
+    # --- Collection → run directory resolution (single ownership boundary) ---
+    # This happens BEFORE any fallible setup (LLMClient, logging, etc.)
+    # so the immutable run directory and sentinel exist for every exit path.
     run_dir, run_id = resolve_run_dir(output_dir, run_id)
 
     # --- Manifest sentinel before any pipeline work ---
     timestamp_start = datetime.now(timezone.utc).isoformat()
     write_manifest_sentinel(run_dir, run_id, timestamp_start)
 
-    # --- Run-local logging (fresh, never appends across runs) ---
-    from scenario_forge.log_config import setup_logging
-
-    setup_logging(log_level=log_level, output_dir=run_dir, structured=structured)
-    logger.info("Run ID: %s", run_id)
-    logger.info("Run directory: %s", run_dir)
-
-    # --- Persist use-case description ---
-    write_use_case(run_dir, use_case)
-
-    # Track lifecycle outcomes for final status determination.
+    # --- Initialize lifecycle tracking state for failed-manifest evidence ---
+    client: LLMClient | None = None
+    profile: CapabilityProfile | None = None
+    threat_surface: ThreatSurface | None = None
+    seeds: list[ScenarioSeed] = []
+    filtered_seeds: list[FilteredSeed] = []
+    scenarios: list[ScenarioEnvelope] = []
+    write_receipts: list[dict] = []
+    attempts: list[AttemptRecord] = []
+    stage_records: list[StageRecord] = []
+    rule_verdicts: list = []
+    funnel: CandidateFunnel | None = None
+    governance_count = 0
     has_quarantine = False
     eval_success = False
     report_success = False
+    input_hashes: InputHashes = InputHashes()
+
+    # Partial manifest for best-effort failed-manifest writes
+    partial_manifest = RunManifest(
+        manifest_version=MANIFEST_VERSION,
+        status=RunStatus.STARTED,
+        run_id=run_id,
+        timestamp_start=timestamp_start,
+        package_version=importlib.metadata.version("scenario-forge"),
+        provenance=Provenance(
+            run_id=run_id,
+            timestamp_start=timestamp_start,
+            input_hashes=input_hashes,
+        ),
+    )
 
     try:
-        # --- Stage 1: Capability Profile Inference ---
+        # --- Capture input hashes at run start (before inputs can change) ---
+        input_hashes = _capture_input_hashes(
+            use_case,
+            risk_extraction_path,
+            sssom_path,
+            ct_path,
+            threats_path,
+            profile_path,
+        )
+        partial_manifest.provenance.input_hashes = input_hashes
+
+        # --- Client construction (after sentinel) ---
+        client = LLMClient(base_url=base_url, api_key=api_key, model=model)
+
+        # --- Run-local logging (fresh, never appends across runs) ---
+        from scenario_forge.log_config import setup_logging
+
+        setup_logging(log_level=log_level, output_dir=run_dir, structured=structured)
+        logger.info("Run ID: %s", run_id)
+        logger.info("Run directory: %s", run_dir)
+
+        # --- Persist use-case description ---
+        write_use_case(run_dir, use_case)
         if profile_path is not None:
             logger.info("[Stage 1] Loading capability profile from %s", profile_path)
             profile_data = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
@@ -1187,6 +1293,13 @@ def run_pipeline(
                 admitted_scenario_ids.add(envelope.scenario_id)
                 scenarios.append(envelope)
                 main_admitted_count += 1
+                attempts.append(
+                    AttemptRecord(
+                        candidate_id=fseed.candidate_id,
+                        scenario_id=envelope.scenario_id,
+                        disposition=AttemptDisposition.ADMITTED,
+                    )
+                )
                 write_receipts.append(
                     {
                         "scenario_id": envelope.scenario_id,
@@ -1211,11 +1324,25 @@ def run_pipeline(
                 logger.error("    %s", msg)
                 generation_notes.append(msg)
                 failed_count += 1
+                attempts.append(
+                    AttemptRecord(
+                        candidate_id=fseed.candidate_id,
+                        disposition=AttemptDisposition.FAILED,
+                        failure_evidence=str(exc),
+                    )
+                )
             except Exception as exc:
                 msg = f"Generation failed for {fseed.seed_id}: {exc}"
                 logger.error("    %s", msg)
                 generation_notes.append(msg)
                 failed_count += 1
+                attempts.append(
+                    AttemptRecord(
+                        candidate_id=fseed.candidate_id,
+                        disposition=AttemptDisposition.FAILED,
+                        failure_evidence=str(exc),
+                    )
+                )
 
         logger.info(
             "  %d/%d scenarios generated successfully",
@@ -1559,18 +1686,47 @@ def run_pipeline(
             },
         }
         # --- Determine quarantine status ---
+        # --- Determine quarantine status and update attempt records ---
         has_quarantine = quarantined_count > 0
+        if has_quarantine:
+            quarantined_sids = {
+                s.scenario_id
+                for s in scenarios
+                if s.validation is not None
+                and (
+                    not s.validation.phantom.valid
+                    or not s.validation.structural.valid
+                    or not s.validation.semantic.valid
+                )
+            }
+            updated: list[AttemptRecord] = []
+            for a in attempts:
+                if (
+                    a.disposition == AttemptDisposition.ADMITTED
+                    and a.scenario_id in quarantined_sids
+                ):
+                    updated.append(
+                        AttemptRecord(
+                            candidate_id=a.candidate_id,
+                            scenario_id=a.scenario_id,
+                            disposition=AttemptDisposition.QUARANTINED,
+                            failure_evidence="Validation failure (phantom/structural/semantic)",
+                        )
+                    )
+                else:
+                    updated.append(a)
+            attempts = updated
 
-        # --- Build pre-eval typed inventory ---
-        inventory = _build_run_inventory(run_dir, write_receipts, scenarios)
-
-        # --- Write intermediate manifest (status=started) for strict eval ---
-        pre_eval_manifest = RunManifest(
+        # --- Build pre-eval in-memory inventory (no persisted started manifest) ---
+        pre_eval_inventory = _build_run_inventory(run_dir, write_receipts, scenarios)
+        eval_snapshot_manifest = RunManifest(
+            manifest_version=MANIFEST_VERSION,
             status=RunStatus.STARTED,
             run_id=run_id,
             timestamp_start=timestamp_start,
             package_version=importlib.metadata.version("scenario-forge"),
-            inventory=inventory,
+            inventory=pre_eval_inventory,
+            attempts=attempts,
             inputs=manifest.get("inputs", {}),
             config=manifest.get("config", {}),
             seeds_generated=manifest.get("seeds_generated", 0),
@@ -1586,10 +1742,7 @@ def run_pipeline(
             leaf_technique_provenance=manifest.get("leaf_technique_provenance", {}),
             parsimony=manifest.get("parsimony", {}),
         )
-        # --- Write intermediate manifest (status=started) for strict eval ---
-
-        intermediate_data = pre_eval_manifest.model_dump(mode="json", exclude_none=True)
-        atomic_write_yaml(run_dir / MANIFEST_FILENAME, intermediate_data)
+        eval_resolver = build_in_memory_resolver(run_dir, eval_snapshot_manifest)
 
         # --- Auto-evaluate scenarios (deterministic metrics) ---
         if eval:
@@ -1598,7 +1751,7 @@ def run_pipeline(
 
                 logger.info("[Eval] Running deterministic quality metrics...")
                 scorecard = run_evaluation(
-                    run_dir, threats_path=threats_path, require_final=False
+                    resolver=eval_resolver, threats_path=threats_path
                 )
                 # --- I/O boundary: eval scorecard ---
                 scorecard_path = write_eval_scorecard(scorecard, run_dir)
@@ -1608,18 +1761,22 @@ def run_pipeline(
                 logger.warning("Eval scorecard generation failed: %s", exc)
                 eval_success = False
         else:
-            logger.info("[Eval] Skipped (--no-eval).")
-            eval_success = True  # not running eval is not a failure
+            logger.info("[Eval] Skipped (--no-eval) — non-authoritative.")
+            # --no-eval is non-authoritative (completed_with_errors), not completed.
+            eval_success = False
 
-        # --- Rebuild inventory with eval scorecard for report ---
-        inventory = _build_run_inventory(run_dir, write_receipts, scenarios)
-        pre_report_manifest = RunManifest(
-            manifest_version="2",
+        # --- Build in-memory inventory with scorecard for report ---
+        pre_report_inventory = _build_run_inventory(
+            run_dir, write_receipts, scenarios, include_eval=eval_success
+        )
+        report_snapshot_manifest = RunManifest(
+            manifest_version=MANIFEST_VERSION,
             status=RunStatus.STARTED,
             run_id=run_id,
             timestamp_start=timestamp_start,
             package_version=importlib.metadata.version("scenario-forge"),
-            inventory=inventory,
+            inventory=pre_report_inventory,
+            attempts=attempts,
             inputs=manifest.get("inputs", {}),
             config=manifest.get("config", {}),
             seeds_generated=manifest.get("seeds_generated", 0),
@@ -1635,17 +1792,14 @@ def run_pipeline(
             leaf_technique_provenance=manifest.get("leaf_technique_provenance", {}),
             parsimony=manifest.get("parsimony", {}),
         )
-        intermediate_data = pre_report_manifest.model_dump(
-            mode="json", exclude_none=True
-        )
-        atomic_write_yaml(run_dir / MANIFEST_FILENAME, intermediate_data)
+        report_resolver = build_in_memory_resolver(run_dir, report_snapshot_manifest)
 
         # --- Auto-generate HTML report ---
         try:
             from scenario_forge.report.data import load_report_data
             from scenario_forge.report.generator import generate_report
 
-            report_data = load_report_data(run_dir, require_final=False)
+            report_data = load_report_data(resolver=report_resolver)
             report_path = generate_report(report_data, run_dir)
             logger.info("Report written to %s", report_path)
             report_success = True
@@ -1663,16 +1817,25 @@ def run_pipeline(
 
         # --- Build final typed inventory (all artifacts) ---
         final_inventory = _build_run_inventory(
-            run_dir, write_receipts, scenarios, include_final=True
+            run_dir,
+            write_receipts,
+            scenarios,
+            include_eval=eval_success,
+            include_final=True,
         )
 
-        # --- Capture provenance ---
+        # --- Capture provenance (resolved model config, not raw None args) ---
+        effective_profile_hash: str | None = None
+        profile_path_on_disk = run_dir / "capability-profile.yaml"
+        if profile_path_on_disk.exists():
+            effective_profile_hash = compute_file_sha256(profile_path_on_disk)
+
         provenance = capture_provenance(
             run_id=run_id,
             timestamp_start=timestamp_start,
             command="generate",
             options={
-                "use_case_hash": manifest["inputs"].get("use_case_hash"),
+                "use_case_hash": input_hashes.use_case_hash,
                 "risk_extraction_path": str(risk_extraction_path),
                 "sssom_path": str(sssom_path),
                 "cross_taxonomy_path": str(ct_path),
@@ -1687,30 +1850,42 @@ def run_pipeline(
             },
             model_config=ModelConfig(
                 model=client.model,
-                base_url=base_url,
+                base_url=client.base_url,
                 temperature=client.temperature,
                 max_completion_tokens=client.max_completion_tokens,
             ),
             prompt_template_hashes=hash_prompt_templates(),
+            input_hashes=input_hashes,
             config_digest=compute_config_digest(manifest.get("config", {})),
             timestamp_end=datetime.now(timezone.utc).isoformat(),
         )
-        # Add input hashes to provenance
-        provenance.input_hashes = InputHashes(
-            use_case_hash=manifest["inputs"].get("use_case_hash"),
-            risk_extraction_hash=manifest["inputs"].get("risk_extraction_hash"),
-            sssom_hash=manifest["inputs"].get("sssom_hash"),
-        )
+        # Add effective written profile hash
+        provenance.input_hashes.effective_profile_hash = effective_profile_hash
 
         # --- Determine final status ---
-        if has_quarantine or not eval_success or not report_success:
-            final_status = RunStatus.COMPLETED_WITH_ERRORS
-        else:
+        # completed: only if eval enabled, no quarantine, eval+report succeed.
+        # --no-eval is always completed_with_errors (non-authoritative).
+        if eval and not has_quarantine and eval_success and report_success:
             final_status = RunStatus.COMPLETED
+        else:
+            final_status = RunStatus.COMPLETED_WITH_ERRORS
 
-        # --- Finalize manifest ---
+        # --- Build PipelineResult BEFORE finalization ---
+        pipeline_result = PipelineResult(
+            capability_profile=profile,
+            threat_surface=threat_surface,
+            seeds=seeds,
+            filtered_seeds=filtered_seeds,
+            scenarios=scenarios,
+            governance_only_count=governance_count,
+            generation_notes=generation_notes,
+            run_dir=run_dir,
+            run_id=run_id,
+        )
+
+        # --- Build final manifest ---
         final_manifest = RunManifest(
-            manifest_version="2",
+            manifest_version=MANIFEST_VERSION,
             status=final_status,
             run_id=run_id,
             timestamp_start=timestamp_start,
@@ -1718,6 +1893,7 @@ def run_pipeline(
             package_version=importlib.metadata.version("scenario-forge"),
             provenance=provenance,
             inventory=final_inventory,
+            attempts=attempts,
             inputs=manifest.get("inputs", {}),
             config=manifest.get("config", {}),
             seeds_generated=manifest.get("seeds_generated", 0),
@@ -1733,25 +1909,38 @@ def run_pipeline(
             leaf_technique_provenance=manifest.get("leaf_technique_provenance", {}),
             parsimony=manifest.get("parsimony", {}),
         )
+
+        # --- Validate completed inventory before atomically committing ---
+        if final_status == RunStatus.COMPLETED:
+            validate_completed_inventory(final_manifest, eval_enabled=eval)
+
+        # --- Atomic final-manifest commit (LAST fallible operation) ---
         finalize_manifest(run_dir, final_manifest)
         logger.info("Manifest finalized: %s", final_status.value)
 
-        return PipelineResult(
-            capability_profile=profile,
-            threat_surface=threat_surface,
-            seeds=seeds,
-            filtered_seeds=filtered_seeds,
-            scenarios=scenarios,
-            governance_only_count=governance_count,
-            generation_notes=generation_notes,
-            run_dir=run_dir,
-            run_id=run_id,
-        )
+        return pipeline_result
     except Exception as exc:
-        # Best-effort failed manifest, then re-raise.
+        # Best-effort failed manifest with accumulated evidence, then re-raise.
         logger.error("Pipeline failed: %s", exc)
         try:
-            write_failed_manifest(run_dir, run_id, timestamp_start, str(exc))
+            # Build manifest with whatever evidence was accumulated
+            partial_manifest.status = RunStatus.FAILED
+            partial_manifest.timestamp_end = datetime.now(timezone.utc).isoformat()
+            partial_manifest.error = str(exc)
+            if partial_manifest.provenance:
+                partial_manifest.provenance.timestamp_end = (
+                    partial_manifest.timestamp_end
+                )
+            # Include any accumulated attempts
+            partial_manifest.attempts = attempts
+            # Include any accumulated inventory (best-effort)
+            try:
+                partial_manifest.inventory = _build_run_inventory(
+                    run_dir, write_receipts, scenarios
+                )
+            except Exception:
+                pass  # inventory building may fail if artifacts are missing
+            write_failed_manifest(run_dir, partial_manifest)
         except Exception:
             pass
         raise

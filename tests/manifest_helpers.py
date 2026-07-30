@@ -12,8 +12,8 @@ from scenario_forge.manifest import (
     ArtifactRole,
     RunManifest,
     RunStatus,
-    build_artifact_entry,
     atomic_write_yaml,
+    build_artifact_entry,
     MANIFEST_FILENAME,
 )
 
@@ -90,14 +90,15 @@ def build_test_run_dir(
                 yaml.dump(sc, default_flow_style=False),
                 scenario_id=sid,
             )
-
-    if feature_files:
-        for stem, content in feature_files.items():
+            # Strict manifest requires paired YAML/feature for every scenario.
+            feature_content = (feature_files or {}).get(
+                sid, f"Feature: {sid}\n  Scenario: {sid}\n"
+            )
             _write_and_inventory(
                 ArtifactRole.SCENARIO_FEATURE,
-                f"scenarios/{stem}.feature",
-                content,
-                scenario_id=stem,
+                f"scenarios/{sid}.feature",
+                feature_content,
+                scenario_id=sid,
             )
 
     if pipeline_calls:
@@ -143,7 +144,7 @@ def build_test_run_dir(
         )
     )
 
-    # Write report.html placeholder so orphan check passes
+    # Write report.html so orphan check passes
     report_path = run_dir / "report.html"
     report_path.write_text("<html>test</html>", encoding="utf-8")
     inventory.append(
@@ -154,10 +155,10 @@ def build_test_run_dir(
         )
     )
 
-    # Build and write manifest
+    # Build and write manifest (manifest container is NOT an artifact entry)
     manifest = RunManifest(
         status=status,
-        run_id="20260101T000000_abcdef0123456789",
+        run_id="20260101T000000_abcdef0123456789abcdef0123456789",
         timestamp_start="2026-01-01T00:00:00+00:00",
         timestamp_end="2026-01-01T00:01:00+00:00",
         inventory=inventory,

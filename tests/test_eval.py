@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from scenario_forge.eval.consistency import (
@@ -1079,13 +1080,50 @@ class TestRunEvaluation:
         scorecard = run_evaluation(run_dir)
         assert scorecard["evaluation"]["scenario_count"] == 0
 
-    def test_scenarios_without_features(self, tmp_path: Path):
-        """Should work with YAML files but no .feature files."""
+    def test_scenarios_without_features_rejected(self, tmp_path: Path):
+        """Strict manifest rejects YAML without paired .feature files."""
+        from scenario_forge.manifest import ManifestIntegrityError
+
         s = _make_scenario()
-        run_dir = build_test_run_dir(tmp_path / "run", scenarios=[s])
-        scorecard = run_evaluation(run_dir)
-        assert scorecard["evaluation"]["scenario_count"] == 1
-        assert scorecard["evaluation"]["feature_file_count"] == 0
+        sid = s["scenario_id"]
+        run_dir = tmp_path / "run"
+        run_dir.mkdir(parents=True)
+        # Write only the YAML, no feature file, with a manifest that
+        # inventories only the YAML — strict validation must reject this.
+        from scenario_forge.manifest import (
+            ArtifactRole,
+            RunManifest,
+            RunStatus,
+            atomic_write_yaml,
+            build_artifact_entry,
+            MANIFEST_FILENAME,
+        )
+
+        sc_dir = run_dir / "scenarios"
+        sc_dir.mkdir()
+        yaml_path = sc_dir / f"{sid}.yaml"
+        yaml_path.write_text(yaml.dump(s, default_flow_style=False))
+        (run_dir / "use-case.txt").write_text("test")
+        (run_dir / "pipeline.log").write_text("log\n")
+        (run_dir / "report.html").write_text("<html></html>")
+        entry = build_artifact_entry(
+            role=ArtifactRole.SCENARIO_YAML,
+            run_dir=run_dir,
+            rel_path=f"scenarios/{sid}.yaml",
+            scenario_id=sid,
+        )
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id="20260101T000000_abcdef0123456789abcdef0123456789",
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=[entry],
+        )
+        atomic_write_yaml(
+            run_dir / MANIFEST_FILENAME,
+            manifest.model_dump(mode="json", exclude_none=True),
+        )
+        with pytest.raises(ManifestIntegrityError, match="without feature"):
+            run_evaluation(run_dir)
 
     def test_with_capability_profile(self, tmp_path: Path):
         """Runner loads capability-profile.yaml and passes context to diversity."""

@@ -568,15 +568,15 @@ class TestScenarioIdCollisionSafety:
         )
         assert sid1 != sid2
 
-    def test_run_id_is_sortable_32_chars(self):
-        """generate_run_id produces a 32-char sortable format (YYYYMMDDTHHMMSS_<16hex>)."""
+    def test_run_id_is_sortable_128bit(self):
+        """generate_run_id produces a 48-char sortable format (YYYYMMDDTHHMMSS_<32hex>)."""
         rid = generate_run_id()
-        assert len(rid) == 32
-        # Format: YYYYMMDDTHHMMSS_<16hex>
+        assert len(rid) == 48
+        # Format: YYYYMMDDTHHMMSS_<32hex>
         assert "_" in rid
         ts_part, hex_part = rid.split("_", 1)
         assert len(ts_part) == 15  # YYYYMMDDTHHMMSS
-        assert len(hex_part) == 16  # 64-bit hex suffix
+        assert len(hex_part) == 32  # 128-bit hex suffix
         int(hex_part, 16)  # Valid hex suffix
 
     def test_run_ids_are_unique(self):
