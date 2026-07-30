@@ -104,6 +104,7 @@ def _make_scenario(
 
     return {
         "scenario_id": scenario_id,
+        "candidate_id": f"cand:v1:{hashlib.sha256(scenario_id.encode()).hexdigest()[:32]}",
         "narrative": {
             "title": title,
             "summary": "An adversarial user exploits agent reasoning.",

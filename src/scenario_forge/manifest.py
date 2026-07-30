@@ -28,7 +28,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # --------------------------------------------------------------------------- #
@@ -256,6 +256,20 @@ class AttemptRecord(BaseModel):
     phase: AttemptPhase = AttemptPhase.MAIN
 
     model_config = {"use_enum_values": False}
+
+    @model_validator(mode="after")
+    def _validate_evidence(self) -> "AttemptRecord":
+        """Failed and quarantined attempts require nonempty evidence."""
+        if self.disposition in (
+            AttemptDisposition.FAILED,
+            AttemptDisposition.QUARANTINED,
+        ):
+            if not self.failure_evidence or not self.failure_evidence.strip():
+                raise ValueError(
+                    f"AttemptRecord with disposition={self.disposition.value} "
+                    f"requires nonempty failure_evidence"
+                )
+        return self
 
 
 class GitProvenance(BaseModel):
@@ -760,6 +774,10 @@ class ManifestInventoryResolver:
         self.manifest = manifest
         self.check_orphans = check_orphans
         self._by_role: dict[ArtifactRole, list[ArtifactEntry]] = {}
+        # Cache of fd-read, hash-verified content bytes keyed by entry
+        # path.  read_text/read_bytes serve from this cache so consumers
+        # always receive the exact bytes that were validated.
+        self._content_cache: dict[str, bytes] = {}
         self._validate()
 
     # --- Validation ---
@@ -897,6 +915,9 @@ class ManifestInventoryResolver:
                     f"Hash mismatch for {entry.path}: "
                     f"manifest={entry.sha256}, actual={actual_hash}"
                 )
+            # Cache the verified bytes so read_text/read_bytes serve
+            # exactly the bytes that were hash-validated.
+            self._content_cache[entry.path] = content_bytes
 
             # --- 7. Role-extension-media-schema validation ---
             meta = _ROLE_METADATA.get(role)
@@ -994,31 +1015,60 @@ class ManifestInventoryResolver:
             if role == ArtifactRole.SCENARIO_YAML:
                 stem = Path(entry.path).stem
                 yaml_stems.add(stem)
+                # Require canonical path: scenarios/<scenario_id>.yaml
+                expected_yaml_path = f"scenarios/{entry.scenario_id}.yaml"
+                if entry.path != expected_yaml_path:
+                    raise ManifestIntegrityError(
+                        f"Scenario YAML must be at canonical path "
+                        f"'{expected_yaml_path}', got '{entry.path}'"
+                    )
                 # Parse YAML from the same content_bytes read through the
                 # safe O_NOFOLLOW fd — no separate read_text() that could
-                # be TOCTOU-replaced.
+                # be TOCTOU-replaced.  Require serialized scenario_id AND
+                # candidate_id.
                 try:
                     data = yaml.safe_load(content_bytes.decode("utf-8"))
                     if isinstance(data, dict):
                         serialized_sid = data.get("scenario_id")
+                        serialized_cid = data.get("candidate_id")
                         yaml_scenario_ids[stem] = {
                             "inventory": entry.scenario_id or "",
                             "serialized": serialized_sid,
+                            "serialized_cid": serialized_cid,
+                            "inventory_cid": entry.candidate_id or "",
                         }
                     else:
-                        yaml_scenario_ids[stem] = {
-                            "inventory": entry.scenario_id or "",
-                            "serialized": None,
-                        }
+                        raise ManifestIntegrityError(
+                            f"Scenario YAML {entry.path} is not a dict"
+                        )
+                except ManifestIntegrityError:
+                    raise
                 except Exception as exc:
                     raise ManifestIntegrityError(
                         f"Failed to read scenario YAML {entry.path}: {exc}"
                     ) from exc
+                # Serialized scenario_id is required and must match inventory
+                if not serialized_sid:
+                    raise ManifestIntegrityError(
+                        f"Scenario YAML {entry.path} missing serialized scenario_id"
+                    )
+                # Serialized candidate_id is required and must match inventory
+                if not serialized_cid:
+                    raise ManifestIntegrityError(
+                        f"Scenario YAML {entry.path} missing serialized candidate_id"
+                    )
 
             if role == ArtifactRole.SCENARIO_FEATURE:
                 stem = Path(entry.path).stem
                 feature_stems.add(stem)
                 feature_scenario_ids_map[stem] = entry.scenario_id or ""
+                # Require canonical path: scenarios/<scenario_id>.feature
+                expected_feat_path = f"scenarios/{entry.scenario_id}.feature"
+                if entry.path != expected_feat_path:
+                    raise ManifestIntegrityError(
+                        f"Scenario feature must be at canonical path "
+                        f"'{expected_feat_path}', got '{entry.path}'"
+                    )
 
             # Index by role
             self._by_role.setdefault(role, []).append(entry)
@@ -1058,6 +1108,8 @@ class ManifestInventoryResolver:
                 continue
             inv_sid = yaml_info.get("inventory") or ""
             ser_sid = yaml_info.get("serialized")
+            ser_cid = yaml_info.get("serialized_cid")
+            inv_cid = yaml_info.get("inventory_cid") or ""
 
             # Inventory scenario_id must be present
             if not inv_sid:
@@ -1077,6 +1129,13 @@ class ManifestInventoryResolver:
                 raise ManifestIntegrityError(
                     f"Filename stem '{stem}' does not match "
                     f"serialized scenario_id '{ser_sid}' in {stem}.yaml"
+                )
+
+            # Serialized candidate_id must match inventory candidate_id
+            if ser_cid and inv_cid and ser_cid != inv_cid:
+                raise ManifestIntegrityError(
+                    f"Candidate ID mismatch for {stem}.yaml: "
+                    f"inventory={inv_cid}, serialized={ser_cid}"
                 )
 
             # Feature scenario_id must match paired YAML scenario_id
@@ -1130,21 +1189,61 @@ class ManifestInventoryResolver:
         """Resolve an inventory entry to an absolute path."""
         return (self.run_dir / entry.path).resolve()
 
-    def read_text(self, entry: ArtifactEntry, encoding: str = "utf-8") -> str:
-        """Read the content of an inventory entry as text."""
-        return self.resolve_path(entry).read_text(encoding=encoding)
-
     def read_bytes(self, entry: ArtifactEntry) -> bytes:
-        """Read the content of an inventory entry as bytes."""
-        return self.resolve_path(entry).read_bytes()
+        """Read the content of an inventory entry as bytes.
+
+        Serves from the immutable cache of fd-read, hash-verified bytes
+        populated during ``_validate`` — consumers always receive the
+        exact bytes that were validated, never a fresh read that could
+        be affected by post-validation file replacement.
+        """
+        cached = self._content_cache.get(entry.path)
+        if cached is not None:
+            return cached
+        # Fallback: re-read with no-follow+hash validation (should not
+        # happen in normal flow since _validate populates the cache).
+        return self._verified_read(entry)
+
+    def read_text(self, entry: ArtifactEntry, encoding: str = "utf-8") -> str:
+        """Read the content of an inventory entry as text.
+
+        Serves from the immutable cache of fd-read, hash-verified bytes.
+        """
+        return self.read_bytes(entry).decode(encoding)
 
     def read_yaml(self, entry: ArtifactEntry) -> Any:
-        """Read and parse a YAML inventory entry."""
+        """Read and parse a YAML inventory entry from verified bytes."""
         return yaml.safe_load(self.read_text(entry))
 
     def read_json(self, entry: ArtifactEntry) -> Any:
-        """Read and parse a JSON inventory entry."""
+        """Read and parse a JSON inventory entry from verified bytes."""
         return json.loads(self.read_text(entry))
+
+    def _verified_read(self, entry: ArtifactEntry) -> bytes:
+        """Re-read with no-follow and hash validation (fallback)."""
+        resolved = self.resolve_path(entry)
+        content = b""
+        try:
+            fd = os.open(str(resolved), os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                while True:
+                    chunk = os.read(fd, 65536)
+                    if not chunk:
+                        break
+                    content += chunk
+            finally:
+                os.close(fd)
+        except OSError as exc:
+            raise ManifestIntegrityError(
+                f"Cannot safely read artifact {entry.path}: {exc}"
+            ) from exc
+        actual = hashlib.sha256(content).hexdigest()
+        if actual != entry.sha256:
+            raise ManifestIntegrityError(
+                f"Hash mismatch on re-read for {entry.path}: "
+                f"manifest={entry.sha256}, actual={actual}"
+            )
+        return content
 
     def scenario_yaml_entries(self) -> list[ArtifactEntry]:
         """Return all scenario YAML entries, sorted by scenario_id."""
@@ -1307,11 +1406,100 @@ def build_artifact_entry(
     )
 
 
+def derive_funnel_from_attempts(
+    attempts: list[AttemptRecord],
+    *,
+    expanded_instances: int = 0,
+    unique_pre_rule_identities: int = 0,
+    rule_rejected: int = 0,
+    rule_transformed: int = 0,
+    post_rule_collapsed: int = 0,
+    filter_submitted: int = 0,
+    filter_accepted: int = 0,
+    selected: int = 0,
+    persisted_artifacts: int = 0,
+    seeds_generated: int = 0,
+) -> dict[str, Any]:
+    """Derive a status-aware funnel lifecycle snapshot from accumulated attempts.
+
+    Used before writing a failed manifest so that terminal equation
+    validation can run even when the normal funnel construction was
+    never reached.  The caller may pass zero for pre-attempt funnel
+    stages that were not reached.
+
+    ``selected`` and ``persisted_artifacts`` are derived from attempts
+    when the caller does not supply nonzero values, so the returned dict
+    is internally consistent with :class:`CandidateFunnel` equations.
+    """
+    main_attempts = [a for a in attempts if a.phase == AttemptPhase.MAIN]
+    rem_attempts = [a for a in attempts if a.phase == AttemptPhase.REMEDIATION]
+
+    main_admitted = sum(
+        1 for a in main_attempts if a.disposition == AttemptDisposition.ADMITTED
+    )
+    main_quarantined = sum(
+        1 for a in main_attempts if a.disposition == AttemptDisposition.QUARANTINED
+    )
+    main_failed = sum(
+        1 for a in main_attempts if a.disposition == AttemptDisposition.FAILED
+    )
+    rem_admitted = sum(
+        1 for a in rem_attempts if a.disposition == AttemptDisposition.ADMITTED
+    )
+    rem_quarantined = sum(
+        1 for a in rem_attempts if a.disposition == AttemptDisposition.QUARANTINED
+    )
+    rem_failed = sum(
+        1 for a in rem_attempts if a.disposition == AttemptDisposition.FAILED
+    )
+
+    total_admitted = main_admitted + rem_admitted
+    total_quarantined = main_quarantined + rem_quarantined
+
+    # Derive selected and persisted_artifacts from attempts when not
+    # supplied, so the funnel is consistent with CandidateFunnel equations:
+    #   selected == main_attempted
+    #   persisted_artifacts == admitted
+    if selected == 0 and main_attempts:
+        selected = len(main_attempts)
+    if persisted_artifacts == 0:
+        persisted_artifacts = total_admitted + total_quarantined
+
+    return {
+        "expanded_instances": expanded_instances,
+        "unique_pre_rule_identities": unique_pre_rule_identities,
+        "rule_rejected": rule_rejected,
+        "rule_transformed": rule_transformed,
+        "post_rule_collapsed": post_rule_collapsed,
+        "filter_submitted": filter_submitted,
+        "filter_accepted": filter_accepted,
+        "selected": selected,
+        "main_attempted": len(main_attempts),
+        "main_admitted": main_admitted + main_quarantined,
+        "generation_failed": main_failed,
+        "remediation_attempted": len(rem_attempts),
+        "remediation_admitted": rem_admitted + rem_quarantined,
+        "remediation_failed": rem_failed,
+        "attempted": len(attempts),
+        "admitted": total_admitted + total_quarantined,
+        "quarantined": total_quarantined,
+        "persisted_artifacts": persisted_artifacts,
+        "seeds_generated": seeds_generated,
+    }
+
+
 def validate_attempt_equations(manifest: RunManifest) -> None:
     """Validate attempt keys, funnel equations, and disposition counts.
 
     Enforced for **every** final status (completed, completed_with_errors,
     failed), not only when attempts are nonempty.
+
+    When attempts exist, the funnel must carry the relevant lifecycle keys.
+    Uses :class:`AttemptPhase` to enforce phase-specific counts:
+    ``main_attempted``/``main_admitted``/``generation_failed`` against MAIN
+    records and ``remediation_attempted``/``remediation_admitted``/
+    ``remediation_failed`` against REMEDIATION records, plus aggregate
+    ``attempted``/``admitted``/``quarantined``.
 
     * Unique attempt keys (candidate_id, scenario_id)
     * ``funnel.attempted == len(attempts)``
@@ -1319,6 +1507,9 @@ def validate_attempt_equations(manifest: RunManifest) -> None:
       (quarantine is an admitted subset)
     * ``funnel.quarantined == quarantined-disposition``
     * main/remediation failed totals match failed records
+
+    Early failures with zero attempts may omit candidate funnel fields,
+    but must still have an internally valid zero-attempt lifecycle.
 
     Raises:
         ManifestIntegrityError: If any invariant is violated.
@@ -1333,50 +1524,157 @@ def validate_attempt_equations(manifest: RunManifest) -> None:
             )
         attempt_keys.add(key)
 
-    admitted = sum(
-        1 for a in manifest.attempts if a.disposition == AttemptDisposition.ADMITTED
+    main_attempts = [a for a in manifest.attempts if a.phase == AttemptPhase.MAIN]
+    rem_attempts = [a for a in manifest.attempts if a.phase == AttemptPhase.REMEDIATION]
+
+    main_admitted = sum(
+        1 for a in main_attempts if a.disposition == AttemptDisposition.ADMITTED
     )
-    quarantined = sum(
-        1 for a in manifest.attempts if a.disposition == AttemptDisposition.QUARANTINED
+    main_quarantined = sum(
+        1 for a in main_attempts if a.disposition == AttemptDisposition.QUARANTINED
     )
-    failed = sum(
-        1 for a in manifest.attempts if a.disposition == AttemptDisposition.FAILED
+    main_failed = sum(
+        1 for a in main_attempts if a.disposition == AttemptDisposition.FAILED
     )
+    rem_admitted = sum(
+        1 for a in rem_attempts if a.disposition == AttemptDisposition.ADMITTED
+    )
+    rem_quarantined = sum(
+        1 for a in rem_attempts if a.disposition == AttemptDisposition.QUARANTINED
+    )
+    rem_failed = sum(
+        1 for a in rem_attempts if a.disposition == AttemptDisposition.FAILED
+    )
+
+    total_admitted = main_admitted + rem_admitted
+    total_quarantined = main_quarantined + rem_quarantined
+    total_failed = main_failed + rem_failed
 
     funnel = manifest.funnel
-    if funnel:
-        funnel_attempted = funnel.get("attempted", 0)
-        funnel_admitted = funnel.get("admitted", 0)
-        funnel_quarantined = funnel.get("quarantined", 0)
+    if not manifest.attempts:
+        # Zero-attempt lifecycle: funnel may be empty or have all zeros.
+        # If funnel has keys, ALL values must be consistent with zero
+        # attempts — not only the lifecycle keys but also candidate-stage
+        # counts like selected, persisted_artifacts, etc.
+        if funnel:
+            for key, val in funnel.items():
+                if isinstance(val, int) and val != 0:
+                    raise ManifestIntegrityError(
+                        f"Funnel {key}={val} but zero attempts exist"
+                    )
+        return
 
-        if len(manifest.attempts) != funnel_attempted:
-            raise ManifestIntegrityError(
-                f"Funnel attempted mismatch: len(attempts)="
-                f"{len(manifest.attempts)}, funnel={funnel_attempted}"
-            )
+    # When attempts exist, funnel must carry the relevant lifecycle keys.
+    if not funnel:
+        raise ManifestIntegrityError(
+            "Manifest has attempts but no funnel lifecycle data"
+        )
 
-        if admitted + quarantined != funnel_admitted:
-            raise ManifestIntegrityError(
-                f"Funnel admitted mismatch: attempts(admitted={admitted}"
-                f"+quarantined={quarantined})={admitted + quarantined}, "
-                f"funnel={funnel_admitted}"
-            )
+    required_keys = (
+        "attempted",
+        "admitted",
+        "quarantined",
+        "main_attempted",
+        "main_admitted",
+        "generation_failed",
+        "remediation_attempted",
+        "remediation_admitted",
+        "remediation_failed",
+    )
+    missing_keys = [k for k in required_keys if k not in funnel]
+    if missing_keys:
+        raise ManifestIntegrityError(
+            f"Funnel missing required lifecycle keys: {missing_keys}"
+        )
 
-        if quarantined != funnel_quarantined:
-            raise ManifestIntegrityError(
-                f"Funnel quarantined mismatch: attempts={quarantined}, "
-                f"funnel={funnel_quarantined}"
-            )
+    funnel_attempted = funnel["attempted"]
+    funnel_admitted = funnel["admitted"]
+    funnel_quarantined = funnel["quarantined"]
 
-        funnel_gen_failed = funnel.get("generation_failed", 0)
-        funnel_rem_failed = funnel.get("remediation_failed", 0)
-        if failed != funnel_gen_failed + funnel_rem_failed:
-            raise ManifestIntegrityError(
-                f"Funnel failed mismatch: attempts(failed={failed}), "
-                f"funnel(generation_failed={funnel_gen_failed}"
-                f"+remediation_failed={funnel_rem_failed})"
-                f"={funnel_gen_failed + funnel_rem_failed}"
-            )
+    # Aggregate equations
+    if len(manifest.attempts) != funnel_attempted:
+        raise ManifestIntegrityError(
+            f"Funnel attempted mismatch: len(attempts)="
+            f"{len(manifest.attempts)}, funnel={funnel_attempted}"
+        )
+
+    if total_admitted + total_quarantined != funnel_admitted:
+        raise ManifestIntegrityError(
+            f"Funnel admitted mismatch: attempts(admitted={total_admitted}"
+            f"+quarantined={total_quarantined})={total_admitted + total_quarantined}, "
+            f"funnel={funnel_admitted}"
+        )
+
+    if total_quarantined != funnel_quarantined:
+        raise ManifestIntegrityError(
+            f"Funnel quarantined mismatch: attempts={total_quarantined}, "
+            f"funnel={funnel_quarantined}"
+        )
+
+    # Phase-specific equations
+    funnel_main_attempted = funnel["main_attempted"]
+    funnel_main_admitted = funnel["main_admitted"]
+    funnel_gen_failed = funnel["generation_failed"]
+
+    if len(main_attempts) != funnel_main_attempted:
+        raise ManifestIntegrityError(
+            f"Funnel main_attempted mismatch: "
+            f"len(main_attempts)={len(main_attempts)}, "
+            f"funnel={funnel_main_attempted}"
+        )
+
+    if main_admitted + main_quarantined != funnel_main_admitted:
+        raise ManifestIntegrityError(
+            f"Funnel main_admitted mismatch: "
+            f"attempts(main_admitted={main_admitted}"
+            f"+main_quarantined={main_quarantined})"
+            f"={main_admitted + main_quarantined}, "
+            f"funnel={funnel_main_admitted}"
+        )
+
+    if main_failed != funnel_gen_failed:
+        raise ManifestIntegrityError(
+            f"Funnel generation_failed mismatch: "
+            f"attempts(main_failed={main_failed}), "
+            f"funnel={funnel_gen_failed}"
+        )
+
+    funnel_rem_attempted = funnel["remediation_attempted"]
+    funnel_rem_admitted = funnel["remediation_admitted"]
+    funnel_rem_failed = funnel["remediation_failed"]
+
+    if len(rem_attempts) != funnel_rem_attempted:
+        raise ManifestIntegrityError(
+            f"Funnel remediation_attempted mismatch: "
+            f"len(rem_attempts)={len(rem_attempts)}, "
+            f"funnel={funnel_rem_attempted}"
+        )
+
+    if rem_admitted + rem_quarantined != funnel_rem_admitted:
+        raise ManifestIntegrityError(
+            f"Funnel remediation_admitted mismatch: "
+            f"attempts(rem_admitted={rem_admitted}"
+            f"+rem_quarantined={rem_quarantined})"
+            f"={rem_admitted + rem_quarantined}, "
+            f"funnel={funnel_rem_admitted}"
+        )
+
+    if rem_failed != funnel_rem_failed:
+        raise ManifestIntegrityError(
+            f"Funnel remediation_failed mismatch: "
+            f"attempts(rem_failed={rem_failed}), "
+            f"funnel={funnel_rem_failed}"
+        )
+
+    # Total failed must equal generation_failed + remediation_failed
+    if total_failed != funnel_gen_failed + funnel_rem_failed:
+        raise ManifestIntegrityError(
+            f"Funnel total failed mismatch: "
+            f"attempts(failed={total_failed}), "
+            f"funnel(generation_failed={funnel_gen_failed}"
+            f"+remediation_failed={funnel_rem_failed})"
+            f"={funnel_gen_failed + funnel_rem_failed}"
+        )
 
 
 def validate_completed_inventory(
@@ -1397,8 +1695,10 @@ def validate_completed_inventory(
         ManifestIntegrityError: If any invariant is violated.
     """
     # --- Full strict resolver validation against the final manifest ---
+    # Store the resolver for later use in scorecard verified-byte reads.
+    _resolver: ManifestInventoryResolver | None = None
     if run_dir is not None:
-        ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+        _resolver = ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
 
     # Check required singleton roles
     required = required_singleton_roles(eval_enabled=eval_enabled)
@@ -1473,32 +1773,42 @@ def validate_completed_inventory(
     validate_attempt_equations(manifest)
 
     # --- Admitted/quarantined scenario inventory identities == attempts ---
-    admitted_attempt_sids = {
-        a.scenario_id
+    # Reconcile by exact (scenario_id, candidate_id), not scenario_id only.
+    admitted_attempt_keys = {
+        (a.scenario_id, a.candidate_id)
         for a in manifest.attempts
         if a.disposition == AttemptDisposition.ADMITTED
     }
-    quarantined_attempt_sids = {
-        a.scenario_id
+    quarantined_attempt_keys = {
+        (a.scenario_id, a.candidate_id)
         for a in manifest.attempts
         if a.disposition == AttemptDisposition.QUARANTINED
     }
-    # Admitted (non-quarantined) scenario IDs in inventory must equal
-    # admitted attempt scenario IDs
-    inventory_non_quarantined = yaml_scenario_ids - quarantined_attempt_sids
-    if inventory_non_quarantined != admitted_attempt_sids:
+    # Build inventory scenario (scenario_id, candidate_id) sets
+    yaml_inventory_keys: set[tuple[str, str]] = set()
+    for entry in manifest.inventory:
+        if (
+            entry.role == ArtifactRole.SCENARIO_YAML
+            and entry.scenario_id
+            and entry.candidate_id
+        ):
+            yaml_inventory_keys.add((entry.scenario_id, entry.candidate_id))
+
+    # Admitted (non-quarantined) inventory keys must equal admitted attempt keys
+    inventory_non_quarantined_keys = yaml_inventory_keys - quarantined_attempt_keys
+    if inventory_non_quarantined_keys != admitted_attempt_keys:
         raise ManifestIntegrityError(
             f"Admitted scenario identity mismatch: "
-            f"inventory(non-quarantined)={sorted(inventory_non_quarantined)}, "
-            f"attempts(admitted)={sorted(admitted_attempt_sids)}"
+            f"inventory(non-quarantined)={sorted(inventory_non_quarantined_keys)}, "
+            f"attempts(admitted)={sorted(admitted_attempt_keys)}"
         )
-    # Quarantined inventory scenario IDs must equal quarantined attempt IDs
-    quarantined_in_inventory = yaml_scenario_ids & quarantined_attempt_sids
-    if quarantined_in_inventory != quarantined_attempt_sids:
+    # Quarantined inventory keys must equal quarantined attempt keys
+    quarantined_in_inventory = yaml_inventory_keys & quarantined_attempt_keys
+    if quarantined_in_inventory != quarantined_attempt_keys:
         raise ManifestIntegrityError(
             f"Quarantined scenario identity mismatch: "
             f"inventory(quarantined)={sorted(quarantined_in_inventory)}, "
-            f"attempts(quarantined)={sorted(quarantined_attempt_sids)}"
+            f"attempts(quarantined)={sorted(quarantined_attempt_keys)}"
         )
 
     # --- Scorecard counts validate against unique typed inventory ---
@@ -1514,41 +1824,47 @@ def validate_completed_inventory(
                 f"Scenario YAML/feature count mismatch: "
                 f"yaml={yaml_count}, feature={feature_count}"
             )
-        # Validate scorecard scenario_count and feature_file_count
-        # against unique typed inventory
+        # If a scorecard entry exists, require both scenario_count and
+        # feature_file_count and exact inventory equality.  Use
+        # resolver-verified bytes (via the resolver constructed above
+        # when run_dir is provided).
         sc_entry = next(
             (e for e in manifest.inventory if e.role == ArtifactRole.EVAL_SCORECARD),
             None,
         )
-        if sc_entry is not None and run_dir is not None:
-            sc_path = run_dir / sc_entry.path
-            if sc_path.exists():
-                try:
-                    sc_data = yaml.safe_load(sc_path.read_text(encoding="utf-8"))
-                    if isinstance(sc_data, dict):
-                        eval_data = sc_data.get("evaluation", {})
-                        if isinstance(eval_data, dict):
-                            sc_scenario_count = eval_data.get("scenario_count")
-                            sc_feature_count = eval_data.get("feature_file_count")
-                            if (
-                                sc_scenario_count is not None
-                                and sc_scenario_count != yaml_count
-                            ):
-                                raise ManifestIntegrityError(
-                                    f"Scorecard scenario_count={sc_scenario_count} "
-                                    f"!= inventory YAML count={yaml_count}"
-                                )
-                            if (
-                                sc_feature_count is not None
-                                and sc_feature_count != feature_count
-                            ):
-                                raise ManifestIntegrityError(
-                                    f"Scorecard feature_file_count={sc_feature_count} "
-                                    f"!= inventory feature count={feature_count}"
-                                )
-                except ManifestIntegrityError:
-                    raise
-                except Exception as exc:
+        if sc_entry is not None and _resolver is not None:
+            # Use the resolver's verified read instead of direct file I/O.
+            # Reuse the resolver constructed at the top of this function
+            # so we serve from its verified byte cache.
+            try:
+                sc_data = _resolver.read_yaml(sc_entry)
+                if not isinstance(sc_data, dict):
+                    raise ManifestIntegrityError("Scorecard root is not a dict")
+                eval_data = sc_data.get("evaluation")
+                if not isinstance(eval_data, dict):
                     raise ManifestIntegrityError(
-                        f"Failed to read scorecard for count validation: {exc}"
-                    ) from exc
+                        "Scorecard 'evaluation' section is not a dict"
+                    )
+                sc_scenario_count = eval_data.get("scenario_count")
+                sc_feature_count = eval_data.get("feature_file_count")
+                # Require both counts
+                if sc_scenario_count is None:
+                    raise ManifestIntegrityError("Scorecard missing scenario_count")
+                if sc_feature_count is None:
+                    raise ManifestIntegrityError("Scorecard missing feature_file_count")
+                if sc_scenario_count != yaml_count:
+                    raise ManifestIntegrityError(
+                        f"Scorecard scenario_count={sc_scenario_count} "
+                        f"!= inventory YAML count={yaml_count}"
+                    )
+                if sc_feature_count != feature_count:
+                    raise ManifestIntegrityError(
+                        f"Scorecard feature_file_count={sc_feature_count} "
+                        f"!= inventory feature count={feature_count}"
+                    )
+            except ManifestIntegrityError:
+                raise
+            except Exception as exc:
+                raise ManifestIntegrityError(
+                    f"Failed to read scorecard for count validation: {exc}"
+                ) from exc

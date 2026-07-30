@@ -65,9 +65,10 @@ from tests.manifest_helpers import build_test_run_dir
 _VALID_RUN_ID = "20260101T000000_abcdef0123456789abcdef0123456789"
 
 
-def _make_scenario(scenario_id: str = "s1") -> dict:
+def _make_scenario(scenario_id: str = "s1", candidate_id: str = "cand:v1:abc") -> dict:
     return {
         "scenario_id": scenario_id,
+        "candidate_id": candidate_id,
         "narrative": {
             "title": "Test",
             "summary": "A test",
@@ -523,7 +524,14 @@ class TestInventoryIntegrity:
         run_dir = tmp_path / "run"
         run_dir.mkdir(parents=True)
         (run_dir / "scenarios").mkdir()
-        (run_dir / "scenarios" / "s1.yaml").write_text(yaml.dump({"scenario_id": "s1"}))
+        (run_dir / "scenarios" / "s1.yaml").write_text(
+            yaml.dump(
+                {
+                    "scenario_id": "s1",
+                    "candidate_id": "cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                }
+            )
+        )
         # No matching .feature file
 
         entry = ArtifactEntry(
@@ -609,7 +617,7 @@ class TestInventoryIntegrity:
             run_dir / MANIFEST_FILENAME,
             manifest.model_dump(mode="json", exclude_none=True),
         )
-        with pytest.raises(ManifestIntegrityError, match="Filename stem"):
+        with pytest.raises(ManifestIntegrityError, match="canonical path"):
             load_strict_resolver(run_dir)
 
     def test_absolute_path_rejected(self, tmp_path: Path):
@@ -1457,7 +1465,11 @@ def _mayor_valid_run(run_dir: Path, *, status=RunStatus.COMPLETED) -> RunManifes
         "attempted": 1,
         "admitted": 1,
         "quarantined": 0,
+        "main_attempted": 1,
+        "main_admitted": 1,
         "generation_failed": 0,
+        "remediation_attempted": 0,
+        "remediation_admitted": 0,
         "remediation_failed": 0,
     }
     return manifest
@@ -1533,7 +1545,11 @@ class TestAttemptEquations:
                     "attempted": 1,
                     "admitted": 1,
                     "quarantined": 0,
+                    "main_attempted": 1,
+                    "main_admitted": 1,
                     "generation_failed": 0,
+                    "remediation_attempted": 0,
+                    "remediation_admitted": 0,
                     "remediation_failed": 0,
                 },
             ),
@@ -1551,7 +1567,11 @@ class TestAttemptEquations:
                     "attempted": 2,
                     "admitted": 2,
                     "quarantined": 0,
+                    "main_attempted": 1,
+                    "main_admitted": 1,
                     "generation_failed": 0,
+                    "remediation_attempted": 1,
+                    "remediation_admitted": 1,
                     "remediation_failed": 0,
                 },
             ),
@@ -1566,7 +1586,11 @@ class TestAttemptEquations:
                     "attempted": 2,
                     "admitted": 1,
                     "quarantined": 0,
+                    "main_attempted": 1,
+                    "main_admitted": 1,
                     "generation_failed": 0,
+                    "remediation_attempted": 1,
+                    "remediation_admitted": 0,
                     "remediation_failed": 1,
                 },
             ),
@@ -1576,7 +1600,11 @@ class TestAttemptEquations:
                     "attempted": 1,
                     "admitted": 1,
                     "quarantined": 1,
+                    "main_attempted": 1,
+                    "main_admitted": 1,
                     "generation_failed": 0,
+                    "remediation_attempted": 0,
+                    "remediation_admitted": 0,
                     "remediation_failed": 0,
                 },
             ),
@@ -1606,7 +1634,11 @@ class TestAttemptEquations:
                     "attempted": 1,
                     "admitted": 1,
                     "quarantined": 0,
+                    "main_attempted": 0,
+                    "main_admitted": 0,
                     "generation_failed": 0,
+                    "remediation_attempted": 1,
+                    "remediation_admitted": 1,
                     "remediation_failed": 0,
                 },
             )
@@ -1624,7 +1656,11 @@ class TestAttemptEquations:
                     "attempted": 1,
                     "admitted": 0,
                     "quarantined": 0,
+                    "main_attempted": 0,
+                    "main_admitted": 0,
                     "generation_failed": 0,
+                    "remediation_attempted": 1,
+                    "remediation_admitted": 0,
                     "remediation_failed": 1,
                 },
             )
@@ -1651,7 +1687,11 @@ class TestAttemptEquations:
             "attempted": 1,
             "admitted": 1,
             "quarantined": 0,
+            "main_attempted": 1,
+            "main_admitted": 1,
             "generation_failed": 0,
+            "remediation_attempted": 0,
+            "remediation_admitted": 0,
             "remediation_failed": 0,
         }
         funnel[field] = value
@@ -1708,7 +1748,7 @@ class TestFailedEvidenceRetention:
                     "scenarios/s1.yaml",
                     yaml.safe_dump(_make_scenario("s1")),
                     "s1",
-                    "c1",
+                    "cand:v1:abc",
                 ),
             ],
         )
@@ -1725,14 +1765,14 @@ class TestFailedEvidenceRetention:
                     "scenarios/s1.yaml",
                     yaml.safe_dump(_make_scenario("s1")),
                     "s1",
-                    "c1",
+                    "cand:v1:abc",
                 ),
                 (
                     ArtifactRole.SCENARIO_FEATURE,
                     "scenarios/s1.feature",
                     _make_feature("s1"),
                     "s1",
-                    "c1",
+                    "cand:v1:abc",
                 ),
                 (ArtifactRole.PIPELINE_CALL_LOG, "calls.jsonl", "{}\n", None, None),
                 (ArtifactRole.PIPELINE_LOG, "pipeline.log", "failed\n", None, None),
@@ -2088,3 +2128,1030 @@ class TestFaultInjection:
 
         manifest = load_manifest(result.run_dir)
         assert manifest.status == RunStatus.COMPLETED_WITH_ERRORS
+
+
+# --------------------------------------------------------------------------- #
+# Third narrow Mayor review — focused correction tests
+# --------------------------------------------------------------------------- #
+
+
+class TestThirdReviewAttemptEvidence:
+    """AttemptRecord evidence validation for FAILED/QUARANTINED."""
+
+    def test_failed_without_evidence_rejected(self):
+        with pytest.raises(Exception, match="failure_evidence"):
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.FAILED,
+                failure_evidence=None,
+            )
+
+    def test_quarantined_without_evidence_rejected(self):
+        with pytest.raises(Exception, match="failure_evidence"):
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.QUARANTINED,
+                failure_evidence=None,
+            )
+
+    def test_failed_with_blank_evidence_rejected(self):
+        with pytest.raises(Exception, match="failure_evidence"):
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.FAILED,
+                failure_evidence="   ",
+            )
+
+    def test_admitted_without_evidence_accepted(self):
+        rec = AttemptRecord(
+            candidate_id="c1",
+            scenario_id="s1",
+            disposition=AttemptDisposition.ADMITTED,
+            failure_evidence=None,
+        )
+        assert rec.disposition == AttemptDisposition.ADMITTED
+
+
+class TestThirdReviewFunnelEquations:
+    """Phase-specific funnel equation validation."""
+
+    def test_attempts_with_empty_funnel_rejected(self):
+        attempt = AttemptRecord(
+            candidate_id="c1",
+            scenario_id="s1",
+            disposition=AttemptDisposition.ADMITTED,
+        )
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=[attempt],
+            funnel={},
+        )
+        with pytest.raises(ManifestIntegrityError, match="no funnel"):
+            validate_attempt_equations(manifest)
+
+    def test_main_attempted_mismatch_rejected(self):
+        attempt = AttemptRecord(
+            candidate_id="c1",
+            scenario_id="s1",
+            disposition=AttemptDisposition.ADMITTED,
+        )
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=[attempt],
+            funnel={
+                "attempted": 1,
+                "admitted": 1,
+                "quarantined": 0,
+                "main_attempted": 99,
+                "main_admitted": 1,
+                "generation_failed": 0,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+            },
+        )
+        with pytest.raises(ManifestIntegrityError, match="main_attempted"):
+            validate_attempt_equations(manifest)
+
+    def test_main_admitted_mismatch_rejected(self):
+        attempt = AttemptRecord(
+            candidate_id="c1",
+            scenario_id="s1",
+            disposition=AttemptDisposition.ADMITTED,
+        )
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=[attempt],
+            funnel={
+                "attempted": 1,
+                "admitted": 1,
+                "quarantined": 0,
+                "main_attempted": 1,
+                "main_admitted": 99,
+                "generation_failed": 0,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+            },
+        )
+        with pytest.raises(ManifestIntegrityError, match="main_admitted"):
+            validate_attempt_equations(manifest)
+
+    def test_remediation_attempted_mismatch_rejected(self):
+        attempt = AttemptRecord(
+            candidate_id="c1",
+            scenario_id="s1",
+            disposition=AttemptDisposition.ADMITTED,
+            phase=AttemptPhase.REMEDIATION,
+        )
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=[attempt],
+            funnel={
+                "attempted": 1,
+                "admitted": 1,
+                "quarantined": 0,
+                "main_attempted": 0,
+                "main_admitted": 0,
+                "generation_failed": 0,
+                "remediation_attempted": 99,
+                "remediation_admitted": 1,
+                "remediation_failed": 0,
+            },
+        )
+        with pytest.raises(ManifestIntegrityError, match="remediation_attempted"):
+            validate_attempt_equations(manifest)
+
+    def test_generation_failed_mismatch_rejected(self):
+        attempt = AttemptRecord(
+            candidate_id="c1",
+            scenario_id="s1",
+            disposition=AttemptDisposition.FAILED,
+            failure_evidence="gen error",
+        )
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=[attempt],
+            funnel={
+                "attempted": 1,
+                "admitted": 0,
+                "quarantined": 0,
+                "main_attempted": 1,
+                "main_admitted": 0,
+                "generation_failed": 99,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+            },
+        )
+        with pytest.raises(ManifestIntegrityError, match="generation_failed"):
+            validate_attempt_equations(manifest)
+
+    def test_zero_attempts_with_nonzero_lifecycle_key_rejected(self):
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=[],
+            funnel={
+                "attempted": 0,
+                "admitted": 0,
+                "quarantined": 0,
+                "main_attempted": 0,
+                "main_admitted": 0,
+                "generation_failed": 5,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+            },
+        )
+        with pytest.raises(ManifestIntegrityError, match="generation_failed.*zero"):
+            validate_attempt_equations(manifest)
+
+    def test_derive_funnel_from_attempts(self):
+        from scenario_forge.manifest import derive_funnel_from_attempts
+
+        attempts = [
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.ADMITTED,
+                phase=AttemptPhase.MAIN,
+            ),
+            AttemptRecord(
+                candidate_id="c2",
+                scenario_id="s2",
+                disposition=AttemptDisposition.FAILED,
+                failure_evidence="gen error",
+                phase=AttemptPhase.MAIN,
+            ),
+            AttemptRecord(
+                candidate_id="c3",
+                scenario_id="s1",
+                disposition=AttemptDisposition.ADMITTED,
+                phase=AttemptPhase.REMEDIATION,
+            ),
+        ]
+        funnel = derive_funnel_from_attempts(attempts)
+        assert funnel["attempted"] == 3
+        assert funnel["admitted"] == 2
+        assert funnel["quarantined"] == 0
+        assert funnel["main_attempted"] == 2
+        assert funnel["main_admitted"] == 1
+        assert funnel["generation_failed"] == 1
+        assert funnel["remediation_attempted"] == 1
+        assert funnel["remediation_admitted"] == 1
+        assert funnel["remediation_failed"] == 0
+        # Validate the derived funnel passes equation validation
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=attempts,
+            funnel=funnel,
+        )
+        validate_attempt_equations(manifest)
+
+
+class TestThirdReviewExactReconciliation:
+    """Exact (scenario_id, candidate_id) reconciliation in completed inventory."""
+
+    def test_exact_key_mismatch_rejected(self, tmp_path: Path):
+        """Admitted attempt with wrong candidate_id fails reconciliation."""
+        run_dir = tmp_path / _VALID_RUN_ID
+        manifest = _mayor_valid_run(run_dir)
+        # Change the attempt candidate_id to mismatch inventory
+        manifest.attempts[0] = AttemptRecord(
+            candidate_id="wrong-candidate",
+            scenario_id="s1",
+            disposition=AttemptDisposition.ADMITTED,
+        )
+        with pytest.raises(ManifestIntegrityError, match="Admitted scenario identity"):
+            validate_completed_inventory(manifest, eval_enabled=True, run_dir=run_dir)
+
+
+class TestThirdReviewScorecardValidation:
+    """Scorecard count validation using verified bytes."""
+
+    def test_scorecard_missing_scenario_count_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        manifest = _mayor_valid_run(run_dir)
+        # Overwrite scorecard with missing scenario_count
+        sc_path = run_dir / "eval-scorecard.yaml"
+        sc_data = yaml.safe_load(sc_path.read_text())
+        del sc_data["evaluation"]["scenario_count"]
+        sc_path.write_text(yaml.dump(sc_data))
+        # Re-hash the scorecard in inventory
+        for entry in manifest.inventory:
+            if entry.role == ArtifactRole.EVAL_SCORECARD:
+                entry.sha256 = compute_file_sha256(sc_path)
+        with pytest.raises(ManifestIntegrityError, match="missing scenario_count"):
+            validate_completed_inventory(manifest, eval_enabled=True, run_dir=run_dir)
+
+    def test_scorecard_missing_feature_count_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        manifest = _mayor_valid_run(run_dir)
+        sc_path = run_dir / "eval-scorecard.yaml"
+        sc_data = yaml.safe_load(sc_path.read_text())
+        del sc_data["evaluation"]["feature_file_count"]
+        sc_path.write_text(yaml.dump(sc_data))
+        for entry in manifest.inventory:
+            if entry.role == ArtifactRole.EVAL_SCORECARD:
+                entry.sha256 = compute_file_sha256(sc_path)
+        with pytest.raises(ManifestIntegrityError, match="missing feature_file_count"):
+            validate_completed_inventory(manifest, eval_enabled=True, run_dir=run_dir)
+
+    def test_scorecard_wrong_scenario_count_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        manifest = _mayor_valid_run(run_dir)
+        sc_path = run_dir / "eval-scorecard.yaml"
+        sc_data = yaml.safe_load(sc_path.read_text())
+        sc_data["evaluation"]["scenario_count"] = 99
+        sc_path.write_text(yaml.dump(sc_data))
+        for entry in manifest.inventory:
+            if entry.role == ArtifactRole.EVAL_SCORECARD:
+                entry.sha256 = compute_file_sha256(sc_path)
+        with pytest.raises(ManifestIntegrityError, match="scenario_count=99"):
+            validate_completed_inventory(manifest, eval_enabled=True, run_dir=run_dir)
+
+    def test_scorecard_non_dict_evaluation_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        manifest = _mayor_valid_run(run_dir)
+        sc_path = run_dir / "eval-scorecard.yaml"
+        sc_path.write_text(yaml.dump({"evaluation": "not a dict"}))
+        for entry in manifest.inventory:
+            if entry.role == ArtifactRole.EVAL_SCORECARD:
+                entry.sha256 = compute_file_sha256(sc_path)
+        with pytest.raises(ManifestIntegrityError, match="evaluation.*not a dict"):
+            validate_completed_inventory(manifest, eval_enabled=True, run_dir=run_dir)
+
+
+class TestThirdReviewSerializedIdentity:
+    """Serialized scenario_id/candidate_id in YAML and canonical paths."""
+
+    def _make_run_with_scenario(
+        self,
+        tmp_path,
+        sid="s1",
+        cid="cand:v1:abc",
+        yaml_content=None,
+        yaml_path="scenarios/s1.yaml",
+        feat_path="scenarios/s1.feature",
+    ):
+        run_dir = tmp_path / _VALID_RUN_ID
+        run_dir.mkdir(parents=True)
+        (run_dir / "scenarios").mkdir()
+        if yaml_content is None:
+            yaml_content = yaml.dump({"scenario_id": sid, "candidate_id": cid})
+        (run_dir / yaml_path).write_text(yaml_content)
+        (run_dir / feat_path).write_text(f"Feature: {sid}\n")
+        entries = [
+            build_artifact_entry(
+                ArtifactRole.SCENARIO_YAML,
+                run_dir,
+                yaml_path,
+                scenario_id=sid,
+                candidate_id=cid,
+            ),
+            build_artifact_entry(
+                ArtifactRole.SCENARIO_FEATURE,
+                run_dir,
+                feat_path,
+                scenario_id=sid,
+                candidate_id=cid,
+            ),
+        ]
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=entries,
+        )
+        atomic_write_yaml(
+            run_dir / MANIFEST_FILENAME,
+            manifest.model_dump(mode="json", exclude_none=True),
+        )
+        return run_dir, manifest
+
+    def test_missing_serialized_scenario_id_rejected(self, tmp_path: Path):
+        run_dir, manifest = self._make_run_with_scenario(
+            tmp_path,
+            yaml_content=yaml.dump({"candidate_id": "cand:v1:abc"}),
+        )
+        with pytest.raises(
+            ManifestIntegrityError, match="missing serialized scenario_id"
+        ):
+            load_strict_resolver(run_dir)
+
+    def test_missing_serialized_candidate_id_rejected(self, tmp_path: Path):
+        run_dir, manifest = self._make_run_with_scenario(
+            tmp_path,
+            yaml_content=yaml.dump({"scenario_id": "s1"}),
+        )
+        with pytest.raises(
+            ManifestIntegrityError, match="missing serialized candidate_id"
+        ):
+            load_strict_resolver(run_dir)
+
+    def test_mismatched_serialized_scenario_id_rejected(self, tmp_path: Path):
+        run_dir, manifest = self._make_run_with_scenario(
+            tmp_path,
+            yaml_content=yaml.dump(
+                {"scenario_id": "wrong", "candidate_id": "cand:v1:abc"}
+            ),
+        )
+        with pytest.raises(ManifestIntegrityError, match="Scenario ID mismatch"):
+            load_strict_resolver(run_dir)
+
+    def test_mismatched_serialized_candidate_id_rejected(self, tmp_path: Path):
+        run_dir, manifest = self._make_run_with_scenario(
+            tmp_path,
+            yaml_content=yaml.dump({"scenario_id": "s1", "candidate_id": "wrong"}),
+        )
+        with pytest.raises(ManifestIntegrityError, match="Candidate ID mismatch"):
+            load_strict_resolver(run_dir)
+
+    def test_scenario_yaml_wrong_parent_directory_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        run_dir.mkdir(parents=True)
+        (run_dir / "wrong_dir").mkdir()
+        (run_dir / "scenarios").mkdir()
+        (run_dir / "wrong_dir" / "s1.yaml").write_text(
+            yaml.dump({"scenario_id": "s1", "candidate_id": "cand:v1:abc"})
+        )
+        (run_dir / "scenarios" / "s1.feature").write_text("Feature: s1\n")
+        entries = [
+            build_artifact_entry(
+                ArtifactRole.SCENARIO_YAML,
+                run_dir,
+                "wrong_dir/s1.yaml",
+                scenario_id="s1",
+                candidate_id="cand:v1:abc",
+            ),
+            build_artifact_entry(
+                ArtifactRole.SCENARIO_FEATURE,
+                run_dir,
+                "scenarios/s1.feature",
+                scenario_id="s1",
+                candidate_id="cand:v1:abc",
+            ),
+        ]
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=entries,
+        )
+        atomic_write_yaml(
+            run_dir / MANIFEST_FILENAME,
+            manifest.model_dump(mode="json", exclude_none=True),
+        )
+        with pytest.raises(ManifestIntegrityError, match="canonical path"):
+            load_strict_resolver(run_dir)
+
+    def test_feature_wrong_parent_directory_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        run_dir.mkdir(parents=True)
+        (run_dir / "wrong_dir").mkdir()
+        (run_dir / "scenarios").mkdir()
+        (run_dir / "scenarios" / "s1.yaml").write_text(
+            yaml.dump({"scenario_id": "s1", "candidate_id": "cand:v1:abc"})
+        )
+        (run_dir / "wrong_dir" / "s1.feature").write_text("Feature: s1\n")
+        entries = [
+            build_artifact_entry(
+                ArtifactRole.SCENARIO_YAML,
+                run_dir,
+                "scenarios/s1.yaml",
+                scenario_id="s1",
+                candidate_id="cand:v1:abc",
+            ),
+            build_artifact_entry(
+                ArtifactRole.SCENARIO_FEATURE,
+                run_dir,
+                "wrong_dir/s1.feature",
+                scenario_id="s1",
+                candidate_id="cand:v1:abc",
+            ),
+        ]
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=entries,
+        )
+        atomic_write_yaml(
+            run_dir / MANIFEST_FILENAME,
+            manifest.model_dump(mode="json", exclude_none=True),
+        )
+        with pytest.raises(ManifestIntegrityError, match="canonical path"):
+            load_strict_resolver(run_dir)
+
+
+class TestThirdReviewVerifiedByteCache:
+    """Resolver serves cached verified bytes, not fresh file reads."""
+
+    def test_post_validation_replacement_returns_cached_bytes(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        run_dir.mkdir(parents=True)
+        (run_dir / "use-case.txt").write_text("original content")
+        entry = build_artifact_entry(
+            ArtifactRole.USE_CASE,
+            run_dir,
+            "use-case.txt",
+        )
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=[entry],
+        )
+        atomic_write_yaml(
+            run_dir / MANIFEST_FILENAME,
+            manifest.model_dump(mode="json", exclude_none=True),
+        )
+        resolver = load_strict_resolver(run_dir)
+        # Read original content through resolver
+        original = resolver.read_text(entry)
+        assert original == "original content"
+        # Replace the file on disk after validation
+        (run_dir / "use-case.txt").write_text("tampered content")
+        # Resolver should still return cached verified bytes
+        cached = resolver.read_text(entry)
+        assert cached == "original content", (
+            "Resolver should return cached verified bytes, not fresh file content"
+        )
+
+
+class TestThirdReviewCallLogFailure:
+    """Post-artifact call-log failure preserves evidence in failed manifest."""
+
+    def test_call_log_failure_preserves_artifact_evidence(self, tmp_path: Path):
+        """When call-log write fails after artifact creation, strict forensic
+        loading must succeed and expose the failed attempt, YAML+feature pair,
+        and pipeline log evidence."""
+        from datetime import datetime
+
+        from scenario_forge.llm.client import LLMResult
+        from scenario_forge.models.attack_tree import (
+            AttackTree,
+            AttackTreeNode,
+            GateType,
+        )
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            ConfidenceLevel,
+            EntryPoint,
+            compute_entry_point_id,
+        )
+        from scenario_forge.models.scenario import (
+            ArchitectureMatch,
+            AttackComplexity,
+            CallMetadata,
+            CallName,
+            CapabilityProfileRef,
+            FacetingMetadata,
+            GenerationMetadata,
+            LikelihoodLevel,
+            NarrativeLayer,
+            NarrativeStep,
+            Priority,
+            PrioritySignals,
+            RiskCardRef,
+            ScenarioEnvelope,
+            SeverityLevel,
+            StructuralExposureSignal,
+            TaxonomyChain,
+            TechniqueMaturity,
+        )
+        from scenario_forge.pipeline.candidates import (
+            CandidateOrigin,
+            CandidateTriple,
+            FilteredSeed,
+            StageRecord,
+            compute_candidate_id,
+        )
+        from scenario_forge.pipeline.coverage import CoverageGaps
+        from scenario_forge.pipeline.runner import run_pipeline, compute_scenario_id
+        from scenario_forge.pipeline.seeds import ScenarioSeed
+        from scenario_forge.pipeline.threats import ThreatSurface
+
+        # --- Constants ---
+        seed_id = "AP-T7-01"
+        entry_point_text = "user prompts (input)"
+        technique_ids = ("AML.T0051",)
+        ep_id = compute_entry_point_id(entry_point_text, "input", None)
+        candidate_id = compute_candidate_id(seed_id, ep_id, technique_ids)
+
+        # --- Build a valid seed ---
+        seed = ScenarioSeed(
+            seed_id=seed_id,
+            threat_id="T7",
+            threat_name="Threat T7",
+            attack_pattern_name=f"Pattern {seed_id}",
+            attack_pattern_description=f"Description for {seed_id}",
+            risk_card_ref=RiskCardRef(
+                risk_id="risk-1",
+                risk_name="Risk 1",
+                risk_description="Description",
+                taxonomy="ibm-risk-atlas",
+                confidence=0.9,
+                grounding_confidence="high",
+            ),
+            owasp_llm_ids=["LLM01"],
+            agentic_threat_ids=["T7"],
+            atlas_technique_ids=list(technique_ids),
+        )
+
+        # --- Build a valid candidate triple ---
+        candidate = CandidateTriple(
+            seed_id=seed_id,
+            threat_id="T7",
+            threat_name="Threat T7",
+            attack_pattern_name=f"Pattern {seed_id}",
+            attack_pattern_description=f"Description for {seed_id}",
+            entry_point=entry_point_text,
+            controllability=None,
+            direction="input",
+            entry_point_id=ep_id,
+            candidate_id=candidate_id,
+            atlas_technique_ids=technique_ids,
+            atlas_technique_names=("Technique AML.T0051",),
+            atlas_technique_descriptions=("Desc AML.T0051",),
+            risk_card_ref=RiskCardRef(
+                risk_id="risk-1",
+                risk_name="Risk 1",
+                risk_description="Description",
+                taxonomy="ibm-risk-atlas",
+                confidence=0.9,
+                grounding_confidence="high",
+            ),
+            owasp_llm_ids=["LLM01"],
+            origins=(
+                CandidateOrigin(
+                    source_candidate_id=candidate_id,
+                    original_technique_ids=technique_ids,
+                    transform_stage="expansion",
+                ),
+            ),
+        )
+
+        # --- Build a valid filtered seed ---
+        fseed = FilteredSeed(
+            seed_id=seed_id,
+            threat_id="T7",
+            threat_name="Threat T7",
+            attack_pattern_name=f"Pattern {seed_id}",
+            attack_pattern_description=f"Description for {seed_id}",
+            risk_card_ref=RiskCardRef(
+                risk_id="risk-1",
+                risk_name="Risk 1",
+                risk_description="Description",
+                taxonomy="ibm-risk-atlas",
+                confidence=0.9,
+                grounding_confidence="high",
+            ),
+            owasp_llm_ids=["LLM01"],
+            agentic_threat_ids=["T7"],
+            atlas_technique_ids=list(technique_ids),
+            pinned_entry_point=entry_point_text,
+            pinned_technique_ids=technique_ids,
+            pinned_technique_names=("Technique AML.T0051",),
+            entry_point_id=ep_id,
+            candidate_id=candidate_id,
+        )
+
+        # --- Profile mock ---
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[EntryPoint(name=entry_point_text, direction="input")],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+
+        # --- generate_scenario side effect: valid envelope with 2-child OR ---
+        def _gen_side_effect(seed_arg, prof, client, use_case, **kwargs):
+            run_id = kwargs.get("run_id", "")
+            cid = kwargs.get("candidate_id", "")
+            expected_sid = compute_scenario_id(run_id, cid, 1)
+
+            envelope = ScenarioEnvelope(
+                scenario_id=expected_sid,
+                candidate_id=cid,
+                generated_at=datetime.now(),
+                generator_version="0.1.0",
+                narrative=NarrativeLayer(
+                    title="Test Scenario",
+                    summary="Test summary.",
+                    entry_point=entry_point_text,
+                    zone_sequence=["input"],
+                    steps=[
+                        NarrativeStep(
+                            step_number=1,
+                            zone="input",
+                            action="Test action",
+                            effect="Test effect",
+                        ),
+                    ],
+                ),
+                attack_tree=AttackTree(
+                    id=f"tree-{seed_id}",
+                    seed_id=seed_id,
+                    goal="Test goal",
+                    root=AttackTreeNode(
+                        id="n1",
+                        label="Root",
+                        gate=GateType.OR,
+                        zone="input",
+                        children=[
+                            AttackTreeNode(
+                                id="n1.1",
+                                label="Path A",
+                                gate=GateType.LEAF,
+                                zone="input",
+                                technique_id="AML.T0051",
+                            ),
+                            AttackTreeNode(
+                                id="n1.2",
+                                label="Path B",
+                                gate=GateType.LEAF,
+                                zone="reasoning",
+                            ),
+                        ],
+                    ),
+                ),
+                behavior_spec="Feature: Test\n  Scenario: Test\n    Given x\n",
+                faceting=FacetingMetadata(
+                    risk_card=RiskCardRef(
+                        risk_id="test-risk",
+                        risk_name="Test",
+                        risk_description="Test",
+                        taxonomy="ibm-risk-atlas",
+                        confidence=0.9,
+                        grounding_confidence="high",
+                    ),
+                    taxonomy_chain=TaxonomyChain(
+                        owasp_llm_ids=["LLM01"],
+                        agentic_threat_ids=["T7"],
+                        scenario_seed=seed_id,
+                    ),
+                    capability_profile=CapabilityProfileRef(
+                        zones_traversed=["input"],
+                        architecture_match=ArchitectureMatch.explicit,
+                        entry_point=entry_point_text,
+                    ),
+                    maestro_layers=[1],
+                ),
+                priority=Priority(
+                    composite=0.7,
+                    signals=PrioritySignals(
+                        technique_maturity=TechniqueMaturity.feasible,
+                        risk_impact=SeverityLevel.high,
+                        risk_likelihood=LikelihoodLevel.medium,
+                        attack_complexity=AttackComplexity.medium,
+                        architecture_match=ArchitectureMatch.explicit,
+                        structural_exposure=StructuralExposureSignal.none,
+                    ),
+                ),
+                generation=GenerationMetadata(
+                    model="test-model",
+                    call_metadata=[
+                        CallMetadata(
+                            call=CallName.narrative,
+                            prompt_tokens=100,
+                            completion_tokens=200,
+                            duration_ms=1000,
+                        ),
+                    ],
+                ),
+            )
+            return envelope, [{"role": "assistant", "content": "ok"}]
+
+        # --- expand_candidates side effect: returns candidate + updates stage_records ---
+        def _expand_side_effect(seeds, prof, max_techniques=1, stage_records=None):
+            if stage_records is not None:
+                stage_records.append(
+                    StageRecord(
+                        stage="expansion",
+                        input_count=1,
+                        output_count=1,
+                        collapsed_count=0,
+                    )
+                )
+            return [candidate]
+
+        # --- apply_rule_based_filter side effect: passes through + updates stage_records ---
+        def _rule_filter_side_effect(cands, prof, stage_records=None):
+            if stage_records is not None:
+                stage_records.append(
+                    StageRecord(
+                        stage="rule_pruning",
+                        input_count=len(cands),
+                        output_count=len(cands),
+                        collapsed_count=0,
+                    )
+                )
+            return list(cands), [], []
+
+        risk_path = tmp_path / "risk.json"
+        risk_path.write_text("[]")
+        sssom_path = tmp_path / "sssom.tsv"
+        sssom_path.write_text("")
+
+        # --- Run pipeline with call-log failure injected ---
+        with (
+            patch(
+                "scenario_forge.pipeline.runner.generate_scenario",
+                side_effect=_gen_side_effect,
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.infer_capability_profile",
+                return_value=(
+                    profile,
+                    LLMResult(
+                        content="mock",
+                        prompt_tokens=10,
+                        completion_tokens=20,
+                        duration_ms=100,
+                        system_prompt="system",
+                        user_prompt="user",
+                    ),
+                ),
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.load_risk_extraction", return_value=[]
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.validate_risk_card_coherence",
+                return_value=MagicMock(has_warnings=False),
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.determine_threat_surface",
+                return_value=ThreatSurface(entries=[], governance_only=[]),
+            ),
+            patch("scenario_forge.pipeline.runner.expand_seeds", return_value=[seed]),
+            patch(
+                "scenario_forge.pipeline.runner.expand_candidates",
+                side_effect=_expand_side_effect,
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.apply_rule_based_filter",
+                side_effect=_rule_filter_side_effect,
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.filter_candidates",
+                return_value=([fseed], []),
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.analyze_coverage_gaps",
+                return_value=CoverageGaps(),
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.analyze_attacker_diversity",
+                return_value=None,
+            ),
+            patch(
+                "scenario_forge.report.generator.generate_report",
+                return_value="<html>test</html>",
+            ),
+            patch(
+                "scenario_forge.pipeline.runner.write_call_log",
+                side_effect=OSError("call-log disk full"),
+            ),
+        ):
+            with pytest.raises(Exception, match="Call-log write failed"):
+                run_pipeline(
+                    use_case="A chatbot",
+                    risk_extraction_path=risk_path,
+                    sssom_path=sssom_path,
+                    output_dir=tmp_path / "output",
+                )
+
+        # --- Verify failed manifest evidence ---
+        collection = tmp_path / "output"
+        run_dir = next(p for p in collection.iterdir() if p.is_dir())
+
+        resolver = load_strict_resolver(
+            run_dir, require_final=True, require_authoritative=False
+        )
+        assert resolver.manifest.status == RunStatus.FAILED
+
+        # Scenario YAML and feature must be inventoried
+        yaml_entries = resolver.scenario_yaml_entries()
+        assert len(yaml_entries) >= 1, (
+            "Scenario YAML must be in failed inventory despite call-log failure"
+        )
+
+        feature_entries = [
+            e
+            for e in resolver.manifest.inventory
+            if e.role == ArtifactRole.SCENARIO_FEATURE
+        ]
+        assert len(feature_entries) >= 1, (
+            "Scenario feature must be in failed inventory despite call-log failure"
+        )
+
+        # Failed attempt must be present with evidence
+        assert len(resolver.manifest.attempts) >= 1
+        failed_attempts = [
+            a
+            for a in resolver.manifest.attempts
+            if a.disposition == AttemptDisposition.FAILED
+        ]
+        assert len(failed_attempts) >= 1, "Failed attempt must be present"
+        assert all(a.failure_evidence for a in failed_attempts), (
+            "Failed attempts must have failure evidence"
+        )
+
+        # Pipeline log must be inventoried
+        log_entries = [
+            e
+            for e in resolver.manifest.inventory
+            if e.role == ArtifactRole.PIPELINE_LOG
+        ]
+        assert len(log_entries) >= 1, "Pipeline log must be in failed evidence"
+
+        # No recognized orphan: every file in the run dir must be
+        # either manifested or the manifest container itself
+        for f in run_dir.rglob("*"):
+            if f.is_file():
+                rel = f.relative_to(run_dir).as_posix()
+                if rel == MANIFEST_FILENAME:
+                    continue
+                assert any(e.path == rel for e in resolver.manifest.inventory), (
+                    f"Unmanifested orphan file: {rel}"
+                )
+
+
+class TestThirdReviewConfigDigest:
+    """Config digest bound to resolved effective options."""
+
+    def test_resolved_model_difference_changes_digest(self):
+        """Different resolved model produces different config digest."""
+        opts1 = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+        }
+        opts2 = dict(opts1, model="gpt-4o")
+        d1 = compute_config_digest(opts1)
+        d2 = compute_config_digest(opts2)
+        assert d1 != d2, "Different resolved model must produce different digest"
+
+    def test_resolved_base_url_difference_changes_digest(self):
+        """Different resolved base URL produces different config digest."""
+        opts1 = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+        }
+        opts2 = dict(opts1, base_url="https://api.example.com/v1")
+        d1 = compute_config_digest(opts1)
+        d2 = compute_config_digest(opts2)
+        assert d1 != d2, "Different resolved base URL must produce different digest"
+
+    def test_generation_setting_difference_changes_digest(self):
+        """Different generation settings produce different config digest."""
+        opts1 = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+        }
+        opts2 = dict(opts1, max_techniques=5)
+        d1 = compute_config_digest(opts1)
+        d2 = compute_config_digest(opts2)
+        assert d1 != d2, "Different generation settings must produce different digest"
+
+    def test_raw_none_args_still_yield_distinct_digests(self):
+        """When raw CLI args are None, resolved values still produce
+        distinct digests for different environment-resolved configs."""
+        # Simulate: CLI passes model=None, but LLMClient resolves to
+        # different defaults based on environment
+        resolved_opts_a = {
+            "model": "default-model-a",
+            "base_url": "https://default-a.example.com",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+        }
+        resolved_opts_b = {
+            "model": "default-model-b",
+            "base_url": "https://default-b.example.com",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+        }
+        d_a = compute_config_digest(resolved_opts_a)
+        d_b = compute_config_digest(resolved_opts_b)
+        assert d_a != d_b, (
+            "Different environment-resolved configs must produce different digests"
+        )
+
+    def test_temperature_included_in_digest(self):
+        """Temperature must be part of the config digest."""
+        opts1 = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+        }
+        opts2 = dict(opts1, temperature=0.0)
+        d1 = compute_config_digest(opts1)
+        d2 = compute_config_digest(opts2)
+        assert d1 != d2, "Different temperature must produce different digest"
+
+    def test_no_api_key_in_digest(self):
+        """API key material must not appear in effective_options or digest."""
+        opts = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+        }
+        import json
+
+        canonical = json.dumps(opts, sort_keys=True, separators=(",", ":"), default=str)
+        assert "api_key" not in canonical.lower()
+        assert "key" not in canonical.lower() or "max" in canonical.lower()

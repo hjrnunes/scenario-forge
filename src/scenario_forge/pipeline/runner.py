@@ -82,6 +82,7 @@ from scenario_forge.manifest import (
     compute_bytes_sha256,
     compute_config_digest,
     compute_file_sha256,
+    derive_funnel_from_attempts,
     finalize_manifest,
     load_manifest,
     resolve_run_dir,
@@ -471,6 +472,16 @@ def _remediate_coverage_gaps(
 
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
 
+            # Record a provisional receipt immediately after successful
+            # paired artifact creation, before the call-log write.
+            _provisional_receipt = {
+                "scenario_id": envelope.scenario_id,
+                "candidate_id": remediation_candidate_id,
+                "yaml_path": str(yaml_path),
+                "feature_path": str(feature_path) if feature_path else None,
+            }
+            write_receipts.append(_provisional_receipt)
+
             # Call-log failure after artifact creation is fatal.
             try:
                 write_call_log(call_log_entries, scenarios_dir)
@@ -484,14 +495,6 @@ def _remediate_coverage_gaps(
             admitted_candidate_ids.add(remediation_candidate_id)
             admitted_scenario_ids.add(envelope.scenario_id)
             remediation_scenarios.append(envelope)
-            write_receipts.append(
-                {
-                    "scenario_id": envelope.scenario_id,
-                    "candidate_id": remediation_candidate_id,
-                    "yaml_path": str(yaml_path),
-                    "feature_path": str(feature_path) if feature_path else None,
-                }
-            )
             _finalize_attempt(
                 rem_attempt_rec,
                 disposition=AttemptDisposition.ADMITTED,
@@ -1082,22 +1085,29 @@ def run_pipeline(
         # effective options. Stored in partial_manifest so failed runs
         # retain it; finalization only adds effective written-profile hash
         # and end timestamp.
+        #
+        # The config digest is bound to the RESOLVED effective options
+        # (client-resolved model/base_url/temperature/token config plus
+        # resolved default/explicit input paths and normalized generation
+        # settings), never raw None CLI args or API key material.  The
+        # same object is persisted so digest verification is possible.
         effective_options = {
             "use_case_hash": input_hashes.use_case_hash,
-            "risk_extraction_path": str(risk_extraction_path),
-            "sssom_path": str(sssom_path),
-            "cross_taxonomy_path": str(ct_path),
-            "threats_path": str(threats_path) if threats_path else None,
-            "profile_path": str(profile_path) if profile_path else None,
-            "base_url": base_url,
-            "model": model,
+            "risk_extraction_path": str(risk_extraction_path.resolve()),
+            "sssom_path": str(sssom_path.resolve()),
+            "cross_taxonomy_path": str(ct_path.resolve()),
+            "threats_path": str(threats_path.resolve()) if threats_path else None,
+            "profile_path": str(profile_path.resolve()) if profile_path else None,
+            "model": client.model,
+            "base_url": client.base_url,
+            "temperature": client.temperature,
+            "max_completion_tokens": client.max_completion_tokens,
             "max_techniques": max_techniques,
             "max_scenarios_per_pattern": max_scenarios_per_pattern,
             "zones": zones,
             "eval": eval,
-            "log_level": log_level,
-            "structured": structured,
         }
+        config_digest = compute_config_digest(effective_options)
         provenance = capture_provenance(
             run_id=run_id,
             timestamp_start=timestamp_start,
@@ -1111,7 +1121,7 @@ def run_pipeline(
             ),
             prompt_template_hashes=hash_prompt_templates(),
             input_hashes=input_hashes,
-            config_digest=compute_config_digest(effective_options),
+            config_digest=config_digest,
         )
 
         # --- Build partial manifest inside guarded lifecycle ---
@@ -1506,6 +1516,19 @@ def run_pipeline(
                     envelope, scenarios_dir
                 )
 
+                # Record a provisional receipt immediately after successful
+                # paired artifact creation, before the call-log write.  If
+                # the call-log write fails, the failed-evidence builder can
+                # still discover these artifacts and they will not become
+                # strict-forensic orphans.
+                _provisional_receipt = {
+                    "scenario_id": envelope.scenario_id,
+                    "candidate_id": fseed.candidate_id,
+                    "yaml_path": str(yaml_path),
+                    "feature_path": str(feature_path) if feature_path else None,
+                }
+                write_receipts.append(_provisional_receipt)
+
                 # Call-log failure after artifact creation is fatal — it
                 # would leave manifest/admission state silently inconsistent.
                 try:
@@ -1523,14 +1546,6 @@ def run_pipeline(
                 _finalize_attempt(
                     attempt_rec,
                     disposition=AttemptDisposition.ADMITTED,
-                )
-                write_receipts.append(
-                    {
-                        "scenario_id": envelope.scenario_id,
-                        "candidate_id": fseed.candidate_id,
-                        "yaml_path": str(yaml_path),
-                        "feature_path": str(feature_path) if feature_path else None,
-                    }
                 )
 
                 # Update diversity counters for subsequent seeds.
@@ -2120,7 +2135,20 @@ def run_pipeline(
         return pipeline_result
     except Exception as exc:
         # Best-effort failed manifest with accumulated evidence, then re-raise.
-        logger.error("Pipeline failed: %s", exc)
+        # Flush/close/remove run-local file handlers BEFORE hashing failed
+        # evidence so pipeline.log is stable and we don't log through a
+        # closed handler afterward.
+        sf_logger = logging.getLogger("scenario_forge")
+        for handler in sf_logger.handlers[:]:
+            if isinstance(handler, logging.FileHandler):
+                try:
+                    handler.flush()
+                    handler.close()
+                except Exception:
+                    pass
+                sf_logger.removeHandler(handler)
+        # Log to stderr only (run-local handler removed).
+        logging.getLogger("scenario_forge").error("Pipeline failed: %s", exc)
         try:
             # If partial_manifest was never constructed (very early failure),
             # load the sentinel from disk as a base.
@@ -2150,11 +2178,34 @@ def run_pipeline(
                 failed_manifest.provenance.timestamp_end = failed_manifest.timestamp_end
             # Include any accumulated attempts
             failed_manifest.attempts = attempts
+            # Derive a status-aware funnel from accumulated attempts so
+            # terminal equation validation can run even when the normal
+            # funnel construction was never reached.  Preserve existing
+            # funnel data if present.
+            if attempts:
+                existing_funnel = failed_manifest.funnel or {}
+                failed_manifest.funnel = derive_funnel_from_attempts(
+                    attempts,
+                    expanded_instances=existing_funnel.get("expanded_instances", 0),
+                    unique_pre_rule_identities=existing_funnel.get(
+                        "unique_pre_rule_identities", 0
+                    ),
+                    rule_rejected=existing_funnel.get("rule_rejected", 0),
+                    rule_transformed=existing_funnel.get("rule_transformed", 0),
+                    post_rule_collapsed=existing_funnel.get("post_rule_collapsed", 0),
+                    filter_submitted=existing_funnel.get("filter_submitted", 0),
+                    filter_accepted=existing_funnel.get("filter_accepted", 0),
+                    selected=existing_funnel.get("selected", 0),
+                    persisted_artifacts=existing_funnel.get("persisted_artifacts", 0),
+                    seeds_generated=existing_funnel.get("seeds_generated", 0),
+                )
             # Tolerantly inventory each existing recognized artifact
             # independently, without requiring late-stage outputs.
             failed_manifest.inventory = _build_failed_evidence_inventory(
                 run_dir, write_receipts
             )
+            # Validate terminal equations before writing failed manifest.
+            validate_attempt_equations(failed_manifest)
             write_failed_manifest(run_dir, failed_manifest)
         except Exception:
             pass

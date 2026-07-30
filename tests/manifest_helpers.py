@@ -85,6 +85,12 @@ def build_test_run_dir(
         for i, sc in enumerate(scenarios):
             sid = sc.get("scenario_id", "scenario-unknown")
             cid = sc.get("candidate_id", f"cand:v1:{i + 1:032d}")
+            # Ensure the serialized YAML includes candidate_id so it
+            # matches the inventory entry (strict validation requires
+            # serialized scenario_id AND candidate_id in every YAML).
+            if "candidate_id" not in sc:
+                sc = dict(sc)  # shallow copy to avoid mutating caller
+                sc["candidate_id"] = cid
             _write_and_inventory(
                 ArtifactRole.SCENARIO_YAML,
                 f"scenarios/{sid}.yaml",
