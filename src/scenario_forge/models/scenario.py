@@ -17,7 +17,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.capability_profile import ConfidenceLevel
@@ -347,7 +347,9 @@ class PhantomViolationRecord(BaseModel):
     """A single phantom capability violation persisted on the envelope."""
 
     step_number: int = Field(description="Narrative step number (0 for behavior_spec).")
-    field: str = Field(description="Which field triggered the match (action/effect/behavior_spec).")
+    field: str = Field(
+        description="Which field triggered the match (action/effect/behavior_spec)."
+    )
     category: str = Field(description="Violation category (e.g. privilege_escalation).")
     matched_text: str = Field(description="Substring that triggered the match.")
     reason: str = Field(description="Why this is phantom given the profile.")
@@ -356,7 +358,9 @@ class PhantomViolationRecord(BaseModel):
 class PhantomValidation(BaseModel):
     """Phantom capability validation results."""
 
-    valid: bool = Field(default=True, description="True if no phantom capabilities detected.")
+    valid: bool = Field(
+        default=True, description="True if no phantom capabilities detected."
+    )
     violations: list[PhantomViolationRecord] = Field(
         default_factory=list,
         description="List of phantom capability violations found.",
@@ -366,7 +370,9 @@ class PhantomValidation(BaseModel):
 class StructuralValidation(BaseModel):
     """Structural (JSON Schema) validation results."""
 
-    valid: bool = Field(default=True, description="True if the envelope passes JSON Schema validation.")
+    valid: bool = Field(
+        default=True, description="True if the envelope passes JSON Schema validation."
+    )
     violations: list[str] = Field(
         default_factory=list,
         description="List of JSON Schema validation error messages.",
@@ -376,7 +382,9 @@ class StructuralValidation(BaseModel):
 class SemanticViolation(BaseModel):
     """A single semantic validation violation."""
 
-    rule: str = Field(description="Rule identifier (e.g. technique_exists, zone_in_profile).")
+    rule: str = Field(
+        description="Rule identifier (e.g. technique_exists, zone_in_profile)."
+    )
     message: str = Field(description="Human-readable description of the violation.")
     severity: Literal["major", "moderate", "minor"] = Field(
         default="major",
@@ -387,7 +395,9 @@ class SemanticViolation(BaseModel):
 class SemanticValidation(BaseModel):
     """Semantic (Python logic) validation results."""
 
-    valid: bool = Field(default=True, description="True if no semantic violations detected.")
+    valid: bool = Field(
+        default=True, description="True if no semantic violations detected."
+    )
     violations: list[SemanticViolation] = Field(
         default_factory=list,
         description="List of semantic validation violations found.",
@@ -424,8 +434,60 @@ class ScenarioEnvelope(BaseModel):
     # --- Identity ---
 
     scenario_id: str = Field(
-        description="Stable identifier: <attack_pattern_id>-<hash>.",
+        description=(
+            "Collision-safe, run-specific identifier: "
+            "scenario:<version>:<256-bit hex digest of run_id|candidate_id|attempt>."
+        ),
     )
+    candidate_id: str = Field(
+        description=(
+            "Stable canonical candidate identity (cand:v1:<128-bit hex>) "
+            "that produced this scenario.  Separated from the run-specific "
+            "scenario_id so the same candidate across runs yields distinct "
+            "scenario IDs."
+        ),
+    )
+
+    @field_validator("candidate_id")
+    @classmethod
+    def _validate_candidate_id_format(cls, v: str) -> str:
+        """Validate that candidate_id follows cand:v1:<32-char lowercase hex> format."""
+        if not v or not v.startswith("cand:v1:"):
+            raise ValueError("candidate_id must follow 'cand:v1:<32-char hex>' format")
+        hex_part = v[len("cand:v1:") :]
+        if len(hex_part) != 32:
+            raise ValueError(
+                f"candidate_id hex part must be 32 chars, got {len(hex_part)}"
+            )
+        if hex_part != hex_part.lower():
+            raise ValueError("candidate_id hex part must be lowercase")
+        try:
+            int(hex_part, 16)
+        except ValueError:
+            raise ValueError("candidate_id hex part must be valid hex") from None
+        return v
+
+    @field_validator("scenario_id")
+    @classmethod
+    def _validate_scenario_id_format(cls, v: str) -> str:
+        """Validate that scenario_id follows scenario:v2:<64-char lowercase hex> format."""
+        if not v or not v.startswith("scenario:v2:"):
+            raise ValueError(
+                "scenario_id must follow 'scenario:v2:<64-char hex>' format"
+            )
+        hex_part = v[len("scenario:v2:") :]
+        if len(hex_part) != 64:
+            raise ValueError(
+                f"scenario_id hex part must be 64 chars, got {len(hex_part)}"
+            )
+        if hex_part != hex_part.lower():
+            raise ValueError("scenario_id hex part must be lowercase")
+        try:
+            int(hex_part, 16)
+        except ValueError:
+            raise ValueError("scenario_id hex part must be valid hex") from None
+        return v
+
     version: int = Field(
         default=1,
         description="Monotonically increasing version number.",

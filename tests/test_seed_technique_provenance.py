@@ -17,7 +17,10 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -56,7 +59,9 @@ def _make_profile(
         entry_points=["user prompts (zone 1)"],
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
-        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+        tool_inventory=[
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ],
     )
 
 
@@ -111,7 +116,9 @@ def _make_envelope(
             threat_id="T10",
             children=[
                 _leaf("n1.1", zone="input", technique_id="AML.T0029", threat_id="T10"),
-                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T10"),
+                _leaf(
+                    "n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T10"
+                ),
             ],
         )
 
@@ -166,7 +173,8 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
-        scenario_id="AP-T10-02-61dc5b",
+        scenario_id="scenario:v2:ff6276e5c312934a645c4801d2bce454291be257a3a31ff510af2c9dd3f61143",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -200,7 +208,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 0
@@ -217,7 +226,9 @@ class TestSeedTechniqueProvenance:
             threat_id="T10",
             children=[
                 _leaf("n1.1", zone="input", technique_id="AML.T0054", threat_id="T10"),
-                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T10"),
+                _leaf(
+                    "n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T10"
+                ),
             ],
         )
         envelope = _make_envelope(
@@ -230,7 +241,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 1
@@ -246,7 +258,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 0
@@ -263,7 +276,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 0
@@ -280,7 +294,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 0
@@ -298,7 +313,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 0
@@ -320,8 +336,18 @@ class TestSeedTechniqueProvenance:
                     zone="reasoning",
                     threat_id="T10",
                     children=[
-                        _leaf("n1.1.1", zone="input", technique_id="AML.T0054", threat_id="T10"),
-                        _leaf("n1.1.2", zone="reasoning", technique_id="AML.T0029", threat_id="T10"),
+                        _leaf(
+                            "n1.1.1",
+                            zone="input",
+                            technique_id="AML.T0054",
+                            threat_id="T10",
+                        ),
+                        _leaf(
+                            "n1.1.2",
+                            zone="reasoning",
+                            technique_id="AML.T0029",
+                            threat_id="T10",
+                        ),
                     ],
                 ),
                 _leaf("n1.2", zone="input", technique_id="AML.T0054", threat_id="T10"),
@@ -337,7 +363,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 0
@@ -354,7 +381,9 @@ class TestSeedTechniqueProvenance:
             threat_id="T10",
             children=[
                 _leaf("n1.1", zone="input", technique_id="AML.T0054", threat_id="T10"),
-                _leaf("n1.2", zone="reasoning", technique_id="AML.T0051", threat_id="T10"),
+                _leaf(
+                    "n1.2", zone="reasoning", technique_id="AML.T0051", threat_id="T10"
+                ),
             ],
         )
         envelope = _make_envelope(
@@ -367,7 +396,8 @@ class TestSeedTechniqueProvenance:
         validate_scenario_semantics([envelope], profile)
 
         provenance_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "seed_technique_provenance"
         ]
         assert len(provenance_violations) == 1

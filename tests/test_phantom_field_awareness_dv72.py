@@ -78,7 +78,7 @@ def _make_profile(
 def _make_envelope(
     step_actions: list[str] | None = None,
     step_effects: list[str] | None = None,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
     tree_labels: list[str] | None = None,
     tree_zones: list[str] | None = None,
     behavior_spec: str | dict | None = None,
@@ -127,9 +127,7 @@ def _make_envelope(
         ]
     else:
         children = [
-            AttackTreeNode(
-                id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
-            ),
+            AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"),
             AttackTreeNode(
                 id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
             ),
@@ -196,6 +194,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -448,9 +447,7 @@ class TestFieldAwarenessIntegration:
         """Code execution in effect field DOES produce a violation."""
         scenarios = [
             _make_envelope(
-                step_effects=[
-                    "The system generates a Python script for exploitation."
-                ],
+                step_effects=["The system generates a Python script for exploitation."],
             ),
         ]
         profile = _make_profile()
@@ -460,9 +457,7 @@ class TestFieldAwarenessIntegration:
         violations = result.flagged_scenarios[0][1]
         assert any(v.category == "code_execution" for v in violations)
         # Verify it's from the effect field
-        code_exec_violations = [
-            v for v in violations if v.category == "code_execution"
-        ]
+        code_exec_violations = [v for v in violations if v.category == "code_execution"]
         assert all(v.field == "effect" for v in code_exec_violations)
 
     def test_same_text_action_vs_effect(self) -> None:
@@ -479,9 +474,7 @@ class TestFieldAwarenessIntegration:
 
         assert result.flagged_count == 1
         violations = result.flagged_scenarios[0][1]
-        code_violations = [
-            v for v in violations if v.category == "code_execution"
-        ]
+        code_violations = [v for v in violations if v.category == "code_execution"]
         # Should only have violation from the effect field
         assert len(code_violations) == 1
         assert code_violations[0].field == "effect"
@@ -582,9 +575,7 @@ class TestOtherCheckersNotAffected:
         """Credential exposure in action field IS still flagged."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "I cause the system to leak the API key in plain text."
-                ],
+                step_actions=["I cause the system to leak the API key in plain text."],
             ),
         ]
         profile = _make_profile()

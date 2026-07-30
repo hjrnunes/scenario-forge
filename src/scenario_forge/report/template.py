@@ -6169,9 +6169,14 @@ def build_run_summary_section(
         return ""
 
     seeds = manifest.get("seeds_generated", 0)
-    expanded = manifest.get("candidates_expanded", 0)
-    accepted = manifest.get("candidates_accepted", 0)
-    rejected = manifest.get("candidates_rejected", 0)
+    funnel = manifest.get("funnel", {})
+    expanded = funnel.get("expanded_instances", manifest.get("candidates_expanded", 0))
+    accepted = funnel.get("filter_accepted", manifest.get("candidates_accepted", 0))
+    # Derive rejected count from funnel fields, not list lengths.
+    rejected = funnel.get(
+        "rule_rejected",
+        0,
+    ) + max(funnel.get("filter_submitted", 0) - funnel.get("filter_accepted", 0), 0)
     generated = manifest.get("scenarios_generated", 0)
     failed = manifest.get("scenarios_failed", 0)
 

@@ -179,6 +179,8 @@ class TestEntryPointOverride:
             profile=profile,
             client=client,
             use_case="Test use case",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=pinned_ep,
         )
 
@@ -231,6 +233,8 @@ class TestEntryPointOverride:
             profile=profile,
             client=client,
             use_case="Test use case",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=pinned_ep,
         )
 
@@ -278,6 +282,8 @@ class TestEntryPointOverride:
             profile=profile,
             client=client,
             use_case="Test use case",
+            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=None,
         )
 
@@ -337,6 +343,8 @@ class TestEntryPointOverride:
                 profile=profile,
                 client=client,
                 use_case="Test use case",
+                run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                candidate_id="cand:v1:11111111111111111111111111111111",
                 pinned_entry_point=pinned_ep,
             )
 

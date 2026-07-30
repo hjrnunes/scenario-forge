@@ -10,14 +10,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
 
 from scenario_forge.models.attack_tree import (
     AttackTree,
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -85,7 +87,9 @@ def _make_profile(
         codes.append("KC4.3")
     kw = {}
     if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
         entry_points=entry_points,
@@ -98,7 +102,7 @@ def _make_profile(
 def _make_envelope(
     step_actions: list[str] | None = None,
     step_effects: list[str] | None = None,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
     behavior_spec: str | dict | None = None,
     tree_labels: list[str] | None = None,
 ) -> ScenarioEnvelope:
@@ -145,9 +149,7 @@ def _make_envelope(
         ]
     else:
         children = [
-            AttackTreeNode(
-                id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
-            ),
+            AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"),
             AttackTreeNode(
                 id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
             ),
@@ -214,6 +216,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -401,9 +404,7 @@ class TestSessionIntrospectionAlwaysFires:
         """Full pipeline flags session introspection with KC6.1.2."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "I trick the agent into dumping the session tokens."
-                ],
+                step_actions=["I trick the agent into dumping the session tokens."],
             ),
         ]
         profile = _make_profile(kc_subcodes=["KC6.1.2"])
@@ -613,9 +614,7 @@ class TestAPIResponseFabricationIntegration:
         result = validate_phantom_capabilities(scenarios, profile)
         assert result.flagged_count == 1
         violations = result.flagged_scenarios[0][1]
-        assert any(
-            v.category == "api_response_fabrication" for v in violations
-        )
+        assert any(v.category == "api_response_fabrication" for v in violations)
 
     def test_narrative_effect_flagged(self):
         """Prompt fragments in narrative effect is flagged."""
@@ -623,8 +622,7 @@ class TestAPIResponseFabricationIntegration:
             _make_envelope(
                 step_actions=["I send a crafted query."],
                 step_effects=[
-                    "The response leaks prompt fragments from the "
-                    "system configuration."
+                    "The response leaks prompt fragments from the system configuration."
                 ],
             ),
         ]
@@ -650,8 +648,7 @@ class TestAPIResponseFabricationIntegration:
         assert result.flagged_count == 1
         violations = result.flagged_scenarios[0][1]
         assert any(
-            v.category == "api_response_fabrication"
-            and v.field == "behavior_spec"
+            v.category == "api_response_fabrication" and v.field == "behavior_spec"
             for v in violations
         )
 
@@ -671,8 +668,7 @@ class TestAPIResponseFabricationIntegration:
         assert result.flagged_count == 1
         violations = result.flagged_scenarios[0][1]
         assert any(
-            v.category == "api_response_fabrication"
-            and v.field == "attack_tree"
+            v.category == "api_response_fabrication" and v.field == "attack_tree"
             for v in violations
         )
 
@@ -680,25 +676,17 @@ class TestAPIResponseFabricationIntegration:
         """Scenario with normal API references passes."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "I query the API to retrieve account details."
-                ],
-                step_effects=[
-                    "The API returns the user's financial summary."
-                ],
+                step_actions=["I query the API to retrieve account details."],
+                step_effects=["The API returns the user's financial summary."],
             ),
         ]
         profile = _make_profile()
         result = validate_phantom_capabilities(scenarios, profile)
         # Check no api_response_fabrication violations
         all_violations = [
-            v
-            for _, violations in result.flagged_scenarios
-            for v in violations
+            v for _, violations in result.flagged_scenarios for v in violations
         ]
-        assert not any(
-            v.category == "api_response_fabrication" for v in all_violations
-        )
+        assert not any(v.category == "api_response_fabrication" for v in all_violations)
 
     def test_fabrication_always_fires_regardless_of_profile(self):
         """API response fabrication fires even with extensive API access."""
@@ -761,13 +749,10 @@ class TestAdversarialCases:
         profile = _make_profile()
         result = validate_phantom_capabilities(scenarios, profile)
         all_violations = [
-            v
-            for _, violations in result.flagged_scenarios
-            for v in violations
+            v for _, violations in result.flagged_scenarios for v in violations
         ]
         assert any(
-            v.category == "api_response_fabrication"
-            and v.field == "attack_tree"
+            v.category == "api_response_fabrication" and v.field == "attack_tree"
             for v in all_violations
         )
 

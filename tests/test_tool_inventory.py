@@ -10,7 +10,6 @@ Tests:
 
 from __future__ import annotations
 
-import re
 
 import pytest
 from pydantic import ValidationError
@@ -116,8 +115,12 @@ class TestToolInventoryModelValidation:
         """CapabilityProfile accepts multiple tool_inventory entries."""
         tools = [
             ToolInventoryEntry(name="query_db", description="Query the database"),
-            ToolInventoryEntry(name="send_email", description="Send email notifications"),
-            ToolInventoryEntry(name="process_refund", description="Process customer refund"),
+            ToolInventoryEntry(
+                name="send_email", description="Send email notifications"
+            ),
+            ToolInventoryEntry(
+                name="process_refund", description="Process customer refund"
+            ),
         ]
         profile = _make_profile_with_tools(tool_inventory=tools)
         assert len(profile.tool_inventory) == 3
@@ -161,7 +164,9 @@ class TestStage1ProfileToolInventory:
             confidence="high",
             kc_subcodes=["KC1.1", "KC6.1.1"],
             tool_inventory=[
-                ToolInventoryEntry(name="search_api", description="Search for information"),
+                ToolInventoryEntry(
+                    name="search_api", description="Search for information"
+                ),
             ],
         )
         profile = stage1.to_capability_profile()
@@ -225,7 +230,9 @@ class TestToolInventoryPromptRendering:
         assert "Tool Inventory (INVARIANT)" in rendered
         assert "query_db: Query the database" in rendered
         assert "send_email: Send email" in rendered
-        assert "Do NOT reference any tool, API, or capability not in this list" in rendered
+        assert (
+            "Do NOT reference any tool, API, or capability not in this list" in rendered
+        )
 
     def test_call1_system_without_tool_inventory(self) -> None:
         """call1_system.j2 omits tool inventory section when list is empty."""
@@ -278,7 +285,11 @@ class TestPhantomToolValidation:
         """Build a scenario with an attack tree containing specified leaves."""
         from datetime import datetime
 
-        from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+        from scenario_forge.models.attack_tree import (
+            AttackTree,
+            AttackTreeNode,
+            GateType,
+        )
         from scenario_forge.models.scenario import (
             ArchitectureMatch,
             AttackComplexity,
@@ -401,7 +412,8 @@ class TestPhantomToolValidation:
         )
 
         return ScenarioEnvelope(
-            scenario_id="AP-T2-01-abc123",
+            scenario_id="scenario:v2:e57506e29f4fc074e28395ca4cfa61d98d4e927d906b3e176611aaead83608c0",
+            candidate_id="cand:v1:7e57c0de000000000000000000000000",
             seed_id="AP-T2-01",
             generated_at=datetime.now(),
             generator_version="0.1.0",
@@ -434,20 +446,26 @@ class TestPhantomToolValidation:
             ],
         )
 
-        scenario = self._make_scenario_with_tree([
-            ("Inject prompt via chat [AML.T0054]", "input"),
-            ("Invoke billing_api to process fraudulent refund", "tool_execution"),
-        ])
+        scenario = self._make_scenario_with_tree(
+            [
+                ("Inject prompt via chat [AML.T0054]", "input"),
+                ("Invoke billing_api to process fraudulent refund", "tool_execution"),
+            ]
+        )
 
         validate_scenario_semantics([scenario], profile)
 
         # Check for phantom_tool violations
         phantom_violations = [
-            v for v in scenario.validation.semantic.violations
+            v
+            for v in scenario.validation.semantic.violations
             if v.rule == "phantom_tool"
         ]
         assert len(phantom_violations) >= 1
-        assert "billing_api" in phantom_violations[0].message.lower() or "billing" in phantom_violations[0].message.lower()
+        assert (
+            "billing_api" in phantom_violations[0].message.lower()
+            or "billing" in phantom_violations[0].message.lower()
+        )
 
     def test_known_tool_not_flagged(self) -> None:
         """Leaf in tool_execution zone referencing known tool is NOT flagged."""
@@ -460,15 +478,18 @@ class TestPhantomToolValidation:
             ],
         )
 
-        scenario = self._make_scenario_with_tree([
-            ("Inject prompt via chat [AML.T0054]", "input"),
-            ("Invoke query_database to extract patient records", "tool_execution"),
-        ])
+        scenario = self._make_scenario_with_tree(
+            [
+                ("Inject prompt via chat [AML.T0054]", "input"),
+                ("Invoke query_database to extract patient records", "tool_execution"),
+            ]
+        )
 
         validate_scenario_semantics([scenario], profile)
 
         phantom_violations = [
-            v for v in scenario.validation.semantic.violations
+            v
+            for v in scenario.validation.semantic.violations
             if v.rule == "phantom_tool"
         ]
         assert len(phantom_violations) == 0
@@ -479,15 +500,18 @@ class TestPhantomToolValidation:
 
         profile = _make_profile_no_tools()
 
-        scenario = self._make_scenario_with_tree([
-            ("Inject prompt [AML.T0054]", "input"),
-            ("Invoke mystery_api to do something", "tool_execution"),
-        ])
+        scenario = self._make_scenario_with_tree(
+            [
+                ("Inject prompt [AML.T0054]", "input"),
+                ("Invoke mystery_api to do something", "tool_execution"),
+            ]
+        )
 
         validate_scenario_semantics([scenario], profile)
 
         phantom_violations = [
-            v for v in scenario.validation.semantic.violations
+            v
+            for v in scenario.validation.semantic.violations
             if v.rule == "phantom_tool"
         ]
         assert len(phantom_violations) == 0
@@ -502,15 +526,21 @@ class TestPhantomToolValidation:
             ],
         )
 
-        scenario = self._make_scenario_with_tree([
-            ("Craft adversarial prompt mentioning unknown_api [AML.T0054]", "input"),
-            ("Invoke query_database to extract data", "tool_execution"),
-        ])
+        scenario = self._make_scenario_with_tree(
+            [
+                (
+                    "Craft adversarial prompt mentioning unknown_api [AML.T0054]",
+                    "input",
+                ),
+                ("Invoke query_database to extract data", "tool_execution"),
+            ]
+        )
 
         validate_scenario_semantics([scenario], profile)
 
         phantom_violations = [
-            v for v in scenario.validation.semantic.violations
+            v
+            for v in scenario.validation.semantic.violations
             if v.rule == "phantom_tool"
         ]
         assert len(phantom_violations) == 0
@@ -525,15 +555,18 @@ class TestPhantomToolValidation:
             ],
         )
 
-        scenario = self._make_scenario_with_tree([
-            ("Inject prompt [AML.T0054]", "input"),
-            ("Invoke malware_compiler to build exploit", "tool_execution"),
-        ])
+        scenario = self._make_scenario_with_tree(
+            [
+                ("Inject prompt [AML.T0054]", "input"),
+                ("Invoke malware_compiler to build exploit", "tool_execution"),
+            ]
+        )
 
         validate_scenario_semantics([scenario], profile)
 
         phantom_violations = [
-            v for v in scenario.validation.semantic.violations
+            v
+            for v in scenario.validation.semantic.violations
             if v.rule == "phantom_tool"
         ]
         assert len(phantom_violations) >= 1

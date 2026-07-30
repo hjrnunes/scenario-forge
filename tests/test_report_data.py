@@ -63,7 +63,7 @@ def mock_output_dir(tmp_path: Path) -> Path:
     scenarios_dir.mkdir()
 
     scenario = {
-        "scenario_id": "AP-T5-01-abc123",
+        "scenario_id": "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
         "priority": {"composite": 0.8},
         "narrative": {
             "title": "Test Scenario",
@@ -77,26 +77,27 @@ def mock_output_dir(tmp_path: Path) -> Path:
             }
         },
     }
-    (scenarios_dir / "AP-T5-01-abc123.yaml").write_text(
+    sid = "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab"
+    (scenarios_dir / f"{sid}.yaml").write_text(
         yaml.dump(scenario, default_flow_style=False), encoding="utf-8"
     )
 
     feature_content = "Feature: Test\n  Scenario: Attack\n    Given attacker\n"
-    (scenarios_dir / "AP-T5-01-abc123.feature").write_text(
-        feature_content, encoding="utf-8"
-    )
+    (scenarios_dir / f"{sid}.feature").write_text(feature_content, encoding="utf-8")
 
     # scenarios/calls.jsonl
-    call_entry = {"scenario_id": "AP-T5-01-abc123", "call": "call0", "tokens": 100}
+    call_entry = {
+        "scenario_id": "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
+        "call": "call0",
+        "tokens": 100,
+    }
     (scenarios_dir / "calls.jsonl").write_text(
         json.dumps(call_entry) + "\n", encoding="utf-8"
     )
 
     # calls.jsonl (pipeline-level)
     pipeline_call = {"call": "capability_profile", "tokens": 200}
-    (out / "calls.jsonl").write_text(
-        json.dumps(pipeline_call) + "\n", encoding="utf-8"
-    )
+    (out / "calls.jsonl").write_text(json.dumps(pipeline_call) + "\n", encoding="utf-8")
 
     # coverage-gaps.json
     coverage = {
@@ -106,9 +107,7 @@ def mock_output_dir(tmp_path: Path) -> Path:
             "uncovered_threats": [],
         }
     }
-    (out / "coverage-gaps.json").write_text(
-        json.dumps(coverage), encoding="utf-8"
-    )
+    (out / "coverage-gaps.json").write_text(json.dumps(coverage), encoding="utf-8")
 
     # eval-scorecard.yaml
     scorecard = {"overall_score": 0.85, "metrics": {"consistency": 0.9}}
@@ -181,9 +180,18 @@ class TestLoadReportData:
         assert data.profile_data["zones_active"] == ["input", "reasoning"]
         assert len(data.threat_surface_data["entries"]) == 1
         assert len(data.scenarios) == 1
-        assert data.scenarios[0]["scenario_id"] == "AP-T5-01-abc123"
-        assert "AP-T5-01-abc123" in data.feature_files
-        assert "AP-T5-01-abc123" in data.call_logs
+        assert (
+            data.scenarios[0]["scenario_id"]
+            == "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab"
+        )
+        assert (
+            "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab"
+            in data.feature_files
+        )
+        assert (
+            "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab"
+            in data.call_logs
+        )
         assert len(data.pipeline_call_logs) == 1
         assert data.coverage_data["coverage_gaps"]["uncovered_entry_points"] == []
         assert data.scorecard_data["overall_score"] == 0.85
@@ -195,8 +203,9 @@ class TestLoadReportData:
 
         assert "capability-profile.yaml" in data.raw_files
         assert "threat-surface.yaml" in data.raw_files
-        assert "scenarios/AP-T5-01-abc123.yaml" in data.raw_files
-        assert "scenarios/AP-T5-01-abc123.feature" in data.raw_files
+        sid = "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab"
+        assert f"scenarios/{sid}.yaml" in data.raw_files
+        assert f"scenarios/{sid}.feature" in data.raw_files
         assert "coverage-gaps.json" in data.raw_files
         assert "eval-scorecard.yaml" in data.raw_files
 
@@ -237,9 +246,7 @@ class TestLoadReportData:
 
         # Write valid scenario
         valid = {"scenario_id": "S1", "priority": {"composite": 0.5}}
-        (scenarios_dir / "valid.yaml").write_text(
-            yaml.dump(valid), encoding="utf-8"
-        )
+        (scenarios_dir / "valid.yaml").write_text(yaml.dump(valid), encoding="utf-8")
         # Write invalid YAML
         (scenarios_dir / "broken.yaml").write_text(
             "{{invalid yaml: [", encoding="utf-8"
@@ -271,7 +278,7 @@ class TestGenerateReport:
             },
             scenarios=[
                 {
-                    "scenario_id": "AP-T5-01-abc123",
+                    "scenario_id": "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
                     "priority": {"composite": 0.75},
                     "narrative": {
                         "title": "Test Scenario",

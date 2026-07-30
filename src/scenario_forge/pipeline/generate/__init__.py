@@ -159,12 +159,16 @@ from scenario_forge.llm.client import LLMClient
 # assembly
 from scenario_forge.pipeline.generate.assembly import (
     GenerationError,
+    ScenarioForgeIntegrityError,
     _assemble_envelope,
     _call_log_entry,
     _call_log_entry_error,
     _call_metadata,
-    _scenario_hash,
+    compute_artifact_hash,
+    compute_scenario_id,
+    generate_run_id,
     generate_scenario,
+    replace_scenario_outputs,
     write_call_log,
     write_scenario_outputs,
 )
@@ -277,12 +281,16 @@ __all__ = [
     "LLMClient",
     # assembly
     "GenerationError",
+    "ScenarioForgeIntegrityError",
     "_assemble_envelope",
     "_call_log_entry",
     "_call_log_entry_error",
     "_call_metadata",
-    "_scenario_hash",
+    "compute_artifact_hash",
+    "compute_scenario_id",
+    "generate_run_id",
     "generate_scenario",
+    "replace_scenario_outputs",
     "write_call_log",
     "write_scenario_outputs",
 ]

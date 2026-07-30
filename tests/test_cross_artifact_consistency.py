@@ -16,7 +16,10 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -36,7 +39,6 @@ from scenario_forge.models.scenario import (
     StructuralExposureSignal,
     TaxonomyChain,
     TechniqueMaturity,
-    ValidationBlock,
 )
 from scenario_forge.pipeline.validation import (
     _collect_tree_node_threat_ids,
@@ -61,7 +63,9 @@ def _make_profile(
     kw = {}
     if "tool_execution" in zones_active:
         kc.append("KC6.1.1")
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     if "memory" in zones_active:
         kc.append("KC4.3")
     if "inter_agent" in zones_active:
@@ -130,7 +134,9 @@ def _make_envelope(
             threat_id="T7",
             children=[
                 _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
-                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"),
+                _leaf(
+                    "n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"
+                ),
             ],
         )
 
@@ -188,7 +194,8 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
-        scenario_id="AP-T7-01-abc123",
+        scenario_id="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -344,7 +351,8 @@ class TestNarrativeTechniqueOrphan:
         validate_scenario_semantics([envelope], profile)
 
         orphan_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "narrative_technique_orphan"
         ]
         assert len(orphan_violations) == 0
@@ -367,7 +375,8 @@ class TestNarrativeTechniqueOrphan:
         validate_scenario_semantics([envelope], profile)
 
         orphan_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "narrative_technique_orphan"
         ]
         assert len(orphan_violations) == 1
@@ -384,7 +393,8 @@ class TestNarrativeTechniqueOrphan:
         validate_scenario_semantics([envelope], profile)
 
         orphan_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "narrative_technique_orphan"
         ]
         assert len(orphan_violations) == 1
@@ -400,7 +410,8 @@ class TestNarrativeTechniqueOrphan:
         validate_scenario_semantics([envelope], profile)
 
         orphan_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "narrative_technique_orphan"
         ]
         assert len(orphan_violations) == 0
@@ -471,7 +482,8 @@ class TestMissingScenarioThreatId:
         validate_scenario_semantics([envelope], profile)
 
         missing_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "missing_scenario_threat_id"
         ]
         assert len(missing_violations) == 0
@@ -498,7 +510,8 @@ class TestMissingScenarioThreatId:
         validate_scenario_semantics([envelope], profile)
 
         missing_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "missing_scenario_threat_id"
         ]
         assert len(missing_violations) == 1
@@ -527,7 +540,8 @@ class TestMissingScenarioThreatId:
         validate_scenario_semantics([envelope], profile)
 
         missing_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "missing_scenario_threat_id"
         ]
         assert len(missing_violations) == 0
@@ -563,7 +577,8 @@ class TestMissingScenarioThreatId:
         validate_scenario_semantics([envelope], profile)
 
         missing_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "missing_scenario_threat_id"
         ]
         assert len(missing_violations) == 0
@@ -589,7 +604,8 @@ class TestMissingScenarioThreatId:
         validate_scenario_semantics([envelope], profile)
 
         missing_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "missing_scenario_threat_id"
         ]
         assert len(missing_violations) == 1
@@ -707,7 +723,8 @@ class TestZoneOmissionTree:
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_tree"
         ]
         assert len(zone_violations) == 0
@@ -735,7 +752,8 @@ class TestZoneOmissionTree:
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_tree"
         ]
         assert len(zone_violations) == 1
@@ -775,7 +793,8 @@ class TestZoneOmissionTree:
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_tree"
         ]
         assert len(zone_violations) == 0
@@ -803,7 +822,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_gherkin"
         ]
         assert len(zone_violations) == 0
@@ -827,7 +847,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_gherkin"
         ]
         assert len(zone_violations) == 1
@@ -845,7 +866,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_gherkin"
         ]
         # No Gherkin zone violations since behavior_spec is not a string
@@ -862,7 +884,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_gherkin"
         ]
         assert len(zone_violations) == 0
@@ -884,7 +907,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         zone_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_gherkin"
         ]
         assert len(zone_violations) == 0
@@ -936,11 +960,13 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         tree_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_tree"
         ]
         dropout_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_coverage_dropout"
         ]
         assert len(tree_violations) == 1  # reasoning missing from tree
@@ -960,7 +986,9 @@ Feature: Attack
             threat_id="T7",
             children=[
                 _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
-                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"),
+                _leaf(
+                    "n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"
+                ),
             ],
         )
         gherkin = """\
@@ -979,11 +1007,13 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         gherkin_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_gherkin"
         ]
         dropout_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_coverage_dropout"
         ]
         assert len(gherkin_violations) == 1  # reasoning missing from Gherkin
@@ -1021,7 +1051,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         dropout_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_coverage_dropout"
         ]
         assert len(dropout_violations) == 1
@@ -1040,7 +1071,9 @@ Feature: Attack
             threat_id="T7",
             children=[
                 _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
-                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"),
+                _leaf(
+                    "n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"
+                ),
             ],
         )
         gherkin = """\
@@ -1060,7 +1093,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         dropout_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_coverage_dropout"
         ]
         assert len(dropout_violations) == 0
@@ -1076,8 +1110,18 @@ Feature: Attack
             zone="tool_execution",
             threat_id="T7",
             children=[
-                _leaf("n1.1", zone="tool_execution", technique_id="AML.T0051", threat_id="T7"),
-                _leaf("n1.2", zone="tool_execution", technique_id="AML.T0054", threat_id="T7"),
+                _leaf(
+                    "n1.1",
+                    zone="tool_execution",
+                    technique_id="AML.T0051",
+                    threat_id="T7",
+                ),
+                _leaf(
+                    "n1.2",
+                    zone="tool_execution",
+                    technique_id="AML.T0054",
+                    threat_id="T7",
+                ),
             ],
         )
         gherkin = """\
@@ -1095,7 +1139,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         dropout_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_coverage_dropout"
         ]
         assert len(dropout_violations) == 2  # input + reasoning both dropped
@@ -1127,7 +1172,8 @@ Feature: Attack
         validate_scenario_semantics([envelope], profile)
 
         dropout_violations = [
-            v for v in envelope.validation.semantic.violations
+            v
+            for v in envelope.validation.semantic.violations
             if v.rule == "zone_coverage_dropout"
         ]
         # reasoning is missing from tree and gherkin is empty -> dropout
@@ -1162,7 +1208,9 @@ Feature: Attack
             threat_id="T7",
             children=[
                 _leaf("n1.1", zone="input", technique_id="AML.T0051", threat_id="T7"),
-                _leaf("n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"),
+                _leaf(
+                    "n1.2", zone="reasoning", technique_id="AML.T0054", threat_id="T7"
+                ),
             ],
         )
         envelope = _make_envelope(
@@ -1182,12 +1230,15 @@ Feature: Attack
         )
         validate_scenario_semantics([envelope], profile)
 
-        new_rules = {"narrative_technique_orphan", "missing_scenario_threat_id",
-                     "zone_omission_tree", "zone_omission_gherkin",
-                     "zone_coverage_dropout"}
+        new_rules = {
+            "narrative_technique_orphan",
+            "missing_scenario_threat_id",
+            "zone_omission_tree",
+            "zone_omission_gherkin",
+            "zone_coverage_dropout",
+        }
         new_violations = [
-            v for v in envelope.validation.semantic.violations
-            if v.rule in new_rules
+            v for v in envelope.validation.semantic.violations if v.rule in new_rules
         ]
         assert len(new_violations) == 0
 

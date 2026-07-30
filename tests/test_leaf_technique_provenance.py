@@ -54,7 +54,7 @@ from scenario_forge.pipeline.validation import (
 
 def _make_envelope(
     root: AttackTreeNode,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
     atlas_provenance_ids: list[str] | None = None,
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope with a custom tree root.
@@ -145,6 +145,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         scenario_seed_metadata=seed_metadata,
@@ -386,7 +387,9 @@ class TestFlaggedScenarios:
         assert result.clean_count == 0
         _, violations = result.flagged_scenarios[0]
         assert len(violations) == 1
-        assert "AML.T0098" in violations[0].reason or "AML.T0099" in violations[0].reason
+        assert (
+            "AML.T0098" in violations[0].reason or "AML.T0099" in violations[0].reason
+        )
         assert "atlas_provenance_ids" in violations[0].reason
 
     def test_all_unannotated_leaves(self) -> None:
@@ -649,7 +652,7 @@ class TestMixedBatch:
         )
         clean = _make_envelope(
             clean_root,
-            scenario_id="AP-T1-01-clean1",
+            scenario_id="scenario:v2:bb38b4af8c113eb1fc7205a1f3030844be1213755be8c6bb125154e814f6022a",
             atlas_provenance_ids=["AML.T0051"],
         )
 
@@ -676,7 +679,7 @@ class TestMixedBatch:
         )
         flagged = _make_envelope(
             flagged_root,
-            scenario_id="AP-T1-01-flagg1",
+            scenario_id="scenario:v2:34e61bd22ffe221825d3fa7a207f099970199c631e0017bdc9eb616d3afec29d",
             atlas_provenance_ids=["AML.T0051"],
         )
 
@@ -684,8 +687,14 @@ class TestMixedBatch:
 
         assert result.clean_count == 1
         assert result.flagged_count == 1
-        assert result.clean_scenarios[0].scenario_id == "AP-T1-01-clean1"
-        assert result.flagged_scenarios[0][0].scenario_id == "AP-T1-01-flagg1"
+        assert (
+            result.clean_scenarios[0].scenario_id
+            == "scenario:v2:bb38b4af8c113eb1fc7205a1f3030844be1213755be8c6bb125154e814f6022a"
+        )
+        assert (
+            result.flagged_scenarios[0][0].scenario_id
+            == "scenario:v2:34e61bd22ffe221825d3fa7a207f099970199c631e0017bdc9eb616d3afec29d"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -775,10 +784,14 @@ class TestIsConsequenceLeaf:
         )
 
     def test_deliver_payload_not_consequence(self) -> None:
-        assert not _is_consequence_leaf(self._node("Deliver social engineering payload"))
+        assert not _is_consequence_leaf(
+            self._node("Deliver social engineering payload")
+        )
 
     def test_exploit_tool_not_consequence(self) -> None:
-        assert not _is_consequence_leaf(self._node("Exploit tool execution vulnerability"))
+        assert not _is_consequence_leaf(
+            self._node("Exploit tool execution vulnerability")
+        )
 
     def test_bypass_guardrails_not_consequence(self) -> None:
         assert not _is_consequence_leaf(self._node("Bypass input guardrails"))

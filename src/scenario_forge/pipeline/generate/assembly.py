@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -56,11 +57,15 @@ logger = logging.getLogger(__name__)
 
 
 class GenerationError(Exception):
-    """Raised when scenario generation fails.
+    """Raised when scenario generation fails (recoverable per-scenario).
 
     Carries partial ``call_log_entries`` for any LLM calls that completed
     before the failure, plus a synthetic error entry for the failing call,
     so callers can persist them to ``calls.jsonl``.
+
+    This is a *recoverable* error: the runner catches it per-scenario and
+    continues to the next candidate.  Integrity violations that must abort
+    the entire run should raise :class:`ScenarioForgeIntegrityError` instead.
     """
 
     def __init__(
@@ -74,23 +79,112 @@ class GenerationError(Exception):
         self.seed_id = seed_id
 
 
+class ScenarioForgeIntegrityError(Exception):
+    """Fatal integrity error that aborts the entire pipeline run.
+
+    Raised for duplicate candidate admission, duplicate scenario IDs,
+    existing artifact paths, stem mismatches, orphan artifacts, and
+    missing artifact pairs.  Unlike :class:`GenerationError`, this is
+    **never** caught by per-scenario recoverable handling — it
+    propagates to the top level and stops the run.
+    """
+
+
+# ---------------------------------------------------------------------------
+# Run identity and scenario ID
+# ---------------------------------------------------------------------------
+
+_SCENARIO_ID_VERSION = "v2"
+_RUN_ID_LEN = 32  # UUID4 hex = 128 bits
+_CANDIDATE_ID_PREFIX = "cand:v1:"
+_CANDIDATE_ID_HEX_LEN = 32
+
+
+def generate_run_id() -> str:
+    """Generate a collision-safe per-invocation run ID (128 bits).
+
+    Returns a 32-character hex string (UUID4 without dashes).
+    This is the minimal seam for per-invocation identity; cmps.1
+    will refine run collection layout and full provenance.
+    """
+    return uuid.uuid4().hex
+
+
+def _validate_run_id(run_id: str) -> None:
+    """Validate that run_id is a 32-char lowercase hex string (128 bits)."""
+    if not run_id or len(run_id) != _RUN_ID_LEN:
+        raise ValueError(
+            f"run_id must be a {_RUN_ID_LEN}-char hex string, "
+            f"got length {len(run_id) if run_id else 0}"
+        )
+    if run_id != run_id.lower():
+        raise ValueError("run_id must be lowercase hex")
+    try:
+        int(run_id, 16)
+    except ValueError:
+        raise ValueError("run_id must be valid hex") from None
+
+
+def _validate_candidate_id(candidate_id: str) -> None:
+    """Validate that candidate_id follows cand:v1:<32-char lowercase hex> format."""
+    if not candidate_id or not candidate_id.startswith(_CANDIDATE_ID_PREFIX):
+        raise ValueError(
+            f"candidate_id must follow '{_CANDIDATE_ID_PREFIX}<32-char hex>'"
+        )
+    hex_part = candidate_id[len(_CANDIDATE_ID_PREFIX) :]
+    if len(hex_part) != _CANDIDATE_ID_HEX_LEN:
+        raise ValueError(f"candidate_id hex part must be {_CANDIDATE_ID_HEX_LEN} chars")
+    if hex_part != hex_part.lower():
+        raise ValueError("candidate_id hex part must be lowercase")
+    try:
+        int(hex_part, 16)
+    except ValueError:
+        raise ValueError("candidate_id hex part must be valid hex") from None
+
+
+def compute_scenario_id(
+    run_id: str,
+    candidate_id: str,
+    attempt: int = 1,
+) -> str:
+    """Compute a collision-safe, run-specific scenario ID.
+
+    The ID incorporates the per-invocation ``run_id`` (128 bits), the
+    stable ``candidate_id`` (128 bits), and the generation ``attempt``
+    so that distinct generated narratives are not falsely the same
+    scenario.
+
+    The hash is computed over a canonical JSON encoding of the
+    structured identity inputs, not an ambiguous delimiter
+    concatenation, so that different values cannot collide due to
+    delimiter ambiguity.
+
+    Format: ``scenario:<version>:<256-bit hex digest>``
+
+    Args:
+        run_id: Per-invocation collision-safe run ID (128-bit hex).
+        candidate_id: Stable canonical candidate identity.
+        attempt: Generation attempt number (must be >= 1).
+
+    Raises:
+        ValueError: If run_id or candidate_id are invalid, or attempt < 1.
+    """
+    _validate_run_id(run_id)
+    _validate_candidate_id(candidate_id)
+    if attempt < 1:
+        raise ValueError(f"attempt must be >= 1, got {attempt}")
+    identity = json.dumps(
+        {"run_id": run_id, "candidate_id": candidate_id, "attempt": attempt},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return f"scenario:{_SCENARIO_ID_VERSION}:{h}"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _scenario_hash(
-    seed_id: str,
-    use_case: str,
-    pinned_technique_ids: tuple[str, ...] | list[str] | None = None,
-    pinned_entry_point: str | None = None,
-) -> str:
-    key = f"{seed_id}:{use_case}"
-    if pinned_technique_ids:
-        key += ":" + ",".join(pinned_technique_ids)
-    if pinned_entry_point:
-        key += ":" + pinned_entry_point
-    return hashlib.sha256(key.encode()).hexdigest()[:6]
 
 
 def _call_metadata(call_name: CallName, result: LLMResult) -> CallMetadata:
@@ -180,11 +274,15 @@ def _assemble_envelope(
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_entry_point: str | None = None,
+    run_id: str = "",
+    candidate_id: str = "",
+    attempt: int = 1,
 ) -> ScenarioEnvelope:
-    scenario_hash = _scenario_hash(
-        seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point
-    )
-    scenario_id = f"{seed.seed_id}-{scenario_hash}"
+    _validate_run_id(run_id)
+    _validate_candidate_id(candidate_id)
+    if attempt < 1:
+        raise ValueError(f"attempt must be >= 1, got {attempt}")
+    scenario_id = compute_scenario_id(run_id, candidate_id, attempt)
 
     maestro_layers: set[int] = set()
     if attack_tree is not None:
@@ -247,6 +345,7 @@ def _assemble_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id=candidate_id,
         version=1,
         generated_at=datetime.now(UTC),
         generator_version=_GENERATOR_VERSION,
@@ -285,6 +384,9 @@ def generate_scenario(
     pinned_technique_names: list[str] | None = None,
     prior_titles: list[str] | None = None,
     pinned_entry_point_id: str | None = None,
+    run_id: str = "",
+    candidate_id: str = "",
+    attempt: int = 1,
 ) -> tuple[ScenarioEnvelope, list[dict]]:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -325,6 +427,12 @@ def generate_scenario(
             context in prompts.
         prior_titles: List of titles already generated in this batch. Passed to
             the Call 1 diversity section so the LLM avoids duplicate titles.
+        run_id: Per-invocation collision-safe run ID (128-bit hex). Required
+            for collision-safe scenario identity.
+        candidate_id: Stable canonical candidate identity (cand:v1:<128-bit hex>).
+            Required for collision-safe scenario identity.
+        attempt: Generation attempt number (default 1). Incorporated into
+            scenario_id so distinct generation attempts are not the same scenario.
     """
     # Late imports: these names are looked up from the package namespace
     # so that unittest.mock.patch("scenario_forge.pipeline.generate.X")
@@ -341,13 +449,17 @@ def generate_scenario(
     _warn_dominant_threat_id_crossref_fn = _gen._warn_dominant_threat_id_crossref
     _assemble_envelope_fn = _gen._assemble_envelope
 
+    # Enforce identity inputs at the generation boundary.
+    _validate_run_id(run_id)
+    _validate_candidate_id(candidate_id)
+    if attempt < 1:
+        raise ValueError(f"attempt must be >= 1, got {attempt}")
+
     call_metas: list[CallMetadata] = []
-    scenario_hash = _scenario_hash(
-        seed.seed_id, use_case, pinned_technique_ids, pinned_entry_point
-    )
+    scenario_id = compute_scenario_id(run_id, candidate_id, attempt)
 
     # Partial scenario_id for error logging (before envelope is assembled).
-    partial_scenario_id = f"{seed.seed_id}-{scenario_hash}"
+    partial_scenario_id = scenario_id
 
     # Collect call log entries incrementally so that failures still produce
     # a trace in calls.jsonl.
@@ -680,7 +792,7 @@ def generate_scenario(
             profile,
             client,
             use_case,
-            scenario_hash,
+            scenario_id,
             pinned_technique_ids=pinned_technique_ids,
         )
     except Exception as exc:
@@ -710,6 +822,9 @@ def generate_scenario(
         actor_profile=actor_profile,
         pinned_technique_ids=pinned_technique_ids,
         pinned_entry_point=pinned_entry_point,
+        run_id=run_id,
+        candidate_id=candidate_id,
+        attempt=attempt,
     )
 
     # Update call log entries with the final scenario_id (replacing partial).
@@ -719,30 +834,211 @@ def generate_scenario(
     return envelope, call_log_entries
 
 
+def compute_artifact_hash(data: bytes) -> str:
+    """Compute SHA-256 hash of exact artifact bytes."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _cleanup_created_files(created_files: list[Path]) -> None:
+    """Remove files created by the current call.  If cleanup fails, raise
+    a fatal integrity error rather than silently passing."""
+    cleanup_errors: list[str] = []
+    for path in created_files:
+        try:
+            path.unlink()
+        except OSError as exc:
+            cleanup_errors.append(f"{path}: {exc}")
+    if cleanup_errors:
+        raise ScenarioForgeIntegrityError(
+            f"Failed to clean up files created by current write call: "
+            f"{'; '.join(cleanup_errors)}"
+        )
+
+
 def write_scenario_outputs(
     envelope: ScenarioEnvelope,
     output_dir: Path,
 ) -> tuple[Path, Path | None]:
     """Write scenario envelope to disk as YAML and optional Gherkin file.
 
+    Uses **exclusive creation** (``"x"`` mode).  Pre-serializes both
+    outputs before writing either, and cleans up only files created by
+    this call on ordinary failure so no partial pair is left behind.
+    Pre-existing or orphan state is a fatal integrity error.
+
     Returns:
         Tuple of (envelope_path, feature_path_or_none).
+
+    Raises:
+        ScenarioForgeIntegrityError: If either path already exists, or
+            a stem mismatch / orphan feature is detected.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
     envelope_path = output_dir / f"{envelope.scenario_id}.yaml"
-    data = envelope.model_dump(mode="json", exclude_none=True)
-    envelope_path.write_text(
-        yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
-
     feature_path: Path | None = None
-    if envelope.behavior_spec is not None and isinstance(envelope.behavior_spec, str):
+    has_behavior_spec = envelope.behavior_spec is not None and isinstance(
+        envelope.behavior_spec, str
+    )
+    if has_behavior_spec:
         feature_path = output_dir / f"{envelope.scenario_id}.feature"
-        feature_path.write_text(envelope.behavior_spec, encoding="utf-8")
+
+    # Preflight: pre-existing files are fatal integrity errors.
+    if envelope_path.exists():
+        raise ScenarioForgeIntegrityError(
+            f"Scenario YAML already exists: {envelope_path}"
+        )
+    if feature_path is not None and feature_path.exists():
+        raise ScenarioForgeIntegrityError(
+            f"Scenario feature file already exists: {feature_path}"
+        )
+
+    # Check for orphan/stem mismatch.
+    alt_feature = envelope_path.with_suffix(".feature")
+    if not has_behavior_spec and alt_feature.exists():
+        raise ScenarioForgeIntegrityError(
+            f"Stem mismatch: orphan feature file exists for "
+            f"'{envelope.scenario_id}' but envelope has no behavior_spec"
+        )
+
+    # Pre-serialize both outputs before writing either.
+    data = envelope.model_dump(mode="json", exclude_none=True)
+    yaml_text = yaml.dump(
+        data, default_flow_style=False, sort_keys=False, allow_unicode=True
+    )
+    feature_text: str | None = None
+    if has_behavior_spec:
+        feature_text = envelope.behavior_spec  # type: ignore[assignment]
+
+    # Track files created by this call for cleanup on failure.
+    # A path is registered as current-call-owned immediately after the
+    # exclusive open succeeds, before any write, so that cleanup covers
+    # files even if the write itself fails.
+    created_files: list[Path] = []
+    try:
+        try:
+            fh = envelope_path.open("x", encoding="utf-8")
+        except FileExistsError as exc:
+            raise ScenarioForgeIntegrityError(
+                f"Scenario YAML already exists (race): {envelope_path}"
+            ) from exc
+        created_files.append(envelope_path)
+        with fh:
+            fh.write(yaml_text)
+
+        if feature_path is not None and feature_text is not None:
+            try:
+                fh = feature_path.open("x", encoding="utf-8")
+            except FileExistsError as exc:
+                raise ScenarioForgeIntegrityError(
+                    f"Scenario feature already exists (race): {feature_path}"
+                ) from exc
+            created_files.append(feature_path)
+            with fh:
+                fh.write(feature_text)
+    except ScenarioForgeIntegrityError:
+        _cleanup_created_files(created_files)
+        raise
+    except Exception:
+        _cleanup_created_files(created_files)
+        raise
 
     return envelope_path, feature_path
+
+
+def replace_scenario_outputs(
+    envelope: ScenarioEnvelope,
+    output_dir: Path,
+    admitted_scenario_id: str = "",
+) -> tuple[Path, Path | None]:
+    """Guarded replacement of scenario YAML artifacts.
+
+    Used only for the validation rewrite pass.  Verifies the complete
+    existing pair before changing bytes, then atomically replaces YAML
+    with temp + ``os.replace``.  Feature bytes are **not** rewritten —
+    they are verified to match the existing file.  Never routes through
+    the create API or silently overwrites arbitrary bytes.
+
+    Args:
+        envelope: Updated envelope with validation marks.
+        output_dir: Directory containing the original artifacts.
+        admitted_scenario_id: The originally admitted scenario ID.
+            Must match ``envelope.scenario_id``.
+
+    Raises:
+        ScenarioForgeIntegrityError: If scenario ID mismatch, missing
+            pair, stem mismatch, or feature byte mismatch.
+    """
+    import os
+    import tempfile
+
+    if not admitted_scenario_id:
+        raise ValueError("admitted_scenario_id is required for guarded replace")
+    if envelope.scenario_id != admitted_scenario_id:
+        raise ScenarioForgeIntegrityError(
+            f"Scenario ID mismatch in guarded replace: expected "
+            f"'{admitted_scenario_id}', got '{envelope.scenario_id}'"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    envelope_path = output_dir / f"{envelope.scenario_id}.yaml"
+    feature_path = output_dir / f"{envelope.scenario_id}.feature"
+
+    # Verify complete existing pair before modifying anything.
+    if not envelope_path.exists():
+        raise ScenarioForgeIntegrityError(
+            f"Cannot replace non-existent scenario YAML: {envelope_path}"
+        )
+
+    has_behavior_spec = envelope.behavior_spec is not None and isinstance(
+        envelope.behavior_spec, str
+    )
+
+    if has_behavior_spec:
+        if not feature_path.exists():
+            raise ScenarioForgeIntegrityError(
+                f"Missing feature file for guarded replace: {feature_path}"
+            )
+        # Verify feature bytes are unchanged — we must not rewrite feature.
+        existing_feature_bytes = feature_path.read_bytes()
+        expected_feature_text = envelope.behavior_spec  # type: ignore[assignment]
+        if existing_feature_bytes != expected_feature_text.encode("utf-8"):
+            raise ScenarioForgeIntegrityError(
+                f"Feature byte mismatch in guarded replace for "
+                f"'{envelope.scenario_id}': existing bytes differ from "
+                f"envelope behavior_spec"
+            )
+    elif feature_path.exists():
+        raise ScenarioForgeIntegrityError(
+            f"Stem mismatch: feature file exists for "
+            f"'{envelope.scenario_id}' but envelope has no behavior_spec"
+        )
+
+    # Pre-serialize new YAML and atomically replace.
+    data = envelope.model_dump(mode="json", exclude_none=True)
+    yaml_text = yaml.dump(
+        data, default_flow_style=False, sort_keys=False, allow_unicode=True
+    )
+
+    # Write to temp file in same directory, then atomic replace.
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=output_dir, suffix=".yaml.tmp", prefix=envelope.scenario_id
+    )
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(yaml_text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, envelope_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    actual_feature_path = feature_path if has_behavior_spec else None
+    return envelope_path, actual_feature_path
 
 
 def write_call_log(

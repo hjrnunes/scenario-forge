@@ -79,7 +79,7 @@ def _make_profile(
 def _make_envelope(
     step_actions: list[str] | None = None,
     step_effects: list[str] | None = None,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
     tree_labels: list[str] | None = None,
     tree_zones: list[str] | None = None,
     behavior_spec: str | dict | None = None,
@@ -124,9 +124,7 @@ def _make_envelope(
         ]
     else:
         children = [
-            AttackTreeNode(
-                id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
-            ),
+            AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"),
             AttackTreeNode(
                 id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
             ),
@@ -193,6 +191,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -229,9 +228,7 @@ class TestAuditMonitoringCrossNewline:
 
     def test_single_line_still_matches(self) -> None:
         """Pattern should still match within a single line."""
-        text = (
-            "The agent fabricates a fraudulent report to cover the attack."
-        )
+        text = "The agent fabricates a fraudulent report to cover the attack."
         profile = _make_profile()
         result = _check_audit_monitoring_write(text, profile)
         assert result is not None
@@ -257,7 +254,9 @@ class TestGherkinStepKeywordsInToolNameNoise:
 
         After stripping 'And', only 'Generate' remains (1 word < 2 minimum).
         """
-        text = "And Generate tool call with unauthorized, excessively high refund value."
+        text = (
+            "And Generate tool call with unauthorized, excessively high refund value."
+        )
         profile = _make_profile(entry_points=["refund processing api"])
         result = _check_phantom_tool_invocation(text, profile)
         assert result is None
@@ -349,42 +348,54 @@ class TestInputZoneTreeLabelSkip:
         """'Submit queries via automated script' in input zone is skipped."""
         text = "Submit massive volume of repetitive queries via automated script"
         profile = _make_profile()
-        result = _check_code_execution(text, profile, field_name="tree_label", zone="input")
+        result = _check_code_execution(
+            text, profile, field_name="tree_label", zone="input"
+        )
         assert result is None
 
     def test_input_zone_craft_payload_not_flagged(self) -> None:
         """'Craft payload with high-priority commands' in input zone is skipped."""
         text = "Craft payload with high-priority commands to disregard medical data"
         profile = _make_profile()
-        result = _check_code_execution(text, profile, field_name="tree_label", zone="input")
+        result = _check_code_execution(
+            text, profile, field_name="tree_label", zone="input"
+        )
         assert result is None
 
     def test_input_zone_obfuscated_script_not_flagged(self) -> None:
         """'Craft responses containing obfuscated script' in input zone is skipped."""
         text = "Craft malformed questionnaire responses containing obfuscated script payloads"
         profile = _make_profile()
-        result = _check_code_execution(text, profile, field_name="tree_label", zone="input")
+        result = _check_code_execution(
+            text, profile, field_name="tree_label", zone="input"
+        )
         assert result is None
 
     def test_tool_execution_zone_same_text_flagged(self) -> None:
         """Same text in tool_execution zone IS flagged."""
         text = "Submit massive volume of repetitive queries via automated script"
         profile = _make_profile()
-        result = _check_code_execution(text, profile, field_name="tree_label", zone="tool_execution")
+        result = _check_code_execution(
+            text, profile, field_name="tree_label", zone="tool_execution"
+        )
         assert result is not None
 
     def test_reasoning_zone_same_text_flagged(self) -> None:
         """Same text in reasoning zone IS flagged (without attacker context)."""
         text = "Generate Python script for data exfiltration"
         profile = _make_profile()
-        result = _check_code_execution(text, profile, field_name="tree_label", zone="reasoning")
+        result = _check_code_execution(
+            text, profile, field_name="tree_label", zone="reasoning"
+        )
         assert result is not None
 
     def test_output_zone_same_text_flagged(self) -> None:
         """Same text in output zone IS flagged."""
         text = "System produces an automated script for exfiltration"
         profile = _make_profile()
-        result = _check_code_execution(text, profile, field_name="tree_label", zone="output")
+        result = _check_code_execution(
+            text, profile, field_name="tree_label", zone="output"
+        )
         assert result is not None
 
 

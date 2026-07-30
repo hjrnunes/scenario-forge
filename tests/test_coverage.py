@@ -74,6 +74,7 @@ from scenario_forge.pipeline.candidates import (
     FilteredSeed,
     compute_candidate_id,
 )
+from scenario_forge.pipeline.generate import compute_scenario_id
 from scenario_forge.pipeline.runner import (
     _compute_gap_attributions,
     _pick_best_seed_for_entry_point,
@@ -97,6 +98,20 @@ def _make_risk_card_ref(risk_id: str = "test-risk") -> RiskCardRef:
         confidence=0.9,
         grounding_confidence="high",
     )
+
+
+def _make_remediation_envelope(
+    run_id: str,
+    candidate_id: str,
+    entry_point: str = "user prompts (zone 1)",
+    scenario_seed: str = "AP-T1-01",
+) -> ScenarioEnvelope:
+    """Build an envelope with IDs matching compute_scenario_id for remediation mocks."""
+    scenario_id = compute_scenario_id(run_id, candidate_id, 1)
+    env = _make_envelope(entry_point=entry_point, scenario_seed=scenario_seed)
+    env.scenario_id = scenario_id
+    env.candidate_id = candidate_id
+    return env
 
 
 def _make_envelope(
@@ -205,7 +220,10 @@ def _make_envelope(
         )
 
     return ScenarioEnvelope(
-        scenario_id=f"{scenario_seed}-abc123",
+        scenario_id=compute_scenario_id(
+            "a" * 32, "cand:v1:7e57c0de000000000000000000000000", 1
+        ),
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         actor_profile=actor_profile,
@@ -998,8 +1016,18 @@ class TestRemediateCoverageGaps:
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, [_make_seed()], profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            [_make_seed()],
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
         assert scenarios == []
         assert notes == []
@@ -1016,8 +1044,18 @@ class TestRemediateCoverageGaps:
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, [], profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            [],
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
         assert scenarios == []
         assert len(notes) == 1
@@ -1048,17 +1086,34 @@ class TestRemediateCoverageGaps:
         seeds = [_make_seed(seed_id="AP-T1-01"), _make_seed(seed_id="AP-T2-01")]
         client = MagicMock()
 
-        # Create mock envelopes for each uncovered EP.
-        mock_results = []
-        for ep in uncovered:
-            env = _make_envelope(entry_point=ep)
-            mock_results.append((env, []))
+        # Create mock envelopes with matching IDs for each uncovered EP.
+        run_id = "a" * 32
 
-        mock_generate.side_effect = mock_results
+        def gen_side_effect(*args, **kwargs):
+            cid = kwargs["candidate_id"]
+            env = _make_remediation_envelope(
+                run_id=run_id,
+                candidate_id=cid,
+                entry_point=kwargs.get("pinned_entry_point", "user prompts (zone 1)"),
+                scenario_seed=kwargs.get("pinned_entry_point_id", "ep-id"),
+            )
+            return (env, [])
+
+        mock_generate.side_effect = gen_side_effect
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, seeds, profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            seeds,
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
 
         assert len(scenarios) == 2
@@ -1086,16 +1141,35 @@ class TestRemediateCoverageGaps:
         seeds = [_make_seed()]
         client = MagicMock()
 
-        # First call fails, second succeeds.
-        ok_envelope = _make_envelope(entry_point="ep-ok (zone 2)")
+        # First call fails, second succeeds with matching IDs.
+        run_id = "a" * 32
+        seed_ok = seeds[0]
+        ep_ok_id = "ep-ok-id"
+        pinned_tids = seed_ok.atlas_technique_ids or seed_ok.laaf_technique_ids or []
+        ok_cand_id = compute_candidate_id(seed_ok.seed_id, ep_ok_id, pinned_tids)
+        ok_envelope = _make_remediation_envelope(
+            run_id=run_id,
+            candidate_id=ok_cand_id,
+            entry_point="ep-ok (zone 2)",
+        )
         mock_generate.side_effect = [
             RuntimeError("LLM timeout"),
             (ok_envelope, []),
         ]
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes = _remediate_coverage_gaps(
-            gaps, seeds, profile, client, "test use case", tmp_path
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            seeds,
+            profile,
+            client,
+            "test use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
         )
 
         assert len(scenarios) == 1
@@ -1122,11 +1196,31 @@ class TestRemediateCoverageGaps:
         seed = _make_seed(seed_id="AP-T5-01")
         client = MagicMock()
 
-        mock_envelope = _make_envelope(entry_point="api gateway (zone 3)")
+        run_id = "a" * 32
+        ep_id = "api-gateway-id"
+        pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
+        cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
+        mock_envelope = _make_remediation_envelope(
+            run_id=run_id,
+            candidate_id=cand_id,
+            entry_point="api gateway (zone 3)",
+        )
         mock_generate.return_value = (mock_envelope, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        _remediate_coverage_gaps(gaps, [seed], profile, client, "my use case", tmp_path)
+        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            [seed],
+            profile,
+            client,
+            "my use case",
+            tmp_path,
+            run_id="a" * 32,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
+        )
 
         call_args = mock_generate.call_args
         assert call_args.args[0] is seed  # seed

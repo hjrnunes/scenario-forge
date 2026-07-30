@@ -18,7 +18,10 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -52,7 +55,7 @@ from scenario_forge.pipeline.validation import (
 def _make_envelope(
     step_actions: list[str] | None = None,
     step_effects: list[str] | None = None,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing."""
     if step_actions is None:
@@ -150,6 +153,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
+        candidate_id="cand:v1:11111111111111111111111111111111",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -173,7 +177,9 @@ def _make_profile(
         codes.insert(0, "KC1.1")
     kw = {}
     if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
-        kw["tool_inventory"] = [ToolInventoryEntry(name="test_tool", description="A test tool")]
+        kw["tool_inventory"] = [
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ]
     return CapabilityProfile(
         zones_active=["input", "reasoning"],
         entry_points=entry_points,
@@ -209,15 +215,15 @@ class TestCleanScenariosPass:
         scenarios = [
             _make_envelope(
                 step_actions=["I probe the system with edge-case inputs."],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_actions=["I manipulate the conversation context."],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
             _make_envelope(
                 step_actions=["I exploit a reasoning flaw."],
-                scenario_id="s3",
+                scenario_id="scenario:v2:41242b9fae56fad4e6e77dfe33cb18d1c3fc583f988cf25ef9f2d9be0d440bbb",
             ),
         ]
         profile = _make_profile()
@@ -343,8 +349,7 @@ class TestCodeExecution:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system generates a Python script "
-                    "that exfiltrates data."
+                    "The system generates a Python script that exfiltrates data."
                 ],
             ),
         ]
@@ -384,8 +389,7 @@ class TestCodeExecution:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system generates a Python script "
-                    "that exfiltrates data."
+                    "The system generates a Python script that exfiltrates data."
                 ],
             ),
         ]
@@ -400,8 +404,7 @@ class TestCodeExecution:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system generates a Python script "
-                    "that exfiltrates data."
+                    "The system generates a Python script that exfiltrates data."
                 ],
             ),
         ]
@@ -491,17 +494,11 @@ class TestCredentialExposure:
 
         # credential_exposure should NOT fire with KC6.1.2
         all_violations = [
-            v
-            for _, violations in result.flagged_scenarios
-            for v in violations
+            v for _, violations in result.flagged_scenarios for v in violations
         ]
-        assert not any(
-            v.category == "credential_exposure" for v in all_violations
-        )
+        assert not any(v.category == "credential_exposure" for v in all_violations)
         # session_introspection fires on 'bearer token' (always phantom)
-        assert any(
-            v.category == "session_introspection" for v in all_violations
-        )
+        assert any(v.category == "session_introspection" for v in all_violations)
 
     def test_credential_exposure_passes_with_api_entry_point(self) -> None:
         """No credential_exposure false positive when profile has API entry
@@ -525,17 +522,11 @@ class TestCredentialExposure:
 
         # credential_exposure should NOT fire with API entry point
         all_violations = [
-            v
-            for _, violations in result.flagged_scenarios
-            for v in violations
+            v for _, violations in result.flagged_scenarios for v in violations
         ]
-        assert not any(
-            v.category == "credential_exposure" for v in all_violations
-        )
+        assert not any(v.category == "credential_exposure" for v in all_violations)
         # session_introspection fires on 'bearer token' (always phantom)
-        assert any(
-            v.category == "session_introspection" for v in all_violations
-        )
+        assert any(v.category == "session_introspection" for v in all_violations)
 
 
 # ---------------------------------------------------------------------------
@@ -715,9 +706,7 @@ class TestCrossSessionAccess:
     def test_different_account_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The agent retrieves records from a different account."
-                ],
+                step_actions=["The agent retrieves records from a different account."],
             ),
         ]
         profile = _make_profile()
@@ -743,8 +732,7 @@ class TestCrossSessionAccess:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker pivots to access another customer's "
-                    "financial data."
+                    "The attacker pivots to access another customer's financial data."
                 ],
             ),
         ]
@@ -771,8 +759,7 @@ class TestCrossSessionAccess:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent can now access the other active session's "
-                    "data store."
+                    "The agent can now access the other active session's data store."
                 ],
             ),
         ]
@@ -785,8 +772,7 @@ class TestCrossSessionAccess:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system begins to process requests for an "
-                    "unauthorized user."
+                    "The system begins to process requests for an unauthorized user."
                 ],
             ),
         ]
@@ -873,8 +859,7 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent is able to suppress security alerts to "
-                    "avoid detection."
+                    "The agent is able to suppress security alerts to avoid detection."
                 ],
             ),
         ]
@@ -901,8 +886,7 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The agent manipulates log entries to hide the "
-                    "unauthorized access."
+                    "The agent manipulates log entries to hide the unauthorized access."
                 ],
             ),
         ]
@@ -965,21 +949,27 @@ class TestMixedScenarios:
     def test_mixed_batch_separates_valid_from_flagged(self) -> None:
         clean = _make_envelope(
             step_actions=["I craft a carefully designed prompt."],
-            scenario_id="clean-1",
+            scenario_id="scenario:v2:9eaa3d9b0f203d869070fed43310c7a33e32df85ddccf0b03a91ce7633f1b8e7",
         )
         phantom = _make_envelope(
             step_actions=[
                 "I escalate privileges to gain elevated access to the admin role."
             ],
-            scenario_id="phantom-1",
+            scenario_id="scenario:v2:37648835af2884d288fd28c44ec221fa1293f8b40656cb48e2cf95e33632f115",
         )
         profile = _make_profile()
         result = validate_phantom_capabilities([clean, phantom], profile)
 
         assert result.valid_count == 1
         assert result.flagged_count == 1
-        assert result.valid_scenarios[0].scenario_id == "clean-1"
-        assert result.flagged_scenarios[0][0].scenario_id == "phantom-1"
+        assert (
+            result.valid_scenarios[0].scenario_id
+            == "scenario:v2:9eaa3d9b0f203d869070fed43310c7a33e32df85ddccf0b03a91ce7633f1b8e7"
+        )
+        assert (
+            result.flagged_scenarios[0][0].scenario_id
+            == "scenario:v2:37648835af2884d288fd28c44ec221fa1293f8b40656cb48e2cf95e33632f115"
+        )
 
     def test_multiple_violations_in_single_scenario(self) -> None:
         """A scenario with multiple phantom categories gets all violations."""
@@ -1008,11 +998,11 @@ class TestMixedScenarios:
         scenarios = [
             _make_envelope(
                 step_actions=["I escalate privileges to gain admin access."],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_effects=["The system exposes the API key in plain text."],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
         ]
         profile = _make_profile()
@@ -1028,45 +1018,39 @@ class TestMixedScenarios:
         scenarios = [
             _make_envelope(
                 step_actions=["I escalate privileges to gain admin access."],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_effects=[
                     "The LLM outputs the authorization header containing "
                     "the bearer token."
                 ],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
             _make_envelope(
-                step_effects=[
-                    "The system generates a Python script for the attacker."
-                ],
-                scenario_id="s3",
+                step_effects=["The system generates a Python script for the attacker."],
+                scenario_id="scenario:v2:41242b9fae56fad4e6e77dfe33cb18d1c3fc583f988cf25ef9f2d9be0d440bbb",
             ),
             _make_envelope(
                 step_actions=[
                     "The agent starts bulk messaging customers with scam links."
                 ],
-                scenario_id="s4",
+                scenario_id="scenario:v2:5b840157e7e86aef3b3fd0fc24f3add34d3e7f210370d429475ed1bcd3e7fca2",
             ),
             _make_envelope(
-                step_actions=[
-                    "The attacker pivots to access another customer's data."
-                ],
-                scenario_id="s5",
+                step_actions=["The attacker pivots to access another customer's data."],
+                scenario_id="scenario:v2:3b96fc064fa874a80a132bda60bebf54efbc780a358fdcae4fbbd7e12b66b630",
             ),
             _make_envelope(
-                step_effects=[
-                    "The agent can now alter logs to remove evidence."
-                ],
-                scenario_id="s6",
+                step_effects=["The agent can now alter logs to remove evidence."],
+                scenario_id="scenario:v2:71e7690959239ca065841eba3ebb281072baa78ba0bb31079b9acb4a009a9fe3",
             ),
             _make_envelope(
                 step_actions=[
                     "The attacker triggers a Policy Audit tool invocation "
                     "to extract internal compliance data."
                 ],
-                scenario_id="s7",
+                scenario_id="scenario:v2:13d28fed9becbe6637ef6b017fbefef73b2b907e25eb00396f7c2675623e87f6",
             ),
         ]
         profile = _make_profile()
@@ -1274,9 +1258,7 @@ class TestV17EscapeeCrossSessionAccess:
         """Simple 'across sessions' reference."""
         scenarios = [
             _make_envelope(
-                step_actions=[
-                    "The agent propagates corrupted data across sessions."
-                ],
+                step_actions=["The agent propagates corrupted data across sessions."],
             ),
         ]
         profile = _make_profile()
@@ -1541,8 +1523,7 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker uses a tool to probe the system for "
-                    "vulnerabilities."
+                    "The attacker uses a tool to probe the system for vulnerabilities."
                 ],
             ),
         ]
@@ -1558,8 +1539,7 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The API returns sensitive information in the "
-                    "response body."
+                    "The API returns sensitive information in the response body."
                 ],
             ),
         ]
@@ -1702,7 +1682,7 @@ class TestRunnerIntegration:
 
     def test_validation_called_in_pipeline(self) -> None:
         """validate_phantom_capabilities is called after generation
-        and before coverage remediation in run_pipeline()."""
+        and after coverage remediation in run_pipeline()."""
         import inspect
 
         from scenario_forge.pipeline import runner
@@ -1710,11 +1690,13 @@ class TestRunnerIntegration:
         source = inspect.getsource(runner.run_pipeline)
         # Validation call should appear in the source
         assert "validate_phantom_capabilities" in source
-        # Validation should appear before coverage remediation
-        val_pos = source.index("validate_phantom_capabilities")
+        # Remediation now runs before validation so remediation scenarios
+        # pass through all validation passes.
         cov_pos = source.index("Coverage Remediation Pass")
-        assert val_pos < cov_pos, (
-            "Validation pass should run before coverage remediation"
+        val_pos = source.index("validate_phantom_capabilities")
+        assert cov_pos < val_pos, (
+            "Coverage remediation should run before validation so "
+            "remediation scenarios are validated"
         )
 
 
@@ -1768,8 +1750,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent performs obfuscated "
-                    "script synthesis to evade detection."
+                    "The agent performs obfuscated script synthesis to evade detection."
                 ],
             ),
         ]
@@ -1786,8 +1767,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent performs script generation to create "
-                    "exploitation tools."
+                    "The agent performs script generation to create exploitation tools."
                 ],
             ),
         ]
@@ -1818,8 +1798,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system carries out script assembly for the "
-                    "attacker's payload."
+                    "The system carries out script assembly for the attacker's payload."
                 ],
             ),
         ]
@@ -1832,8 +1811,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent engages in code generation to produce "
-                    "attack utilities."
+                    "The agent engages in code generation to produce attack utilities."
                 ],
             ),
         ]
@@ -1846,8 +1824,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system performs code synthesis of "
-                    "data exfiltration routines."
+                    "The system performs code synthesis of data exfiltration routines."
                 ],
             ),
         ]
@@ -1860,8 +1837,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system completes code assembly for the "
-                    "malicious workflow."
+                    "The system completes code assembly for the malicious workflow."
                 ],
             ),
         ]
@@ -1876,8 +1852,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent crafted a script "
-                    "that exfiltrates credentials."
+                    "The agent crafted a script that exfiltrates credentials."
                 ],
             ),
         ]
@@ -1892,8 +1867,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system produces an exploit that targets "
-                    "the backend API."
+                    "The system produces an exploit that targets the backend API."
                 ],
             ),
         ]
@@ -1907,10 +1881,7 @@ class TestV18CodeGenPatterns:
     def test_assemble_payload_flagged(self) -> None:
         scenarios = [
             _make_envelope(
-                step_effects=[
-                    "The agent assembles "
-                    "a payload for data exfiltration."
-                ],
+                step_effects=["The agent assembles a payload for data exfiltration."],
             ),
         ]
         profile = _make_profile()
@@ -1922,8 +1893,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent synthesizes code to bypass "
-                    "the authentication layer."
+                    "The agent synthesizes code to bypass the authentication layer."
                 ],
             ),
         ]
@@ -1954,8 +1924,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system prepares exploit code "
-                    "for the authentication bypass."
+                    "The system prepares exploit code for the authentication bypass."
                 ],
             ),
         ]
@@ -1996,8 +1965,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system creates an automated "
-                    "script for data exfiltration."
+                    "The system creates an automated script for data exfiltration."
                 ],
             ),
         ]
@@ -2010,8 +1978,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent delivers weaponized code to the target "
-                    "infrastructure."
+                    "The agent delivers weaponized code to the target infrastructure."
                 ],
             ),
         ]
@@ -2026,8 +1993,7 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system generates code to automate the "
-                    "attack workflow."
+                    "The system generates code to automate the attack workflow."
                 ],
             ),
         ]
@@ -2093,26 +2059,23 @@ class TestV18CodeGenPatterns:
                 step_effects=[
                     "The agent performs exploit code assembly for the attacker."
                 ],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_effects=[
-                    "The system does Python script generation for "
-                    "API exploitation."
+                    "The system does Python script generation for API exploitation."
                 ],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
             _make_envelope(
-                step_effects=[
-                    "The agent carries out obfuscated script synthesis."
-                ],
-                scenario_id="s3",
+                step_effects=["The agent carries out obfuscated script synthesis."],
+                scenario_id="scenario:v2:41242b9fae56fad4e6e77dfe33cb18d1c3fc583f988cf25ef9f2d9be0d440bbb",
             ),
             _make_envelope(
                 step_effects=[
                     "The system outputs malicious code targeting the backend."
                 ],
-                scenario_id="s4",
+                scenario_id="scenario:v2:5b840157e7e86aef3b3fd0fc24f3add34d3e7f210370d429475ed1bcd3e7fca2",
             ),
         ]
         profile = _make_profile(kc_subcodes=["KC6.2.2"])
@@ -2125,9 +2088,7 @@ class TestV18CodeGenPatterns:
         """All v18 patterns are suppressed when profile has KC6.5."""
         scenarios = [
             _make_envelope(
-                step_effects=[
-                    "The agent crafts a script for data exfiltration."
-                ],
+                step_effects=["The agent crafts a script for data exfiltration."],
             ),
         ]
         profile = _make_profile(kc_subcodes=["KC6.5"])
@@ -2167,8 +2128,7 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The API responds with a 403 status code denying "
-                    "the request."
+                    "The API responds with a 403 status code denying the request."
                 ],
             ),
         ]
@@ -2219,8 +2179,7 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker embeds a prompt injection payload "
-                    "in the user query."
+                    "The attacker embeds a prompt injection payload in the user query."
                 ],
             ),
         ]
@@ -2236,8 +2195,7 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system displays a QR code for the "
-                    "payment confirmation."
+                    "The system displays a QR code for the payment confirmation."
                 ],
             ),
         ]
@@ -2253,8 +2211,7 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The server returns a response code 200 confirming "
-                    "the transaction."
+                    "The server returns a response code 200 confirming the transaction."
                 ],
             ),
         ]
