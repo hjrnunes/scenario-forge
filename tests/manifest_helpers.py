@@ -82,13 +82,15 @@ def build_test_run_dir(
         )
 
     if scenarios:
-        for sc in scenarios:
+        for i, sc in enumerate(scenarios):
             sid = sc.get("scenario_id", "scenario-unknown")
+            cid = sc.get("candidate_id", f"cand:v1:{i + 1:032d}")
             _write_and_inventory(
                 ArtifactRole.SCENARIO_YAML,
                 f"scenarios/{sid}.yaml",
                 yaml.dump(sc, default_flow_style=False),
                 scenario_id=sid,
+                candidate_id=cid,
             )
             # Strict manifest requires paired YAML/feature for every scenario.
             feature_content = (feature_files or {}).get(
@@ -99,6 +101,7 @@ def build_test_run_dir(
                 f"scenarios/{sid}.feature",
                 feature_content,
                 scenario_id=sid,
+                candidate_id=cid,
             )
 
     if pipeline_calls:

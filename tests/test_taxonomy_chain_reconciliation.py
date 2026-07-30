@@ -216,7 +216,7 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -239,7 +239,7 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -261,7 +261,7 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -282,7 +282,7 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -303,7 +303,7 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -331,7 +331,7 @@ class TestTaxonomyChainReconciliation:
             model_name="test-model",
             use_case="test",
             notes=[],
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 

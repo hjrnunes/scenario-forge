@@ -517,7 +517,7 @@ class TestScenarioIdCollisionSafety:
         """Scenario ID digest provides at least 128 bits of collision
         resistance (64 hex chars = 256 bits)."""
         sid = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
@@ -529,12 +529,12 @@ class TestScenarioIdCollisionSafety:
     def test_different_run_ids_different_scenario_ids(self):
         """Same candidate+attempt but different run → different scenario ID."""
         sid1 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "20240101T120001_bbcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
@@ -543,12 +543,12 @@ class TestScenarioIdCollisionSafety:
     def test_different_attempts_different_scenario_ids(self):
         """Same run+candidate but different attempt → different scenario ID."""
         sid1 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             2,
         )
@@ -557,12 +557,12 @@ class TestScenarioIdCollisionSafety:
     def test_different_candidates_different_scenario_ids(self):
         """Same run+attempt but different candidate → different scenario ID."""
         sid1 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:22222222222222222222222222222222",
             1,
         )

@@ -221,7 +221,9 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=compute_scenario_id(
-            "a" * 32, "cand:v1:7e57c0de000000000000000000000000", 1
+            "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cand:v1:7e57c0de000000000000000000000000",
+            1,
         ),
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
@@ -1023,11 +1025,12 @@ class TestRemediateCoverageGaps:
             client,
             "test use case",
             tmp_path,
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             attempted_candidate_ids=set(),
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
         assert scenarios == []
         assert notes == []
@@ -1051,11 +1054,12 @@ class TestRemediateCoverageGaps:
             client,
             "test use case",
             tmp_path,
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             attempted_candidate_ids=set(),
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
         assert scenarios == []
         assert len(notes) == 1
@@ -1087,7 +1091,7 @@ class TestRemediateCoverageGaps:
         client = MagicMock()
 
         # Create mock envelopes with matching IDs for each uncovered EP.
-        run_id = "a" * 32
+        run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
         def gen_side_effect(*args, **kwargs):
             cid = kwargs["candidate_id"]
@@ -1109,11 +1113,12 @@ class TestRemediateCoverageGaps:
             client,
             "test use case",
             tmp_path,
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             attempted_candidate_ids=set(),
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
 
         assert len(scenarios) == 2
@@ -1142,7 +1147,7 @@ class TestRemediateCoverageGaps:
         client = MagicMock()
 
         # First call fails, second succeeds with matching IDs.
-        run_id = "a" * 32
+        run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         seed_ok = seeds[0]
         ep_ok_id = "ep-ok-id"
         pinned_tids = seed_ok.atlas_technique_ids or seed_ok.laaf_technique_ids or []
@@ -1165,11 +1170,12 @@ class TestRemediateCoverageGaps:
             client,
             "test use case",
             tmp_path,
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             attempted_candidate_ids=set(),
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
 
         assert len(scenarios) == 1
@@ -1196,7 +1202,7 @@ class TestRemediateCoverageGaps:
         seed = _make_seed(seed_id="AP-T5-01")
         client = MagicMock()
 
-        run_id = "a" * 32
+        run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ep_id = "api-gateway-id"
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
@@ -1215,11 +1221,12 @@ class TestRemediateCoverageGaps:
             client,
             "my use case",
             tmp_path,
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             attempted_candidate_ids=set(),
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
 
         call_args = mock_generate.call_args

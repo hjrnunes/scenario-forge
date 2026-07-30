@@ -22,7 +22,6 @@ from scenario_forge.manifest import (
     ArtifactRole,
     ManifestInventoryResolver,
     find_run_dir,
-    load_manifest,
     load_strict_resolver,
 )
 
@@ -186,8 +185,12 @@ def load_report_data(
             logger.warning("Failed to load eval scorecard: %s", exc)
 
     # --- Run manifest ---
-    manifest_data = load_manifest(actual_run_dir).model_dump(mode="json")
-    logger.info("Loaded run manifest")
+    # Use the supplied resolver's in-memory manifest rather than reloading
+    # the persisted on-disk sentinel.  For internal pipeline use the resolver
+    # carries the intended-final manifest view; for standalone use it carries
+    # the loaded final manifest.
+    manifest_data = resolver.manifest.model_dump(mode="json")
+    logger.info("Loaded run manifest from resolver")
 
     # --- Use case description ---
     uc_entry = resolver.entry_by_role(ArtifactRole.USE_CASE)

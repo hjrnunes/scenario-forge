@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -1111,6 +1112,7 @@ class TestRunEvaluation:
             run_dir=run_dir,
             rel_path=f"scenarios/{sid}.yaml",
             scenario_id=sid,
+            candidate_id=f"cand:v1:{hashlib.sha256(sid.encode()).hexdigest()[:32]}",
         )
         manifest = RunManifest(
             status=RunStatus.COMPLETED,

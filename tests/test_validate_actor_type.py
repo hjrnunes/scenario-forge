@@ -354,7 +354,7 @@ class TestBDIRegeneration:
                 profile=_make_profile(),
                 client=_make_client_mock(),
                 use_case="Test AI chatbot",
-                run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
             )
 
@@ -391,7 +391,7 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -432,7 +432,7 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -467,7 +467,7 @@ class TestBDIRegeneration:
                 profile=_make_profile(),
                 client=_make_client_mock(),
                 use_case="Test AI chatbot",
-                run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
             )
 
@@ -510,7 +510,7 @@ class TestBDIRegeneration:
                 profile=_make_profile(),
                 client=_make_client_mock(),
                 use_case="Test AI chatbot",
-                run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
             )
 
@@ -542,7 +542,7 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -579,7 +579,7 @@ class TestBDIRegeneration:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             preferred_actor_type="negligent-insider",
         )
@@ -660,7 +660,7 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -702,7 +702,7 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 
@@ -742,7 +742,7 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=["cybercriminal"],
         )
@@ -782,7 +782,7 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=["negligent-insider"],
         )
@@ -821,7 +821,7 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=original_list,
         )
@@ -880,7 +880,7 @@ class TestAdversarialOnlyThreats:
             profile=_make_profile(),
             client=_make_client_mock(),
             use_case="Test AI chatbot",
-            run_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
         )
 

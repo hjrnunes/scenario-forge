@@ -112,15 +112,17 @@ def generate_run_id() -> str:
 
 
 def _validate_run_id(run_id: str) -> None:
-    """Validate that run_id is a valid per-invocation identifier.
+    """Validate that run_id is a canonical sortable generation identifier.
 
-    Accepts:
-    - The cmps.1 sortable format: ``YYYYMMDDTHHMMSS_<32hex>`` (48 chars)
-    - The legacy 32-char lowercase hex format (UUID4 without dashes)
+    Accepts **only** the cmps.1 sortable format:
+    ``YYYYMMDDTHHMMSS_<32hex>`` (48 chars, 128-bit random suffix).
+
+    Legacy 32-char hex IDs are accepted solely by manifest forensic
+    discovery/loading, not by generation APIs.
     """
-    from scenario_forge.manifest import validate_run_id
+    from scenario_forge.manifest import validate_generation_run_id
 
-    validate_run_id(run_id)
+    validate_generation_run_id(run_id)
 
 
 def _validate_candidate_id(candidate_id: str) -> None:

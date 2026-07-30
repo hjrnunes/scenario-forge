@@ -530,7 +530,7 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
         )
@@ -606,7 +606,7 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
         )
@@ -681,7 +681,7 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
-            run_id="a" * 32,
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
         )

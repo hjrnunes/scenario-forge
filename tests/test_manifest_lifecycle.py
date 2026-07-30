@@ -24,10 +24,13 @@ import yaml
 
 from scenario_forge.manifest import (
     AttemptDisposition,
+    AttemptPhase,
     AttemptRecord,
     ArtifactEntry,
     ArtifactRole,
+    GitProvenance,
     ManifestIntegrityError,
+    ManifestInventoryResolver,
     RunManifest,
     RunStatus,
     build_artifact_entry,
@@ -43,12 +46,14 @@ from scenario_forge.manifest import (
     required_singleton_roles,
     resolve_run_dir,
     validate_completed_inventory,
+    validate_attempt_equations,
     validate_run_id,
     write_failed_manifest,
     write_manifest_sentinel,
     finalize_manifest,
     atomic_write_yaml,
     MANIFEST_FILENAME,
+    capture_provenance,
 )
 from tests.manifest_helpers import build_test_run_dir
 
@@ -219,6 +224,7 @@ class TestManifestSentinel:
             attempts=[
                 AttemptRecord(
                     candidate_id="cand:v1:abc",
+                    scenario_id="20240101T120000_abcdef1234567890abcdef1234567890",
                     disposition=AttemptDisposition.FAILED,
                     failure_evidence="boom",
                 )
@@ -348,7 +354,9 @@ class TestInventoryIntegrity:
             run_dir / MANIFEST_FILENAME,
             manifest.model_dump(mode="json", exclude_none=True),
         )
-        with pytest.raises(ManifestIntegrityError, match="not normalized|escapes"):
+        with pytest.raises(
+            ManifestIntegrityError, match="not normalized|escapes|'\\.\\.'"
+        ):
             load_strict_resolver(run_dir)
 
     def test_symlink_rejected(self, tmp_path: Path):
@@ -481,7 +489,10 @@ class TestInventoryIntegrity:
             run_dir / MANIFEST_FILENAME,
             manifest.model_dump(mode="json", exclude_none=True),
         )
-        with pytest.raises(ManifestIntegrityError, match="Duplicate singleton"):
+        with pytest.raises(
+            ManifestIntegrityError,
+            match="Duplicate singleton|must be at 'use-case.txt'",
+        ):
             load_strict_resolver(run_dir)
 
     def test_wrong_extension_for_role_rejected(self, tmp_path: Path):
@@ -521,6 +532,7 @@ class TestInventoryIntegrity:
             sha256=compute_file_sha256(run_dir / "scenarios" / "s1.yaml"),
             media_type="application/yaml",
             scenario_id="s1",
+            candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
         manifest = RunManifest(
             status=RunStatus.COMPLETED,
@@ -547,6 +559,7 @@ class TestInventoryIntegrity:
             sha256=compute_file_sha256(run_dir / "scenarios" / "orphan.feature"),
             media_type="text/plain",
             scenario_id="orphan",
+            candidate_id="cand:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         )
         manifest = RunManifest(
             status=RunStatus.COMPLETED,
@@ -580,6 +593,7 @@ class TestInventoryIntegrity:
                     sha256=compute_file_sha256(run_dir / "scenarios" / "s1.yaml"),
                     media_type="application/yaml",
                     scenario_id="s2",
+                    candidate_id="cand:v1:cccccccccccccccccccccccccccccccc",
                 ),
                 ArtifactEntry(
                     role=ArtifactRole.SCENARIO_FEATURE,
@@ -587,6 +601,7 @@ class TestInventoryIntegrity:
                     sha256=compute_file_sha256(run_dir / "scenarios" / "s1.feature"),
                     media_type="text/plain",
                     scenario_id="s2",
+                    candidate_id="cand:v1:cccccccccccccccccccccccccccccccc",
                 ),
             ],
         )
@@ -1037,6 +1052,7 @@ class TestAttemptRecords:
     def test_failed_attempt_with_evidence(self):
         rec = AttemptRecord(
             candidate_id="cand:v1:abc",
+            scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.FAILED,
             failure_evidence="LLM timeout",
         )
@@ -1407,6 +1423,548 @@ class TestPipelineLifecycle:
 
         manifest = load_manifest(result.run_dir)
         assert manifest.status == RunStatus.COMPLETED_WITH_ERRORS
+
+
+# --------------------------------------------------------------------------- #
+# Second Mayor review acceptance contract
+# --------------------------------------------------------------------------- #
+
+
+def _mayor_valid_run(run_dir: Path, *, status=RunStatus.COMPLETED) -> RunManifest:
+    """Build and load a complete one-scenario run used by adversarial tests."""
+    scenario = _make_scenario("s1") | {"candidate_id": "cand-1"}
+    build_test_run_dir(
+        run_dir,
+        use_case="A chatbot",
+        profile_data={"zones_active": ["input"]},
+        threat_surface_data={"entries": []},
+        scenarios=[scenario],
+        feature_files={"s1": _make_feature("s1")},
+        coverage_data={"gaps": []},
+        eval_scorecard={"evaluation": {"scenario_count": 1, "feature_file_count": 1}},
+        status=status,
+    )
+    manifest = load_manifest(run_dir)
+    manifest.attempts = [
+        AttemptRecord(
+            candidate_id="cand-1",
+            scenario_id="s1",
+            disposition=AttemptDisposition.ADMITTED,
+            phase=AttemptPhase.MAIN,
+        )
+    ]
+    manifest.funnel = {
+        "attempted": 1,
+        "admitted": 1,
+        "quarantined": 0,
+        "generation_failed": 0,
+        "remediation_failed": 0,
+    }
+    return manifest
+
+
+class TestCompletedRunWithAdmittedPair:
+    def test_completed_run_with_real_admitted_pair(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        manifest = _mayor_valid_run(run_dir)
+
+        validate_completed_inventory(manifest, eval_enabled=True, run_dir=run_dir)
+        ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+        yaml_entries = [
+            entry
+            for entry in manifest.inventory
+            if entry.role == ArtifactRole.SCENARIO_YAML
+        ]
+        scorecard = yaml.safe_load((run_dir / "eval-scorecard.yaml").read_text())
+        assert manifest.status == RunStatus.COMPLETED
+        assert scorecard["evaluation"]["scenario_count"] == len(yaml_entries)
+
+    def test_second_real_run_does_not_change_first(self, tmp_path: Path):
+        collection = tmp_path / "collection"
+        first = collection / _VALID_RUN_ID
+        _mayor_valid_run(first)
+        before = {
+            path.relative_to(first).as_posix(): path.read_bytes()
+            for path in first.rglob("*")
+            if path.is_file()
+        }
+
+        second = collection / "20260101T000001_abcdef0123456789abcdef0123456789"
+        _mayor_valid_run(second)
+        after = {
+            path.relative_to(first).as_posix(): path.read_bytes()
+            for path in first.rglob("*")
+            if path.is_file()
+        }
+        assert after == before
+
+
+class TestAttemptEquations:
+    @staticmethod
+    def _manifest(attempts, funnel):
+        return RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            attempts=attempts,
+            funnel=funnel,
+        )
+
+    @staticmethod
+    def _attempt(candidate, scenario, disposition, phase=AttemptPhase.MAIN):
+        evidence = (
+            "generation error" if disposition != AttemptDisposition.ADMITTED else None
+        )
+        return AttemptRecord(
+            candidate_id=candidate,
+            scenario_id=scenario,
+            disposition=disposition,
+            phase=phase,
+            failure_evidence=evidence,
+        )
+
+    @pytest.mark.parametrize(
+        ("attempts", "funnel"),
+        [
+            (
+                [_attempt.__func__("c1", "s1", AttemptDisposition.ADMITTED)],
+                {
+                    "attempted": 1,
+                    "admitted": 1,
+                    "quarantined": 0,
+                    "generation_failed": 0,
+                    "remediation_failed": 0,
+                },
+            ),
+            (
+                [
+                    _attempt.__func__("c1", "s1", AttemptDisposition.ADMITTED),
+                    _attempt.__func__(
+                        "c2",
+                        "s2",
+                        AttemptDisposition.ADMITTED,
+                        AttemptPhase.REMEDIATION,
+                    ),
+                ],
+                {
+                    "attempted": 2,
+                    "admitted": 2,
+                    "quarantined": 0,
+                    "generation_failed": 0,
+                    "remediation_failed": 0,
+                },
+            ),
+            (
+                [
+                    _attempt.__func__("c1", "s1", AttemptDisposition.ADMITTED),
+                    _attempt.__func__(
+                        "c2", "s2", AttemptDisposition.FAILED, AttemptPhase.REMEDIATION
+                    ),
+                ],
+                {
+                    "attempted": 2,
+                    "admitted": 1,
+                    "quarantined": 0,
+                    "generation_failed": 0,
+                    "remediation_failed": 1,
+                },
+            ),
+            (
+                [_attempt.__func__("c1", "s1", AttemptDisposition.QUARANTINED)],
+                {
+                    "attempted": 1,
+                    "admitted": 1,
+                    "quarantined": 1,
+                    "generation_failed": 0,
+                    "remediation_failed": 0,
+                },
+            ),
+            (
+                [],
+                {
+                    "attempted": 0,
+                    "admitted": 0,
+                    "quarantined": 0,
+                    "generation_failed": 0,
+                    "remediation_failed": 0,
+                },
+            ),
+        ],
+    )
+    def test_valid_equations(self, attempts, funnel):
+        validate_attempt_equations(self._manifest(attempts, funnel))
+
+    def test_remediation_success(self):
+        attempt = self._attempt(
+            "c1", "s1", AttemptDisposition.ADMITTED, AttemptPhase.REMEDIATION
+        )
+        validate_attempt_equations(
+            self._manifest(
+                [attempt],
+                {
+                    "attempted": 1,
+                    "admitted": 1,
+                    "quarantined": 0,
+                    "generation_failed": 0,
+                    "remediation_failed": 0,
+                },
+            )
+        )
+
+    def test_remediation_failure_with_evidence(self):
+        attempt = self._attempt(
+            "c1", "s1", AttemptDisposition.FAILED, AttemptPhase.REMEDIATION
+        )
+        assert attempt.failure_evidence
+        validate_attempt_equations(
+            self._manifest(
+                [attempt],
+                {
+                    "attempted": 1,
+                    "admitted": 0,
+                    "quarantined": 0,
+                    "generation_failed": 0,
+                    "remediation_failed": 1,
+                },
+            )
+        )
+
+    def test_duplicate_attempt_keys_raise(self):
+        attempt = self._attempt("c1", "s1", AttemptDisposition.ADMITTED)
+        with pytest.raises(ManifestIntegrityError, match="Duplicate attempt"):
+            validate_attempt_equations(
+                self._manifest([attempt, attempt.model_copy()], {})
+            )
+
+    @pytest.mark.parametrize(
+        ("field", "value", "message"),
+        [
+            ("attempted", 2, "attempted mismatch"),
+            ("admitted", 0, "admitted mismatch"),
+            ("quarantined", 1, "quarantined mismatch"),
+            ("generation_failed", 1, "failed mismatch"),
+        ],
+    )
+    def test_funnel_mismatches_raise(self, field, value, message):
+        funnel = {
+            "attempted": 1,
+            "admitted": 1,
+            "quarantined": 0,
+            "generation_failed": 0,
+            "remediation_failed": 0,
+        }
+        funnel[field] = value
+        attempt = self._attempt("c1", "s1", AttemptDisposition.ADMITTED)
+        with pytest.raises(ManifestIntegrityError, match=message):
+            validate_attempt_equations(self._manifest([attempt], funnel))
+
+
+class TestFailedEvidenceRetention:
+    @staticmethod
+    def _write_failed(run_dir: Path, files):
+        inventory = []
+        for role, rel_path, content, scenario_id, candidate_id in files:
+            path = run_dir / rel_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+            inventory.append(
+                build_artifact_entry(role, run_dir, rel_path, scenario_id, candidate_id)
+            )
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=inventory,
+            error="injected failure",
+        )
+        atomic_write_yaml(
+            run_dir / MANIFEST_FILENAME,
+            manifest.model_dump(mode="json", exclude_none=True),
+        )
+
+    def test_partial_unpaired_evidence_loads_strictly(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        self._write_failed(
+            run_dir,
+            [
+                (ArtifactRole.USE_CASE, "use-case.txt", "chatbot", None, None),
+                (
+                    ArtifactRole.CAPABILITY_PROFILE,
+                    "capability-profile.yaml",
+                    "zones: []\n",
+                    None,
+                    None,
+                ),
+                (
+                    ArtifactRole.THREAT_SURFACE,
+                    "threat-surface.yaml",
+                    "entries: []\n",
+                    None,
+                    None,
+                ),
+                (
+                    ArtifactRole.SCENARIO_YAML,
+                    "scenarios/s1.yaml",
+                    yaml.safe_dump(_make_scenario("s1")),
+                    "s1",
+                    "c1",
+                ),
+            ],
+        )
+        resolver = load_strict_resolver(run_dir, require_final=True)
+        assert resolver.manifest.status == RunStatus.FAILED
+
+    def test_failed_run_inventories_all_forensic_artifacts(self, tmp_path: Path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        self._write_failed(
+            run_dir,
+            [
+                (
+                    ArtifactRole.SCENARIO_YAML,
+                    "scenarios/s1.yaml",
+                    yaml.safe_dump(_make_scenario("s1")),
+                    "s1",
+                    "c1",
+                ),
+                (
+                    ArtifactRole.SCENARIO_FEATURE,
+                    "scenarios/s1.feature",
+                    _make_feature("s1"),
+                    "s1",
+                    "c1",
+                ),
+                (ArtifactRole.PIPELINE_CALL_LOG, "calls.jsonl", "{}\n", None, None),
+                (ArtifactRole.PIPELINE_LOG, "pipeline.log", "failed\n", None, None),
+            ],
+        )
+        load_strict_resolver(run_dir, require_final=True)
+
+
+class TestStrictValidationNegativeCases:
+    def _base(self, tmp_path):
+        run_dir = tmp_path / _VALID_RUN_ID
+        return run_dir, _mayor_valid_run(run_dir)
+
+    @pytest.mark.parametrize(
+        "bad_path",
+        [
+            "/etc/passwd",
+            "scenarios\\s1.yaml",
+            "./use-case.txt",
+            "scenarios//s1.yaml",
+            "../use-case.txt",
+        ],
+    )
+    def test_noncanonical_paths_raise(self, tmp_path, bad_path):
+        run_dir, manifest = self._base(tmp_path)
+        manifest.inventory[0].path = bad_path
+        with pytest.raises(ManifestIntegrityError):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    def test_duplicate_canonical_path_raises(self, tmp_path):
+        run_dir, manifest = self._base(tmp_path)
+        manifest.inventory.append(manifest.inventory[0].model_copy())
+        with pytest.raises(
+            ManifestIntegrityError, match="Duplicate artifact canonical"
+        ):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    def test_duplicate_singleton_role_raises(self, tmp_path):
+        run_dir, manifest = self._base(tmp_path)
+        duplicate = run_dir / "other.txt"
+        duplicate.write_text("other")
+        manifest.inventory.append(
+            build_artifact_entry(ArtifactRole.USE_CASE, run_dir, "other.txt")
+        )
+        with pytest.raises(ManifestIntegrityError):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    @pytest.mark.parametrize("field", ["scenario_id", "candidate_id"])
+    def test_missing_scenario_identity_raises(self, tmp_path, field):
+        run_dir, manifest = self._base(tmp_path)
+        entry = next(
+            e for e in manifest.inventory if e.role == ArtifactRole.SCENARIO_YAML
+        )
+        setattr(entry, field, None)
+        with pytest.raises(ManifestIntegrityError):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    def test_hash_mismatch_raises(self, tmp_path):
+        run_dir, manifest = self._base(tmp_path)
+        (run_dir / "use-case.txt").write_text("mutated")
+        with pytest.raises(ManifestIntegrityError, match="Hash mismatch"):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    def test_malformed_hash_raises(self, tmp_path):
+        run_dir, manifest = self._base(tmp_path)
+        manifest.inventory[0].sha256 = "bad"
+        with pytest.raises(ManifestIntegrityError, match="Malformed SHA"):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    @pytest.mark.parametrize(
+        ("field", "value"), [("media_type", "text/xml"), ("schema_version", "99")]
+    )
+    def test_wrong_metadata_raises(self, tmp_path, field, value):
+        run_dir, manifest = self._base(tmp_path)
+        entry = next(e for e in manifest.inventory if e.path.endswith("s1.yaml"))
+        setattr(entry, field, value)
+        with pytest.raises(ManifestIntegrityError):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    def test_wrong_extension_raises(self, tmp_path):
+        run_dir, manifest = self._base(tmp_path)
+        entry = next(e for e in manifest.inventory if e.path.endswith("s1.yaml"))
+        source = run_dir / entry.path
+        target = source.with_suffix(".txt")
+        source.rename(target)
+        entry.path = "scenarios/s1.txt"
+        entry.sha256 = compute_file_sha256(target)
+        with pytest.raises(ManifestIntegrityError):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    def test_duplicate_candidate_across_scenarios_raises(self, tmp_path):
+        run_dir, manifest = self._base(tmp_path)
+        for suffix, role, content in [
+            ("yaml", ArtifactRole.SCENARIO_YAML, yaml.safe_dump(_make_scenario("s2"))),
+            ("feature", ArtifactRole.SCENARIO_FEATURE, _make_feature("s2")),
+        ]:
+            path = run_dir / f"scenarios/s2.{suffix}"
+            path.write_text(content)
+            manifest.inventory.append(
+                build_artifact_entry(
+                    role, run_dir, f"scenarios/s2.{suffix}", "s2", "cand-1"
+                )
+            )
+        with pytest.raises(ManifestIntegrityError, match="candidate"):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    @pytest.mark.parametrize("defect", ["inventory", "filename", "feature"])
+    def test_scenario_identity_mismatches_raise(self, tmp_path, defect):
+        run_dir, manifest = self._base(tmp_path)
+        yaml_entry = next(
+            e for e in manifest.inventory if e.role == ArtifactRole.SCENARIO_YAML
+        )
+        feature_entry = next(
+            e for e in manifest.inventory if e.role == ArtifactRole.SCENARIO_FEATURE
+        )
+        if defect == "inventory":
+            yaml_entry.scenario_id = "different"
+        elif defect == "feature":
+            feature_entry.scenario_id = "different"
+        else:
+            old = run_dir / yaml_entry.path
+            new = old.with_name("different.yaml")
+            old.rename(new)
+            yaml_entry.path = "scenarios/different.yaml"
+            yaml_entry.sha256 = compute_file_sha256(new)
+        with pytest.raises(ManifestIntegrityError):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+    def test_orphan_file_raises(self, tmp_path):
+        run_dir, manifest = self._base(tmp_path)
+        (run_dir / "orphan.txt").write_text("unexpected")
+        with pytest.raises(ManifestIntegrityError, match="orphan"):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+
+class TestProvenanceStartSnapshot:
+    def test_input_hashes_remain_start_snapshot(self, tmp_path: Path):
+        from scenario_forge.pipeline.runner import _capture_input_hashes
+
+        risk = tmp_path / "risk.json"
+        sssom = tmp_path / "mapping.tsv"
+        cross = tmp_path / "cross.yaml"
+        risk.write_text("original")
+        sssom.write_text("mapping")
+        cross.write_text("cross")
+        hashes = _capture_input_hashes("chatbot", risk, sssom, cross, None, None)
+        original = hashes.risk_extraction_hash
+        risk.write_text("mutated")
+        assert hashes.risk_extraction_hash == original
+        assert hashes.risk_extraction_hash != compute_file_sha256(risk)
+
+    def test_capture_provenance_uses_git_state_at_call_time(self, tmp_path: Path):
+        with patch("scenario_forge.manifest.capture_git_provenance") as capture:
+            capture.return_value = GitProvenance(
+                commit="first",
+                dirty=False,
+                source_diff_digest=None,
+                branch="main",
+                untracked_files=[],
+            )
+            provenance = capture_provenance(
+                _VALID_RUN_ID, "2026-01-01T00:00:00+00:00", repo_root=tmp_path
+            )
+        capture.assert_called_with(tmp_path)
+        assert provenance.git.commit == "first"
+
+
+class TestFaultInjection:
+    @staticmethod
+    def _inputs(tmp_path):
+        risk = tmp_path / "risk.json"
+        sssom = tmp_path / "sssom.tsv"
+        risk.write_text("[]")
+        sssom.write_text("")
+        return risk, sssom
+
+    def test_client_construction_failure_leaves_failed_manifest(self, tmp_path: Path):
+        from scenario_forge.pipeline.runner import run_pipeline
+
+        risk, sssom = self._inputs(tmp_path)
+        collection = tmp_path / "output"
+        with patch(
+            "scenario_forge.pipeline.runner.LLMClient.__init__",
+            side_effect=RuntimeError("client failure"),
+        ):
+            with pytest.raises(RuntimeError, match="client failure"):
+                run_pipeline(
+                    use_case="chatbot",
+                    risk_extraction_path=risk,
+                    sssom_path=sssom,
+                    output_dir=collection,
+                )
+        run_dir = next(path for path in collection.iterdir() if path.is_dir())
+        assert load_manifest(run_dir).status == RunStatus.FAILED
+
+    def test_use_case_write_failure_keeps_provenance(self, tmp_path: Path):
+        from scenario_forge.pipeline.runner import run_pipeline
+
+        risk, sssom = self._inputs(tmp_path)
+        collection = tmp_path / "output"
+        with patch(
+            "scenario_forge.pipeline.runner.write_use_case",
+            side_effect=OSError("disk full"),
+        ):
+            with pytest.raises(OSError, match="disk full"):
+                run_pipeline(
+                    use_case="chatbot",
+                    risk_extraction_path=risk,
+                    sssom_path=sssom,
+                    output_dir=collection,
+                )
+        run_dir = next(path for path in collection.iterdir() if path.is_dir())
+        manifest = load_manifest(run_dir)
+        assert manifest.status == RunStatus.FAILED
+        assert manifest.provenance is not None
+        assert manifest.provenance.input_hashes.risk_extraction_hash
+
+    def test_finalization_failure_propagates(self, tmp_path: Path):
+        from scenario_forge.pipeline.runner import run_pipeline
+
+        risk, sssom = self._inputs(tmp_path)
+        with patch(
+            "scenario_forge.pipeline.runner.finalize_manifest",
+            side_effect=RuntimeError("finalize failure"),
+        ):
+            with pytest.raises(RuntimeError, match="finalize failure"):
+                run_pipeline(
+                    use_case="chatbot",
+                    risk_extraction_path=risk,
+                    sssom_path=sssom,
+                    output_dir=tmp_path / "output",
+                )
 
     @patch("scenario_forge.report.generator.generate_report")
     @patch("scenario_forge.pipeline.runner.analyze_attacker_diversity")
