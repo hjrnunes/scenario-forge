@@ -412,8 +412,8 @@ class TestPhantomToolValidation:
         )
 
         return ScenarioEnvelope(
-            scenario_id="AP-T2-01-abc123",
-            candidate_id="cand:v1:test0000000000000000000000000000",
+            scenario_id="scenario:v2:e57506e29f4fc074e28395ca4cfa61d98d4e927d906b3e176611aaead83608c0",
+            candidate_id="cand:v1:7e57c0de000000000000000000000000",
             seed_id="AP-T2-01",
             generated_at=datetime.now(),
             generator_version="0.1.0",

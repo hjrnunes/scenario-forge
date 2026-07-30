@@ -56,7 +56,7 @@ from scenario_forge.pipeline.validation import (
 def _make_envelope(
     step_actions: list[str] | None = None,
     step_effects: list[str] | None = None,
-    scenario_id: str = "AP-T3-02-abc123",
+    scenario_id: str = "scenario:v2:3fb3840184bb17d5a7084ebdb4608a36b89bfb04245a019edbd2058e98f8c874",
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing."""
     if step_actions is None:
@@ -153,7 +153,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -690,14 +690,14 @@ class TestSystemPromptRetrievalIntegration:
         """Batch with clean and flagged scenarios separates correctly."""
         clean = _make_envelope(
             step_actions=["I craft a carefully designed prompt."],
-            scenario_id="clean-1",
+            scenario_id="scenario:v2:9eaa3d9b0f203d869070fed43310c7a33e32df85ddccf0b03a91ce7633f1b8e7",
         )
         flagged = _make_envelope(
             step_actions=[
                 "The attacker extracts the system prompt via "
                 "a diagnostic endpoint call."
             ],
-            scenario_id="flagged-1",
+            scenario_id="scenario:v2:3eeab37ecf938cf0e0255163f2983c909c89e4147245dd3c66cc114d12240a78",
         )
         profile = _make_profile()
         result = validate_phantom_capabilities([clean, flagged], profile)
@@ -707,6 +707,7 @@ class TestSystemPromptRetrievalIntegration:
             v
             for scenario, violations in result.flagged_scenarios
             for v in violations
-            if scenario.scenario_id == "flagged-1"
+            if scenario.scenario_id
+            == "scenario:v2:3eeab37ecf938cf0e0255163f2983c909c89e4147245dd3c66cc114d12240a78"
         ]
         assert any(v.category == "system_prompt_retrieval" for v in flagged_violations)

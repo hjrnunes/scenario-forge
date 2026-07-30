@@ -190,8 +190,8 @@ def _make_envelope(
         }
 
     return ScenarioEnvelope(
-        scenario_id="AP-T1-01-abc123",
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,

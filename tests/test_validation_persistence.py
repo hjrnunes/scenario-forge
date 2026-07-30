@@ -55,7 +55,7 @@ from scenario_forge.pipeline.generate import (
 
 
 def _make_envelope(
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
     validation: ValidationBlock | None = None,
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope."""
@@ -360,7 +360,9 @@ class TestRewriteIntegrity:
 
     def test_roundtrip_scenario_id_stable(self, tmp_path: Path) -> None:
         """scenario_id must remain identical through write-rewrite cycle."""
-        envelope = _make_envelope(scenario_id="AP-T7-02-deadbeef")
+        envelope = _make_envelope(
+            scenario_id="scenario:v2:d8b4c4b8cc85af40c32ff4240a9890dc8aa7544a67ea76cbeb692f66e4010384"
+        )
         write_scenario_outputs(envelope, tmp_path)
 
         envelope.validation = ValidationBlock(
@@ -373,9 +375,10 @@ class TestRewriteIntegrity:
             envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
         )
 
-        yaml_path = tmp_path / "AP-T7-02-deadbeef.yaml"
+        sid = "scenario:v2:d8b4c4b8cc85af40c32ff4240a9890dc8aa7544a67ea76cbeb692f66e4010384"
+        yaml_path = tmp_path / f"{sid}.yaml"
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-        assert data["scenario_id"] == "AP-T7-02-deadbeef"
+        assert data["scenario_id"] == sid
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +441,9 @@ class TestParsimonyIntegration:
             ],
         )
 
-        envelope = _make_envelope(scenario_id="AP-T1-01-prunable")
+        envelope = _make_envelope(
+            scenario_id="scenario:v2:c56a3203727bbad6f1fbd6d51a5b225dfb3802cddd0407116560ca01e96547da"
+        )
         envelope.attack_tree = AttackTree(
             id="tree-AP-T1-01",
             seed_id="AP-T1-01",
@@ -543,7 +548,9 @@ class TestParsimonyIntegration:
             ],
         )
 
-        envelope = _make_envelope(scenario_id="AP-T1-01-prune-write")
+        envelope = _make_envelope(
+            scenario_id="scenario:v2:0843eaa7117a37b66e1f6e09f8994c23076f66d31489752621bd58fea7cf17d9"
+        )
         envelope.attack_tree = AttackTree(
             id="tree-AP-T1-01",
             seed_id="AP-T1-01",

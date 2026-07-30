@@ -52,7 +52,7 @@ from scenario_forge.pipeline.validation import (
 
 def _make_envelope(
     root: AttackTreeNode,
-    scenario_id: str = "AP-T7-01-abc123",
+    scenario_id: str = "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope with a custom tree root."""
     narrative = NarrativeLayer(
@@ -126,7 +126,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -262,7 +262,10 @@ class TestBlankLeavesFlagged:
         assert result.flagged_count == 1
         assert result.clean_count == 0
         flagged_scenario, violations = result.flagged_scenarios[0]
-        assert flagged_scenario.scenario_id == "AP-T7-01-abc123"
+        assert (
+            flagged_scenario.scenario_id
+            == "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d"
+        )
         assert len(violations) == 1
         assert violations[0].node_id == "n1.2"
         assert violations[0].zone == "reasoning"
@@ -540,7 +543,10 @@ class TestMixedBatch:
                 ),
             ],
         )
-        clean = _make_envelope(clean_root, scenario_id="AP-T7-01-clean1")
+        clean = _make_envelope(
+            clean_root,
+            scenario_id="scenario:v2:3fe72dc9acc52d6081735dbe93dd9f40404d20c38dd815faeacf88ae2a61ee10",
+        )
 
         flagged_root = AttackTreeNode(
             id="n1",
@@ -564,14 +570,23 @@ class TestMixedBatch:
                 ),
             ],
         )
-        flagged = _make_envelope(flagged_root, scenario_id="AP-T7-01-flagg1")
+        flagged = _make_envelope(
+            flagged_root,
+            scenario_id="scenario:v2:93560bc1c092ed28c1cea1c156c8b8ae76304085cc15bc1d5325bccf5cf20792",
+        )
 
         result = validate_blank_leaves([clean, flagged])
 
         assert result.clean_count == 1
         assert result.flagged_count == 1
-        assert result.clean_scenarios[0].scenario_id == "AP-T7-01-clean1"
-        assert result.flagged_scenarios[0][0].scenario_id == "AP-T7-01-flagg1"
+        assert (
+            result.clean_scenarios[0].scenario_id
+            == "scenario:v2:3fe72dc9acc52d6081735dbe93dd9f40404d20c38dd815faeacf88ae2a61ee10"
+        )
+        assert (
+            result.flagged_scenarios[0][0].scenario_id
+            == "scenario:v2:93560bc1c092ed28c1cea1c156c8b8ae76304085cc15bc1d5325bccf5cf20792"
+        )
 
 
 # ---------------------------------------------------------------------------

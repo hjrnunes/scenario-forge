@@ -835,6 +835,22 @@ def compute_artifact_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _cleanup_created_files(created_files: list[Path]) -> None:
+    """Remove files created by the current call.  If cleanup fails, raise
+    a fatal integrity error rather than silently passing."""
+    cleanup_errors: list[str] = []
+    for path in created_files:
+        try:
+            path.unlink()
+        except OSError as exc:
+            cleanup_errors.append(f"{path}: {exc}")
+    if cleanup_errors:
+        raise ScenarioForgeIntegrityError(
+            f"Failed to clean up files created by current write call: "
+            f"{'; '.join(cleanup_errors)}"
+        )
+
+
 def write_scenario_outputs(
     envelope: ScenarioEnvelope,
     output_dir: Path,
@@ -891,23 +907,36 @@ def write_scenario_outputs(
         feature_text = envelope.behavior_spec  # type: ignore[assignment]
 
     # Track files created by this call for cleanup on failure.
+    # A path is registered as current-call-owned immediately after the
+    # exclusive open succeeds, before any write, so that cleanup covers
+    # files even if the write itself fails.
     created_files: list[Path] = []
     try:
-        with envelope_path.open("x", encoding="utf-8") as f:
-            f.write(yaml_text)
+        try:
+            fh = envelope_path.open("x", encoding="utf-8")
+        except FileExistsError as exc:
+            raise ScenarioForgeIntegrityError(
+                f"Scenario YAML already exists (race): {envelope_path}"
+            ) from exc
         created_files.append(envelope_path)
+        with fh:
+            fh.write(yaml_text)
 
         if feature_path is not None and feature_text is not None:
-            with feature_path.open("x", encoding="utf-8") as f:
-                f.write(feature_text)
-            created_files.append(feature_path)
-    except Exception:
-        # Clean up only files created by this call.
-        for path in created_files:
             try:
-                path.unlink()
-            except OSError:
-                pass
+                fh = feature_path.open("x", encoding="utf-8")
+            except FileExistsError as exc:
+                raise ScenarioForgeIntegrityError(
+                    f"Scenario feature already exists (race): {feature_path}"
+                ) from exc
+            created_files.append(feature_path)
+            with fh:
+                fh.write(feature_text)
+    except ScenarioForgeIntegrityError:
+        _cleanup_created_files(created_files)
+        raise
+    except Exception:
+        _cleanup_created_files(created_files)
         raise
 
     return envelope_path, feature_path

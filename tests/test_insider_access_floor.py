@@ -57,7 +57,7 @@ def _make_envelope(
     step_effects: list[str] | None = None,
     summary: str = "An insider attacks the system.",
     resources: list[str] | None = None,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
 ) -> ScenarioEnvelope:
     """Build a minimal ScenarioEnvelope with an actor profile for testing."""
     if step_actions is None:
@@ -163,7 +163,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -455,19 +455,19 @@ class TestBatchValidation:
         scenarios = [
             # Passes: insider with internal system
             _make_envelope(
-                scenario_id="insider-good",
+                scenario_id="scenario:v2:cff7f3f347f1cb94c1a3120f82e8564d63ef811b41784cc50d2d7b2ec05da64b",
                 step_actions=["Access the internal system"],
             ),
             # Fails: insider with only public actions
             _make_envelope(
-                scenario_id="insider-bad",
+                scenario_id="scenario:v2:cc2675b912bd0ffb62b4b2b77b59c46712c32ac167201286e694bdd306ed11d0",
                 summary="An attack.",
                 step_actions=["Send a prompt to the chatbot"],
                 resources=["Tools"],
             ),
             # Passes: not an insider
             _make_envelope(
-                scenario_id="external",
+                scenario_id="scenario:v2:3c4623849a49a53911c4a3e48d8cead8a1858960bccdea7a1b978d73ec2f06d7",
                 actor_type="adversarial-user",
                 step_actions=["Send a prompt"],
             ),
@@ -475,7 +475,10 @@ class TestBatchValidation:
         result = validate_insider_access_floor(scenarios)
         assert result.clean_count == 2
         assert result.flagged_count == 1
-        assert result.flagged_scenarios[0][0].scenario_id == "insider-bad"
+        assert (
+            result.flagged_scenarios[0][0].scenario_id
+            == "scenario:v2:cc2675b912bd0ffb62b4b2b77b59c46712c32ac167201286e694bdd306ed11d0"
+        )
 
     def test_empty_batch(self):
         result = validate_insider_access_floor([])

@@ -142,7 +142,7 @@ def _dual_or_gate_tree() -> AttackTree:
 def _make_scenario(
     tree: AttackTree,
     behavior_spec: str,
-    scenario_id: str = "test-scenario-001",
+    scenario_id: str = "scenario:v2:6371d0867a839014a8322fbe7a1da0ac84164d2cf2da848cbe0ab719d816404a",
 ) -> ScenarioEnvelope:
     """Build a minimal ScenarioEnvelope for validation testing."""
     narrative = NarrativeLayer(
@@ -209,7 +209,7 @@ def _make_scenario(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         scenario_seed_metadata={
@@ -378,8 +378,16 @@ class TestValidateGateLogicConsistency:
             "    And option 2\n"
             "    Then result\n"
         )
-        s1 = _make_scenario(_and_only_tree(), clean_gherkin, "s1")
-        s2 = _make_scenario(_or_gate_tree(), flagged_gherkin, "s2")
+        s1 = _make_scenario(
+            _and_only_tree(),
+            clean_gherkin,
+            "scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
+        )
+        s2 = _make_scenario(
+            _or_gate_tree(),
+            flagged_gherkin,
+            "scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
+        )
         result = validate_gate_logic_consistency([s1, s2])
         assert result.clean_count == 1
         assert result.flagged_count == 1

@@ -61,7 +61,7 @@ def _make_tree(
 def _make_envelope(
     root: AttackTreeNode,
     atlas_technique_ids: list[str] | None = None,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope with a custom tree root."""
     narrative = NarrativeLayer(
@@ -130,7 +130,7 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id=scenario_id,
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,

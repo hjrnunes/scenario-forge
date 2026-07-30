@@ -132,14 +132,32 @@ class CandidateFunnel(BaseModel):
     selected: int = Field(
         description="Candidates remaining after capping/selection.",
     )
+    main_attempted: int = Field(
+        description="Main generation attempts (from selected candidates).",
+    )
+    main_admitted: int = Field(
+        description="Main scenarios successfully generated and written.",
+    )
+    generation_failed: int = Field(
+        description="Main generation attempts that failed (recoverable).",
+    )
+    remediation_attempted: int = Field(
+        description="Remediation generation attempts for uncovered entry points.",
+    )
+    remediation_admitted: int = Field(
+        description="Remediation scenarios successfully generated and written.",
+    )
+    remediation_failed: int = Field(
+        description="Remediation generation attempts that failed (recoverable).",
+    )
     attempted: int = Field(
-        description="Generation attempts made (including remediation).",
+        description="Total generation attempts (main + remediation).",
     )
     admitted: int = Field(
-        description="Scenarios successfully generated and written to disk.",
+        description="Total scenarios successfully generated and written to disk.",
     )
     quarantined: int = Field(
-        description="Scenarios that failed validation (quarantined).",
+        description="Scenarios that failed validation (quarantined, subset of admitted).",
     )
     persisted_artifacts: int = Field(
         description="YAML/feature artifact pairs persisted to disk.",
@@ -147,7 +165,7 @@ class CandidateFunnel(BaseModel):
 
     @model_validator(mode="after")
     def _validate_funnel(self) -> CandidateFunnel:
-        """Validate nonnegative counts and reconciliation equations."""
+        """Validate nonnegative counts and exact reconciliation equations."""
         for field_name in type(self).model_fields:
             val = getattr(self, field_name)
             if val < 0:
@@ -171,20 +189,59 @@ class CandidateFunnel(BaseModel):
                 f"unique_pre_rule_identities - rule_rejected - "
                 f"post_rule_collapsed = {expected_submitted}"
             )
+        if self.filter_accepted > self.filter_submitted:
+            raise ValueError(
+                f"filter_accepted ({self.filter_accepted}) must be <= "
+                f"filter_submitted ({self.filter_submitted})"
+            )
         if self.selected > self.filter_accepted:
             raise ValueError(
                 f"selected ({self.selected}) must be <= "
                 f"filter_accepted ({self.filter_accepted})"
             )
-        if self.admitted > self.attempted:
+        # Main lifecycle: selected candidates each get one attempt.
+        if self.main_attempted != self.selected:
             raise ValueError(
-                f"admitted ({self.admitted}) must be <= attempted ({self.attempted})"
+                f"main_attempted ({self.main_attempted}) must equal "
+                f"selected ({self.selected})"
             )
+        # Each main attempt is either admitted or failed.
+        if self.main_attempted != self.main_admitted + self.generation_failed:
+            raise ValueError(
+                f"main_attempted ({self.main_attempted}) must equal "
+                f"main_admitted ({self.main_admitted}) + "
+                f"generation_failed ({self.generation_failed})"
+            )
+        # Remediation lifecycle: each attempt is admitted or failed.
+        if self.remediation_attempted != (
+            self.remediation_admitted + self.remediation_failed
+        ):
+            raise ValueError(
+                f"remediation_attempted ({self.remediation_attempted}) must equal "
+                f"remediation_admitted ({self.remediation_admitted}) + "
+                f"remediation_failed ({self.remediation_failed})"
+            )
+        # Aggregate attempted = main + remediation.
+        if self.attempted != self.main_attempted + self.remediation_attempted:
+            raise ValueError(
+                f"attempted ({self.attempted}) must equal "
+                f"main_attempted ({self.main_attempted}) + "
+                f"remediation_attempted ({self.remediation_attempted})"
+            )
+        # Aggregate admitted = main + remediation.
+        if self.admitted != self.main_admitted + self.remediation_admitted:
+            raise ValueError(
+                f"admitted ({self.admitted}) must equal "
+                f"main_admitted ({self.main_admitted}) + "
+                f"remediation_admitted ({self.remediation_admitted})"
+            )
+        # Quarantine is a subset of admitted.
         if self.quarantined > self.admitted:
             raise ValueError(
                 f"quarantined ({self.quarantined}) must be <= "
                 f"admitted ({self.admitted})"
             )
+        # Every admitted scenario has exactly one persisted artifact pair.
         if self.persisted_artifacts != self.admitted:
             raise ValueError(
                 f"persisted_artifacts ({self.persisted_artifacts}) must equal "
@@ -405,7 +462,9 @@ class RejectionRecord(BaseModel):
     Carries the canonical ``candidate_id`` alongside the display metadata
     (entry point, technique IDs) resolved from the candidate lookup, so
     the report can show what was rejected without relying on LLM-echoed
-    metadata.
+    metadata.  For fully rejected combinations, ``removal_decisions``
+    carries per-technique rule/reason provenance rather than only the
+    first rationale.
     """
 
     candidate_id: str = Field(
@@ -415,7 +474,15 @@ class RejectionRecord(BaseModel):
     atlas_technique_ids: tuple[str, ...] = Field(
         description="Technique combo of the rejected candidate."
     )
-    rationale: str = Field(description="Rejection rationale.")
+    rationale: str = Field(description="Rejection rationale (primary/summary).")
+    removal_decisions: tuple[RemovalDecision, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "Per-technique rejection decisions for fully rejected "
+            "combinations, so every removed technique carries its own "
+            "rule and reason rather than only the first."
+        ),
+    )
 
 
 class FilterProtocolError(Exception):
@@ -763,6 +830,103 @@ def _canonicalize_techniques(
     return sorted_ids, sorted_names, sorted_descs
 
 
+def _canonicalize_origin(origin: CandidateOrigin) -> CandidateOrigin:
+    """Return a canonicalized copy of a CandidateOrigin.
+
+    Sorts ``original_technique_ids``, ``removed_technique_ids``, and
+    ``removal_decisions`` so that the origin serializes identically
+    regardless of input ordering.  ``removal_reasons`` are re-aligned
+    to the sorted ``removed_technique_ids`` order.
+    """
+    sorted_original = tuple(sorted(origin.original_technique_ids))
+    sorted_removed = tuple(sorted(origin.removed_technique_ids))
+    sorted_decisions = tuple(
+        sorted(origin.removal_decisions, key=lambda d: d.technique_id)
+    )
+    # Re-align removal_reasons to sorted removed_technique_ids order.
+    if origin.removed_technique_ids and origin.removal_reasons:
+        tid_to_reason = dict(zip(origin.removed_technique_ids, origin.removal_reasons))
+        sorted_reasons = tuple(tid_to_reason.get(tid, "") for tid in sorted_removed)
+    else:
+        sorted_reasons = origin.removal_reasons
+    return CandidateOrigin(
+        source_candidate_id=origin.source_candidate_id,
+        original_technique_ids=sorted_original,
+        applied_rule=origin.applied_rule,
+        removed_technique_ids=sorted_removed,
+        removal_reasons=sorted_reasons,
+        removal_decisions=sorted_decisions,
+        transform_stage=origin.transform_stage,
+    )
+
+
+def _canonicalize_and_dedup_origins(
+    all_origins: list[CandidateOrigin],
+) -> list[CandidateOrigin]:
+    """Canonicalize, deduplicate, and sort origins deterministically."""
+    canonicalized = [_canonicalize_origin(o) for o in all_origins]
+    seen: set[tuple] = set()
+    unique: list[CandidateOrigin] = []
+    for origin in canonicalized:
+        key = (
+            origin.source_candidate_id,
+            origin.transform_stage,
+            origin.original_technique_ids,
+            origin.removed_technique_ids,
+            origin.applied_rule,
+            origin.removal_reasons,
+            tuple((d.technique_id, d.rule, d.reason) for d in origin.removal_decisions),
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(origin)
+    unique.sort(
+        key=lambda o: (
+            o.source_candidate_id,
+            o.transform_stage,
+            o.original_technique_ids,
+            o.removed_technique_ids,
+            o.applied_rule or "",
+            o.removal_reasons,
+            tuple((d.technique_id, d.rule, d.reason) for d in o.removal_decisions),
+        )
+    )
+    return unique
+
+
+def _check_converged_technique_metadata(
+    group: list[CandidateTriple],
+) -> None:
+    """Compare canonical technique ID/name/description mappings across
+    every converged candidate and reject conflicts."""
+    ref_map: dict[str, tuple[str, str]] | None = None
+    for c in group:
+        c_map: dict[str, tuple[str, str]] = {}
+        for tid, name, desc in zip(
+            c.atlas_technique_ids,
+            c.atlas_technique_names,
+            c.atlas_technique_descriptions,
+            strict=False,
+        ):
+            c_map[tid] = (name, desc)
+        if ref_map is None:
+            ref_map = c_map
+            continue
+        # Compare keys (technique IDs) — must be the same set.
+        if set(ref_map) != set(c_map):
+            raise ValueError(
+                f"Conflicting technique ID sets for converged candidate: "
+                f"{sorted(ref_map)} vs {sorted(c_map)}"
+            )
+        # Compare per-ID metadata.
+        for tid in ref_map:
+            if ref_map[tid] != c_map[tid]:
+                raise ValueError(
+                    f"Conflicting technique metadata for ID '{tid}': "
+                    f"{ref_map[tid]!r} vs {c_map[tid]!r}"
+                )
+
+
 def canonicalize_and_dedup(
     candidates: list[CandidateTriple],
     stage: str,
@@ -829,46 +993,13 @@ def canonicalize_and_dedup(
 
         # Multiple candidates converged — merge origins.
         collapsed_count += len(group) - 1
-        # Collect all origins, then canonical-sort and dedup them so the
-        # result is deterministic regardless of input ordering.
+        # Compare technique metadata across all converged candidates
+        # before choosing a template.
+        _check_converged_technique_metadata(group)
         all_origins: list[CandidateOrigin] = []
         for c in group:
             all_origins.extend(c.origins)
-        # Dedup identical origins and sort by a stable key that includes
-        # all provenance fields (including removal_decisions and reasons)
-        # so semantically different provenance does not collapse.
-        seen_origins: set[tuple] = set()
-        unique_origins: list[CandidateOrigin] = []
-        for origin in all_origins:
-            sort_key = (
-                origin.source_candidate_id,
-                origin.transform_stage,
-                tuple(sorted(origin.original_technique_ids)),
-                tuple(sorted(origin.removed_technique_ids)),
-                origin.applied_rule,
-                tuple(origin.removal_reasons),
-                tuple(
-                    (rd.technique_id, rd.rule, rd.reason)
-                    for rd in origin.removal_decisions
-                ),
-            )
-            if sort_key not in seen_origins:
-                seen_origins.add(sort_key)
-                unique_origins.append(origin)
-        # Sort by the same canonical key for deterministic output.
-        unique_origins.sort(
-            key=lambda o: (
-                o.source_candidate_id,
-                o.transform_stage,
-                tuple(sorted(o.original_technique_ids)),
-                tuple(sorted(o.removed_technique_ids)),
-                o.applied_rule or "",
-                tuple(o.removal_reasons),
-                tuple(
-                    (rd.technique_id, rd.rule, rd.reason) for rd in o.removal_decisions
-                ),
-            )
-        )
+        unique_origins = _canonicalize_and_dedup_origins(all_origins)
 
         # Reject conflicting non-provenance metadata across converged
         # candidates.  All candidates with the same canonical identity
@@ -1834,6 +1965,18 @@ def apply_rule_based_filter(
         if not compatible_ids:
             # All techniques rejected -- reject the entire candidate.
             rule_rejected.append(candidate)
+            # Build per-removal decisions for fully rejected combos so
+            # every removed technique carries its own rule/reason.
+            full_rejection_decisions = tuple(
+                RemovalDecision(
+                    technique_id=tid,
+                    rule=rule_name or "unknown",
+                    reason=reason,
+                )
+                for tid, rule_name, reason in zip(
+                    removed_tids, removed_rules, removed_reasons
+                )
+            )
             rejection_verdicts.append(
                 RejectionRecord(
                     candidate_id=candidate.candidate_id,
@@ -1842,6 +1985,7 @@ def apply_rule_based_filter(
                     rationale=combo_rationales[0]
                     if combo_rationales
                     else "Rule-rejected.",
+                    removal_decisions=full_rejection_decisions,
                 )
             )
             continue
@@ -2061,41 +2205,11 @@ def _dedup_filtered_seeds(
         if len(group) == 1:
             result.append(group[0])
             continue
-        # Merge origins from all duplicates, dedup and sort deterministically.
+        # Merge origins from all duplicates, canonicalize and dedup.
         all_origins: list[CandidateOrigin] = []
         for fs in group:
             all_origins.extend(fs.origins)
-        seen_origins: set[tuple] = set()
-        unique_origins: list[CandidateOrigin] = []
-        for origin in all_origins:
-            sort_key = (
-                origin.source_candidate_id,
-                origin.transform_stage,
-                tuple(sorted(origin.original_technique_ids)),
-                tuple(sorted(origin.removed_technique_ids)),
-                origin.applied_rule,
-                tuple(origin.removal_reasons),
-                tuple(
-                    (rd.technique_id, rd.rule, rd.reason)
-                    for rd in origin.removal_decisions
-                ),
-            )
-            if sort_key not in seen_origins:
-                seen_origins.add(sort_key)
-                unique_origins.append(origin)
-        unique_origins.sort(
-            key=lambda o: (
-                o.source_candidate_id,
-                o.transform_stage,
-                tuple(sorted(o.original_technique_ids)),
-                tuple(sorted(o.removed_technique_ids)),
-                o.applied_rule or "",
-                tuple(o.removal_reasons),
-                tuple(
-                    (rd.technique_id, rd.rule, rd.reason) for rd in o.removal_decisions
-                ),
-            )
-        )
+        unique_origins = _canonicalize_and_dedup_origins(all_origins)
         # Reject conflicting non-provenance metadata.
         template = group[0]
         _non_prov_fields = (

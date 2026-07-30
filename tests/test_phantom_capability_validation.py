@@ -55,7 +55,7 @@ from scenario_forge.pipeline.validation import (
 def _make_envelope(
     step_actions: list[str] | None = None,
     step_effects: list[str] | None = None,
-    scenario_id: str = "AP-T1-01-abc123",
+    scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing."""
     if step_actions is None:
@@ -215,15 +215,15 @@ class TestCleanScenariosPass:
         scenarios = [
             _make_envelope(
                 step_actions=["I probe the system with edge-case inputs."],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_actions=["I manipulate the conversation context."],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
             _make_envelope(
                 step_actions=["I exploit a reasoning flaw."],
-                scenario_id="s3",
+                scenario_id="scenario:v2:41242b9fae56fad4e6e77dfe33cb18d1c3fc583f988cf25ef9f2d9be0d440bbb",
             ),
         ]
         profile = _make_profile()
@@ -949,21 +949,27 @@ class TestMixedScenarios:
     def test_mixed_batch_separates_valid_from_flagged(self) -> None:
         clean = _make_envelope(
             step_actions=["I craft a carefully designed prompt."],
-            scenario_id="clean-1",
+            scenario_id="scenario:v2:9eaa3d9b0f203d869070fed43310c7a33e32df85ddccf0b03a91ce7633f1b8e7",
         )
         phantom = _make_envelope(
             step_actions=[
                 "I escalate privileges to gain elevated access to the admin role."
             ],
-            scenario_id="phantom-1",
+            scenario_id="scenario:v2:37648835af2884d288fd28c44ec221fa1293f8b40656cb48e2cf95e33632f115",
         )
         profile = _make_profile()
         result = validate_phantom_capabilities([clean, phantom], profile)
 
         assert result.valid_count == 1
         assert result.flagged_count == 1
-        assert result.valid_scenarios[0].scenario_id == "clean-1"
-        assert result.flagged_scenarios[0][0].scenario_id == "phantom-1"
+        assert (
+            result.valid_scenarios[0].scenario_id
+            == "scenario:v2:9eaa3d9b0f203d869070fed43310c7a33e32df85ddccf0b03a91ce7633f1b8e7"
+        )
+        assert (
+            result.flagged_scenarios[0][0].scenario_id
+            == "scenario:v2:37648835af2884d288fd28c44ec221fa1293f8b40656cb48e2cf95e33632f115"
+        )
 
     def test_multiple_violations_in_single_scenario(self) -> None:
         """A scenario with multiple phantom categories gets all violations."""
@@ -992,11 +998,11 @@ class TestMixedScenarios:
         scenarios = [
             _make_envelope(
                 step_actions=["I escalate privileges to gain admin access."],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_effects=["The system exposes the API key in plain text."],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
         ]
         profile = _make_profile()
@@ -1012,39 +1018,39 @@ class TestMixedScenarios:
         scenarios = [
             _make_envelope(
                 step_actions=["I escalate privileges to gain admin access."],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_effects=[
                     "The LLM outputs the authorization header containing "
                     "the bearer token."
                 ],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
             _make_envelope(
                 step_effects=["The system generates a Python script for the attacker."],
-                scenario_id="s3",
+                scenario_id="scenario:v2:41242b9fae56fad4e6e77dfe33cb18d1c3fc583f988cf25ef9f2d9be0d440bbb",
             ),
             _make_envelope(
                 step_actions=[
                     "The agent starts bulk messaging customers with scam links."
                 ],
-                scenario_id="s4",
+                scenario_id="scenario:v2:5b840157e7e86aef3b3fd0fc24f3add34d3e7f210370d429475ed1bcd3e7fca2",
             ),
             _make_envelope(
                 step_actions=["The attacker pivots to access another customer's data."],
-                scenario_id="s5",
+                scenario_id="scenario:v2:3b96fc064fa874a80a132bda60bebf54efbc780a358fdcae4fbbd7e12b66b630",
             ),
             _make_envelope(
                 step_effects=["The agent can now alter logs to remove evidence."],
-                scenario_id="s6",
+                scenario_id="scenario:v2:71e7690959239ca065841eba3ebb281072baa78ba0bb31079b9acb4a009a9fe3",
             ),
             _make_envelope(
                 step_actions=[
                     "The attacker triggers a Policy Audit tool invocation "
                     "to extract internal compliance data."
                 ],
-                scenario_id="s7",
+                scenario_id="scenario:v2:13d28fed9becbe6637ef6b017fbefef73b2b907e25eb00396f7c2675623e87f6",
             ),
         ]
         profile = _make_profile()
@@ -2053,23 +2059,23 @@ class TestV18CodeGenPatterns:
                 step_effects=[
                     "The agent performs exploit code assembly for the attacker."
                 ],
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
             ),
             _make_envelope(
                 step_effects=[
                     "The system does Python script generation for API exploitation."
                 ],
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
             _make_envelope(
                 step_effects=["The agent carries out obfuscated script synthesis."],
-                scenario_id="s3",
+                scenario_id="scenario:v2:41242b9fae56fad4e6e77dfe33cb18d1c3fc583f988cf25ef9f2d9be0d440bbb",
             ),
             _make_envelope(
                 step_effects=[
                     "The system outputs malicious code targeting the backend."
                 ],
-                scenario_id="s4",
+                scenario_id="scenario:v2:5b840157e7e86aef3b3fd0fc24f3add34d3e7f210370d429475ed1bcd3e7fca2",
             ),
         ]
         profile = _make_profile(kc_subcodes=["KC6.2.2"])

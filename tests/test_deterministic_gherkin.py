@@ -371,9 +371,12 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
-        assert "@id:AP-T7-01-abc123" in template
+        assert (
+            "@id:scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d"
+            in template
+        )
 
     def test_contains_violation_category_tag(self):
         template = _build_gherkin_template(
@@ -381,7 +384,7 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(threat_id="T5"),
-            scenario_tag="AP-T5-01-abc123",
+            scenario_tag="scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
         )
         assert "@cascading-hallucination-attacks" in template
 
@@ -423,7 +426,7 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert f"Feature: {narrative.title}" in template
 
@@ -433,7 +436,7 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert "Given user prompts via chat widget (input)" in template
 
@@ -443,7 +446,7 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert "When Inject crafted prompt [AML.T0051] (input)" in template
         assert "And Exploit reasoning bias [AML.T0054] (reasoning)" in template
@@ -458,7 +461,7 @@ class TestBuildGherkinTemplate:
                 zones=["input", "reasoning", "memory"],
             ),
             seed=_make_seed(threat_id="T5", seed_id="AP-T5-01"),
-            scenario_tag="AP-T5-01-abc123",
+            scenario_tag="scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
         )
         # n1.2.2 has no technique_id
         assert "And Persist to memory (memory)" in template
@@ -469,7 +472,7 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert _ASSERTIONS_MARKER in template
         # Marker appears exactly once
@@ -506,7 +509,7 @@ class TestBuildGherkinTemplate:
                 zones=["input", "reasoning", "memory"],
             ),
             seed=_make_seed(threat_id="T5", seed_id="AP-T5-01"),
-            scenario_tag="AP-T5-01-abc123",
+            scenario_tag="scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab",
         )
         # Extract the attack step lines from the scenario section
         scenario_part = template.split("Scenario:")[1]
@@ -534,7 +537,7 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=profile,
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # tree only uses input and reasoning, so tool_execution should be absent
         assert "Tool Execution capabilities (tool_execution)" not in template
@@ -581,7 +584,7 @@ class TestBuildGherkinTemplate:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Should appear exactly once, not doubled
         assert "(input) (input)" not in template
@@ -610,7 +613,7 @@ class TestBuildGherkinTemplate:
             attack_tree=tree,
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Raw ID should not appear as step text
         assert "When AML.T0053 [AML.T0053]" not in template
@@ -635,7 +638,7 @@ class TestBuildGherkinTemplate:
             attack_tree=tree,
             profile=profile,
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # tool_execution is in profile but not in tree leaves
         assert "tool_execution" not in template.split("Scenario:")[0]
@@ -925,7 +928,7 @@ class TestRawTechniqueNameSubstitution:
             attack_tree=tree,
             profile=_make_profile(zones=["input", "reasoning", "tool_execution"]),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Should NOT contain the raw technique name as step text
         assert "When AI Agent Tool Invocation [AML.T0053]" not in template
@@ -967,7 +970,7 @@ class TestRawTechniqueNameSubstitution:
             attack_tree=tree,
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Should NOT contain verbatim technique name as-is
         assert "When Indirect Prompt Injection [AML.T0051.001]" not in template
@@ -1006,7 +1009,7 @@ class TestRawTechniqueNameSubstitution:
             attack_tree=tree,
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Should use description, not the raw technique name
         assert "When Bypass safety via crafted prompts [AML.T0054] (input)" in template
@@ -1033,7 +1036,7 @@ class TestRawTechniqueNameSubstitution:
             attack_tree=tree,
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert "When Craft malicious payload [AML.T0051] (input)" in template
         assert "And Exploit trust boundary (reasoning)" in template
@@ -1124,7 +1127,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Should have 2 Scenario blocks
         import re
@@ -1139,7 +1142,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert "Scenario: Deceptive Response Generation (Path 1)" in template
         assert "Scenario: Deceptive Response Generation (Path 2)" in template
@@ -1151,7 +1154,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert template.count(_ASSERTIONS_MARKER) == 2
 
@@ -1162,7 +1165,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Step A (AND-required leaf) appears in both scenarios
         import re
@@ -1184,7 +1187,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         # Split by Scenario blocks
         import re
@@ -1205,7 +1208,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_dual_or_gates(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         import re
 
@@ -1220,7 +1223,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_or_at_root(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         import re
 
@@ -1236,7 +1239,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_simple(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         import re
 
@@ -1252,7 +1255,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert template.count("Background: Preconditions") == 1
 
@@ -1263,7 +1266,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         assert template.count("Feature:") == 1
 
@@ -1274,7 +1277,7 @@ class TestBuildGherkinTemplateOrGates:
             attack_tree=_make_tree_with_or_gate(),
             profile=_make_profile(),
             seed=_make_seed(),
-            scenario_tag="AP-T7-01-abc123",
+            scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
         import re
 

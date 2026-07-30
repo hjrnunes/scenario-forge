@@ -152,7 +152,7 @@ def _make_candidate(
 
 
 def _make_envelope(
-    scenario_id: str = "scenario:v2:test",
+    scenario_id: str = "scenario:v2:e0092602f437ae7806250ef92489227d6bffcd802ce4643e09dc5b3517e856fa",
     behavior_spec: str | None = None,
 ) -> ScenarioEnvelope:
     root = AttackTreeNode(
@@ -242,7 +242,7 @@ def _make_envelope(
     )
     return ScenarioEnvelope(
         scenario_id=scenario_id,
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(),
         generator_version="0.1.0",
         narrative=narrative,
@@ -635,14 +635,18 @@ class TestExclusiveWriteCreation:
 
     def test_write_succeeds_on_clean_dir(self, tmp_path: Path):
         """First write to a clean directory succeeds."""
-        env = _make_envelope(scenario_id="scenario:v2:abc")
+        env = _make_envelope(
+            scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
+        )
         yaml_path, feature_path = write_scenario_outputs(env, tmp_path)
         assert yaml_path.exists()
         assert feature_path is None  # No behavior_spec
 
     def test_write_fails_on_duplicate_yaml(self, tmp_path: Path):
         """Second write of same scenario_id fails with FileExistsError."""
-        env = _make_envelope(scenario_id="scenario:v2:abc")
+        env = _make_envelope(
+            scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
+        )
         write_scenario_outputs(env, tmp_path)
         with pytest.raises(ScenarioForgeIntegrityError, match="already exists"):
             write_scenario_outputs(env, tmp_path)
@@ -650,7 +654,7 @@ class TestExclusiveWriteCreation:
     def test_write_fails_on_duplicate_feature(self, tmp_path: Path):
         """Feature file collision is caught in preflight before YAML write."""
         env = _make_envelope(
-            scenario_id="scenario:v2:abc",
+            scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4",
             behavior_spec="Feature: Test\n  Scenario: Basic\n    Given something",
         )
         write_scenario_outputs(env, tmp_path)
@@ -661,11 +665,12 @@ class TestExclusiveWriteCreation:
         """Writing YAML without behavior_spec when a feature file exists
         for the same stem (but no YAML yet) raises ValueError."""
         # Manually create a .feature file without a .yaml
-        feature_path = tmp_path / "scenario:v2:abc.feature"
+        sid = "scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
+        feature_path = tmp_path / f"{sid}.feature"
         feature_path.write_text("Feature: Orphan\n", encoding="utf-8")
 
         # Now try to write a YAML without behavior_spec
-        env = _make_envelope(scenario_id="scenario:v2:abc")
+        env = _make_envelope(scenario_id=sid)
         with pytest.raises(ScenarioForgeIntegrityError, match="Stem mismatch"):
             write_scenario_outputs(env, tmp_path)
 
@@ -680,7 +685,9 @@ class TestGuardedReplacement:
 
     def test_replace_succeeds_for_same_scenario(self, tmp_path: Path):
         """Replacing an existing scenario with the same ID succeeds."""
-        env = _make_envelope(scenario_id="scenario:v2:abc")
+        env = _make_envelope(
+            scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
+        )
         write_scenario_outputs(env, tmp_path)
 
         # Modify and replace
@@ -693,17 +700,23 @@ class TestGuardedReplacement:
 
     def test_replace_fails_on_id_mismatch(self, tmp_path: Path):
         """replace raises ScenarioForgeIntegrityError when admitted_scenario_id doesn't match."""
-        env = _make_envelope(scenario_id="scenario:v2:abc")
+        env = _make_envelope(
+            scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
+        )
         write_scenario_outputs(env, tmp_path)
 
         with pytest.raises(ScenarioForgeIntegrityError, match="Scenario ID mismatch"):
             replace_scenario_outputs(
-                env, tmp_path, admitted_scenario_id="scenario:v2:different"
+                env,
+                tmp_path,
+                admitted_scenario_id="scenario:v2:97d6c0d7f7f724a0d24b9d63eccde6cadfdbfd3f3a43d028c56bb51ebbe36f6f",
             )
 
     def test_replace_fails_on_nonexistent(self, tmp_path: Path):
         """replace raises FileNotFoundError when the YAML doesn't exist."""
-        env = _make_envelope(scenario_id="scenario:v2:nonexist")
+        env = _make_envelope(
+            scenario_id="scenario:v2:6879747bb50a6fad5091f74c422347f8f9ee352168ee0923b68cbc9b400a5c17"
+        )
         with pytest.raises(ScenarioForgeIntegrityError):
             replace_scenario_outputs(
                 env, tmp_path, admitted_scenario_id=env.scenario_id
@@ -712,7 +725,7 @@ class TestGuardedReplacement:
     def test_replace_with_feature_preserves_feature(self, tmp_path: Path):
         """Replacing a scenario YAML preserves feature bytes (not rewritten)."""
         env = _make_envelope(
-            scenario_id="scenario:v2:abc",
+            scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4",
             behavior_spec="Feature: Test\n  Scenario: Basic\n    Given something",
         )
         write_scenario_outputs(env, tmp_path)
@@ -761,6 +774,12 @@ class TestTypedFunnelRecords:
             filter_submitted=65,
             filter_accepted=30,
             selected=25,
+            main_attempted=25,
+            main_admitted=23,
+            generation_failed=2,
+            remediation_attempted=0,
+            remediation_admitted=0,
+            remediation_failed=0,
             attempted=25,
             admitted=23,
             quarantined=2,
@@ -780,6 +799,12 @@ class TestTypedFunnelRecords:
             filter_submitted=5,
             filter_accepted=4,
             selected=4,
+            main_attempted=4,
+            main_admitted=3,
+            generation_failed=1,
+            remediation_attempted=0,
+            remediation_admitted=0,
+            remediation_failed=0,
             attempted=4,
             admitted=3,
             quarantined=1,
@@ -1019,8 +1044,12 @@ class TestDuplicateAdmissionCollisions:
     def test_duplicate_scenario_id_yields_path_collision(self, tmp_path: Path):
         """Two envelopes with the same scenario_id cannot both be written
         — the second write fails with FileExistsError."""
-        env1 = _make_envelope(scenario_id="scenario:v2:same")
-        env2 = _make_envelope(scenario_id="scenario:v2:same")
+        env1 = _make_envelope(
+            scenario_id="scenario:v2:693954de744e811adad3a7df6a3d7fa80a8c0236285ee8f30d570386235f58db"
+        )
+        env2 = _make_envelope(
+            scenario_id="scenario:v2:693954de744e811adad3a7df6a3d7fa80a8c0236285ee8f30d570386235f58db"
+        )
 
         write_scenario_outputs(env1, tmp_path)
         with pytest.raises(ScenarioForgeIntegrityError, match="already exists"):
@@ -1029,10 +1058,14 @@ class TestDuplicateAdmissionCollisions:
     def test_duplicate_path_with_different_content_fails(self, tmp_path: Path):
         """Even with different narrative content, same scenario_id
         cannot overwrite — exclusive creation prevents silent data loss."""
-        env1 = _make_envelope(scenario_id="scenario:v2:same")
+        env1 = _make_envelope(
+            scenario_id="scenario:v2:693954de744e811adad3a7df6a3d7fa80a8c0236285ee8f30d570386235f58db"
+        )
         write_scenario_outputs(env1, tmp_path)
 
-        env2 = _make_envelope(scenario_id="scenario:v2:same")
+        env2 = _make_envelope(
+            scenario_id="scenario:v2:693954de744e811adad3a7df6a3d7fa80a8c0236285ee8f30d570386235f58db"
+        )
         env2.narrative.title = "Different Title"
         with pytest.raises(ScenarioForgeIntegrityError):
             write_scenario_outputs(env2, tmp_path)
@@ -1040,10 +1073,14 @@ class TestDuplicateAdmissionCollisions:
     def test_replace_rejects_different_scenario_id(self, tmp_path: Path):
         """replace_scenario_outputs rejects when admitted_scenario_id
         doesn't match — prevents overwriting the wrong scenario."""
-        env = _make_envelope(scenario_id="scenario:v2:abc")
+        env = _make_envelope(
+            scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
+        )
         write_scenario_outputs(env, tmp_path)
 
         with pytest.raises(ScenarioForgeIntegrityError, match="Scenario ID mismatch"):
             replace_scenario_outputs(
-                env, tmp_path, admitted_scenario_id="scenario:v2:different"
+                env,
+                tmp_path,
+                admitted_scenario_id="scenario:v2:97d6c0d7f7f724a0d24b9d63eccde6cadfdbfd3f3a43d028c56bb51ebbe36f6f",
             )

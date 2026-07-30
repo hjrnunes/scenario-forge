@@ -17,7 +17,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.capability_profile import ConfidenceLevel
@@ -447,6 +447,43 @@ class ScenarioEnvelope(BaseModel):
             "scenario IDs."
         ),
     )
+
+    @field_validator("candidate_id")
+    @classmethod
+    def _validate_candidate_id_format(cls, v: str) -> str:
+        """Validate that candidate_id follows cand:v1:<32-char hex> format."""
+        if not v or not v.startswith("cand:v1:"):
+            raise ValueError("candidate_id must follow 'cand:v1:<32-char hex>' format")
+        hex_part = v[len("cand:v1:") :]
+        if len(hex_part) != 32:
+            raise ValueError(
+                f"candidate_id hex part must be 32 chars, got {len(hex_part)}"
+            )
+        try:
+            int(hex_part, 16)
+        except ValueError:
+            raise ValueError("candidate_id hex part must be valid hex") from None
+        return v
+
+    @field_validator("scenario_id")
+    @classmethod
+    def _validate_scenario_id_format(cls, v: str) -> str:
+        """Validate that scenario_id follows scenario:v2:<64-char hex> format."""
+        if not v or not v.startswith("scenario:v2:"):
+            raise ValueError(
+                "scenario_id must follow 'scenario:v2:<64-char hex>' format"
+            )
+        hex_part = v[len("scenario:v2:") :]
+        if len(hex_part) != 64:
+            raise ValueError(
+                f"scenario_id hex part must be 64 chars, got {len(hex_part)}"
+            )
+        try:
+            int(hex_part, 16)
+        except ValueError:
+            raise ValueError("scenario_id hex part must be valid hex") from None
+        return v
+
     version: int = Field(
         default=1,
         description="Monotonically increasing version number.",

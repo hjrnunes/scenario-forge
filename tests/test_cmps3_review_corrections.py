@@ -132,7 +132,7 @@ def _make_profile(
 
 
 def _make_envelope(
-    scenario_id: str = "scenario:v2:abc123",
+    scenario_id: str = "scenario:v2:8986bff34d530423761ccda45590e6f5c577814b6d647fd4a8001da76dd789b6",
     behavior_spec: str | None = None,
     candidate_id: str = _VALID_CANDIDATE_ID,
 ) -> ScenarioEnvelope:
@@ -267,7 +267,7 @@ class TestSafePairedArtifacts:
         """If the feature write fails after YAML is created, the YAML
         created by this call must be cleaned up — no partial pair."""
         envelope = _make_envelope(
-            scenario_id="scenario:v2:cleanup-test",
+            scenario_id="scenario:v2:1503279b4d55cb662f6bab433d9a79ff2da62bfae1e1f0bf4d87ec7d93ea2a54",
             behavior_spec="Feature: test\n  Scenario: test\n",
         )
         original_open = Path.open
@@ -293,7 +293,7 @@ class TestSafePairedArtifacts:
         """Pre-existing YAML or feature files must cause a fatal
         integrity error, and the pre-existing files must not be modified."""
         envelope = _make_envelope(
-            scenario_id="scenario:v2:preexist-test",
+            scenario_id="scenario:v2:e52d5e8b4a98bf58090d37f04acbb0c9205c8e620edcbe166f1f963714598a54",
             behavior_spec="Feature: test\n",
         )
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
@@ -313,7 +313,7 @@ class TestSafePairedArtifacts:
     def test_preexisting_yaml_only_is_fatal(self, tmp_path: Path):
         """Pre-existing YAML without feature must be fatal."""
         envelope = _make_envelope(
-            scenario_id="scenario:v2:yaml-only-test",
+            scenario_id="scenario:v2:4a48656c5659c37d888a5d8d3ca6837bbbd714cf1aec963140e9e887f6ca94ca",
             behavior_spec=None,
         )
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
@@ -324,7 +324,9 @@ class TestSafePairedArtifacts:
 
     def test_missing_pair_during_guarded_replace_is_fatal(self, tmp_path: Path):
         """replace_scenario_outputs must raise fatal if YAML doesn't exist."""
-        envelope = _make_envelope(scenario_id="scenario:v2:missing-pair")
+        envelope = _make_envelope(
+            scenario_id="scenario:v2:b8a8b7504ed8e2747f6d862b09f17e3f2d8dc6159a4fac68ef5144138faadd52"
+        )
         with pytest.raises(ScenarioForgeIntegrityError, match="non-existent"):
             replace_scenario_outputs(
                 envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
@@ -335,7 +337,7 @@ class TestSafePairedArtifacts:
         update YAML atomically."""
         feature_text = "Feature: test\n  Scenario: test\n"
         envelope = _make_envelope(
-            scenario_id="scenario:v2:replace-feature-test",
+            scenario_id="scenario:v2:df5fe11e7673ab91f40604a8ced378a81198529cbe47faaec5585dba6388f1c7",
             behavior_spec=feature_text,
         )
         # Create initial artifacts.
@@ -364,7 +366,7 @@ class TestSafePairedArtifacts:
         guarded replacement must raise fatal."""
         feature_text = "Feature: original\n"
         envelope = _make_envelope(
-            scenario_id="scenario:v2:feature-mismatch",
+            scenario_id="scenario:v2:90b80a06586b377bafcaa855b16a683e07eff90975cd619e552f40e8aa7c20a0",
             behavior_spec=feature_text,
         )
         write_scenario_outputs(envelope, tmp_path)
@@ -379,10 +381,14 @@ class TestSafePairedArtifacts:
     def test_guarded_replace_rejects_id_mismatch(self, tmp_path: Path):
         """replace_scenario_outputs must reject if envelope scenario_id
         doesn't match the admitted_scenario_id."""
-        envelope = _make_envelope(scenario_id="scenario:v2:id-a")
+        envelope = _make_envelope(
+            scenario_id="scenario:v2:4f90886b993007fa48cf5f3179dfbf46c7cce1607257e062a30dedf22f79bb82"
+        )
         with pytest.raises(ScenarioForgeIntegrityError, match="Scenario ID mismatch"):
             replace_scenario_outputs(
-                envelope, tmp_path, admitted_scenario_id="scenario:v2:id-b"
+                envelope,
+                tmp_path,
+                admitted_scenario_id="scenario:v2:6107c461fdc6d596b458079e622e8af9baf5b86f45bd9a67cff4b44470b5a7c6",
             )
 
 
@@ -421,9 +427,11 @@ class TestCandidateIdReservation:
         def capture_candidate_id(*args, **kwargs):
             # At this point, the candidate_id should already be reserved.
             captured_ids.append(kwargs.get("candidate_id"))
+            cid = kwargs.get("candidate_id", _VALID_CANDIDATE_ID)
+            sid = compute_scenario_id(kwargs.get("run_id", _VALID_RUN_ID), cid, 1)
             env = _make_envelope(
-                scenario_id="scenario:v2:reserve-test",
-                candidate_id=kwargs.get("candidate_id", _VALID_CANDIDATE_ID),
+                scenario_id=sid,
+                candidate_id=cid,
             )
             return env, []
 
@@ -473,9 +481,15 @@ class TestCallLogFailureAfterArtifact:
     def test_call_log_failure_aborts(
         self, mock_generate, mock_write, mock_write_log, tmp_path: Path
     ):
+        # Compute the actual candidate_id that remediation will use.
+        seed = _make_seed(seed_id="AP-T1-01")
+        ep_id = "ep-1-id"
+        pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
+        cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
+        sid = compute_scenario_id(_VALID_RUN_ID, cand_id, 1)
         env = _make_envelope(
-            scenario_id="scenario:v2:calllog-fail",
-            candidate_id=_VALID_CANDIDATE_ID,
+            scenario_id=sid,
+            candidate_id=cand_id,
         )
         mock_generate.return_value = (env, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)
@@ -521,14 +535,19 @@ class TestRemediationFunnelEquations:
     ):
         """2 uncovered EPs: one succeeds, one fails. Verify
         attempted=2, failed=1, admitted=1, write_receipts has 1."""
-        ok_env = _make_envelope(
-            scenario_id="scenario:v2:rem-ok",
-            candidate_id=_VALID_CANDIDATE_ID,
-        )
-        mock_generate.side_effect = [
-            (ok_env, []),
-            RuntimeError("LLM timeout"),
-        ]
+        # Use a side_effect that derives IDs from the kwargs so the
+        # pre-write identity verification passes.  Second call raises.
+        call_count = [0]
+
+        def gen(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise RuntimeError("LLM timeout")
+            cid = kwargs["candidate_id"]
+            sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
+            return (_make_envelope(scenario_id=sid, candidate_id=cid), [])
+
+        mock_generate.side_effect = gen
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
         gaps = CoverageGaps(
@@ -583,6 +602,12 @@ class TestCandidateFunnelValidation:
             filter_submitted=5,
             filter_accepted=3,
             selected=3,
+            main_attempted=3,
+            main_admitted=2,
+            generation_failed=1,
+            remediation_attempted=0,
+            remediation_admitted=0,
+            remediation_failed=0,
             attempted=3,
             admitted=2,
             quarantined=1,
@@ -599,12 +624,36 @@ class TestCandidateFunnelValidation:
         with pytest.raises(ValueError, match="nonnegative"):
             CandidateFunnel(**kw)
 
-    def test_rejects_admitted_gt_attempted(self):
+    def test_rejects_main_attempted_ne_selected(self):
         kw = self._valid_funnel_kwargs()
-        kw["admitted"] = 5
-        kw["persisted_artifacts"] = 5
-        kw["attempted"] = 3
-        with pytest.raises(ValueError, match="admitted.*attempted"):
+        kw["main_attempted"] = 99
+        kw["attempted"] = 99
+        with pytest.raises(ValueError, match="main_attempted.*selected"):
+            CandidateFunnel(**kw)
+
+    def test_rejects_main_attempted_ne_admitted_plus_failed(self):
+        kw = self._valid_funnel_kwargs()
+        kw["generation_failed"] = 99
+        with pytest.raises(
+            ValueError, match="main_attempted.*main_admitted.*generation_failed"
+        ):
+            CandidateFunnel(**kw)
+
+    def test_rejects_aggregate_attempted_mismatch(self):
+        kw = self._valid_funnel_kwargs()
+        kw["attempted"] = 99
+        with pytest.raises(
+            ValueError, match="attempted.*main_attempted.*remediation_attempted"
+        ):
+            CandidateFunnel(**kw)
+
+    def test_rejects_aggregate_admitted_mismatch(self):
+        kw = self._valid_funnel_kwargs()
+        kw["admitted"] = 99
+        kw["persisted_artifacts"] = 99
+        with pytest.raises(
+            ValueError, match="admitted.*main_admitted.*remediation_admitted"
+        ):
             CandidateFunnel(**kw)
 
     def test_rejects_persisted_ne_admitted(self):
@@ -619,9 +668,17 @@ class TestCandidateFunnelValidation:
         with pytest.raises(ValueError, match="filter_submitted"):
             CandidateFunnel(**kw)
 
+    def test_rejects_filter_accepted_gt_submitted(self):
+        kw = self._valid_funnel_kwargs()
+        kw["filter_accepted"] = 99
+        with pytest.raises(ValueError, match="filter_accepted.*filter_submitted"):
+            CandidateFunnel(**kw)
+
     def test_rejects_selected_gt_filter_accepted(self):
         kw = self._valid_funnel_kwargs()
         kw["selected"] = 10
+        kw["main_attempted"] = 10
+        kw["attempted"] = 10
         with pytest.raises(ValueError, match="selected.*filter_accepted"):
             CandidateFunnel(**kw)
 
@@ -629,6 +686,16 @@ class TestCandidateFunnelValidation:
         kw = self._valid_funnel_kwargs()
         kw["quarantined"] = 99
         with pytest.raises(ValueError, match="quarantined.*admitted"):
+            CandidateFunnel(**kw)
+
+    def test_rejects_remediation_attempted_ne_admitted_plus_failed(self):
+        kw = self._valid_funnel_kwargs()
+        kw["remediation_attempted"] = 5
+        kw["attempted"] = 8
+        with pytest.raises(
+            ValueError,
+            match="remediation_attempted.*remediation_admitted.*remediation_failed",
+        ):
             CandidateFunnel(**kw)
 
 
@@ -881,9 +948,11 @@ class TestRemediationCandidateId:
 
         def capture(*args, **kwargs):
             captured_candidate_id.append(kwargs.get("candidate_id"))
+            cid = kwargs.get("candidate_id", _VALID_CANDIDATE_ID)
+            sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
             env = _make_envelope(
-                scenario_id="scenario:v2:rem-cand-id",
-                candidate_id=kwargs.get("candidate_id", _VALID_CANDIDATE_ID),
+                scenario_id=sid,
+                candidate_id=cid,
             )
             return env, []
 
@@ -963,3 +1032,606 @@ class TestReversedEquivalentInputs:
         )
         # Both sorted by ID.
         assert result_f[0].atlas_technique_ids == ("AML.T0051", "AML.T0052")
+
+
+# ---------------------------------------------------------------------------#
+# M. Second-review: paired-write failure injection after file creation
+# ---------------------------------------------------------------------------#
+
+
+class TestWriteFailureAfterCreation:
+    """write() must fail after file creation, not only open before creation."""
+
+    def test_yaml_write_fails_after_open_cleans_up(self, tmp_path: Path):
+        """If yaml.write() fails after exclusive open, the YAML file
+        created by this call must be cleaned up."""
+        envelope = _make_envelope(
+            behavior_spec=None,
+        )
+        original_write = Path.write_text
+
+        def failing_write(self_path, *args, **kwargs):
+            if self_path.suffix == ".yaml":
+                raise OSError("Injected write failure on YAML")
+            return original_write(self_path, *args, **kwargs)
+
+        with patch.object(Path, "write_text", failing_write):
+            # write_text is not used directly; the code uses fh.write().
+            # So we patch the file handle's write method instead.
+            pass
+
+        # Actually, write_scenario_outputs uses fh.write(), not
+        # Path.write_text().  We need to patch at the file-handle level.
+        original_open = Path.open
+
+        def open_with_failing_yaml_write(self_path, *args, **kwargs):
+            fh = original_open(self_path, *args, **kwargs)
+            if self_path.suffix == ".yaml" and args[0] == "x":
+
+                def failing_fh_write(data):
+                    raise OSError("Injected write failure on YAML handle")
+
+                fh.write = failing_fh_write
+            return fh
+
+        with patch.object(Path, "open", open_with_failing_yaml_write):
+            with pytest.raises(OSError, match="Injected write failure"):
+                write_scenario_outputs(envelope, tmp_path)
+
+        yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
+        assert not yaml_path.exists(), "YAML must be cleaned up on write failure"
+
+    def test_feature_write_fails_after_both_open_cleans_up_both(self, tmp_path: Path):
+        """If feature write() fails after both files are opened, both
+        current-call files must be cleaned up."""
+        envelope = _make_envelope(
+            behavior_spec="Feature: test\n  Scenario: test\n",
+        )
+        original_open = Path.open
+        call_count = [0]
+
+        def open_with_failing_feature_write(self_path, *args, **kwargs):
+            call_count[0] += 1
+            fh = original_open(self_path, *args, **kwargs)
+            if self_path.suffix == ".feature" and args[0] == "x":
+
+                def failing_fh_write(data):
+                    raise OSError("Injected write failure on feature handle")
+
+                fh.write = failing_fh_write
+            return fh
+
+        with patch.object(Path, "open", open_with_failing_feature_write):
+            with pytest.raises(OSError, match="Injected write failure"):
+                write_scenario_outputs(envelope, tmp_path)
+
+        yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
+        feature_path = tmp_path / f"{envelope.scenario_id}.feature"
+        assert not yaml_path.exists(), "YAML must be cleaned up"
+        assert not feature_path.exists(), "Feature must not exist"
+
+
+# ---------------------------------------------------------------------------#
+# N. Second-review: race-time FileExistsError conversion
+# ---------------------------------------------------------------------------#
+
+
+class TestRaceTimeFileExistsConversion:
+    """Race-time FileExistsError from open('x') must become
+    ScenarioForgeIntegrityError, not a recoverable error."""
+
+    def test_yaml_race_file_exists_is_fatal(self, tmp_path: Path):
+        envelope = _make_envelope()
+        yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
+        yaml_path.write_text("pre-existing\n")
+
+        with pytest.raises(ScenarioForgeIntegrityError, match="already exists"):
+            write_scenario_outputs(envelope, tmp_path)
+
+    def test_feature_race_file_exists_is_fatal(self, tmp_path: Path):
+        envelope = _make_envelope(behavior_spec="Feature: test\n")
+        feature_path = tmp_path / f"{envelope.scenario_id}.feature"
+        # Pre-create only the feature file to trigger FileExistsError
+        # on the second open('x') call.
+        feature_path.write_text("pre-existing feature\n")
+
+        with pytest.raises(ScenarioForgeIntegrityError, match="already exists"):
+            write_scenario_outputs(envelope, tmp_path)
+
+
+# ---------------------------------------------------------------------------#
+# O. Second-review: cleanup unlink failure is fatal
+# ---------------------------------------------------------------------------#
+
+
+class TestCleanupFailureFatal:
+    """If cleanup of a current-call file fails, raise fatal integrity."""
+
+    def test_cleanup_unlink_failure_is_fatal(self, tmp_path: Path):
+        envelope = _make_envelope(behavior_spec="Feature: test\n")
+        original_open = Path.open
+
+        call_count = [0]
+
+        def open_with_failing_feature_write(self_path, *args, **kwargs):
+            call_count[0] += 1
+            fh = original_open(self_path, *args, **kwargs)
+            if self_path.suffix == ".feature" and args[0] == "x":
+
+                def failing_fh_write(data):
+                    raise OSError("Injected write failure on feature handle")
+
+                fh.write = failing_fh_write
+            return fh
+
+        # Patch unlink to fail for the YAML file (cleanup will try
+        # to remove the YAML that was successfully created).
+        original_unlink = Path.unlink
+
+        def failing_unlink(self_path, *args, **kwargs):
+            if self_path.suffix == ".yaml":
+                raise OSError("Injected unlink failure")
+            return original_unlink(self_path, *args, **kwargs)
+
+        with (
+            patch.object(Path, "open", open_with_failing_feature_write),
+            patch.object(Path, "unlink", failing_unlink),
+        ):
+            with pytest.raises(ScenarioForgeIntegrityError, match="Failed to clean up"):
+                write_scenario_outputs(envelope, tmp_path)
+
+
+# ---------------------------------------------------------------------------#
+# P. Second-review: scenario_id Pydantic and JSON-schema validation
+# ---------------------------------------------------------------------------#
+
+
+class TestScenarioIdValidation:
+    """scenario_id must be validated at Pydantic and JSON-schema boundaries."""
+
+    def test_invalid_scenario_id_pydantic_no_prefix(self):
+        with pytest.raises(ValueError, match="scenario_id must follow"):
+            ScenarioEnvelope.model_validate(
+                {
+                    **_make_envelope().model_dump(mode="json"),
+                    "scenario_id": "invalid-id",
+                }
+            )
+
+    def test_invalid_scenario_id_pydantic_short_hex(self):
+        with pytest.raises(ValueError, match="64 chars"):
+            ScenarioEnvelope.model_validate(
+                {
+                    **_make_envelope().model_dump(mode="json"),
+                    "scenario_id": "scenario:v2:abc123",
+                }
+            )
+
+    def test_invalid_scenario_id_pydantic_non_hex(self):
+        with pytest.raises(ValueError, match="valid hex"):
+            ScenarioEnvelope.model_validate(
+                {
+                    **_make_envelope().model_dump(mode="json"),
+                    "scenario_id": "scenario:v2:" + "g" * 64,
+                }
+            )
+
+    def test_valid_scenario_id_accepted(self):
+        sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
+        env = _make_envelope(scenario_id=sid)
+        assert env.scenario_id == sid
+
+    def test_invalid_scenario_id_json_schema(self):
+        import json
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        schema = json.loads(schema_path.read_text())
+
+        env = _make_envelope()
+        env_dict = env.model_dump(mode="json")
+        env_dict["scenario_id"] = "scenario:v2:short"
+
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(env_dict, schema)
+
+    def test_valid_scenario_id_json_schema(self):
+        import json
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        schema = json.loads(schema_path.read_text())
+
+        sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
+        env = _make_envelope(scenario_id=sid)
+        env_dict = env.model_dump(mode="json")
+
+        # Should not raise.
+        jsonschema.validate(env_dict, schema)
+
+
+# ---------------------------------------------------------------------------#
+# Q. Second-review: remediation LAAF fallback pins LAAF tuple
+# ---------------------------------------------------------------------------#
+
+
+class TestRemediationLaafFallback:
+    """Remediation must use ATLAS techniques, otherwise LAAF techniques,
+    and pin exactly that tuple in the candidate_id."""
+
+    @patch("scenario_forge.pipeline.runner.write_call_log")
+    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    @patch("scenario_forge.pipeline.runner.generate_scenario")
+    def test_laaf_fallback_when_no_atlas(
+        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+    ):
+        """When seed has no ATLAS techniques but has LAAF techniques,
+        the candidate_id must be computed from LAAF techniques."""
+        captured_candidate_id = []
+
+        def capture(*args, **kwargs):
+            captured_candidate_id.append(kwargs.get("candidate_id"))
+            cid = kwargs.get("candidate_id", _VALID_CANDIDATE_ID)
+            sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
+            env = _make_envelope(scenario_id=sid, candidate_id=cid)
+            return env, []
+
+        mock_generate.side_effect = capture
+        mock_write.return_value = (tmp_path / "test.yaml", None)
+
+        # Seed with no ATLAS but LAAF techniques.
+        seed = _make_seed(seed_id="AP-T3-01", technique_ids=())
+        seed.laaf_technique_ids = ["LAAF.T001", "LAAF.T002"]
+        seed.atlas_technique_ids = []
+
+        ep_name = "user prompts (zone 1)"
+        ep_id = "ep-1-id"
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id=ep_id, name=ep_name),
+            ]
+        )
+        profile = _make_profile()
+
+        _remediate_coverage_gaps(
+            gaps,
+            [seed],
+            profile,
+            MagicMock(),
+            "test use case",
+            tmp_path,
+            run_id=_VALID_RUN_ID,
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
+        )
+
+        expected = compute_candidate_id(seed.seed_id, ep_id, seed.laaf_technique_ids)
+        assert captured_candidate_id[0] == expected
+
+
+# ---------------------------------------------------------------------------#
+# R. Second-review: forged returned identity fatal before write
+# ---------------------------------------------------------------------------#
+
+
+class TestForgedReturnIdentity:
+    """Returned envelope with wrong candidate_id or scenario_id must
+    abort the run before writing."""
+
+    @patch("scenario_forge.pipeline.runner.write_call_log")
+    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    @patch("scenario_forge.pipeline.runner.generate_scenario")
+    def test_remediation_forged_candidate_id_fatal(
+        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+    ):
+        """Remediation returned envelope with wrong candidate_id must
+        raise ScenarioForgeIntegrityError, not write."""
+        seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
+        ep_id = "ep-1-id"
+        pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
+        correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
+        wrong_cid = "cand:v1:22222222222222222222222222222222"
+        correct_sid = compute_scenario_id(_VALID_RUN_ID, correct_cid, 1)
+
+        mock_generate.return_value = (
+            _make_envelope(scenario_id=correct_sid, candidate_id=wrong_cid),
+            [],
+        )
+        mock_write.return_value = (tmp_path / "test.yaml", None)
+
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id=ep_id, name="user prompts (zone 1)"),
+            ]
+        )
+        with pytest.raises(
+            ScenarioForgeIntegrityError, match="candidate_id.*does not match"
+        ):
+            _remediate_coverage_gaps(
+                gaps,
+                [seed],
+                _make_profile(),
+                MagicMock(),
+                "test use case",
+                tmp_path,
+                run_id=_VALID_RUN_ID,
+                attempted_candidate_ids=set(),
+                admitted_candidate_ids=set(),
+                admitted_scenario_ids=set(),
+                write_receipts=[],
+            )
+        mock_write.assert_not_called()
+
+    @patch("scenario_forge.pipeline.runner.write_call_log")
+    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
+    @patch("scenario_forge.pipeline.runner.generate_scenario")
+    def test_remediation_forged_scenario_id_fatal(
+        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+    ):
+        """Remediation returned envelope with wrong scenario_id must
+        raise ScenarioForgeIntegrityError, not write."""
+        seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
+        ep_id = "ep-1-id"
+        pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
+        correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
+        wrong_sid = "scenario:v2:" + "f" * 64
+
+        mock_generate.return_value = (
+            _make_envelope(scenario_id=wrong_sid, candidate_id=correct_cid),
+            [],
+        )
+        mock_write.return_value = (tmp_path / "test.yaml", None)
+
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(entry_point_id=ep_id, name="user prompts (zone 1)"),
+            ]
+        )
+        with pytest.raises(
+            ScenarioForgeIntegrityError, match="scenario_id.*does not match"
+        ):
+            _remediate_coverage_gaps(
+                gaps,
+                [seed],
+                _make_profile(),
+                MagicMock(),
+                "test use case",
+                tmp_path,
+                run_id=_VALID_RUN_ID,
+                attempted_candidate_ids=set(),
+                admitted_candidate_ids=set(),
+                admitted_scenario_ids=set(),
+                write_receipts=[],
+            )
+        mock_write.assert_not_called()
+
+
+# ---------------------------------------------------------------------------#
+# S. Second-review: reversed origins serialize byte-identically
+# ---------------------------------------------------------------------------#
+
+
+class TestReversedOriginsByteIdentical:
+    """Reversed equivalent inputs must produce byte/equality-identical
+    serialized origins, not just matching sort keys."""
+
+    def test_reversed_origins_serialize_identically(self):
+        """Two candidates with reversed technique order that converge
+        must produce identical serialized origin objects."""
+        import json
+
+        ep = "user prompts (input)"
+        c_forward = _make_candidate(
+            entry_point=ep,
+            technique_ids=("AML.T0051", "AML.T0052"),
+        )
+        c_reverse = _make_candidate(
+            entry_point=ep,
+            technique_ids=("AML.T0052", "AML.T0051"),
+        )
+
+        # Override names/descriptions to be reversed too.
+        c_reverse = CandidateTriple.model_validate(
+            c_reverse.model_dump(mode="python")
+            | {
+                "atlas_technique_names": ("Technique AML.T0052", "Technique AML.T0051"),
+                "atlas_technique_descriptions": (
+                    "Desc AML.T0052",
+                    "Desc AML.T0051",
+                ),
+            }
+        )
+
+        result_f = canonicalize_and_dedup([c_forward], "expansion")
+        result_r = canonicalize_and_dedup([c_reverse], "expansion")
+
+        # Serialized origins must be identical.
+        origins_f = json.dumps(
+            [o.model_dump(mode="json") for o in result_f[0].origins],
+            sort_keys=True,
+        )
+        origins_r = json.dumps(
+            [o.model_dump(mode="json") for o in result_r[0].origins],
+            sort_keys=True,
+        )
+        assert origins_f == origins_r, (
+            "Serialized origins must be byte-identical regardless of input order"
+        )
+
+
+# ---------------------------------------------------------------------------#
+# T. Second-review: cross-candidate technique metadata conflict
+# ---------------------------------------------------------------------------#
+
+
+class TestCrossCandidateMetadataConflict:
+    """Converged candidates with same technique IDs but different
+    names/descriptions must be rejected."""
+
+    def test_conflicting_name_across_converged_candidates(self):
+        """Two candidates with same technique IDs but different names
+        must raise ValueError before template selection."""
+        ep = "user prompts (input)"
+        ep_id = compute_entry_point_id(ep, "input", None)
+        common_kwargs = dict(
+            seed_id="AP-T7-01",
+            threat_id="T7",
+            threat_name="Threat T7",
+            attack_pattern_name="Pattern",
+            attack_pattern_description="Description",
+            entry_point=ep,
+            atlas_technique_ids=("AML.T0051", "AML.T0052"),
+            risk_card_ref=_make_ref(),
+            owasp_llm_ids=["LLM01"],
+            direction="input",
+            entry_point_id=ep_id,
+            origins=(),
+        )
+        c1 = CandidateTriple(
+            atlas_technique_names=("Name A", "Name B"),
+            atlas_technique_descriptions=("Desc A", "Desc B"),
+            candidate_id=compute_candidate_id(
+                "AP-T7-01", ep_id, ("AML.T0051", "AML.T0052")
+            ),
+            **common_kwargs,
+        )
+        c2 = CandidateTriple(
+            atlas_technique_names=("Name A DIFFERENT", "Name B"),
+            atlas_technique_descriptions=("Desc A", "Desc B"),
+            candidate_id=compute_candidate_id(
+                "AP-T7-01", ep_id, ("AML.T0051", "AML.T0052")
+            ),
+            **common_kwargs,
+        )
+
+        with pytest.raises(ValueError, match="Conflicting.*metadata"):
+            canonicalize_and_dedup([c1, c2], "expansion")
+
+    def test_conflicting_description_across_converged_candidates(self):
+        """Two candidates with same technique IDs but different
+        descriptions must raise ValueError."""
+        ep = "user prompts (input)"
+        ep_id = compute_entry_point_id(ep, "input", None)
+        common_kwargs = dict(
+            seed_id="AP-T7-01",
+            threat_id="T7",
+            threat_name="Threat T7",
+            attack_pattern_name="Pattern",
+            attack_pattern_description="Description",
+            entry_point=ep,
+            atlas_technique_ids=("AML.T0051", "AML.T0052"),
+            risk_card_ref=_make_ref(),
+            owasp_llm_ids=["LLM01"],
+            direction="input",
+            entry_point_id=ep_id,
+            origins=(),
+        )
+        c1 = CandidateTriple(
+            atlas_technique_names=("Name A", "Name B"),
+            atlas_technique_descriptions=("Desc A", "Desc B"),
+            candidate_id=compute_candidate_id(
+                "AP-T7-01", ep_id, ("AML.T0051", "AML.T0052")
+            ),
+            **common_kwargs,
+        )
+        c2 = CandidateTriple(
+            atlas_technique_names=("Name A", "Name B"),
+            atlas_technique_descriptions=("Desc A DIFFERENT", "Desc B"),
+            candidate_id=compute_candidate_id(
+                "AP-T7-01", ep_id, ("AML.T0051", "AML.T0052")
+            ),
+            **common_kwargs,
+        )
+
+        with pytest.raises(ValueError, match="Conflicting.*metadata"):
+            canonicalize_and_dedup([c1, c2], "expansion")
+
+
+# ---------------------------------------------------------------------------#
+# U. Second-review: fully rejected combos persist all decisions
+# ---------------------------------------------------------------------------#
+
+
+class TestFullyRejectedAllDecisions:
+    """Fully rejected technique combinations must persist all
+    per-technique rule/reason decisions in rule_verdicts."""
+
+    def test_fully_rejected_multiple_rules_all_decisions_in_verdicts(self):
+        """A candidate with T1+T2+T3 where all are rejected by different
+        rules must have a RejectionRecord with 3 removal_decisions."""
+        profile = _make_profile()
+        ep = "user prompts (input)"
+        ep_id = compute_entry_point_id(ep, "input", None)
+
+        candidate = CandidateTriple(
+            seed_id="AP-T7-01",
+            threat_id="T7",
+            threat_name="Threat T7",
+            attack_pattern_name="Pattern",
+            attack_pattern_description="Description",
+            entry_point=ep,
+            atlas_technique_ids=("AML.T0051", "AML.T0052", "AML.T0053"),
+            atlas_technique_names=("T1 name", "T2 name", "T3 name"),
+            atlas_technique_descriptions=("T1 desc", "T2 desc", "T3 desc"),
+            risk_card_ref=_make_ref(),
+            owasp_llm_ids=["LLM01"],
+            direction="input",
+            entry_point_id=ep_id,
+            candidate_id=compute_candidate_id(
+                "AP-T7-01", ep_id, ("AML.T0051", "AML.T0052", "AML.T0053")
+            ),
+            origins=(),
+        )
+
+        def mock_rules(tid, entry_point, ep_type, prof):
+            if tid == "AML.T0051":
+                return True, "T1 wrong zone", "_rule_zone_mismatch"
+            if tid == "AML.T0052":
+                return True, "T2 indirect", "_rule_direct_vs_indirect"
+            if tid == "AML.T0053":
+                return True, "T3 tool only", "_rule_tool_execution_only"
+            return False, "", ""
+
+        with patch(
+            "scenario_forge.pipeline.candidates._run_rules_on_technique",
+            side_effect=mock_rules,
+        ):
+            rule_passed, rule_rejected, verdicts = apply_rule_based_filter(
+                [candidate], profile
+            )
+
+        assert len(rule_passed) == 0
+        assert len(rule_rejected) == 1
+        assert len(verdicts) == 1
+
+        verdict = verdicts[0]
+        assert len(verdict.removal_decisions) == 3
+        decisions_by_tid = {d.technique_id: d for d in verdict.removal_decisions}
+        assert decisions_by_tid["AML.T0051"].rule == "_rule_zone_mismatch"
+        assert decisions_by_tid["AML.T0052"].rule == "_rule_direct_vs_indirect"
+        assert decisions_by_tid["AML.T0053"].rule == "_rule_tool_execution_only"
+        assert decisions_by_tid["AML.T0051"].reason == "T1 wrong zone"
+        assert decisions_by_tid["AML.T0052"].reason == "T2 indirect"
+        assert decisions_by_tid["AML.T0053"].reason == "T3 tool only"
+
+        # Serialized verdict must contain all decisions.
+        dumped = verdict.model_dump(mode="json")
+        assert len(dumped["removal_decisions"]) == 3

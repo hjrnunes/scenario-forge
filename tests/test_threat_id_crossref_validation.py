@@ -103,7 +103,11 @@ def test_diverse_threat_ids_no_warning(caplog):
     tree = _make_tree(root)
 
     with caplog.at_level(logging.WARNING):
-        _warn_dominant_threat_id_crossref(tree, "T7", "AP-T7-01-abc123")
+        _warn_dominant_threat_id_crossref(
+            tree,
+            "T7",
+            "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        )
 
     assert "threat_id cross-ref anomaly" not in caplog.text
 
@@ -126,12 +130,19 @@ def test_dominant_crossref_different_from_parent_warns(caplog):
     tree = _make_tree(root)
 
     with caplog.at_level(logging.WARNING):
-        _warn_dominant_threat_id_crossref(tree, "T7", "AP-T7-01-abc123")
+        _warn_dominant_threat_id_crossref(
+            tree,
+            "T7",
+            "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        )
 
     assert "threat_id cross-ref anomaly" in caplog.text
     assert "T1" in caplog.text
     assert "T7" in caplog.text
-    assert "AP-T7-01-abc123" in caplog.text
+    assert (
+        "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d"
+        in caplog.text
+    )
 
 
 def test_dominant_crossref_matches_parent_no_warning(caplog):
@@ -153,7 +164,11 @@ def test_dominant_crossref_matches_parent_no_warning(caplog):
     tree = _make_tree(root)
 
     with caplog.at_level(logging.WARNING):
-        _warn_dominant_threat_id_crossref(tree, "T7", "AP-T7-01-abc123")
+        _warn_dominant_threat_id_crossref(
+            tree,
+            "T7",
+            "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        )
 
     assert "threat_id cross-ref anomaly" not in caplog.text
 
@@ -174,7 +189,11 @@ def test_all_nodes_null_threat_id_no_warning(caplog):
     tree = _make_tree(root)
 
     with caplog.at_level(logging.WARNING):
-        _warn_dominant_threat_id_crossref(tree, "T7", "AP-T7-01-abc123")
+        _warn_dominant_threat_id_crossref(
+            tree,
+            "T7",
+            "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        )
 
     assert "threat_id cross-ref anomaly" not in caplog.text
 
@@ -197,7 +216,11 @@ def test_exactly_50_percent_no_warning(caplog):
 
     # 2 out of 4 nodes have T1 = exactly 50%, should not warn
     with caplog.at_level(logging.WARNING):
-        _warn_dominant_threat_id_crossref(tree, "T7", "AP-T7-01-abc123")
+        _warn_dominant_threat_id_crossref(
+            tree,
+            "T7",
+            "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        )
 
     assert "threat_id cross-ref anomaly" not in caplog.text
 
@@ -221,7 +244,11 @@ def test_mixed_null_and_dominant_crossref(caplog):
 
     # 3 out of 3 non-null nodes have T1 = 100%, parent is T7 -> warn
     with caplog.at_level(logging.WARNING):
-        _warn_dominant_threat_id_crossref(tree, "T7", "AP-T7-01-abc123")
+        _warn_dominant_threat_id_crossref(
+            tree,
+            "T7",
+            "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        )
 
     assert "threat_id cross-ref anomaly" in caplog.text
 
@@ -253,7 +280,11 @@ def test_deep_tree_crossref_validation(caplog):
 
     # 4 out of 5 non-null nodes have T1 = 80%, parent is T7 -> warn
     with caplog.at_level(logging.WARNING):
-        _warn_dominant_threat_id_crossref(tree, "T7", "AP-T7-01-abc123")
+        _warn_dominant_threat_id_crossref(
+            tree,
+            "T7",
+            "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
+        )
 
     assert "threat_id cross-ref anomaly" in caplog.text
     assert "80%" in caplog.text

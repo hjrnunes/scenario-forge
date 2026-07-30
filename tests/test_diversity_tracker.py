@@ -135,8 +135,8 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
-        scenario_id="test-001",
-        candidate_id="cand:v1:test0000000000000000000000000000",
+        scenario_id="scenario:v2:b3117469a5faaa9661af2ef23951d98b56d373505dfbcc8ae4fe7fc9c1d3aaef",
+        candidate_id="cand:v1:7e57c0de000000000000000000000000",
         version=1,
         generated_at=datetime.now(timezone.utc),
         generator_version="0.0.0-test",

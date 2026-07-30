@@ -44,7 +44,7 @@ from scenario_forge.eval.runner import run_evaluation
 
 
 def _make_scenario(
-    scenario_id: str = "AP-T7-01-abc123",
+    scenario_id: str = "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
     title: str = "Exploit Agent Reasoning via Prompt Injection",
     entry_point: str = "user prompts (zone input)",
     zone_sequence: list[str] | None = None,
@@ -472,8 +472,14 @@ class TestScoreGrounding:
         assert result["dangling_references"] == 0
 
     def test_mixed_validity(self):
-        s1 = _make_scenario(root_threat_id="T7", scenario_id="s1")
-        s2 = _make_scenario(root_threat_id="T99", scenario_id="s2")
+        s1 = _make_scenario(
+            root_threat_id="T7",
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
+        )
+        s2 = _make_scenario(
+            root_threat_id="T99",
+            scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
+        )
         result = score_grounding([s1, s2])
         assert 0.0 < result["threat_id_validity"] < 1.0
 
@@ -549,7 +555,9 @@ class TestScoreTechniqueAgreement:
 
     def test_tree_and_spec_identical(self):
         """Tree and spec have the same technique set -> agreement 1.0."""
-        scenario = _make_scenario(scenario_id="s1")
+        scenario = _make_scenario(
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        )
         # Add technique_ids to attack tree nodes
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0054"
         scenario["attack_tree"]["root"]["children"][1]["technique_id"] = "AML.T0051.000"
@@ -567,7 +575,9 @@ class TestScoreTechniqueAgreement:
 
     def test_narrative_extra_technique_ignored(self):
         """Narrative extras don't affect tree-vs-spec agreement."""
-        scenario = _make_scenario(scenario_id="s1")
+        scenario = _make_scenario(
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        )
         # Narrative has 2 techniques (ignored for score)
         scenario["narrative"]["steps"][0]["action"] = (
             "Exploit via [AML.T0054] and [AML.T0051.000]"
@@ -584,7 +594,9 @@ class TestScoreTechniqueAgreement:
 
     def test_tree_missing_technique(self):
         """Tree is missing a technique that spec has -> agreement < 1.0."""
-        scenario = _make_scenario(scenario_id="s1")
+        scenario = _make_scenario(
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        )
         # Tree has NO technique_id
         # Spec has technique
         scenario["behavior_spec"] = "When [AML.T0054] is applied"
@@ -592,12 +604,16 @@ class TestScoreTechniqueAgreement:
         result = score_technique_agreement([scenario])
         # Tree {} vs spec {AML.T0054} -> Jaccard 0.0
         assert result["mean_technique_agreement"] == 0.0
-        detail = result["per_scenario"]["s1"]
+        detail = result["per_scenario"][
+            "scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        ]
         assert "AML.T0054" in detail.get("missing_from_tree", [])
 
     def test_no_techniques_in_any_lens(self):
         """No techniques anywhere -> vacuous agreement 1.0."""
-        scenario = _make_scenario(scenario_id="s1")
+        scenario = _make_scenario(
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        )
         # Default scenario has no technique annotations or technique_ids
 
         result = score_technique_agreement([scenario])
@@ -606,11 +622,15 @@ class TestScoreTechniqueAgreement:
 
     def test_gherkin_files_fallback(self):
         """Uses gherkin_files dict when behavior_spec is absent."""
-        scenario = _make_scenario(scenario_id="s1")
+        scenario = _make_scenario(
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        )
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0054"
         # No behavior_spec on scenario dict -- falls back to gherkin_files
 
-        gherkin_files = {"s1": "When the attacker uses [AML.T0054]"}
+        gherkin_files = {
+            "scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc": "When the attacker uses [AML.T0054]"
+        }
         result = score_technique_agreement([scenario], gherkin_files)
         # Tree {AML.T0054} vs spec {AML.T0054} -> Jaccard 1.0
         assert result["mean_technique_agreement"] == 1.0
@@ -618,12 +638,16 @@ class TestScoreTechniqueAgreement:
     def test_multiple_scenarios_mean(self):
         """Mean is averaged across scenarios."""
         # Scenario 1: perfect tree-spec agreement (1.0)
-        s1 = _make_scenario(scenario_id="s1")
+        s1 = _make_scenario(
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        )
         s1["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0054"
         s1["behavior_spec"] = "When [AML.T0054]"
 
         # Scenario 2: no tree-spec overlap (0.0)
-        s2 = _make_scenario(scenario_id="s2")
+        s2 = _make_scenario(
+            scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4"
+        )
         s2["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
         s2["behavior_spec"] = "When [AML.T0053]"
 
@@ -633,7 +657,9 @@ class TestScoreTechniqueAgreement:
 
     def test_subtechnique_pattern(self):
         """Subtechnique IDs like AML.T0051.000 are extracted correctly."""
-        scenario = _make_scenario(scenario_id="s1")
+        scenario = _make_scenario(
+            scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+        )
         scenario["attack_tree"]["root"]["children"][0]["technique_id"] = "AML.T0051.000"
         scenario["behavior_spec"] = "When [AML.T0051.000] is used"
 
@@ -735,7 +761,8 @@ class TestZoneCoverage:
         """Scenarios using zones outside the active set are flagged."""
         scenarios = [
             _make_scenario(
-                scenario_id="s1", zone_sequence=["input", "reasoning", "inter_agent"]
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
+                zone_sequence=["input", "reasoning", "inter_agent"],
             ),
         ]
         result = zone_coverage(scenarios, active_zones={"input", "reasoning"})
@@ -964,20 +991,26 @@ class TestScorePlausibility:
     def test_with_violations(self):
         scenarios = [
             _make_scenario(
-                scenario_id="s1",
+                scenario_id="scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
                 actor_type="nation-state",
                 capability_level="novice",
             ),
             _make_scenario(
-                scenario_id="s2",
+                scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
                 actor_type="cybercriminal",
                 capability_level="advanced",
             ),
         ]
         result = score_plausibility(scenarios)
         assert result["capability_complexity_violation_count"] == 1
-        assert "s1" in result["per_scenario"]
-        assert "s2" not in result["per_scenario"]
+        assert (
+            "scenario:v2:e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc"
+            in result["per_scenario"]
+        )
+        assert (
+            "scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4"
+            not in result["per_scenario"]
+        )
 
 
 # ===========================================================================

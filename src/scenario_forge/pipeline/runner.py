@@ -41,8 +41,9 @@ from scenario_forge.pipeline.generate import (
     GenerationError,
     ScenarioForgeIntegrityError,
     compute_artifact_hash,
-    compute_entry_point_affinity,
     compute_compatible_goal_ids,
+    compute_entry_point_affinity,
+    compute_scenario_id,
     filter_sub_goals_by_zones,
     generate_run_id,
     generate_scenario,
@@ -364,9 +365,10 @@ def _remediate_coverage_gaps(
             except ValueError:
                 pass
 
-        # Compute candidate_id from the actual pinned technique tuple
-        # (the seed's ATLAS technique IDs), not an empty set.
-        pinned_technique_ids = seed.atlas_technique_ids or []
+        # Compute candidate_id from the actual pinned technique tuple,
+        # using the same canonical technique source as expansion
+        # (ATLAS techniques, otherwise LAAF techniques).
+        pinned_technique_ids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         remediation_candidate_id = compute_candidate_id(
             seed.seed_id, ep_id or "", pinned_technique_ids
         )
@@ -410,6 +412,21 @@ def _remediate_coverage_gaps(
                 raise ScenarioForgeIntegrityError(
                     f"Remediation duplicate scenario ID: "
                     f"'{envelope.scenario_id}' already admitted. Aborting run."
+                )
+
+            # Pre-write identity verification for remediation.
+            if envelope.candidate_id != remediation_candidate_id:
+                raise ScenarioForgeIntegrityError(
+                    f"Remediation returned envelope candidate_id "
+                    f"'{envelope.candidate_id}' does not match attempted "
+                    f"candidate_id '{remediation_candidate_id}'. Aborting run."
+                )
+            expected_sid = compute_scenario_id(run_id, remediation_candidate_id, 1)
+            if envelope.scenario_id != expected_sid:
+                raise ScenarioForgeIntegrityError(
+                    f"Remediation returned envelope scenario_id "
+                    f"'{envelope.scenario_id}' does not match expected "
+                    f"'{expected_sid}' from compute_scenario_id. Aborting run."
                 )
 
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
@@ -783,6 +800,7 @@ def run_pipeline(
     scenarios: list[ScenarioEnvelope] = []
     failed_count = 0
     attempted_count = 0
+    main_admitted_count = 0
     admitted_candidate_ids: set[str] = set()
     attempted_candidate_ids: set[str] = set()
     admitted_scenario_ids: set[str] = set()
@@ -878,6 +896,23 @@ def run_pipeline(
                     f"already admitted. Aborting run."
                 )
 
+            # Pre-write identity verification: the returned envelope must
+            # carry the candidate_id we attempted and a scenario_id that
+            # matches compute_scenario_id(run_id, candidate_id, attempt).
+            if envelope.candidate_id != fseed.candidate_id:
+                raise ScenarioForgeIntegrityError(
+                    f"Returned envelope candidate_id '{envelope.candidate_id}' "
+                    f"does not match attempted candidate_id "
+                    f"'{fseed.candidate_id}'. Aborting run."
+                )
+            expected_sid = compute_scenario_id(run_id, fseed.candidate_id, 1)
+            if envelope.scenario_id != expected_sid:
+                raise ScenarioForgeIntegrityError(
+                    f"Returned envelope scenario_id '{envelope.scenario_id}' "
+                    f"does not match expected '{expected_sid}' from "
+                    f"compute_scenario_id(run_id, candidate_id, 1). Aborting run."
+                )
+
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
 
             # Call-log failure after artifact creation is fatal — it
@@ -893,6 +928,7 @@ def run_pipeline(
             admitted_candidate_ids.add(fseed.candidate_id)
             admitted_scenario_ids.add(envelope.scenario_id)
             scenarios.append(envelope)
+            main_admitted_count += 1
             write_receipts.append(
                 {
                     "scenario_id": envelope.scenario_id,
@@ -933,6 +969,9 @@ def run_pipeline(
     # Remediation scenarios go through the same generation/write/admission
     # path as main candidates, then pass through all validation passes.
     pre_remediation_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+    rem_attempted = 0
+    rem_failed = 0
+    rem_admitted = 0
     if pre_remediation_gaps.uncovered_entry_points:
         remediation_scenarios, remediation_notes, rem_attempted, rem_failed = (
             _remediate_coverage_gaps(
@@ -951,6 +990,7 @@ def run_pipeline(
                 goal_usage=tracker.goal_usage,
             )
         )
+        rem_admitted = len(remediation_scenarios)
         scenarios.extend(remediation_scenarios)
         generation_notes.extend(remediation_notes)
         attempted_count += rem_attempted
@@ -1161,9 +1201,49 @@ def run_pipeline(
     # the directory is scanned to detect extra/orphan artifacts.
     artifact_records: list[dict] = []
     scenarios_dir_final = get_scenarios_dir(output_dir)
-    receipt_stems: set[str] = set()
+    # Build exact expected resolved path set from receipts (not stems).
+    expected_yaml_paths: set[Path] = set()
+    expected_feature_paths: set[Path] = set()
+    seen_receipt_keys: set[tuple[str, str]] = set()
+    # Build a map from scenario_id to has_behavior_spec for receipt
+    # reconciliation against admitted envelopes.
+    admitted_behavior_spec: dict[str, bool] = {}
+    for s in scenarios:
+        has_bs = s.behavior_spec is not None and isinstance(s.behavior_spec, str)
+        admitted_behavior_spec[s.scenario_id] = has_bs
+
     for receipt in write_receipts:
+        # Reconcile exactly one unique receipt per admitted (scenario_id, candidate_id).
+        receipt_key = (receipt["scenario_id"], receipt["candidate_id"])
+        if receipt_key in seen_receipt_keys:
+            raise ScenarioForgeIntegrityError(
+                f"Duplicate write receipt for (scenario_id={receipt['scenario_id']}, "
+                f"candidate_id={receipt['candidate_id']})"
+            )
+        seen_receipt_keys.add(receipt_key)
+
+        # Verify feature receipt presence matches envelope behavior_spec.
+        has_feature_receipt = receipt.get("feature_path") is not None
+        expected_has_feature = admitted_behavior_spec.get(receipt["scenario_id"])
+        if expected_has_feature is None:
+            raise ScenarioForgeIntegrityError(
+                f"Write receipt for scenario '{receipt['scenario_id']}' "
+                f"has no matching admitted scenario. Aborting run."
+            )
+        if has_feature_receipt != expected_has_feature:
+            raise ScenarioForgeIntegrityError(
+                f"Feature receipt presence ({has_feature_receipt}) does not "
+                f"match envelope behavior_spec ({expected_has_feature}) for "
+                f"scenario '{receipt['scenario_id']}'. Aborting run."
+            )
+
         yaml_path = Path(receipt["yaml_path"])
+        # YAML filename must equal scenario_id.
+        if yaml_path.stem != receipt["scenario_id"]:
+            raise ScenarioForgeIntegrityError(
+                f"YAML filename '{yaml_path.name}' does not match scenario_id "
+                f"'{receipt['scenario_id']}'"
+            )
         if not yaml_path.exists():
             raise ScenarioForgeIntegrityError(
                 f"Missing scenario YAML for admitted scenario "
@@ -1174,7 +1254,7 @@ def run_pipeline(
             "yaml_path": f"scenarios/{yaml_path.name}",
             "yaml_sha256": compute_artifact_hash(yaml_bytes),
         }
-        receipt_stems.add(yaml_path.stem)
+        expected_yaml_paths.add(yaml_path)
 
         feature_path_str = receipt.get("feature_path")
         if feature_path_str is not None:
@@ -1192,15 +1272,22 @@ def run_pipeline(
                     f"YAML/feature stem mismatch: {yaml_path.name} vs "
                     f"{feature_path.name}"
                 )
+            expected_feature_paths.add(feature_path)
         artifact_records.append(record)
 
-    # Detect extra/orphan .yaml/.feature files not in receipts.
+    # Detect extra/orphan .yaml/.feature files not in expected path set.
+    # A same-stem feature for a YAML-only receipt must be rejected.
     if scenarios_dir_final.is_dir():
         for f in scenarios_dir_final.iterdir():
-            if f.suffix in (".yaml", ".feature"):
-                if f.stem not in receipt_stems:
+            if f.suffix == ".yaml":
+                if f not in expected_yaml_paths:
                     raise ScenarioForgeIntegrityError(
-                        f"Extra/orphan artifact not in write receipts: {f}"
+                        f"Extra/orphan YAML artifact not in write receipts: {f}"
+                    )
+            elif f.suffix == ".feature":
+                if f not in expected_feature_paths:
+                    raise ScenarioForgeIntegrityError(
+                        f"Extra/orphan feature artifact not in write receipts: {f}"
                     )
 
     persisted_artifacts = len(artifact_records)
@@ -1227,6 +1314,12 @@ def run_pipeline(
         filter_submitted=filter_submitted,
         filter_accepted=filter_accepted,
         selected=selected_count,
+        main_attempted=selected_count,
+        main_admitted=main_admitted_count,
+        generation_failed=failed_count - rem_failed,
+        remediation_attempted=rem_attempted,
+        remediation_admitted=rem_admitted,
+        remediation_failed=rem_failed,
         attempted=attempted_count,
         admitted=len(scenarios),
         quarantined=quarantined_count,

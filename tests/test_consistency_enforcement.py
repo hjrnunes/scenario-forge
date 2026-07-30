@@ -509,7 +509,7 @@ class TestConsistencyRetryLoop:
 
         # Mock envelope assembly
         mock_envelope = MagicMock()
-        mock_envelope.scenario_id = "AP-T1-01-abc123"
+        mock_envelope.scenario_id = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0"
         mock_assemble.return_value = mock_envelope
 
         mock_strip.return_value = 0
@@ -586,7 +586,7 @@ class TestConsistencyRetryLoop:
         mock_call3.return_value = ("Feature: test", mock_result3)
 
         mock_envelope = MagicMock()
-        mock_envelope.scenario_id = "AP-T1-01-abc123"
+        mock_envelope.scenario_id = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0"
         mock_assemble.return_value = mock_envelope
 
         mock_strip.return_value = 0
@@ -660,7 +660,7 @@ class TestConsistencyRetryLoop:
         mock_call3.return_value = ("Feature: test", mock_result3)
 
         mock_envelope = MagicMock()
-        mock_envelope.scenario_id = "AP-T1-01-abc123"
+        mock_envelope.scenario_id = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0"
         mock_assemble.return_value = mock_envelope
 
         mock_strip.return_value = 0

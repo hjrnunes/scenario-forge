@@ -48,7 +48,9 @@ def _make_profile() -> CapabilityProfile:
         ],
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KC1.1", "KC6.1.1"],
-        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+        tool_inventory=[
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ],
     )
 
 
@@ -77,7 +79,7 @@ def _make_seed() -> ScenarioSeed:
 def _make_scenario(title: str) -> dict[str, Any]:
     """Build a minimal scenario dict with a given title."""
     return {
-        "scenario_id": "AP-T7-01-abc123",
+        "scenario_id": "scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         "narrative": {
             "title": title,
             "summary": "Test summary.",
@@ -136,7 +138,10 @@ class TestPriorTitlesInNarrative:
         ]
 
         _call_narrative(
-            seed, profile, client, "test use case",
+            seed,
+            profile,
+            client,
+            "test use case",
             pinned_entry_point="user prompts via chat",
             prior_titles=prior,
         )
@@ -158,7 +163,10 @@ class TestPriorTitlesInNarrative:
         client = _make_mock_client()
 
         _call_narrative(
-            seed, profile, client, "test use case",
+            seed,
+            profile,
+            client,
+            "test use case",
             pinned_entry_point="user prompts via chat",
             prior_titles=None,
         )
@@ -177,7 +185,10 @@ class TestPriorTitlesInNarrative:
         client = _make_mock_client()
 
         _call_narrative(
-            seed, profile, client, "test use case",
+            seed,
+            profile,
+            client,
+            "test use case",
             pinned_entry_point="user prompts via chat",
             prior_titles=[],
         )
@@ -197,7 +208,10 @@ class TestPriorTitlesInNarrative:
         prior = ["Title Alpha", "Title Beta", "Title Gamma"]
 
         _call_narrative(
-            seed, profile, client, "test use case",
+            seed,
+            profile,
+            client,
+            "test use case",
             pinned_entry_point="user prompts via chat",
             prior_titles=prior,
         )
@@ -218,7 +232,10 @@ class TestPriorTitlesInNarrative:
         client = _make_mock_client()
 
         _call_narrative(
-            seed, profile, client, "test use case",
+            seed,
+            profile,
+            client,
+            "test use case",
             pinned_entry_point="user prompts via chat",
             prior_titles=["Some Title"],
         )
@@ -257,7 +274,10 @@ class TestCall1SystemTitleInstruction:
     def test_old_weak_instruction_removed(self):
         """The old weak instruction should no longer be present."""
         rendered = render_prompt("call1_system.j2", **_CALL1_SYS_DEFAULTS)
-        assert "should be specific to the use case, not a generic restatement" not in rendered
+        assert (
+            "should be specific to the use case, not a generic restatement"
+            not in rendered
+        )
 
 
 # ===========================================================================

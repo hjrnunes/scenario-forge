@@ -20,10 +20,12 @@
     "scenario_id": {
       "type": "string",
       "minLength": 1,
+      "pattern": "^scenario:v2:[0-9a-f]{64}$",
       "description": "Collision-safe, run-specific identifier: scenario:<version>:<256-bit hex digest of run_id|candidate_id|attempt>."
     },
     "candidate_id": {
-      "type": ["string", "null"],
+      "type": "string",
+      "pattern": "^cand:v1:[0-9a-f]{32}$",
       "description": "Stable canonical candidate identity (cand:v1:<128-bit hex>) that produced this scenario."
     },
     "version": {
