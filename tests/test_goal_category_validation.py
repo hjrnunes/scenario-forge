@@ -68,6 +68,7 @@ def AttackTreeNode(**kwargs):
 
 def _make_profile(
     zones_active: list[str] | None = None,
+    tool_name: str = "test_tool",
 ) -> CapabilityProfile:
     if zones_active is None:
         zones_active = ["input", "reasoning", "tool_execution"]
@@ -77,7 +78,7 @@ def _make_profile(
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
         tool_inventory=[
-            ToolInventoryEntry(name="test_tool", description="A test tool"),
+            ToolInventoryEntry(name=tool_name, description="A test tool"),
         ],
     )
 
@@ -298,12 +299,15 @@ class TestGoalMechanismMismatchFinancial:
     """PR-1 goal with financial tool_execution leaves triggers mismatch."""
 
     def test_pr1_goal_with_financial_tool_leaf_flags(self) -> None:
-        """PR-1 goal + tool_execution leaf with 'payment' -> violation."""
+        """PR-1 goal + invocation of a resolved payment tool -> violation."""
         financial_leaf = AttackTreeNode(
             id="n1.2",
-            label="Process unauthorized payment via payment API",
+            label="Invoke the transaction service",
             gate=GateType.LEAF,
             zone="tool_execution",
+            action=ToolInvocationAction(
+                tool_id=compute_tool_id("payment_api", "A test tool")
+            ),
         )
         envelope = _make_envelope(
             goal_category="PR-1",
@@ -318,7 +322,7 @@ class TestGoalMechanismMismatchFinancial:
                 financial_leaf,
             ],
         )
-        profile = _make_profile()
+        profile = _make_profile(tool_name="payment_api")
         validate_scenario_semantics([envelope], profile)
 
         violations = _find_violations(envelope, "goal_mechanism_mismatch")

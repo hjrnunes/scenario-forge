@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from scenario_forge.models.attack_tree import AiSystemAction, AttackTree, AttackTreeNode
+from scenario_forge.models.attack_tree import (
+    AttackTree,
+    AttackTreeNode,
+    InitialIngressAction,
+)
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     EntryPoint,
@@ -147,7 +151,9 @@ def _make_attack_tree(seed_id: str = "AP-T2-05") -> AttackTree:
             label="Root attack node",
             gate="LEAF",
             zone="input",
-            action=AiSystemAction(),
+            action=InitialIngressAction(
+                entry_point_id="ep:v1:52306ddb893a33ef2dc0f20c01e815f1"
+            ),
         ),
     )
 
@@ -949,7 +955,7 @@ class TestBuildCall3Context:
         assert "Background: Preconditions" in ctx["gherkin_skeleton"]
 
     def test_gherkin_skeleton_contains_entry_point(self):
-        """Gherkin skeleton references the narrative's entry point."""
+        """Gherkin skeleton resolves the typed ingress entry point name."""
         ctx = build_call3_context(
             seed=_make_seed(),
             narrative=_make_narrative(),

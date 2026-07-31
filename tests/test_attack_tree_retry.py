@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from scenario_forge.llm.client import LLMResult
+from scenario_forge.models.capability_profile import CapabilityProfile, EntryPoint
 from scenario_forge.models.scenario import (
     NarrativeLayer,
     NarrativeStep,
@@ -33,7 +34,8 @@ root:
   gate: LEAF
   zone: input
   action:
-    kind: ai_system_action
+    kind: initial_ingress
+    entry_point_id: ep:v1:52306ddb893a33ef2dc0f20c01e815f1
 """
 
 _INVALID_YAML = "{{{{not yaml at all: ][]["
@@ -70,6 +72,21 @@ def _make_narrative() -> NarrativeLayer:
     )
 
 
+def _make_profile() -> CapabilityProfile:
+    return CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        entry_points=[
+            EntryPoint(
+                name="user prompts via chat interface",
+                direction="input",
+                controllability="direct",
+            )
+        ],
+        kc_subcodes=["KC1.1"],
+        confidence="medium",
+    )
+
+
 def _make_llm_result(content: str) -> LLMResult:
     return LLMResult(
         content=content,
@@ -103,6 +120,8 @@ class TestAttackTreeRetry:
             narrative=narrative,
             client=client,
             use_case="A test use case",
+            profile=_make_profile(),
+            pinned_entry_point_id="ep:v1:52306ddb893a33ef2dc0f20c01e815f1",
         )
 
         assert tree.root.id == "n1"
@@ -126,6 +145,8 @@ class TestAttackTreeRetry:
             narrative=narrative,
             client=client,
             use_case="A test use case",
+            profile=_make_profile(),
+            pinned_entry_point_id="ep:v1:52306ddb893a33ef2dc0f20c01e815f1",
         )
 
         assert tree.root.id == "n1"
@@ -156,6 +177,8 @@ class TestAttackTreeRetry:
                 narrative=narrative,
                 client=client,
                 use_case="A test use case",
+                profile=_make_profile(),
+                pinned_entry_point_id="ep:v1:52306ddb893a33ef2dc0f20c01e815f1",
             )
 
         # Should be the original error, not the retry error
@@ -184,6 +207,8 @@ class TestAttackTreeRetry:
                 narrative=narrative,
                 client=client,
                 use_case="A test use case",
+                profile=_make_profile(),
+                pinned_entry_point_id="ep:v1:52306ddb893a33ef2dc0f20c01e815f1",
             )
 
         assert any(

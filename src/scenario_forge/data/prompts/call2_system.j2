@@ -19,6 +19,7 @@ root:
 
 ## Rules
 - Root node id must be "n1", children "n1.1", "n1.2", etc., grandchildren "n1.1.1", "n1.1.2", etc.
+- When `pinned_entry_point_id` is provided, every `initial_ingress` action MUST use that exact entry_point_id. Never invent, substitute, or select a different entry-point ID.
 - Tree depth: 2-5 levels.
 - Each node needs: id, label (action-oriented, max 120 chars), gate (AND/OR/LEAF), zone (one of: input, reasoning, tool_execution, memory, inter_agent).
 - LEAF nodes must have NO children. AND/OR nodes must have >= 2 children.
@@ -130,6 +131,9 @@ The system integrates with these external systems. Each has a canonical `integra
 {% if entry_points %}
 ### Entry Points (INVARIANT)
 Each entry point has a canonical `entry_point_id`. When creating `initial_ingress` actions, you MUST use the `entry_point_id` from this list. Never invent IDs.
+{% if pinned_entry_point_id is defined and pinned_entry_point_id %}
+The pinned entry point ID is `{{ pinned_entry_point_id }}`. Every `initial_ingress` action MUST use this exact ID.
+{% endif %}
 {% for ep in entry_points %}
 - entry_point_id: {{ ep.entry_point_id }} | name: {{ ep.name }} | direction: {{ ep.direction }}
 {% endfor %}

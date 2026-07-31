@@ -1334,14 +1334,16 @@ def validate_scenario_semantics(
         for leaf in leaves:
             action = leaf.action
             if leaf.zone == "tool_execution" and (
-                action is None or action.kind != "tool_invocation"
+                action is None
+                or action.kind not in {"tool_invocation", "integration_interaction"}
             ):
                 violations.append(
                     SemanticViolation(
                         rule="untyped-tool-execution",
                         message=(
                             f"Leaf node '{leaf.id}' is in tool_execution zone "
-                            "but does not have a tool_invocation action"
+                            "but does not have a tool_invocation or "
+                            "integration_interaction action"
                         ),
                         severity="major",
                     )
@@ -1457,11 +1459,16 @@ def validate_scenario_semantics(
                     "transaction",
                 ]
                 leaves = _collect_leaves(scenario.attack_tree.root)
-                _has_financial_tool_leaf = any(
-                    leaf.zone == "tool_execution"
-                    and any(kw in leaf.label.lower() for kw in _financial_keywords)
-                    for leaf in leaves
-                )
+                _has_financial_tool_leaf = False
+                for leaf in leaves:
+                    if leaf.action is None or leaf.action.kind != "tool_invocation":
+                        continue
+                    resolved_tool = profile.resolve_tool(leaf.action.tool_id)
+                    if resolved_tool is not None and any(
+                        kw in resolved_tool.name.lower() for kw in _financial_keywords
+                    ):
+                        _has_financial_tool_leaf = True
+                        break
                 if _has_financial_tool_leaf:
                     violations.append(
                         SemanticViolation(
@@ -1563,9 +1570,13 @@ def validate_scenario_semantics(
                         )
                     )
 
+        # 13. Corpus-wide closed-world claim applicability (cmps.9 review)
+        corpus_not_applicable = check_corpus_claims_applicability(scenario, profile)
+
         semantic = SemanticValidation(
             valid=len(violations) == 0,
             violations=violations,
+            corpus_claim_applicability=corpus_not_applicable,
         )
 
         if scenario.validation is None:
@@ -1579,6 +1590,38 @@ def validate_scenario_semantics(
             and scenario.validation.structural.valid
             and scenario.validation.semantic.valid
         )
+
+
+def check_corpus_claims_applicability(
+    scenario: ScenarioEnvelope,
+    profile: CapabilityProfile,
+) -> list[str]:
+    """Return closed-world corpus claims inapplicable to partial inventories.
+
+    The scenario argument is retained so this diagnostic can become
+    claim-specific when corpus-wide claims are represented explicitly.
+    """
+    del scenario
+    corpus_not_applicable: list[str] = []
+    if not profile.is_tool_inventory_complete:
+        corpus_not_applicable.append(
+            "tool_inventory: closed-world corpus claims not_applicable "
+            "(tool inventory is inferred_partial, not operator-confirmed complete)"
+        )
+    if not profile.is_entry_point_inventory_complete:
+        corpus_not_applicable.append(
+            "entry_points: closed-world corpus claims not_applicable "
+            "(entry-point inventory is inferred_partial, not operator-confirmed complete)"
+        )
+    return corpus_not_applicable
+
+
+def validate_semantic(
+    scenarios: list[ScenarioEnvelope],
+    profile: CapabilityProfile,
+) -> None:
+    """Compatibility entry point for semantic scenario validation."""
+    validate_scenario_semantics(scenarios, profile)
 
 
 def _check_tree_threat_ids(
@@ -1710,6 +1753,9 @@ def _is_consequence_leaf(node: AttackTreeNode) -> bool:
     steps.  They are exempt from the ``technique_id`` requirement
     because they are not technique-driven actions.
     """
+    if node.action is not None:
+        return node.action.kind == "impact"
+
     text = node.label
     if node.description:
         text = f"{text} {node.description}"
@@ -2016,9 +2062,10 @@ def enforce_parsimony(
     deprecated and ignored -- the canonical formula lives in
     ``compute_leaf_budget()``.  They are retained for API compatibility.
 
-    Leaves without a technique_id are pruning candidates.  They are
-    removed one at a time (most redundant first) until the leaf count
-    is within budget, or no more safe candidates remain.
+    Leaves without a technique_id or typed action are pruning candidates.
+    They are removed one at a time (most redundant first) until the leaf
+    count is within budget, or no more safe candidates remain. Typed leaves
+    are preserved even when that makes the scenario unprunable.
 
     After pruning, single-child AND/OR gates are collapsed via
     ``_repair_node`` and the resulting tree is re-validated with Pydantic.
@@ -2058,6 +2105,8 @@ def enforce_parsimony(
             for leaf in current_leaves:
                 if leaf.technique_id:
                     continue  # never prune annotated leaves
+                if leaf.action is not None:
+                    continue  # never prune leaves with typed actions (cmps.9 review)
                 parent = _find_parent(pruned_root, leaf.id)
                 if parent is None:
                     continue  # root node, can't prune

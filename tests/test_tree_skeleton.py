@@ -166,7 +166,8 @@ root:
       gate: LEAF
       zone: input
       action:
-        kind: ai_system_action
+        kind: initial_ingress
+        entry_point_id: ep:v1:aa202037d5bb19758e399770ed232905
       technique_id: AML.T0054
     - id: n1.2
       label: Invoke tool
@@ -174,7 +175,7 @@ root:
       zone: tool_execution
       action:
         kind: tool_invocation
-        tool_id: tool:v1:b1481234b5a86ae13e30e50fde69370e
+        tool_id: tool:v1:c877fbde6877ae812fa11d00e82fc062
       technique_id: AML.T0053
 """
 

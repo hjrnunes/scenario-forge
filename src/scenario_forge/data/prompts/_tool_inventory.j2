@@ -2,6 +2,7 @@
 ### Tool Inventory (INVARIANT)
 The system can ONLY invoke the tools listed below. Do NOT reference any tool, API, or capability not in this list.
 Each tool has a canonical `tool_id` — you MUST use this ID when creating `tool_invocation` actions. Never invent IDs.
+Tool inventory completeness is tracked separately from entry-point completeness; evidence that one inventory is complete says nothing about the other.
 {% for tool in tool_inventory %}
 - tool_id: {{ tool.tool_id }} | name: {{ tool.name }} | description: {{ tool.description }}
 {% endfor %}

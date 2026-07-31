@@ -31,7 +31,7 @@
     "version": {
       "type": "integer",
       "minimum": 1,
-      "default": 1
+      "default": 2
     },
     "generated_at": {
       "type": "string",
@@ -156,48 +156,56 @@
     },
     "AiSystemAction": {
       "type": "object",
-      "properties": { "kind": { "const": "ai_system_action", "default": "ai_system_action" } }
+      "required": ["kind"],
+      "properties": { "kind": { "const": "ai_system_action", "default": "ai_system_action" } },
+      "additionalProperties": false
     },
     "ExternalPreconditionAction": {
       "type": "object",
+      "required": ["kind"],
       "properties": {
         "kind": { "const": "external_precondition", "default": "external_precondition" },
         "access_provenance": { "oneOf": [{ "type": "string" }, { "type": "null" }], "default": null }
-      }
+      },
+      "additionalProperties": false
     },
     "ImpactAction": {
       "type": "object",
-      "required": ["boundary", "target"],
+      "required": ["kind", "boundary", "target"],
       "properties": {
         "kind": { "const": "impact", "default": "impact" },
         "boundary": { "type": "string", "enum": ["internal", "external"] },
         "target": { "type": "string", "maxLength": 200 }
-      }
+      },
+      "additionalProperties": false
     },
     "ToolInvocationAction": {
       "type": "object",
-      "required": ["tool_id"],
+      "required": ["kind", "tool_id"],
       "properties": {
         "kind": { "const": "tool_invocation", "default": "tool_invocation" },
         "tool_id": { "type": "string", "pattern": "^tool:v1:[0-9a-f]{32}$" },
         "integration_id": { "oneOf": [{ "type": "string", "pattern": "^int:v1:[0-9a-f]{32}$" }, { "type": "null" }], "default": null }
-      }
+      },
+      "additionalProperties": false
     },
     "IntegrationInteractionAction": {
       "type": "object",
-      "required": ["integration_id"],
+      "required": ["kind", "integration_id"],
       "properties": {
         "kind": { "const": "integration_interaction", "default": "integration_interaction" },
         "integration_id": { "type": "string", "pattern": "^int:v1:[0-9a-f]{32}$" }
-      }
+      },
+      "additionalProperties": false
     },
     "InitialIngressAction": {
       "type": "object",
-      "required": ["entry_point_id"],
+      "required": ["kind", "entry_point_id"],
       "properties": {
         "kind": { "const": "initial_ingress", "default": "initial_ingress" },
         "entry_point_id": { "type": "string", "pattern": "^ep:v1:[0-9a-f]{32}$" }
-      }
+      },
+      "additionalProperties": false
     },
     "AttackTreeNode": {
       "type": "object",
@@ -293,6 +301,16 @@
           "then": {
             "required": ["action"],
             "properties": {
+              "action": {
+                "oneOf": [
+                  { "$ref": "#/$defs/AiSystemAction" },
+                  { "$ref": "#/$defs/ExternalPreconditionAction" },
+                  { "$ref": "#/$defs/ImpactAction" },
+                  { "$ref": "#/$defs/ToolInvocationAction" },
+                  { "$ref": "#/$defs/IntegrationInteractionAction" },
+                  { "$ref": "#/$defs/InitialIngressAction" }
+                ]
+              },
               "children": {
                 "oneOf": [
                   { "type": "null" },
@@ -317,6 +335,118 @@
             },
             "required": ["children"]
           }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "external_precondition" } }
+              }
+            }
+          },
+          "then": { "properties": { "zone": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "ai_system_action" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "tool_invocation" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "const": "tool_execution" } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "integration_interaction" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "initial_ingress" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind", "boundary"],
+                "properties": {
+                  "kind": { "const": "impact" },
+                  "boundary": { "const": "internal" }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind", "boundary"],
+                "properties": {
+                  "kind": { "const": "impact" },
+                  "boundary": { "const": "external" }
+                }
+              }
+            }
+          },
+          "then": { "properties": { "zone": { "type": "null" } } }
         }
       ]
     },

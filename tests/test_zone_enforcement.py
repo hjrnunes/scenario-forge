@@ -1,12 +1,15 @@
 """Tests for post-generation zone enforcement.
 
-Verifies that _enforce_zones_narrative and _enforce_zones_attack_tree
-correctly strip zones/steps not in zones_active.
+Verifies that _enforce_zones_narrative strips zones/steps not in zones_active,
+and that _enforce_zones_attack_tree now validates (rejects) rather than
+silently pruning disallowed zones (cmps.9 review correction 4).
 """
 
 from __future__ import annotations
 
 import logging
+
+import pytest
 
 from scenario_forge.models.attack_tree import AiSystemAction, AttackTree, AttackTreeNode
 from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
@@ -162,7 +165,7 @@ class TestEnforceZonesNarrative:
 
 
 # ---------------------------------------------------------------------------
-# _enforce_zones_attack_tree
+# _enforce_zones_attack_tree — validation gate, not pruning (cmps.9 review 4)
 # ---------------------------------------------------------------------------
 
 
@@ -188,7 +191,8 @@ class TestEnforceZonesAttackTree:
         result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
         assert result is tree
 
-    def test_disallowed_leaf_removed(self):
+    def test_disallowed_zone_raises_value_error(self):
+        """Disallowed zones now raise ValueError instead of being pruned."""
         root = AttackTreeNode(
             id="n1",
             label="root",
@@ -201,12 +205,17 @@ class TestEnforceZonesAttackTree:
             ],
         )
         tree = _make_tree(root)
-        result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
-        child_zones = [c.zone for c in result.root.children]
-        assert "memory" not in child_zones
-        assert set(child_zones) == {"input", "reasoning"}
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
 
-    def test_single_surviving_child_collapsed(self):
+    def test_root_zone_disallowed_raises_value_error(self):
+        root = _leaf("n1", "root", "memory")
+        tree = _make_tree(root)
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
+
+    def test_no_pruning_or_collapse_occurs(self):
+        """The tree must not be modified — disallowed zones cause rejection."""
         root = AttackTreeNode(
             id="n1",
             label="root",
@@ -218,43 +227,11 @@ class TestEnforceZonesAttackTree:
             ],
         )
         tree = _make_tree(root)
-        result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
-        # Root should be collapsed to the surviving child
-        assert result.root.id == "n1"  # parent id preserved
-        assert result.root.label == "keep"  # child content
-        assert result.root.gate.value == "LEAF"
-
-    def test_root_zone_disallowed_produces_fallback(self, caplog):
-        root = _leaf("n1", "root", "memory")
-        tree = _make_tree(root)
-        with caplog.at_level(logging.WARNING):
-            result = _enforce_zones_attack_tree(
-                tree, zones_active=["input", "reasoning"]
-            )
-        assert result.root.zone == "input"  # fallback to first allowed zone
-        assert any("Entire attack tree removed" in m for m in caplog.messages)
-
-    def test_warning_logged_on_strip(self, caplog):
-        root = AttackTreeNode(
-            id="n1",
-            label="root",
-            gate="OR",
-            zone="input",
-            children=[
-                _leaf("n1.1", "a", "input"),
-                _leaf("n1.2", "b", "memory"),
-                _leaf("n1.3", "c", "reasoning"),
-            ],
-        )
-        tree = _make_tree(root)
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="disallowed-zone"):
             _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
-        assert any(
-            "Stripping disallowed zones from attack tree" in m for m in caplog.messages
-        )
 
-    def test_deep_nested_removal(self):
-        """Nodes deep in the tree with disallowed zones are removed."""
+    def test_deep_nested_disallowed_zone_raises(self):
+        """Nodes deep in the tree with disallowed zones cause rejection."""
         root = AttackTreeNode(
             id="n1",
             label="root",
@@ -276,9 +253,30 @@ class TestEnforceZonesAttackTree:
             ],
         )
         tree = _make_tree(root)
-        result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
-        # n1.1 should still exist with 2 children (memory one removed)
-        branch = result.root.children[0]
-        assert branch.gate.value == "AND"
-        assert len(branch.children) == 2
-        assert all(c.zone in ("input", "reasoning") for c in branch.children)
+        with pytest.raises(ValueError, match="disallowed-zone.*n1.1.2"):
+            _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
+
+    def test_zone_none_nodes_always_allowed(self):
+        """Nodes with zone=None (external preconditions/impacts) are valid."""
+        from scenario_forge.models.attack_tree import ExternalPreconditionAction
+
+        root = AttackTreeNode(
+            id="n1",
+            label="root",
+            gate="OR",
+            zone=None,
+            action=None,
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="external",
+                    gate="LEAF",
+                    zone=None,
+                    action=ExternalPreconditionAction(),
+                ),
+                _leaf("n1.2", "internal", "input"),
+            ],
+        )
+        tree = _make_tree(root)
+        result = _enforce_zones_attack_tree(tree, zones_active=["input"])
+        assert result is tree  # no violation — zone=None is always allowed

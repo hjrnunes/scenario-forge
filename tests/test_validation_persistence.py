@@ -399,8 +399,8 @@ class TestRewriteIntegrity:
 class TestParsimonyIntegration:
     """enforce_parsimony should be wired into the runner validation sequence."""
 
-    def test_pruned_tree_replaces_original(self) -> None:
-        """When parsimony prunes a tree, the in-memory scenario should get the pruned version."""
+    def test_typed_action_tree_is_unprunable(self) -> None:
+        """An over-budget typed-action tree remains unchanged and unprunable."""
         from scenario_forge.pipeline.validation import enforce_parsimony
 
         # Build a tree with 1 technique but many unannotated leaves
@@ -463,17 +463,16 @@ class TestParsimonyIntegration:
 
         result = enforce_parsimony([envelope])
 
-        # Should have pruned scenarios (original had 6 leaves, budget=4)
-        assert len(result.pruned_scenarios) == 1
-        pruned_scenario, pruned_nodes = result.pruned_scenarios[0]
-        assert len(pruned_nodes) > 0
+        assert len(result.pruned_scenarios) == 0
+        assert len(result.unprunable_scenarios) == 1
+        unchanged_scenario, actual, budget = result.unprunable_scenarios[0]
+        assert (actual, budget) == (6, 4)
 
-        # The pruned tree should have fewer leaves
         from scenario_forge.pipeline.validation import _collect_leaves
 
         original_leaf_count = len(_collect_leaves(root))
-        pruned_leaf_count = len(_collect_leaves(pruned_scenario.attack_tree.root))
-        assert pruned_leaf_count < original_leaf_count
+        unchanged_leaf_count = len(_collect_leaves(unchanged_scenario.attack_tree.root))
+        assert unchanged_leaf_count == original_leaf_count
 
     def test_compliant_scenario_passes_through(self) -> None:
         """A scenario within budget should appear in compliant_scenarios."""
@@ -505,8 +504,8 @@ class TestParsimonyIntegration:
             "Could not prune to budget: 10 leaves, budget 4"
         )
 
-    def test_pruned_tree_written_to_yaml(self, tmp_path: Path) -> None:
-        """After parsimony pruning, the re-written YAML should contain the pruned tree."""
+    def test_unprunable_tree_written_unchanged_to_yaml(self, tmp_path: Path) -> None:
+        """An unprunable typed-action tree is written without node removal."""
         from scenario_forge.pipeline.validation import (
             _collect_leaves,
             enforce_parsimony,
@@ -572,18 +571,19 @@ class TestParsimonyIntegration:
 
         # Run parsimony
         result = enforce_parsimony([envelope])
-        assert len(result.pruned_scenarios) == 1
-        pruned_scenario, _ = result.pruned_scenarios[0]
+        assert len(result.pruned_scenarios) == 0
+        assert len(result.unprunable_scenarios) == 1
+        unchanged_scenario, actual, budget = result.unprunable_scenarios[0]
+        assert (actual, budget) == (6, 4)
 
-        # Simulate the runner: replace the attack tree
-        envelope.attack_tree = pruned_scenario.attack_tree
+        envelope.attack_tree = unchanged_scenario.attack_tree
 
         # Write to disk
         write_scenario_outputs(envelope, tmp_path)
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
 
-        # The written tree should have fewer children than original
+        # The written tree should have the same leaves as the original.
         written_root = data["attack_tree"]["root"]
 
         # Count leaves in the written tree (recursively)
@@ -593,4 +593,4 @@ class TestParsimonyIntegration:
             return sum(count_leaves(c) for c in node["children"])
 
         written_leaf_count = count_leaves(written_root)
-        assert written_leaf_count < original_leaf_count
+        assert written_leaf_count == original_leaf_count

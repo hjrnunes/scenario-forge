@@ -101,7 +101,7 @@ If the system has tool execution capability (any KC5.* or KC6.* sub-codes), list
 
 Every external integration receives a canonical `integration_id` in the format `int:v1:<32 hex>`, and every entry point receives a canonical `entry_point_id` in the format `ep:v1:<32 hex>`. These IDs are application-assigned: never invent or generate any ID. The application will assign canonical IDs after inference.
 
-Inferred profiles are always `inferred_partial`. You cannot declare an inferred inventory `operator_confirmed_complete`; only the application can record that status after operator review.
+Entry-point and tool inventory completeness are independent. Inference forces both `entry_point_completeness` and `tool_inventory_completeness` to `inferred_partial`. You cannot self-promote either category to `operator_confirmed_complete`; only the application can record that category-specific status after operator review and attach the corresponding evidence.
 
 **CRITICAL:** List ONLY tools explicitly described or strongly implied by the use-case description. Do NOT invent tools based on domain expectations or common assumptions. If the use case says "the system can process refunds," list a refund tool — but do NOT add a "billing API" or "inventory management system" unless the use case mentions them.
 

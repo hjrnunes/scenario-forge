@@ -36,7 +36,7 @@
 
 schema:
   name: scenario-envelope
-  version: "0.1.0"
+  version: "0.2.0"
   description: >
     Envelope schema wrapping the four output layers of a scenario-forge scenario
     into a single queryable document.
@@ -113,19 +113,19 @@ fields:
         type: str
         required: true
         description: >
-          The entry point the attack uses, from the capability profile.
-          Example: "user prompts (zone 1)", "RAG-retrieved documents (zone 1)".
+          Human-readable entry point selected from the capability profile. Its
+          canonical entry_point_id is the identity referenced by the attack
+          tree's initial_ingress action; display text is not canonical identity.
 
       zone_sequence:
-        type: list[int]
+        type: list[string]
         required: true
         description: >
           Ordered list encoding the attack propagation path through Schneider
-          zones. Example: [1, 2, 3] for an attack entering via input, traversing
+          zones. Example: [input, reasoning, tool_execution] for an attack entering via input, traversing
           reasoning, and reaching tool execution.
         item_constraints:
-          min: 1
-          max: 5
+          valid_values: [input, reasoning, tool_execution, memory, inter_agent]
 
       steps:
         type: list[NarrativeStep]
@@ -168,10 +168,10 @@ fields:
         type: int
         required: true
       zone:
-        type: int
+        type: string
         required: true
-        description: "Schneider zone (1-5) where this step occurs."
-        enum: [1, 2, 3, 4, 5]
+        description: "Schneider zone where this step occurs."
+        enum: [input, reasoning, tool_execution, memory, inter_agent]
       action:
         type: str
         required: true
@@ -318,17 +318,19 @@ fields:
         type: object
         required: true
         description: >
-          References to the capability profile that scoped this scenario.
+          References to the capability profile that scoped this scenario. The
+          source profile records entry_point_completeness/entry_point_evidence
+          separately from tool_inventory_completeness/tool_inventory_evidence;
+          completeness in one category never implies completeness in the other.
         fields:
           zones_traversed:
-            type: list[int]
+            type: list[string]
             required: true
             description: >
               Ordered list encoding the attack propagation path through
               Schneider zones. Mirrors narrative.zone_sequence.
             item_constraints:
-              min: 1
-              max: 5
+              valid_values: [input, reasoning, tool_execution, memory, inter_agent]
           architecture_match:
             type: str
             required: true
@@ -340,12 +342,14 @@ fields:
             type: str
             required: true
             description: >
-              Which entry point the attack uses from the capability profile.
+              Human-readable entry point selected from the capability profile.
+              Canonical linkage uses the entry_point_id referenced by the attack
+              tree's initial_ingress action, not this display text.
 
       # --- MAESTRO ---
 
       maestro_layers:
-        type: list[int]
+        type: list[string]
         required: true
         description: >
           MAESTRO architectural layers targeted by this scenario.
@@ -525,12 +529,12 @@ example:
       each individual booking call stays within the agent's granted
       permissions.
 
-    entry_point: "user prompts (zone 1)"
-    zone_sequence: [1, 2, 3]
+    entry_point: "user prompts (zone: input)"
+    zone_sequence: [input, reasoning, tool_execution]
 
     steps:
       - step_number: 1
-        zone: 1
+        zone: input
         action: >
           Attacker submits a booking request with an ambiguously worded
           quantity ("book seats for our whole department — all 500 of us")
@@ -541,7 +545,7 @@ example:
         control_point: "Input validation / quantity reasonableness check"
 
       - step_number: 2
-        zone: 2
+        zone: reasoning
         action: >
           The agent's reasoning layer interprets the request literally,
           constructing a tool call with quantity=500 without applying
@@ -553,7 +557,7 @@ example:
         control_point: "Business rule enforcement in reasoning layer"
 
       - step_number: 3
-        zone: 3
+        zone: tool_execution
         action: >
           The agent executes the booking API call with quantity=500. The
           API itself accepts the call because the agent's service account
@@ -592,7 +596,7 @@ example:
       id: "n1"
       label: "Achieve unauthorized mass booking via parameter pollution"
       gate: "AND"
-      zone: 3
+      zone: tool_execution
       threat_id: "T2"
       technique_id: "AML.T0054"
       maestro_layer: 1
@@ -600,7 +604,7 @@ example:
         - id: "n1.1"
           label: "Craft ambiguous quantity prompt"
           gate: "LEAF"
-          zone: 1
+          zone: input
           action:
             kind: "initial_ingress"
             entry_point_id: "ep:v1:00000000000000000000000000000000"
@@ -609,7 +613,7 @@ example:
         - id: "n1.2"
           label: "Agent reasons without business rule check"
           gate: "LEAF"
-          zone: 2
+          zone: reasoning
           action:
             kind: "ai_system_action"
           control_point: "Business rule enforcement"
@@ -618,7 +622,7 @@ example:
         - id: "n1.3"
           label: "Booking API accepts unbounded quantity"
           gate: "LEAF"
-          zone: 3
+          zone: tool_execution
           action:
             kind: "tool_invocation"
             tool_id: "tool:v1:00000000000000000000000000000000"
@@ -676,9 +680,9 @@ example:
       scenario_seed: "T2-S1"
 
     capability_profile:
-      zones_traversed: [1, 2, 3]
+      zones_traversed: [input, reasoning, tool_execution]
       architecture_match: "explicit"
-      entry_point: "user prompts (zone 1)"
+      entry_point: "user prompts (zone: input)"
 
     maestro_layers: [1, 2]
 
@@ -712,5 +716,5 @@ example:
         completion_tokens: 940
         duration_ms: 4800
     notes:
-      - "Capability profile indicates zone 3 (tool execution) is active; T2 scenarios are in scope."
+      - "Capability profile indicates tool_execution (Tool Execution) is active; T2 scenarios are in scope."
       - "Architecture match is explicit: use case description mentions booking API integration."

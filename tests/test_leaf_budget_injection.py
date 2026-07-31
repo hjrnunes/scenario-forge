@@ -31,7 +31,8 @@ root:
   gate: LEAF
   zone: input
   action:
-    kind: ai_system_action
+    kind: initial_ingress
+    entry_point_id: ep:v1:00000000000000000000000000000000
 """
 
 

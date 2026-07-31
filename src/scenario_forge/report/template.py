@@ -2878,6 +2878,27 @@ def _kc_category(kc: str) -> str:
     return parts[0] if parts else kc
 
 
+def _corpus_applicability_label(
+    entry_point_completeness: str,
+    tool_inventory_completeness: str,
+) -> str:
+    """Human-readable label for closed-world corpus claim applicability.
+
+    Closed-world omission/phantom claims are ``not_applicable`` until the
+    relevant inventory category is operator-confirmed complete (cmps.9).
+    """
+    parts: list[str] = []
+    if entry_point_completeness != "operator_confirmed_complete":
+        parts.append("entry-point claims not_applicable (inferred_partial)")
+    else:
+        parts.append("entry-point claims applicable")
+    if tool_inventory_completeness != "operator_confirmed_complete":
+        parts.append("tool claims not_applicable (inferred_partial)")
+    else:
+        parts.append("tool claims applicable")
+    return "; ".join(parts)
+
+
 def build_capability_profile_section(profile: dict[str, Any]) -> str:
     raw_zones_active = profile.get("zones_active", [])
     zones_active = {_normalize_zone(z) for z in raw_zones_active}
@@ -2975,15 +2996,31 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
         "integration_id",
         "No external integrations inventoried",
     )
-    completeness = str(profile.get("inventory_completeness", "unknown"))
-    evidence_sources = profile.get("evidence_sources") or []
-    evidence_html = (
-        '<ul class="entry-point-list">'
-        + "".join(f"<li>{_esc(source)}</li>" for source in evidence_sources)
-        + "</ul>"
-        if evidence_sources
-        else '<span style="color:var(--text-muted);">No evidence sources recorded</span>'
+
+    def _enum_str(v: str) -> str:
+        """Extract string value from a possible enum object."""
+        return str(v.value if hasattr(v, "value") else v)
+
+    entry_point_completeness = _enum_str(
+        profile.get("entry_point_completeness", "unknown")
     )
+    entry_point_evidence = profile.get("entry_point_evidence") or []
+    tool_inventory_completeness = _enum_str(
+        profile.get("tool_inventory_completeness", "unknown")
+    )
+    tool_inventory_evidence = profile.get("tool_inventory_evidence") or []
+
+    def _evidence_html(evidence: list[str]) -> str:
+        if not evidence:
+            return '<span style="color:var(--text-muted);">No evidence sources recorded</span>'
+        return (
+            '<ul class="entry-point-list">'
+            + "".join(f"<li>{_esc(source)}</li>" for source in evidence)
+            + "</ul>"
+        )
+
+    entry_point_evidence_html = _evidence_html(entry_point_evidence)
+    tool_inventory_evidence_html = _evidence_html(tool_inventory_evidence)
 
     # KC sub-codes
     kc_subcodes = profile.get("kc_subcodes", [])
@@ -3030,12 +3067,24 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
           {integrations_html}
         </div>
         <div class="profile-row">
-          <div class="profile-row-label">Inventory Completeness</div>
-          <span class="flag-value">{_esc(completeness.replace("_", " ").title())}</span>
+          <div class="profile-row-label">Entry-Point Inventory Completeness</div>
+          <span class="flag-value">{_esc(entry_point_completeness.replace("_", " ").title())}</span>
         </div>
         <div class="profile-row">
-          <div class="profile-row-label">Evidence Sources</div>
-          {evidence_html}
+          <div class="profile-row-label">Entry-Point Inventory Evidence</div>
+          {entry_point_evidence_html}
+        </div>
+        <div class="profile-row">
+          <div class="profile-row-label">Tool Inventory Completeness</div>
+          <span class="flag-value">{_esc(tool_inventory_completeness.replace("_", " ").title())}</span>
+        </div>
+        <div class="profile-row">
+          <div class="profile-row-label">Tool Inventory Evidence</div>
+          {tool_inventory_evidence_html}
+        </div>
+        <div class="profile-row">
+          <div class="profile-row-label">Corpus Claim Applicability</div>
+          <span class="flag-value">{_esc(_corpus_applicability_label(entry_point_completeness, tool_inventory_completeness))}</span>
         </div>
         {kc_html}
       </div>

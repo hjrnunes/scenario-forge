@@ -296,6 +296,125 @@ def _validate_mandatory_leaves(
             )
 
 
+def _enumerate_root_to_leaf_paths(node: AttackTreeNode) -> list[list[AttackTreeNode]]:
+    """Enumerate all root-to-leaf paths through the attack tree.
+
+    Each path is a list of leaf nodes.  AND gates contribute all children
+    to the same path(s); OR gates create one branch per child.
+    """
+    if node.gate == GateType.LEAF:
+        return [[node]]
+    if not node.children:
+        return []
+    if node.gate == GateType.AND:
+        # All children must succeed — merge their paths.
+        merged: list[list[AttackTreeNode]] = [[]]
+        for child in node.children:
+            child_paths = _enumerate_root_to_leaf_paths(child)
+            if not child_paths:
+                continue
+            merged = [m + cp for m in merged for cp in child_paths]
+        return merged
+    # OR gate: each child is a separate branch.
+    paths: list[list[AttackTreeNode]] = []
+    for child in node.children:
+        paths.extend(_enumerate_root_to_leaf_paths(child))
+    return paths
+
+
+def _collect_all_leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
+    """Collect all LEAF nodes from the tree (depth-first)."""
+    if node.gate == GateType.LEAF:
+        return [node]
+    leaves: list[AttackTreeNode] = []
+    if node.children:
+        for child in node.children:
+            leaves.extend(_collect_all_leaves(child))
+    return leaves
+
+
+def _validate_pinned_ingress(
+    tree: AttackTree,
+    pinned_entry_point_id: str | None,
+    profile: CapabilityProfile | None = None,
+) -> list[str]:
+    """Validate that every root-to-leaf path has an initial_ingress leaf.
+
+    When ``pinned_entry_point_id`` is supplied, every initial_ingress action
+    in the tree must use that exact entry point ID.  Every final attack path
+    must contain at least one initial_ingress leaf.
+
+    When *profile* is supplied, each initial_ingress leaf's zone must match
+    the resolved entry point's canonical ``effective_ingress_zone``.  A
+    mismatch is a violation — the zone is never silently repaired from a
+    label (cmps.9 review correction 3).
+    """
+    paths = _enumerate_root_to_leaf_paths(tree.root)
+    violations: list[str] = []
+
+    for path_idx, path in enumerate(paths, 1):
+        ingress_leaves = [
+            leaf
+            for leaf in path
+            if leaf.action is not None and leaf.action.kind == "initial_ingress"
+        ]
+        if not ingress_leaves:
+            violations.append(
+                f"missing-initial-ingress: attack path {path_idx} has no "
+                f"initial_ingress leaf action. Every root-to-leaf path must "
+                f"contain an initial ingress."
+            )
+
+    if pinned_entry_point_id is not None:
+        all_ingress = [
+            leaf
+            for leaf in _collect_all_leaves(tree.root)
+            if leaf.action is not None and leaf.action.kind == "initial_ingress"
+        ]
+        for leaf in all_ingress:
+            action = leaf.action
+            assert action is not None  # guarded by filter above
+            if action.entry_point_id != pinned_entry_point_id:
+                violations.append(
+                    f"pinned-entry-point-mismatch: initial_ingress action uses "
+                    f"entry_point_id '{action.entry_point_id}', expected "
+                    f"'{pinned_entry_point_id}'."
+                )
+
+    # Validate ingress zone against canonical entry-point zone (cmps.9 review 3).
+    if profile is not None:
+        for leaf in _collect_all_leaves(tree.root):
+            action = leaf.action
+            if action is None or action.kind != "initial_ingress":
+                continue
+            expected_zone = _resolve_ingress_zone(action.entry_point_id, profile)
+            if expected_zone is None:
+                violations.append(
+                    f"unresolved-ingress-zone: initial_ingress leaf '{leaf.id}' "
+                    f"references entry_point_id '{action.entry_point_id}' "
+                    f"that has no canonical ingress zone."
+                )
+            elif leaf.zone != expected_zone:
+                violations.append(
+                    f"ingress-zone-mismatch: initial_ingress leaf '{leaf.id}' "
+                    f"has zone '{leaf.zone}' but entry point "
+                    f"'{action.entry_point_id}' requires zone "
+                    f"'{expected_zone}'. The zone must match the canonical "
+                    f"entry-point ingress zone, not be inferred from a label."
+                )
+
+    return violations
+
+
+def _resolve_ingress_zone(
+    entry_point_id: str,
+    profile: CapabilityProfile,
+) -> str | None:
+    """Return the canonical ingress zone for a profile entry point ID."""
+    entry_point = profile.resolve_entry_point(entry_point_id)
+    return entry_point.effective_ingress_zone if entry_point is not None else None
+
+
 # ---------------------------------------------------------------------------
 # Context builder and LLM call
 # ---------------------------------------------------------------------------
@@ -310,6 +429,7 @@ def build_call2_context(
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
     consistency_feedback: str | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 2 (Attack Tree).
 
@@ -416,6 +536,14 @@ def build_call2_context(
         entry_point_controllability=_tree_ep_controllability,
     )
 
+    entry_points = (profile.entry_points if profile else None) or []
+    if pinned_entry_point_id is not None:
+        entry_points = [
+            entry_point
+            for entry_point in entry_points
+            if entry_point.entry_point_id == pinned_entry_point_id
+        ]
+
     return {
         "seed": seed,
         "use_case": use_case,
@@ -431,7 +559,8 @@ def build_call2_context(
         "tool_inventory": (profile.tool_inventory if profile else None) or [],
         "external_integrations": (profile.external_integrations if profile else None)
         or [],
-        "entry_points": (profile.entry_points if profile else None) or [],
+        "entry_points": entry_points,
+        "pinned_entry_point_id": pinned_entry_point_id,
         "kill_chain": seed.kill_chain,
         "consistency_feedback": consistency_feedback,
         # Non-template data for post-generation validation
@@ -449,6 +578,7 @@ def _call_attack_tree(
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
     consistency_feedback: str | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> tuple[AttackTree, LLMResult]:
     """Generate an attack tree for a scenario seed (Call 2).
 
@@ -468,6 +598,7 @@ def _call_attack_tree(
         pinned_technique_ids=pinned_technique_ids,
         pinned_technique_names=pinned_technique_names,
         consistency_feedback=consistency_feedback,
+        pinned_entry_point_id=pinned_entry_point_id,
     )
 
     skeleton = ctx["skeleton"]
@@ -513,11 +644,6 @@ def _call_attack_tree(
         except Exception:  # noqa: BLE001
             raise first_error
 
-        tree = _enforce_zones_attack_tree(
-            tree,
-            profile.zones_active if profile else None,
-        )
-        _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
         if profile is not None:
             id_violations = resolve_action_ids(tree, profile)
             if id_violations:
@@ -525,13 +651,21 @@ def _call_attack_tree(
                     "Unresolved typed action IDs in attack tree: "
                     + "; ".join(id_violations)
                 )
+        tree = _enforce_zones_attack_tree(
+            tree,
+            profile.zones_active if profile else None,
+        )
+        ingress_violations = _validate_pinned_ingress(
+            tree, pinned_entry_point_id, profile
+        )
+        if ingress_violations:
+            raise ValueError(
+                "Invalid initial ingress in attack tree: "
+                + "; ".join(ingress_violations)
+            )
+        _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
         return tree, retry_result
 
-    tree = _enforce_zones_attack_tree(
-        tree,
-        profile.zones_active if profile else None,
-    )
-    _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
     if profile is not None:
         id_violations = resolve_action_ids(tree, profile)
         if id_violations:
@@ -539,6 +673,16 @@ def _call_attack_tree(
                 "Unresolved typed action IDs in attack tree: "
                 + "; ".join(id_violations)
             )
+    tree = _enforce_zones_attack_tree(
+        tree,
+        profile.zones_active if profile else None,
+    )
+    ingress_violations = _validate_pinned_ingress(tree, pinned_entry_point_id, profile)
+    if ingress_violations:
+        raise ValueError(
+            "Invalid initial ingress in attack tree: " + "; ".join(ingress_violations)
+        )
+    _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
     return tree, result
 
 

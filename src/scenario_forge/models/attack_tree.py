@@ -23,7 +23,7 @@ import logging
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +79,44 @@ _INTERNAL_ZONES: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------#
+# Authoritative action↔zone matrix (cmps.9 review correction 6)
+# ---------------------------------------------------------------------------#
+
+# Single source of truth for which zones are valid for each action kind.
+# All model/schema/generation/validation logic must reference this matrix.
+
+ACTION_ZONE_RULES: dict[str, dict[str, Any]] = {
+    "initial_ingress": {"zone_required": True, "valid_zones": _VALID_ZONES},
+    "external_precondition": {"zone_required": False, "valid_zones": frozenset()},
+    "ai_system_action": {"zone_required": True, "valid_zones": _VALID_ZONES},
+    "tool_invocation": {
+        "zone_required": True,
+        "valid_zones": frozenset({"tool_execution"}),
+    },
+    "integration_interaction": {
+        "zone_required": True,
+        "valid_zones": _INTERNAL_ZONES,
+    },
+    "impact": {
+        "zone_required": "conditional",
+        "valid_zones": _VALID_ZONES,
+        "boundary_field": "boundary",
+        "internal_requires_zone": True,
+        "external_forbids_zone": True,
+    },
+}
+
+
 class InitialIngressAction(BaseModel):
     """Attacker gains initial access through a profiled entry point.
 
     Zone follows verified ingress semantics derived from the entry point's
-    direction/zone.  The ``entry_point_id`` must resolve to a canonical
-    entry point in the capability profile.
+    canonical ``ingress_zone`` field.  The ``entry_point_id`` must resolve
+    to a canonical entry point in the capability profile.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["initial_ingress"] = "initial_ingress"
     entry_point_id: str = Field(
@@ -102,6 +133,8 @@ class ExternalPreconditionAction(BaseModel):
     Schneider zone.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["external_precondition"] = "external_precondition"
     access_provenance: str | None = Field(
         default=None,
@@ -117,6 +150,8 @@ class AiSystemAction(BaseModel):
     messaging all use this action kind.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["ai_system_action"] = "ai_system_action"
 
 
@@ -127,6 +162,8 @@ class ToolInvocationAction(BaseModel):
     to a canonical tool in the capability profile.  An optional
     ``integration_id`` may reference a downstream integration.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["tool_invocation"] = "tool_invocation"
     tool_id: str = Field(
@@ -148,6 +185,8 @@ class IntegrationInteractionAction(BaseModel):
     The ``integration_id`` must resolve to a canonical integration.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["integration_interaction"] = "integration_interaction"
     integration_id: str = Field(
         description="Canonical integration_id from the capability profile.",
@@ -163,6 +202,8 @@ class ImpactAction(BaseModel):
     impacts (financial loss, reputational damage) are outside the AI
     system and must not receive a Schneider zone.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["impact"] = "impact"
     boundary: Literal["internal", "external"] = Field(
@@ -313,57 +354,26 @@ class AttackTreeNode(BaseModel):
         return self
 
     def _validate_action_zone(self) -> None:
-        """Enforce action-specific zone requirements."""
+        """Enforce action-specific zone requirements using the authoritative matrix."""
         action = self.action
         kind = action.kind
+        rule = ACTION_ZONE_RULES.get(kind, {})
+        zone_required = rule.get("zone_required", False)
+        valid_zones = rule.get("valid_zones", frozenset())
 
-        if kind == "external_precondition":
-            if self.zone is not None:
-                raise ValueError(
-                    f"LEAF node '{self.id}' with external_precondition action "
-                    f"must not have a Schneider zone (got '{self.zone}'). "
-                    f"External preconditions are outside the AI boundary."
-                )
-        elif kind == "ai_system_action":
-            if self.zone is None:
-                raise ValueError(
-                    f"LEAF node '{self.id}' with ai_system_action must have "
-                    f"a valid Schneider zone (zone is None)."
-                )
-            if self.zone not in _VALID_ZONES:
-                raise ValueError(
-                    f"LEAF node '{self.id}' with ai_system_action has invalid "
-                    f"zone '{self.zone}'. Valid zones: {sorted(_VALID_ZONES)}"
-                )
-        elif kind == "tool_invocation":
-            if self.zone != "tool_execution":
-                raise ValueError(
-                    f"LEAF node '{self.id}' with tool_invocation action must have "
-                    f"zone exactly 'tool_execution' (got '{self.zone}')."
-                )
-        elif kind == "integration_interaction":
-            if self.zone is None:
-                raise ValueError(
-                    f"LEAF node '{self.id}' with integration_interaction action "
-                    f"must have an active internal execution zone (zone is None)."
-                )
-            if self.zone not in _INTERNAL_ZONES:
-                raise ValueError(
-                    f"LEAF node '{self.id}' with integration_interaction action "
-                    f"has invalid zone '{self.zone}'. Valid internal zones: {sorted(_INTERNAL_ZONES)}"
-                )
-        elif kind == "impact":
-            boundary = action.boundary  # type: ignore[union-attr]
+        if kind == "impact":
+            assert isinstance(action, ImpactAction)  # kind=="impact" guard
+            boundary = action.boundary
             if boundary == "internal":
                 if self.zone is None:
                     raise ValueError(
                         f"LEAF node '{self.id}' with internal impact must have "
                         f"a Schneider zone (zone is None)."
                     )
-                if self.zone not in _VALID_ZONES:
+                if self.zone not in valid_zones:
                     raise ValueError(
                         f"LEAF node '{self.id}' with internal impact has invalid "
-                        f"zone '{self.zone}'. Valid zones: {sorted(_VALID_ZONES)}"
+                        f"zone '{self.zone}'. Valid zones: {sorted(valid_zones)}"
                     )
             else:  # boundary == "external"
                 if self.zone is not None:
@@ -372,16 +382,23 @@ class AttackTreeNode(BaseModel):
                         f"a Schneider zone (got '{self.zone}'). External impacts "
                         f"are outside the AI boundary."
                     )
-        elif kind == "initial_ingress":
+        elif zone_required is False:
+            if self.zone is not None:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with {kind} action "
+                    f"must not have a Schneider zone (got '{self.zone}'). "
+                    f"External preconditions are outside the AI boundary."
+                )
+        elif zone_required is True:
             if self.zone is None:
                 raise ValueError(
-                    f"LEAF node '{self.id}' with initial_ingress action must have "
-                    f"a zone reflecting entry-point ingress semantics (zone is None)."
+                    f"LEAF node '{self.id}' with {kind} action must have "
+                    f"a valid zone (zone is None)."
                 )
-            if self.zone not in _VALID_ZONES:
+            if self.zone not in valid_zones:
                 raise ValueError(
-                    f"LEAF node '{self.id}' with initial_ingress action has invalid "
-                    f"zone '{self.zone}'. Valid zones: {sorted(_VALID_ZONES)}"
+                    f"LEAF node '{self.id}' with {kind} action has invalid "
+                    f"zone '{self.zone}'. Valid zones: {sorted(valid_zones)}"
                 )
 
 

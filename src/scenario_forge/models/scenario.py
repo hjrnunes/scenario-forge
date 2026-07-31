@@ -15,13 +15,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.capability_profile import ConfidenceLevel
-
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -103,7 +102,7 @@ class NarrativeStep(BaseModel):
     effect: str = Field(
         description="What happens as a result -- system response or state change."
     )
-    control_point: Optional[str] = Field(
+    control_point: str | None = Field(
         default=None,
         description="Defensive control at this step, if one exists.",
     )
@@ -208,11 +207,11 @@ class RiskCardRef(BaseModel):
     grounding_confidence: ConfidenceLevel = Field(
         description="Grounding confidence level: high, medium, or low.",
     )
-    threat: Optional[str] = None
-    threat_source: Optional[str] = None
-    vulnerability: Optional[str] = None
-    consequence: Optional[str] = None
-    impact: Optional[str] = None
+    threat: str | None = None
+    threat_source: str | None = None
+    vulnerability: str | None = None
+    consequence: str | None = None
+    impact: str | None = None
 
 
 class TaxonomyChain(BaseModel):
@@ -230,7 +229,7 @@ class TaxonomyChain(BaseModel):
         default_factory=list,
         description="OWASP ASI Top 10 entry IDs (e.g. ['ASI02', 'ASI06']).",
     )
-    atlas_technique_ids: Optional[list[str]] = Field(
+    atlas_technique_ids: list[str] | None = Field(
         default=None,
         description="MITRE ATLAS technique IDs (e.g. ['AML.T0051']). May be empty.",
     )
@@ -332,7 +331,7 @@ class GenerationMetadata(BaseModel):
     call_metadata: list[CallMetadata] = Field(
         description="Per-call metadata for each LLM call that produced this scenario.",
     )
-    notes: Optional[list[str]] = Field(
+    notes: list[str] | None = Field(
         default=None,
         description="Generation-time notes and warnings.",
     )
@@ -402,6 +401,13 @@ class SemanticValidation(BaseModel):
         default_factory=list,
         description="List of semantic validation violations found.",
     )
+    corpus_claim_applicability: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Corpus-wide closed-world claims that are not applicable because "
+            "the relevant inventory is not operator-confirmed complete."
+        ),
+    )
 
 
 class ValidationBlock(BaseModel):
@@ -410,7 +416,7 @@ class ValidationBlock(BaseModel):
     phantom: PhantomValidation = Field(default_factory=PhantomValidation)
     structural: StructuralValidation = Field(default_factory=StructuralValidation)
     semantic: SemanticValidation = Field(default_factory=SemanticValidation)
-    parsimony_unprunable: Optional[str] = Field(
+    parsimony_unprunable: str | None = Field(
         default=None,
         description="Set when parsimony pruning could not bring the tree within budget.",
     )
@@ -489,7 +495,7 @@ class ScenarioEnvelope(BaseModel):
         return v
 
     version: int = Field(
-        default=1,
+        default=2,
         description="Monotonically increasing version number.",
     )
     generated_at: datetime = Field(
@@ -501,7 +507,7 @@ class ScenarioEnvelope(BaseModel):
 
     # --- Scenario Seed Metadata ---
 
-    scenario_seed_metadata: Optional[dict[str, Any]] = Field(
+    scenario_seed_metadata: dict[str, Any] | None = Field(
         default=None,
         description=(
             "Rich metadata from the scenario seed: seed_id, threat_id, "
@@ -566,11 +572,11 @@ class ScenarioEnvelope(BaseModel):
 
     # --- Validation ---
 
-    validation: Optional[ValidationBlock] = Field(
+    validation: ValidationBlock | None = Field(
         default=None,
         description="Unified validation results (phantom, structural, semantic).",
     )
-    validation_passed: Optional[bool] = Field(
+    validation_passed: bool | None = Field(
         default=None,
         description="True only if all three validation sub-blocks are valid. None if validation has not run.",
     )

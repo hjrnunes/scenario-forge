@@ -120,13 +120,42 @@ def _enumerate_paths(node: AttackTreeNode) -> list[list[AttackTreeNode]]:
     return result
 
 
-def _format_leaf_step_text(leaf: AttackTreeNode) -> str:
+def _format_leaf_step_text(
+    leaf: AttackTreeNode,
+    profile: CapabilityProfile | None = None,
+) -> str:
     """Build the display text for a leaf node's Gherkin step.
 
     Labels are display prose only.  The technique ID is appended if present.
-    The zone is appended if the leaf has one (non-None).
+    For typed initial-ingress actions, the display name and zone must come
+    from the resolved canonical entry-point ID — never from the leaf label.
+    If the ID cannot be resolved and a profile is supplied, this is a fatal
+    error (unknown IDs are never silently replaced by prose).
     """
     step_text = leaf.label
+    step_zone = leaf.zone
+
+    if (
+        leaf.action is not None
+        and leaf.action.kind == "initial_ingress"
+        and profile is not None
+    ):
+        entry_point = next(
+            (
+                candidate
+                for candidate in profile.entry_points
+                if candidate.entry_point_id == leaf.action.entry_point_id
+            ),
+            None,
+        )
+        if entry_point is None:
+            raise ValueError(
+                f"initial_ingress action references unresolved entry_point_id "
+                f"'{leaf.action.entry_point_id}'. Cannot derive display name "
+                f"from prose — the ID must resolve to a canonical entry point."
+            )
+        step_text = entry_point.name
+        step_zone = entry_point.effective_ingress_zone
 
     # When the label is just a raw technique ID, replace with the name.
     _TECHNIQUE_ID_PATTERN = re.compile(r"^AML\.T\d+(\.\d+)?$")
@@ -147,8 +176,8 @@ def _format_leaf_step_text(leaf: AttackTreeNode) -> str:
     if leaf.technique_id:
         step_text = re.sub(r"\s*\[AML\.T\d+(?:\.\d+)?\]", "", step_text)
         step_text += f" [{leaf.technique_id}]"
-    if leaf.zone is not None:
-        step_text += f" ({leaf.zone})"
+    if step_zone is not None:
+        step_text += f" ({step_zone})"
     return step_text
 
 
@@ -162,7 +191,8 @@ def _build_gherkin_template(
     """Build a deterministic Gherkin skeleton from the tree and narrative.
 
     Action-aware projection (cmps.9):
-    - ``external_precondition`` leaves → Background Given steps
+    - shared ``external_precondition`` leaves → Background Given steps
+    - branch-only ``external_precondition`` leaves → Scenario Given steps
     - ``initial_ingress`` and attack actions → Scenario When/And steps
     - ``impact`` leaves → Scenario Then steps (before {ASSERTIONS})
     - Labels are display text only; action discriminator determines step kind.
@@ -186,48 +216,24 @@ def _build_gherkin_template(
         "",
     ]
 
-    # --- Collect leaf nodes for zone scoping and Background ---
+    # --- Collect leaf nodes for zone scoping ---
     leaf_nodes = _collect_leaf_nodes_dfs(attack_tree.root)
     tree_zones = {leaf.zone for leaf in leaf_nodes if leaf.zone is not None}
 
-    # --- Separate external preconditions for Background ---
-    precondition_leaves = [
-        leaf for leaf in leaf_nodes if _leaf_step_kind(leaf) == _STEP_KIND_GIVEN
-    ]
-
-    # --- Background: preconditions ---
-    first_zone = narrative.zone_sequence[0] if narrative.zone_sequence else "input"
-    lines.append("  Background: Preconditions")
-
-    # Bug fix: strip any trailing zone suffix already present in entry_point
-    entry_point = re.sub(
-        r"\s*\((input|reasoning|tool_execution|memory|inter_agent)\)\s*$",
-        "",
-        narrative.entry_point,
-    )
-    lines.append(f"    Given {entry_point} ({first_zone})")
-
-    # External precondition leaves go to Background as Given/And steps
-    for prec_leaf in precondition_leaves:
-        prec_text = _format_leaf_step_text(prec_leaf)
-        lines.append(f"    And {prec_text}")
-
-    # Additional zone/capability preconditions — scoped to zones
-    # actually present in the tree's leaf nodes, not the full profile
-    from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES
-
-    for zone in profile.zones_active:
-        if zone == first_zone:
-            continue  # already covered by the entry point
-        if zone not in tree_zones:
-            continue  # zone not used in this scenario's tree
-
-        display_name = ZONE_DISPLAY_NAMES.get(zone, zone)
-        lines.append(f"    And the system has {display_name} capabilities ({zone})")
-    lines.append("")
-
     # --- Enumerate attack paths (OR-gate aware) ---
     paths = _enumerate_paths(attack_tree.root)
+
+    # Compute shared preconditions across the complete path set, before any
+    # rendering cap is applied.
+    precondition_ids_by_path = [
+        {leaf.id for leaf in path if _leaf_step_kind(leaf) == _STEP_KIND_GIVEN}
+        for path in paths
+    ]
+    background_precondition_ids = (
+        set.intersection(*precondition_ids_by_path)
+        if precondition_ids_by_path
+        else set()
+    )
 
     if len(paths) > MAX_OR_PATHS:
         logger.warning(
@@ -237,20 +243,64 @@ def _build_gherkin_template(
         )
         paths = paths[:MAX_OR_PATHS]
 
+    # Only external preconditions common to every attack path belong in the
+    # Background. Branch-only preconditions remain in their Scenario blocks.
+    background_preconditions = [
+        leaf
+        for leaf in leaf_nodes
+        if leaf.id in background_precondition_ids
+        and _leaf_step_kind(leaf) == _STEP_KIND_GIVEN
+    ]
+
+    # --- Background: preconditions ---
+    lines.append("  Background: Preconditions")
+
+    for i, prec_leaf in enumerate(background_preconditions):
+        prec_text = _format_leaf_step_text(prec_leaf, profile)
+        keyword = "Given" if i == 0 else "And"
+        lines.append(f"    {keyword} {prec_text}")
+    background_step_added = bool(background_preconditions)
+
+    # Additional zone/capability preconditions — scoped to zones
+    # actually present in the tree's leaf nodes, not the full profile
+    from scenario_forge.models.capability_profile import ZONE_DISPLAY_NAMES
+
+    for zone in profile.zones_active:
+        if zone not in tree_zones:
+            continue  # zone not used in this scenario's tree
+
+        display_name = ZONE_DISPLAY_NAMES.get(zone, zone)
+        keyword = "And" if background_step_added else "Given"
+        lines.append(
+            f"    {keyword} the system has {display_name} capabilities ({zone})"
+        )
+        background_step_added = True
+    lines.append("")
+
     multi_path = len(paths) > 1
 
     for path_idx, path_leaves in enumerate(paths, 1):
         # --- Separate leaves by step kind ---
+        scenario_preconditions: list[AttackTreeNode] = []
         when_leaves: list[AttackTreeNode] = []
         then_leaves: list[AttackTreeNode] = []
         for leaf in path_leaves:
             kind = _leaf_step_kind(leaf)
             if kind == _STEP_KIND_GIVEN:
-                continue  # already in Background
+                if leaf.id not in background_precondition_ids:
+                    scenario_preconditions.append(leaf)
             elif kind == _STEP_KIND_THEN:
                 then_leaves.append(leaf)
             else:
                 when_leaves.append(leaf)
+
+        # Initial ingress is always the first attack action, independent of
+        # incidental tree traversal order.
+        when_leaves.sort(
+            key=lambda leaf: (
+                leaf.action is None or leaf.action.kind != "initial_ingress"
+            )
+        )
 
         # --- Scenario header ---
         if multi_path:
@@ -258,17 +308,21 @@ def _build_gherkin_template(
         else:
             lines.append(f"  Scenario: {narrative.title}")
         lines.append("    Given the system is in its normal operating state")
+
+        for prec_leaf in scenario_preconditions:
+            prec_text = _format_leaf_step_text(prec_leaf, profile)
+            lines.append(f"    And {prec_text}")
         lines.append("")
 
         # --- Attack steps (When/And) from action leaves ---
         for i, leaf in enumerate(when_leaves):
-            step_text = _format_leaf_step_text(leaf)
+            step_text = _format_leaf_step_text(leaf, profile)
             keyword = "When" if i == 0 else "And"
             lines.append(f"    {keyword} {step_text}")
 
         # --- Impact steps (Then) from impact leaves ---
         for leaf in then_leaves:
-            step_text = _format_leaf_step_text(leaf)
+            step_text = _format_leaf_step_text(leaf, profile)
             lines.append(f"    Then {step_text}")
 
         lines.append("")

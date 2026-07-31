@@ -32,7 +32,7 @@
 
 schema:
   name: attack-tree
-  version: "0.1.0"
+  version: "0.2.0"
   description: >
     AND/OR attack tree produced by Call 2 of the scenario generation pipeline.
     Each tree decomposes a single OWASP sub-scenario seed into a hierarchical
@@ -90,6 +90,7 @@ schema:
 
     InitialIngressAction:
       type: object
+      additionalProperties: false
       required: [kind, entry_point_id]
       properties:
         kind:
@@ -101,6 +102,7 @@ schema:
 
     ExternalPreconditionAction:
       type: object
+      additionalProperties: false
       required: [kind]
       properties:
         kind:
@@ -112,6 +114,7 @@ schema:
 
     AiSystemAction:
       type: object
+      additionalProperties: false
       required: [kind]
       properties:
         kind:
@@ -120,6 +123,7 @@ schema:
 
     ToolInvocationAction:
       type: object
+      additionalProperties: false
       required: [kind, tool_id]
       properties:
         kind:
@@ -135,6 +139,7 @@ schema:
 
     IntegrationInteractionAction:
       type: object
+      additionalProperties: false
       required: [kind, integration_id]
       properties:
         kind:
@@ -146,6 +151,7 @@ schema:
 
     ImpactAction:
       type: object
+      additionalProperties: false
       required: [kind, boundary, target]
       properties:
         kind:
@@ -156,6 +162,30 @@ schema:
           enum: [internal, external]
         target:
           type: string
+
+  # EntryPoint is owned by the capability-profile schema and referenced by
+  # InitialIngressAction.entry_point_id during cross-artifact validation.
+  referenced_types:
+    EntryPoint:
+      type: object
+      additionalProperties: false
+      required: [entry_point_id, name, direction]
+      properties:
+        entry_point_id:
+          type: string
+          pattern: "^ep:v1:[0-9a-f]{32}$"
+        name:
+          type: string
+        direction:
+          type: string
+          enum: [input, output, bidirectional]
+        ingress_zone:
+          type: string
+          required: false
+          enum: [input, reasoning, tool_execution, memory, inter_agent]
+          description: >
+            Canonical Schneider zone for initial ingress. Required for
+            ingress-capable entry points and omitted for output-only entries.
 
   # ---------------------------------------------------------------------------
   # Node (recursive)
@@ -201,17 +231,17 @@ schema:
                  or precondition).
 
       zone:
-        type: integer
+        type: string
         required: false
-        enum: [1, 2, 3, 4, 5]
+        enum: [input, reasoning, tool_execution, memory, inter_agent]
         description: >
           Schneider zone where this step occurs.
           Omitted for external preconditions and external impacts.
-          1 = Input Processing
-          2 = Reasoning / Planning
-          3 = Tool Execution
-          4 = Memory / State Management
-          5 = Inter-Agent Communication
+          input = Input Processing
+          reasoning = Reasoning / Planning
+          tool_execution = Tool Execution
+          memory = Memory / State Management
+          inter_agent = Inter-Agent Communication
 
       action:
         required: false
@@ -325,6 +355,16 @@ schema:
   # Validation rules (for Pydantic model implementation)
   # ---------------------------------------------------------------------------
   validation_rules:
+    - rule: "Action zones must follow the authoritative action↔zone matrix"
+      applies_to: node.action
+      reference: "scenario_forge.models.attack_tree.ACTION_ZONE_RULES"
+      condition: >
+        initial_ingress uses the resolved EntryPoint.ingress_zone;
+        external_precondition has no zone; ai_system_action requires an active
+        Schneider zone; tool_invocation requires tool_execution;
+        integration_interaction requires an active internal zone; internal
+        impact requires a zone and external impact forbids one.
+
     - rule: "LEAF nodes must not have children"
       applies_to: node
       condition: "gate == 'LEAF' implies children is empty or absent"
@@ -386,7 +426,7 @@ example:
       id: n1
       label: "Book 500 seats at single-ticket price via parameter pollution"
       gate: AND
-      zone: 3
+      zone: tool_execution
       threat_id: T2
       maestro_layer: 3
       control_point: "End-to-end booking request validation"
@@ -397,7 +437,7 @@ example:
         - id: n1.1
           label: "Discover booking tool interface and parameter structure"
           gate: OR
-          zone: 1
+          zone: input
           technique_id: AML.T0084.001
           maestro_layer: 3
           evidence_level: assumed
@@ -410,7 +450,7 @@ example:
                 Ask the agent what booking options are available and what
                 information it needs to complete a reservation.
               gate: LEAF
-              zone: 1
+              zone: input
               action:
                 kind: ai_system_action
               technique_id: AML.T0084.001
@@ -426,7 +466,7 @@ example:
                 error messages that reveal parameter names, types, and
                 valid ranges.
               gate: LEAF
-              zone: 1
+              zone: input
               action:
                 kind: ai_system_action
               technique_id: AML.T0084.001
@@ -437,7 +477,7 @@ example:
         - id: n1.2
           label: "Craft and deliver polluted parameters via prompt"
           gate: AND
-          zone: 2
+          zone: reasoning
           threat_id: T2
           technique_id: AML.T0053
           maestro_layer: 3
@@ -454,7 +494,7 @@ example:
                 same flight for my company event, 500 people, but price
                 it as a single standard reservation."
               gate: LEAF
-              zone: 1
+              zone: input
               action:
                 kind: initial_ingress
                 entry_point_id: ep:v1:00000000000000000000000000000000
@@ -472,7 +512,7 @@ example:
                 without flagging the discrepancy between bulk quantity
                 and single-ticket pricing context.
               gate: LEAF
-              zone: 2
+              zone: reasoning
               action:
                 kind: ai_system_action
               threat_id: T2
@@ -485,7 +525,7 @@ example:
         - id: n1.3
           label: "Booking tool executes without adequate validation"
           gate: AND
-          zone: 3
+          zone: tool_execution
           threat_id: T2
           technique_id: AML.T0053
           maestro_layer: 3
@@ -501,7 +541,7 @@ example:
                 it against business rules (e.g., max 9 seats per
                 individual booking, bulk requires manager approval).
               gate: LEAF
-              zone: 3
+              zone: tool_execution
               action:
                 kind: tool_invocation
                 tool_id: tool:v1:00000000000000000000000000000000
@@ -519,7 +559,7 @@ example:
                 auto-approval threshold, but the system either lacks
                 a threshold check or the threshold is misconfigured.
               gate: LEAF
-              zone: 3
+              zone: tool_execution
               action:
                 kind: ai_system_action
               maestro_layer: 6
@@ -530,7 +570,7 @@ example:
         - id: n1.4
           label: "Financial loss is realized"
           gate: OR
-          zone: 3
+          zone: tool_execution
           maestro_layer: 4
           evidence_level: assumed
           children:
