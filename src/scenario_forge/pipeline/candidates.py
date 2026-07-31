@@ -29,6 +29,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     classify_entry_point,
     compute_entry_point_id,
+    is_attacker_accessible_ingress,
 )
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -625,17 +626,15 @@ def expand_candidates(
 
     candidates: list[CandidateTriple] = []
 
-    # Filter out output-only entry points — they are not attacker-accessible
-    # ingress channels. Only input and bidirectional entry points participate
-    # in the candidate cross-product.
-    # Also filter out system-controlled entry points — they are internal
-    # integrations not accessible to external attackers.  Explicit
-    # controllability='system' from a reviewed profile is preserved and
-    # excluded from candidate expansion (cmps.9 review correction 5).
+    # Filter to attacker-accessible ingress entry points using the
+    # centralized predicate (cmps.9 third review correction 2).
+    # This excludes output-only, system-controlled, and entries whose
+    # canonical ingress zone is inactive.
+    active_zones = set(profile.zones_active) if profile.zones_active else set()
     ingress_points = [
         ep
         for ep in profile.entry_points
-        if ep.direction != "output" and ep.effective_controllability != "system"
+        if is_attacker_accessible_ingress(ep, active_zones)
     ]
 
     if not ingress_points:
@@ -808,7 +807,7 @@ def _canonicalize_techniques(
             name or description metadata.
     """
     if not ids:
-        return tuple(), tuple(), tuple()
+        return (), (), ()
 
     # Pad names/descriptions to match ids length (defensive).
     padded_names = tuple(names) + ("",) * max(0, len(ids) - len(names))
@@ -1288,7 +1287,7 @@ def filter_candidates(
                     user_prompt=user_prompt,
                     response_format=BatchFilterResponse,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - infrastructure/parse exception, records synthetic call log
                 # Infrastructure/parse exception — record a synthetic
                 # call log entry since we have no LLMResult.
                 seed_call_logs.append(
@@ -1362,7 +1361,7 @@ def filter_candidates(
                     seed_id,
                     submitted_ids,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - reconciliation exception, records error
                 ok = False
                 err = f"Reconciliation exception: {exc}"
 

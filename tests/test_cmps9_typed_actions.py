@@ -282,7 +282,7 @@ class TestCanonicalIdentity:
     def test_tool_deduplication(self):
         tools = [
             ToolInventoryEntry(name="Test Tool", description="Does work"),
-            ToolInventoryEntry(name="test tool", description="does work"),
+            ToolInventoryEntry(name="Test Tool", description="Does work"),
         ]
         assert len(deduplicate_tool_inventory(tools)) == 1
 
@@ -304,18 +304,47 @@ class TestCanonicalIdentity:
             deduplicate_tool_inventory(tools)
 
     def test_tool_dedup_reversed_order_identical_outcome(self):
-        """Reversed order of exact duplicates produces identical result (no information loss)."""
+        """Reversed order of exact duplicates produces identical complete
+        ``model_dump(mode='json')`` output (no information loss).
+
+        Raw metadata differences (e.g. ``Search`` vs ``search``) are now
+        rejected — only exact raw duplicates deduplicate (cmps.9 third
+        review correction 3).
+        """
         tools_a = [
             ToolInventoryEntry(name="Search", description="Search tool"),
-            ToolInventoryEntry(name="search", description="Search tool"),
+            ToolInventoryEntry(name="Search", description="Search tool"),
         ]
         tools_b = list(reversed(tools_a))
         result_a = deduplicate_tool_inventory(tools_a)
         result_b = deduplicate_tool_inventory(tools_b)
         assert len(result_a) == 1
         assert len(result_b) == 1
-        # Both produce exactly one entry with the same canonical identity
-        assert result_a[0].tool_id == result_b[0].tool_id
+        # Complete JSON dumps must be identical regardless of input order.
+        assert result_a[0].model_dump(mode="json") == result_b[0].model_dump(
+            mode="json"
+        )
+
+    def test_tool_dedup_raw_name_difference_rejected(self):
+        """Raw name differences (same canonical name) are rejected to
+        ensure deterministic serialization (cmps.9 third review correction 3)."""
+        tools = [
+            ToolInventoryEntry(name="Search", description="Search tool"),
+            ToolInventoryEntry(name="search", description="Search tool"),
+        ]
+        with pytest.raises(ValueError, match="raw names differ"):
+            deduplicate_tool_inventory(tools)
+
+    def test_tool_dedup_raw_description_difference_rejected(self):
+        """Raw description differences (same canonical description) are
+        rejected to ensure deterministic serialization (cmps.9 third
+        review correction 3)."""
+        tools = [
+            ToolInventoryEntry(name="Search", description="Search tool"),
+            ToolInventoryEntry(name="Search", description="search tool"),
+        ]
+        with pytest.raises(ValueError, match="raw descriptions differ"):
+            deduplicate_tool_inventory(tools)
 
     def test_tool_dedup_empty_nonempty_reversed_order_rejected(self):
         """Reversed order of empty/non-empty mismatch still rejects."""
@@ -1104,6 +1133,7 @@ class TestCorpusClaimApplicability:
         rec = CorpusClaimApplicability(
             category=CorpusClaimCategory.tool_inventory,
             status=CorpusClaimStatus.not_applicable,
+            reason="Tool inventory is inferred_partial.",
         )
         assert rec.status == CorpusClaimStatus.not_applicable
         # The record has no phantom-related field
@@ -1555,10 +1585,15 @@ class TestIdStabilityAndDuplicateSemantics:
             deduplicate_external_integrations(integrations)
 
     def test_exact_duplicate_deduplication_preserves_provenance(self):
-        """Exact semantic duplicates deduplicate, preserving the first entry."""
+        """Exact raw duplicates deduplicate, preserving the first entry.
+
+        Raw metadata differences (e.g. ``Search`` vs ``search``) are now
+        rejected — only exact raw duplicates deduplicate (cmps.9 third
+        review correction 3).
+        """
         tools = [
             ToolInventoryEntry(name="Search", description="Search tool"),
-            ToolInventoryEntry(name="search", description="Search tool"),
+            ToolInventoryEntry(name="Search", description="Search tool"),
         ]
         result = deduplicate_tool_inventory(tools)
         assert len(result) == 1
@@ -2046,7 +2081,7 @@ class TestIngressZoneActiveAdmission:
             ),
         )
         violations = _validate_pinned_ingress(tree, None, profile)
-        assert any("ingress-zone-not-active" in v for v in violations)
+        assert any("inaccessible-ingress-entry-point" in v for v in violations)
 
     def test_active_ingress_zone_accepted_at_admission(self):
         """An initial_ingress leaf whose canonical ingress zone is active
@@ -2094,7 +2129,7 @@ class TestIngressZoneActiveAdmission:
             ),
         )
         violations = _validate_pinned_ingress(tree, None, profile)
-        assert not any("ingress-zone-not-active" in v for v in violations)
+        assert not any("inaccessible-ingress-entry-point" in v for v in violations)
         assert not any("ingress-zone-mismatch" in v for v in violations)
 
 
@@ -2165,7 +2200,6 @@ class TestSystemControllabilityCandidateExclusion:
         """Explicit 'system' controllability is preserved, not downgraded
         to 'indirect' or 'direct' by heuristics."""
         from scenario_forge.models.capability_profile import (
-            EntryPoint,
             classify_entry_point,
         )
 
@@ -2188,3 +2222,658 @@ class TestSystemControllabilityCandidateExclusion:
         assert classify_entry_point("internal backend API", "input", None) == "system"
         # no keyword + input + None → direct (heuristic)
         assert classify_entry_point("user chat", "input", None) == "direct"
+
+
+# ---------------------------------------------------------------------------
+# Third review adversarial tests (cmps.9)
+# ---------------------------------------------------------------------------
+
+
+class TestCorpusApplicabilityCategoryCompleteness:
+    """Corpus claim applicability must be category-complete and coherent
+    (cmps.9 third review correction 1)."""
+
+    def test_pydantic_missing_category_rejected(self):
+        """Missing a required category record is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+            SemanticValidation,
+        )
+
+        # min_length=2 catches the too-short list before the model
+        # validator; either error is acceptable as long as it is rejected.
+        with pytest.raises(Exception, match="missing required category|too_short"):
+            SemanticValidation(
+                valid=True,
+                corpus_claim_applicability=[
+                    CorpusClaimApplicability(
+                        category=CorpusClaimCategory.entry_points,
+                        status=CorpusClaimStatus.not_applicable,
+                        reason="Partial.",
+                    ),
+                ],
+            )
+
+    def test_pydantic_duplicate_category_rejected(self):
+        """Duplicate category records are rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+            SemanticValidation,
+        )
+
+        # max_length=2 catches the too-long list before the model
+        # validator; either error is acceptable as long as it is rejected.
+        with pytest.raises(Exception, match="duplicate category|too_long"):
+            SemanticValidation(
+                valid=True,
+                corpus_claim_applicability=[
+                    CorpusClaimApplicability(
+                        category=CorpusClaimCategory.entry_points,
+                        status=CorpusClaimStatus.not_applicable,
+                        reason="Partial.",
+                    ),
+                    CorpusClaimApplicability(
+                        category=CorpusClaimCategory.tool_inventory,
+                        status=CorpusClaimStatus.not_applicable,
+                        reason="Partial.",
+                    ),
+                    CorpusClaimApplicability(
+                        category=CorpusClaimCategory.entry_points,
+                        status=CorpusClaimStatus.not_applicable,
+                        reason="Partial.",
+                    ),
+                ],
+            )
+
+    def test_pydantic_applicable_without_evidence_rejected(self):
+        """applicable status without nonblank evidence is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="nonblank evidence"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+            )
+
+    def test_pydantic_not_applicable_without_reason_rejected(self):
+        """not_applicable status without a nonblank reason is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="nonblank reason"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+            )
+
+    def test_pydantic_not_applicable_with_evidence_rejected(self):
+        """not_applicable status with evidence is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="must not carry evidence"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+                reason="Partial inventory.",
+                evidence=["some evidence"],
+            )
+
+    def test_pydantic_applicable_with_reason_rejected(self):
+        """applicable status with a nonblank reason is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="must not carry a reason"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                reason="Some reason.",
+                evidence=["evidence"],
+            )
+
+    def test_json_schema_null_action_on_leaf_rejected(self):
+        """Raw JSON Schema: LEAF without an action is rejected."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        with open(schema_path) as f:
+            full_schema = json.load(f)
+        # Build a standalone schema that includes $defs so $ref resolves.
+        node_schema = {
+            **full_schema["$defs"]["AttackTreeNode"],
+            "$defs": full_schema["$defs"],
+        }
+        validator = jsonschema.Draft202012Validator(node_schema)
+        # A LEAF node with no action and no children should be invalid.
+        leaf_no_action = {
+            "id": "n1",
+            "label": "leaf",
+            "gate": "LEAF",
+            "zone": "reasoning",
+        }
+        errors = list(validator.iter_errors(leaf_no_action))
+        assert errors, "LEAF without action should be rejected by schema"
+
+    def test_json_schema_corpus_claim_min_max_items(self):
+        """Raw JSON Schema: corpus_claim_applicability enforces min/max items."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        with open(schema_path) as f:
+            full_schema = json.load(f)
+        # Build a standalone schema that includes $defs so $ref resolves.
+        sem_schema = {
+            **full_schema["$defs"]["SemanticValidation"],
+            "$defs": full_schema["$defs"],
+        }
+        sem_validator = jsonschema.Draft202012Validator(sem_schema)
+
+        # Only one record → should fail (minItems: 2)
+        one_record = {
+            "valid": True,
+            "corpus_claim_applicability": [
+                {
+                    "category": "entry_points",
+                    "status": "not_applicable",
+                    "reason": "Partial.",
+                }
+            ],
+        }
+        errors = list(sem_validator.iter_errors(one_record))
+        assert errors, "One record should fail minItems/minContains"
+
+        # Three records → should fail (maxItems: 2)
+        three_records = {
+            "valid": True,
+            "corpus_claim_applicability": [
+                {
+                    "category": "entry_points",
+                    "status": "not_applicable",
+                    "reason": "Partial.",
+                },
+                {
+                    "category": "tool_inventory",
+                    "status": "not_applicable",
+                    "reason": "Partial.",
+                },
+                {
+                    "category": "entry_points",
+                    "status": "not_applicable",
+                    "reason": "Partial.",
+                },
+            ],
+        }
+        errors = list(sem_validator.iter_errors(three_records))
+        assert errors, "Three records should fail maxItems/maxContains"
+
+    def test_report_consistent_multi_scenario_records_succeed(self):
+        """Report reconciliation succeeds when all scenarios have consistent records."""
+        from scenario_forge.report.generator import _reconcile_corpus_claims
+
+        scenario = {
+            "validation": {
+                "semantic": {
+                    "valid": True,
+                    "violations": [],
+                    "corpus_claim_applicability": [
+                        {
+                            "category": "entry_points",
+                            "status": "not_applicable",
+                            "reason": "Partial.",
+                        },
+                        {
+                            "category": "tool_inventory",
+                            "status": "not_applicable",
+                            "reason": "Partial.",
+                        },
+                    ],
+                }
+            }
+        }
+        result = _reconcile_corpus_claims([scenario, dict(scenario)])
+        assert len(result) == 2
+        assert result[0]["category"] == "entry_points"
+        assert result[1]["category"] == "tool_inventory"
+
+    def test_report_conflicting_multi_scenario_records_fail(self):
+        """Report reconciliation fails on conflicting status across scenarios."""
+        from scenario_forge.report.generator import _reconcile_corpus_claims
+
+        s1 = {
+            "validation": {
+                "semantic": {
+                    "valid": True,
+                    "violations": [],
+                    "corpus_claim_applicability": [
+                        {
+                            "category": "entry_points",
+                            "status": "not_applicable",
+                            "reason": "Partial.",
+                        },
+                        {
+                            "category": "tool_inventory",
+                            "status": "not_applicable",
+                            "reason": "Partial.",
+                        },
+                    ],
+                }
+            }
+        }
+        s2 = {
+            "validation": {
+                "semantic": {
+                    "valid": True,
+                    "violations": [],
+                    "corpus_claim_applicability": [
+                        {
+                            "category": "entry_points",
+                            "status": "applicable",
+                            "evidence": ["reviewed"],
+                        },
+                        {
+                            "category": "tool_inventory",
+                            "status": "not_applicable",
+                            "reason": "Partial.",
+                        },
+                    ],
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="conflicts"):
+            _reconcile_corpus_claims([s1, s2])
+
+    def test_report_missing_validation_block_fails(self):
+        """Report reconciliation fails when a scenario lacks a validation block."""
+        from scenario_forge.report.generator import _reconcile_corpus_claims
+
+        with pytest.raises(ValueError, match="missing a validation block"):
+            _reconcile_corpus_claims([{"scenario_id": "s1"}])
+
+    def test_report_missing_corpus_claims_fails(self):
+        """Report reconciliation fails when corpus claims are absent."""
+        from scenario_forge.report.generator import _reconcile_corpus_claims
+
+        with pytest.raises(ValueError, match="missing corpus_claim_applicability"):
+            _reconcile_corpus_claims([{"validation": {"semantic": {"valid": True}}}])
+
+
+class TestAttackerAccessibleIngressPredicate:
+    """Centralized attacker-accessible ingress predicate must be used
+    consistently across all routes (cmps.9 third review correction 2)."""
+
+    def _make_profile_with_mixed_entry_points(self):
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            EntryPoint,
+            InventoryCompleteness,
+        )
+
+        return CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            entry_points=[
+                # Attacker-accessible
+                EntryPoint(
+                    name="user chat",
+                    direction="input",
+                    ingress_zone="input",
+                ),
+                # Output-only
+                EntryPoint(
+                    name="system alerts",
+                    direction="output",
+                ),
+                # System-controlled
+                EntryPoint(
+                    name="backend API",
+                    direction="input",
+                    controllability="system",
+                    ingress_zone="input",
+                ),
+                # Inactive zone
+                EntryPoint(
+                    name="admin console",
+                    direction="input",
+                    ingress_zone="memory",
+                ),
+            ],
+            confidence="high",
+            kc_subcodes=["KC1.1"],
+            entry_point_completeness=InventoryCompleteness.inferred_partial,
+            tool_inventory_completeness=InventoryCompleteness.inferred_partial,
+        )
+
+    def test_system_ep_not_in_coverage_gaps(self):
+        """System-controlled EPs do not become coverage gaps."""
+        from scenario_forge.models.capability_profile import (
+            compute_entry_point_id,
+        )
+        from scenario_forge.pipeline.coverage import analyze_coverage_gaps
+
+        profile = self._make_profile_with_mixed_entry_points()
+        threats = _make_minimal_threat_surface()
+        gaps = analyze_coverage_gaps(profile, threats, [])
+        ep_ids = [g.entry_point_id for g in gaps.uncovered_entry_points]
+        # Only the accessible "user chat" EP should be in the denominator
+        accessible_ep = profile.resolve_entry_point(
+            compute_entry_point_id("user chat", "input", None, "input")
+        )
+        assert accessible_ep is not None
+        assert accessible_ep.entry_point_id in ep_ids
+        # System EP should NOT be in gaps
+        system_ep = next(ep for ep in profile.entry_points if ep.name == "backend API")
+        assert system_ep.entry_point_id not in ep_ids
+        # Output EP should NOT be in gaps
+        output_ep = next(
+            ep for ep in profile.entry_points if ep.name == "system alerts"
+        )
+        assert output_ep.entry_point_id not in ep_ids
+        # Inactive zone EP should NOT be in gaps
+        inactive_ep = next(
+            ep for ep in profile.entry_points if ep.name == "admin console"
+        )
+        assert inactive_ep.entry_point_id not in ep_ids
+
+    def test_inaccessible_ep_not_in_candidates(self):
+        """Inaccessible EPs do not enter candidate expansion."""
+        from scenario_forge.pipeline.candidates import expand_candidates
+
+        profile = self._make_profile_with_mixed_entry_points()
+        seeds = [
+            _make_minimal_seed("AP-T5-01"),
+        ]
+        candidates = expand_candidates(seeds, profile)
+        # No candidates should reference the system, output, or inactive EPs
+        for c in candidates:
+            assert c.entry_point != "backend API"
+            assert c.entry_point != "system alerts"
+            assert c.entry_point != "admin console"
+
+    def test_inaccessible_ep_not_remediated(self):
+        """Inaccessible EPs cannot be remediation targets, even if a
+        fabricated gap is passed to remediation."""
+        from scenario_forge.pipeline.coverage import CoverageGaps, EntryPointGap
+        from scenario_forge.pipeline.runner import _remediate_coverage_gaps
+
+        profile = self._make_profile_with_mixed_entry_points()
+        system_ep = next(ep for ep in profile.entry_points if ep.name == "backend API")
+        gaps = CoverageGaps(
+            uncovered_entry_points=[
+                EntryPointGap(
+                    entry_point_id=system_ep.entry_point_id,
+                    name=system_ep.name,
+                )
+            ]
+        )
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        scenarios, _notes, attempted, failed = _remediate_coverage_gaps(
+            gaps,
+            [],
+            profile,
+            MagicMock(),
+            "test",
+            Path(tempfile.mkdtemp()),
+            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            attempted_candidate_ids=set(),
+            admitted_candidate_ids=set(),
+            admitted_scenario_ids=set(),
+            write_receipts=[],
+            attempts=[],
+        )
+        assert scenarios == []
+        assert attempted == 0
+        assert failed == 0
+
+    def test_inaccessible_ep_not_in_eval_denominator(self):
+        """Inaccessible EPs do not count in eval expected-entry-point denominator."""
+        from scenario_forge.eval.runner import is_attacker_accessible_ingress
+
+        profile = self._make_profile_with_mixed_entry_points()
+        active_zones = set(profile.zones_active)
+        accessible = [
+            ep
+            for ep in profile.entry_points
+            if is_attacker_accessible_ingress(ep, active_zones)
+        ]
+        # Only one EP should be accessible
+        assert len(accessible) == 1
+        assert accessible[0].name == "user chat"
+
+    def test_inaccessible_ep_rejected_at_admission(self):
+        """Inaccessible EPs cannot be admitted as initial_ingress actions."""
+        from scenario_forge.models.attack_tree import (
+            AiSystemAction,
+            AttackTree,
+            AttackTreeNode,
+            InitialIngressAction,
+        )
+        from scenario_forge.pipeline.generate.tree import _validate_pinned_ingress
+
+        profile = self._make_profile_with_mixed_entry_points()
+        system_ep = next(ep for ep in profile.entry_points if ep.name == "backend API")
+        tree = AttackTree(
+            id="tree-AP-T5-01",
+            seed_id="AP-T5-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="root",
+                gate="AND",
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="ingress",
+                        gate="LEAF",
+                        zone="input",
+                        action=InitialIngressAction(
+                            entry_point_id=system_ep.entry_point_id,
+                        ),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="action",
+                        gate="LEAF",
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                    ),
+                ],
+            ),
+        )
+        violations = _validate_pinned_ingress(tree, None, profile)
+        assert any("inaccessible-ingress-entry-point" in v for v in violations)
+
+
+class TestToolExecutionZonePromptParity:
+    """Prompt and consistency must allow integration_interaction in
+    tool_execution (cmps.9 third review correction 4)."""
+
+    def test_prompt_allows_integration_in_tool_execution(self):
+        """call2_system.j2 Tool Execution Zone Scope explicitly permits
+        direct canonical integration interactions, even when there are no
+        tools (integration-only profile)."""
+        from scenario_forge.prompts import render_prompt
+
+        # Integration-only profile (no tool_inventory)
+        external_integrations = [
+            {
+                "integration_id": "int:v1:xyz",
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            }
+        ]
+        html = render_prompt(
+            "call2_system.j2",
+            use_case="Test",
+            tool_inventory=[],
+            external_integrations=external_integrations,
+            entry_points=[],
+            pinned_entry_point_id=None,
+            skeleton_section="",
+            technique_context="",
+            technique_constraint="",
+            narrative=None,
+            technique_count=0,
+            leaf_budget=10,
+            ontology_context={},
+            kill_chain="",
+            consistency_feedback=None,
+            actor_section="",
+            arch_section="",
+            seed=None,
+        )
+        assert "integration_interaction" in html
+        assert "integration_id" in html
+        # The Tool Execution Zone Scope invariant must render even with
+        # an integration-only profile (guard is tool_inventory or
+        # external_integrations).
+        assert "Tool Execution Zone Scope" in html
+
+    def test_consistency_accepts_integration_in_tool_execution(self):
+        """Consistency check accepts a resolvable integration_interaction in
+        tool_execution zone."""
+        from scenario_forge.models.attack_tree import (
+            AttackTree,
+            AttackTreeNode,
+            IntegrationInteractionAction,
+        )
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            ExternalIntegration,
+            ToolInventoryEntry,
+        )
+        from scenario_forge.pipeline.generate.tree import (
+            _check_tool_execution_leaf_grounding,
+        )
+
+        integration = ExternalIntegration(
+            name="CRM",
+            integration_type="api",
+            auth_method="oauth",
+            data_sensitivity="high",
+        )
+        _profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            entry_points=["user chat"],
+            confidence="high",
+            kc_subcodes=["KC1.1", "KC6.1.1"],
+            tool_inventory=[
+                ToolInventoryEntry(name="Search", description="Search tool")
+            ],
+            external_integrations=[integration],
+        )
+        # Verify the integration resolves from the profile.
+        assert _profile.resolve_integration(integration.integration_id) is not None
+        tree = AttackTree(
+            id="tree-AP-T5-01",
+            seed_id="AP-T5-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="root",
+                gate="LEAF",
+                zone="tool_execution",
+                action=IntegrationInteractionAction(
+                    integration_id=integration.integration_id,
+                ),
+            ),
+        )
+        violations: list[str] = []
+        _check_tool_execution_leaf_grounding(tree.root, violations)
+        assert not any("untyped-tool-execution" in v for v in violations)
+
+
+def _make_minimal_seed(seed_id: str = "AP-T5-01"):
+    from scenario_forge.models.scenario import RiskCardRef
+    from scenario_forge.pipeline.seeds import ScenarioSeed
+
+    risk_card = RiskCardRef(
+        risk_id="R1",
+        risk_name="Test Risk",
+        risk_description="A test risk.",
+        taxonomy="ibm-risk-atlas",
+        confidence=0.9,
+        grounding_confidence="high",
+    )
+    return ScenarioSeed(
+        seed_id=seed_id,
+        threat_id="T5",
+        threat_name="Test Threat",
+        attack_pattern_name="Test Attack Pattern",
+        attack_pattern_description="Description of test attack pattern.",
+        risk_card_ref=risk_card,
+        contributing_risk_cards=[risk_card],
+        owasp_llm_ids=["LLM01"],
+        agentic_threat_ids=["T5"],
+        atlas_technique_ids=["AML.T0051"],
+        laaf_technique_ids=[],
+    )
+
+
+def _make_minimal_threat_surface():
+    from scenario_forge.models.scenario import RiskCardRef
+    from scenario_forge.pipeline.threats import (
+        ThreatSurface,
+        ThreatSurfaceEntry,
+    )
+
+    risk_card = RiskCardRef(
+        risk_id="R1",
+        risk_name="Test Risk",
+        risk_description="A test risk.",
+        taxonomy="ibm-risk-atlas",
+        confidence=0.9,
+        grounding_confidence="high",
+    )
+    return ThreatSurface(
+        entries=[
+            ThreatSurfaceEntry(
+                risk_card=risk_card,
+                owasp_llm_ids=["LLM01"],
+                agentic_threat_ids=["T5"],
+                attack_pattern_ids=["AP-T5-01"],
+            )
+        ],
+        governance_only=[],
+    )

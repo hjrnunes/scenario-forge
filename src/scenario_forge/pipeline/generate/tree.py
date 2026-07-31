@@ -16,7 +16,10 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    is_attacker_accessible_ingress,
+)
 from scenario_forge.models.scenario import ActorProfile, NarrativeLayer
 from scenario_forge.pipeline.generate.constants import (
     _STEP_NODE_CORRESPONDENCE_FLOOR,
@@ -386,20 +389,36 @@ def _validate_pinned_ingress(
     # Validate ingress zone against canonical entry-point zone (cmps.9 review 3).
     # Also reject ingress-capable entries whose effective canonical ingress
     # zone is not active in the profile (cmps.9 review correction 5).
+    # Use the centralized attacker-accessible ingress predicate so that
+    # output-only, system-controlled, missing-zone, and inactive-zone entry
+    # points are all rejected through one authority (cmps.9 third review 2).
     if profile is not None:
         active_zones = set(profile.zones_active) if profile.zones_active else set()
         for leaf in _collect_all_leaves(tree.root):
             action = leaf.action
             if action is None or action.kind != "initial_ingress":
                 continue
-            expected_zone = _resolve_ingress_zone(action.entry_point_id, profile)
-            if expected_zone is None:
+            resolved_ep = profile.resolve_entry_point(action.entry_point_id)
+            if resolved_ep is None:
                 violations.append(
                     f"unresolved-ingress-zone: initial_ingress leaf '{leaf.id}' "
                     f"references entry_point_id '{action.entry_point_id}' "
                     f"that has no canonical ingress zone."
                 )
-            elif leaf.zone != expected_zone:
+                continue
+            if not is_attacker_accessible_ingress(resolved_ep, active_zones):
+                violations.append(
+                    f"inaccessible-ingress-entry-point: initial_ingress leaf "
+                    f"'{leaf.id}' references entry point "
+                    f"'{resolved_ep.name}' (entry_point_id "
+                    f"'{action.entry_point_id}') which is not an "
+                    f"attacker-accessible ingress route (output-only, "
+                    f"system-controlled, or inactive ingress zone)."
+                )
+                continue
+            expected_zone = resolved_ep.effective_ingress_zone
+            assert expected_zone is not None  # predicate guarantees this
+            if leaf.zone != expected_zone:
                 violations.append(
                     f"ingress-zone-mismatch: initial_ingress leaf '{leaf.id}' "
                     f"has zone '{leaf.zone}' but entry point "
@@ -407,25 +426,8 @@ def _validate_pinned_ingress(
                     f"'{expected_zone}'. The zone must match the canonical "
                     f"entry-point ingress zone, not be inferred from a label."
                 )
-            elif expected_zone not in active_zones:
-                violations.append(
-                    f"ingress-zone-not-active: initial_ingress leaf '{leaf.id}' "
-                    f"references entry_point_id '{action.entry_point_id}' "
-                    f"whose canonical ingress zone '{expected_zone}' is not "
-                    f"active in the profile (zones_active={sorted(active_zones)}). "
-                    f"Ingress through an inactive zone is not valid."
-                )
 
     return violations
-
-
-def _resolve_ingress_zone(
-    entry_point_id: str,
-    profile: CapabilityProfile,
-) -> str | None:
-    """Return the canonical ingress zone for a profile entry point ID."""
-    entry_point = profile.resolve_entry_point(entry_point_id)
-    return entry_point.effective_ingress_zone if entry_point is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +558,19 @@ def build_call2_context(
             for entry_point in entry_points
             if entry_point.entry_point_id == pinned_entry_point_id
         ]
+        # Defense-in-depth: reject inaccessible pinned entry points before
+        # exposing them to the LLM (cmps.9 third review correction 2).
+        if profile is not None and len(entry_points) == 1:
+            active_zones = set(profile.zones_active) if profile.zones_active else set()
+            if not is_attacker_accessible_ingress(entry_points[0], active_zones):
+                from scenario_forge.pipeline.generate.assembly import GenerationError
+
+                raise GenerationError(
+                    f"Pinned entry point '{pinned_entry_point_id}' "
+                    f"('{entry_points[0].name}') is not an attacker-accessible "
+                    f"ingress route (output-only, system-controlled, or "
+                    f"inactive ingress zone)."
+                )
 
     return {
         "seed": seed,

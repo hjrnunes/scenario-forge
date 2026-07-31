@@ -1192,6 +1192,9 @@ def validate_scenario_semantics(
     Scenarios are never removed -- violations are recorded as warnings.
     """
     from scenario_forge.data.atlas import ATLAS_TECHNIQUE_NAMES
+    from scenario_forge.models.capability_profile import (
+        is_attacker_accessible_ingress,
+    )
     from scenario_forge.models.scenario import (
         SemanticValidation,
         SemanticViolation,
@@ -1354,13 +1357,32 @@ def validate_scenario_semantics(
             if action is None:
                 continue
             if action.kind == "initial_ingress":
-                if profile.resolve_entry_point(action.entry_point_id) is None:
+                resolved_ep = profile.resolve_entry_point(action.entry_point_id)
+                if resolved_ep is None:
                     violations.append(
                         SemanticViolation(
                             rule="unknown_entry_point_id",
                             message=(
                                 f"Leaf node '{leaf.id}' references unknown "
                                 f"entry_point_id '{action.entry_point_id}'"
+                            ),
+                            severity="major",
+                        )
+                    )
+                elif not is_attacker_accessible_ingress(
+                    resolved_ep,
+                    set(profile.zones_active) if profile.zones_active else set(),
+                ):
+                    violations.append(
+                        SemanticViolation(
+                            rule="inaccessible_ingress_entry_point",
+                            message=(
+                                f"Leaf node '{leaf.id}' references entry "
+                                f"point '{resolved_ep.name}' "
+                                f"(entry_point_id '{action.entry_point_id}') "
+                                f"which is not an attacker-accessible ingress "
+                                f"route (output-only, system-controlled, or "
+                                f"inactive ingress zone)."
                             ),
                             severity="major",
                         )

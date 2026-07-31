@@ -947,9 +947,6 @@ class TestDirectIntegrationInToolExecution:
     def test_integration_interaction_in_tool_execution_no_violation(self) -> None:
         """An integration_interaction leaf in tool_execution passes grounding."""
         from scenario_forge.models.attack_tree import IntegrationInteractionAction
-        from scenario_forge.pipeline.generate.tree import (
-            _check_tool_execution_leaf_grounding,
-        )
 
         root = _make_or_root(
             _make_leaf("n1.1", zone="input"),

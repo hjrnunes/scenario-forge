@@ -413,6 +413,14 @@ class CorpusClaimApplicability(BaseModel):
     operator-confirmed complete.  When the category *is* complete, claims
     are ``applicable`` and unknown emitted IDs still fail independently
     via phantom validation (cmps.9 review correction 2).
+
+    Status-appropriate payloads are enforced (cmps.9 third review
+    correction 1):
+
+    - ``applicable``: requires at least one nonblank evidence item;
+      ``reason`` must be ``None``.
+    - ``not_applicable``: requires a nonblank ``reason``; ``evidence``
+      must be empty.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -439,9 +447,36 @@ class CorpusClaimApplicability(BaseModel):
         description=(
             "Evidence sources supporting the status. For "
             "``applicable`` records this carries the operator-confirmed "
-            "evidence; for ``not_applicable`` it is typically empty."
+            "evidence; for ``not_applicable`` it is empty."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_status_payload(self) -> CorpusClaimApplicability:
+        if self.status == CorpusClaimStatus.applicable:
+            if not self.evidence or not any(e.strip() for e in self.evidence):
+                raise ValueError(
+                    f"applicable corpus claim for category "
+                    f"'{self.category.value}' requires at least one "
+                    f"nonblank evidence item."
+                )
+            if self.reason is not None and self.reason.strip():
+                raise ValueError(
+                    f"applicable corpus claim for category "
+                    f"'{self.category.value}' must not carry a reason."
+                )
+        elif self.status == CorpusClaimStatus.not_applicable:
+            if self.reason is None or not self.reason.strip():
+                raise ValueError(
+                    f"not_applicable corpus claim for category "
+                    f"'{self.category.value}' requires a nonblank reason."
+                )
+            if self.evidence:
+                raise ValueError(
+                    f"not_applicable corpus claim for category "
+                    f"'{self.category.value}' must not carry evidence."
+                )
+        return self
 
 
 class SemanticValidation(BaseModel):
@@ -455,15 +490,67 @@ class SemanticValidation(BaseModel):
         description="List of semantic validation violations found.",
     )
     corpus_claim_applicability: list[CorpusClaimApplicability] = Field(
-        default_factory=list,
+        default_factory=lambda: [
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+                reason="Inferred partial inventory.",
+            ),
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.not_applicable,
+                reason="Inferred partial inventory.",
+            ),
+        ],
+        min_length=2,
+        max_length=2,
         description=(
             "Typed, category-specific closed-world corpus claim "
             "applicability records. Partial inventory categories are "
             "structurally ``not_applicable``; operator-confirmed-complete "
             "categories are ``applicable``. This is independent of "
-            "phantom.valid — unknown emitted IDs still fail regardless."
+            "phantom.valid — unknown emitted IDs still fail regardless. "
+            "Exactly one entry_points and one tool_inventory record "
+            "are required (cmps.9 third review correction 1)."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_corpus_claim_completeness(self) -> SemanticValidation:
+        """Require exactly one ``entry_points`` and one ``tool_inventory``
+        record — no empty, missing, or duplicate categories (cmps.9 third
+        review correction 1).
+        """
+        categories = [r.category for r in self.corpus_claim_applicability]
+        cat_counts: dict[str, int] = {}
+        for c in categories:
+            cat_counts[c.value] = cat_counts.get(c.value, 0) + 1
+        required = {
+            CorpusClaimCategory.entry_points.value,
+            CorpusClaimCategory.tool_inventory.value,
+        }
+        missing = required - set(cat_counts)
+        if missing:
+            raise ValueError(
+                f"corpus_claim_applicability is missing required "
+                f"category record(s): {sorted(missing)}. Exactly one "
+                f"entry_points and one tool_inventory record are required."
+            )
+        duplicates = {c: n for c, n in cat_counts.items() if n > 1}
+        if duplicates:
+            raise ValueError(
+                f"corpus_claim_applicability has duplicate category "
+                f"record(s): {duplicates}. Exactly one entry_points and "
+                f"one tool_inventory record are required."
+            )
+        extra = set(cat_counts) - required
+        if extra:
+            raise ValueError(
+                f"corpus_claim_applicability has unexpected category "
+                f"record(s): {sorted(extra)}. Only entry_points and "
+                f"tool_inventory are valid categories."
+            )
+        return self
 
 
 class ValidationBlock(BaseModel):

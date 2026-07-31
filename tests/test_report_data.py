@@ -22,7 +22,6 @@ from scenario_forge.report.data import ReportData, load_report_data
 from scenario_forge.report.generator import generate_report, generate_report_from_dir
 from tests.manifest_helpers import build_test_run_dir
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -58,6 +57,26 @@ def mock_output_dir(tmp_path: Path) -> Path:
                 "agentic_threat_ids": ["T5"],
                 "scenario_seed": "AP-T5-01",
             }
+        },
+        "validation": {
+            "phantom": {"valid": True, "violations": []},
+            "structural": {"valid": True, "violations": []},
+            "semantic": {
+                "valid": True,
+                "violations": [],
+                "corpus_claim_applicability": [
+                    {
+                        "category": "entry_points",
+                        "status": "not_applicable",
+                        "reason": "Entry-point inventory is inferred_partial.",
+                    },
+                    {
+                        "category": "tool_inventory",
+                        "status": "not_applicable",
+                        "reason": "Tool inventory is inferred_partial.",
+                    },
+                ],
+            },
         },
     }
     sid = "scenario:v2:be16e19482de9b592e1a95b1756a859687e0e5d29b4c4760c565b7554ab3eaab"
@@ -230,6 +249,26 @@ class TestGenerateReport:
                             "agentic_threat_ids": ["T5"],
                             "scenario_seed": "AP-T5-01",
                         }
+                    },
+                    "validation": {
+                        "phantom": {"valid": True, "violations": []},
+                        "structural": {"valid": True, "violations": []},
+                        "semantic": {
+                            "valid": True,
+                            "violations": [],
+                            "corpus_claim_applicability": [
+                                {
+                                    "category": "entry_points",
+                                    "status": "not_applicable",
+                                    "reason": "Entry-point inventory is inferred_partial.",
+                                },
+                                {
+                                    "category": "tool_inventory",
+                                    "status": "not_applicable",
+                                    "reason": "Tool inventory is inferred_partial.",
+                                },
+                            ],
+                        },
                     },
                 }
             ],

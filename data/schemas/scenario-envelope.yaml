@@ -498,6 +498,73 @@ fields:
         required: true
         description: "Wall-clock duration of the LLM call in milliseconds."
 
+  # ===================================================================
+  # Validation models (cmps.9)
+  # ===================================================================
+
+  CorpusClaimCategory:
+    type: str
+    required: true
+    enum: ["entry_points", "tool_inventory"]
+    description: >-
+      Inventory category for closed-world corpus claim applicability.
+
+  CorpusClaimStatus:
+    type: str
+    required: true
+    enum: ["applicable", "not_applicable"]
+    description: >-
+      Whether closed-world corpus claims are applicable for a category.
+
+  CorpusClaimApplicability:
+    type: object
+    required: true
+    description: >-
+      Typed, category-specific closed-world corpus claim applicability record.
+      Status-appropriate payloads are enforced:
+      ``applicable`` requires nonblank evidence and no reason;
+      ``not_applicable`` requires a nonblank reason and no evidence.
+    fields:
+      category:
+        type: CorpusClaimCategory
+        required: true
+      status:
+        type: CorpusClaimStatus
+        required: true
+      reason:
+        type: Optional[str]
+        required: false
+        description: >-
+          Required (nonblank) when status is not_applicable; must be null
+          when status is applicable.
+      evidence:
+        type: list[str]
+        required: false
+        description: >-
+          Required (at least one nonblank item) when status is applicable;
+          must be empty when status is not_applicable.
+
+  SemanticValidation:
+    type: object
+    required: true
+    description: >-
+      Semantic validation results. corpus_claim_applicability must contain
+      exactly one entry_points and one tool_inventory record.
+    fields:
+      valid:
+        type: bool
+        required: true
+      violations:
+        type: list[SemanticViolation]
+        required: false
+      corpus_claim_applicability:
+        type: list[CorpusClaimApplicability]
+        required: true
+        min_items: 2
+        max_items: 2
+        description: >-
+          Exactly one entry_points and one tool_inventory record required.
+
 # =====================================================================
 # Example: Complete scenario document
 # =====================================================================

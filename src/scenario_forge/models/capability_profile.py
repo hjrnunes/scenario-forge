@@ -706,6 +706,13 @@ def deduplicate_tool_inventory(
     An empty/non-empty description mismatch is rejected — the caller must
     provide a nonblank canonical description or disambiguate the name
     (cmps.9 review correction 4).
+
+    Exact semantic duplicates (same canonical name and same canonical
+    description) must also have identical raw ``name`` and raw
+    ``description`` — otherwise the first raw representation would be
+    preserved order-dependently, making serialization non-deterministic
+    (cmps.9 third review correction 3). Only exact raw duplicates
+    deduplicate; raw metadata differences are rejected.
     """
     seen: dict[str, tuple[tuple[str], ToolInventoryEntry]] = {}
     for tool in tools:
@@ -732,8 +739,28 @@ def deduplicate_tool_inventory(
                     f"provide a nonblank canonical description or use a "
                     f"distinct name."
                 )
+            # Canonical name and canonical description match. Reject raw
+            # metadata differences to ensure deterministic serialization
+            # (cmps.9 third review correction 3).
+            if tool.name != existing_tool.name:
+                raise ValueError(
+                    f"Ambiguous semantic duplicate tool: '{tool.name}' "
+                    f"and '{existing_tool.name}' resolve to the same "
+                    f"tool_id {tid} and canonical name, but their raw "
+                    f"names differ. Use the exact same name or "
+                    f"disambiguate to produce a distinct tool_id."
+                )
+            if tool.description != existing_tool.description:
+                raise ValueError(
+                    f"Ambiguous semantic duplicate tool '{tool.name}': "
+                    f"tool_id {tid} has the same canonical description "
+                    f"but raw descriptions differ "
+                    f"('{tool.description}' vs "
+                    f"'{existing_tool.description}'). Use the exact same "
+                    f"description or disambiguate the name."
+                )
             logger.debug(
-                "Deduplicating tool '%s' (same identity as '%s')",
+                "Deduplicating tool '%s' (exact duplicate of '%s')",
                 tool.name,
                 existing_tool.name,
             )
@@ -962,6 +989,34 @@ class EntryPoint(BaseModel):
                 f"attacker-accessible ingress paths."
             )
         return self
+
+
+def is_attacker_accessible_ingress(
+    ep: EntryPoint,
+    active_zones: set[str] | frozenset[str] | None = None,
+) -> bool:
+    """Centralized predicate: is this entry point an attacker-accessible ingress route?
+
+    An entry point is attacker-accessible for ingress iff ALL hold:
+    - ``direction != "output"`` (not output-only)
+    - ``effective_controllability != "system"`` (not system-controlled)
+    - ``effective_ingress_zone`` is present (not None)
+    - when *active_zones* is supplied, the effective ingress zone is active
+
+    Use this single predicate everywhere attacker-accessible ingress is
+    determined: candidate expansion, coverage gap denominators, remediation
+    selection, pinned ingress generation/admission, final semantic
+    validation, and eval expected-entry-point denominators (cmps.9 third
+    review correction 2).
+    """
+    if ep.direction == "output":
+        return False
+    if ep.effective_controllability == "system":
+        return False
+    zone = ep.effective_ingress_zone
+    if zone is None:
+        return False
+    return active_zones is None or zone in active_zones
 
 
 def _coerce_entry_points(

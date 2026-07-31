@@ -1072,7 +1072,7 @@ class TestRuleSupplyChainMismatch:
         assert "supply chain" in rationale
 
     def test_t0010_on_indirect_ep_rejected(self):
-        reject, rationale = _rule_supply_chain_mismatch(
+        reject, _rationale = _rule_supply_chain_mismatch(
             "AML.T0010",
             "RAG knowledge-grounding",
             "indirect",
@@ -1439,7 +1439,7 @@ class TestApplyRuleBasedFilter:
             entry_point="RAG knowledge-grounding",
             technique_ids=("AML.T0051.000", "AML.T0054"),
         )
-        passed, rejected, verdicts = apply_rule_based_filter([candidate], profile)
+        passed, rejected, _verdicts = apply_rule_based_filter([candidate], profile)
         assert len(passed) == 0
         assert len(rejected) == 1
 
@@ -1566,7 +1566,7 @@ class TestApplyRuleBasedFilter:
             entry_point="unknown ep",
             technique_ids=("AML.T0054",),
         )
-        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        passed, _rejected, _ = apply_rule_based_filter([candidate], profile)
         assert len(passed) == 1
 
     def test_multiple_candidates_mixed(self):
@@ -1715,7 +1715,7 @@ def _make_zoned_profile(
     if hitl:
         kc_codes.append("KCX-HITL")
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc_codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in kc_codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]

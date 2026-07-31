@@ -26,6 +26,137 @@ from scenario_forge.report.template import (
 logger = logging.getLogger(__name__)
 
 
+def _reconcile_corpus_claims(
+    scenarios: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Reconcile typed corpus claim applicability across all scenarios.
+
+    All scenarios share the same capability profile, so their corpus claim
+    records must be consistent.  This function validates every scenario's
+    semantic block, requires a complete valid pair (entry_points +
+    tool_inventory), compares records across scenarios, and fails loudly
+    on missing/malformed/duplicate/conflicting data (cmps.9 third review
+    correction 1).
+
+    Returns:
+        A deterministic-category-ordered list of corpus claim dicts.
+
+    Raises:
+        ValueError: On missing, malformed, duplicate, or conflicting records.
+    """
+    from scenario_forge.models.scenario import (
+        CorpusClaimApplicability,
+        CorpusClaimCategory,
+    )
+
+    if not scenarios:
+        return []
+
+    # Collect validated records from every scenario.
+    per_scenario: list[list[CorpusClaimApplicability]] = []
+    for idx, s in enumerate(scenarios):
+        val = s.get("validation")
+        if not val or not isinstance(val, dict):
+            raise ValueError(
+                f"Scenario {idx} is missing a validation block for "
+                f"corpus claim reconciliation."
+            )
+        semantic = val.get("semantic")
+        if not semantic or not isinstance(semantic, dict):
+            raise ValueError(
+                f"Scenario {idx} is missing a semantic validation block "
+                f"for corpus claim reconciliation."
+            )
+        raw_claims = semantic.get("corpus_claim_applicability")
+        if not raw_claims or not isinstance(raw_claims, list):
+            raise ValueError(
+                f"Scenario {idx} is missing corpus_claim_applicability "
+                f"records for reconciliation."
+            )
+        # Validate each record through Pydantic to enforce status-appropriate
+        # payloads and category completeness.
+        try:
+            records = [CorpusClaimApplicability.model_validate(r) for r in raw_claims]
+        except Exception as exc:
+            raise ValueError(
+                f"Scenario {idx} has malformed corpus_claim_applicability "
+                f"records: {exc}"
+            ) from exc
+        per_scenario.append(records)
+
+    # Index records by category for cross-scenario comparison.
+    canonical_order = [
+        CorpusClaimCategory.entry_points,
+        CorpusClaimCategory.tool_inventory,
+    ]
+
+    # Build a canonical representation from the first scenario.
+    first = per_scenario[0]
+    first_by_cat: dict[str, CorpusClaimApplicability] = {}
+    for r in first:
+        if r.category.value in first_by_cat:
+            raise ValueError(
+                f"Scenario 0 has duplicate corpus claim category '{r.category.value}'."
+            )
+        first_by_cat[r.category.value] = r
+
+    # Verify the first scenario has both required categories.
+    for cat in canonical_order:
+        if cat.value not in first_by_cat:
+            raise ValueError(
+                f"Scenario 0 is missing corpus claim category "
+                f"'{cat.value}' during reconciliation."
+            )
+
+    # Compare all subsequent scenarios against the first.
+    for idx, records in enumerate(per_scenario[1:], 1):
+        by_cat: dict[str, CorpusClaimApplicability] = {}
+        for r in records:
+            if r.category.value in by_cat:
+                raise ValueError(
+                    f"Scenario {idx} has duplicate corpus claim category "
+                    f"'{r.category.value}'."
+                )
+            by_cat[r.category.value] = r
+        for cat in canonical_order:
+            cat_val = cat.value
+            if cat_val not in by_cat:
+                raise ValueError(
+                    f"Scenario {idx} is missing corpus claim category "
+                    f"'{cat_val}' during reconciliation."
+                )
+            if cat_val not in first_by_cat:
+                raise ValueError(
+                    f"Scenario 0 is missing corpus claim category "
+                    f"'{cat_val}' during reconciliation."
+                )
+            r1 = first_by_cat[cat_val]
+            r2 = by_cat[cat_val]
+            if r1.status != r2.status or r1.reason != r2.reason:
+                raise ValueError(
+                    f"Corpus claim category '{cat_val}' conflicts between "
+                    f"scenario 0 (status={r1.status.value}, "
+                    f"reason={r1.reason!r}) and scenario {idx} "
+                    f"(status={r2.status.value}, reason={r2.reason!r})."
+                )
+            if sorted(r1.evidence) != sorted(r2.evidence):
+                raise ValueError(
+                    f"Corpus claim category '{cat_val}' evidence conflicts "
+                    f"between scenario 0 and scenario {idx}."
+                )
+
+    # Return in deterministic category order.
+    result: list[dict[str, Any]] = []
+    for cat in canonical_order:
+        r = first_by_cat.get(cat.value)
+        if r is None:
+            raise ValueError(
+                f"Missing corpus claim category '{cat.value}' in reconciled records."
+            )
+        result.append(r.model_dump(mode="json"))
+    return result
+
+
 def generate_report(report_data: ReportData, output_dir: Path) -> Path:
     """Build the HTML report from *report_data* and write it to *output_dir*.
 
@@ -98,19 +229,11 @@ def generate_report(report_data: ReportData, output_dir: Path) -> Path:
     )
     methodology_html = build_methodology_section()
     use_case_html = build_use_case_section(use_case_text) if use_case_text else ""
-    # Extract typed corpus claim applicability from the first scenario's
-    # validation block (cmps.9 review correction 2).  All scenarios share
-    # the same profile, so the records are identical across scenarios.
-    corpus_claims: list[dict[str, Any]] = []
-    for s in scenarios:
-        val = s.get("validation")
-        if val and isinstance(val, dict):
-            semantic = val.get("semantic")
-            if semantic and isinstance(semantic, dict):
-                claims = semantic.get("corpus_claim_applicability")
-                if claims and isinstance(claims, list):
-                    corpus_claims = claims
-                    break
+    # Reconcile typed corpus claim applicability across all scenarios
+    # (cmps.9 third review correction 1).  All scenarios share the same
+    # profile, so records must be consistent.  Fail loudly on
+    # missing/malformed/duplicate/conflicting data rather than first-wins.
+    corpus_claims = _reconcile_corpus_claims(scenarios)
 
     profile_html = build_capability_profile_section(
         profile_data, corpus_claims=corpus_claims

@@ -88,6 +88,17 @@ _VALID_RUN_ID = "20260101T000000_" + "a" * 32
 _VALID_LEGACY_RUN_ID = "a" * 32
 _VALID_CANDIDATE_ID = "cand:v1:" + "1" * 32
 
+# Canonical entry_point_id for "user prompts (zone 1)" — the first entry
+# point in ``_make_profile()``.  Remediation now resolves entry_point_id
+# against the profile (cmps.9 correction 2), so tests must use the real
+# computed ID rather than a synthetic placeholder.
+_USER_PROMPT_EP_ID = compute_entry_point_id(
+    "user prompts (zone 1)", "bidirectional", None
+)
+_ADMIN_CONSOLE_EP_ID = compute_entry_point_id(
+    "admin console (zone 2)", "bidirectional", None
+)
+
 
 def _make_ref(risk_id: str = "risk-1") -> RiskCardRef:
     return RiskCardRef(
@@ -447,7 +458,9 @@ class TestCandidateIdReservation:
 
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-1-id", name="user prompts (zone 1)"),
+                EntryPointGap(
+                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
+                ),
             ]
         )
         seeds = [_make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))]
@@ -491,7 +504,7 @@ class TestCallLogFailureAfterArtifact:
     ):
         # Compute the actual candidate_id that remediation will use.
         seed = _make_seed(seed_id="AP-T1-01")
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         sid = compute_scenario_id(_VALID_RUN_ID, cand_id, 1)
@@ -505,7 +518,9 @@ class TestCallLogFailureAfterArtifact:
 
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-1-id", name="user prompts (zone 1)"),
+                EntryPointGap(
+                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
+                ),
             ]
         )
         seeds = [_make_seed(seed_id="AP-T1-01")]
@@ -561,9 +576,11 @@ class TestRemediationFunnelEquations:
 
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-ok-id", name="user prompts (zone 1)"),
                 EntryPointGap(
-                    entry_point_id="ep-fail-id", name="admin console (zone 2)"
+                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
+                ),
+                EntryPointGap(
+                    entry_point_id=_ADMIN_CONSOLE_EP_ID, name="admin console (zone 2)"
                 ),
             ]
         )
@@ -971,7 +988,7 @@ class TestRemediationCandidateId:
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
         ep_name = "user prompts (zone 1)"
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051", "AML.T0052"))
 
         gaps = CoverageGaps(
@@ -1317,7 +1334,7 @@ class TestRemediationLaafFallback:
         seed.atlas_technique_ids = []
 
         ep_name = "user prompts (zone 1)"
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         gaps = CoverageGaps(
             uncovered_entry_points=[
                 EntryPointGap(entry_point_id=ep_id, name=ep_name),
@@ -1362,7 +1379,7 @@ class TestForgedReturnIdentity:
         """Remediation returned envelope with wrong candidate_id must
         raise ScenarioForgeIntegrityError, not write."""
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         wrong_cid = "cand:v1:22222222222222222222222222222222"
@@ -1407,7 +1424,7 @@ class TestForgedReturnIdentity:
         """Remediation returned envelope with wrong scenario_id must
         raise ScenarioForgeIntegrityError, not write."""
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         wrong_sid = "scenario:v2:" + "f" * 64

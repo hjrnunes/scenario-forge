@@ -40,7 +40,6 @@ from scenario_forge.eval.plausibility import (
 from scenario_forge.eval.runner import run_evaluation
 from tests.manifest_helpers import build_test_run_dir
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: synthetic scenario data
 # ---------------------------------------------------------------------------
@@ -1093,12 +1092,12 @@ class TestRunEvaluation:
         # Write only the YAML, no feature file, with a manifest that
         # inventories only the YAML — strict validation must reject this.
         from scenario_forge.manifest import (
+            MANIFEST_FILENAME,
             ArtifactRole,
             RunManifest,
             RunStatus,
             atomic_write_yaml,
             build_artifact_entry,
-            MANIFEST_FILENAME,
         )
 
         sc_dir = run_dir / "scenarios"
@@ -1131,7 +1130,7 @@ class TestRunEvaluation:
     def test_with_capability_profile(self, tmp_path: Path):
         """Runner loads capability-profile.yaml and passes context to diversity."""
         s = _make_scenario(
-            entry_point="user prompts",
+            entry_point="user prompts (zone input)",
             zone_sequence=["input", "reasoning"],
         )
 
@@ -1143,6 +1142,12 @@ class TestRunEvaluation:
             ],
             "confidence": "high",
             "kc_subcodes": ["KC1.1", "KC6.1.1"],
+            "tool_inventory": [
+                {
+                    "name": "web search",
+                    "description": "Search the web for information.",
+                },
+            ],
         }
         run_dir = build_test_run_dir(
             tmp_path / "run", profile_data=cap_profile, scenarios=[s]

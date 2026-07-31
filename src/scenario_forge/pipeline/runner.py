@@ -7,7 +7,7 @@ import importlib.metadata
 import logging
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -19,22 +19,61 @@ from scenario_forge.data.loaders import (
 )
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
+from scenario_forge.manifest import (
+    _ROLE_METADATA,
+    ARTIFACT_SCHEMA_VERSION,
+    MANIFEST_VERSION,
+    ArtifactEntry,
+    ArtifactRole,
+    AttemptDisposition,
+    AttemptPhase,
+    AttemptRecord,
+    InputHashes,
+    ManifestIntegrityError,
+    ModelConfig,
+    Provenance,
+    RunManifest,
+    RunStatus,
+    build_artifact_entry,
+    build_in_memory_resolver,
+    capture_provenance,
+    compute_bytes_sha256,
+    compute_config_digest,
+    compute_file_sha256,
+    derive_funnel_from_attempts,
+    finalize_manifest,
+    load_manifest,
+    resolve_run_dir,
+    validate_attempt_equations,
+    validate_completed_inventory,
+    write_failed_manifest,
+    write_manifest_sentinel,
+)
 from scenario_forge.models.capability_profile import (
     ZONE_NAMES,
     CapabilityProfile,
+    is_attacker_accessible_ingress,
 )
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateFunnel,
     CandidateTriple,
-    FilterProtocolError,
     FilteredSeed,
+    FilterProtocolError,
     StageRecord,
     apply_rule_based_filter,
     cap_scenarios_per_pattern,
     compute_candidate_id,
     expand_candidates,
     filter_candidates,
+)
+from scenario_forge.pipeline.coverage import (
+    CoverageGaps,
+    EntryPointGap,
+    GapAttributions,
+    analyze_attacker_diversity,
+    analyze_coverage_gaps,
+    write_coverage_report,
 )
 from scenario_forge.pipeline.diversity import DiversityTracker
 from scenario_forge.pipeline.generate import (
@@ -61,44 +100,9 @@ from scenario_forge.pipeline.io import (
     write_threat_surface,
     write_use_case,
 )
-from scenario_forge.manifest import (
-    ARTIFACT_SCHEMA_VERSION,
-    MANIFEST_VERSION,
-    AttemptDisposition,
-    AttemptPhase,
-    AttemptRecord,
-    ArtifactEntry,
-    ArtifactRole,
-    InputHashes,
-    ManifestIntegrityError,
-    ModelConfig,
-    Provenance,
-    RunManifest,
-    RunStatus,
-    _ROLE_METADATA,
-    build_artifact_entry,
-    build_in_memory_resolver,
-    capture_provenance,
-    compute_bytes_sha256,
-    compute_config_digest,
-    compute_file_sha256,
-    derive_funnel_from_attempts,
-    finalize_manifest,
-    load_manifest,
-    resolve_run_dir,
-    validate_attempt_equations,
-    validate_completed_inventory,
-    write_failed_manifest,
-    write_manifest_sentinel,
-)
-from scenario_forge.pipeline.coverage import (
-    CoverageGaps,
-    GapAttributions,
-    analyze_attacker_diversity,
-    analyze_coverage_gaps,
-    write_coverage_report,
-)
 from scenario_forge.pipeline.profile import infer_capability_profile
+from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
+from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
 from scenario_forge.pipeline.validation import (
     check_leaf_technique_provenance,
     enforce_parsimony,
@@ -109,8 +113,6 @@ from scenario_forge.pipeline.validation import (
     validate_scenario_structure,
 )
 from scenario_forge.prompts import hash_prompt_templates
-from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
-from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +309,24 @@ def _pick_best_seed_for_entry_point(
     return best_seed
 
 
+def _is_gap_attacker_accessible(
+    ep_gap: EntryPointGap,
+    profile: CapabilityProfile,
+    active_zones: set[str],
+) -> bool:
+    """Check whether a coverage gap entry point is attacker-accessible.
+
+    Defense-in-depth: coverage gaps already filter via
+    ``is_attacker_accessible_ingress``, but remediation re-checks to
+    ensure no ineligible entry point is ever remediated (cmps.9 third
+    review correction 2).
+    """
+    ep = profile.resolve_entry_point(ep_gap.entry_point_id)
+    if ep is None:
+        return False
+    return is_attacker_accessible_ingress(ep, active_zones)
+
+
 def _remediate_coverage_gaps(
     coverage_gaps: CoverageGaps,
     seeds: list[ScenarioSeed],
@@ -344,7 +364,18 @@ def _remediate_coverage_gaps(
     remediation_attempted = 0
     remediation_failed = 0
 
-    uncovered = coverage_gaps.uncovered_entry_points
+    # Filter out entry points that are not attacker-accessible ingress
+    # routes — they should never be remediation targets (cmps.9 third
+    # review correction 2).  Coverage gaps already use the centralized
+    # predicate, but defense-in-depth: re-check here.
+    active_zones = set(profile.zones_active) if profile.zones_active else set()
+    uncovered = [
+        ep_gap
+        for ep_gap in coverage_gaps.uncovered_entry_points
+        if _is_gap_attacker_accessible(ep_gap, profile, active_zones)
+    ]
+    if not uncovered:
+        return [], [], 0, 0
     logger.info(
         "[Remediation] %d uncovered entry point(s) to remediate: %s",
         len(uncovered),
@@ -500,9 +531,12 @@ def _remediate_coverage_gaps(
                 disposition=AttemptDisposition.ADMITTED,
             )
 
-            if goal_usage is not None and envelope.actor_profile is not None:
-                if envelope.actor_profile.goal_category is not None:
-                    goal_usage[envelope.actor_profile.goal_category] += 1
+            if (
+                goal_usage is not None
+                and envelope.actor_profile is not None
+                and envelope.actor_profile.goal_category is not None
+            ):
+                goal_usage[envelope.actor_profile.goal_category] += 1
             logger.info(
                 "    Remediation scenario generated: %s (entry point: %s)",
                 envelope.scenario_id,
@@ -526,7 +560,7 @@ def _remediate_coverage_gaps(
                 failure_evidence=str(exc),
                 exc=exc,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - remediation must catch all to record failure
             note = (
                 f"Remediation generation failed for entry point '{ep_name}' "
                 f"with seed {seed.seed_id}: {exc}"
@@ -671,16 +705,14 @@ def _reconcile_artifacts(
     # Detect extra/orphan .yaml/.feature files not in expected path set.
     if scenarios_dir.is_dir():
         for f in scenarios_dir.iterdir():
-            if f.suffix == ".yaml":
-                if f.resolve() not in expected_yaml_paths:
-                    raise ScenarioForgeIntegrityError(
-                        f"Extra/orphan YAML artifact not in write receipts: {f}"
-                    )
-            elif f.suffix == ".feature":
-                if f.resolve() not in expected_feature_paths:
-                    raise ScenarioForgeIntegrityError(
-                        f"Extra/orphan feature artifact not in write receipts: {f}"
-                    )
+            if f.suffix == ".yaml" and f.resolve() not in expected_yaml_paths:
+                raise ScenarioForgeIntegrityError(
+                    f"Extra/orphan YAML artifact not in write receipts: {f}"
+                )
+            elif f.suffix == ".feature" and f.resolve() not in expected_feature_paths:
+                raise ScenarioForgeIntegrityError(
+                    f"Extra/orphan feature artifact not in write receipts: {f}"
+                )
 
     return artifact_records
 
@@ -741,12 +773,13 @@ def _finalize_attempt(
     is blank.
     """
     evidence = failure_evidence
-    if disposition in (AttemptDisposition.FAILED, AttemptDisposition.QUARANTINED):
-        if not evidence or not evidence.strip():
-            if exc is not None:
-                evidence = f"{type(exc).__name__}: no detailed error message"
-            else:
-                evidence = f"{disposition.value}: no detailed error message"
+    if disposition in (AttemptDisposition.FAILED, AttemptDisposition.QUARANTINED) and (
+        not evidence or not evidence.strip()
+    ):
+        if exc is not None:
+            evidence = f"{type(exc).__name__}: no detailed error message"
+        else:
+            evidence = f"{disposition.value}: no detailed error message"
     record.disposition = disposition
     record.failure_evidence = evidence
 
@@ -869,7 +902,7 @@ def _build_failed_evidence_inventory(
                             schema_version=ARTIFACT_SCHEMA_VERSION,
                         )
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - orphan check will flag unreadable files
                     pass  # truly unreadable — orphan check will flag it
 
     # Top-level singleton artifacts
@@ -1056,7 +1089,7 @@ def run_pipeline(
     run_dir, run_id = resolve_run_dir(output_dir, run_id)
 
     # --- Manifest sentinel before any pipeline work ---
-    timestamp_start = datetime.now(timezone.utc).isoformat()
+    timestamp_start = datetime.now(UTC).isoformat()
     write_manifest_sentinel(run_dir, run_id, timestamp_start)
 
     # --- Initialize lifecycle tracking state for failed-manifest evidence ---
@@ -1437,7 +1470,7 @@ def run_pipeline(
                 len(available_goals),
                 len(all_sub_goals),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - non-critical taxonomy load, logs and proceeds
             logger.warning(
                 "  Failed to load attack goals taxonomy: %s — proceeding without goal diversity",
                 exc,
@@ -1593,7 +1626,7 @@ def run_pipeline(
                     failure_evidence=str(exc),
                     exc=exc,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - generation must catch all to record failure
                 msg = f"Generation failed for {fseed.seed_id}: {exc}"
                 logger.error("    %s", msg)
                 generation_notes.append(msg)
@@ -1896,7 +1929,7 @@ def run_pipeline(
             "version": importlib.metadata.version("scenario-forge"),
             "run_id": run_id,
             "timestamp_start": timestamp_start,
-            "timestamp_end": datetime.now(timezone.utc).isoformat(),
+            "timestamp_end": datetime.now(UTC).isoformat(),
             "inputs": {
                 "use_case_hash": hashlib.sha256(use_case.encode()).hexdigest(),
                 "risk_extraction_hash": hashlib.sha256(
@@ -2012,7 +2045,7 @@ def run_pipeline(
                 scorecard_path = write_eval_scorecard(scorecard, run_dir)
                 logger.info("  Scorecard written to %s", scorecard_path)
                 eval_success = True
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - eval failure is non-fatal, logs warning
                 logger.warning("Eval scorecard generation failed: %s", exc)
                 eval_success = False
         else:
@@ -2065,7 +2098,7 @@ def run_pipeline(
             report_path = generate_report(report_data, run_dir)
             logger.info("Report written to %s", report_path)
             report_success = True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - report failure is non-fatal, logs warning
             logger.warning("Report generation failed: %s", exc)
             report_success = False
 
@@ -2094,7 +2127,7 @@ def run_pipeline(
         if profile_path_on_disk.exists():
             effective_profile_hash = compute_file_sha256(profile_path_on_disk)
         provenance.input_hashes.effective_profile_hash = effective_profile_hash
-        provenance.timestamp_end = datetime.now(timezone.utc).isoformat()
+        provenance.timestamp_end = datetime.now(UTC).isoformat()
 
         # --- Determine final status ---
         # completed: only if eval enabled, no quarantine, eval+report succeed.
@@ -2123,7 +2156,7 @@ def run_pipeline(
             status=final_status,
             run_id=run_id,
             timestamp_start=timestamp_start,
-            timestamp_end=datetime.now(timezone.utc).isoformat(),
+            timestamp_end=datetime.now(UTC).isoformat(),
             package_version=importlib.metadata.version("scenario-forge"),
             provenance=provenance,
             inventory=final_inventory,
@@ -2170,7 +2203,7 @@ def run_pipeline(
                 try:
                     handler.flush()
                     handler.close()
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - handler cleanup must not fail
                     pass
                 sf_logger.removeHandler(handler)
         # Log to stderr only (run-local handler removed).
@@ -2183,7 +2216,7 @@ def run_pipeline(
             else:
                 try:
                     failed_manifest = load_manifest(run_dir)
-                except Exception:
+                except Exception:  # noqa: BLE001 - create fallback manifest if load fails
                     failed_manifest = RunManifest(
                         manifest_version=MANIFEST_VERSION,
                         status=RunStatus.STARTED,
@@ -2198,7 +2231,7 @@ def run_pipeline(
                         else None,
                     )
             failed_manifest.status = RunStatus.FAILED
-            failed_manifest.timestamp_end = datetime.now(timezone.utc).isoformat()
+            failed_manifest.timestamp_end = datetime.now(UTC).isoformat()
             failed_manifest.error = str(exc)
             if failed_manifest.provenance:
                 failed_manifest.provenance.timestamp_end = failed_manifest.timestamp_end
@@ -2233,6 +2266,6 @@ def run_pipeline(
             # Validate terminal equations before writing failed manifest.
             validate_attempt_equations(failed_manifest)
             write_failed_manifest(run_dir, failed_manifest)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - best-effort write during error path
             pass
         raise

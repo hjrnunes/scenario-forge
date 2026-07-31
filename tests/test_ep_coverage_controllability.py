@@ -80,6 +80,8 @@ class TestRunnerCoverageDenominator:
                 {"name": "human escalation", "direction": "output"},
             ],
             "zones_active": ["input", "reasoning"],
+            "confidence": "high",
+            "kc_subcodes": ["KC1.1"],
         }
         scenarios = []
         for i, ep in enumerate(["user chat", "document upload"]):
@@ -123,6 +125,8 @@ class TestRunnerCoverageDenominator:
                 {"name": "response channel", "direction": "output"},
             ],
             "zones_active": ["input"],
+            "confidence": "high",
+            "kc_subcodes": ["KC1.1"],
         }
 
         run_dir = build_test_run_dir(
@@ -144,6 +148,8 @@ class TestRunnerCoverageDenominator:
         cap_profile = {
             "entry_points": ["user chat", "document upload", "API"],
             "zones_active": ["input"],
+            "confidence": "high",
+            "kc_subcodes": ["KC1.1"],
         }
         scenarios = []
         for i, ep in enumerate(["user chat", "document upload", "api"]):

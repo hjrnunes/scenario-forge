@@ -114,12 +114,12 @@ Assign technique_id from the pinned set to LEAF nodes where the technique's mech
 Use AND gates for nodes whose children are sequential prerequisites — all must succeed for the parent to succeed. Use OR gates for nodes whose children are alternative approaches — any one suffices. When the narrative describes steps that must happen in sequence (step A enables step B), the parent node MUST use AND. When the narrative describes alternative methods to achieve the same goal, the parent node MUST use OR.
 
 {% include '_tool_inventory.j2' %}
-{% if tool_inventory %}
+{% if tool_inventory or external_integrations %}
 ### Tool-Specific Labeling (INVARIANT)
 Every LEAF node in the tool_execution zone MUST have either a `tool_invocation` action with a `tool_id` from the Tool Inventory above, or an `integration_interaction` action with an `integration_id` from the External Integrations list. Use canonical IDs verbatim — never invent IDs. The human-readable `label` is display prose only; it does not determine tool or integration identity.
 
 ### Tool Execution Zone Scope (INVARIANT)
-A node belongs in the tool_execution zone ONLY if it represents the invocation of a specific tool from the Tool Inventory above. If you cannot name a concrete tool from the inventory, the node does NOT belong in tool_execution. Generic action phrases like "Execute unauthorized X delivery" are not valid tool_execution nodes. If the attack outcome is the LLM generating text output rather than calling a tool, that step belongs in the reasoning zone, not tool_execution.
+A node belongs in the tool_execution zone if and only if it represents either a canonical `tool_invocation` resolving a `tool_id` from the Tool Inventory above, or a direct canonical `integration_interaction` resolving an `integration_id` from the External Integrations list. If you cannot name a concrete tool or integration by its canonical ID, the node does NOT belong in tool_execution. Generic action phrases like "Execute unauthorized X delivery" are not valid tool_execution nodes. If the attack outcome is the LLM generating text output rather than calling a tool or interacting with an integration, that step belongs in the reasoning zone, not tool_execution.
 {% endif %}
 {% if external_integrations %}
 ### External Integrations (INVARIANT)

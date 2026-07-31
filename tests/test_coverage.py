@@ -1045,12 +1045,10 @@ class TestRemediateCoverageGaps:
 
     def test_no_seeds_records_skip_note(self, tmp_path: Path):
         """When seeds are empty, each uncovered EP gets a skip note."""
+        ep_name = "user prompts (zone 1)"
+        ep_id = compute_entry_point_id(ep_name, "bidirectional", None)
         gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id="chat-input-id", name="chat input (zone 1)"
-                )
-            ]
+            uncovered_entry_points=[EntryPointGap(entry_point_id=ep_id, name=ep_name)]
         )
         profile = _make_profile()
         client = MagicMock()
@@ -1083,8 +1081,11 @@ class TestRemediateCoverageGaps:
         uncovered = ["chat input (zone 1)", "admin dashboard (zone 2)"]
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id=f"ep-{i}-id", name=name)
-                for i, name in enumerate(uncovered)
+                EntryPointGap(
+                    entry_point_id=compute_entry_point_id(name, "bidirectional", None),
+                    name=name,
+                )
+                for name in uncovered
             ]
         )
         profile = _make_profile(
@@ -1144,20 +1145,26 @@ class TestRemediateCoverageGaps:
         self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """When generate_scenario raises, we record a note and continue."""
+        ep_fail_name = "ep-fail (zone 1)"
+        ep_ok_name = "ep-ok (zone 2)"
+        ep_fail_id = compute_entry_point_id(ep_fail_name, "bidirectional", None)
+        ep_ok_id = compute_entry_point_id(ep_ok_name, "bidirectional", None)
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-fail-id", name="ep-fail (zone 1)"),
-                EntryPointGap(entry_point_id="ep-ok-id", name="ep-ok (zone 2)"),
+                EntryPointGap(entry_point_id=ep_fail_id, name=ep_fail_name),
+                EntryPointGap(entry_point_id=ep_ok_id, name=ep_ok_name),
             ]
         )
-        profile = _make_profile(zones_active=["input", "reasoning"])
+        profile = _make_profile(
+            entry_points=[ep_fail_name, ep_ok_name],
+            zones_active=["input", "reasoning"],
+        )
         seeds = [_make_seed()]
         client = MagicMock()
 
         # First call fails, second succeeds with matching IDs.
         run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         seed_ok = seeds[0]
-        ep_ok_id = "ep-ok-id"
         pinned_tids = seed_ok.atlas_technique_ids or seed_ok.laaf_technique_ids or []
         ok_cand_id = compute_candidate_id(seed_ok.seed_id, ep_ok_id, pinned_tids)
         ok_envelope = _make_remediation_envelope(
@@ -1199,19 +1206,19 @@ class TestRemediateCoverageGaps:
         self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """Verify generate_scenario receives the correct seed, profile, and use_case."""
+        ep_name = "api gateway (zone 3)"
+        ep_id = compute_entry_point_id(ep_name, "bidirectional", None)
         gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id="api-gateway-id", name="api gateway (zone 3)"
-                )
-            ]
+            uncovered_entry_points=[EntryPointGap(entry_point_id=ep_id, name=ep_name)]
         )
-        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
+        profile = _make_profile(
+            entry_points=[ep_name],
+            zones_active=["input", "reasoning", "tool_execution"],
+        )
         seed = _make_seed(seed_id="AP-T5-01")
         client = MagicMock()
 
         run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        ep_id = "api-gateway-id"
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         mock_envelope = _make_remediation_envelope(
