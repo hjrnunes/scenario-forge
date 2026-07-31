@@ -11,16 +11,19 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
+    ToolInvocationAction,
 )
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ToolInventoryEntry,
+    compute_tool_id,
 )
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
@@ -46,7 +49,6 @@ from scenario_forge.pipeline.validation import (
     validate_phantom_capabilities,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: helpers to build minimal valid objects
 # ---------------------------------------------------------------------------
@@ -56,6 +58,7 @@ def _make_envelope(
     step_actions: list[str] | None = None,
     step_effects: list[str] | None = None,
     scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
+    tool_id: str | None = None,
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing."""
     if step_actions is None:
@@ -96,10 +99,22 @@ def _make_envelope(
             zone="input",
             children=[
                 AttackTreeNode(
-                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                    id="n1.1",
+                    label="Path A",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
-                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                    id="n1.2",
+                    label="Path B",
+                    gate=GateType.LEAF,
+                    zone="tool_execution" if tool_id else "reasoning",
+                    action=(
+                        ToolInvocationAction(tool_id=tool_id)
+                        if tool_id
+                        else AiSystemAction()
+                    ),
                 ),
             ],
         ),
@@ -154,7 +169,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:11111111111111111111111111111111",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -176,7 +191,7 @@ def _make_profile(
     if "KC1.1" not in codes:
         codes.insert(0, "KC1.1")
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -439,8 +454,10 @@ class TestCredentialExposure:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The LLM outputs the authorization header containing "
-                    "the bearer token in its response."
+                    (
+                        "The LLM outputs the authorization header containing "
+                        "the bearer token in its response."
+                    )
                 ],
             ),
         ]
@@ -484,8 +501,10 @@ class TestCredentialExposure:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The LLM outputs the authorization header containing "
-                    "the bearer token in its response."
+                    (
+                        "The LLM outputs the authorization header containing "
+                        "the bearer token in its response."
+                    )
                 ],
             ),
         ]
@@ -510,8 +529,10 @@ class TestCredentialExposure:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The LLM outputs the authorization header containing "
-                    "the bearer token in its response."
+                    (
+                        "The LLM outputs the authorization header containing "
+                        "the bearer token in its response."
+                    )
                 ],
             ),
         ]
@@ -557,8 +578,10 @@ class TestMassBroadcasting:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The compromised assistant begins to proactively reach out "
-                    "to customers with phishing links."
+                    (
+                        "The compromised assistant begins to proactively reach out "
+                        "to customers with phishing links."
+                    )
                 ],
             ),
         ]
@@ -586,8 +609,10 @@ class TestMassBroadcasting:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker triggers a mass notification containing "
-                    "the malicious payload."
+                    (
+                        "The attacker triggers a mass notification containing "
+                        "the malicious payload."
+                    )
                 ],
             ),
         ]
@@ -600,8 +625,10 @@ class TestMassBroadcasting:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The agent starts bulk messaging customers with "
-                    "fraudulent payment links."
+                    (
+                        "The agent starts bulk messaging customers with "
+                        "fraudulent payment links."
+                    )
                 ],
             ),
         ]
@@ -614,8 +641,10 @@ class TestMassBroadcasting:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system send to thousands of customers the "
-                    "manipulated response."
+                    (
+                        "The system send to thousands of customers the "
+                        "manipulated response."
+                    )
                 ],
             ),
         ]
@@ -628,8 +657,10 @@ class TestMassBroadcasting:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker instructs the agent to notify all customers "
-                    "about a fake security update."
+                    (
+                        "The attacker instructs the agent to notify all customers "
+                        "about a fake security update."
+                    )
                 ],
             ),
         ]
@@ -718,8 +749,10 @@ class TestCrossSessionAccess:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system enables cross-user data access through "
-                    "the compromised context."
+                    (
+                        "The system enables cross-user data access through "
+                        "the compromised context."
+                    )
                 ],
             ),
         ]
@@ -745,8 +778,10 @@ class TestCrossSessionAccess:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker identifies a target victim and extracts "
-                    "their session data."
+                    (
+                        "The attacker identifies a target victim and extracts "
+                        "their session data."
+                    )
                 ],
             ),
         ]
@@ -815,8 +850,10 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker instructs the agent to modify audit trail "
-                    "entries to cover tracks."
+                    (
+                        "The attacker instructs the agent to modify audit trail "
+                        "entries to cover tracks."
+                    )
                 ],
             ),
         ]
@@ -831,8 +868,10 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The compromised agent can now alter logs to remove "
-                    "evidence of the intrusion."
+                    (
+                        "The compromised agent can now alter logs to remove "
+                        "evidence of the intrusion."
+                    )
                 ],
             ),
         ]
@@ -845,8 +884,10 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker uses the agent to tamper with the logging "
-                    "infrastructure."
+                    (
+                        "The attacker uses the agent to tamper with the logging "
+                        "infrastructure."
+                    )
                 ],
             ),
         ]
@@ -872,8 +913,10 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker convinces the agent to disable monitoring "
-                    "for the compromised service."
+                    (
+                        "The attacker convinces the agent to disable monitoring "
+                        "for the compromised service."
+                    )
                 ],
             ),
         ]
@@ -899,8 +942,10 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The attacker can write to monitoring dashboards "
-                    "to create false alerts."
+                    (
+                        "The attacker can write to monitoring dashboards "
+                        "to create false alerts."
+                    )
                 ],
             ),
         ]
@@ -915,8 +960,10 @@ class TestAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker instructs the agent to modify audit trail "
-                    "entries to cover tracks."
+                    (
+                        "The attacker instructs the agent to modify audit trail "
+                        "entries to cover tracks."
+                    )
                 ],
             ),
         ]
@@ -1022,8 +1069,10 @@ class TestMixedScenarios:
             ),
             _make_envelope(
                 step_effects=[
-                    "The LLM outputs the authorization header containing "
-                    "the bearer token."
+                    (
+                        "The LLM outputs the authorization header containing "
+                        "the bearer token."
+                    )
                 ],
                 scenario_id="scenario:v2:ad328846aa18b32a335816374511cac1063c704b8c57999e51da9f908290a7a4",
             ),
@@ -1047,9 +1096,12 @@ class TestMixedScenarios:
             ),
             _make_envelope(
                 step_actions=[
-                    "The attacker triggers a Policy Audit tool invocation "
-                    "to extract internal compliance data."
+                    (
+                        "The attacker triggers a Policy Audit tool invocation "
+                        "to extract internal compliance data."
+                    )
                 ],
+                tool_id=compute_tool_id("phantom_tool", "Not in the profile"),
                 scenario_id="scenario:v2:13d28fed9becbe6637ef6b017fbefef73b2b907e25eb00396f7c2675623e87f6",
             ),
         ]
@@ -1079,8 +1131,10 @@ class TestV17EscapeePrivilegeEscalation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker activates the Emergency Administrative "
-                    "Debugging Mode to access restricted functions."
+                    (
+                        "The attacker activates the Emergency Administrative "
+                        "Debugging Mode to access restricted functions."
+                    )
                 ],
             ),
         ]
@@ -1095,8 +1149,10 @@ class TestV17EscapeePrivilegeEscalation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The compromised agent performs self-permission elevation "
-                    "to bypass access controls."
+                    (
+                        "The compromised agent performs self-permission elevation "
+                        "to bypass access controls."
+                    )
                 ],
             ),
         ]
@@ -1111,8 +1167,10 @@ class TestV17EscapeePrivilegeEscalation:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system processes a dynamic privilege request "
-                    "granting elevated access."
+                    (
+                        "The system processes a dynamic privilege request "
+                        "granting elevated access."
+                    )
                 ],
             ),
         ]
@@ -1131,8 +1189,10 @@ class TestV17EscapeeCredentialExposure:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "API error messages containing active session tokens "
-                    "and API credentials are exposed to the attacker."
+                    (
+                        "API error messages containing active session tokens "
+                        "and API credentials are exposed to the attacker."
+                    )
                 ],
             ),
         ]
@@ -1148,8 +1208,10 @@ class TestV17EscapeeCredentialExposure:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "Debug messages reveal the session token used for "
-                    "backend authentication."
+                    (
+                        "Debug messages reveal the session token used for "
+                        "backend authentication."
+                    )
                 ],
             ),
         ]
@@ -1168,8 +1230,10 @@ class TestV17EscapeeCodeExecution:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent executes and distributes "
-                    "malicious financial payloads to downstream systems."
+                    (
+                        "The agent executes and distributes "
+                        "malicious financial payloads to downstream systems."
+                    )
                 ],
             ),
         ]
@@ -1185,8 +1249,10 @@ class TestV17EscapeeCodeExecution:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system deploys a malicious update payload "
-                    "across the infrastructure."
+                    (
+                        "The system deploys a malicious update payload "
+                        "across the infrastructure."
+                    )
                 ],
             ),
         ]
@@ -1205,8 +1271,10 @@ class TestV17EscapeeMassBroadcasting:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The attacker initiates mass phishing message "
-                    "distribution to all account holders."
+                    (
+                        "The attacker initiates mass phishing message "
+                        "distribution to all account holders."
+                    )
                 ],
             ),
         ]
@@ -1222,8 +1290,10 @@ class TestV17EscapeeMassBroadcasting:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The agent begins mass distribution of fraudulent "
-                    "account alerts to customers."
+                    (
+                        "The agent begins mass distribution of fraudulent "
+                        "account alerts to customers."
+                    )
                 ],
             ),
         ]
@@ -1242,8 +1312,10 @@ class TestV17EscapeeCrossSessionAccess:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The attacker establishes a feedback loop across "
-                    "thousands of sessions to amplify the attack."
+                    (
+                        "The attacker establishes a feedback loop across "
+                        "thousands of sessions to amplify the attack."
+                    )
                 ],
             ),
         ]
@@ -1276,8 +1348,10 @@ class TestV17EscapeeAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent performs a session history reset to "
-                    "eliminate evidence of the manipulation."
+                    (
+                        "The agent performs a session history reset to "
+                        "eliminate evidence of the manipulation."
+                    )
                 ],
             ),
         ]
@@ -1292,8 +1366,10 @@ class TestV17EscapeeAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker instructs the agent to generate deceptive "
-                    "success reports to conceal the failed transactions."
+                    (
+                        "The attacker instructs the agent to generate deceptive "
+                        "success reports to conceal the failed transactions."
+                    )
                 ],
             ),
         ]
@@ -1308,8 +1384,10 @@ class TestV17EscapeeAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The compromised agent carries out transaction "
-                    "description modification to disguise the fraud."
+                    (
+                        "The compromised agent carries out transaction "
+                        "description modification to disguise the fraud."
+                    )
                 ],
             ),
         ]
@@ -1324,8 +1402,10 @@ class TestV17EscapeeAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker uses the agent to overwrite audit "
-                    "log entries covering the intrusion."
+                    (
+                        "The attacker uses the agent to overwrite audit "
+                        "log entries covering the intrusion."
+                    )
                 ],
             ),
         ]
@@ -1341,8 +1421,10 @@ class TestV17EscapeeAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent clears the session history to remove "
-                    "traces of the interaction."
+                    (
+                        "The agent clears the session history to remove "
+                        "traces of the interaction."
+                    )
                 ],
             ),
         ]
@@ -1358,8 +1440,10 @@ class TestV17EscapeeAuditMonitoringWrite:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The compromised agent modifies transaction records "
-                    "to conceal unauthorized transfers."
+                    (
+                        "The compromised agent modifies transaction records "
+                        "to conceal unauthorized transfers."
+                    )
                 ],
             ),
         ]
@@ -1385,9 +1469,12 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker triggers a Policy Audit tool invocation "
-                    "to extract internal compliance data."
+                    (
+                        "The attacker triggers a Policy Audit tool invocation "
+                        "to extract internal compliance data."
+                    )
                 ],
+                tool_id=compute_tool_id("policy_audit", "Not in the profile"),
             ),
         ]
         profile = _make_profile()
@@ -1402,9 +1489,12 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system connects to the Transaction Override API "
-                    "to reverse completed payments."
+                    (
+                        "The system connects to the Transaction Override API "
+                        "to reverse completed payments."
+                    )
                 ],
+                tool_id=compute_tool_id("transaction_override", "Not in the profile"),
             ),
         ]
         profile = _make_profile()
@@ -1419,9 +1509,12 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker accesses the Admin Configuration endpoint "
-                    "to modify system parameters."
+                    (
+                        "The attacker accesses the Admin Configuration endpoint "
+                        "to modify system parameters."
+                    )
                 ],
+                tool_id=compute_tool_id("admin_configuration", "Not in the profile"),
             ),
         ]
         profile = _make_profile()
@@ -1436,8 +1529,10 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The attacker uses API calls to overwrite audit logs "
-                    "and session history."
+                    (
+                        "The attacker uses API calls to overwrite audit logs "
+                        "and session history."
+                    )
                 ],
             ),
         ]
@@ -1455,8 +1550,10 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker triggers a Policy Audit tool invocation "
-                    "to extract internal compliance data."
+                    (
+                        "The attacker triggers a Policy Audit tool invocation "
+                        "to extract internal compliance data."
+                    )
                 ],
             ),
         ]
@@ -1478,8 +1575,10 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system connects to the Transaction Override API "
-                    "to reverse completed payments."
+                    (
+                        "The system connects to the Transaction Override API "
+                        "to reverse completed payments."
+                    )
                 ],
             ),
         ]
@@ -1501,8 +1600,10 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker makes API calls to fetch account data "
-                    "for unauthorized purposes."
+                    (
+                        "The attacker makes API calls to fetch account data "
+                        "for unauthorized purposes."
+                    )
                 ],
             ),
         ]
@@ -1555,12 +1656,16 @@ class TestPhantomToolInvocation:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "I craft a carefully designed prompt to extract "
-                    "sensitive information from the system."
+                    (
+                        "I craft a carefully designed prompt to extract "
+                        "sensitive information from the system."
+                    )
                 ],
                 step_effects=[
-                    "The system returns confidential data in the "
-                    "response without proper filtering."
+                    (
+                        "The system returns confidential data in the "
+                        "response without proper filtering."
+                    )
                 ],
             ),
         ]
@@ -1585,8 +1690,10 @@ class TestV17FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker sends a message mentioning admin "
-                    "policies as a social engineering lure."
+                    (
+                        "The attacker sends a message mentioning admin "
+                        "policies as a social engineering lure."
+                    )
                 ],
             ),
         ]
@@ -1602,8 +1709,10 @@ class TestV17FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The session continues with the attacker's injected "
-                    "context still active."
+                    (
+                        "The session continues with the attacker's injected "
+                        "context still active."
+                    )
                 ],
             ),
         ]
@@ -1619,8 +1728,10 @@ class TestV17FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker initiates a fraudulent transaction "
-                    "through the compromised assistant."
+                    (
+                        "The attacker initiates a fraudulent transaction "
+                        "through the compromised assistant."
+                    )
                 ],
             ),
         ]
@@ -1636,8 +1747,10 @@ class TestV17FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker crafts a prompt injection payload "
-                    "designed to confuse the reasoning engine."
+                    (
+                        "The attacker crafts a prompt injection payload "
+                        "designed to confuse the reasoning engine."
+                    )
                 ],
             ),
         ]
@@ -1653,8 +1766,10 @@ class TestV17FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The attack achieves a massive impact on the "
-                    "system's response quality."
+                    (
+                        "The attack achieves a massive impact on the "
+                        "system's response quality."
+                    )
                 ],
             ),
         ]
@@ -1716,8 +1831,10 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent performs exploit code assembly "
-                    "targeting downstream services."
+                    (
+                        "The agent performs exploit code assembly "
+                        "targeting downstream services."
+                    )
                 ],
             ),
         ]
@@ -1733,8 +1850,10 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system performs Python script generation for "
-                    "API exploitation against external endpoints."
+                    (
+                        "The system performs Python script generation for "
+                        "API exploitation against external endpoints."
+                    )
                 ],
             ),
         ]
@@ -1782,8 +1901,10 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system performs script synthesis in response to "
-                    "a carefully crafted prompt."
+                    (
+                        "The system performs script synthesis in response to "
+                        "a carefully crafted prompt."
+                    )
                 ],
             ),
         ]
@@ -1908,8 +2029,10 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system outputs malicious code that targets "
-                    "the payment processing system."
+                    (
+                        "The system outputs malicious code that targets "
+                        "the payment processing system."
+                    )
                 ],
             ),
         ]
@@ -1937,8 +2060,10 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The agent produces an obfuscated script to avoid "
-                    "detection by security tools."
+                    (
+                        "The agent produces an obfuscated script to avoid "
+                        "detection by security tools."
+                    )
                 ],
             ),
         ]
@@ -1951,8 +2076,10 @@ class TestV18CodeGenPatterns:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system outputs a Python script that automates "
-                    "credential harvesting."
+                    (
+                        "The system outputs a Python script that automates "
+                        "credential harvesting."
+                    )
                 ],
             ),
         ]
@@ -2111,8 +2238,10 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system returns an error code indicating the "
-                    "request was malformed."
+                    (
+                        "The system returns an error code indicating the "
+                        "request was malformed."
+                    )
                 ],
             ),
         ]
@@ -2144,8 +2273,10 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker references the code of conduct policy "
-                    "to social-engineer the agent."
+                    (
+                        "The attacker references the code of conduct policy "
+                        "to social-engineer the agent."
+                    )
                 ],
             ),
         ]
@@ -2162,8 +2293,10 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker modifies the existing configuration "
-                    "to alter system behavior."
+                    (
+                        "The attacker modifies the existing configuration "
+                        "to alter system behavior."
+                    )
                 ],
             ),
         ]
@@ -2228,8 +2361,10 @@ class TestV18FalsePositiveGuards:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker includes deceptive instructions in the "
-                    "code section of the prompt."
+                    (
+                        "The attacker includes deceptive instructions in the "
+                        "code section of the prompt."
+                    )
                 ],
             ),
         ]

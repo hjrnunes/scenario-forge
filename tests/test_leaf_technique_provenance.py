@@ -13,13 +13,19 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
-    AttackTreeNode,
     GateType,
+    ImpactAction,
+    ToolInvocationAction,
 )
+from scenario_forge.models.attack_tree import (
+    AttackTreeNode as _AttackTreeNode,
+)
+from scenario_forge.models.capability_profile import compute_tool_id
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -45,6 +51,22 @@ from scenario_forge.pipeline.validation import (
     _is_consequence_leaf,
     check_leaf_technique_provenance,
 )
+
+
+def AttackTreeNode(**kwargs) -> _AttackTreeNode:
+    """Build a node, supplying the typed action required by leaf nodes."""
+    if kwargs.get("gate") == GateType.LEAF and "action" not in kwargs:
+        zone = kwargs.get("zone")
+        if zone == "tool_execution":
+            kwargs["action"] = ToolInvocationAction(
+                tool_id=compute_tool_id("test_tool", "A test tool")
+            )
+        elif zone == "output":
+            kwargs["zone"] = None
+            kwargs["action"] = ImpactAction(boundary="external", target=kwargs["label"])
+        else:
+            kwargs["action"] = AiSystemAction()
+    return _AttackTreeNode(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +168,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         scenario_seed_metadata=seed_metadata,
         narrative=narrative,

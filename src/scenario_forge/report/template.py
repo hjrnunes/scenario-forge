@@ -25,6 +25,9 @@ from scenario_forge.data.loaders import (
 )
 from scenario_forge.models.capability_profile import (
     ZONE_DISPLAY_NAMES,
+    CapabilityProfile,
+)
+from scenario_forge.models.capability_profile import (
     ZONE_NAMES as _ZONE_NAMES_TUPLE,
 )
 
@@ -245,7 +248,7 @@ def _load_taxonomy_lookups() -> None:
         return
     try:
         data = yaml.safe_load(taxonomy_path.read_text(encoding="utf-8")) or {}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to load taxonomy YAML: %s", exc)
         return
 
@@ -2947,6 +2950,41 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
           <ul class="entry-point-list">{"".join(ep_items)}</ul>
         </div>"""
 
+    def _resource_list(
+        entries: list[dict[str, Any]], id_field: str, empty_label: str
+    ) -> str:
+        if not entries:
+            return f'<span style="color:var(--text-muted);">{_esc(empty_label)}</span>'
+        items = []
+        for entry in entries:
+            name = entry.get("name", "Unnamed")
+            canonical_id = entry.get(id_field, "Unavailable")
+            items.append(
+                "<li>"
+                f'<span class="ep-name">{_esc(name)}</span> '
+                f'<code class="tree-meta">{_esc(canonical_id)}</code>'
+                "</li>"
+            )
+        return f'<ul class="entry-point-list">{"".join(items)}</ul>'
+
+    tools_html = _resource_list(
+        profile.get("tool_inventory") or [], "tool_id", "No tools inventoried"
+    )
+    integrations_html = _resource_list(
+        profile.get("external_integrations") or [],
+        "integration_id",
+        "No external integrations inventoried",
+    )
+    completeness = str(profile.get("inventory_completeness", "unknown"))
+    evidence_sources = profile.get("evidence_sources") or []
+    evidence_html = (
+        '<ul class="entry-point-list">'
+        + "".join(f"<li>{_esc(source)}</li>" for source in evidence_sources)
+        + "</ul>"
+        if evidence_sources
+        else '<span style="color:var(--text-muted);">No evidence sources recorded</span>'
+    )
+
     # KC sub-codes
     kc_subcodes = profile.get("kc_subcodes", [])
     kc_html = ""
@@ -2983,6 +3021,22 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
           <div class="flags-inline">{"".join(flag_chips)}</div>
         </div>
         {ep_html}
+        <div class="profile-row">
+          <div class="profile-row-label">Tool Inventory</div>
+          {tools_html}
+        </div>
+        <div class="profile-row">
+          <div class="profile-row-label">External Integrations</div>
+          {integrations_html}
+        </div>
+        <div class="profile-row">
+          <div class="profile-row-label">Inventory Completeness</div>
+          <span class="flag-value">{_esc(completeness.replace("_", " ").title())}</span>
+        </div>
+        <div class="profile-row">
+          <div class="profile-row-label">Evidence Sources</div>
+          {evidence_html}
+        </div>
         {kc_html}
       </div>
     </div>
@@ -3353,8 +3407,8 @@ def _sankey_link(
 ) -> str:
     if from_key not in node_pos or to_key not in node_pos:
         return ""
-    x1, y1, x1r, y1b = node_pos[from_key]
-    x2, y2, x2r, y2b = node_pos[to_key]
+    _x1, y1, x1r, y1b = node_pos[from_key]
+    x2, y2, _x2r, y2b = node_pos[to_key]
     sx = x1r
     sy = (y1 + y1b) / 2
     ex = x2
@@ -4203,7 +4257,7 @@ def build_scenarios_section(
         # Data rows
         for tid in sorted_threats:
             tname = THREAT_NAMES.get(tid, "")
-            row_label = f"{tid}" if not tname else f"{tid}"
+            row_label = f"{tid}"
             row_tooltip = f"{tid} — {tname}" if tname else tid
             matrix_html += (
                 f'<div class="matrix-row-label"'
@@ -5204,7 +5258,7 @@ def _build_provenance_chain(
             goals_grid_html = (
                 f'<div class="prov-item-row" style="margin-top:6px;">{goal_items}</div>'
             )
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass  # Taxonomy files not available; skip enrichment
 
     steps.append(
@@ -5470,7 +5524,7 @@ def _build_scenario_card(
     # Attack tree
     attack_tree_data = scenario.get("attack_tree", {})
     root = attack_tree_data.get("root")
-    attack_tree_html = _build_attack_tree_node(root) if root else ""
+    attack_tree_html = _build_attack_tree_node(root, capability_profile) if root else ""
     tree_goal = attack_tree_data.get("goal", "")
 
     # Behavior spec from feature file
@@ -5512,7 +5566,7 @@ def _build_scenario_card(
             sys_prompt = _esc(entry.get("system_prompt", ""))
             usr_prompt = _esc(entry.get("user_prompt", ""))
             response_raw = entry.get("response", "")
-            if isinstance(response_raw, dict) or isinstance(response_raw, list):
+            if isinstance(response_raw, (dict, list)):
                 response_text = _esc(
                     json.dumps(response_raw, indent=2, ensure_ascii=False)
                 )
@@ -5706,14 +5760,19 @@ def _hex_to_rgb_css(hex_color: str) -> str:
     return f"{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}"
 
 
-def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
+def _build_attack_tree_node(
+    node: dict[str, Any] | None,
+    profile_data: dict[str, Any] | None = None,
+) -> str:
     if node is None:
         return ""
 
     gate = node.get("gate", "LEAF")
-    raw_zone = node.get("zone", "input")
-    zone = _normalize_zone(raw_zone)
+    raw_zone = node.get("zone")
+    zone = _normalize_zone(raw_zone) if raw_zone is not None else None
     label = node.get("label", "")
+    action = node.get("action") or {}
+    action_kind = action.get("kind")
     children = node.get("children") or []
     threat_id = node.get("threat_id")
     technique_id = node.get("technique_id")
@@ -5726,11 +5785,72 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
     gate_symbol = {"AND": "&and;", "OR": "&or;", "LEAF": "&bull;"}.get(gate, "&bull;")
     gate_tip = _GATE_TOOLTIPS.get(gate, "")
     gate_title = f' data-tooltip="{_esc(gate_tip)}"' if gate_tip else ""
-    zone_color = ZONE_COLORS.get(zone, "#666")
-    zone_bg = ZONE_BG_COLORS.get(zone, "#333")
-    zone_display = ZONE_DISPLAY_NAMES.get(zone, zone)
+    zone_color = ZONE_COLORS.get(zone, "#9ca3af")
+    zone_bg = ZONE_BG_COLORS.get(zone, "#374151")
+    boundary = action.get("boundary")
+    zone_display = (
+        ZONE_DISPLAY_NAMES.get(zone, zone)
+        if zone is not None
+        else "External"
+        if action_kind == "external_precondition" or boundary == "external"
+        else "N/A"
+    )
 
     meta_parts = []
+    if action_kind:
+        action_display = action_kind.replace("_", " ").title()
+        meta_parts.append(f'<span class="tree-meta">{_esc(action_display)}</span>')
+
+    profile = None
+    if profile_data:
+        try:
+            profile = CapabilityProfile.model_validate(dict(profile_data))
+        except ValueError:
+            logger.debug(
+                "Could not validate capability profile for report ID resolution"
+            )
+
+    def _resolved_name(resource_id: str | None, resource_kind: str) -> str | None:
+        if not resource_id or profile is None:
+            return None
+        if resource_kind == "tool":
+            resource = profile.resolve_tool(resource_id)
+        elif resource_kind == "integration":
+            resource = profile.resolve_integration(resource_id)
+        else:
+            resource = profile.resolve_entry_point(resource_id)
+        return resource.name if resource else None
+
+    id_specs = []
+    if action_kind == "tool_invocation":
+        id_specs.append(("Tool", action.get("tool_id"), "tool"))
+        if action.get("integration_id"):
+            id_specs.append(
+                ("Integration", action.get("integration_id"), "integration")
+            )
+    elif action_kind == "integration_interaction":
+        id_specs.append(("Integration", action.get("integration_id"), "integration"))
+    elif action_kind == "initial_ingress":
+        id_specs.append(("Entry Point", action.get("entry_point_id"), "entry_point"))
+    for resource_label, resource_id, resource_kind in id_specs:
+        resolved = _resolved_name(resource_id, resource_kind)
+        display = resolved or "Unresolved"
+        meta_parts.append(
+            f'<span class="tree-meta">{_esc(resource_label)}: {_esc(display)} '
+            f"(<code>{_esc(resource_id or 'Missing ID')}</code>)</span>"
+        )
+    if boundary:
+        meta_parts.append(
+            f'<span class="tree-meta">Boundary: {_esc(str(boundary).title())}</span>'
+        )
+    if action_kind == "impact" and action.get("target"):
+        meta_parts.append(
+            f'<span class="tree-meta">Target: {_esc(action["target"])}</span>'
+        )
+    if action_kind == "external_precondition" and action.get("access_provenance"):
+        meta_parts.append(
+            f'<span class="tree-meta">Evidence: {_esc(action["access_provenance"])}</span>'
+        )
     if threat_id:
         meta_parts.append(
             f'<span class="tree-meta"{_threat_id_tooltip(threat_id)}>'
@@ -5770,7 +5890,7 @@ def _build_attack_tree_node(node: dict[str, Any] | None) -> str:
           {meta_html}
         </div>"""
 
-    children_html = "".join(_build_attack_tree_node(c) for c in children)
+    children_html = "".join(_build_attack_tree_node(c, profile_data) for c in children)
     return f"""
     <details open>
       <summary>
@@ -6011,7 +6131,7 @@ def build_raw_data_section(raw_files: dict[str, str]) -> str:
 
         tabs_html += f'<button class="raw-tab{active}" onclick="switchRawTab(\'{tab_id}\', this)">{_esc(filename)}</button>'
 
-        if filename.endswith(".yaml") or filename.endswith(".yml"):
+        if filename.endswith((".yaml", ".yml")):
             highlighted = _highlight_yaml(content)
         elif filename.endswith(".feature"):
             highlighted = _highlight_gherkin(content)
@@ -6205,13 +6325,13 @@ def build_run_summary_section(
             dt_start = dt_end = None
             for fmt in fmt_options:
                 try:
-                    dt_start = datetime.strptime(str(ts_start), fmt)
+                    dt_start = datetime.strptime(str(ts_start), fmt)  # noqa: DTZ007
                     break
                 except ValueError:
                     continue
             for fmt in fmt_options:
                 try:
-                    dt_end = datetime.strptime(str(ts_end), fmt)
+                    dt_end = datetime.strptime(str(ts_end), fmt)  # noqa: DTZ007
                     break
                 except ValueError:
                     continue
@@ -6224,7 +6344,7 @@ def build_run_summary_section(
                     duration_str = f"{hours}h {mins}m {secs}s"
                 else:
                     duration_str = f"{mins}m {secs}s"
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
 
     # Format timestamps for display (strip microseconds)

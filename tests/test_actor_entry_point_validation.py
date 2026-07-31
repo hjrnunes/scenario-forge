@@ -9,12 +9,14 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
+    InitialIngressAction,
 )
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
@@ -43,7 +45,6 @@ from scenario_forge.models.scenario import (
     TechniqueMaturity,
 )
 from scenario_forge.pipeline.validation import validate_scenario_semantics
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,6 +81,7 @@ def _make_envelope(
     narrative_entry_point: str = "user prompts (zone 1)",
     zone_sequence: list[str] | None = None,
     seed_metadata: dict | None = None,
+    entry_point_id: str | None = None,
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for actor/entry-point tests."""
     if zone_sequence is None:
@@ -109,12 +111,18 @@ def _make_envelope(
             gate=GateType.LEAF,
             zone="input",
             technique_id="AML.T0051.000",
+            action=(
+                InitialIngressAction(entry_point_id=entry_point_id)
+                if entry_point_id is not None
+                else AiSystemAction()
+            ),
         ),
         AttackTreeNode(
             id="n1.2",
             label="Step 2",
             gate=GateType.LEAF,
             zone="reasoning",
+            action=AiSystemAction(),
         ),
     ]
 
@@ -196,7 +204,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -238,6 +246,7 @@ class TestInsiderDirectControllabilityMismatch:
         envelope = _make_envelope(
             actor_type="malicious-insider",
             narrative_entry_point="chat interface",
+            entry_point_id=profile.entry_points[0].entry_point_id,
         )
         validate_scenario_semantics([envelope], profile)
 
@@ -261,6 +270,7 @@ class TestInsiderDirectControllabilityMismatch:
         envelope = _make_envelope(
             actor_type="negligent-insider",
             narrative_entry_point="user prompts (zone 1)",
+            entry_point_id=profile.entry_points[0].entry_point_id,
         )
         validate_scenario_semantics([envelope], profile)
 
@@ -292,6 +302,7 @@ class TestExternalSystemControllabilityMismatch:
         envelope = _make_envelope(
             actor_type="adversarial-user",
             narrative_entry_point="internal scheduler",
+            entry_point_id=profile.entry_points[0].entry_point_id,
         )
         validate_scenario_semantics([envelope], profile)
 
@@ -324,6 +335,7 @@ class TestValidActorEntryPointCombinations:
         envelope = _make_envelope(
             actor_type="cybercriminal",
             narrative_entry_point="chat interface",
+            entry_point_id=profile.entry_points[0].entry_point_id,
         )
         validate_scenario_semantics([envelope], profile)
 
@@ -344,6 +356,7 @@ class TestValidActorEntryPointCombinations:
         envelope = _make_envelope(
             actor_type="malicious-insider",
             narrative_entry_point="RAG knowledge base",
+            entry_point_id=profile.entry_points[0].entry_point_id,
         )
         validate_scenario_semantics([envelope], profile)
 

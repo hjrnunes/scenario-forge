@@ -10,17 +10,19 @@ Tests:
 
 from __future__ import annotations
 
+from datetime import UTC
 
 import pytest
 from pydantic import ValidationError
 
+from scenario_forge.models.attack_tree import AiSystemAction, ToolInvocationAction
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
     ToolInventoryEntry,
+    compute_tool_id,
 )
 from scenario_forge.prompts import render_prompt
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -228,8 +230,8 @@ class TestToolInventoryPromptRendering:
             tool_inventory=tools,
         )
         assert "Tool Inventory (INVARIANT)" in rendered
-        assert "query_db: Query the database" in rendered
-        assert "send_email: Send email" in rendered
+        assert "name: query_db | description: Query the database" in rendered
+        assert "name: send_email | description: Send email" in rendered
         assert (
             "Do NOT reference any tool, API, or capability not in this list" in rendered
         )
@@ -256,9 +258,11 @@ class TestToolInventoryPromptRendering:
             "call2_system.j2",
             zones_active=["input", "reasoning", "tool_execution"],
             tool_inventory=tools,
+            external_integrations=[],
+            entry_points=[],
         )
         assert "Tool Inventory (INVARIANT)" in rendered
-        assert "process_refund: Process refunds" in rendered
+        assert "name: process_refund | description: Process refunds" in rendered
 
     def test_call2_system_without_tool_inventory(self) -> None:
         """call2_system.j2 omits tool inventory section when list is empty."""
@@ -266,6 +270,8 @@ class TestToolInventoryPromptRendering:
             "call2_system.j2",
             zones_active=["input", "reasoning"],
             tool_inventory=[],
+            external_integrations=[],
+            entry_points=[],
         )
         assert "Tool Inventory (INVARIANT)" not in rendered
 
@@ -318,12 +324,32 @@ class TestPhantomToolValidation:
         # Build tree with leaves
         children = []
         for i, (label, zone) in enumerate(leaf_labels_and_zones, start=1):
+            if zone == "tool_execution":
+                tool_name = next(
+                    (
+                        name
+                        for name in ("query_database", "send_email")
+                        if name in label
+                    ),
+                    label.split()[1],
+                )
+                action = ToolInvocationAction(
+                    tool_id=compute_tool_id(
+                        tool_name,
+                        "Query DB"
+                        if tool_name == "query_database"
+                        else "Unknown test tool",
+                    )
+                )
+            else:
+                action = AiSystemAction()
             children.append(
                 AttackTreeNode(
                     id=f"n1.{i}",
                     label=label,
                     gate=GateType.LEAF,
                     zone=zone,
+                    action=action,
                     technique_id="AML.T0054" if i == 1 else None,
                 )
             )
@@ -415,7 +441,7 @@ class TestPhantomToolValidation:
             scenario_id="scenario:v2:e57506e29f4fc074e28395ca4cfa61d98d4e927d906b3e176611aaead83608c0",
             candidate_id="cand:v1:7e57c0de000000000000000000000000",
             seed_id="AP-T2-01",
-            generated_at=datetime.now(),
+            generated_at=datetime.now(tz=UTC),
             generator_version="0.1.0",
             narrative=narrative,
             attack_tree=tree,
@@ -463,8 +489,8 @@ class TestPhantomToolValidation:
         ]
         assert len(phantom_violations) >= 1
         assert (
-            "billing_api" in phantom_violations[0].message.lower()
-            or "billing" in phantom_violations[0].message.lower()
+            scenario.attack_tree.root.children[1].action.tool_id
+            in phantom_violations[0].message
         )
 
     def test_known_tool_not_flagged(self) -> None:
@@ -494,8 +520,8 @@ class TestPhantomToolValidation:
         ]
         assert len(phantom_violations) == 0
 
-    def test_no_inventory_skips_check(self) -> None:
-        """When tool_inventory is None, phantom_tool check is skipped."""
+    def test_no_inventory_flags_typed_tool_id(self) -> None:
+        """Typed tool IDs must resolve even when the inventory is absent."""
         from scenario_forge.pipeline.validation import validate_scenario_semantics
 
         profile = _make_profile_no_tools()
@@ -514,7 +540,7 @@ class TestPhantomToolValidation:
             for v in scenario.validation.semantic.violations
             if v.rule == "phantom_tool"
         ]
-        assert len(phantom_violations) == 0
+        assert len(phantom_violations) == 1
 
     def test_non_tool_execution_zone_not_checked(self) -> None:
         """Leaves in non-tool_execution zones are not checked for phantom tools."""

@@ -11,9 +11,10 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -40,7 +41,6 @@ from scenario_forge.models.scenario import (
     ValidationBlock,
 )
 from scenario_forge.pipeline.validation import validate_scenario_structure
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -75,10 +75,18 @@ def _make_envelope(**overrides) -> ScenarioEnvelope:
             zone="input",
             children=[
                 AttackTreeNode(
-                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                    id="n1.1",
+                    label="Path A",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
-                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                    id="n1.2",
+                    label="Path B",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    action=AiSystemAction(),
                 ),
             ],
         ),
@@ -127,18 +135,18 @@ def _make_envelope(**overrides) -> ScenarioEnvelope:
         ],
     )
 
-    kwargs = dict(
-        scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
-        candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
-        generator_version="0.1.0",
-        narrative=narrative,
-        attack_tree=attack_tree,
-        behavior_spec={},
-        faceting=faceting,
-        priority=priority,
-        generation=generation,
-    )
+    kwargs = {
+        "scenario_id": "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
+        "candidate_id": "cand:v1:7e57c0de000000000000000000000000",
+        "generated_at": datetime.now(tz=UTC),
+        "generator_version": "0.1.0",
+        "narrative": narrative,
+        "attack_tree": attack_tree,
+        "behavior_spec": {},
+        "faceting": faceting,
+        "priority": priority,
+        "generation": generation,
+    }
     kwargs.update(overrides)
     return ScenarioEnvelope(**kwargs)
 

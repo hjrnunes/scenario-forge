@@ -17,7 +17,6 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.generate import _call_attack_tree
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -31,6 +30,8 @@ root:
   label: Root attack node
   gate: LEAF
   zone: input
+  action:
+    kind: ai_system_action
 """
 
 

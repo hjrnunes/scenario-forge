@@ -10,13 +10,18 @@ Design lineage:
   - 3-5 level depth per Schneider's examples
   - Structural exposure types from Schneider Part 2 (micro simulations)
   - Zones from Schneider's five-zone model
+
+Typed leaf actions (cmps.9):
+  Leaf nodes carry exactly one discriminated action from a closed union.
+  Internal nodes (AND/OR) are logical composition only — no action payload.
+  Zone requirements are enforced conditionally per action kind.
 """
 
 from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Any, Optional
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -56,6 +61,131 @@ class EvidenceLevel(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# Schneider zone constants (mirrors capability_profile.ZONE_NAMES)
+# ---------------------------------------------------------------------------
+
+_VALID_ZONES: frozenset[str] = frozenset(
+    {"input", "reasoning", "tool_execution", "memory", "inter_agent"}
+)
+
+# Zones that represent internal AI execution surfaces.
+_INTERNAL_ZONES: frozenset[str] = frozenset(
+    {"input", "reasoning", "tool_execution", "memory", "inter_agent"}
+)
+
+
+# ---------------------------------------------------------------------------
+# Discriminated leaf-action union (cmps.9)
+# ---------------------------------------------------------------------------
+
+
+class InitialIngressAction(BaseModel):
+    """Attacker gains initial access through a profiled entry point.
+
+    Zone follows verified ingress semantics derived from the entry point's
+    direction/zone.  The ``entry_point_id`` must resolve to a canonical
+    entry point in the capability profile.
+    """
+
+    kind: Literal["initial_ingress"] = "initial_ingress"
+    entry_point_id: str = Field(
+        description="Canonical entry_point_id from the capability profile.",
+        pattern=r"^ep:v1:[0-9a-f]{32}$",
+    )
+
+
+class ExternalPreconditionAction(BaseModel):
+    """Attacker preparation outside the assessed AI system boundary.
+
+    Zone is forbidden (must be None).  External infrastructure — phishing
+    pages, attacker-hosted C2, supply-chain staging — is never assigned a
+    Schneider zone.
+    """
+
+    kind: Literal["external_precondition"] = "external_precondition"
+    access_provenance: str | None = Field(
+        default=None,
+        description="Optional typed access provenance (e.g. 'phishing', 'supply-chain-staging').",
+    )
+
+
+class AiSystemAction(BaseModel):
+    """Internal AI processing or action within a Schneider zone.
+
+    Zone must be an active Schneider zone from the capability profile.
+    Pure reasoning, planning, memory manipulation, or inter-agent
+    messaging all use this action kind.
+    """
+
+    kind: Literal["ai_system_action"] = "ai_system_action"
+
+
+class ToolInvocationAction(BaseModel):
+    """The AI agent invokes a specific tool from the inventory.
+
+    Zone must be exactly ``tool_execution``.  The ``tool_id`` must resolve
+    to a canonical tool in the capability profile.  An optional
+    ``integration_id`` may reference a downstream integration.
+    """
+
+    kind: Literal["tool_invocation"] = "tool_invocation"
+    tool_id: str = Field(
+        description="Canonical tool_id from the capability profile.",
+        pattern=r"^tool:v1:[0-9a-f]{32}$",
+    )
+    integration_id: str | None = Field(
+        default=None,
+        description="Optional canonical integration_id for a downstream system.",
+        pattern=r"^int:v1:[0-9a-f]{32}$",
+    )
+
+
+class IntegrationInteractionAction(BaseModel):
+    """Direct interaction with a connected external integration.
+
+    Zone must be an active internal execution zone (e.g. ``tool_execution``
+    or another internal zone where the integration is exercised).
+    The ``integration_id`` must resolve to a canonical integration.
+    """
+
+    kind: Literal["integration_interaction"] = "integration_interaction"
+    integration_id: str = Field(
+        description="Canonical integration_id from the capability profile.",
+        pattern=r"^int:v1:[0-9a-f]{32}$",
+    )
+
+
+class ImpactAction(BaseModel):
+    """Explicit attack impact with target/boundary semantics.
+
+    When ``boundary`` is ``internal`` the node must carry a Schneider zone.
+    When ``boundary`` is ``external`` the zone must be None — external
+    impacts (financial loss, reputational damage) are outside the AI
+    system and must not receive a Schneider zone.
+    """
+
+    kind: Literal["impact"] = "impact"
+    boundary: Literal["internal", "external"] = Field(
+        description="Whether the impact occurs inside or outside the AI system boundary.",
+    )
+    target: str = Field(
+        description="Explicit target or consequence of the impact.",
+        max_length=200,
+    )
+
+
+LeafAction = Annotated[
+    InitialIngressAction
+    | ExternalPreconditionAction
+    | AiSystemAction
+    | ToolInvocationAction
+    | IntegrationInteractionAction
+    | ImpactAction,
+    Field(discriminator="kind"),
+]
+
+
+# ---------------------------------------------------------------------------
 # Node model (recursive)
 # ---------------------------------------------------------------------------
 
@@ -63,8 +193,20 @@ class EvidenceLevel(str, Enum):
 class AttackTreeNode(BaseModel):
     """A node in the AND/OR attack tree.
 
-    Nodes carry zone annotation, threat/technique IDs, MAESTRO layer,
-    control point, structural exposure type, and evidence level.
+    Internal nodes (AND/OR) carry only logical composition and children.
+    Leaf nodes carry exactly one discriminated :data:`LeafAction`.
+
+    The ``zone`` field is optional.  For leaf nodes, zone requirements
+    are enforced conditionally per action kind:
+
+    - ``external_precondition``: zone must be ``None``
+    - ``ai_system_action``: zone must be a valid Schneider zone
+    - ``tool_invocation``: zone must be exactly ``tool_execution``
+    - ``integration_interaction``: zone must be a valid internal zone
+    - ``impact``: zone required when ``boundary == "internal"``, forbidden when ``"external"``
+    - ``initial_ingress``: zone should reflect entry-point semantics
+
+    For internal (AND/OR) nodes, ``zone`` is optional display metadata.
     """
 
     id: str = Field(
@@ -72,60 +214,65 @@ class AttackTreeNode(BaseModel):
         pattern=r"^n\d+(\.\d+){0,4}$",
     )
     label: str = Field(
-        description="Short human-readable label for the attack step or condition.",
+        description="Short human-readable label (display prose only — never used for canonical semantics).",
         max_length=120,
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
-        description="Optional longer description of the step, its preconditions, or why it matters.",
+        description="Optional longer description (display prose only).",
     )
     gate: GateType = Field(
         description="Logical gate type: AND (all children must succeed), OR (any child suffices), LEAF (terminal).",
     )
-    zone: str = Field(
-        description="Schneider zone where this step occurs.",
+    zone: str | None = Field(
+        default=None,
+        description="Schneider zone where this step occurs.  None for external preconditions and external impacts.",
     )
-    threat_id: Optional[str] = Field(
+    action: LeafAction | None = Field(
+        default=None,
+        description="Discriminated typed action for leaf nodes.  Required for LEAF, forbidden for AND/OR.",
+    )
+    threat_id: str | None = Field(
         default=None,
         description="OWASP Agentic Threat ID applicable to this node (e.g. 'T2').",
         pattern=r"^T\d+$",
     )
-    technique_id: Optional[str] = Field(
+    technique_id: str | None = Field(
         default=None,
         description="Technique ID applicable to this node — MITRE ATLAS (e.g. 'AML.T0051') or LAAF (e.g. 'S1', 'M2').",
         pattern=r"^(AML\.T\d{4}(\.\d{3})?|[SML]\d+)$",
     )
-    tactic: Optional[str] = Field(
+    tactic: str | None = Field(
         default=None,
         description="MITRE ATLAS tactic phase for this attack step (e.g. 'AML.TA0005' for Execution).",
         pattern=r"^AML\.TA\d{4}$",
     )
-    maestro_layer: Optional[int] = Field(
+    maestro_layer: int | None = Field(
         default=None,
         description="MAESTRO architectural layer targeted by this step (1-7).",
         ge=1,
         le=7,
     )
-    control_point: Optional[str] = Field(
+    control_point: str | None = Field(
         default=None,
         description="The defensive control that should block or detect this step.",
     )
-    structural_exposure: Optional[StructuralExposure] = Field(
+    structural_exposure: StructuralExposure | None = Field(
         default=None,
         description="Structural weakness pattern at this node.",
     )
-    evidence_level: Optional[EvidenceLevel] = Field(
+    evidence_level: EvidenceLevel | None = Field(
         default=EvidenceLevel.assumed,
         description="How well-evidenced this step is.",
     )
-    children: Optional[list[AttackTreeNode]] = Field(
+    children: list[AttackTreeNode] | None = Field(
         default=None,
         description="Child nodes. Required for AND/OR gates; must be absent/empty for LEAF.",
     )
 
     @model_validator(mode="after")
-    def validate_gate_children(self) -> AttackTreeNode:
-        """LEAF nodes must have no children; AND/OR must have >= 2."""
+    def validate_gate_children_action(self) -> AttackTreeNode:
+        """Enforce gate/children/action conditional rules."""
         child_count = len(self.children) if self.children else 0
 
         if self.gate == GateType.LEAF:
@@ -133,10 +280,21 @@ class AttackTreeNode(BaseModel):
                 raise ValueError(
                     f"LEAF node '{self.id}' must not have children (has {child_count})"
                 )
+            if self.action is None:
+                raise ValueError(
+                    f"LEAF node '{self.id}' must carry exactly one typed action "
+                    f"(action is None).  Every leaf must have a discriminated action."
+                )
         else:
+            # AND/OR internal node
             if child_count < 2:
                 raise ValueError(
                     f"{self.gate.value} node '{self.id}' must have at least 2 children (has {child_count})"
+                )
+            if self.action is not None:
+                raise ValueError(
+                    f"{self.gate.value} node '{self.id}' must not carry a leaf action "
+                    f"(internal nodes are logical composition only)."
                 )
 
         # Validate child IDs are prefixed with parent ID
@@ -148,7 +306,83 @@ class AttackTreeNode(BaseModel):
                         f"(parent prefix)"
                     )
 
+        # --- Conditional zone validation for leaf actions ---
+        if self.gate == GateType.LEAF and self.action is not None:
+            self._validate_action_zone()
+
         return self
+
+    def _validate_action_zone(self) -> None:
+        """Enforce action-specific zone requirements."""
+        action = self.action
+        kind = action.kind
+
+        if kind == "external_precondition":
+            if self.zone is not None:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with external_precondition action "
+                    f"must not have a Schneider zone (got '{self.zone}'). "
+                    f"External preconditions are outside the AI boundary."
+                )
+        elif kind == "ai_system_action":
+            if self.zone is None:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with ai_system_action must have "
+                    f"a valid Schneider zone (zone is None)."
+                )
+            if self.zone not in _VALID_ZONES:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with ai_system_action has invalid "
+                    f"zone '{self.zone}'. Valid zones: {sorted(_VALID_ZONES)}"
+                )
+        elif kind == "tool_invocation":
+            if self.zone != "tool_execution":
+                raise ValueError(
+                    f"LEAF node '{self.id}' with tool_invocation action must have "
+                    f"zone exactly 'tool_execution' (got '{self.zone}')."
+                )
+        elif kind == "integration_interaction":
+            if self.zone is None:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with integration_interaction action "
+                    f"must have an active internal execution zone (zone is None)."
+                )
+            if self.zone not in _INTERNAL_ZONES:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with integration_interaction action "
+                    f"has invalid zone '{self.zone}'. Valid internal zones: {sorted(_INTERNAL_ZONES)}"
+                )
+        elif kind == "impact":
+            boundary = action.boundary  # type: ignore[union-attr]
+            if boundary == "internal":
+                if self.zone is None:
+                    raise ValueError(
+                        f"LEAF node '{self.id}' with internal impact must have "
+                        f"a Schneider zone (zone is None)."
+                    )
+                if self.zone not in _VALID_ZONES:
+                    raise ValueError(
+                        f"LEAF node '{self.id}' with internal impact has invalid "
+                        f"zone '{self.zone}'. Valid zones: {sorted(_VALID_ZONES)}"
+                    )
+            else:  # boundary == "external"
+                if self.zone is not None:
+                    raise ValueError(
+                        f"LEAF node '{self.id}' with external impact must not have "
+                        f"a Schneider zone (got '{self.zone}'). External impacts "
+                        f"are outside the AI boundary."
+                    )
+        elif kind == "initial_ingress":
+            if self.zone is None:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with initial_ingress action must have "
+                    f"a zone reflecting entry-point ingress semantics (zone is None)."
+                )
+            if self.zone not in _VALID_ZONES:
+                raise ValueError(
+                    f"LEAF node '{self.id}' with initial_ingress action has invalid "
+                    f"zone '{self.zone}'. Valid zones: {sorted(_VALID_ZONES)}"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +456,7 @@ def _repair_node(node: dict[str, Any]) -> dict[str, Any]:
     When an AND or OR node has exactly one child, the parent is replaced by the
     child.  The parent's ``id`` is preserved (to maintain dotted-path
     consistency), but the child's ``label``, ``gate``, ``zone``, ``children``,
-    and all other fields are used.
+    ``action``, and all other fields are used.
 
     The function recurses depth-first so that deeply-nested single-child chains
     are collapsed from the bottom up.

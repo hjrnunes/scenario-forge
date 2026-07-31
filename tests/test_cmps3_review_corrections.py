@@ -17,13 +17,15 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from scenario_forge.manifest import AttemptRecord
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -58,10 +60,10 @@ from scenario_forge.pipeline.candidates import (
     CandidateOrigin,
     CandidateTriple,
     RemovalDecision,
+    _canonicalize_techniques,
     apply_rule_based_filter,
     canonicalize_and_dedup,
     compute_candidate_id,
-    _canonicalize_techniques,
 )
 from scenario_forge.pipeline.coverage import CoverageGaps, EntryPointGap
 from scenario_forge.pipeline.generate import (
@@ -77,8 +79,6 @@ from scenario_forge.pipeline.generate.assembly import (
 )
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps
 from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.manifest import AttemptRecord
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -151,12 +151,14 @@ def _make_envelope(
                 gate=GateType.LEAF,
                 zone="input",
                 technique_id="AML.T0051",
+                action=AiSystemAction(),
             ),
             AttackTreeNode(
                 id="n1.2",
                 label="Path B",
                 gate=GateType.LEAF,
                 zone="reasoning",
+                action=AiSystemAction(),
             ),
         ],
     )
@@ -219,7 +221,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id=candidate_id,
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -283,9 +285,11 @@ class TestSafePairedArtifacts:
                 raise OSError("Injected failure on feature write")
             return original_open(self_path, *args, **kwargs)
 
-        with patch.object(Path, "open", failing_open):
-            with pytest.raises(OSError, match="Injected failure"):
-                write_scenario_outputs(envelope, tmp_path)
+        with (
+            patch.object(Path, "open", failing_open),
+            pytest.raises(OSError, match="Injected failure"),
+        ):
+            write_scenario_outputs(envelope, tmp_path)
 
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
@@ -568,7 +572,7 @@ class TestRemediationFunnelEquations:
         receipts: list[dict] = []
         attempts_list: list[AttemptRecord] = []
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, _notes, attempted, failed = _remediate_coverage_gaps(
             gaps,
             seeds,
             profile,
@@ -600,26 +604,26 @@ class TestCandidateFunnelValidation:
     """CandidateFunnel must reject negative and inconsistent counts."""
 
     def _valid_funnel_kwargs(self) -> dict:
-        return dict(
-            expanded_instances=10,
-            unique_pre_rule_identities=8,
-            rule_rejected=2,
-            rule_transformed=1,
-            post_rule_collapsed=1,
-            filter_submitted=5,
-            filter_accepted=3,
-            selected=3,
-            main_attempted=3,
-            main_admitted=2,
-            generation_failed=1,
-            remediation_attempted=0,
-            remediation_admitted=0,
-            remediation_failed=0,
-            attempted=3,
-            admitted=2,
-            quarantined=1,
-            persisted_artifacts=2,
-        )
+        return {
+            "expanded_instances": 10,
+            "unique_pre_rule_identities": 8,
+            "rule_rejected": 2,
+            "rule_transformed": 1,
+            "post_rule_collapsed": 1,
+            "filter_submitted": 5,
+            "filter_accepted": 3,
+            "selected": 3,
+            "main_attempted": 3,
+            "main_admitted": 2,
+            "generation_failed": 1,
+            "remediation_attempted": 0,
+            "remediation_admitted": 0,
+            "remediation_failed": 0,
+            "attempted": 3,
+            "admitted": 2,
+            "quarantined": 1,
+            "persisted_artifacts": 2,
+        }
 
     def test_valid_funnel_accepted(self):
         f = CandidateFunnel(**self._valid_funnel_kwargs())
@@ -862,7 +866,7 @@ class TestRemovalDecisionProvenance:
             "scenario_forge.pipeline.candidates._run_rules_on_technique",
             side_effect=mock_rules,
         ):
-            rule_passed, rule_rejected, verdicts = apply_rule_based_filter(
+            rule_passed, _rule_rejected, _verdicts = apply_rule_based_filter(
                 [candidate], profile
             )
 
@@ -1082,9 +1086,11 @@ class TestWriteFailureAfterCreation:
                 fh.write = failing_fh_write
             return fh
 
-        with patch.object(Path, "open", open_with_failing_yaml_write):
-            with pytest.raises(OSError, match="Injected write failure"):
-                write_scenario_outputs(envelope, tmp_path)
+        with (
+            patch.object(Path, "open", open_with_failing_yaml_write),
+            pytest.raises(OSError, match="Injected write failure"),
+        ):
+            write_scenario_outputs(envelope, tmp_path)
 
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         assert not yaml_path.exists(), "YAML must be cleaned up on write failure"
@@ -1109,9 +1115,11 @@ class TestWriteFailureAfterCreation:
                 fh.write = failing_fh_write
             return fh
 
-        with patch.object(Path, "open", open_with_failing_feature_write):
-            with pytest.raises(OSError, match="Injected write failure"):
-                write_scenario_outputs(envelope, tmp_path)
+        with (
+            patch.object(Path, "open", open_with_failing_feature_write),
+            pytest.raises(OSError, match="Injected write failure"),
+        ):
+            write_scenario_outputs(envelope, tmp_path)
 
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
@@ -1184,9 +1192,9 @@ class TestCleanupFailureFatal:
         with (
             patch.object(Path, "open", open_with_failing_feature_write),
             patch.object(Path, "unlink", failing_unlink),
+            pytest.raises(ScenarioForgeIntegrityError, match="Failed to clean up"),
         ):
-            with pytest.raises(ScenarioForgeIntegrityError, match="Failed to clean up"):
-                write_scenario_outputs(envelope, tmp_path)
+            write_scenario_outputs(envelope, tmp_path)
 
 
 # ---------------------------------------------------------------------------#
@@ -1502,20 +1510,20 @@ class TestCrossCandidateMetadataConflict:
         must raise ValueError before template selection."""
         ep = "user prompts (input)"
         ep_id = compute_entry_point_id(ep, "input", None)
-        common_kwargs = dict(
-            seed_id="AP-T7-01",
-            threat_id="T7",
-            threat_name="Threat T7",
-            attack_pattern_name="Pattern",
-            attack_pattern_description="Description",
-            entry_point=ep,
-            atlas_technique_ids=("AML.T0051", "AML.T0052"),
-            risk_card_ref=_make_ref(),
-            owasp_llm_ids=["LLM01"],
-            direction="input",
-            entry_point_id=ep_id,
-            origins=(),
-        )
+        common_kwargs = {
+            "seed_id": "AP-T7-01",
+            "threat_id": "T7",
+            "threat_name": "Threat T7",
+            "attack_pattern_name": "Pattern",
+            "attack_pattern_description": "Description",
+            "entry_point": ep,
+            "atlas_technique_ids": ("AML.T0051", "AML.T0052"),
+            "risk_card_ref": _make_ref(),
+            "owasp_llm_ids": ["LLM01"],
+            "direction": "input",
+            "entry_point_id": ep_id,
+            "origins": (),
+        }
         c1 = CandidateTriple(
             atlas_technique_names=("Name A", "Name B"),
             atlas_technique_descriptions=("Desc A", "Desc B"),
@@ -1541,20 +1549,20 @@ class TestCrossCandidateMetadataConflict:
         descriptions must raise ValueError."""
         ep = "user prompts (input)"
         ep_id = compute_entry_point_id(ep, "input", None)
-        common_kwargs = dict(
-            seed_id="AP-T7-01",
-            threat_id="T7",
-            threat_name="Threat T7",
-            attack_pattern_name="Pattern",
-            attack_pattern_description="Description",
-            entry_point=ep,
-            atlas_technique_ids=("AML.T0051", "AML.T0052"),
-            risk_card_ref=_make_ref(),
-            owasp_llm_ids=["LLM01"],
-            direction="input",
-            entry_point_id=ep_id,
-            origins=(),
-        )
+        common_kwargs = {
+            "seed_id": "AP-T7-01",
+            "threat_id": "T7",
+            "threat_name": "Threat T7",
+            "attack_pattern_name": "Pattern",
+            "attack_pattern_description": "Description",
+            "entry_point": ep,
+            "atlas_technique_ids": ("AML.T0051", "AML.T0052"),
+            "risk_card_ref": _make_ref(),
+            "owasp_llm_ids": ["LLM01"],
+            "direction": "input",
+            "entry_point_id": ep_id,
+            "origins": (),
+        }
         c1 = CandidateTriple(
             atlas_technique_names=("Name A", "Name B"),
             atlas_technique_descriptions=("Desc A", "Desc B"),

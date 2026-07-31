@@ -115,11 +115,70 @@ Use AND gates for nodes whose children are sequential prerequisites — all must
 {% include '_tool_inventory.j2' %}
 {% if tool_inventory %}
 ### Tool-Specific Labeling (INVARIANT)
-Every LEAF node in the tool_execution zone MUST include the exact name of a specific tool from the Tool Inventory in its label field. Use the tool name verbatim from the list above. For example, write "Invoke refund processing API with manipulated parameters" NOT "Execute unauthorized financial adjustment via tool misuse."
+Every LEAF node in the tool_execution zone MUST have a `tool_invocation` action with a `tool_id` from the Tool Inventory above. Use the canonical `tool_id` verbatim — never invent IDs. The human-readable `label` is display prose only; it does not determine tool identity.
 
 ### Tool Execution Zone Scope (INVARIANT)
-A node belongs in the tool_execution zone ONLY if it represents the invocation of a specific tool from the Tool Inventory above. If you cannot name a concrete tool from the inventory in the node's label, the node does NOT belong in tool_execution. Generic action phrases like "Execute unauthorized X delivery" are not valid tool_execution nodes. If the attack outcome is the LLM generating text output rather than calling a tool, that step belongs in the reasoning zone, not tool_execution.
+A node belongs in the tool_execution zone ONLY if it represents the invocation of a specific tool from the Tool Inventory above. If you cannot name a concrete tool from the inventory, the node does NOT belong in tool_execution. Generic action phrases like "Execute unauthorized X delivery" are not valid tool_execution nodes. If the attack outcome is the LLM generating text output rather than calling a tool, that step belongs in the reasoning zone, not tool_execution.
 {% endif %}
+{% if external_integrations %}
+### External Integrations (INVARIANT)
+The system integrates with these external systems. Each has a canonical `integration_id` — use this ID when creating `integration_interaction` actions or referencing downstream integrations from `tool_invocation` actions. Never invent IDs.
+{% for integ in external_integrations %}
+- integration_id: {{ integ.integration_id }} | name: {{ integ.name }} | type: {{ integ.integration_type }} | auth: {{ integ.auth_method }}
+{% endfor %}
+{% endif %}
+{% if entry_points %}
+### Entry Points (INVARIANT)
+Each entry point has a canonical `entry_point_id`. When creating `initial_ingress` actions, you MUST use the `entry_point_id` from this list. Never invent IDs.
+{% for ep in entry_points %}
+- entry_point_id: {{ ep.entry_point_id }} | name: {{ ep.name }} | direction: {{ ep.direction }}
+{% endfor %}
+{% endif %}
+
+### Typed Leaf Actions (INVARIANT — cmps.9)
+Every LEAF node MUST carry exactly one `action` field with a `kind` discriminator. Internal (AND/OR) nodes MUST NOT have an action. The action kind determines the node's zone requirements — labels are display prose only.
+
+Action kinds and their rules:
+1. `initial_ingress`: Attacker gains initial access. Required field: `entry_point_id` (from the Entry Points list above). Zone must be a valid Schneider zone reflecting entry-point semantics.
+2. `external_precondition`: Attacker preparation OUTSIDE the AI system. Zone MUST be null/omitted — external infrastructure never receives a Schneider zone. Optional field: `access_provenance` (e.g. "phishing", "supply-chain-staging").
+3. `ai_system_action`: Internal AI processing/action. Zone must be an active Schneider zone from the profile.
+4. `tool_invocation`: AI agent invokes a specific tool. Required field: `tool_id` (from the Tool Inventory above). Zone MUST be exactly `tool_execution`. Optional field: `integration_id` (from the External Integrations list).
+5. `integration_interaction`: Direct interaction with a connected integration. Required field: `integration_id` (from the External Integrations list). Zone must be an active internal execution zone.
+6. `impact`: Explicit attack impact. Required fields: `boundary` ("internal" or "external") and `target` (description of the impact). When boundary is "internal", zone must be a valid Schneider zone. When boundary is "external", zone MUST be null/omitted.
+
+Example LEAF node YAML:
+```yaml
+- id: n1.1
+  label: "Inject crafted prompt via chat"
+  gate: LEAF
+  zone: input
+  technique_id: AML.T0051
+  action:
+    kind: ai_system_action
+```
+
+Example tool invocation LEAF:
+```yaml
+- id: n1.2
+  label: "Invoke query_database to extract records"
+  gate: LEAF
+  zone: tool_execution
+  technique_id: AML.T0053
+  action:
+    kind: tool_invocation
+    tool_id: tool:v1:abc123...
+```
+
+Example external precondition LEAF (no zone!):
+```yaml
+- id: n1.0
+  label: "Host phishing page on attacker infrastructure"
+  gate: LEAF
+  technique_id: AML.T0043
+  action:
+    kind: external_precondition
+    access_provenance: phishing
+```
 {% include '_example_adaptation.j2' %}
 
 ### Cross-Artifact Consistency (INVARIANT)

@@ -154,9 +154,54 @@
         }
       }
     },
+    "AiSystemAction": {
+      "type": "object",
+      "properties": { "kind": { "const": "ai_system_action", "default": "ai_system_action" } }
+    },
+    "ExternalPreconditionAction": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "external_precondition", "default": "external_precondition" },
+        "access_provenance": { "oneOf": [{ "type": "string" }, { "type": "null" }], "default": null }
+      }
+    },
+    "ImpactAction": {
+      "type": "object",
+      "required": ["boundary", "target"],
+      "properties": {
+        "kind": { "const": "impact", "default": "impact" },
+        "boundary": { "type": "string", "enum": ["internal", "external"] },
+        "target": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "ToolInvocationAction": {
+      "type": "object",
+      "required": ["tool_id"],
+      "properties": {
+        "kind": { "const": "tool_invocation", "default": "tool_invocation" },
+        "tool_id": { "type": "string", "pattern": "^tool:v1:[0-9a-f]{32}$" },
+        "integration_id": { "oneOf": [{ "type": "string", "pattern": "^int:v1:[0-9a-f]{32}$" }, { "type": "null" }], "default": null }
+      }
+    },
+    "IntegrationInteractionAction": {
+      "type": "object",
+      "required": ["integration_id"],
+      "properties": {
+        "kind": { "const": "integration_interaction", "default": "integration_interaction" },
+        "integration_id": { "type": "string", "pattern": "^int:v1:[0-9a-f]{32}$" }
+      }
+    },
+    "InitialIngressAction": {
+      "type": "object",
+      "required": ["entry_point_id"],
+      "properties": {
+        "kind": { "const": "initial_ingress", "default": "initial_ingress" },
+        "entry_point_id": { "type": "string", "pattern": "^ep:v1:[0-9a-f]{32}$" }
+      }
+    },
     "AttackTreeNode": {
       "type": "object",
-      "required": ["id", "label", "gate", "zone"],
+      "required": ["id", "label", "gate"],
       "properties": {
         "id": {
           "type": "string",
@@ -173,7 +218,18 @@
           "type": "string",
           "enum": ["AND", "OR", "LEAF"]
         },
-        "zone": { "type": "string", "minLength": 1 },
+        "zone": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "action": {
+          "oneOf": [
+            { "$ref": "#/$defs/AiSystemAction" },
+            { "$ref": "#/$defs/ExternalPreconditionAction" },
+            { "$ref": "#/$defs/ImpactAction" },
+            { "$ref": "#/$defs/ToolInvocationAction" },
+            { "$ref": "#/$defs/IntegrationInteractionAction" },
+            { "$ref": "#/$defs/InitialIngressAction" },
+            { "type": "null" }
+          ]
+        },
         "threat_id": {
           "oneOf": [
             { "type": "string", "pattern": "^T\\d+$" },
@@ -235,6 +291,7 @@
             "properties": { "gate": { "const": "LEAF" } }
           },
           "then": {
+            "required": ["action"],
             "properties": {
               "children": {
                 "oneOf": [
@@ -251,6 +308,7 @@
           },
           "then": {
             "properties": {
+              "action": { "type": "null" },
               "children": {
                 "type": "array",
                 "items": { "$ref": "#/$defs/AttackTreeNode" },

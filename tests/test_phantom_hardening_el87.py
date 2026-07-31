@@ -8,10 +8,10 @@ Covers three root-cause fixes:
 
 from __future__ import annotations
 
-from datetime import datetime
-
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -50,7 +50,6 @@ from scenario_forge.pipeline.validation import (
     validate_phantom_capabilities,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -86,7 +85,7 @@ def _make_profile(
     if has_persistent_memory and "KC4.3" not in codes:
         codes.append("KC4.3")
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -144,14 +143,25 @@ def _make_envelope(
                 label=label,
                 gate=GateType.LEAF,
                 zone="input",
+                action=AiSystemAction(),
             )
             for i, label in enumerate(tree_labels)
         ]
     else:
         children = [
-            AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"),
             AttackTreeNode(
-                id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                id="n1.1",
+                label="Path A",
+                gate=GateType.LEAF,
+                zone="input",
+                action=AiSystemAction(),
+            ),
+            AttackTreeNode(
+                id="n1.2",
+                label="Path B",
+                gate=GateType.LEAF,
+                zone="reasoning",
+                action=AiSystemAction(),
             ),
         ]
 
@@ -217,7 +227,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -605,8 +615,10 @@ class TestAPIResponseFabricationIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "I probe the API to extract system metadata "
-                    "about the deployment architecture."
+                    (
+                        "I probe the API to extract system metadata "
+                        "about the deployment architecture."
+                    )
                 ],
             ),
         ]

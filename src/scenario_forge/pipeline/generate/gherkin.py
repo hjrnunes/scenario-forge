@@ -1,4 +1,13 @@
-"""Call 3: Behavior Spec (Gherkin) generation logic."""
+"""Call 3: Behavior Spec (Gherkin) generation logic.
+
+Action-aware Gherkin projection (cmps.9):
+- ``external_precondition`` → Given / Background
+- ``initial_ingress`` and attack actions (ai_system_action, tool_invocation,
+  integration_interaction) → When / And
+- ``impact`` → Then (projected before the LLM assertion block)
+- Human labels remain display text only; the action discriminator
+  determines step kind, not label text.
+"""
 
 from __future__ import annotations
 
@@ -8,16 +17,19 @@ from typing import Any
 
 from scenario_forge.data.atlas import ATLAS_TECHNIQUE_NAMES
 from scenario_forge.llm.client import LLMClient, LLMResult
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode
+from scenario_forge.models.attack_tree import (
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+)
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import NarrativeLayer
+from scenario_forge.pipeline.generate.constants import (
+    _ASSERTIONS_MARKER,
+    THREAT_VIOLATION_CATEGORY,
+)
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.prompts import render_prompt
-
-from scenario_forge.pipeline.generate.constants import (
-    THREAT_VIOLATION_CATEGORY,
-    _ASSERTIONS_MARKER,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +38,42 @@ logger = logging.getLogger(__name__)
 MAX_OR_PATHS = 6
 
 
+# ---------------------------------------------------------------------------
+# Leaf-action step classification (cmps.9)
+# ---------------------------------------------------------------------------
+
+# Step kinds derived from action discriminator, not labels.
+_STEP_KIND_GIVEN = "given"  # external_precondition
+_STEP_KIND_WHEN = "when"  # initial_ingress, ai_system_action, tool_invocation, integration_interaction
+_STEP_KIND_THEN = "then"  # impact
+
+
+def _leaf_step_kind(leaf: AttackTreeNode) -> str:
+    """Classify a leaf node's Gherkin step kind from its typed action.
+
+    Returns one of ``_STEP_KIND_GIVEN``, ``_STEP_KIND_WHEN``, ``_STEP_KIND_THEN``.
+    The classification is based solely on the action discriminator — never
+    on label/description text.
+    """
+    action = leaf.action
+    if action is None:
+        # Should not happen — LEAF nodes require actions.  Defensive default.
+        return _STEP_KIND_WHEN
+    kind = action.kind
+    if kind == "external_precondition":
+        return _STEP_KIND_GIVEN
+    if kind == "impact":
+        return _STEP_KIND_THEN
+    # initial_ingress, ai_system_action, tool_invocation, integration_interaction
+    return _STEP_KIND_WHEN
+
+
 def _collect_leaf_nodes_dfs(node: AttackTreeNode) -> list[AttackTreeNode]:
     """Collect leaf nodes from an attack tree in depth-first order.
 
     Leaf nodes are nodes with ``gate == GateType.LEAF`` (no children).
     The ordering matches the narrative's attack-phase sequence.
     """
-    from scenario_forge.models.attack_tree import GateType
-
     leaves: list[AttackTreeNode] = []
     if node.gate == GateType.LEAF:
         leaves.append(node)
@@ -54,8 +94,6 @@ def _enumerate_paths(node: AttackTreeNode) -> list[list[AttackTreeNode]]:
     Returns a list of paths, where each path is a list of leaf nodes
     in depth-first order.
     """
-    from scenario_forge.models.attack_tree import GateType
-
     if node.gate == GateType.LEAF:
         return [[node]]
 
@@ -82,6 +120,38 @@ def _enumerate_paths(node: AttackTreeNode) -> list[list[AttackTreeNode]]:
     return result
 
 
+def _format_leaf_step_text(leaf: AttackTreeNode) -> str:
+    """Build the display text for a leaf node's Gherkin step.
+
+    Labels are display prose only.  The technique ID is appended if present.
+    The zone is appended if the leaf has one (non-None).
+    """
+    step_text = leaf.label
+
+    # When the label is just a raw technique ID, replace with the name.
+    _TECHNIQUE_ID_PATTERN = re.compile(r"^AML\.T\d+(\.\d+)?$")
+    if _TECHNIQUE_ID_PATTERN.match(step_text):
+        step_text = ATLAS_TECHNIQUE_NAMES.get(step_text, step_text)
+    else:
+        # When the label is a verbatim ATLAS technique name, replace with
+        # description or generic action label.
+        _known_technique_names: dict[str, str] = {
+            name.lower(): tid for tid, name in ATLAS_TECHNIQUE_NAMES.items()
+        }
+        if step_text.lower() in _known_technique_names:
+            if leaf.description:
+                step_text = leaf.description
+            else:
+                step_text = f"Execute attack step via {step_text}"
+
+    if leaf.technique_id:
+        step_text = re.sub(r"\s*\[AML\.T\d+(?:\.\d+)?\]", "", step_text)
+        step_text += f" [{leaf.technique_id}]"
+    if leaf.zone is not None:
+        step_text += f" ({leaf.zone})"
+    return step_text
+
+
 def _build_gherkin_template(
     narrative: NarrativeLayer,
     attack_tree: AttackTree,
@@ -91,20 +161,16 @@ def _build_gherkin_template(
 ) -> str:
     """Build a deterministic Gherkin skeleton from the tree and narrative.
 
-    The mechanical parts (tags, Feature, Background, When/And steps) are
-    projected directly from the attack tree and narrative.
+    Action-aware projection (cmps.9):
+    - ``external_precondition`` leaves → Background Given steps
+    - ``initial_ingress`` and attack actions → Scenario When/And steps
+    - ``impact`` leaves → Scenario Then steps (before {ASSERTIONS})
+    - Labels are display text only; action discriminator determines step kind.
 
     When the tree contains OR gates, alternative paths are rendered as
     separate ``Scenario:`` blocks (one per OR-branch combination).  If
     the cross-product of OR branches exceeds :data:`MAX_OR_PATHS`, only
     the first ``MAX_OR_PATHS`` paths are rendered.
-
-    Each ``Scenario:`` block contains a ``{ASSERTIONS}`` marker where
-    the LLM-generated Then/But/* block will be spliced in.
-
-    Returns:
-        A Gherkin template string containing ``{ASSERTIONS}`` once per
-        ``Scenario:`` block.
     """
     # --- Violation category tag ---
     violation_tag = THREAT_VIOLATION_CATEGORY.get(
@@ -120,23 +186,31 @@ def _build_gherkin_template(
         "",
     ]
 
-    # --- Collect leaf nodes early so we can scope Background zones ---
+    # --- Collect leaf nodes for zone scoping and Background ---
     leaf_nodes = _collect_leaf_nodes_dfs(attack_tree.root)
-    tree_zones = {leaf.zone for leaf in leaf_nodes}
+    tree_zones = {leaf.zone for leaf in leaf_nodes if leaf.zone is not None}
+
+    # --- Separate external preconditions for Background ---
+    precondition_leaves = [
+        leaf for leaf in leaf_nodes if _leaf_step_kind(leaf) == _STEP_KIND_GIVEN
+    ]
 
     # --- Background: preconditions ---
-    # First Given: narrative entry point with the first zone
     first_zone = narrative.zone_sequence[0] if narrative.zone_sequence else "input"
     lines.append("  Background: Preconditions")
 
     # Bug fix: strip any trailing zone suffix already present in entry_point
-    # to avoid doubled labels like "(input) (input)"
     entry_point = re.sub(
         r"\s*\((input|reasoning|tool_execution|memory|inter_agent)\)\s*$",
         "",
         narrative.entry_point,
     )
     lines.append(f"    Given {entry_point} ({first_zone})")
+
+    # External precondition leaves go to Background as Given/And steps
+    for prec_leaf in precondition_leaves:
+        prec_text = _format_leaf_step_text(prec_leaf)
+        lines.append(f"    And {prec_text}")
 
     # Additional zone/capability preconditions — scoped to zones
     # actually present in the tree's leaf nodes, not the full profile
@@ -165,15 +239,19 @@ def _build_gherkin_template(
 
     multi_path = len(paths) > 1
 
-    _TECHNIQUE_ID_PATTERN = re.compile(r"^AML\.T\d+(\.\d+)?$")
-
-    # Build a case-insensitive lookup of known ATLAS technique names so
-    # we can detect when a leaf label is a verbatim technique name.
-    _known_technique_names: dict[str, str] = {
-        name.lower(): tid for tid, name in ATLAS_TECHNIQUE_NAMES.items()
-    }
-
     for path_idx, path_leaves in enumerate(paths, 1):
+        # --- Separate leaves by step kind ---
+        when_leaves: list[AttackTreeNode] = []
+        then_leaves: list[AttackTreeNode] = []
+        for leaf in path_leaves:
+            kind = _leaf_step_kind(leaf)
+            if kind == _STEP_KIND_GIVEN:
+                continue  # already in Background
+            elif kind == _STEP_KIND_THEN:
+                then_leaves.append(leaf)
+            else:
+                when_leaves.append(leaf)
+
         # --- Scenario header ---
         if multi_path:
             lines.append(f"  Scenario: {narrative.title} (Path {path_idx})")
@@ -182,33 +260,16 @@ def _build_gherkin_template(
         lines.append("    Given the system is in its normal operating state")
         lines.append("")
 
-        # --- Attack steps from path leaves ---
-        for i, leaf in enumerate(path_leaves):
-            # Build step text: label [technique_id] (zone)
-            step_text = leaf.label
-
-            # Bug fix: when the label is just a raw technique ID (e.g. "AML.T0052"),
-            # replace it with the human-readable technique name
-            if _TECHNIQUE_ID_PATTERN.match(step_text):
-                step_text = ATLAS_TECHNIQUE_NAMES.get(step_text, step_text)
-
-            # Bug fix: when the label is a verbatim ATLAS technique name
-            # (e.g. "AI Agent Tool Invocation"), replace with the node's
-            # description or a generic action label — the technique name
-            # alone is not a meaningful Gherkin step.
-            elif step_text.lower() in _known_technique_names:
-                if leaf.description:
-                    step_text = leaf.description
-                else:
-                    step_text = f"Execute attack step via {step_text}"
-
-            if leaf.technique_id:
-                step_text = re.sub(r"\s*\[AML\.T\d+(?:\.\d+)?\]", "", step_text)
-                step_text += f" [{leaf.technique_id}]"
-            step_text += f" ({leaf.zone})"
-
+        # --- Attack steps (When/And) from action leaves ---
+        for i, leaf in enumerate(when_leaves):
+            step_text = _format_leaf_step_text(leaf)
             keyword = "When" if i == 0 else "And"
             lines.append(f"    {keyword} {step_text}")
+
+        # --- Impact steps (Then) from impact leaves ---
+        for leaf in then_leaves:
+            step_text = _format_leaf_step_text(leaf)
+            lines.append(f"    Then {step_text}")
 
         lines.append("")
         lines.append(f"    {_ASSERTIONS_MARKER}")
@@ -246,8 +307,6 @@ def build_call3_context(
     Returns:
         Dict mapping template variable names to their values.
     """
-    # scenario_tag is the full scenario_id (collision-safe, run-specific).
-
     # Build deterministic Gherkin skeleton from tree + narrative
     gherkin_template = _build_gherkin_template(
         narrative=narrative,

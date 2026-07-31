@@ -14,10 +14,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
+    ToolInvocationAction,
 )
+from scenario_forge.models.capability_profile import compute_tool_id
 from scenario_forge.models.scenario import (
     NarrativeLayer,
     NarrativeStep,
@@ -28,7 +31,6 @@ from scenario_forge.pipeline.generate import (
     _count_leaves,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -36,11 +38,17 @@ from scenario_forge.pipeline.generate import (
 
 def _make_leaf(node_id: str, zone: str = "input", **kwargs) -> AttackTreeNode:
     """Create a minimal LEAF node."""
+    action = (
+        ToolInvocationAction(tool_id=compute_tool_id("test_tool", "A test tool"))
+        if zone == "tool_execution"
+        else AiSystemAction()
+    )
     return AttackTreeNode(
         id=node_id,
         label=f"Leaf {node_id}",
         gate=GateType.LEAF,
         zone=zone,
+        action=action,
         **kwargs,
     )
 
@@ -525,7 +533,7 @@ class TestConsistencyRetryLoop:
 
         from scenario_forge.pipeline.generate import generate_scenario
 
-        envelope, _ = generate_scenario(
+        _envelope, _ = generate_scenario(
             seed=seed,
             profile=profile,
             client=client,
@@ -601,7 +609,7 @@ class TestConsistencyRetryLoop:
 
         from scenario_forge.pipeline.generate import generate_scenario
 
-        envelope, _ = generate_scenario(
+        _envelope, _ = generate_scenario(
             seed=seed,
             profile=profile,
             client=client,
@@ -676,7 +684,7 @@ class TestConsistencyRetryLoop:
         from scenario_forge.pipeline.generate import generate_scenario
 
         # Should NOT raise — scenario is kept despite violations
-        envelope, _ = generate_scenario(
+        _envelope, _ = generate_scenario(
             seed=seed,
             profile=profile,
             client=client,
@@ -791,8 +799,8 @@ class TestToolExecutionLeafGrounding:
 
         assert not any("ungrounded-tool-leaf" in v for v in violations)
 
-    def test_leaf_with_generic_label_violation(self) -> None:
-        """Leaf with generic label triggers violation."""
+    def test_typed_tool_leaf_with_generic_label_is_grounded(self) -> None:
+        """Typed tool identity makes a generic prose label irrelevant."""
         root = _make_or_root(
             _make_leaf("n1.1", zone="input"),
             _make_leaf("n1.2", zone="tool_execution"),
@@ -808,9 +816,7 @@ class TestToolExecutionLeafGrounding:
             tool_names=["database_query", "send_email"],
         )
 
-        tool_violations = [v for v in violations if "ungrounded-tool-leaf" in v]
-        assert len(tool_violations) == 1
-        assert "Execute malicious operation" in tool_violations[0]
+        assert not any("ungrounded-tool-leaf" in v for v in violations)
 
     def test_no_tool_names_skips_check(self) -> None:
         """When tool_names is None, the check is skipped."""

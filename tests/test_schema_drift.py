@@ -17,12 +17,12 @@ gate/children rules). Instead, it checks that:
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from pathlib import Path
 
 import pytest
 
 from scenario_forge.models.scenario import ScenarioEnvelope
-
 
 _SCHEMA_PATH = (
     Path(__file__).resolve().parents[1]
@@ -109,6 +109,7 @@ class TestSchemaDrift:
         from datetime import datetime
 
         from scenario_forge.models.attack_tree import (
+            AiSystemAction,
             AttackTree,
             AttackTreeNode,
             GateType,
@@ -136,7 +137,7 @@ class TestSchemaDrift:
         envelope = ScenarioEnvelope(
             scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
             candidate_id="cand:v1:11111111111111111111111111111111",
-            generated_at=datetime.now(),
+            generated_at=datetime.now(tz=UTC),
             generator_version="0.1.0",
             narrative=NarrativeLayer(
                 title="Test",
@@ -167,12 +168,14 @@ class TestSchemaDrift:
                             label="A",
                             gate=GateType.LEAF,
                             zone="input",
+                            action=AiSystemAction(),
                         ),
                         AttackTreeNode(
                             id="n1.2",
                             label="B",
                             gate=GateType.LEAF,
                             zone="input",
+                            action=AiSystemAction(),
                         ),
                     ],
                 ),

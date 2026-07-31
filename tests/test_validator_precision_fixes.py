@@ -1,18 +1,21 @@
-"""Tests for validator precision fixes (9jfi, enwb, ryxu, lgws, 3mal).
+"""Tests for validator precision fixes (9jfi, lgws, 3mal).
 
-Covers:
+Covers (cmps.9 updated):
 - 9jfi: cross-newline matching prevention in audit_monitoring_write
-- enwb: Gherkin step keywords added to _TOOL_NAME_NOISE
-- ryxu: title-case filter on 'API calls to' phantom tool extractor
 - lgws: input-zone skip for tree label code_execution
 - 3mal: Gherkin step-type awareness for code_execution
+
+The prose-based phantom_tool_invocation checks (enwb, ryxu) were removed
+in cmps.9 — tool identity is now resolved via typed tool_id, not label
+substring matching.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -44,10 +47,8 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.validation import (
     _check_audit_monitoring_write,
     _check_code_execution,
-    _check_phantom_tool_invocation,
     validate_phantom_capabilities,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,7 +64,7 @@ def _make_profile(
         entry_points = ["user prompts (zone 1)"]
     codes = list(kc_subcodes) if kc_subcodes else ["KC1.1"]
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -119,14 +120,25 @@ def _make_envelope(
                 label=label,
                 gate=GateType.LEAF,
                 zone=tree_zones[i],
+                action=AiSystemAction(),
             )
             for i, label in enumerate(tree_labels)
         ]
     else:
         children = [
-            AttackTreeNode(id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"),
             AttackTreeNode(
-                id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                id="n1.1",
+                label="Path A",
+                gate=GateType.LEAF,
+                zone="input",
+                action=AiSystemAction(),
+            ),
+            AttackTreeNode(
+                id="n1.2",
+                label="Path B",
+                gate=GateType.LEAF,
+                zone="reasoning",
+                action=AiSystemAction(),
             ),
         ]
 
@@ -192,7 +204,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -238,100 +250,6 @@ class TestAuditMonitoringCrossNewline:
         text = "The system creates a deceptive transaction record."
         profile = _make_profile()
         result = _check_audit_monitoring_write(text, profile)
-        assert result is not None
-
-
-# ===========================================================================
-# enwb: Gherkin step keywords in _TOOL_NAME_NOISE
-# ===========================================================================
-
-
-class TestGherkinStepKeywordsInToolNameNoise:
-    """Gherkin step keywords should be stripped from tool name candidates."""
-
-    def test_and_generate_tool_not_flagged(self) -> None:
-        """'And Generate tool call...' should NOT produce a phantom tool violation.
-
-        After stripping 'And', only 'Generate' remains (1 word < 2 minimum).
-        """
-        text = (
-            "And Generate tool call with unauthorized, excessively high refund value."
-        )
-        profile = _make_profile(entry_points=["refund processing api"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is None
-
-    def test_when_process_tool_not_flagged(self) -> None:
-        """'When Process tool confirmation...' should NOT flag."""
-        text = "When Process tool confirmation to finalize hijacked workflow."
-        profile = _make_profile(entry_points=["workflow api"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is None
-
-    def test_then_submit_tool_not_flagged(self) -> None:
-        """'Then Submit tool...' should NOT flag (single word after strip)."""
-        text = "Then Submit tool is invoked."
-        profile = _make_profile(entry_points=["some api"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is None
-
-    def test_real_tool_name_still_flagged(self) -> None:
-        """A genuine multi-word tool name like 'Policy Audit tool' is still caught."""
-        text = "The agent calls the Policy Audit tool to verify permissions."
-        profile = _make_profile(entry_points=["user prompts (zone 1)"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is not None
-
-
-# ===========================================================================
-# ryxu: tighten 'API calls to' phantom tool extractor
-# ===========================================================================
-
-
-class TestApiCallsToTitleCaseFilter:
-    """'API calls to <action>' should only flag when the action contains
-    at least one title-cased word (proper-noun indicator)."""
-
-    def test_all_lowercase_action_not_flagged(self) -> None:
-        """'API calls to clear the queue' is a generic action, not a tool name."""
-        text = "The reviewer makes API calls to clear the queue."
-        profile = _make_profile(entry_points=["user prompts (zone 1)"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is None
-
-    def test_lowercase_fulfill_mission_not_flagged(self) -> None:
-        """'API calls to fulfill its perceived absolute mission' is generic."""
-        text = "The agent makes API calls to fulfill its perceived absolute mission."
-        profile = _make_profile(entry_points=["user prompts (zone 1)"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is None
-
-    def test_lowercase_satisfy_requirements_not_flagged(self) -> None:
-        """'API calls to satisfy recursive state requirements' is generic."""
-        text = "The system makes API calls to satisfy recursive state requirements."
-        profile = _make_profile(entry_points=["user prompts (zone 1)"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is None
-
-    def test_lowercase_prevent_exhaustion_not_flagged(self) -> None:
-        """'API calls to prevent resource exhaustion' is generic."""
-        text = "The agent limits API calls to prevent resource exhaustion."
-        profile = _make_profile(entry_points=["user prompts (zone 1)"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is None
-
-    def test_title_case_tool_name_still_flagged(self) -> None:
-        """'API calls to Refund Processing API' is a proper-noun tool reference."""
-        text = "The agent makes API calls to Refund Processing service."
-        profile = _make_profile(entry_points=["user prompts (zone 1)"])
-        result = _check_phantom_tool_invocation(text, profile)
-        assert result is not None
-
-    def test_title_case_admin_config_still_flagged(self) -> None:
-        """'API calls to Admin Configuration endpoint' is a proper-noun tool reference."""
-        text = "The system uses API calls to Admin Configuration endpoint."
-        profile = _make_profile(entry_points=["user prompts (zone 1)"])
-        result = _check_phantom_tool_invocation(text, profile)
         assert result is not None
 
 

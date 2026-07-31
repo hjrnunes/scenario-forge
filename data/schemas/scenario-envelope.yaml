@@ -203,9 +203,11 @@ fields:
       tree schema (scenario-forge-13k). Treated as an opaque sub-document here.
       Produced by LLM Call 2.
 
-      Nodes carry: zone annotation, threat/technique IDs, MAESTRO layer, control
-      point, structural exposure type, and evidence level per the design doc
-      (section 9.1).
+      Nodes carry optional zone annotation, threat/technique IDs, MAESTRO layer,
+      control point, structural exposure type, and evidence level per the design
+      doc (section 9.1). LEAF nodes also carry a typed action discriminated by
+      action.kind; AND/OR nodes never carry an action. External preconditions
+      and external impacts omit zone.
 
   # ===================================================================
   # Layer 3: Behavior Specification
@@ -583,32 +585,43 @@ example:
   attack_tree:
     # Internal structure defined by scenario-forge-13k schema.
     # Placeholder showing the expected top-level shape.
+    id: "tree-T2-S1"
+    seed_id: "T2-S1"
+    goal: "Achieve unauthorized mass booking via parameter pollution"
     root:
-      id: "root"
+      id: "n1"
       label: "Achieve unauthorized mass booking via parameter pollution"
       gate: "AND"
       zone: 3
-      threat_ids: ["T2"]
-      technique_ids: ["AML.T0054"]
+      threat_id: "T2"
+      technique_id: "AML.T0054"
       maestro_layer: 1
       children:
-        - id: "node-1"
+        - id: "n1.1"
           label: "Craft ambiguous quantity prompt"
           gate: "LEAF"
           zone: 1
+          action:
+            kind: "initial_ingress"
+            entry_point_id: "ep:v1:00000000000000000000000000000000"
           control_point: "Input validation"
           evidence_level: "assumed"
-        - id: "node-2"
+        - id: "n1.2"
           label: "Agent reasons without business rule check"
           gate: "LEAF"
           zone: 2
+          action:
+            kind: "ai_system_action"
           control_point: "Business rule enforcement"
           structural_exposure: "single_point_of_failure"
           evidence_level: "assumed"
-        - id: "node-3"
+        - id: "n1.3"
           label: "Booking API accepts unbounded quantity"
           gate: "LEAF"
           zone: 3
+          action:
+            kind: "tool_invocation"
+            tool_id: "tool:v1:00000000000000000000000000000000"
           control_point: "API parameter bounds"
           evidence_level: "assumed"
 

@@ -6,9 +6,13 @@ that are not part of the skeleton (pinned) technique set.
 
 from __future__ import annotations
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import (
+    AiSystemAction,
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+)
 from scenario_forge.pipeline.generate import _strip_non_skeleton_techniques
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -16,7 +20,14 @@ from scenario_forge.pipeline.generate import _strip_non_skeleton_techniques
 
 
 def _leaf(node_id: str, label: str, zone: str = "input", **extra) -> AttackTreeNode:
-    return AttackTreeNode(id=node_id, label=label, gate=GateType.LEAF, zone=zone, **extra)
+    return AttackTreeNode(
+        id=node_id,
+        label=label,
+        gate=GateType.LEAF,
+        zone=zone,
+        action=AiSystemAction(),
+        **extra,
+    )
 
 
 def _gate(
@@ -162,7 +173,9 @@ class TestStripNonSkeletonTechniques:
                         GateType.OR,
                         [
                             _leaf("n1.1.1", "Deep skeleton", technique_id="AML.T0051"),
-                            _leaf("n1.1.2", "Deep decorative", technique_id="AML.T0043"),
+                            _leaf(
+                                "n1.1.2", "Deep decorative", technique_id="AML.T0043"
+                            ),
                         ],
                     ),
                     _leaf("n1.2", "Top-level decorative", technique_id="AML.T0043"),

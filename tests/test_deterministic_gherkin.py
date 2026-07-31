@@ -11,24 +11,29 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import (
+    AiSystemAction,
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+    ToolInvocationAction,
+)
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
     ToolInventoryEntry,
+    compute_tool_id,
 )
-from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
+from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep, RiskCardRef
 from scenario_forge.pipeline.generate import (
+    _ASSERTIONS_MARKER,
     THREAT_VIOLATION_CATEGORY,
     _build_gherkin_template,
     _call_behavior_spec,
     _collect_leaf_nodes_dfs,
     _enumerate_paths,
-    _ASSERTIONS_MARKER,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.models.scenario import RiskCardRef
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -115,6 +120,7 @@ def _make_leaf(
         label=label,
         gate=GateType.LEAF,
         zone=zone,
+        action=AiSystemAction(),
         technique_id=technique_id,
     )
 
@@ -190,6 +196,7 @@ def _make_tree_single_leaf() -> AttackTree:
             label="Direct exploit",
             gate=GateType.LEAF,
             zone="input",
+            action=AiSystemAction(),
             technique_id="AML.T0051",
         ),
     )
@@ -669,7 +676,7 @@ class TestCallBehaviorSpecIntegration:
         mock_result.user_prompt = "test"
         mock_client.complete.return_value = mock_result
 
-        gherkin, result = _call_behavior_spec(
+        gherkin, _result = _call_behavior_spec(
             seed=_make_seed(),
             narrative=_make_narrative(),
             attack_tree=_make_tree_simple(),
@@ -916,6 +923,9 @@ class TestRawTechniqueNameSubstitution:
                         label="AI Agent Tool Invocation",
                         gate=GateType.LEAF,
                         zone="tool_execution",
+                        action=ToolInvocationAction(
+                            tool_id=compute_tool_id("test_tool", "A test tool")
+                        ),
                         technique_id="AML.T0053",
                         description="Agent invokes external API beyond scope",
                     ),
@@ -958,6 +968,7 @@ class TestRawTechniqueNameSubstitution:
                         label="Indirect Prompt Injection",
                         gate=GateType.LEAF,
                         zone="input",
+                        action=AiSystemAction(),
                         technique_id="AML.T0051.001",
                         # no description
                     ),
@@ -997,6 +1008,7 @@ class TestRawTechniqueNameSubstitution:
                         label="llm jailbreak",  # lowercase variant
                         gate=GateType.LEAF,
                         zone="input",
+                        action=AiSystemAction(),
                         technique_id="AML.T0054",
                         description="Bypass safety via crafted prompts",
                     ),

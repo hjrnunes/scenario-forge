@@ -19,7 +19,6 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.generate import _call_attack_tree
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -33,6 +32,8 @@ root:
   label: Root attack node
   gate: LEAF
   zone: input
+  action:
+    kind: ai_system_action
 """
 
 _INVALID_YAML = "{{{{not yaml at all: ][]["
@@ -175,7 +176,9 @@ class TestAttackTreeRetry:
 
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="scenario_forge.pipeline.generate"):
+        with caplog.at_level(
+            logging.WARNING, logger="scenario_forge.pipeline.generate"
+        ):
             _call_attack_tree(
                 seed=seed,
                 narrative=narrative,

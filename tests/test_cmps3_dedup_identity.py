@@ -18,13 +18,14 @@ Covers the acceptance contract:
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -77,10 +78,19 @@ from scenario_forge.pipeline.generate import (
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build test nodes with the action required by leaf nodes."""
+    if kwargs.get("gate") == GateType.LEAF:
+        kwargs.setdefault("action", AiSystemAction())
+    return _AttackTreeNode(**kwargs)
 
 
 def _make_ref(risk_id: str = "risk-1") -> RiskCardRef:
@@ -243,7 +253,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -765,7 +775,7 @@ class TestTypedFunnelRecords:
             output_count=8,
             collapsed_count=2,
         )
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             rec.stage = "other"  # type: ignore[misc]
 
     def test_candidate_funnel_all_fields(self):
@@ -865,7 +875,7 @@ class TestTransformDedupWithStageRecords:
         profile = _make_profile()
 
         records: list[StageRecord] = []
-        passed, rejected, verdicts = apply_rule_based_filter(
+        _passed, _rejected, _verdicts = apply_rule_based_filter(
             [c1, c2], profile, stage_records=records
         )
         # Should have a rule_pruning stage record
@@ -922,7 +932,7 @@ class TestFunnelEquations:
         records: list[StageRecord] = []
         apply_rule_based_filter([c], profile, stage_records=records)
 
-        rule_rec = [r for r in records if r.stage == "rule_pruning"][0]
+        rule_rec = next(r for r in records if r.stage == "rule_pruning")
         assert rule_rec.input_count == rule_rec.output_count + rule_rec.collapsed_count
 
     def test_capping_equation(self):
@@ -961,7 +971,7 @@ class TestOneGenerationAttempt:
         )
         profile = _make_profile()
 
-        passed, _, _ = apply_rule_based_filter([c1, c2], profile)
+        _passed, _, _ = apply_rule_based_filter([c1, c2], profile)
         # Both pass rules (no pruning needed for compatible techniques)
         # But if they have the same identity after any pruning, dedup
         # ensures only one survives.

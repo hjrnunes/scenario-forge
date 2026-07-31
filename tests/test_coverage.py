@@ -23,13 +23,14 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -40,6 +41,7 @@ from scenario_forge.models.capability_profile import (
     compute_entry_point_id,
 )
 from scenario_forge.models.scenario import (
+    ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
     CallMetadata,
@@ -59,7 +61,11 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
     TechniqueMaturity,
 )
-from scenario_forge.models.scenario import ActorProfile
+from scenario_forge.pipeline.candidates import (
+    CandidateTriple,
+    FilteredSeed,
+    compute_candidate_id,
+)
 from scenario_forge.pipeline.coverage import (
     AttackerDiversityResult,
     CoverageGaps,
@@ -69,11 +75,6 @@ from scenario_forge.pipeline.coverage import (
     analyze_coverage_gaps,
     write_coverage_report,
 )
-from scenario_forge.pipeline.candidates import (
-    CandidateTriple,
-    FilteredSeed,
-    compute_candidate_id,
-)
 from scenario_forge.pipeline.generate import compute_scenario_id
 from scenario_forge.pipeline.runner import (
     _compute_gap_attributions,
@@ -82,7 +83,6 @@ from scenario_forge.pipeline.runner import (
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: helpers to build minimal valid objects
@@ -160,10 +160,18 @@ def _make_envelope(
             zone="input",
             children=[
                 AttackTreeNode(
-                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                    id="n1.1",
+                    label="Path A",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
-                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                    id="n1.2",
+                    label="Path B",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    action=AiSystemAction(),
                 ),
             ],
         ),
@@ -226,7 +234,7 @@ def _make_envelope(
             1,
         ),
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         actor_profile=actor_profile,
         narrative=narrative,
@@ -258,7 +266,7 @@ def _make_profile(
     if "inter_agent" in zones_active:
         kc.append("KC2.3")
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc):
+    if any(c.startswith(("KC5.", "KC6.")) for c in kc):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -1018,7 +1026,7 @@ class TestRemediateCoverageGaps:
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             [_make_seed()],
             profile,
@@ -1047,7 +1055,7 @@ class TestRemediateCoverageGaps:
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             [],
             profile,
@@ -1106,7 +1114,7 @@ class TestRemediateCoverageGaps:
         mock_generate.side_effect = gen_side_effect
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, _notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             seeds,
             profile,
@@ -1163,7 +1171,7 @@ class TestRemediateCoverageGaps:
         ]
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             seeds,
             profile,
@@ -1214,7 +1222,7 @@ class TestRemediateCoverageGaps:
         mock_generate.return_value = (mock_envelope, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        _scenarios, _notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             [seed],
             profile,

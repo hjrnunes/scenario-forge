@@ -8,12 +8,13 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -48,10 +49,19 @@ from scenario_forge.pipeline.generate import (
     write_scenario_outputs,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build test nodes with the action required by leaf nodes."""
+    if kwargs.get("gate") == GateType.LEAF:
+        kwargs.setdefault("action", AiSystemAction())
+    return _AttackTreeNode(**kwargs)
 
 
 def _make_envelope(
@@ -153,7 +163,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:11111111111111111111111111111111",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -498,8 +508,8 @@ class TestParsimonyIntegration:
     def test_pruned_tree_written_to_yaml(self, tmp_path: Path) -> None:
         """After parsimony pruning, the re-written YAML should contain the pruned tree."""
         from scenario_forge.pipeline.validation import (
-            enforce_parsimony,
             _collect_leaves,
+            enforce_parsimony,
         )
 
         root = AttackTreeNode(

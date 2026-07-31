@@ -97,7 +97,11 @@ These custom sub-codes gate attack patterns that require specific structural cap
 - Only include sub-codes supported by the use-case description. Do NOT speculate.
 
 ## Tool Inventory
-If the system has tool execution capability (any KC5.* or KC6.* sub-codes), list the tools and APIs it can invoke in the `tool_inventory` field. Each entry has a `name` and a one-line `description`.
+If the system has tool execution capability (any KC5.* or KC6.* sub-codes), list the tools and APIs it can invoke in the `tool_inventory` field. Each entry has a `name` and a one-line `description`. Every tool receives a canonical `tool_id` in the format `tool:v1:<32 hex>`.
+
+Every external integration receives a canonical `integration_id` in the format `int:v1:<32 hex>`, and every entry point receives a canonical `entry_point_id` in the format `ep:v1:<32 hex>`. These IDs are application-assigned: never invent or generate any ID. The application will assign canonical IDs after inference.
+
+Inferred profiles are always `inferred_partial`. You cannot declare an inferred inventory `operator_confirmed_complete`; only the application can record that status after operator review.
 
 **CRITICAL:** List ONLY tools explicitly described or strongly implied by the use-case description. Do NOT invent tools based on domain expectations or common assumptions. If the use case says "the system can process refunds," list a refund tool — but do NOT add a "billing API" or "inventory management system" unless the use case mentions them.
 

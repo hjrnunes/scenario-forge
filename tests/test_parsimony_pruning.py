@@ -10,9 +10,10 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -39,10 +40,23 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.validation import enforce_parsimony
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: helpers to build minimal valid objects
 # ---------------------------------------------------------------------------
+
+
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build valid actionable leaves for parsimony tests."""
+    if kwargs.get("gate") == GateType.LEAF:
+        # Historical fixtures used the removed output zone; these tests only
+        # exercise tree shape and pruning, so map it to a valid AI zone.
+        if kwargs.get("zone") == "output":
+            kwargs["zone"] = "reasoning"
+        kwargs.setdefault("action", AiSystemAction())
+    return _AttackTreeNode(**kwargs)
 
 
 def _make_tree(
@@ -131,7 +145,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -414,7 +428,7 @@ class TestGateCollapse:
         result = enforce_parsimony([scenario])
 
         assert len(result.pruned_scenarios) == 1
-        pruned_scenario, pruned_nodes = result.pruned_scenarios[0]
+        pruned_scenario, _pruned_nodes = result.pruned_scenarios[0]
 
         # The AND gate n1.1 should have been collapsed
         pruned_root = pruned_scenario.attack_tree.root
@@ -747,7 +761,7 @@ class TestMinimumViableTree:
         result = enforce_parsimony([scenario])
 
         assert len(result.pruned_scenarios) == 1
-        pruned_scenario, pruned_nodes = result.pruned_scenarios[0]
+        pruned_scenario, _pruned_nodes = result.pruned_scenarios[0]
 
         # After pruning, tree should still be valid
         validated = AttackTree.model_validate(pruned_scenario.attack_tree.model_dump())

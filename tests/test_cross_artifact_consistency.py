@@ -9,16 +9,19 @@ Covers three new semantic validators:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
+    ToolInvocationAction,
 )
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ToolInventoryEntry,
+    compute_tool_id,
 )
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
@@ -47,7 +50,6 @@ from scenario_forge.pipeline.validation import (
     _extract_narrative_technique_ids,
     validate_scenario_semantics,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -85,11 +87,17 @@ def _leaf(
     technique_id: str | None = None,
     threat_id: str | None = None,
 ) -> AttackTreeNode:
+    action = (
+        ToolInvocationAction(tool_id=compute_tool_id("test_tool", "A test tool"))
+        if zone == "tool_execution"
+        else AiSystemAction()
+    )
     return AttackTreeNode(
         id=node_id,
         label=f"Step {node_id}",
         gate=GateType.LEAF,
         zone=zone,
+        action=action,
         technique_id=technique_id,
         threat_id=threat_id,
     )
@@ -196,7 +204,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,

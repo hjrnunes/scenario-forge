@@ -8,6 +8,8 @@ Covers:
 
 from __future__ import annotations
 
+from scenario_forge.models.attack_tree import AiSystemAction, ToolInvocationAction
+from scenario_forge.models.capability_profile import compute_tool_id
 from scenario_forge.models.scenario import (
     NarrativeLayer,
     NarrativeStep,
@@ -20,16 +22,15 @@ from scenario_forge.pipeline.generate import (
 from scenario_forge.prompts import render_prompt
 
 # Default kwargs for rendering call1_system.j2 (requires profile variables)
-_CALL1_SYS_DEFAULTS = dict(
-    has_persistent_memory=False,
-    multi_agent=False,
-    hitl=True,
-    zones_active=["input", "reasoning", "tool_execution"],
-    kc_subcodes=[],
-    tool_inventory=[],
-)
+_CALL1_SYS_DEFAULTS = {
+    "has_persistent_memory": False,
+    "multi_agent": False,
+    "hitl": True,
+    "zones_active": ["input", "reasoning", "tool_execution"],
+    "kc_subcodes": [],
+    "tool_inventory": [],
+}
 from scenario_forge.pipeline.seeds import ScenarioSeed
-
 
 # ===========================================================================
 # Bead cyo: HITL failure mechanism prompt
@@ -197,6 +198,7 @@ def _make_attack_tree(*, depth: int = 3, node_count: int = 5, exposures=None):
 
         if target_depth <= 1:
             node_kwargs["gate"] = "LEAF"
+            node_kwargs["action"] = AiSystemAction()
             return AttackTreeNode(**node_kwargs)
 
         node_kwargs["gate"] = "AND"
@@ -206,6 +208,7 @@ def _make_attack_tree(*, depth: int = 3, node_count: int = 5, exposures=None):
             label=f"Node {prefix}.2",
             gate="LEAF",
             zone="reasoning",
+            action=AiSystemAction(),
         )
         node_kwargs["children"] = [child1, child2]
         return AttackTreeNode(**node_kwargs)
@@ -235,6 +238,13 @@ def _make_attack_tree(*, depth: int = 3, node_count: int = 5, exposures=None):
                         "memory",
                         "inter_agent",
                     ][i % 5],
+                    action=(
+                        ToolInvocationAction(
+                            tool_id=compute_tool_id("test_tool", "A test tool")
+                        )
+                        if i % 5 == 2
+                        else AiSystemAction()
+                    ),
                 )
             )
         root = root.model_copy(update={"children": extra_children})

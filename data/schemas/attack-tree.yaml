@@ -76,11 +76,93 @@ schema:
           decomposition.
 
   # ---------------------------------------------------------------------------
+  # Typed leaf actions
+  # ---------------------------------------------------------------------------
+  actions:
+    discriminator: kind
+    oneOf:
+      - InitialIngressAction
+      - ExternalPreconditionAction
+      - AiSystemAction
+      - ToolInvocationAction
+      - IntegrationInteractionAction
+      - ImpactAction
+
+    InitialIngressAction:
+      type: object
+      required: [kind, entry_point_id]
+      properties:
+        kind:
+          type: string
+          const: initial_ingress
+        entry_point_id:
+          type: string
+          pattern: "^ep:v1:[0-9a-f]{32}$"
+
+    ExternalPreconditionAction:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          const: external_precondition
+        access_provenance:
+          type: string
+          required: false
+
+    AiSystemAction:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          const: ai_system_action
+
+    ToolInvocationAction:
+      type: object
+      required: [kind, tool_id]
+      properties:
+        kind:
+          type: string
+          const: tool_invocation
+        tool_id:
+          type: string
+          pattern: "^tool:v1:[0-9a-f]{32}$"
+        integration_id:
+          type: string
+          required: false
+          pattern: "^int:v1:[0-9a-f]{32}$"
+
+    IntegrationInteractionAction:
+      type: object
+      required: [kind, integration_id]
+      properties:
+        kind:
+          type: string
+          const: integration_interaction
+        integration_id:
+          type: string
+          pattern: "^int:v1:[0-9a-f]{32}$"
+
+    ImpactAction:
+      type: object
+      required: [kind, boundary, target]
+      properties:
+        kind:
+          type: string
+          const: impact
+        boundary:
+          type: string
+          enum: [internal, external]
+        target:
+          type: string
+
+  # ---------------------------------------------------------------------------
   # Node (recursive)
   # ---------------------------------------------------------------------------
   node:
     type: object
-    required: [id, label, gate, zone]
+    required: [id, label, gate]
     properties:
 
       id:
@@ -120,14 +202,31 @@ schema:
 
       zone:
         type: integer
+        required: false
         enum: [1, 2, 3, 4, 5]
         description: >
           Schneider zone where this step occurs.
+          Omitted for external preconditions and external impacts.
           1 = Input Processing
           2 = Reasoning / Planning
           3 = Tool Execution
           4 = Memory / State Management
           5 = Inter-Agent Communication
+
+      action:
+        required: false
+        discriminator:
+          propertyName: kind
+        oneOf:
+          - InitialIngressAction
+          - ExternalPreconditionAction
+          - AiSystemAction
+          - ToolInvocationAction
+          - IntegrationInteractionAction
+          - ImpactAction
+        description: >
+          Typed atomic action. Required on LEAF nodes and forbidden on
+          AND/OR nodes. The kind field selects the action sub-schema.
 
       threat_id:
         type: string
@@ -234,6 +333,14 @@ schema:
       applies_to: node
       condition: "gate in ('AND', 'OR') implies len(children) >= 2"
 
+    - rule: "LEAF nodes must have a typed action"
+      applies_to: node
+      condition: "gate == 'LEAF' implies action is present"
+
+    - rule: "AND/OR nodes must not have an action"
+      applies_to: node
+      condition: "gate in ('AND', 'OR') implies action is absent"
+
     - rule: "Node IDs must reflect tree position"
       applies_to: node
       condition: >
@@ -304,6 +411,8 @@ example:
                 information it needs to complete a reservation.
               gate: LEAF
               zone: 1
+              action:
+                kind: ai_system_action
               technique_id: AML.T0084.001
               maestro_layer: 3
               control_point: "Tool schema disclosure policy"
@@ -318,6 +427,8 @@ example:
                 valid ranges.
               gate: LEAF
               zone: 1
+              action:
+                kind: ai_system_action
               technique_id: AML.T0084.001
               maestro_layer: 3
               control_point: "Error message sanitization"
@@ -344,6 +455,9 @@ example:
                 it as a single standard reservation."
               gate: LEAF
               zone: 1
+              action:
+                kind: initial_ingress
+                entry_point_id: ep:v1:00000000000000000000000000000000
               threat_id: T6
               technique_id: AML.T0051
               maestro_layer: 1
@@ -359,6 +473,8 @@ example:
                 and single-ticket pricing context.
               gate: LEAF
               zone: 2
+              action:
+                kind: ai_system_action
               threat_id: T2
               technique_id: AML.T0053
               maestro_layer: 3
@@ -386,6 +502,9 @@ example:
                 individual booking, bulk requires manager approval).
               gate: LEAF
               zone: 3
+              action:
+                kind: tool_invocation
+                tool_id: tool:v1:00000000000000000000000000000000
               threat_id: T2
               technique_id: AML.T0053
               maestro_layer: 4
@@ -401,6 +520,8 @@ example:
                 a threshold check or the threshold is misconfigured.
               gate: LEAF
               zone: 3
+              action:
+                kind: ai_system_action
               maestro_layer: 6
               control_point: "Transaction value approval threshold"
               structural_exposure: single_point_of_failure
@@ -421,7 +542,10 @@ example:
                 holds 500 seats at the per-seat economy rate rather than
                 the charter/bulk rate, causing direct revenue loss.
               gate: LEAF
-              zone: 3
+              action:
+                kind: impact
+                boundary: external
+                target: "Airline revenue"
               maestro_layer: 4
               control_point: "Post-booking anomaly detection"
               evidence_level: assumed
@@ -434,7 +558,10 @@ example:
                 potential flight cancellation if the block is not
                 released in time.
               gate: LEAF
-              zone: 3
+              action:
+                kind: impact
+                boundary: external
+                target: "Legitimate customers and airline seat inventory"
               maestro_layer: 4
               control_point: "Inventory reservation limits per session"
               structural_exposure: convergence_point

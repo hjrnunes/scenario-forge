@@ -1,4 +1,10 @@
-"""Zone enforcement logic for narratives and attack trees."""
+"""Zone enforcement logic for narratives and attack trees.
+
+Action-aware enforcement (cmps.9):
+- External preconditions (zone=None) are never repaired into active AI zones.
+- Internal action zone requirements remain profile-active.
+- Tool invocation zone must be exactly 'tool_execution'.
+"""
 
 from __future__ import annotations
 
@@ -78,6 +84,21 @@ def _enforce_zones_narrative(
     )
 
 
+def _node_zone_allowed(node: AttackTreeNode, allowed: set[str]) -> bool:
+    """Check whether a node's zone is allowed, action-aware.
+
+    - External preconditions (zone=None) are always allowed — they are
+      outside the AI boundary and must not be repaired into fake zones.
+    - External impacts (zone=None) are always allowed.
+    - Nodes with a zone value: zone must be in *allowed*.
+    """
+    if node.zone is None:
+        # zone=None is valid for external_precondition and external impact.
+        # These must never be filtered out by zone enforcement.
+        return True
+    return node.zone in allowed
+
+
 def _enforce_zones_tree_node(
     node: AttackTreeNode,
     allowed: set[str],
@@ -88,12 +109,15 @@ def _enforce_zones_tree_node(
     removed.  For AND/OR nodes whose children shrink below the minimum of 2,
     the node is collapsed to its single remaining child (preserving the
     parent's ``id``), or removed entirely if no children survive.
+
+    Action-aware (cmps.9): nodes with zone=None (external preconditions,
+    external impacts) are always kept — they are outside the AI boundary.
     """
-    if node.zone not in allowed:
+    if not _node_zone_allowed(node, allowed):
         return None
 
     if node.children is None:
-        # LEAF node with an allowed zone — keep it
+        # LEAF node with an allowed zone (or zone=None for external) — keep it
         return node
 
     # Recurse into children
@@ -104,13 +128,14 @@ def _enforce_zones_tree_node(
             surviving.append(kept)
 
     if len(surviving) == 0:
-        # All children removed — convert to LEAF
+        # All children removed — convert to LEAF preserving action if any
         return AttackTreeNode(
             id=node.id,
             label=node.label,
             description=node.description,
             gate="LEAF",
             zone=node.zone,
+            action=node.action,
             threat_id=node.threat_id,
             technique_id=node.technique_id,
             maestro_layer=node.maestro_layer,
@@ -129,6 +154,7 @@ def _enforce_zones_tree_node(
             description=child.description,
             gate=child.gate,
             zone=child.zone,
+            action=child.action,
             threat_id=child.threat_id,
             technique_id=child.technique_id,
             maestro_layer=child.maestro_layer,
@@ -145,6 +171,7 @@ def _enforce_zones_tree_node(
         description=node.description,
         gate=node.gate,
         zone=node.zone,
+        action=node.action,
         threat_id=node.threat_id,
         technique_id=node.technique_id,
         maestro_layer=node.maestro_layer,
@@ -156,8 +183,10 @@ def _enforce_zones_tree_node(
 
 
 def _collect_zones_from_tree(node: AttackTreeNode) -> set[str]:
-    """Collect all zones referenced in a tree."""
-    zones = {node.zone}
+    """Collect all non-None zones referenced in a tree."""
+    zones: set[str] = set()
+    if node.zone is not None:
+        zones.add(node.zone)
     if node.children:
         for child in node.children:
             zones.update(_collect_zones_from_tree(child))
@@ -172,6 +201,9 @@ def _enforce_zones_attack_tree(
 
     Returns the tree unchanged when *zones_active* is ``None``.
     Logs a warning when nodes are removed.
+
+    Action-aware (cmps.9): nodes with zone=None (external preconditions,
+    external impacts) are never removed — they are outside the AI boundary.
     """
     if zones_active is None:
         return tree
@@ -184,7 +216,7 @@ def _enforce_zones_attack_tree(
         return tree
 
     logger.warning(
-        "Stripped disallowed zones from attack tree: %s (zones_active=%s)",
+        "Stripping disallowed zones from attack tree: %s (zones_active=%s)",
         sorted(disallowed),
         zones_active,
     )
@@ -199,12 +231,15 @@ def _enforce_zones_attack_tree(
         )
         # Return tree with root converted to a minimal LEAF to avoid
         # downstream crashes — this scenario is likely unusable.
+        from scenario_forge.models.attack_tree import AiSystemAction
+
         new_root = AttackTreeNode(
             id="n1",
             label=tree.root.label,
             description="[all nodes removed by zone enforcement]",
             gate="LEAF",
             zone=zones_active[0],
+            action=AiSystemAction(),
             children=None,
         )
 

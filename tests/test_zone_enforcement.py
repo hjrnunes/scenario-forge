@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import logging
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode
+from scenario_forge.models.attack_tree import AiSystemAction, AttackTree, AttackTreeNode
 from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
 from scenario_forge.pipeline.generate import (
     _enforce_zones_attack_tree,
     _enforce_zones_narrative,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,6 +54,16 @@ def _make_tree(root: AttackTreeNode) -> AttackTree:
     )
 
 
+def _leaf(node_id: str, label: str, zone: str) -> AttackTreeNode:
+    return AttackTreeNode(
+        id=node_id,
+        label=label,
+        gate="LEAF",
+        zone=zone,
+        action=AiSystemAction(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # _enforce_zones_narrative
 # ---------------------------------------------------------------------------
@@ -68,7 +77,9 @@ class TestEnforceZonesNarrative:
 
     def test_all_zones_allowed(self):
         narrative = _make_narrative(["input", "reasoning"])
-        result = _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
+        result = _enforce_zones_narrative(
+            narrative, zones_active=["input", "reasoning"]
+        )
         assert result is narrative  # no change needed
 
     def test_disallowed_zone_stripped_from_sequence_and_steps(self):
@@ -108,10 +119,10 @@ class TestEnforceZonesNarrative:
             step_zones=["input", "memory", "reasoning"],
         )
         with caplog.at_level(logging.WARNING):
-            _enforce_zones_narrative(
-                narrative, zones_active=["input", "reasoning"]
-            )
-        assert any("Stripped disallowed zones from narrative" in m for m in caplog.messages)
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
+        assert any(
+            "Stripped disallowed zones from narrative" in m for m in caplog.messages
+        )
         assert any("memory" in m for m in caplog.messages)
 
     def test_empty_zone_sequence_returns_original(self, caplog):
@@ -157,9 +168,7 @@ class TestEnforceZonesNarrative:
 
 class TestEnforceZonesAttackTree:
     def test_none_zones_active_is_noop(self):
-        root = AttackTreeNode(
-            id="n1", label="root", gate="LEAF", zone="input"
-        )
+        root = _leaf("n1", "root", "input")
         tree = _make_tree(root)
         result = _enforce_zones_attack_tree(tree, zones_active=None)
         assert result is tree
@@ -171,14 +180,12 @@ class TestEnforceZonesAttackTree:
             gate="OR",
             zone="input",
             children=[
-                AttackTreeNode(id="n1.1", label="a", gate="LEAF", zone="input"),
-                AttackTreeNode(id="n1.2", label="b", gate="LEAF", zone="reasoning"),
+                _leaf("n1.1", "a", "input"),
+                _leaf("n1.2", "b", "reasoning"),
             ],
         )
         tree = _make_tree(root)
-        result = _enforce_zones_attack_tree(
-            tree, zones_active=["input", "reasoning"]
-        )
+        result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
         assert result is tree
 
     def test_disallowed_leaf_removed(self):
@@ -188,15 +195,13 @@ class TestEnforceZonesAttackTree:
             gate="OR",
             zone="input",
             children=[
-                AttackTreeNode(id="n1.1", label="a", gate="LEAF", zone="input"),
-                AttackTreeNode(id="n1.2", label="b", gate="LEAF", zone="memory"),
-                AttackTreeNode(id="n1.3", label="c", gate="LEAF", zone="reasoning"),
+                _leaf("n1.1", "a", "input"),
+                _leaf("n1.2", "b", "memory"),
+                _leaf("n1.3", "c", "reasoning"),
             ],
         )
         tree = _make_tree(root)
-        result = _enforce_zones_attack_tree(
-            tree, zones_active=["input", "reasoning"]
-        )
+        result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
         child_zones = [c.zone for c in result.root.children]
         assert "memory" not in child_zones
         assert set(child_zones) == {"input", "reasoning"}
@@ -208,23 +213,19 @@ class TestEnforceZonesAttackTree:
             gate="OR",
             zone="input",
             children=[
-                AttackTreeNode(id="n1.1", label="keep", gate="LEAF", zone="input"),
-                AttackTreeNode(id="n1.2", label="drop", gate="LEAF", zone="memory"),
+                _leaf("n1.1", "keep", "input"),
+                _leaf("n1.2", "drop", "memory"),
             ],
         )
         tree = _make_tree(root)
-        result = _enforce_zones_attack_tree(
-            tree, zones_active=["input", "reasoning"]
-        )
+        result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
         # Root should be collapsed to the surviving child
         assert result.root.id == "n1"  # parent id preserved
         assert result.root.label == "keep"  # child content
         assert result.root.gate.value == "LEAF"
 
     def test_root_zone_disallowed_produces_fallback(self, caplog):
-        root = AttackTreeNode(
-            id="n1", label="root", gate="LEAF", zone="memory"
-        )
+        root = _leaf("n1", "root", "memory")
         tree = _make_tree(root)
         with caplog.at_level(logging.WARNING):
             result = _enforce_zones_attack_tree(
@@ -240,17 +241,17 @@ class TestEnforceZonesAttackTree:
             gate="OR",
             zone="input",
             children=[
-                AttackTreeNode(id="n1.1", label="a", gate="LEAF", zone="input"),
-                AttackTreeNode(id="n1.2", label="b", gate="LEAF", zone="memory"),
-                AttackTreeNode(id="n1.3", label="c", gate="LEAF", zone="reasoning"),
+                _leaf("n1.1", "a", "input"),
+                _leaf("n1.2", "b", "memory"),
+                _leaf("n1.3", "c", "reasoning"),
             ],
         )
         tree = _make_tree(root)
         with caplog.at_level(logging.WARNING):
-            _enforce_zones_attack_tree(
-                tree, zones_active=["input", "reasoning"]
-            )
-        assert any("Stripped disallowed zones from attack tree" in m for m in caplog.messages)
+            _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
+        assert any(
+            "Stripping disallowed zones from attack tree" in m for m in caplog.messages
+        )
 
     def test_deep_nested_removal(self):
         """Nodes deep in the tree with disallowed zones are removed."""
@@ -266,26 +267,16 @@ class TestEnforceZonesAttackTree:
                     gate="AND",
                     zone="reasoning",
                     children=[
-                        AttackTreeNode(
-                            id="n1.1.1", label="ok", gate="LEAF", zone="input"
-                        ),
-                        AttackTreeNode(
-                            id="n1.1.2", label="bad", gate="LEAF", zone="memory"
-                        ),
-                        AttackTreeNode(
-                            id="n1.1.3", label="ok2", gate="LEAF", zone="reasoning"
-                        ),
+                        _leaf("n1.1.1", "ok", "input"),
+                        _leaf("n1.1.2", "bad", "memory"),
+                        _leaf("n1.1.3", "ok2", "reasoning"),
                     ],
                 ),
-                AttackTreeNode(
-                    id="n1.2", label="leaf", gate="LEAF", zone="input"
-                ),
+                _leaf("n1.2", "leaf", "input"),
             ],
         )
         tree = _make_tree(root)
-        result = _enforce_zones_attack_tree(
-            tree, zones_active=["input", "reasoning"]
-        )
+        result = _enforce_zones_attack_tree(tree, zones_active=["input", "reasoning"])
         # n1.1 should still exist with 2 children (memory one removed)
         branch = result.root.children[0]
         assert branch.gate.value == "AND"

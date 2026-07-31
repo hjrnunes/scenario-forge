@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from scenario_forge.models.attack_tree import AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import AiSystemAction, AttackTreeNode, GateType
 
 
 def _make_leaf(**overrides) -> dict:
@@ -20,6 +20,7 @@ def _make_leaf(**overrides) -> dict:
         "label": "Test node",
         "gate": "LEAF",
         "zone": "input",
+        "action": AiSystemAction(),
     }
     node.update(overrides)
     return node
@@ -103,12 +104,14 @@ class TestMissingTactic:
                         gate=GateType.LEAF,
                         zone="input",
                         technique_id="AML.T0054",
+                        action=AiSystemAction(),
                     ),
                     AttackTreeNode(
                         id="n1.2",
                         label="Path B",
                         gate=GateType.LEAF,
                         zone="reasoning",
+                        action=AiSystemAction(),
                     ),
                 ],
             ),

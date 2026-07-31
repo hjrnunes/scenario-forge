@@ -154,6 +154,44 @@ stage_1:
       replacing the current coarse zone-based gating. Until then,
       existing zone-based gating controls threat scope.
 
+  tool_inventory:
+    type: list[ToolInventoryEntry]
+    required: false
+    description: >
+      Tools and APIs the system can invoke. Required when tool execution is
+      active. Canonical tool IDs are computed by the application, never by
+      the inference model.
+    item_schema:
+      name:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+      tool_id:
+        type: string
+        required: true
+        read_only: true
+        computed: true
+        pattern: "^tool:v1:[0-9a-f]{32}$"
+        format: "tool:v1:<32 hex>"
+
+  inventory_completeness:
+    type: string
+    required: false
+    default: inferred_partial
+    valid_values: [inferred_partial, operator_confirmed_complete]
+    description: >
+      Evidence state for the entry-point and tool inventories. Only an
+      operator-reviewed profile may be operator_confirmed_complete.
+
+  evidence_sources:
+    type: list[string]
+    required: false
+    default: []
+    description: >
+      Evidence supporting an operator-confirmed complete inventory.
+
 # ═══════════════════════════════════════════════════════════════════
 # Stage 2 Fields (optional)
 #
@@ -290,6 +328,13 @@ stage_2:
       name:
         type: string
         description: "Name of the external system (e.g., 'CRM', 'payment gateway', 'email service')"
+      integration_id:
+        type: string
+        required: true
+        read_only: true
+        computed: true
+        pattern: "^int:v1:[0-9a-f]{32}$"
+        format: "int:v1:<32 hex>"
       integration_type:
         type: string
         valid_values: [api, database, message_queue, file_system, web_service, other]
