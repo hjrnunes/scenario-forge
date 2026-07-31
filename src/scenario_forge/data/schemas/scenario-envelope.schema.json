@@ -666,6 +666,28 @@
         }
       }
     },
+    "CorpusClaimApplicability": {
+      "type": "object",
+      "required": ["category", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["entry_points", "tool_inventory"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["applicable", "not_applicable"]
+        },
+        "reason": {
+          "type": ["string", "null"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
     "SemanticValidation": {
       "type": "object",
       "required": ["valid"],
@@ -674,6 +696,10 @@
         "violations": {
           "type": "array",
           "items": { "$ref": "#/$defs/SemanticViolation" }
+        },
+        "corpus_claim_applicability": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CorpusClaimApplicability" }
         }
       }
     },

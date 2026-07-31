@@ -15,7 +15,6 @@ from scenario_forge.models.attack_tree import (
     AttackTree,
     AttackTreeNode,
     GateType,
-    repair_attack_tree_dict,
 )
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import ActorProfile, NarrativeLayer
@@ -175,9 +174,12 @@ def _parse_attack_tree_yaml(raw: str, seed: ScenarioSeed) -> AttackTree:
     if isinstance(data, dict) and "attack_tree" in data:
         data = data["attack_tree"]
 
-    # Repair single-child AND/OR nodes before Pydantic validation.
-    if isinstance(data, dict):
-        data = repair_attack_tree_dict(data)
+    # Strict typed normal generation: do NOT repair single-child AND/OR
+    # gates before Pydantic validation.  Malformed gates must be rejected
+    # by the model validator so the caller retries or rejects — no silent
+    # structural mutation (cmps.9 review correction 3).
+    # repair_attack_tree_dict is retained only for post-pruning repair in
+    # validation.py (explicit parsimony boundary).
 
     return AttackTree.model_validate(data)
 
@@ -382,7 +384,10 @@ def _validate_pinned_ingress(
                 )
 
     # Validate ingress zone against canonical entry-point zone (cmps.9 review 3).
+    # Also reject ingress-capable entries whose effective canonical ingress
+    # zone is not active in the profile (cmps.9 review correction 5).
     if profile is not None:
+        active_zones = set(profile.zones_active) if profile.zones_active else set()
         for leaf in _collect_all_leaves(tree.root):
             action = leaf.action
             if action is None or action.kind != "initial_ingress":
@@ -401,6 +406,14 @@ def _validate_pinned_ingress(
                     f"'{action.entry_point_id}' requires zone "
                     f"'{expected_zone}'. The zone must match the canonical "
                     f"entry-point ingress zone, not be inferred from a label."
+                )
+            elif expected_zone not in active_zones:
+                violations.append(
+                    f"ingress-zone-not-active: initial_ingress leaf '{leaf.id}' "
+                    f"references entry_point_id '{action.entry_point_id}' "
+                    f"whose canonical ingress zone '{expected_zone}' is not "
+                    f"active in the profile (zones_active={sorted(active_zones)}). "
+                    f"Ingress through an inactive zone is not valid."
                 )
 
     return violations
@@ -958,21 +971,28 @@ def _check_tool_execution_leaf_grounding(
     node: AttackTreeNode,
     violations: list[str],
 ) -> None:
-    """Check that tool_execution leaf nodes have a tool_invocation action (cmps.9).
+    """Check that tool_execution leaf nodes have a resolvable typed action (cmps.9).
 
-    Uses typed action data, not label matching:
-    - Leaves in ``tool_execution`` zone without a ``tool_invocation``
-      action: flag as untyped-tool-execution.
+    Uses typed action data, not label matching.  Per the authoritative
+    ``ACTION_ZONE_RULES`` matrix, both ``tool_invocation`` and
+    ``integration_interaction`` are valid in ``tool_execution``:
+
+    - Leaves in ``tool_execution`` zone without a typed action whose kind
+      is ``tool_invocation`` or ``integration_interaction``: flag as
+      untyped-tool-execution.
     """
     if node.gate == GateType.LEAF:
         if node.zone == "tool_execution":
             action = node.action
-            if action is None or action.kind != "tool_invocation":
+            if action is None or action.kind not in (
+                "tool_invocation",
+                "integration_interaction",
+            ):
                 violations.append(
                     f"untyped-tool-execution: leaf '{node.id}' in "
-                    f"tool_execution zone has no tool_invocation action. "
-                    f"Every tool_execution leaf must carry a tool_invocation "
-                    f"action with a canonical tool_id."
+                    f"tool_execution zone has no tool_invocation or "
+                    f"integration_interaction action. Every tool_execution "
+                    f"leaf must carry a resolvable typed action."
                 )
     elif node.children:
         for child in node.children:

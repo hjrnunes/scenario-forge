@@ -294,12 +294,37 @@ class TestCanonicalIdentity:
         with pytest.raises(ValueError, match="Ambiguous semantic duplicate tool"):
             deduplicate_tool_inventory(tools)
 
-    def test_tool_duplicate_with_empty_description_is_deduplicated(self):
+    def test_tool_duplicate_empty_nonempty_description_rejected(self):
+        """Empty/non-empty description mismatch must be rejected, not silently deduplicated."""
         tools = [
             ToolInventoryEntry(name="Test Tool", description=""),
             ToolInventoryEntry(name="test tool", description="Reads records"),
         ]
-        assert len(deduplicate_tool_inventory(tools)) == 1
+        with pytest.raises(ValueError, match="Ambiguous semantic duplicate"):
+            deduplicate_tool_inventory(tools)
+
+    def test_tool_dedup_reversed_order_identical_outcome(self):
+        """Reversed order of exact duplicates produces identical result (no information loss)."""
+        tools_a = [
+            ToolInventoryEntry(name="Search", description="Search tool"),
+            ToolInventoryEntry(name="search", description="Search tool"),
+        ]
+        tools_b = list(reversed(tools_a))
+        result_a = deduplicate_tool_inventory(tools_a)
+        result_b = deduplicate_tool_inventory(tools_b)
+        assert len(result_a) == 1
+        assert len(result_b) == 1
+        # Both produce exactly one entry with the same canonical identity
+        assert result_a[0].tool_id == result_b[0].tool_id
+
+    def test_tool_dedup_empty_nonempty_reversed_order_rejected(self):
+        """Reversed order of empty/non-empty mismatch still rejects."""
+        tools = [
+            ToolInventoryEntry(name="Test Tool", description="Reads records"),
+            ToolInventoryEntry(name="test tool", description=""),
+        ]
+        with pytest.raises(ValueError, match="Ambiguous semantic duplicate"):
+            deduplicate_tool_inventory(tools)
 
     def test_tool_collision_guard(self):
         with patch(
@@ -913,23 +938,34 @@ class TestEvidenceNonblank:
 
 
 class TestCorpusClaimApplicability:
-    """Closed-world claims must be not_applicable under partial inventories."""
+    """Closed-world claims must be typed and category-specific (cmps.9 review 2)."""
 
     def test_partial_inventory_marks_not_applicable(self):
+        from scenario_forge.models.scenario import (
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
         from scenario_forge.pipeline.validation import check_corpus_claims_applicability
 
         prof = profile()
-        # Build a minimal scenario stub — check_corpus_claims_applicability
-        # only inspects profile completeness, not scenario content.
-        result = (
-            check_corpus_claims_applicability.__wrapped__(None, prof)
-            if hasattr(check_corpus_claims_applicability, "__wrapped__")
-            else check_corpus_claims_applicability(None, prof)
-        )
-        assert any("tool_inventory" in r and "not_applicable" in r for r in result)
-        assert any("entry_points" in r and "not_applicable" in r for r in result)
+        result = check_corpus_claims_applicability(None, prof)
+        # Must produce two typed records, one per category
+        assert len(result) == 2
+        cats = {r.category for r in result}
+        assert cats == {
+            CorpusClaimCategory.entry_points,
+            CorpusClaimCategory.tool_inventory,
+        }
+        # Both must be not_applicable under inferred_partial
+        for r in result:
+            assert r.status == CorpusClaimStatus.not_applicable
+            assert r.reason is not None and r.reason.strip()
 
-    def test_complete_inventory_no_not_applicable(self):
+    def test_complete_inventory_marks_applicable(self):
+        from scenario_forge.models.scenario import (
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
         from scenario_forge.pipeline.validation import check_corpus_claims_applicability
 
         data = profile().model_dump(
@@ -948,7 +984,130 @@ class TestCorpusClaimApplicability:
             tool_inventory_evidence=["API audit"],
         )
         result = check_corpus_claims_applicability(None, prof)
-        assert result == []
+        assert len(result) == 2
+        cats = {r.category for r in result}
+        assert cats == {
+            CorpusClaimCategory.entry_points,
+            CorpusClaimCategory.tool_inventory,
+        }
+        # Both must be applicable under operator_confirmed_complete
+        for r in result:
+            assert r.status == CorpusClaimStatus.applicable
+        # Evidence is carried for applicable records
+        ep_rec = next(
+            r for r in result if r.category == CorpusClaimCategory.entry_points
+        )
+        assert "manual review" in ep_rec.evidence
+        tool_rec = next(
+            r for r in result if r.category == CorpusClaimCategory.tool_inventory
+        )
+        assert "API audit" in tool_rec.evidence
+
+    def test_corpus_claim_extra_fields_forbidden(self):
+        """CorpusClaimApplicability must forbid extra fields."""
+        from scenario_forge.models.scenario import CorpusClaimApplicability
+
+        with pytest.raises(ValidationError):
+            CorpusClaimApplicability(
+                category="entry_points",
+                status="not_applicable",
+                foreign_field="bad",
+            )
+
+    def test_corpus_claim_serialization_roundtrip(self):
+        """Typed records serialize and round-trip correctly."""
+        from scenario_forge.models.scenario import CorpusClaimApplicability
+
+        rec = CorpusClaimApplicability(
+            category="entry_points",
+            status="not_applicable",
+            reason="Partial inventory",
+        )
+        dumped = rec.model_dump(mode="json")
+        restored = CorpusClaimApplicability(**dumped)
+        assert restored.category.value == "entry_points"
+        assert restored.status.value == "not_applicable"
+        assert restored.reason == "Partial inventory"
+
+    def test_partial_means_structurally_not_applicable(self):
+        """Partial inventory record validates against JSON Schema def."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        schema_path = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        rec = CorpusClaimApplicability(
+            category=CorpusClaimCategory.entry_points,
+            status=CorpusClaimStatus.not_applicable,
+            reason="inferred_partial",
+        )
+        dumped = rec.model_dump(mode="json")
+        jsonschema.validate(dumped, schema["$defs"]["CorpusClaimApplicability"])
+
+    def test_complete_means_applicable_in_schema(self):
+        """Complete inventory record validates against JSON Schema def."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        schema_path = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        rec = CorpusClaimApplicability(
+            category=CorpusClaimCategory.tool_inventory,
+            status=CorpusClaimStatus.applicable,
+            evidence=["API audit"],
+        )
+        dumped = rec.model_dump(mode="json")
+        jsonschema.validate(dumped, schema["$defs"]["CorpusClaimApplicability"])
+
+    def test_corpus_claim_independent_of_phantom(self):
+        """Corpus claim applicability does not conflate with phantom.valid."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        # A not_applicable corpus claim record can coexist with any
+        # phantom validation state — they are independent.
+        rec = CorpusClaimApplicability(
+            category=CorpusClaimCategory.tool_inventory,
+            status=CorpusClaimStatus.not_applicable,
+        )
+        assert rec.status == CorpusClaimStatus.not_applicable
+        # The record has no phantom-related field
+        assert not hasattr(rec, "valid")
 
 
 # ---------------------------------------------------------------------------
@@ -1252,14 +1411,41 @@ class TestReportCorpusApplicability:
         assert "Inferred Partial" in html
 
     def test_report_shows_corpus_applicability(self):
-        prof = profile()
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
         from scenario_forge.report.template import build_capability_profile_section
 
-        html = build_capability_profile_section(prof.model_dump())
+        prof = profile()
+        claims = [
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+                reason="inferred_partial",
+            ),
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.not_applicable,
+                reason="inferred_partial",
+            ),
+        ]
+        html = build_capability_profile_section(
+            prof.model_dump(),
+            corpus_claims=[c.model_dump(mode="json") for c in claims],
+        )
         assert "Corpus Claim Applicability" in html
         assert "not_applicable" in html
 
     def test_report_shows_applicable_when_complete(self):
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+        from scenario_forge.report.template import build_capability_profile_section
+
         data = profile().model_dump(
             exclude={
                 "entry_point_completeness",
@@ -1275,9 +1461,22 @@ class TestReportCorpusApplicability:
             tool_inventory_completeness=InventoryCompleteness.operator_confirmed_complete,
             tool_inventory_evidence=["API audit"],
         )
-        from scenario_forge.report.template import build_capability_profile_section
-
-        html = build_capability_profile_section(prof.model_dump())
+        claims = [
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                evidence=["manual review"],
+            ),
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.applicable,
+                evidence=["API audit"],
+            ),
+        ]
+        html = build_capability_profile_section(
+            prof.model_dump(),
+            corpus_claims=[c.model_dump(mode="json") for c in claims],
+        )
         assert "Corpus Claim Applicability" in html
         assert "applicable" in html
         assert "not_applicable" not in html
@@ -1738,3 +1937,254 @@ class TestAuthoredYamlSchemaZones:
             "memory",
             "inter_agent",
         ), f"Example root zone should be a string, got '{root.get('zone')}'"
+
+
+# ---------------------------------------------------------------------------
+# Tests: canonical ingress tightening (cmps.9 second review correction 5)
+# ---------------------------------------------------------------------------
+
+
+class TestIngressZoneDeclarations:
+    """EntryPoint.ingress_zone must be a valid Schneider zone Literal,
+    and output-only entries cannot have an ingress zone (cmps.9 review 5)."""
+
+    def test_invalid_ingress_zone_rejected(self):
+        """A non-Schneider ingress_zone value is rejected by Pydantic."""
+        from scenario_forge.models.capability_profile import EntryPoint
+
+        with pytest.raises(ValidationError):
+            EntryPoint(
+                name="test entry",
+                direction="input",
+                ingress_zone="invalid_zone",
+            )
+
+    def test_output_only_with_ingress_zone_rejected(self):
+        """An output-only entry point with an ingress zone is rejected."""
+        from scenario_forge.models.capability_profile import EntryPoint
+
+        with pytest.raises(ValidationError, match="output.*ingress_zone"):
+            EntryPoint(
+                name="dashboard alerts",
+                direction="output",
+                ingress_zone="input",
+            )
+
+    def test_output_only_without_ingress_zone_accepted(self):
+        """An output-only entry point without an ingress zone is accepted."""
+        from scenario_forge.models.capability_profile import EntryPoint
+
+        ep = EntryPoint(
+            name="dashboard alerts",
+            direction="output",
+            ingress_zone=None,
+        )
+        assert ep.ingress_zone is None
+
+    def test_valid_ingress_zone_accepted(self):
+        """A valid Schneider zone for ingress_zone is accepted."""
+        from scenario_forge.models.capability_profile import EntryPoint
+
+        for zone in ("input", "reasoning", "tool_execution", "memory", "inter_agent"):
+            ep = EntryPoint(
+                name=f"entry_{zone}",
+                direction="input",
+                ingress_zone=zone,
+            )
+            assert ep.ingress_zone == zone
+
+
+class TestIngressZoneActiveAdmission:
+    """An ingress-capable entry point whose effective canonical ingress zone
+    is not active in the profile must be rejected at admission (cmps.9 review 5).
+    """
+
+    def test_inactive_ingress_zone_rejected_at_admission(self):
+        """An initial_ingress leaf whose canonical ingress zone is not active
+        in the profile produces a violation."""
+        from scenario_forge.models.capability_profile import EntryPoint
+        from scenario_forge.pipeline.generate.tree import _validate_pinned_ingress
+
+        ep = EntryPoint(
+            name="tool API gateway",
+            direction="input",
+            ingress_zone="tool_execution",
+        )
+        # Profile has tool_execution NOT active
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[ep],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+        tree = AttackTree(
+            id="tree-AP-T2-01",
+            seed_id="AP-T2-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="root",
+                gate="AND",
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="ingress via tool API",
+                        gate="LEAF",
+                        zone="tool_execution",
+                        action=InitialIngressAction(
+                            entry_point_id=ep.entry_point_id,
+                        ),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="action",
+                        gate="LEAF",
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                    ),
+                ],
+            ),
+        )
+        violations = _validate_pinned_ingress(tree, None, profile)
+        assert any("ingress-zone-not-active" in v for v in violations)
+
+    def test_active_ingress_zone_accepted_at_admission(self):
+        """An initial_ingress leaf whose canonical ingress zone is active
+        in the profile produces no violation."""
+        from scenario_forge.models.capability_profile import EntryPoint
+        from scenario_forge.pipeline.generate.tree import _validate_pinned_ingress
+
+        ep = EntryPoint(
+            name="user chat",
+            direction="input",
+            ingress_zone="input",
+        )
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[ep],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
+        tree = AttackTree(
+            id="tree-AP-T7-01",
+            seed_id="AP-T7-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="root",
+                gate="AND",
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="ingress",
+                        gate="LEAF",
+                        zone="input",
+                        action=InitialIngressAction(
+                            entry_point_id=ep.entry_point_id,
+                        ),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="action",
+                        gate="LEAF",
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                    ),
+                ],
+            ),
+        )
+        violations = _validate_pinned_ingress(tree, None, profile)
+        assert not any("ingress-zone-not-active" in v for v in violations)
+        assert not any("ingress-zone-mismatch" in v for v in violations)
+
+
+class TestSystemControllabilityCandidateExclusion:
+    """System-controlled entry points must not enter candidate expansion
+    (cmps.9 second review correction 5).
+
+    Explicit controllability='system' from a reviewed profile is preserved
+    and excluded from the candidate cross-product.  Heuristics only apply
+    when controllability is None.
+    """
+
+    def test_explicit_system_excluded_from_candidates(self):
+        """An explicit system-controlled entry point does not appear in
+        expanded candidates."""
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            EntryPoint,
+        )
+        from scenario_forge.models.scenario import RiskCardRef
+        from scenario_forge.pipeline.candidates import (
+            ScenarioSeed,
+            expand_candidates,
+        )
+
+        system_ep = EntryPoint(
+            name="internal backend scheduler API",
+            direction="input",
+            controllability="system",
+        )
+        direct_ep = EntryPoint(
+            name="user chat interface",
+            direction="input",
+            controllability="direct",
+        )
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[system_ep, direct_ep],
+            confidence="medium",
+            kc_subcodes=["KC1.1"],
+        )
+        seed = ScenarioSeed(
+            seed_id="AP-T2-01",
+            threat_id="T2",
+            threat_name="Test",
+            attack_pattern_name="Test pattern",
+            attack_pattern_description="A test",
+            atlas_technique_ids=["AML.T0051"],
+            owasp_llm_ids=["LLM01"],
+            agentic_threat_ids=["T2"],
+            risk_card_ref=RiskCardRef(
+                risk_id="r1",
+                risk_name="Risk",
+                risk_description="Desc",
+                taxonomy="ibm-risk-atlas",
+                confidence=0.9,
+                grounding_confidence="high",
+            ),
+        )
+        candidates = expand_candidates([seed], profile)
+        # system_ep must NOT appear in any candidate
+        ep_names = {c.entry_point for c in candidates}
+        assert "internal backend scheduler API" not in ep_names
+        # direct_ep should appear
+        assert "user chat interface" in ep_names
+
+    def test_explicit_system_preserved_not_downgraded(self):
+        """Explicit 'system' controllability is preserved, not downgraded
+        to 'indirect' or 'direct' by heuristics."""
+        from scenario_forge.models.capability_profile import (
+            EntryPoint,
+            classify_entry_point,
+        )
+
+        # bidirectional + system → system (preserved)
+        assert (
+            classify_entry_point("backend API", "bidirectional", "system") == "system"
+        )
+        # input + system → system (preserved)
+        assert classify_entry_point("data feed", "input", "system") == "system"
+        # output + system → system (preserved)
+        assert classify_entry_point("alerts", "output", "system") == "system"
+
+    def test_none_controllability_uses_heuristic(self):
+        """When controllability is None, the keyword heuristic applies."""
+        from scenario_forge.models.capability_profile import (
+            classify_entry_point,
+        )
+
+        # system keyword + input + None → system (heuristic)
+        assert classify_entry_point("internal backend API", "input", None) == "system"
+        # no keyword + input + None → direct (heuristic)
+        assert classify_entry_point("user chat", "input", None) == "direct"

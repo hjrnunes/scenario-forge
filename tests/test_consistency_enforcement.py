@@ -927,3 +927,89 @@ class TestNonActionableLeaves:
         _check_non_actionable_leaves(root, violations)
 
         assert not any("non-actionable-leaves" in v for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# Tests: direct integration_interaction in tool_execution (cmps.9 review 2.1)
+# ---------------------------------------------------------------------------
+
+
+class TestDirectIntegrationInToolExecution:
+    """A direct integration_interaction in tool_execution must not trigger
+    false consistency failures (cmps.9 second review correction 1).
+
+    The authoritative ACTION_ZONE_RULES matrix allows both tool_invocation
+    and integration_interaction in tool_execution.  The grounding check
+    must accept either, and the consistency path must not retry or flag
+    a valid typed direct integration.
+    """
+
+    def test_integration_interaction_in_tool_execution_no_violation(self) -> None:
+        """An integration_interaction leaf in tool_execution passes grounding."""
+        from scenario_forge.models.attack_tree import IntegrationInteractionAction
+        from scenario_forge.pipeline.generate.tree import (
+            _check_tool_execution_leaf_grounding,
+        )
+
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            AttackTreeNode(
+                id="n1.2",
+                label="Direct integration interaction",
+                gate=GateType.LEAF,
+                zone="tool_execution",
+                action=IntegrationInteractionAction(
+                    integration_id="int:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                ),
+            ),
+        )
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "tool_execution"], step_count=2)
+
+        violations = _check_consistency(
+            tree,
+            narrative,
+            parsimony_budget=10,
+            tool_names=["database_query"],
+        )
+
+        # No untyped-tool-execution violation for the integration leaf
+        assert not any("untyped-tool-execution" in v for v in violations)
+
+    def test_integration_interaction_grounding_no_violation(self) -> None:
+        """Direct grounding check accepts integration_interaction."""
+        from scenario_forge.models.attack_tree import IntegrationInteractionAction
+        from scenario_forge.pipeline.generate.tree import (
+            _check_tool_execution_leaf_grounding,
+        )
+
+        node = AttackTreeNode(
+            id="n1",
+            label="Direct integration call",
+            gate=GateType.LEAF,
+            zone="tool_execution",
+            action=IntegrationInteractionAction(
+                integration_id="int:v1:cccccccccccccccccccccccccccccccc",
+            ),
+        )
+        violations: list[str] = []
+        _check_tool_execution_leaf_grounding(node, violations)
+        assert not any("untyped-tool-execution" in v for v in violations)
+
+    def test_ai_action_in_tool_execution_still_flagged(self) -> None:
+        """An ai_system_action in tool_execution is still flagged (not a
+        valid typed action for that zone per the matrix)."""
+        from scenario_forge.pipeline.generate.tree import (
+            _check_tool_execution_leaf_grounding,
+        )
+
+        node = AttackTreeNode(
+            id="n1",
+            label="AI reasoning in tool zone",
+            gate=GateType.LEAF,
+            zone="tool_execution",
+            action=AiSystemAction(),
+        )
+        violations: list[str] = []
+        _check_tool_execution_leaf_grounding(node, violations)
+        assert any("untyped-tool-execution" in v for v in violations)

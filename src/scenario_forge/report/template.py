@@ -2879,27 +2879,30 @@ def _kc_category(kc: str) -> str:
 
 
 def _corpus_applicability_label(
-    entry_point_completeness: str,
-    tool_inventory_completeness: str,
+    corpus_claims: list[dict[str, Any]],
 ) -> str:
     """Human-readable label for closed-world corpus claim applicability.
 
-    Closed-world omission/phantom claims are ``not_applicable`` until the
-    relevant inventory category is operator-confirmed complete (cmps.9).
+    Consumes typed, category-specific :class:`CorpusClaimApplicability`
+    records persisted in ``SemanticValidation.corpus_claim_applicability``
+    (cmps.9 review correction 2).  Does not infer from completeness strings.
     """
+    if not corpus_claims:
+        return "Not assessed"
     parts: list[str] = []
-    if entry_point_completeness != "operator_confirmed_complete":
-        parts.append("entry-point claims not_applicable (inferred_partial)")
-    else:
-        parts.append("entry-point claims applicable")
-    if tool_inventory_completeness != "operator_confirmed_complete":
-        parts.append("tool claims not_applicable (inferred_partial)")
-    else:
-        parts.append("tool claims applicable")
+    for claim in corpus_claims:
+        category = claim.get("category", "unknown")
+        status = claim.get("status", "unknown")
+        cat_label = category.replace("_", " ")
+        parts.append(f"{cat_label} claims {status}")
     return "; ".join(parts)
 
 
-def build_capability_profile_section(profile: dict[str, Any]) -> str:
+def build_capability_profile_section(
+    profile: dict[str, Any],
+    *,
+    corpus_claims: list[dict[str, Any]] | None = None,
+) -> str:
     raw_zones_active = profile.get("zones_active", [])
     zones_active = {_normalize_zone(z) for z in raw_zones_active}
 
@@ -3084,7 +3087,7 @@ def build_capability_profile_section(profile: dict[str, Any]) -> str:
         </div>
         <div class="profile-row">
           <div class="profile-row-label">Corpus Claim Applicability</div>
-          <span class="flag-value">{_esc(_corpus_applicability_label(entry_point_completeness, tool_inventory_completeness))}</span>
+          <span class="flag-value">{_esc(_corpus_applicability_label(corpus_claims or []))}</span>
         </div>
         {kc_html}
       </div>

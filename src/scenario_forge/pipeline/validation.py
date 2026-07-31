@@ -36,7 +36,10 @@ from scenario_forge.models.attack_tree import (
 
 if TYPE_CHECKING:
     from scenario_forge.models.capability_profile import CapabilityProfile
-    from scenario_forge.models.scenario import ScenarioEnvelope
+    from scenario_forge.models.scenario import (
+        CorpusClaimApplicability,
+        ScenarioEnvelope,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -1571,12 +1574,12 @@ def validate_scenario_semantics(
                     )
 
         # 13. Corpus-wide closed-world claim applicability (cmps.9 review)
-        corpus_not_applicable = check_corpus_claims_applicability(scenario, profile)
+        corpus_claims = check_corpus_claims_applicability(scenario, profile)
 
         semantic = SemanticValidation(
             valid=len(violations) == 0,
             violations=violations,
-            corpus_claim_applicability=corpus_not_applicable,
+            corpus_claim_applicability=corpus_claims,
         )
 
         if scenario.validation is None:
@@ -1595,25 +1598,74 @@ def validate_scenario_semantics(
 def check_corpus_claims_applicability(
     scenario: ScenarioEnvelope,
     profile: CapabilityProfile,
-) -> list[str]:
-    """Return closed-world corpus claims inapplicable to partial inventories.
+) -> list[CorpusClaimApplicability]:
+    """Return typed category-specific closed-world corpus claim applicability.
 
-    The scenario argument is retained so this diagnostic can become
-    claim-specific when corpus-wide claims are represented explicitly.
+    For each inventory category (entry_points, tool_inventory):
+    - ``inferred_partial`` → ``not_applicable`` with a typed reason.
+    - ``operator_confirmed_complete`` → ``applicable`` carrying evidence.
+
+    This is independent of ``phantom.valid`` — unknown emitted IDs still
+    fail regardless of completeness (cmps.9 review correction 2).
     """
+    from scenario_forge.models.scenario import (
+        CorpusClaimApplicability,
+        CorpusClaimCategory,
+        CorpusClaimStatus,
+    )
+
     del scenario
-    corpus_not_applicable: list[str] = []
-    if not profile.is_tool_inventory_complete:
-        corpus_not_applicable.append(
-            "tool_inventory: closed-world corpus claims not_applicable "
-            "(tool inventory is inferred_partial, not operator-confirmed complete)"
+    records: list[CorpusClaimApplicability] = []
+
+    # Entry-point inventory
+    if profile.is_entry_point_inventory_complete:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                reason=None,
+                evidence=[e for e in profile.entry_point_evidence if e and e.strip()],
+            )
         )
-    if not profile.is_entry_point_inventory_complete:
-        corpus_not_applicable.append(
-            "entry_points: closed-world corpus claims not_applicable "
-            "(entry-point inventory is inferred_partial, not operator-confirmed complete)"
+    else:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+                reason=(
+                    "Entry-point inventory is inferred_partial, not "
+                    "operator-confirmed complete — closed-world corpus "
+                    "claims are not applicable."
+                ),
+            )
         )
-    return corpus_not_applicable
+
+    # Tool inventory
+    if profile.is_tool_inventory_complete:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.applicable,
+                reason=None,
+                evidence=[
+                    e for e in profile.tool_inventory_evidence if e and e.strip()
+                ],
+            )
+        )
+    else:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.not_applicable,
+                reason=(
+                    "Tool inventory is inferred_partial, not "
+                    "operator-confirmed complete — closed-world corpus "
+                    "claims are not applicable."
+                ),
+            )
+        )
+
+    return records
 
 
 def validate_semantic(

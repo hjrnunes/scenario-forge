@@ -11,9 +11,10 @@ import hashlib
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import combinations
-from typing import Literal, Sequence
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -627,7 +628,15 @@ def expand_candidates(
     # Filter out output-only entry points — they are not attacker-accessible
     # ingress channels. Only input and bidirectional entry points participate
     # in the candidate cross-product.
-    ingress_points = [ep for ep in profile.entry_points if ep.direction != "output"]
+    # Also filter out system-controlled entry points — they are internal
+    # integrations not accessible to external attackers.  Explicit
+    # controllability='system' from a reviewed profile is preserved and
+    # excluded from candidate expansion (cmps.9 review correction 5).
+    ingress_points = [
+        ep
+        for ep in profile.entry_points
+        if ep.direction != "output" and ep.effective_controllability != "system"
+    ]
 
     if not ingress_points:
         logger.warning(
@@ -637,14 +646,14 @@ def expand_candidates(
         )
         return []
 
-    output_only_count = len(profile.entry_points) - len(ingress_points)
-    if output_only_count > 0:
+    excluded_count = len(profile.entry_points) - len(ingress_points)
+    if excluded_count > 0:
         logger.info(
-            "Entry point direction filter: %d/%d entry points are ingress-capable "
-            "(%d output-only excluded)",
+            "Entry point filter: %d/%d entry points are attacker-accessible "
+            "(%d excluded: output-only or system-controlled)",
             len(ingress_points),
             len(profile.entry_points),
-            output_only_count,
+            excluded_count,
         )
 
     for seed in eligible_seeds:

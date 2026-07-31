@@ -505,11 +505,11 @@ def classify_entry_point(
     Returns:
         One of ``"direct"``, ``"indirect"``, ``"system"``.
     """
-    # Use explicit controllability when available — but override "system"
-    # when the direction indicates an attacker-accessible ingress path.
+    # Use explicit controllability when available.
+    # Explicit 'system' from a reviewed profile is preserved as 'system'
+    # regardless of direction — heuristics only apply when controllability
+    # is None (cmps.9 review correction 5).
     if controllability is not None:
-        if controllability == "system" and direction != "output":
-            return "indirect"
         return controllability
 
     if direction == "output":
@@ -701,6 +701,11 @@ def deduplicate_tool_inventory(
     """Deduplicate semantic duplicates and reject ambiguous/colliding tool identities.
 
     See :func:`deduplicate_entry_points` for the collision/dedup policy.
+
+    Metadata (description) must be canonically equal for deduplication.
+    An empty/non-empty description mismatch is rejected — the caller must
+    provide a nonblank canonical description or disambiguate the name
+    (cmps.9 review correction 4).
     """
     seen: dict[str, tuple[tuple[str], ToolInventoryEntry]] = {}
     for tool in tools:
@@ -718,11 +723,14 @@ def deduplicate_tool_inventory(
                 )
             canonical_desc = _canonical_tool_name(tool.description)
             existing_desc = _canonical_tool_name(existing_tool.description)
-            if canonical_desc and existing_desc and canonical_desc != existing_desc:
+            if canonical_desc != existing_desc:
                 raise ValueError(
                     f"Ambiguous semantic duplicate tool '{tool.name}': "
-                    f"tool_id {tid} has conflicting descriptions. "
-                    f"Use a distinct name or reconcile the metadata."
+                    f"tool_id {tid} has conflicting descriptions "
+                    f"('{canonical_desc}' vs '{existing_desc}'). "
+                    f"Empty/non-empty metadata mismatches are rejected — "
+                    f"provide a nonblank canonical description or use a "
+                    f"distinct name."
                 )
             logger.debug(
                 "Deduplicating tool '%s' (same identity as '%s')",
@@ -889,7 +897,9 @@ class EntryPoint(BaseModel):
             "When None, inferred by keyword heuristic."
         ),
     )
-    ingress_zone: str | None = Field(
+    ingress_zone: (
+        Literal["input", "reasoning", "tool_execution", "memory", "inter_agent"] | None
+    ) = Field(
         default=None,
         description=(
             "Canonical Schneider zone for initial ingress through this entry point. "
@@ -917,7 +927,14 @@ class EntryPoint(BaseModel):
 
     @property
     def effective_controllability(self) -> str:
-        """The resolved controllability (explicit or inferred via heuristic)."""
+        """The resolved controllability (explicit or inferred via heuristic).
+
+        When ``controllability`` is explicitly set to ``"system"`` from a
+        reviewed profile, it is preserved as ``"system"`` — heuristics only
+        apply when ``controllability`` is ``None`` (cmps.9 review correction 5).
+        """
+        if self.controllability == "system":
+            return "system"
         return classify_entry_point(self.name, self.direction, self.controllability)
 
     @property
@@ -928,6 +945,23 @@ class EntryPoint(BaseModel):
         if self.direction in ("input", "bidirectional"):
             return "input"
         return None
+
+    @model_validator(mode="after")
+    def validate_ingress_zone_consistency(self) -> EntryPoint:
+        """Reject output-only entries with an ingress zone (cmps.9 review 5).
+
+        Output-only entry points are not attacker-accessible ingress paths.
+        Assigning a Schneider zone to them is a contradiction — the zone
+        would imply the attacker can enter through an output surface.
+        """
+        if self.direction == "output" and self.ingress_zone is not None:
+            raise ValueError(
+                f"Entry point '{self.name}' has direction='output' but "
+                f"ingress_zone='{self.ingress_zone}'. Output-only entry "
+                f"points cannot have an ingress zone — they are not "
+                f"attacker-accessible ingress paths."
+            )
+        return self
 
 
 def _coerce_entry_points(

@@ -111,6 +111,9 @@ stage_1:
     constraints:
       - "At least one entry point must be specified"
       - "Each ingress-capable entry point must declare ingress_zone"
+      - "Output-only entry points (direction=output) must NOT declare ingress_zone"
+      - "Explicit controllability='system' is preserved — heuristics only apply when controllability is None"
+      - "System-controlled entry points are excluded from candidate expansion"
       - "entry_point_id is computed by the application and must not be invented by the LLM"
     item_schema:
       name:

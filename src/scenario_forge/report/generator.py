@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from scenario_forge.report.data import ReportData, load_report_data
 from scenario_forge.report.template import (
@@ -97,7 +98,23 @@ def generate_report(report_data: ReportData, output_dir: Path) -> Path:
     )
     methodology_html = build_methodology_section()
     use_case_html = build_use_case_section(use_case_text) if use_case_text else ""
-    profile_html = build_capability_profile_section(profile_data)
+    # Extract typed corpus claim applicability from the first scenario's
+    # validation block (cmps.9 review correction 2).  All scenarios share
+    # the same profile, so the records are identical across scenarios.
+    corpus_claims: list[dict[str, Any]] = []
+    for s in scenarios:
+        val = s.get("validation")
+        if val and isinstance(val, dict):
+            semantic = val.get("semantic")
+            if semantic and isinstance(semantic, dict):
+                claims = semantic.get("corpus_claim_applicability")
+                if claims and isinstance(claims, list):
+                    corpus_claims = claims
+                    break
+
+    profile_html = build_capability_profile_section(
+        profile_data, corpus_claims=corpus_claims
+    )
     threats_html = build_threat_surface_section(ts_data, scenarios=scenarios)
 
     coverage_html = ""
@@ -111,9 +128,7 @@ def generate_report(report_data: ReportData, output_dir: Path) -> Path:
     scorecard_html = build_scorecard_section(scorecard_data) if scorecard_data else ""
 
     pipeline_calls_html = (
-        build_pipeline_calls_section(pipeline_call_logs)
-        if pipeline_call_logs
-        else ""
+        build_pipeline_calls_section(pipeline_call_logs) if pipeline_call_logs else ""
     )
 
     scenarios_html = build_scenarios_section(
@@ -122,7 +137,9 @@ def generate_report(report_data: ReportData, output_dir: Path) -> Path:
         call_logs,
         threat_surface=ts_data,
         capability_profile=profile_data,
-        scenarios_generated=manifest_data.get("scenarios_generated") if manifest_data else None,
+        scenarios_generated=manifest_data.get("scenarios_generated")
+        if manifest_data
+        else None,
         scorecard_data=scorecard_data,
     )
     raw_html = build_raw_data_section(raw_files)

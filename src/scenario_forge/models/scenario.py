@@ -17,7 +17,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.capability_profile import ConfidenceLevel
@@ -391,6 +391,59 @@ class SemanticViolation(BaseModel):
     )
 
 
+class CorpusClaimCategory(str, Enum):
+    """Inventory category for closed-world corpus claim applicability."""
+
+    entry_points = "entry_points"
+    tool_inventory = "tool_inventory"
+
+
+class CorpusClaimStatus(str, Enum):
+    """Whether closed-world corpus claims are applicable for a category."""
+
+    applicable = "applicable"
+    not_applicable = "not_applicable"
+
+
+class CorpusClaimApplicability(BaseModel):
+    """Typed, category-specific closed-world corpus claim applicability record.
+
+    Closed-world omission/phantom claims (e.g. "no omitted tools") are
+    ``not_applicable`` until the relevant inventory category is
+    operator-confirmed complete.  When the category *is* complete, claims
+    are ``applicable`` and unknown emitted IDs still fail independently
+    via phantom validation (cmps.9 review correction 2).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: CorpusClaimCategory = Field(
+        description="Inventory category this record applies to."
+    )
+    status: CorpusClaimStatus = Field(
+        description=(
+            "``applicable`` when the category inventory is "
+            "operator-confirmed complete; ``not_applicable`` when it is "
+            "inferred_partial."
+        ),
+    )
+    reason: str | None = Field(
+        default=None,
+        description=(
+            "Human-readable reason for the status, e.g. why claims are "
+            "not_applicable for a partial inventory."
+        ),
+    )
+    evidence: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Evidence sources supporting the status. For "
+            "``applicable`` records this carries the operator-confirmed "
+            "evidence; for ``not_applicable`` it is typically empty."
+        ),
+    )
+
+
 class SemanticValidation(BaseModel):
     """Semantic (Python logic) validation results."""
 
@@ -401,11 +454,14 @@ class SemanticValidation(BaseModel):
         default_factory=list,
         description="List of semantic validation violations found.",
     )
-    corpus_claim_applicability: list[str] = Field(
+    corpus_claim_applicability: list[CorpusClaimApplicability] = Field(
         default_factory=list,
         description=(
-            "Corpus-wide closed-world claims that are not applicable because "
-            "the relevant inventory is not operator-confirmed complete."
+            "Typed, category-specific closed-world corpus claim "
+            "applicability records. Partial inventory categories are "
+            "structurally ``not_applicable``; operator-confirmed-complete "
+            "categories are ``applicable``. This is independent of "
+            "phantom.valid — unknown emitted IDs still fail regardless."
         ),
     )
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 from scenario_forge.eval.diversity import entry_point_entropy
 from scenario_forge.pipeline.candidates import classify_entry_point
 
-
 # ===========================================================================
 # A. Coverage denominator excludes output-direction entry points
 # ===========================================================================
@@ -184,20 +183,21 @@ class TestRunnerCoverageDenominator:
 
 
 class TestControllabilityReclassification:
-    """classify_entry_point() must downgrade 'system' to 'indirect' for
-    non-output entry points."""
+    """classify_entry_point() preserves explicit 'system' controllability
+    regardless of direction — a reviewed profile declaring 'system' must
+    remain system-controlled (cmps.9 review correction 5)."""
 
-    def test_system_bidirectional_becomes_indirect(self):
-        """Backend API (bidirectional, system) should be reclassified to indirect."""
+    def test_system_bidirectional_preserved(self):
+        """Backend API (bidirectional, system) should remain 'system'."""
         result = classify_entry_point(
             "backend service API calls", "bidirectional", "system"
         )
-        assert result == "indirect"
+        assert result == "system"
 
-    def test_system_input_becomes_indirect(self):
-        """Input-direction with system controllability -> indirect."""
+    def test_system_input_preserved(self):
+        """Input-direction with system controllability -> system (preserved)."""
         result = classify_entry_point("scheduled data feed", "input", "system")
-        assert result == "indirect"
+        assert result == "system"
 
     def test_system_output_stays_system(self):
         """Output-only with system controllability -> system (preserved)."""
@@ -220,20 +220,19 @@ class TestControllabilityReclassification:
 
 
 class TestControllabilityAdversarial:
-    """Adversarial/edge cases for the controllability override."""
+    """Adversarial/edge cases for the controllability preservation."""
 
     def test_system_keyword_input_with_explicit_system(self):
         """An entry point with system keywords AND explicit system controllability
-        but input direction: should be downgraded to indirect."""
+        but input direction: should remain 'system' (explicit preservation)."""
         result = classify_entry_point(
             "internal backend scheduler API", "input", "system"
         )
-        assert result == "indirect"
+        assert result == "system"
 
     def test_no_controllability_system_keyword_input_stays_system(self):
         """Without explicit controllability, system-keyword input EPs use
-        the keyword heuristic and remain 'system' (the override only applies
-        to explicit controllability)."""
+        the keyword heuristic and remain 'system'."""
         result = classify_entry_point("internal backend scheduler API", "input", None)
         assert result == "system"
 
@@ -243,13 +242,13 @@ class TestControllabilityAdversarial:
         assert result == "system"
 
     def test_bidirectional_system_not_direct(self):
-        """The override produces 'indirect', not 'direct' — even though
-        the heuristic for bidirectional (without explicit controllability)
-        would return 'direct'."""
+        """Explicit 'system' is preserved, not overridden to 'direct' — even
+        though the heuristic for bidirectional (without explicit
+        controllability) would return 'direct'."""
         result = classify_entry_point(
             "backend service API calls", "bidirectional", "system"
         )
-        assert result == "indirect"
+        assert result == "system"
         # Contrast: without explicit controllability, bidirectional -> direct
         result_heuristic = classify_entry_point(
             "backend service API calls", "bidirectional", None
