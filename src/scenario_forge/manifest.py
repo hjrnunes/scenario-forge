@@ -1524,6 +1524,18 @@ def validate_attempt_equations(manifest: RunManifest) -> None:
             )
         attempt_keys.add(key)
 
+    # Recheck nonempty evidence for every FAILED/QUARANTINED record.
+    # _finalize_attempt mutates in-place and may bypass the Pydantic
+    # model validator; terminal validation must catch blank evidence.
+    for a in manifest.attempts:
+        if a.disposition in (AttemptDisposition.FAILED, AttemptDisposition.QUARANTINED):
+            if not a.failure_evidence or not a.failure_evidence.strip():
+                raise ManifestIntegrityError(
+                    f"AttemptRecord (candidate={a.candidate_id}, "
+                    f"scenario={a.scenario_id}) has disposition="
+                    f"{a.disposition.value} but blank failure_evidence"
+                )
+
     main_attempts = [a for a in manifest.attempts if a.phase == AttemptPhase.MAIN]
     rem_attempts = [a for a in manifest.attempts if a.phase == AttemptPhase.REMEDIATION]
 
@@ -1552,15 +1564,28 @@ def validate_attempt_equations(manifest: RunManifest) -> None:
 
     funnel = manifest.funnel
     if not manifest.attempts:
-        # Zero-attempt lifecycle: funnel may be empty or have all zeros.
-        # If funnel has keys, ALL values must be consistent with zero
-        # attempts — not only the lifecycle keys but also candidate-stage
-        # counts like selected, persisted_artifacts, etc.
+        # Zero-attempt lifecycle: a valid run may have nonzero pre-attempt
+        # funnel stages (expanded_instances, unique_pre_rule_identities,
+        # rule_rejected, etc.) but select zero candidates and have zero
+        # generation attempts.  Only lifecycle fields must be zero.
+        _zero_attempt_lifecycle_keys = (
+            "selected",
+            "main_attempted",
+            "main_admitted",
+            "generation_failed",
+            "remediation_attempted",
+            "remediation_admitted",
+            "remediation_failed",
+            "attempted",
+            "admitted",
+            "quarantined",
+            "persisted_artifacts",
+        )
         if funnel:
-            for key, val in funnel.items():
-                if isinstance(val, int) and val != 0:
+            for key in _zero_attempt_lifecycle_keys:
+                if key in funnel and funnel[key] != 0:
                     raise ManifestIntegrityError(
-                        f"Funnel {key}={val} but zero attempts exist"
+                        f"Funnel {key}={funnel[key]} but zero attempts exist"
                     )
         return
 

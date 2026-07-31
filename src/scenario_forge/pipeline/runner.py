@@ -524,6 +524,7 @@ def _remediate_coverage_gaps(
                 rem_attempt_rec,
                 disposition=AttemptDisposition.FAILED,
                 failure_evidence=str(exc),
+                exc=exc,
             )
         except Exception as exc:
             note = (
@@ -537,6 +538,7 @@ def _remediate_coverage_gaps(
                 rem_attempt_rec,
                 disposition=AttemptDisposition.FAILED,
                 failure_evidence=str(exc),
+                exc=exc,
             )
 
     logger.info(
@@ -727,14 +729,26 @@ def _finalize_attempt(
     *,
     disposition: AttemptDisposition,
     failure_evidence: str | None = None,
+    exc: BaseException | None = None,
 ) -> None:
     """Finalize the disposition of a previously reserved attempt.
 
     Updates the in-place record so the attempts list stays consistent
     even if the record was already appended at reservation time.
+
+    For FAILED and QUARANTINED dispositions, ensures nonempty evidence
+    by falling back to the exception class name when the error message
+    is blank.
     """
+    evidence = failure_evidence
+    if disposition in (AttemptDisposition.FAILED, AttemptDisposition.QUARANTINED):
+        if not evidence or not evidence.strip():
+            if exc is not None:
+                evidence = f"{type(exc).__name__}: no detailed error message"
+            else:
+                evidence = f"{disposition.value}: no detailed error message"
     record.disposition = disposition
-    record.failure_evidence = failure_evidence
+    record.failure_evidence = evidence
 
 
 def _capture_input_hashes(
@@ -1091,12 +1105,22 @@ def run_pipeline(
         # resolved default/explicit input paths and normalized generation
         # settings), never raw None CLI args or API key material.  The
         # same object is persisted so digest verification is possible.
+        # All default/explicit paths are resolved consistently; zones are
+        # parsed and trimmed into a canonical list so whitespace-equivalent
+        # inputs produce identical digests.
+        from scenario_forge.pipeline.seeds import _DEFAULT_THREATS_PATH
+
+        effective_threats_path = (threats_path or _DEFAULT_THREATS_PATH).resolve()
+        effective_zones: list[str] | None = None
+        if zones is not None:
+            effective_zones = [z.strip() for z in zones.split(",") if z.strip()]
+
         effective_options = {
             "use_case_hash": input_hashes.use_case_hash,
             "risk_extraction_path": str(risk_extraction_path.resolve()),
             "sssom_path": str(sssom_path.resolve()),
             "cross_taxonomy_path": str(ct_path.resolve()),
-            "threats_path": str(threats_path.resolve()) if threats_path else None,
+            "threats_path": str(effective_threats_path),
             "profile_path": str(profile_path.resolve()) if profile_path else None,
             "model": client.model,
             "base_url": client.base_url,
@@ -1104,7 +1128,7 @@ def run_pipeline(
             "max_completion_tokens": client.max_completion_tokens,
             "max_techniques": max_techniques,
             "max_scenarios_per_pattern": max_scenarios_per_pattern,
-            "zones": zones,
+            "zones": effective_zones,
             "eval": eval,
         }
         config_digest = compute_config_digest(effective_options)
@@ -1567,6 +1591,7 @@ def run_pipeline(
                     attempt_rec,
                     disposition=AttemptDisposition.FAILED,
                     failure_evidence=str(exc),
+                    exc=exc,
                 )
             except Exception as exc:
                 msg = f"Generation failed for {fseed.seed_id}: {exc}"
@@ -1577,6 +1602,7 @@ def run_pipeline(
                     attempt_rec,
                     disposition=AttemptDisposition.FAILED,
                     failure_evidence=str(exc),
+                    exc=exc,
                 )
 
         logger.info(

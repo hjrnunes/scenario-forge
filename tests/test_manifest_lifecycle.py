@@ -3155,3 +3155,375 @@ class TestThirdReviewConfigDigest:
         canonical = json.dumps(opts, sort_keys=True, separators=(",", ":"), default=str)
         assert "api_key" not in canonical.lower()
         assert "key" not in canonical.lower() or "max" in canonical.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Fourth narrow Mayor review
+# --------------------------------------------------------------------------- #
+
+
+class TestFourthReviewNormalizedConfigDigest:
+    """Config digest must be bound to normalized, resolved effective options."""
+
+    def test_whitespace_equivalent_zones_produce_identical_digest(self):
+        """Whitespace-equivalent zone strings produce identical digests
+        because zones are parsed and trimmed into a canonical list."""
+        # Simulate the normalization done in run_pipeline
+        zones_a = "input, reasoning"
+        zones_b = "input,reasoning"
+        zones_c = " input ,  reasoning  "
+
+        def _normalize(z: str | None) -> list[str] | None:
+            if z is None:
+                return None
+            return [x.strip() for x in z.split(",") if x.strip()]
+
+        opts_a = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": _normalize(zones_a),
+            "eval": True,
+        }
+        opts_b = dict(opts_a, zones=_normalize(zones_b))
+        opts_c = dict(opts_a, zones=_normalize(zones_c))
+
+        d_a = compute_config_digest(opts_a)
+        d_b = compute_config_digest(opts_b)
+        d_c = compute_config_digest(opts_c)
+
+        assert d_a == d_b, (
+            "Whitespace-equivalent zone strings must produce identical digests"
+        )
+        assert d_a == d_c, (
+            "Whitespace-equivalent zone strings must produce identical digests"
+        )
+
+    def test_omitted_threats_records_bundled_resolved_path(self):
+        """When threats_path is None, effective_options must record the
+        resolved bundled default path, not None."""
+        from scenario_forge.pipeline.seeds import _DEFAULT_THREATS_PATH
+
+        # Simulate the resolution done in run_pipeline
+        threats_path = None
+        effective_threats = (threats_path or _DEFAULT_THREATS_PATH).resolve()
+
+        opts_with_none = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+            "threats_path": None,
+        }
+        opts_with_default = dict(opts_with_none, threats_path=str(effective_threats))
+
+        d_none = compute_config_digest(opts_with_none)
+        d_default = compute_config_digest(opts_with_default)
+
+        assert d_none != d_default, (
+            "Omitted threats (None) must differ from resolved bundled path"
+        )
+        # The resolved path must be a real, absolute path
+        assert effective_threats.is_absolute(), (
+            "Effective threats path must be resolved to an absolute path"
+        )
+        assert effective_threats.exists(), "Bundled default threats path must exist"
+
+    def test_explicit_vs_default_threats_produce_distinct_digests(self):
+        """Explicit threats path produces a different digest than the
+        bundled default."""
+        from scenario_forge.pipeline.seeds import _DEFAULT_THREATS_PATH
+
+        effective_default = _DEFAULT_THREATS_PATH.resolve()
+        explicit = "/custom/threats.yaml"
+
+        opts_default = {
+            "model": "gpt-4",
+            "base_url": "https://api.openai.com/v1",
+            "temperature": 0.7,
+            "max_completion_tokens": 4096,
+            "max_techniques": 1,
+            "max_scenarios_per_pattern": None,
+            "zones": None,
+            "eval": True,
+            "threats_path": str(effective_default),
+        }
+        opts_explicit = dict(opts_default, threats_path=explicit)
+
+        d_default = compute_config_digest(opts_default)
+        d_explicit = compute_config_digest(opts_explicit)
+
+        assert d_default != d_explicit, (
+            "Explicit vs default threats paths must produce distinct digests"
+        )
+
+
+class TestFourthReviewZeroAttemptFunnel:
+    """Zero-attempt runs may have nonzero pre-attempt funnel stages."""
+
+    def test_nonzero_pre_attempt_stages_with_zero_lifecycle(self):
+        """A valid run with expanded candidates but zero selected/attempted
+        must pass validation: pre-attempt stages nonzero, lifecycle zero."""
+        manifest = RunManifest(
+            manifest_version="1.0",
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            package_version="0.1.0",
+            attempts=[],
+            funnel={
+                "expanded_instances": 10,
+                "unique_pre_rule_identities": 5,
+                "rule_rejected": 3,
+                "rule_transformed": 0,
+                "post_rule_collapsed": 0,
+                "filter_submitted": 2,
+                "filter_accepted": 0,
+                "selected": 0,
+                "main_attempted": 0,
+                "main_admitted": 0,
+                "generation_failed": 0,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+                "attempted": 0,
+                "admitted": 0,
+                "quarantined": 0,
+                "persisted_artifacts": 0,
+            },
+        )
+        # Must not raise
+        validate_attempt_equations(manifest)
+
+    def test_nonzero_selected_with_zero_attempts_rejected(self):
+        """If selected is nonzero but there are zero attempts, that's invalid."""
+        manifest = RunManifest(
+            manifest_version="1.0",
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            package_version="0.1.0",
+            attempts=[],
+            funnel={
+                "expanded_instances": 10,
+                "unique_pre_rule_identities": 5,
+                "rule_rejected": 3,
+                "rule_transformed": 0,
+                "post_rule_collapsed": 0,
+                "filter_submitted": 2,
+                "filter_accepted": 1,
+                "selected": 1,
+                "main_attempted": 0,
+                "main_admitted": 0,
+                "generation_failed": 0,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+                "attempted": 0,
+                "admitted": 0,
+                "quarantined": 0,
+                "persisted_artifacts": 0,
+            },
+        )
+        with pytest.raises(ManifestIntegrityError, match="selected.*zero attempts"):
+            validate_attempt_equations(manifest)
+
+    def test_nonzero_admitted_with_zero_attempts_rejected(self):
+        """If admitted is nonzero but there are zero attempts, that's invalid."""
+        manifest = RunManifest(
+            manifest_version="1.0",
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            package_version="0.1.0",
+            attempts=[],
+            funnel={
+                "expanded_instances": 10,
+                "selected": 0,
+                "main_attempted": 0,
+                "main_admitted": 0,
+                "generation_failed": 0,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+                "attempted": 0,
+                "admitted": 1,
+                "quarantined": 0,
+                "persisted_artifacts": 0,
+            },
+        )
+        with pytest.raises(ManifestIntegrityError, match="admitted.*zero attempts"):
+            validate_attempt_equations(manifest)
+
+    def test_nonzero_persisted_artifacts_with_zero_attempts_rejected(self):
+        """If persisted_artifacts is nonzero but zero attempts, invalid."""
+        manifest = RunManifest(
+            manifest_version="1.0",
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            package_version="0.1.0",
+            attempts=[],
+            funnel={
+                "expanded_instances": 10,
+                "selected": 0,
+                "main_attempted": 0,
+                "main_admitted": 0,
+                "generation_failed": 0,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+                "attempted": 0,
+                "admitted": 0,
+                "quarantined": 0,
+                "persisted_artifacts": 5,
+            },
+        )
+        with pytest.raises(
+            ManifestIntegrityError, match="persisted_artifacts.*zero attempts"
+        ):
+            validate_attempt_equations(manifest)
+
+
+class TestFourthReviewEmptyEvidence:
+    """Empty-message exceptions must not produce blank FAILED evidence."""
+
+    def test_empty_message_main_failure_gets_fallback_evidence(self):
+        """When str(exc).strip() is empty, _finalize_attempt must use
+        the exception class name as fallback evidence."""
+        from scenario_forge.pipeline.runner import _finalize_attempt
+
+        attempt = AttemptRecord(
+            candidate_id="cand:v1:abc",
+            scenario_id="scenario:v2:def",
+            disposition=AttemptDisposition.ADMITTED,
+            phase=AttemptPhase.MAIN,
+        )
+        # Simulate an exception with an empty message
+        exc = RuntimeError("")
+        _finalize_attempt(
+            attempt,
+            disposition=AttemptDisposition.FAILED,
+            failure_evidence=str(exc),
+            exc=exc,
+        )
+        assert attempt.disposition == AttemptDisposition.FAILED
+        assert attempt.failure_evidence is not None
+        assert attempt.failure_evidence.strip(), (
+            "Empty-message exception must produce nonempty fallback evidence"
+        )
+        assert "RuntimeError" in attempt.failure_evidence, (
+            "Fallback evidence should include exception class name"
+        )
+
+    def test_empty_message_remediation_failure_gets_fallback_evidence(self):
+        """Same for remediation phase."""
+        from scenario_forge.pipeline.runner import _finalize_attempt
+
+        attempt = AttemptRecord(
+            candidate_id="cand:v1:abc",
+            scenario_id="scenario:v2:def",
+            disposition=AttemptDisposition.ADMITTED,
+            phase=AttemptPhase.REMEDIATION,
+        )
+        exc = ValueError("")
+        _finalize_attempt(
+            attempt,
+            disposition=AttemptDisposition.FAILED,
+            failure_evidence=str(exc),
+            exc=exc,
+        )
+        assert attempt.disposition == AttemptDisposition.FAILED
+        assert attempt.failure_evidence is not None
+        assert attempt.failure_evidence.strip(), (
+            "Empty-message exception must produce nonempty fallback evidence"
+        )
+        assert "ValueError" in attempt.failure_evidence
+
+    def test_whitespace_only_message_gets_fallback_evidence(self):
+        """When str(exc).strip() is whitespace-only, fallback applies."""
+        from scenario_forge.pipeline.runner import _finalize_attempt
+
+        attempt = AttemptRecord(
+            candidate_id="cand:v1:abc",
+            scenario_id="scenario:v2:def",
+            disposition=AttemptDisposition.ADMITTED,
+            phase=AttemptPhase.MAIN,
+        )
+        exc = Exception("   \n  \t  ")
+        _finalize_attempt(
+            attempt,
+            disposition=AttemptDisposition.FAILED,
+            failure_evidence=str(exc),
+            exc=exc,
+        )
+        assert attempt.failure_evidence is not None
+        assert attempt.failure_evidence.strip(), (
+            "Whitespace-only message must produce nonempty fallback evidence"
+        )
+
+    def test_terminal_validation_rejects_blank_evidence(self):
+        """validate_attempt_equations must reject a FAILED AttemptRecord
+        with blank evidence even if it was mutated in-place after
+        construction (bypassing the Pydantic model validator)."""
+        attempt = AttemptRecord(
+            candidate_id="cand:v1:abc",
+            scenario_id="scenario:v2:def",
+            disposition=AttemptDisposition.ADMITTED,
+            phase=AttemptPhase.MAIN,
+        )
+        # Construct manifest with a valid attempt first
+        manifest = RunManifest(
+            manifest_version="1.0",
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            package_version="0.1.0",
+            attempts=[attempt],
+            funnel={
+                "selected": 1,
+                "main_attempted": 1,
+                "main_admitted": 1,
+                "generation_failed": 0,
+                "remediation_attempted": 0,
+                "remediation_admitted": 0,
+                "remediation_failed": 0,
+                "attempted": 1,
+                "admitted": 1,
+                "quarantined": 0,
+                "persisted_artifacts": 1,
+            },
+        )
+        # Now simulate unchecked in-place mutation that bypasses
+        # the Pydantic model validator
+        manifest.attempts[0].disposition = AttemptDisposition.FAILED
+        manifest.attempts[0].failure_evidence = "   "  # blank
+
+        with pytest.raises(ManifestIntegrityError, match="blank failure_evidence"):
+            validate_attempt_equations(manifest)
+
+    def test_no_exc_fallback_uses_disposition_name(self):
+        """When no exc is provided, fallback uses disposition name."""
+        from scenario_forge.pipeline.runner import _finalize_attempt
+
+        attempt = AttemptRecord(
+            candidate_id="cand:v1:abc",
+            scenario_id="scenario:v2:def",
+            disposition=AttemptDisposition.ADMITTED,
+            phase=AttemptPhase.MAIN,
+        )
+        _finalize_attempt(
+            attempt,
+            disposition=AttemptDisposition.FAILED,
+            failure_evidence="",
+        )
+        assert attempt.failure_evidence is not None
+        assert attempt.failure_evidence.strip()
+        assert "failed" in attempt.failure_evidence.lower()
