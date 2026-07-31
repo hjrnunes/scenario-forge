@@ -699,7 +699,7 @@
               "evidence": {
                 "type": "array",
                 "minItems": 1,
-                "items": { "type": "string", "minLength": 1 }
+                "items": { "type": "string", "pattern": "\\S" }
               }
             },
             "required": ["evidence"]
@@ -712,7 +712,7 @@
           },
           "then": {
             "properties": {
-              "reason": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "pattern": "\\S" },
               "evidence": { "type": "array", "maxItems": 0 }
             },
             "required": ["reason"]

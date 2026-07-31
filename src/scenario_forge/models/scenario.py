@@ -454,16 +454,24 @@ class CorpusClaimApplicability(BaseModel):
     @model_validator(mode="after")
     def _validate_status_payload(self) -> CorpusClaimApplicability:
         if self.status == CorpusClaimStatus.applicable:
-            if not self.evidence or not any(e.strip() for e in self.evidence):
+            if self.reason is not None:
+                raise ValueError(
+                    f"applicable corpus claim for category "
+                    f"'{self.category.value}' must not carry a reason."
+                )
+            if not self.evidence:
                 raise ValueError(
                     f"applicable corpus claim for category "
                     f"'{self.category.value}' requires at least one "
                     f"nonblank evidence item."
                 )
-            if self.reason is not None and self.reason.strip():
+            blank_evidence = [e for e in self.evidence if not e.strip()]
+            if blank_evidence:
                 raise ValueError(
                     f"applicable corpus claim for category "
-                    f"'{self.category.value}' must not carry a reason."
+                    f"'{self.category.value}' has blank/whitespace-only "
+                    f"evidence item(s): {blank_evidence}. Every evidence "
+                    f"item must be nonblank."
                 )
         elif self.status == CorpusClaimStatus.not_applicable:
             if self.reason is None or not self.reason.strip():

@@ -535,14 +535,14 @@ fields:
         type: Optional[str]
         required: false
         description: >-
-          Required (nonblank) when status is not_applicable; must be null
-          when status is applicable.
+          Required (nonblank, non-whitespace-only) when status is
+          not_applicable; must be null when status is applicable.
       evidence:
         type: list[str]
         required: false
         description: >-
-          Required (at least one nonblank item) when status is applicable;
-          must be empty when status is not_applicable.
+          Required (at least one item, every item nonblank/non-whitespace-only)
+          when status is applicable; must be empty when status is not_applicable.
 
   SemanticValidation:
     type: object

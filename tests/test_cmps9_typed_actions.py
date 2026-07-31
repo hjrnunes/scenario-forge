@@ -2534,6 +2534,291 @@ class TestCorpusApplicabilityCategoryCompleteness:
         with pytest.raises(ValueError, match="missing corpus_claim_applicability"):
             _reconcile_corpus_claims([{"validation": {"semantic": {"valid": True}}}])
 
+    # --- Schema-parity: strict reason/evidence blank semantics ---
+
+    def test_pydantic_applicable_with_empty_string_reason_rejected(self):
+        """applicable status with reason='' (not None) is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="must not carry a reason"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                reason="",
+                evidence=["evidence"],
+            )
+
+    def test_pydantic_applicable_with_whitespace_reason_rejected(self):
+        """applicable status with reason='   ' (not None) is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="must not carry a reason"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                reason="   ",
+                evidence=["evidence"],
+            )
+
+    def test_pydantic_applicable_all_whitespace_evidence_rejected(self):
+        """applicable with all-whitespace evidence items is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="blank/whitespace-only evidence"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                evidence=["  ", "\t\n"],
+            )
+
+    def test_pydantic_applicable_mixed_blank_nonblank_evidence_rejected(self):
+        """applicable with mixed blank and nonblank evidence is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="blank/whitespace-only evidence"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                evidence=["real evidence", "  "],
+            )
+
+    def test_pydantic_not_applicable_whitespace_reason_rejected(self):
+        """not_applicable with whitespace-only reason is rejected."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        with pytest.raises(Exception, match="nonblank reason"):
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+                reason="   ",
+            )
+
+    def test_pydantic_applicable_valid_with_nonblank_evidence(self):
+        """applicable with all-nonblank evidence and reason=None is accepted."""
+        from scenario_forge.models.scenario import (
+            CorpusClaimApplicability,
+            CorpusClaimCategory,
+            CorpusClaimStatus,
+        )
+
+        record = CorpusClaimApplicability(
+            category=CorpusClaimCategory.entry_points,
+            status=CorpusClaimStatus.applicable,
+            evidence=["operator review", "audit log"],
+        )
+        assert record.reason is None
+        assert len(record.evidence) == 2
+
+    def test_json_schema_applicable_empty_string_reason_rejected(self):
+        """Raw JSON Schema: applicable with reason='' is rejected (must be null)."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        with open(schema_path) as f:
+            full_schema = json.load(f)
+        record_schema = {
+            **full_schema["$defs"]["CorpusClaimApplicability"],
+            "$defs": full_schema["$defs"],
+        }
+        validator = jsonschema.Draft202012Validator(record_schema)
+        errors = list(
+            validator.iter_errors(
+                {
+                    "category": "entry_points",
+                    "status": "applicable",
+                    "reason": "",
+                    "evidence": ["evidence"],
+                }
+            )
+        )
+        assert errors, "applicable with reason='' should be rejected"
+
+    def test_json_schema_applicable_whitespace_evidence_rejected(self):
+        """Raw JSON Schema: applicable with whitespace-only evidence is rejected."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        with open(schema_path) as f:
+            full_schema = json.load(f)
+        record_schema = {
+            **full_schema["$defs"]["CorpusClaimApplicability"],
+            "$defs": full_schema["$defs"],
+        }
+        validator = jsonschema.Draft202012Validator(record_schema)
+        errors = list(
+            validator.iter_errors(
+                {
+                    "category": "entry_points",
+                    "status": "applicable",
+                    "evidence": ["   "],
+                }
+            )
+        )
+        assert errors, "applicable with whitespace-only evidence should be rejected"
+
+    def test_json_schema_applicable_mixed_blank_evidence_rejected(self):
+        """Raw JSON Schema: applicable with mixed blank/nonblank evidence is rejected."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        with open(schema_path) as f:
+            full_schema = json.load(f)
+        record_schema = {
+            **full_schema["$defs"]["CorpusClaimApplicability"],
+            "$defs": full_schema["$defs"],
+        }
+        validator = jsonschema.Draft202012Validator(record_schema)
+        errors = list(
+            validator.iter_errors(
+                {
+                    "category": "entry_points",
+                    "status": "applicable",
+                    "evidence": ["real evidence", "\t"],
+                }
+            )
+        )
+        assert errors, (
+            "applicable with mixed blank/nonblank evidence should be rejected"
+        )
+
+    def test_json_schema_not_applicable_whitespace_reason_rejected(self):
+        """Raw JSON Schema: not_applicable with whitespace-only reason is rejected."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "scenario_forge"
+            / "data"
+            / "schemas"
+            / "scenario-envelope.schema.json"
+        )
+        with open(schema_path) as f:
+            full_schema = json.load(f)
+        record_schema = {
+            **full_schema["$defs"]["CorpusClaimApplicability"],
+            "$defs": full_schema["$defs"],
+        }
+        validator = jsonschema.Draft202012Validator(record_schema)
+        errors = list(
+            validator.iter_errors(
+                {
+                    "category": "entry_points",
+                    "status": "not_applicable",
+                    "reason": "   ",
+                }
+            )
+        )
+        assert errors, "not_applicable with whitespace-only reason should be rejected"
+
+    def test_report_applicable_empty_string_reason_fails(self):
+        """Report reconciliation rejects applicable with reason=''."""
+        from scenario_forge.report.generator import _reconcile_corpus_claims
+
+        scenario = {
+            "validation": {
+                "semantic": {
+                    "valid": True,
+                    "violations": [],
+                    "corpus_claim_applicability": [
+                        {
+                            "category": "entry_points",
+                            "status": "applicable",
+                            "reason": "",
+                            "evidence": ["evidence"],
+                        },
+                        {
+                            "category": "tool_inventory",
+                            "status": "not_applicable",
+                            "reason": "Partial.",
+                        },
+                    ],
+                }
+            }
+        }
+        with pytest.raises(Exception, match="must not carry a reason"):
+            _reconcile_corpus_claims([scenario])
+
+    def test_report_applicable_whitespace_evidence_fails(self):
+        """Report reconciliation rejects applicable with whitespace-only evidence."""
+        from scenario_forge.report.generator import _reconcile_corpus_claims
+
+        scenario = {
+            "validation": {
+                "semantic": {
+                    "valid": True,
+                    "violations": [],
+                    "corpus_claim_applicability": [
+                        {
+                            "category": "entry_points",
+                            "status": "applicable",
+                            "evidence": ["  "],
+                        },
+                        {
+                            "category": "tool_inventory",
+                            "status": "not_applicable",
+                            "reason": "Partial.",
+                        },
+                    ],
+                }
+            }
+        }
+        with pytest.raises(Exception, match="blank/whitespace-only evidence"):
+            _reconcile_corpus_claims([scenario])
+
 
 class TestAttackerAccessibleIngressPredicate:
     """Centralized attacker-accessible ingress predicate must be used
