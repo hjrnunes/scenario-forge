@@ -68,6 +68,19 @@ def test_use_case_written_to_output_dir(
     gaps = MagicMock()
     gaps.uncovered_entry_points = []
     mock_gaps.return_value = gaps
+    mock_diversity.return_value = None
+
+    # Side effects that actually write files so strict inventory passes.
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+        (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
+
+    def _write_report(data, out_dir):
+        p = Path(out_dir) / "report.html"
+        p.write_text("<html>mock</html>")
+        return p
+
+    mock_coverage_report.side_effect = _write_coverage
+    mock_report.side_effect = _write_report
 
     use_case_text = "An AI chatbot that helps customers with billing inquiries"
 
@@ -79,13 +92,13 @@ def test_use_case_written_to_output_dir(
 
     from scenario_forge.pipeline.runner import run_pipeline
 
-    run_pipeline(
+    result = run_pipeline(
         use_case=use_case_text,
         risk_extraction_path=risk_path,
         sssom_path=sssom_path,
         output_dir=output_dir,
     )
 
-    use_case_file = output_dir / "use-case.txt"
-    assert use_case_file.exists(), "use-case.txt should be created in output_dir"
+    use_case_file = result.run_dir / "use-case.txt"
+    assert use_case_file.exists(), "use-case.txt should be created in run_dir"
     assert use_case_file.read_text() == use_case_text

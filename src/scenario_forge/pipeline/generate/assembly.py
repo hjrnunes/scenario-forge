@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -95,34 +94,35 @@ class ScenarioForgeIntegrityError(Exception):
 # ---------------------------------------------------------------------------
 
 _SCENARIO_ID_VERSION = "v2"
-_RUN_ID_LEN = 32  # UUID4 hex = 128 bits
+_RUN_ID_LEN = 48  # YYYYMMDDTHHMMSS_<32hex> = 128-bit entropy suffix
 _CANDIDATE_ID_PREFIX = "cand:v1:"
 _CANDIDATE_ID_HEX_LEN = 32
 
 
 def generate_run_id() -> str:
-    """Generate a collision-safe per-invocation run ID (128 bits).
+    """Generate a sortable, collision-safe per-invocation run ID.
 
-    Returns a 32-character hex string (UUID4 without dashes).
-    This is the minimal seam for per-invocation identity; cmps.1
-    will refine run collection layout and full provenance.
+    Uses the cmps.1 sortable format: ``YYYYMMDDTHHMMSS_<32hex>`` (48 chars).
+    The timestamp prefix makes run directories sortable by lexical order.
+    The 128-bit random suffix prevents collisions within the same second.
     """
-    return uuid.uuid4().hex
+    from scenario_forge.manifest import generate_sortable_run_id
+
+    return generate_sortable_run_id()
 
 
 def _validate_run_id(run_id: str) -> None:
-    """Validate that run_id is a 32-char lowercase hex string (128 bits)."""
-    if not run_id or len(run_id) != _RUN_ID_LEN:
-        raise ValueError(
-            f"run_id must be a {_RUN_ID_LEN}-char hex string, "
-            f"got length {len(run_id) if run_id else 0}"
-        )
-    if run_id != run_id.lower():
-        raise ValueError("run_id must be lowercase hex")
-    try:
-        int(run_id, 16)
-    except ValueError:
-        raise ValueError("run_id must be valid hex") from None
+    """Validate that run_id is a canonical sortable generation identifier.
+
+    Accepts **only** the cmps.1 sortable format:
+    ``YYYYMMDDTHHMMSS_<32hex>`` (48 chars, 128-bit random suffix).
+
+    Legacy 32-char hex IDs are accepted solely by manifest forensic
+    discovery/loading, not by generation APIs.
+    """
+    from scenario_forge.manifest import validate_generation_run_id
+
+    validate_generation_run_id(run_id)
 
 
 def _validate_candidate_id(candidate_id: str) -> None:
@@ -149,8 +149,8 @@ def compute_scenario_id(
 ) -> str:
     """Compute a collision-safe, run-specific scenario ID.
 
-    The ID incorporates the per-invocation ``run_id`` (128 bits), the
-    stable ``candidate_id`` (128 bits), and the generation ``attempt``
+    The ID incorporates the per-invocation ``run_id`` (128 bits of entropy),
+    the stable ``candidate_id`` (128 bits), and the generation ``attempt``
     so that distinct generated narratives are not falsely the same
     scenario.
 

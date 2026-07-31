@@ -90,6 +90,19 @@ def test_profile_flag_skips_inference(
     gaps = MagicMock()
     gaps.uncovered_entry_points = []
     mock_gaps.return_value = gaps
+    mock_diversity.return_value = None
+
+    # Side effects that actually write files so strict inventory passes.
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+        (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
+
+    def _write_report(data, out_dir):
+        p = Path(out_dir) / "report.html"
+        p.write_text("<html>mock</html>")
+        return p
+
+    mock_coverage_report.side_effect = _write_coverage
+    mock_report.side_effect = _write_report
 
     risk_path, sssom_path = dummy_inputs
 
@@ -106,9 +119,12 @@ def test_profile_flag_skips_inference(
 
     # Profile values must match the supplied YAML
     assert result.capability_profile.zones_active == valid_profile_data["zones_active"]
-    # entry_points are coerced from plain strings to EntryPoint objects
-    assert [ep.name for ep in result.capability_profile.entry_points] == valid_profile_data["entry_points"]
-    assert result.capability_profile.confidence.value == valid_profile_data["confidence"]
+    assert [
+        ep.name for ep in result.capability_profile.entry_points
+    ] == valid_profile_data["entry_points"]
+    assert (
+        result.capability_profile.confidence.value == valid_profile_data["confidence"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +189,23 @@ def test_profile_written_to_output_dir(
     gaps = MagicMock()
     gaps.uncovered_entry_points = []
     mock_gaps.return_value = gaps
+    mock_diversity.return_value = None
+
+    # Side effects that actually write files so strict inventory passes.
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+        (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
+
+    def _write_report(data, out_dir):
+        p = Path(out_dir) / "report.html"
+        p.write_text("<html>mock</html>")
+        return p
+
+    mock_coverage_report.side_effect = _write_coverage
+    mock_report.side_effect = _write_report
 
     risk_path, sssom_path = dummy_inputs
 
-    run_pipeline(
+    result = run_pipeline(
         use_case="A billing chatbot",
         risk_extraction_path=risk_path,
         sssom_path=sssom_path,
@@ -184,8 +213,10 @@ def test_profile_written_to_output_dir(
         profile_path=valid_profile_path,
     )
 
-    output_profile = output_dir / "capability-profile.yaml"
-    assert output_profile.exists(), "capability-profile.yaml should be written to output_dir"
+    output_profile = result.run_dir / "capability-profile.yaml"
+    assert output_profile.exists(), (
+        "capability-profile.yaml should be written to run_dir"
+    )
 
     written = yaml.safe_load(output_profile.read_text(encoding="utf-8"))
     assert written["zones_active"] == valid_profile_data["zones_active"]

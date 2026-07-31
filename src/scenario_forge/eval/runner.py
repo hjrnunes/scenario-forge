@@ -1,7 +1,12 @@
 """Evaluation runner — orchestrates all Tier 1 metrics and produces a scorecard.
 
-Loads scenario YAML files and Gherkin .feature files from an output directory,
-runs all deterministic metrics, and produces a structured scorecard.
+In cmps.1, scenario and feature discovery consumes **strict manifest inventory**
+entries rather than globbing the filesystem.  Paths, hashes, and roles are
+verified by the shared :class:`ManifestInventoryResolver`.
+
+Internal (in-pipeline) callers pass an in-memory resolver via *resolver*.
+Standalone callers pass a *run_dir* and the manifest must be authoritative
+(``completed``) unless *allow_non_authoritative* is set.
 """
 
 from __future__ import annotations
@@ -10,70 +15,66 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from scenario_forge.eval.consistency import score_consistency
 from scenario_forge.eval.diversity import score_diversity
 from scenario_forge.eval.gherkin import score_gherkin
 from scenario_forge.eval.grounding import score_grounding, score_technique_agreement
 from scenario_forge.eval.plausibility import score_plausibility
+from scenario_forge.manifest import (
+    ArtifactRole,
+    ManifestInventoryResolver,
+    find_run_dir,
+    load_strict_resolver,
+)
 from scenario_forge.models.capability_profile import CapabilityProfile
 
 
-def _load_scenarios(scenarios_dir: Path) -> list[tuple[str, dict[str, Any]]]:
-    """Load all scenario YAML files from a directory.
-
-    Returns:
-        List of (stem, parsed_dict) tuples, sorted by stem.
-    """
-    results: list[tuple[str, dict[str, Any]]] = []
-    if not scenarios_dir.exists():
-        return results
-
-    for yaml_path in sorted(scenarios_dir.glob("*.yaml")):
-        with open(yaml_path) as f:
-            data = yaml.safe_load(f)
-        if data and isinstance(data, dict):
-            results.append((yaml_path.stem, data))
-
-    return results
-
-
-def _load_gherkin_files(scenarios_dir: Path) -> dict[str, str]:
-    """Load all .feature files from a directory.
-
-    Returns:
-        Dict mapping file stem to Gherkin text content.
-    """
-    results: dict[str, str] = {}
-    if not scenarios_dir.exists():
-        return results
-
-    for feature_path in sorted(scenarios_dir.glob("*.feature")):
-        results[feature_path.stem] = feature_path.read_text(encoding="utf-8")
-
-    return results
-
-
 def run_evaluation(
-    output_dir: Path,
+    run_dir: Path | None = None,
+    *,
+    resolver: ManifestInventoryResolver | None = None,
     threats_path: Path | None = None,
+    allow_non_authoritative: bool = False,
 ) -> dict[str, Any]:
     """Run all Tier 1 evaluation metrics and produce a scorecard.
 
     Args:
-        output_dir: Path to the pipeline output directory.
-            Expects scenarios in output_dir/scenarios/.
+        run_dir: Path to a run directory (or collection with one run).
+            Used for **standalone** evaluation.  The manifest must be
+            authoritative (``completed``) unless *allow_non_authoritative*
+            is set.
+        resolver: Pre-built in-memory resolver for **internal** pipeline
+            use.  When provided, *run_dir* is ignored.
         threats_path: Optional path to OWASP agentic threats YAML.
+        allow_non_authoritative: When True (standalone only), accept
+            non-``completed`` finalized manifests for forensic reading.
 
     Returns:
         Structured scorecard dict ready for YAML/JSON serialization.
     """
-    scenarios_dir = output_dir / "scenarios"
+    if resolver is not None:
+        actual_run_dir = resolver.run_dir
+    else:
+        actual_run_dir = find_run_dir(run_dir)
+        resolver = load_strict_resolver(
+            actual_run_dir,
+            require_final=True,
+            require_authoritative=not allow_non_authoritative,
+        )
 
-    # Load data
-    scenario_items = _load_scenarios(scenarios_dir)
-    gherkin_files = _load_gherkin_files(scenarios_dir)
+    # Load scenarios from manifest inventory
+    scenario_items: list[tuple[str, dict[str, Any]]] = []
+    for entry in resolver.scenario_yaml_entries():
+        data = resolver.read_yaml(entry)
+        if data and isinstance(data, dict):
+            stem = Path(entry.path).stem
+            scenario_items.append((stem, data))
+
+    # Load Gherkin features from manifest inventory
+    gherkin_files: dict[str, str] = {}
+    for entry in resolver.scenario_feature_entries():
+        stem = Path(entry.path).stem
+        gherkin_files[stem] = resolver.read_text(entry)
 
     scenarios = [data for _, data in scenario_items]
     scenario_ids = [stem for stem, _ in scenario_items]
@@ -105,7 +106,6 @@ def run_evaluation(
     gherkin_texts = [
         gherkin_files[stem] for stem in scenario_ids if stem in gherkin_files
     ]
-    # Include any feature files not matched to a scenario YAML
     for stem, text in gherkin_files.items():
         if stem not in scenario_ids:
             gherkin_texts.append(text)
@@ -116,8 +116,6 @@ def run_evaluation(
     grounding_result = score_grounding(scenarios, threats_path)
 
     # --- Technique Agreement (cross-lens) ---
-    # Build a stem -> gherkin_text mapping keyed by scenario_id
-    # (scenario_id from the YAML, matched to gherkin files by stem)
     gherkin_by_scenario_id: dict[str, str] = {}
     for stem, scenario in scenario_items:
         scenario_id = scenario.get("scenario_id", stem)
@@ -127,28 +125,22 @@ def run_evaluation(
         scenarios, gherkin_by_scenario_id
     )
 
-    # --- Load capability profile for context-aware metrics ---
-    cap_profile_path = output_dir / "capability-profile.yaml"
+    # --- Load capability profile from manifest inventory ---
     expected_entry_points: int | None = None
     active_zones: set[str] | None = None
     cap_profile: CapabilityProfile | None = None
 
-    if cap_profile_path.exists():
-        with open(cap_profile_path) as f:
-            cap_data = yaml.safe_load(f)
+    cap_entry = resolver.entry_by_role(ArtifactRole.CAPABILITY_PROFILE)
+    if cap_entry is not None:
+        cap_data = resolver.read_yaml(cap_entry)
         if cap_data and isinstance(cap_data, dict):
             try:
                 cap_profile = CapabilityProfile.model_validate(cap_data)
-                # Only count ingress-capable entry points (direction != "output").
-                # Output-only EPs are structurally excluded from candidate
-                # expansion (candidates.py) and can never produce scenarios,
-                # so they must not inflate the coverage denominator.
                 ingress_eps = [
                     ep for ep in cap_profile.entry_points if ep.direction != "output"
                 ]
                 expected_entry_points = len(ingress_eps)
             except Exception:
-                # If validation fails, fall back to raw dict extraction.
                 cap_profile = None
                 ep_list = cap_data.get("entry_points")
                 if isinstance(ep_list, list):
@@ -178,7 +170,7 @@ def run_evaluation(
     # --- Assemble scorecard ---
     scorecard: dict[str, Any] = {
         "evaluation": {
-            "output_dir": str(output_dir),
+            "output_dir": str(actual_run_dir),
             "scenario_count": len(scenarios),
             "feature_file_count": len(gherkin_texts),
             "consistency": consistency_result,

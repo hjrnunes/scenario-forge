@@ -77,13 +77,15 @@ from scenario_forge.pipeline.generate.assembly import (
 )
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from scenario_forge.manifest import AttemptRecord
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_VALID_RUN_ID = "a" * 32
+_VALID_RUN_ID = "20260101T000000_" + "a" * 32
+_VALID_LEGACY_RUN_ID = "a" * 32
 _VALID_CANDIDATE_ID = "cand:v1:" + "1" * 32
 
 
@@ -460,6 +462,7 @@ class TestCandidateIdReservation:
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
 
         # The candidate_id passed to generate_scenario must already be
@@ -517,6 +520,7 @@ class TestCallLogFailureAfterArtifact:
                 admitted_candidate_ids=set(),
                 admitted_scenario_ids=set(),
                 write_receipts=[],
+                attempts=[],
             )
 
 
@@ -562,6 +566,7 @@ class TestRemediationFunnelEquations:
         seeds = [_make_seed(seed_id="AP-T1-01"), _make_seed(seed_id="AP-T2-01")]
         profile = _make_profile()
         receipts: list[dict] = []
+        attempts_list: list[AttemptRecord] = []
 
         scenarios, notes, attempted, failed = _remediate_coverage_gaps(
             gaps,
@@ -575,6 +580,7 @@ class TestRemediationFunnelEquations:
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=receipts,
+            attempts=attempts_list,
         )
 
         assert attempted == 2
@@ -983,6 +989,7 @@ class TestRemediationCandidateId:
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
 
         expected = compute_candidate_id(seed.seed_id, ep_id, seed.atlas_technique_ids)
@@ -1322,6 +1329,7 @@ class TestRemediationLaafFallback:
             admitted_candidate_ids=set(),
             admitted_scenario_ids=set(),
             write_receipts=[],
+            attempts=[],
         )
 
         expected = compute_candidate_id(seed.seed_id, ep_id, seed.laaf_technique_ids)
@@ -1378,6 +1386,7 @@ class TestForgedReturnIdentity:
                 admitted_candidate_ids=set(),
                 admitted_scenario_ids=set(),
                 write_receipts=[],
+                attempts=[],
             )
         mock_write.assert_not_called()
 
@@ -1421,6 +1430,7 @@ class TestForgedReturnIdentity:
                 admitted_candidate_ids=set(),
                 admitted_scenario_ids=set(),
                 write_receipts=[],
+                attempts=[],
             )
         mock_write.assert_not_called()
 
@@ -1764,7 +1774,7 @@ class TestLowercaseIdentityConsistency:
     def test_uppercase_run_id_rejected_by_assembly(self):
         from scenario_forge.pipeline.generate.assembly import _validate_run_id
 
-        with pytest.raises(ValueError, match="lowercase"):
+        with pytest.raises(ValueError):
             _validate_run_id("A" * 32)
 
     def test_uppercase_candidate_id_rejected_by_assembly(self):

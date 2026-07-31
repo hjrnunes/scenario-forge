@@ -12,8 +12,6 @@ B. classify_entry_point() must downgrade 'system' controllability to 'indirect'
 
 from __future__ import annotations
 
-import pytest
-
 from scenario_forge.eval.diversity import entry_point_entropy
 from scenario_forge.pipeline.candidates import classify_entry_point
 
@@ -29,9 +27,7 @@ class TestCoverageDenominatorExcludesOutput:
     @staticmethod
     def _scenarios_using(ep_names: list[str]) -> list[dict]:
         """Build minimal scenario dicts with the given entry point names."""
-        return [
-            {"narrative": {"entry_point": name}} for name in ep_names
-        ]
+        return [{"narrative": {"entry_point": name}} for name in ep_names]
 
     def test_coverage_excludes_output_eps(self):
         """With 3 ingress EPs + 1 output EP, denominator should be 3 not 4.
@@ -75,11 +71,9 @@ class TestRunnerCoverageDenominator:
 
     def test_runner_filters_output_eps(self, tmp_path):
         """run_evaluation uses ingress-only count for expected_entry_points."""
-        import yaml
-
         from scenario_forge.eval.runner import run_evaluation
+        from tests.manifest_helpers import build_test_run_dir
 
-        # Write a capability profile with mixed entry points
         cap_profile = {
             "entry_points": [
                 {"name": "user chat", "direction": "input"},
@@ -88,35 +82,31 @@ class TestRunnerCoverageDenominator:
             ],
             "zones_active": ["input", "reasoning"],
         }
-        (tmp_path / "capability-profile.yaml").write_text(
-            yaml.dump(cap_profile), encoding="utf-8"
-        )
-
-        # Write scenarios using both ingress EPs
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
+        scenarios = []
         for i, ep in enumerate(["user chat", "document upload"]):
-            scenario = {
-                "scenario_id": f"s{i}",
-                "narrative": {
-                    "title": f"Scenario {i}",
-                    "summary": "A test",
-                    "entry_point": ep,
-                    "zone_sequence": ["input", "reasoning"],
-                    "steps": [],
-                },
-                "actor_profile": {
-                    "actor_type": "external",
-                    "goal_category": "data theft",
-                    "capability_level": "intermediate",
-                },
-                "attack_tree": {"id": f"tree-{i}", "goal": "test", "root": {}},
-            }
-            (scenarios_dir / f"s{i}.yaml").write_text(
-                yaml.dump(scenario), encoding="utf-8"
+            scenarios.append(
+                {
+                    "scenario_id": f"s{i}",
+                    "narrative": {
+                        "title": f"Scenario {i}",
+                        "summary": "A test",
+                        "entry_point": ep,
+                        "zone_sequence": ["input", "reasoning"],
+                        "steps": [],
+                    },
+                    "actor_profile": {
+                        "actor_type": "external",
+                        "goal_category": "data theft",
+                        "capability_level": "intermediate",
+                    },
+                    "attack_tree": {"id": f"tree-{i}", "goal": "test", "root": {}},
+                }
             )
 
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(
+            tmp_path / "run", profile_data=cap_profile, scenarios=scenarios
+        )
+        scorecard = run_evaluation(run_dir)
         diversity = scorecard["evaluation"]["diversity"]
         ep_entropy = diversity["entry_point_entropy"]
 
@@ -126,9 +116,8 @@ class TestRunnerCoverageDenominator:
 
     def test_runner_coverage_all_output_eps(self, tmp_path):
         """When all EPs are output-only, expected_entry_points = 0."""
-        import yaml
-
         from scenario_forge.eval.runner import run_evaluation
+        from tests.manifest_helpers import build_test_run_dir
 
         cap_profile = {
             "entry_points": [
@@ -136,13 +125,11 @@ class TestRunnerCoverageDenominator:
             ],
             "zones_active": ["input"],
         }
-        (tmp_path / "capability-profile.yaml").write_text(
-            yaml.dump(cap_profile), encoding="utf-8"
-        )
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
 
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(
+            tmp_path / "run", profile_data=cap_profile, scenarios=[]
+        )
+        scorecard = run_evaluation(run_dir)
         diversity = scorecard["evaluation"]["diversity"]
         ep_entropy = diversity["entry_point_entropy"]
 
@@ -152,41 +139,38 @@ class TestRunnerCoverageDenominator:
 
     def test_runner_string_entry_points_not_filtered(self, tmp_path):
         """Plain-string entry points (no direction key) are always counted."""
-        import yaml
-
         from scenario_forge.eval.runner import run_evaluation
+        from tests.manifest_helpers import build_test_run_dir
 
         cap_profile = {
             "entry_points": ["user chat", "document upload", "API"],
             "zones_active": ["input"],
         }
-        (tmp_path / "capability-profile.yaml").write_text(
-            yaml.dump(cap_profile), encoding="utf-8"
-        )
-        scenarios_dir = tmp_path / "scenarios"
-        scenarios_dir.mkdir()
+        scenarios = []
         for i, ep in enumerate(["user chat", "document upload", "api"]):
-            scenario = {
-                "scenario_id": f"s{i}",
-                "narrative": {
-                    "title": f"S{i}",
-                    "summary": "A test",
-                    "entry_point": ep,
-                    "zone_sequence": ["input"],
-                    "steps": [],
-                },
-                "actor_profile": {
-                    "actor_type": "external",
-                    "goal_category": "data theft",
-                    "capability_level": "intermediate",
-                },
-                "attack_tree": {"id": f"tree-{i}", "goal": "test", "root": {}},
-            }
-            (scenarios_dir / f"s{i}.yaml").write_text(
-                yaml.dump(scenario), encoding="utf-8"
+            scenarios.append(
+                {
+                    "scenario_id": f"s{i}",
+                    "narrative": {
+                        "title": f"S{i}",
+                        "summary": "A test",
+                        "entry_point": ep,
+                        "zone_sequence": ["input"],
+                        "steps": [],
+                    },
+                    "actor_profile": {
+                        "actor_type": "external",
+                        "goal_category": "data theft",
+                        "capability_level": "intermediate",
+                    },
+                    "attack_tree": {"id": f"tree-{i}", "goal": "test", "root": {}},
+                }
             )
 
-        scorecard = run_evaluation(tmp_path)
+        run_dir = build_test_run_dir(
+            tmp_path / "run", profile_data=cap_profile, scenarios=scenarios
+        )
+        scorecard = run_evaluation(run_dir)
         diversity = scorecard["evaluation"]["diversity"]
         ep_entropy = diversity["entry_point_entropy"]
 
@@ -212,9 +196,7 @@ class TestControllabilityReclassification:
 
     def test_system_input_becomes_indirect(self):
         """Input-direction with system controllability -> indirect."""
-        result = classify_entry_point(
-            "scheduled data feed", "input", "system"
-        )
+        result = classify_entry_point("scheduled data feed", "input", "system")
         assert result == "indirect"
 
     def test_system_output_stays_system(self):
@@ -252,16 +234,12 @@ class TestControllabilityAdversarial:
         """Without explicit controllability, system-keyword input EPs use
         the keyword heuristic and remain 'system' (the override only applies
         to explicit controllability)."""
-        result = classify_entry_point(
-            "internal backend scheduler API", "input", None
-        )
+        result = classify_entry_point("internal backend scheduler API", "input", None)
         assert result == "system"
 
     def test_truly_output_only_system_entry_point(self):
         """A genuine output-only system entry point stays 'system'."""
-        result = classify_entry_point(
-            "monitoring dashboard alerts", "output", "system"
-        )
+        result = classify_entry_point("monitoring dashboard alerts", "output", "system")
         assert result == "system"
 
     def test_bidirectional_system_not_direct(self):

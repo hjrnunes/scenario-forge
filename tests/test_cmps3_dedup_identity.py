@@ -517,7 +517,7 @@ class TestScenarioIdCollisionSafety:
         """Scenario ID digest provides at least 128 bits of collision
         resistance (64 hex chars = 256 bits)."""
         sid = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
@@ -529,12 +529,12 @@ class TestScenarioIdCollisionSafety:
     def test_different_run_ids_different_scenario_ids(self):
         """Same candidate+attempt but different run → different scenario ID."""
         sid1 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "20240101T120001_bbcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
@@ -543,12 +543,12 @@ class TestScenarioIdCollisionSafety:
     def test_different_attempts_different_scenario_ids(self):
         """Same run+candidate but different attempt → different scenario ID."""
         sid1 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             2,
         )
@@ -557,22 +557,27 @@ class TestScenarioIdCollisionSafety:
     def test_different_candidates_different_scenario_ids(self):
         """Same run+attempt but different candidate → different scenario ID."""
         sid1 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "20240101T120000_abcdef1234567890abcdef1234567890",
             "cand:v1:22222222222222222222222222222222",
             1,
         )
         assert sid1 != sid2
 
-    def test_run_id_is_128_bits(self):
-        """generate_run_id produces a 32-char hex (128-bit) string."""
+    def test_run_id_is_sortable_128bit(self):
+        """generate_run_id produces a 48-char sortable format (YYYYMMDDTHHMMSS_<32hex>)."""
         rid = generate_run_id()
-        assert len(rid) == 32
-        int(rid, 16)  # Valid hex
+        assert len(rid) == 48
+        # Format: YYYYMMDDTHHMMSS_<32hex>
+        assert "_" in rid
+        ts_part, hex_part = rid.split("_", 1)
+        assert len(ts_part) == 15  # YYYYMMDDTHHMMSS
+        assert len(hex_part) == 32  # 128-bit hex suffix
+        int(hex_part, 16)  # Valid hex suffix
 
     def test_run_ids_are_unique(self):
         """Two calls to generate_run_id produce different values."""

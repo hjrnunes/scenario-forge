@@ -1,32 +1,41 @@
-"""Tests for the pipeline I/O boundary layer (``scenario_forge.pipeline.io``)."""
+"""Tests for the pipeline I/O boundary and manifest lifecycle."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import ANY, patch
 
 import pytest
 import yaml
 
+from scenario_forge.manifest import (
+    ArtifactRole,
+    ManifestIntegrityError,
+    RunManifest,
+    RunStatus,
+    build_artifact_entry,
+    finalize_manifest,
+    generate_sortable_run_id,
+    load_manifest,
+    load_strict_resolver,
+    resolve_run_dir,
+    write_manifest_sentinel,
+)
 from scenario_forge.pipeline.io import (
     get_scenarios_dir,
-    setup_pipeline_output,
     write_capability_profile,
     write_eval_scorecard,
-    write_final_manifest,
     write_pipeline_call_log,
     write_threat_surface,
+    write_use_case,
 )
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
-def output_dir(tmp_path: Path) -> Path:
-    return tmp_path / "pipeline-output"
+def run_dir(tmp_path: Path) -> Path:
+    path = tmp_path / "pipeline-output"
+    path.mkdir()
+    return path
 
 
 @pytest.fixture
@@ -50,397 +59,168 @@ def minimal_threat_surface():
     return ThreatSurface(entries=[], governance_only=[])
 
 
-# ---------------------------------------------------------------------------
-# setup_pipeline_output
-# ---------------------------------------------------------------------------
+class TestRunSetup:
+    def test_resolves_run_and_writes_sentinel_and_use_case(
+        self, tmp_path: Path
+    ) -> None:
+        collection_dir = tmp_path / "collection"
+        timestamp_start = datetime.now(UTC).isoformat()
 
+        run_dir, run_id = resolve_run_dir(collection_dir)
+        manifest_path = write_manifest_sentinel(run_dir, run_id, timestamp_start)
+        use_case_path = write_use_case(run_dir, "An AI chatbot")
 
-class TestSetupPipelineOutput:
-    def test_creates_output_dir(self, output_dir: Path) -> None:
-        setup_pipeline_output(output_dir, "test use case")
-        assert output_dir.is_dir()
-
-    def test_writes_use_case_txt(self, output_dir: Path) -> None:
-        use_case = "An AI chatbot for billing inquiries"
-        setup_pipeline_output(output_dir, use_case)
-
-        use_case_path = output_dir / "use-case.txt"
-        assert use_case_path.exists()
-        assert use_case_path.read_text() == use_case
-
-    def test_writes_manifest_sentinel(self, output_dir: Path) -> None:
-        setup_pipeline_output(output_dir, "test")
-
-        manifest_path = output_dir / "run-manifest.yaml"
-        assert manifest_path.exists()
+        assert run_dir.parent == collection_dir
+        assert run_dir.name == run_id
+        assert use_case_path.read_text(encoding="utf-8") == "An AI chatbot"
         manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
         assert manifest["status"] == "started"
-        assert "timestamp_start" in manifest
-        assert "version" in manifest
+        assert manifest["run_id"] == run_id
+        assert manifest["timestamp_start"] == timestamp_start
+        assert manifest["manifest_version"] == "2"
 
-    def test_returns_timestamp(self, output_dir: Path) -> None:
-        ts = setup_pipeline_output(output_dir, "test")
-        assert isinstance(ts, str)
-        # ISO format includes 'T'
-        assert "T" in ts
+    def test_generated_run_id_is_sortable(self) -> None:
+        run_id = generate_sortable_run_id()
 
-    def test_idempotent_on_existing_dir(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
-        # Should not raise when dir already exists
-        setup_pipeline_output(output_dir, "test")
-        assert (output_dir / "use-case.txt").exists()
+        assert len(run_id) == 48
+        assert run_id[8] == "T"
+        assert run_id[15] == "_"
+        int(run_id[16:], 16)
 
+    def test_run_directory_collision_raises(self, tmp_path: Path) -> None:
+        collection_dir = tmp_path / "collection"
+        run_id = generate_sortable_run_id()
+        resolve_run_dir(collection_dir, run_id)
 
-# ---------------------------------------------------------------------------
-# write_capability_profile
-# ---------------------------------------------------------------------------
+        with pytest.raises(FileExistsError):
+            resolve_run_dir(collection_dir, run_id)
 
 
 class TestWriteCapabilityProfile:
-    def test_writes_yaml_file(self, output_dir: Path, minimal_profile) -> None:
-        output_dir.mkdir(parents=True)
-        path = write_capability_profile(minimal_profile, output_dir)
+    def test_writes_yaml_file(self, run_dir: Path, minimal_profile) -> None:
+        path = write_capability_profile(minimal_profile, run_dir)
 
-        assert path == output_dir / "capability-profile.yaml"
-        assert path.exists()
-
-    def test_yaml_content_matches_profile(
-        self, output_dir: Path, minimal_profile
-    ) -> None:
-        output_dir.mkdir(parents=True)
-        write_capability_profile(minimal_profile, output_dir)
-
-        written = yaml.safe_load(
-            (output_dir / "capability-profile.yaml").read_text(encoding="utf-8")
-        )
+        assert path == run_dir / "capability-profile.yaml"
+        written = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert written["zones_active"] == ["input", "reasoning"]
         assert written["confidence"] == "high"
 
-    def test_returns_correct_path(self, output_dir: Path, minimal_profile) -> None:
-        output_dir.mkdir(parents=True)
-        path = write_capability_profile(minimal_profile, output_dir)
-        assert path.name == "capability-profile.yaml"
-        assert path.parent == output_dir
-
-
-# ---------------------------------------------------------------------------
-# write_threat_surface
-# ---------------------------------------------------------------------------
-
 
 class TestWriteThreatSurface:
-    def test_writes_yaml_file(self, output_dir: Path, minimal_threat_surface) -> None:
-        output_dir.mkdir(parents=True)
-        path = write_threat_surface(minimal_threat_surface, output_dir)
+    def test_writes_yaml_file(self, run_dir: Path, minimal_threat_surface) -> None:
+        path = write_threat_surface(minimal_threat_surface, run_dir)
 
-        assert path == output_dir / "threat-surface.yaml"
-        assert path.exists()
-
-    def test_yaml_content_matches_surface(
-        self, output_dir: Path, minimal_threat_surface
-    ) -> None:
-        output_dir.mkdir(parents=True)
-        write_threat_surface(minimal_threat_surface, output_dir)
-
-        written = yaml.safe_load(
-            (output_dir / "threat-surface.yaml").read_text(encoding="utf-8")
-        )
+        assert path == run_dir / "threat-surface.yaml"
+        written = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert written["entries"] == []
         assert written["governance_only"] == []
 
 
-# ---------------------------------------------------------------------------
-# write_pipeline_call_log
-# ---------------------------------------------------------------------------
-
-
 class TestWritePipelineCallLog:
-    def test_writes_jsonl_file(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
-        entries = [{"call": "test", "tokens": 42}]
-        write_pipeline_call_log(entries, output_dir)
+    def test_writes_and_appends_jsonl(self, run_dir: Path) -> None:
+        write_pipeline_call_log([{"call": "first"}], run_dir)
+        write_pipeline_call_log([{"call": "second"}], run_dir)
 
-        calls_path = output_dir / "calls.jsonl"
-        assert calls_path.exists()
-        lines = calls_path.read_text(encoding="utf-8").strip().split("\n")
-        assert len(lines) == 1
-
-    def test_appends_to_existing_file(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
-        write_pipeline_call_log([{"call": "first"}], output_dir)
-        write_pipeline_call_log([{"call": "second"}], output_dir)
-
-        calls_path = output_dir / "calls.jsonl"
-        lines = calls_path.read_text(encoding="utf-8").strip().split("\n")
+        lines = (run_dir / "calls.jsonl").read_text(encoding="utf-8").splitlines()
         assert len(lines) == 2
 
-    def test_noop_on_empty_entries(self, output_dir: Path) -> None:
-        # Should not create directory or file when entries are empty
-        write_pipeline_call_log([], output_dir)
-        assert not output_dir.exists()
+    def test_noop_on_empty_entries(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "missing-run"
 
-    def test_creates_dir_if_missing(self, output_dir: Path) -> None:
-        write_pipeline_call_log([{"call": "test"}], output_dir)
-        assert output_dir.is_dir()
+        write_pipeline_call_log([], run_dir)
 
+        assert not run_dir.exists()
 
-# ---------------------------------------------------------------------------
-# get_scenarios_dir
-# ---------------------------------------------------------------------------
+    def test_creates_dir_if_missing(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "missing-run"
+
+        write_pipeline_call_log([{"call": "test"}], run_dir)
+
+        assert run_dir.is_dir()
 
 
 class TestGetScenariosDir:
-    def test_returns_scenarios_subdirectory(self, output_dir: Path) -> None:
-        result = get_scenarios_dir(output_dir)
-        assert result == output_dir / "scenarios"
+    def test_returns_scenarios_subdirectory(self, run_dir: Path) -> None:
+        result = get_scenarios_dir(run_dir)
 
-    def test_does_not_create_directory(self, output_dir: Path) -> None:
-        get_scenarios_dir(output_dir)
-        assert not output_dir.exists()
+        assert result == run_dir / "scenarios"
+        assert not result.exists()
 
 
-# ---------------------------------------------------------------------------
-# write_final_manifest
-# ---------------------------------------------------------------------------
-
-
-class TestWriteFinalManifest:
-    def test_writes_yaml_file(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
-        manifest = {
-            "version": "0.1.0",
-            "timestamp_start": "2025-01-01T00:00:00+00:00",
-            "timestamp_end": "2025-01-01T00:01:00+00:00",
-            "scenarios_generated": 5,
-        }
-        path = write_final_manifest(manifest, output_dir)
-
-        assert path == output_dir / "run-manifest.yaml"
-        assert path.exists()
-
-    def test_overwrites_sentinel(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
-        # Write sentinel first
-        sentinel_path = output_dir / "run-manifest.yaml"
-        sentinel_path.write_text(yaml.dump({"status": "started"}), encoding="utf-8")
-
-        # Final manifest should overwrite
-        manifest = {"version": "0.1.0", "scenarios_generated": 10}
-        write_final_manifest(manifest, output_dir)
-
-        written = yaml.safe_load(sentinel_path.read_text(encoding="utf-8"))
-        assert "status" not in written
-        assert written["scenarios_generated"] == 10
-
-    def test_yaml_content_matches_input(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
-        manifest = {"version": "1.0", "seeds_generated": 3}
-        write_final_manifest(manifest, output_dir)
-
-        written = yaml.safe_load(
-            (output_dir / "run-manifest.yaml").read_text(encoding="utf-8")
+class TestFinalizeManifest:
+    def test_overwrites_sentinel_with_final_manifest(self, run_dir: Path) -> None:
+        run_id = generate_sortable_run_id()
+        timestamp_start = "2025-01-01T00:00:00+00:00"
+        write_manifest_sentinel(run_dir, run_id, timestamp_start)
+        manifest = RunManifest(
+            status=RunStatus.COMPLETED,
+            run_id=run_id,
+            timestamp_start=timestamp_start,
+            timestamp_end="2025-01-01T00:01:00+00:00",
+            scenarios_generated=5,
         )
-        assert written == manifest
+
+        path = finalize_manifest(run_dir, manifest)
+
+        assert path == run_dir / "run-manifest.yaml"
+        loaded = load_manifest(run_dir)
+        assert loaded.status == RunStatus.COMPLETED
+        assert loaded.scenarios_generated == 5
+        assert loaded.timestamp_end == "2025-01-01T00:01:00+00:00"
+
+    def test_rejects_non_final_status(self, run_dir: Path) -> None:
+        manifest = RunManifest(
+            run_id=generate_sortable_run_id(),
+            timestamp_start="2025-01-01T00:00:00+00:00",
+        )
+
+        with pytest.raises(ValueError, match="non-final status"):
+            finalize_manifest(run_dir, manifest)
 
 
-# ---------------------------------------------------------------------------
-# write_eval_scorecard
-# ---------------------------------------------------------------------------
+class TestStrictManifestResolver:
+    def _finalize_with_use_case(self, run_dir: Path) -> None:
+        run_id = generate_sortable_run_id()
+        timestamp_start = "2025-01-01T00:00:00+00:00"
+        write_use_case(run_dir, "test use case")
+        entry = build_artifact_entry(ArtifactRole.USE_CASE, run_dir, "use-case.txt")
+        finalize_manifest(
+            run_dir,
+            RunManifest(
+                status=RunStatus.COMPLETED,
+                run_id=run_id,
+                timestamp_start=timestamp_start,
+                timestamp_end="2025-01-01T00:01:00+00:00",
+                inventory=[entry],
+            ),
+        )
+
+    def test_verifies_inventory_hashes(self, run_dir: Path) -> None:
+        self._finalize_with_use_case(run_dir)
+
+        resolver = load_strict_resolver(run_dir)
+        entry = resolver.entry_by_role(ArtifactRole.USE_CASE)
+
+        assert entry is not None
+        assert resolver.read_text(entry) == "test use case"
+
+        (run_dir / "use-case.txt").write_text("tampered", encoding="utf-8")
+        with pytest.raises(ManifestIntegrityError, match="Hash mismatch"):
+            load_strict_resolver(run_dir)
+
+    def test_detects_orphan_files(self, run_dir: Path) -> None:
+        self._finalize_with_use_case(run_dir)
+        (run_dir / "orphan.txt").write_text("not inventoried", encoding="utf-8")
+
+        with pytest.raises(ManifestIntegrityError, match="orphan.txt"):
+            load_strict_resolver(run_dir)
 
 
 class TestWriteEvalScorecard:
-    def test_writes_yaml_file(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
+    def test_writes_yaml_file(self, run_dir: Path) -> None:
         scorecard = {"overall_score": 0.85, "metrics": {"consistency": 0.9}}
-        path = write_eval_scorecard(scorecard, output_dir)
 
-        assert path == output_dir / "eval-scorecard.yaml"
-        assert path.exists()
+        path = write_eval_scorecard(scorecard, run_dir)
 
-    def test_yaml_content_matches_input(self, output_dir: Path) -> None:
-        output_dir.mkdir(parents=True)
-        scorecard = {"overall_score": 0.85, "metrics": {"diversity": 0.7}}
-        write_eval_scorecard(scorecard, output_dir)
-
-        written = yaml.safe_load(
-            (output_dir / "eval-scorecard.yaml").read_text(encoding="utf-8")
-        )
-        assert written == scorecard
-
-
-# ---------------------------------------------------------------------------
-# Integration: runner uses I/O boundary instead of inline writes
-# ---------------------------------------------------------------------------
-
-
-class TestRunnerUsesIOBoundary:
-    """Verify that runner.run_pipeline delegates writes to the I/O module."""
-
-    @patch("scenario_forge.report.generator.generate_report")
-    @patch("scenario_forge.pipeline.runner.write_coverage_report")
-    @patch("scenario_forge.pipeline.runner.analyze_attacker_diversity")
-    @patch("scenario_forge.pipeline.runner.analyze_coverage_gaps")
-    @patch("scenario_forge.pipeline.runner.expand_seeds", return_value=[])
-    @patch("scenario_forge.pipeline.runner.determine_threat_surface")
-    @patch("scenario_forge.pipeline.runner.validate_risk_card_coherence")
-    @patch("scenario_forge.pipeline.runner.load_risk_extraction", return_value=[])
-    @patch("scenario_forge.pipeline.runner.infer_capability_profile")
-    def test_setup_writes_via_io_module(
-        self,
-        mock_profile,
-        mock_load,
-        mock_coherence,
-        mock_threats,
-        mock_seeds,
-        mock_gaps,
-        mock_diversity,
-        mock_coverage_report,
-        mock_report,
-        output_dir: Path,
-        tmp_path: Path,
-        minimal_profile,
-    ) -> None:
-        """run_pipeline should produce the same output files via the I/O boundary."""
-        from unittest.mock import MagicMock
-
-        from scenario_forge.llm.client import LLMResult
-        from scenario_forge.pipeline.runner import run_pipeline
-        from scenario_forge.pipeline.threats import ThreatSurface
-
-        llm_result = LLMResult(
-            content="mock",
-            prompt_tokens=10,
-            completion_tokens=20,
-            duration_ms=100,
-            system_prompt="system",
-            user_prompt="user",
-        )
-        mock_profile.return_value = (minimal_profile, llm_result)
-
-        coherence = MagicMock()
-        coherence.has_warnings = False
-        mock_coherence.return_value = coherence
-
-        mock_threats.return_value = ThreatSurface(entries=[], governance_only=[])
-
-        gaps = MagicMock()
-        gaps.uncovered_entry_points = []
-        mock_gaps.return_value = gaps
-
-        risk_path = tmp_path / "risk.json"
-        risk_path.write_text("[]")
-        sssom_path = tmp_path / "sssom.tsv"
-        sssom_path.write_text("")
-
-        run_pipeline(
-            use_case="A test chatbot",
-            risk_extraction_path=risk_path,
-            sssom_path=sssom_path,
-            output_dir=output_dir,
-            eval=False,
-        )
-
-        # All expected output files must exist
-        assert (output_dir / "use-case.txt").exists()
-        assert (output_dir / "use-case.txt").read_text() == "A test chatbot"
-        assert (output_dir / "capability-profile.yaml").exists()
-        assert (output_dir / "threat-surface.yaml").exists()
-        assert (output_dir / "run-manifest.yaml").exists()
-
-        # Final manifest should not have "started" status
-        manifest = yaml.safe_load(
-            (output_dir / "run-manifest.yaml").read_text(encoding="utf-8")
-        )
-        assert "status" not in manifest
-        assert "version" in manifest
-        assert "timestamp_start" in manifest
-        assert "timestamp_end" in manifest
-
-    @patch("scenario_forge.report.generator.generate_report")
-    @patch("scenario_forge.pipeline.runner.write_coverage_report")
-    @patch("scenario_forge.pipeline.runner.analyze_attacker_diversity")
-    @patch("scenario_forge.pipeline.runner.analyze_coverage_gaps")
-    @patch("scenario_forge.pipeline.runner.expand_seeds", return_value=[])
-    @patch("scenario_forge.pipeline.runner.determine_threat_surface")
-    @patch("scenario_forge.pipeline.runner.validate_risk_card_coherence")
-    @patch("scenario_forge.pipeline.runner.load_risk_extraction", return_value=[])
-    @patch("scenario_forge.pipeline.runner.infer_capability_profile")
-    def test_io_functions_are_mockable(
-        self,
-        mock_profile,
-        mock_load,
-        mock_coherence,
-        mock_threats,
-        mock_seeds,
-        mock_gaps,
-        mock_diversity,
-        mock_coverage_report,
-        mock_report,
-        output_dir: Path,
-        tmp_path: Path,
-        minimal_profile,
-    ) -> None:
-        """The I/O boundary functions can be mocked to test pipeline logic without filesystem."""
-        from unittest.mock import MagicMock
-
-        from scenario_forge.llm.client import LLMResult
-        from scenario_forge.pipeline.threats import ThreatSurface
-
-        llm_result = LLMResult(
-            content="mock",
-            prompt_tokens=10,
-            completion_tokens=20,
-            duration_ms=100,
-            system_prompt="system",
-            user_prompt="user",
-        )
-        mock_profile.return_value = (minimal_profile, llm_result)
-
-        coherence = MagicMock()
-        coherence.has_warnings = False
-        mock_coherence.return_value = coherence
-
-        mock_threats.return_value = ThreatSurface(entries=[], governance_only=[])
-
-        gaps = MagicMock()
-        gaps.uncovered_entry_points = []
-        mock_gaps.return_value = gaps
-
-        risk_path = tmp_path / "risk.json"
-        risk_path.write_text("[]")
-        sssom_path = tmp_path / "sssom.tsv"
-        sssom_path.write_text("")
-
-        with (
-            patch(
-                "scenario_forge.pipeline.runner.setup_pipeline_output",
-                return_value="2025-01-01T00:00:00+00:00",
-            ) as mock_setup,
-            patch(
-                "scenario_forge.pipeline.runner.write_capability_profile",
-                return_value=output_dir / "capability-profile.yaml",
-            ) as mock_write_profile,
-            patch(
-                "scenario_forge.pipeline.runner.write_threat_surface",
-                return_value=output_dir / "threat-surface.yaml",
-            ) as mock_write_ts,
-            patch(
-                "scenario_forge.pipeline.runner.write_final_manifest",
-                return_value=output_dir / "run-manifest.yaml",
-            ) as mock_write_manifest,
-        ):
-            from scenario_forge.pipeline.runner import run_pipeline
-
-            run_pipeline(
-                use_case="A test chatbot",
-                risk_extraction_path=risk_path,
-                sssom_path=sssom_path,
-                output_dir=output_dir,
-                eval=False,
-            )
-
-            # All I/O boundary functions should have been called
-            mock_setup.assert_called_once_with(output_dir, "A test chatbot", run_id=ANY)
-            mock_write_profile.assert_called_once()
-            mock_write_ts.assert_called_once()
-            mock_write_manifest.assert_called_once()
+        assert path == run_dir / "eval-scorecard.yaml"
+        assert yaml.safe_load(path.read_text(encoding="utf-8")) == scorecard
