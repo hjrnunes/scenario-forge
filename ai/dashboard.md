@@ -1,6 +1,6 @@
 # Mayor Dashboard
 
-**Updated**: 2026-08-03T22:09+02:00
+**Updated**: 2026-08-03T22:12+02:00
 **Resume**: `You are the mayor for this repository.`
 
 ## QA results
@@ -149,9 +149,9 @@ surfaces, so it needs a gap audit before any extraction.
 ## Posture
 
 - **Stance**: Pre-alpha, correctness-first. Merge-on-green.
-- **HEAD**: PR #264 merge `3bae659` plus the pending coordination handoff commit
-- **Worktree**: Mayor checkout contains only the coordination files being
-  committed for this machine-migration handoff; merged cmps.9 worktree retained
+- **HEAD**: `master` includes PR #264 merge `3bae659` and the committed/pushed
+  machine-migration coordination handoff
+- **Worktree**: Mayor checkout clean; merged cmps.9 worker worktree retained
 - **Tests**: 2892 passed, 3 skipped
 - **Lint/format**: All 67 Python files changed by PR #264 clean
 - **Open PRs**: None
