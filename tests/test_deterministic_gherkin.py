@@ -11,24 +11,30 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import (
+    AiSystemAction,
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+    InitialIngressAction,
+    ToolInvocationAction,
+)
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
     ToolInventoryEntry,
+    compute_tool_id,
 )
-from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
+from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep, RiskCardRef
 from scenario_forge.pipeline.generate import (
+    _ASSERTIONS_MARKER,
     THREAT_VIOLATION_CATEGORY,
     _build_gherkin_template,
     _call_behavior_spec,
     _collect_leaf_nodes_dfs,
     _enumerate_paths,
-    _ASSERTIONS_MARKER,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.models.scenario import RiskCardRef
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -115,6 +121,7 @@ def _make_leaf(
         label=label,
         gate=GateType.LEAF,
         zone=zone,
+        action=AiSystemAction(),
         technique_id=technique_id,
     )
 
@@ -136,6 +143,22 @@ def _make_tree_simple() -> AttackTree:
             ],
         ),
     )
+
+
+def _make_tree_with_initial_ingress(entry_point_id: str) -> AttackTree:
+    """Tree whose first typed action references a profile entry point."""
+    tree = _make_tree_simple()
+    tree.root.children.insert(
+        0,
+        AttackTreeNode(
+            id="n1.0",
+            label="Legacy narrative entry point label",
+            gate=GateType.LEAF,
+            zone="input",
+            action=InitialIngressAction(entry_point_id=entry_point_id),
+        ),
+    )
+    return tree
 
 
 def _make_tree_deep() -> AttackTree:
@@ -190,6 +213,7 @@ def _make_tree_single_leaf() -> AttackTree:
             label="Direct exploit",
             gate=GateType.LEAF,
             zone="input",
+            action=AiSystemAction(),
             technique_id="AML.T0051",
         ),
     )
@@ -431,14 +455,17 @@ class TestBuildGherkinTemplate:
         assert f"Feature: {narrative.title}" in template
 
     def test_background_given_contains_entry_point(self):
+        profile = _make_profile()
         template = _build_gherkin_template(
             narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
-            profile=_make_profile(),
+            attack_tree=_make_tree_with_initial_ingress(
+                profile.entry_points[0].entry_point_id
+            ),
+            profile=profile,
             seed=_make_seed(),
             scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
-        assert "Given user prompts via chat widget (input)" in template
+        assert "When user prompts via chat widget (input)" in template
 
     def test_when_and_steps_from_leaf_nodes(self):
         template = _build_gherkin_template(
@@ -560,15 +587,12 @@ class TestBuildGherkinTemplate:
 
     # --- Regression tests for Gherkin projection bugs (scenario-forge-vaxe) ---
 
-    def test_no_doubled_zone_label_in_entry_point(self):
-        """Entry points already containing a zone suffix should not be doubled.
-
-        Bug: 'user queries via app (input)' became '(input) (input)'.
-        """
+    def test_initial_ingress_uses_profile_effective_zone(self):
+        """Typed ingress uses the profile name and effective ingress zone."""
         narrative = NarrativeLayer(
             title="Test scenario",
             summary="Test summary",
-            entry_point="user queries via Klarna app (input)",
+            entry_point="obsolete narrative entry point (reasoning)",
             zone_sequence=["input", "reasoning"],
             steps=[
                 NarrativeStep(
@@ -579,16 +603,30 @@ class TestBuildGherkinTemplate:
                 ),
             ],
         )
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning"],
+            entry_points=[
+                {
+                    "name": "user queries via Klarna app",
+                    "direction": "input",
+                    "controllability": "direct",
+                    "ingress_zone": "input",
+                }
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1"],
+        )
         template = _build_gherkin_template(
             narrative=narrative,
-            attack_tree=_make_tree_simple(),
-            profile=_make_profile(),
+            attack_tree=_make_tree_with_initial_ingress(
+                profile.entry_points[0].entry_point_id
+            ),
+            profile=profile,
             seed=_make_seed(),
             scenario_tag="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         )
-        # Should appear exactly once, not doubled
-        assert "(input) (input)" not in template
-        assert "user queries via Klarna app (input)" in template
+        assert "When user queries via Klarna app (input)" in template
+        assert "obsolete narrative entry point" not in template
 
     def test_raw_technique_id_label_resolved(self):
         """Leaf nodes whose label is a raw technique ID should render
@@ -669,7 +707,7 @@ class TestCallBehaviorSpecIntegration:
         mock_result.user_prompt = "test"
         mock_client.complete.return_value = mock_result
 
-        gherkin, result = _call_behavior_spec(
+        gherkin, _result = _call_behavior_spec(
             seed=_make_seed(),
             narrative=_make_narrative(),
             attack_tree=_make_tree_simple(),
@@ -916,6 +954,9 @@ class TestRawTechniqueNameSubstitution:
                         label="AI Agent Tool Invocation",
                         gate=GateType.LEAF,
                         zone="tool_execution",
+                        action=ToolInvocationAction(
+                            tool_id=compute_tool_id("test_tool", "A test tool")
+                        ),
                         technique_id="AML.T0053",
                         description="Agent invokes external API beyond scope",
                     ),
@@ -958,6 +999,7 @@ class TestRawTechniqueNameSubstitution:
                         label="Indirect Prompt Injection",
                         gate=GateType.LEAF,
                         zone="input",
+                        action=AiSystemAction(),
                         technique_id="AML.T0051.001",
                         # no description
                     ),
@@ -997,6 +1039,7 @@ class TestRawTechniqueNameSubstitution:
                         label="llm jailbreak",  # lowercase variant
                         gate=GateType.LEAF,
                         zone="input",
+                        action=AiSystemAction(),
                         technique_id="AML.T0054",
                         description="Bypass safety via crafted prompts",
                     ),

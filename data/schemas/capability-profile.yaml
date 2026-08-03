@@ -23,14 +23,14 @@
 #   Zone 5 = Inter-Agent Communication
 #
 # A plain LLM is treated as a degenerate agent — "an agent that can
-# only talk" — with zones [1, 2]. As capabilities are added, zones
+# only talk" — with zones [input, reasoning]. As capabilities are added, zones
 # activate and additional threat families come into scope.
 #
 # ═══════════════════════════════════════════════════════════════════
 
 schema:
   name: capability_profile
-  version: "1.0.0"
+  version: "1.1.0"
   description: >
     Schema for the capability profile artifact produced by Stage 1
     (Capability Profile Inference) and optionally enriched by Stage 2
@@ -50,23 +50,20 @@ schema:
 
 stage_1:
   zones_active:
-    type: list[integer]
+    type: list[string]
     required: true
-    valid_values: [1, 2, 3, 4, 5]
+    valid_values: [input, reasoning, tool_execution, memory, inter_agent]
     description: >
       Which Schneider zones are active in the system under assessment.
-      Minimum is [1, 2] (Input + Reasoning) — every LLM system has
+      Minimum is [input, reasoning] (Input + Reasoning) — every LLM system has
       these. Additional zones activate as capabilities are present:
-        Zone 3 (Tool Execution): system can invoke tools, APIs, or
-          execute commands
-        Zone 4 (Memory & State): system has persistent memory across
-          sessions or interactions
-        Zone 5 (Inter-Agent Communication): system involves multiple
-          agents communicating with each other
+        tool_execution: system can invoke tools, APIs, or execute commands
+        memory: system has persistent memory across sessions or interactions
+        inter_agent: system involves multiple agents communicating with each other
     constraints:
-      - "Must contain at least [1, 2] — all LLM systems have input and reasoning"
-      - "Zone 4 active implies has_persistent_memory: true"
-      - "Zone 5 active implies multi_agent: true"
+      - "Must contain at least [input, reasoning] — all LLM systems have input and reasoning"
+      - "memory active implies has_persistent_memory: true"
+      - "inter_agent active implies multi_agent: true"
 
   has_persistent_memory:
     type: boolean
@@ -104,18 +101,43 @@ stage_1:
     threat_gating: "Enables HITL-specific threats (T10 Overwhelming Human in the Loop)"
 
   entry_points:
-    type: list[string]
+    type: list[EntryPoint]
     required: true
     description: >
-      Attack entry points identified in the system, annotated with
-      the Schneider zone they belong to. Each entry point is a
-      channel through which untrusted input can reach the system.
-      Examples: "user prompts (zone 1)", "RAG-retrieved documents
-      (zone 1)", "tool API responses (zone 3)", "inter-agent
-      messages (zone 5)".
+      Attack entry points identified in the system. Each entry point records
+      its explicit Schneider ingress_zone and has an application-assigned,
+      canonical entry_point_id in the format ep:v1:<32 hex>. The canonical ID,
+      rather than display text, is used by scenario initial_ingress actions.
     constraints:
       - "At least one entry point must be specified"
-      - "Each entry should be annotated with its zone in parentheses"
+      - "Each ingress-capable entry point must declare ingress_zone"
+      - "Output-only entry points (direction=output) must NOT declare ingress_zone"
+      - "Explicit controllability='system' is preserved — heuristics only apply when controllability is None"
+      - "System-controlled entry points are excluded from candidate expansion"
+      - "entry_point_id is computed by the application and must not be invented by the LLM"
+    item_schema:
+      name:
+        type: string
+        required: true
+      direction:
+        type: string
+        required: true
+        valid_values: [input, output, bidirectional]
+      controllability:
+        type: string
+        required: false
+        valid_values: [direct, indirect, system]
+      ingress_zone:
+        type: string
+        required: false
+        valid_values: [input, reasoning, tool_execution, memory, inter_agent]
+        description: "Canonical Schneider zone where ingress occurs; omitted for output-only entry points."
+      entry_point_id:
+        type: string
+        required: true
+        read_only: true
+        computed: true
+        pattern: "^ep:v1:[0-9a-f]{32}$"
 
   confidence:
     type: string
@@ -154,6 +176,60 @@ stage_1:
       replacing the current coarse zone-based gating. Until then,
       existing zone-based gating controls threat scope.
 
+  tool_inventory:
+    type: list[ToolInventoryEntry]
+    required: false
+    description: >
+      Tools and APIs the system can invoke. Required when tool execution is
+      active. Canonical tool IDs are computed by the application, never by
+      the inference model.
+    item_schema:
+      name:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+      tool_id:
+        type: string
+        required: true
+        read_only: true
+        computed: true
+        pattern: "^tool:v1:[0-9a-f]{32}$"
+        format: "tool:v1:<32 hex>"
+
+  entry_point_completeness:
+    type: string
+    required: false
+    default: inferred_partial
+    valid_values: [inferred_partial, operator_confirmed_complete]
+    description: >
+      Evidence state for the entry-point inventory. Only an operator-reviewed
+      profile may declare operator_confirmed_complete.
+
+  entry_point_evidence:
+    type: list[string]
+    required: false
+    default: []
+    description: >
+      Evidence supporting an operator-confirmed complete entry-point inventory.
+
+  tool_inventory_completeness:
+    type: string
+    required: false
+    default: inferred_partial
+    valid_values: [inferred_partial, operator_confirmed_complete]
+    description: >
+      Evidence state for the tool inventory. Only an operator-reviewed
+      profile may declare operator_confirmed_complete.
+
+  tool_inventory_evidence:
+    type: list[string]
+    required: false
+    default: []
+    description: >
+      Evidence supporting an operator-confirmed complete tool inventory.
+
 # ═══════════════════════════════════════════════════════════════════
 # Stage 2 Fields (optional)
 #
@@ -180,7 +256,7 @@ stage_2:
         description: "Tool or API name (e.g., 'database_query', 'send_email', 'execute_code')"
       zone:
         type: integer
-        description: "Schneider zone where this tool operates (typically 3)"
+        description: "Schneider zone where this tool operates (typically tool_execution)"
       can_modify_state:
         type: boolean
         description: "Whether the tool can write/modify external systems"
@@ -290,6 +366,13 @@ stage_2:
       name:
         type: string
         description: "Name of the external system (e.g., 'CRM', 'payment gateway', 'email service')"
+      integration_id:
+        type: string
+        required: true
+        read_only: true
+        computed: true
+        pattern: "^int:v1:[0-9a-f]{32}$"
+        format: "int:v1:<32 hex>"
       integration_type:
         type: string
         valid_values: [api, database, message_queue, file_system, web_service, other]
@@ -378,10 +461,10 @@ threat_scope_mapping:
   # ─── Always in scope (any LLM/agent system) ───────────────────
   # Decision tree Step 1: "Does the agent independently determine
   # the steps needed to achieve its goals?"
-  # Every system with zones [1, 2] has agency and reasoning.
+  # Every system with zones [input, reasoning] has agency and reasoning.
 
   always_in_scope:
-    condition: "zones_active includes [1, 2] (always true)"
+    condition: "zones_active includes [input, reasoning] (always true)"
     threats:
       - id: T6
         name: "Intent Breaking & Goal Manipulation"
@@ -421,7 +504,7 @@ threat_scope_mapping:
   # for decision-making?"
 
   memory_gated:
-    condition: "has_persistent_memory == true (implies zone 4 active)"
+    condition: "has_persistent_memory == true (implies memory active)"
     threats:
       - id: T1
         name: "Memory Poisoning"
@@ -440,12 +523,12 @@ threat_scope_mapping:
           across interactions. Extends LLM09 (Misinformation) through
           self-reinforcement mechanisms.
 
-  # ─── Gated by zone 3 (Tool Execution) ─────────────────────────
+  # ─── Gated by tool_execution (Tool Execution) ─────────────────────────
   # Decision tree Step 3: "Does the agent execute actions using
   # tools, system commands, or external integrations?"
 
   tool_execution_gated:
-    condition: "zones_active includes 3"
+    condition: "zones_active includes tool_execution"
     threats:
       - id: T2
         name: "Tool Misuse"
@@ -514,7 +597,7 @@ threat_scope_mapping:
   # interacting agents?"
 
   multi_agent_gated:
-    condition: "multi_agent == true (implies zone 5 active)"
+    condition: "multi_agent == true (implies inter_agent active)"
     threats:
       - id: T12
         name: "Agent Communication Poisoning"
@@ -543,7 +626,7 @@ threat_scope_mapping:
   # authentication to verify users, tools, or services?"
 
   auth_gated:
-    condition: "zones_active includes 3 AND system uses authentication for external services"
+    condition: "zones_active includes tool_execution AND system uses authentication for external services"
     threats:
       - id: T9
         name: "Identity Spoofing & Impersonation"
@@ -551,7 +634,7 @@ threat_scope_mapping:
           Requires authentication mechanisms to exploit. Attackers
           impersonate agents, users, or services by exploiting
           identity verification weaknesses. No LLM Top 10
-          predecessor — purely agentic. Note: activated when zone 3
+          predecessor — purely agentic. Note: activated when tool_execution
           is active and external integrations involve authentication,
           since identity is only meaningful when the system
           authenticates to or is authenticated by external parties.
@@ -579,13 +662,13 @@ examples:
 
     capability_profile:
       # Stage 1 — deterministic flags
-      zones_active: [1, 2]
+      zones_active: [input, reasoning]
       has_persistent_memory: false
       multi_agent: false
       hitl: false
       entry_points:
-        - "user prompts via web chat widget (zone 1)"
-        - "static knowledge base documents (zone 1)"
+        - "user prompts via web chat widget (zone: input)"
+        - "static knowledge base documents (zone: input)"
       confidence: high
 
       # Stage 2 — not populated at minimal depth
@@ -652,74 +735,74 @@ examples:
 
     capability_profile:
       # Stage 1 — deterministic flags
-      zones_active: [1, 2, 3, 4, 5]
+      zones_active: [input, reasoning, tool_execution, memory, inter_agent]
       has_persistent_memory: true
       multi_agent: true
       hitl: true
       entry_points:
-        - "customer messages via chat/email (zone 1)"
-        - "CRM records retrieved during support (zone 1)"
-        - "tool API responses from ticketing system (zone 3)"
-        - "inter-agent messages on internal bus (zone 5)"
+        - "customer messages via chat/email (zone: input)"
+        - "CRM records retrieved during support (zone: input)"
+        - "tool API responses from ticketing system (zone: tool_execution)"
+        - "inter-agent messages on internal bus (zone: inter_agent)"
       confidence: high
 
       # Stage 2 — populated at moderate depth
       tool_types:
         - name: "crm_lookup"
-          zone: 3
+          zone: tool_execution
           can_modify_state: false
           data_sensitivity: high
           code_execution: false
         - name: "crm_update"
-          zone: 3
+          zone: tool_execution
           can_modify_state: true
           data_sensitivity: high
           code_execution: false
         - name: "create_ticket"
-          zone: 3
+          zone: tool_execution
           can_modify_state: true
           data_sensitivity: medium
           code_execution: false
         - name: "process_refund"
-          zone: 3
+          zone: tool_execution
           can_modify_state: true
           data_sensitivity: high
           code_execution: false
         - name: "send_email"
-          zone: 3
+          zone: tool_execution
           can_modify_state: true
           data_sensitivity: medium
           code_execution: false
 
       data_flows:
         - source: "customer message"
-          source_zone: 1
+          source_zone: input
           destination: "triage agent LLM context"
-          destination_zone: 2
+          destination_zone: reasoning
           data_type: "user query"
           validated: false
         - source: "triage agent classification"
-          source_zone: 2
+          source_zone: reasoning
           destination: "support agent or refund agent (via message bus)"
-          destination_zone: 5
+          destination_zone: inter_agent
           data_type: "routing decision with customer context"
           validated: false
         - source: "CRM"
-          source_zone: 3
+          source_zone: tool_execution
           destination: "support agent LLM context"
-          destination_zone: 2
+          destination_zone: reasoning
           data_type: "customer records"
           validated: true
         - source: "refund agent decision"
-          source_zone: 2
+          source_zone: reasoning
           destination: "human manager review queue"
-          destination_zone: 1
+          destination_zone: input
           data_type: "refund request with justification"
           validated: false
         - source: "conversation"
-          source_zone: 2
+          source_zone: reasoning
           destination: "conversation history store"
-          destination_zone: 4
+          destination_zone: memory
           data_type: "interaction transcript"
           validated: false
 
@@ -844,7 +927,7 @@ examples:
           notes: >
             MCP tool server protocol and internal message bus are
             both attack surfaces. Tool descriptions and consent
-            flows could be manipulated. Gated by zone 3 (tool
+            flows could be manipulated. Gated by tool_execution (tool
             execution), not by multi-agent flag.
         - id: T17
           name: "Supply Chain Compromise"

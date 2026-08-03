@@ -13,7 +13,6 @@ from scenario_forge.models.attack_tree import (
     repair_attack_tree_dict,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -23,7 +22,14 @@ def _leaf(
     node_id: str, label: str, zone: str = "input", **extra: Any
 ) -> dict[str, Any]:
     """Create a minimal LEAF node dict."""
-    return {"id": node_id, "label": label, "gate": "LEAF", "zone": zone, **extra}
+    return {
+        "id": node_id,
+        "label": label,
+        "gate": "LEAF",
+        "zone": zone,
+        "action": {"kind": "ai_system_action"},
+        **extra,
+    }
 
 
 def _gate(

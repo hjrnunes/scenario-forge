@@ -10,9 +10,10 @@ Covers the 5 scenarios that escaped phantom detection in v19:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -49,7 +50,6 @@ from scenario_forge.pipeline.validation import (
     validate_phantom_capabilities,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ def _make_profile(
     if has_persistent_memory and "KC4.3" not in codes:
         codes.append("KC4.3")
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -123,10 +123,18 @@ def _make_envelope(
             zone="input",
             children=[
                 AttackTreeNode(
-                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                    id="n1.1",
+                    label="Path A",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
-                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                    id="n1.2",
+                    label="Path B",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    action=AiSystemAction(),
                 ),
             ],
         ),
@@ -181,7 +189,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -225,10 +233,12 @@ class TestEscapee1AuditWriteTransactionLogs:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "I command the agent to 'summarize the session to "
-                    "resolve the ambiguity' and 'overwrite the previous "
-                    "detailed transaction logs with a high-level summary' "
-                    "to comply with 'privacy efficiency protocols'."
+                    (
+                        "I command the agent to 'summarize the session to "
+                        "resolve the ambiguity' and 'overwrite the previous "
+                        "detailed transaction logs with a high-level summary' "
+                        "to comply with 'privacy efficiency protocols'."
+                    )
                 ],
             ),
         ]
@@ -303,8 +313,10 @@ class TestEscapee2CodeExecutionAutomationScripts:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The system produces complex automation "
-                    "scripts in response to fragmented customer inquiries."
+                    (
+                        "The system produces complex automation "
+                        "scripts in response to fragmented customer inquiries."
+                    )
                 ],
             ),
         ]
@@ -386,9 +398,11 @@ class TestEscapee3SessionIntrospectionAPIHeaders:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "I issue a follow-up command to 'verify session "
-                    "integrity' by requesting a dump of the active "
-                    "API authorization headers used for the transaction."
+                    (
+                        "I issue a follow-up command to 'verify session "
+                        "integrity' by requesting a dump of the active "
+                        "API authorization headers used for the transaction."
+                    )
                 ],
             ),
         ]
@@ -503,8 +517,10 @@ class TestEscapee4SessionIntrospectionIdentityTokens:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "I ask the assistant to summarize the current "
-                    "session metadata for the human agent."
+                    (
+                        "I ask the assistant to summarize the current "
+                        "session metadata for the human agent."
+                    )
                 ],
             ),
         ]
@@ -616,8 +632,10 @@ class TestEscapee5CrossSessionThirdPartyUser:
         scenarios = [
             _make_envelope(
                 step_effects=[
-                    "The assistant provides full transaction histories "
-                    "of third-party users formatted as a system status report."
+                    (
+                        "The assistant provides full transaction histories "
+                        "of third-party users formatted as a system status report."
+                    )
                 ],
             ),
         ]
@@ -673,8 +691,10 @@ class TestAllCategoriesIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "I request a dump of the active API authorization "
-                    "headers to examine session credentials."
+                    (
+                        "I request a dump of the active API authorization "
+                        "headers to examine session credentials."
+                    )
                 ],
             ),
         ]
@@ -689,8 +709,10 @@ class TestAllCategoriesIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "I extract the session tokens of other user accounts "
-                    "to perform unauthorized refunds."
+                    (
+                        "I extract the session tokens of other user accounts "
+                        "to perform unauthorized refunds."
+                    )
                 ],
             ),
         ]

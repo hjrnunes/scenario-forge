@@ -26,12 +26,6 @@ from scenario_forge.models.scenario import (
     ScenarioEnvelope,
     TaxonomyChain,
 )
-from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.pipeline.validation import (
-    check_goal_narrative_alignment,
-    check_seed_mechanism_fidelity,
-)
-
 from scenario_forge.pipeline.generate.constants import (
     _ADVERSARIAL_ONLY_THREATS,
     _CONSISTENCY_MAX_RETRIES,
@@ -45,6 +39,11 @@ from scenario_forge.pipeline.generate.priority import (
 )
 from scenario_forge.pipeline.generate.tree import (
     _check_consistency,
+)
+from scenario_forge.pipeline.seeds import ScenarioSeed
+from scenario_forge.pipeline.validation import (
+    check_goal_narrative_alignment,
+    check_seed_mechanism_fidelity,
 )
 
 logger = logging.getLogger(__name__)
@@ -679,8 +678,8 @@ def generate_scenario(
                 narrative = narrative.model_copy(
                     update={"entry_point": pinned_entry_point},
                 )
-        except Exception:
-            pass
+        except (ValueError, AttributeError) as exc:
+            logger.debug("Narrative entry_point update skipped: %s", exc)
 
     # --- Call 2: Attack Tree (with consistency enforcement retries) ---
     # Compute parsimony budget using the same formula as _call_attack_tree.
@@ -700,6 +699,7 @@ def generate_scenario(
             actor_profile=actor_profile,
             pinned_technique_ids=pinned_technique_ids,
             pinned_technique_names=pinned_technique_names,
+            pinned_entry_point_id=pinned_entry_point_id,
         )
     except Exception as exc:
         call_log_entries.append(
@@ -752,8 +752,9 @@ def generate_scenario(
                 pinned_technique_ids=pinned_technique_ids,
                 pinned_technique_names=pinned_technique_names,
                 consistency_feedback=feedback,
+                pinned_entry_point_id=pinned_entry_point_id,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - retry must catch all to log and break
             logger.warning(
                 "Consistency retry %d/%d failed for %s: %s",
                 consistency_retry,

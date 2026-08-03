@@ -7,7 +7,12 @@ seed metadata.
 
 from __future__ import annotations
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import (
+    AiSystemAction,
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+)
 from scenario_forge.models.scenario import (
     CallMetadata,
     CallName,
@@ -18,10 +23,19 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.generate import _assemble_envelope
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
-
 # ===========================================================================
 # Helpers
 # ===========================================================================
+
+
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build test nodes with the action required by leaf nodes."""
+    if kwargs.get("gate") == GateType.LEAF:
+        kwargs.setdefault("action", AiSystemAction())
+    return _AttackTreeNode(**kwargs)
 
 
 def _make_seed(

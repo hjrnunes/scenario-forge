@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import (
+    AiSystemAction,
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+)
 from scenario_forge.models.scenario import (
     ACTOR_TYPES,
     ActorProfile,
@@ -25,15 +29,24 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
 )
 from scenario_forge.pipeline.diversity import (
+    _CAP_LEVELS,
     DiversityHints,
     DiversityTracker,
-    _CAP_LEVELS,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build test nodes with the action required by leaf nodes."""
+    if kwargs.get("gate") == GateType.LEAF:
+        kwargs.setdefault("action", AiSystemAction())
+    return _AttackTreeNode(**kwargs)
 
 
 def _make_envelope(
@@ -138,7 +151,7 @@ def _make_envelope(
         scenario_id="scenario:v2:b3117469a5faaa9661af2ef23951d98b56d373505dfbcc8ae4fe7fc9c1d3aaef",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         version=1,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         generator_version="0.0.0-test",
         narrative=narrative,
         actor_profile=actor,

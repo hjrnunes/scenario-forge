@@ -12,9 +12,10 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -44,7 +45,6 @@ from scenario_forge.pipeline.validation import (
     _has_insider_access_markers,
     validate_insider_access_floor,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -106,10 +106,18 @@ def _make_envelope(
             zone="input",
             children=[
                 AttackTreeNode(
-                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                    id="n1.1",
+                    label="Path A",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
-                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                    id="n1.2",
+                    label="Path B",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    action=AiSystemAction(),
                 ),
             ],
         ),
@@ -164,7 +172,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         actor_profile=actor_profile,

@@ -9,16 +9,19 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
+    ToolInvocationAction,
 )
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ToolInventoryEntry,
+    compute_tool_id,
 )
 from scenario_forge.models.scenario import (
     ActorProfile,
@@ -43,14 +46,29 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.validation import validate_scenario_semantics
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build leaves with an action matching their test zone."""
+    if kwargs.get("gate") == GateType.LEAF:
+        action = (
+            ToolInvocationAction(tool_id=compute_tool_id("test_tool", "A test tool"))
+            if kwargs.get("zone") == "tool_execution"
+            else AiSystemAction()
+        )
+        kwargs.setdefault("action", action)
+    return _AttackTreeNode(**kwargs)
+
+
 def _make_profile(
     zones_active: list[str] | None = None,
+    tool_name: str = "test_tool",
 ) -> CapabilityProfile:
     if zones_active is None:
         zones_active = ["input", "reasoning", "tool_execution"]
@@ -60,7 +78,7 @@ def _make_profile(
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
         tool_inventory=[
-            ToolInventoryEntry(name="test_tool", description="A test tool"),
+            ToolInventoryEntry(name=tool_name, description="A test tool"),
         ],
     )
 
@@ -192,7 +210,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -281,12 +299,15 @@ class TestGoalMechanismMismatchFinancial:
     """PR-1 goal with financial tool_execution leaves triggers mismatch."""
 
     def test_pr1_goal_with_financial_tool_leaf_flags(self) -> None:
-        """PR-1 goal + tool_execution leaf with 'payment' -> violation."""
+        """PR-1 goal + invocation of a resolved payment tool -> violation."""
         financial_leaf = AttackTreeNode(
             id="n1.2",
-            label="Process unauthorized payment via payment API",
+            label="Invoke the transaction service",
             gate=GateType.LEAF,
             zone="tool_execution",
+            action=ToolInvocationAction(
+                tool_id=compute_tool_id("payment_api", "A test tool")
+            ),
         )
         envelope = _make_envelope(
             goal_category="PR-1",
@@ -301,7 +322,7 @@ class TestGoalMechanismMismatchFinancial:
                 financial_leaf,
             ],
         )
-        profile = _make_profile()
+        profile = _make_profile(tool_name="payment_api")
         validate_scenario_semantics([envelope], profile)
 
         violations = _find_violations(envelope, "goal_mechanism_mismatch")

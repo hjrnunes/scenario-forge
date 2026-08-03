@@ -239,12 +239,40 @@ def _heuristic_attack_complexity(
     count = _tree_node_count(attack_tree.root)
     depth = _tree_depth(attack_tree.root)
 
-    # Low: shallow AND small — simple, direct attacks
-    if depth <= 2 and count <= 4:
+    # Typed leaf semantics distinguish resource-backed execution from pure
+    # AI reasoning.  External preconditions and external impacts legitimately
+    # have no zone, so only collect zones that are present rather than deriving
+    # semantics from labels (or assuming every leaf is internal).
+    internal_zones: set[str] = set()
+    has_resource_action = False
+    pending = [attack_tree.root]
+    while pending:
+        node = pending.pop()
+        if node.children:
+            pending.extend(node.children)
+            continue
+
+        action = node.action
+        if action is None:
+            continue
+        if action.kind in {"tool_invocation", "integration_interaction"}:
+            has_resource_action = True
+        if node.zone is not None:
+            internal_zones.add(node.zone)
+
+    # Low: shallow, small, and confined to pure reasoning/ingress actions.
+    # Invoking a concrete tool or integration requires at least medium
+    # complexity even when represented by a very small tree.
+    if (
+        depth <= 2
+        and count <= 4
+        and not has_resource_action
+        and len(internal_zones) <= 1
+    ):
         return AttackComplexity.low
 
-    # High: deep trees OR wide attack surfaces — either signal suffices
-    if count >= 8 or depth >= 4:
+    # High: deep trees, wide attack surfaces, or broad internal traversal.
+    if count >= 8 or depth >= 4 or len(internal_zones) >= 4:
         return AttackComplexity.high
 
     # Medium: everything in between

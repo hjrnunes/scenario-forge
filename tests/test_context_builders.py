@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode
+from scenario_forge.models.attack_tree import (
+    AttackTree,
+    AttackTreeNode,
+    InitialIngressAction,
+)
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     EntryPoint,
@@ -27,7 +31,6 @@ from scenario_forge.pipeline.generate import (
     build_call3_context,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -68,7 +71,7 @@ def _make_profile(
 ) -> CapabilityProfile:
     codes = kc_subcodes if kc_subcodes is not None else ["KC1.1"]
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -148,6 +151,9 @@ def _make_attack_tree(seed_id: str = "AP-T2-05") -> AttackTree:
             label="Root attack node",
             gate="LEAF",
             zone="input",
+            action=InitialIngressAction(
+                entry_point_id="ep:v1:52306ddb893a33ef2dc0f20c01e815f1"
+            ),
         ),
     )
 
@@ -949,7 +955,7 @@ class TestBuildCall3Context:
         assert "Background: Preconditions" in ctx["gherkin_skeleton"]
 
     def test_gherkin_skeleton_contains_entry_point(self):
-        """Gherkin skeleton references the narrative's entry point."""
+        """Gherkin skeleton resolves the typed ingress entry point name."""
         ctx = build_call3_context(
             seed=_make_seed(),
             narrative=_make_narrative(),

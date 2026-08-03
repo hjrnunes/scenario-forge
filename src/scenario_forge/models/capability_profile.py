@@ -19,7 +19,7 @@ import hashlib
 import logging
 import re
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -185,7 +185,7 @@ def derive_zones_from_kc(kc_subcodes: list[str]) -> list[str]:
     for kc in kc_subcodes:
         if kc.startswith("KC4.") and kc not in ("KC4.1", "KC4.2"):
             zones.add("memory")
-        elif kc.startswith("KC5.") or kc.startswith("KC6."):
+        elif kc.startswith(("KC5.", "KC6.")):
             zones.add("tool_execution")
         elif kc == "KC2.3":
             zones.add("inter_agent")
@@ -309,10 +309,20 @@ class ToolInventoryEntry(BaseModel):
     extracted during Stage 1 capability profile inference.  Used to
     ground downstream scenario generation — the LLM may only reference
     tools listed here, preventing phantom tool hallucination.
+
+    The ``tool_id`` is a computed canonical identity (deterministic,
+    versioned, 128-bit) derived from the canonical tool name.
+    Application-assigned — the LLM never invents IDs.
     """
 
     name: str = Field(description="Tool or API name")
     description: str = Field(description="What the tool does (one line)")
+
+    @computed_field
+    @property
+    def tool_id(self) -> str:
+        """Deterministic, versioned, collision-resistant canonical identity."""
+        return compute_tool_id(self.name, self.description)
 
 
 class ToolType(BaseModel):
@@ -385,7 +395,12 @@ class MemoryMechanism(BaseModel):
 
 
 class ExternalIntegration(BaseModel):
-    """An external system or service the agent integrates with."""
+    """An external system or service the agent integrates with.
+
+    The ``integration_id`` is a computed canonical identity (deterministic,
+    versioned, 128-bit) derived from the canonical name and integration type.
+    Application-assigned — the LLM never invents IDs.
+    """
 
     name: str = Field(
         description="Name of the external system (e.g. 'CRM', 'payment gateway')"
@@ -397,6 +412,17 @@ class ExternalIntegration(BaseModel):
     data_sensitivity: DataSensitivity = Field(
         description="Sensitivity of data accessible through this integration",
     )
+
+    @computed_field
+    @property
+    def integration_id(self) -> str:
+        """Deterministic, versioned, collision-resistant canonical identity."""
+        return compute_integration_id(
+            self.name,
+            self.integration_type.value,
+            self.auth_method.value,
+            self.data_sensitivity.value,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -479,11 +505,11 @@ def classify_entry_point(
     Returns:
         One of ``"direct"``, ``"indirect"``, ``"system"``.
     """
-    # Use explicit controllability when available — but override "system"
-    # when the direction indicates an attacker-accessible ingress path.
+    # Use explicit controllability when available.
+    # Explicit 'system' from a reviewed profile is preserved as 'system'
+    # regardless of direction — heuristics only apply when controllability
+    # is None (cmps.9 review correction 5).
     if controllability is not None:
-        if controllability == "system" and direction != "output":
-            return "indirect"
         return controllability
 
     if direction == "output":
@@ -528,7 +554,8 @@ def _entry_point_identity_tuple(
     name: str,
     direction: str,
     controllability: str | None,
-) -> tuple[str, str, str]:
+    ingress_zone: str | None = None,
+) -> tuple[str, str, str, str | None]:
     """Return the canonical identity tuple used for both hashing and collision comparison.
 
     This single definition ensures that the hash preimage and the
@@ -536,20 +563,28 @@ def _entry_point_identity_tuple(
     representation — no drift between the two.
     """
     effective_ctrl = classify_entry_point(name, direction, controllability)
+    effective_ingress_zone = (
+        ingress_zone
+        if ingress_zone is not None
+        else "input"
+        if direction != "output"
+        else None
+    )
     canonical = _canonical_entry_point_name(name)
-    return (canonical, direction, effective_ctrl)
+    return (canonical, direction, effective_ctrl, effective_ingress_zone)
 
 
 def compute_entry_point_id(
     name: str,
     direction: str,
     controllability: str | None,
+    ingress_zone: str | None = None,
 ) -> str:
     """Compute a deterministic, versioned, collision-resistant entry_point_id.
 
     The ID is derived from the canonical (normalized) name, direction,
-    and *effective* controllability (explicit or inferred via
-    :func:`classify_entry_point`).  Two entry points that are
+    *effective* controllability (explicit or inferred via
+    :func:`classify_entry_point`), and effective ingress zone. Two entry points that are
     semantically identical produce the same ID; semantically distinct
     entry points produce different IDs (barring a hash collision).
 
@@ -559,14 +594,15 @@ def compute_entry_point_id(
         name: Human-readable entry point name.
         direction: Data flow direction.
         controllability: Explicit controllability (``None`` for inference).
+        ingress_zone: Explicit Schneider ingress zone (``None`` for inference).
 
     Returns:
         A stable, opaque entry point identifier.
     """
-    canonical, direction, effective_ctrl = _entry_point_identity_tuple(
-        name, direction, controllability
+    canonical, direction, effective_ctrl, effective_ingress_zone = (
+        _entry_point_identity_tuple(name, direction, controllability, ingress_zone)
     )
-    identity = f"{canonical}|{direction}|{effective_ctrl}"
+    identity = f"{canonical}|{direction}|{effective_ctrl}|{effective_ingress_zone}"
     h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
     return f"ep:{_ENTRY_POINT_ID_VERSION}:{h}"
 
@@ -595,11 +631,11 @@ def deduplicate_entry_points(
         ValueError: If two entry points with different canonical identity
             tuples produce the same ``entry_point_id``.
     """
-    seen: dict[str, tuple[tuple[str, str, str], EntryPoint]] = {}
+    seen: dict[str, tuple[tuple[str, str, str, str | None], EntryPoint]] = {}
     for ep in entry_points:
         eid = ep.entry_point_id
         identity_tuple = _entry_point_identity_tuple(
-            ep.name, ep.direction, ep.controllability
+            ep.name, ep.direction, ep.controllability, ep.ingress_zone
         )
         if eid in seen:
             existing_tuple, existing_ep = seen[eid]
@@ -621,6 +657,230 @@ def deduplicate_entry_points(
             continue
         seen[eid] = (identity_tuple, ep)
     return [ep for _, ep in seen.values()]
+
+
+# --- Canonical tool identity ---
+
+_TOOL_ID_VERSION = "v1"
+
+
+def _canonical_tool_name(name: str) -> str:
+    """Normalize a tool name for canonical identity comparison."""
+    s = name.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.rstrip(".,;:")
+    return s
+
+
+def _tool_identity_tuple(name: str, description: str) -> tuple[str]:
+    """Return the canonical identity tuple for a tool.
+
+    Only the name is used for identity — description is non-identity
+    metadata that may change without affecting the canonical ID.
+    """
+    canonical_name = _canonical_tool_name(name)
+    return (canonical_name,)
+
+
+def compute_tool_id(name: str, description: str) -> str:
+    """Compute a deterministic, versioned, collision-resistant tool_id.
+
+    Format: ``tool:<version>:<32-char hex digest (128-bit)>``
+
+    The ID is stable under description edits — only the canonical name
+    determines identity.
+    """
+    (canonical_name,) = _tool_identity_tuple(name, description)
+    h = hashlib.sha256(canonical_name.encode("utf-8")).hexdigest()[:32]
+    return f"tool:{_TOOL_ID_VERSION}:{h}"
+
+
+def deduplicate_tool_inventory(
+    tools: list[ToolInventoryEntry],
+) -> list[ToolInventoryEntry]:
+    """Deduplicate semantic duplicates and reject ambiguous/colliding tool identities.
+
+    See :func:`deduplicate_entry_points` for the collision/dedup policy.
+
+    Metadata (description) must be canonically equal for deduplication.
+    An empty/non-empty description mismatch is rejected — the caller must
+    provide a nonblank canonical description or disambiguate the name
+    (cmps.9 review correction 4).
+
+    Exact semantic duplicates (same canonical name and same canonical
+    description) must also have identical raw ``name`` and raw
+    ``description`` — otherwise the first raw representation would be
+    preserved order-dependently, making serialization non-deterministic
+    (cmps.9 third review correction 3). Only exact raw duplicates
+    deduplicate; raw metadata differences are rejected.
+    """
+    seen: dict[str, tuple[tuple[str], ToolInventoryEntry]] = {}
+    for tool in tools:
+        tid = tool.tool_id
+        identity_tuple = _tool_identity_tuple(tool.name, tool.description)
+        if tid in seen:
+            existing_tuple, existing_tool = seen[tid]
+            if existing_tuple != identity_tuple:
+                raise ValueError(
+                    f"Ambiguous tool identity: '{tool.name}' and "
+                    f"'{existing_tool.name}' resolve to the same "
+                    f"tool_id {tid} but have different canonical "
+                    f"identity tuples ({identity_tuple} vs {existing_tuple}). "
+                    f"Remove or disambiguate one of them."
+                )
+            canonical_desc = _canonical_tool_name(tool.description)
+            existing_desc = _canonical_tool_name(existing_tool.description)
+            if canonical_desc != existing_desc:
+                raise ValueError(
+                    f"Ambiguous semantic duplicate tool '{tool.name}': "
+                    f"tool_id {tid} has conflicting descriptions "
+                    f"('{canonical_desc}' vs '{existing_desc}'). "
+                    f"Empty/non-empty metadata mismatches are rejected — "
+                    f"provide a nonblank canonical description or use a "
+                    f"distinct name."
+                )
+            # Canonical name and canonical description match. Reject raw
+            # metadata differences to ensure deterministic serialization
+            # (cmps.9 third review correction 3).
+            if tool.name != existing_tool.name:
+                raise ValueError(
+                    f"Ambiguous semantic duplicate tool: '{tool.name}' "
+                    f"and '{existing_tool.name}' resolve to the same "
+                    f"tool_id {tid} and canonical name, but their raw "
+                    f"names differ. Use the exact same name or "
+                    f"disambiguate to produce a distinct tool_id."
+                )
+            if tool.description != existing_tool.description:
+                raise ValueError(
+                    f"Ambiguous semantic duplicate tool '{tool.name}': "
+                    f"tool_id {tid} has the same canonical description "
+                    f"but raw descriptions differ "
+                    f"('{tool.description}' vs "
+                    f"'{existing_tool.description}'). Use the exact same "
+                    f"description or disambiguate the name."
+                )
+            logger.debug(
+                "Deduplicating tool '%s' (exact duplicate of '%s')",
+                tool.name,
+                existing_tool.name,
+            )
+            continue
+        seen[tid] = (identity_tuple, tool)
+    return [tool for _, tool in seen.values()]
+
+
+# --- Canonical integration identity ---
+
+_INTEGRATION_ID_VERSION = "v1"
+
+
+def _canonical_integration_name(name: str) -> str:
+    """Normalize an integration name for canonical identity comparison."""
+    s = name.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.rstrip(".,;:")
+    return s
+
+
+def _integration_identity_tuple(
+    name: str,
+    integration_type: str,
+    auth_method: str,
+    data_sensitivity: str,
+) -> tuple[str, str]:
+    """Return the canonical identity tuple for an integration.
+
+    Authentication and data sensitivity are mutable metadata; only the
+    canonical name and integration type determine identity.
+    """
+    return (
+        _canonical_integration_name(name),
+        integration_type.lower().strip(),
+    )
+
+
+def compute_integration_id(
+    name: str,
+    integration_type: str,
+    auth_method: str,
+    data_sensitivity: str,
+) -> str:
+    """Compute a deterministic, versioned, collision-resistant integration_id.
+
+    Format: ``int:<version>:<32-char hex digest (128-bit)>``
+
+    The ID is stable under authentication and data-sensitivity edits.
+    """
+    identity_tuple = _integration_identity_tuple(
+        name, integration_type, auth_method, data_sensitivity
+    )
+    identity = "|".join(identity_tuple)
+    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return f"int:{_INTEGRATION_ID_VERSION}:{h}"
+
+
+def deduplicate_external_integrations(
+    integrations: list[ExternalIntegration],
+) -> list[ExternalIntegration]:
+    """Deduplicate semantic duplicates and reject ambiguous/colliding integration identities.
+
+    See :func:`deduplicate_entry_points` for the collision/dedup policy.
+    """
+    seen: dict[str, tuple[tuple[str, ...], ExternalIntegration]] = {}
+    for integ in integrations:
+        iid = integ.integration_id
+        identity_tuple = _integration_identity_tuple(
+            integ.name,
+            integ.integration_type.value,
+            integ.auth_method.value,
+            integ.data_sensitivity.value,
+        )
+        if iid in seen:
+            existing_tuple, existing_integ = seen[iid]
+            if existing_tuple != identity_tuple:
+                raise ValueError(
+                    f"Ambiguous integration identity: '{integ.name}' and "
+                    f"'{existing_integ.name}' resolve to the same "
+                    f"integration_id {iid} but have different canonical "
+                    f"identity tuples ({identity_tuple} vs {existing_tuple}). "
+                    f"Remove or disambiguate one of them."
+                )
+            metadata = (integ.auth_method.value, integ.data_sensitivity.value)
+            existing_metadata = (
+                existing_integ.auth_method.value,
+                existing_integ.data_sensitivity.value,
+            )
+            if metadata != existing_metadata:
+                raise ValueError(
+                    f"Ambiguous semantic duplicate integration '{integ.name}': "
+                    f"integration_id {iid} has conflicting authentication or "
+                    f"data-sensitivity metadata. Use a distinct name or reconcile "
+                    f"the metadata."
+                )
+            logger.debug(
+                "Deduplicating integration '%s' (same identity as '%s')",
+                integ.name,
+                existing_integ.name,
+            )
+            continue
+        seen[iid] = (identity_tuple, integ)
+    return [integ for _, integ in seen.values()]
+
+
+# --- Inventory completeness / evidence state ---
+
+
+class InventoryCompleteness(str, Enum):
+    """Evidence/completeness state for entry-point and tool inventories.
+
+    ``inferred_partial``: inference establishes presence, never absence.
+    ``operator_confirmed_complete``: only an operator-reviewed profile may
+    declare this, with explicit evidence sources.  Ordinary LLM output
+    cannot self-promote.
+    """
+
+    inferred_partial = "inferred_partial"
+    operator_confirmed_complete = "operator_confirmed_complete"
 
 
 class EntryPoint(BaseModel):
@@ -664,6 +924,17 @@ class EntryPoint(BaseModel):
             "When None, inferred by keyword heuristic."
         ),
     )
+    ingress_zone: (
+        Literal["input", "reasoning", "tool_execution", "memory", "inter_agent"] | None
+    ) = Field(
+        default=None,
+        description=(
+            "Canonical Schneider zone for initial ingress through this entry point. "
+            "When None, inferred from direction: input→input, bidirectional→input, "
+            "output→output. This establishes canonical ingress-zone semantics in "
+            "typed profile data rather than inferring from labels."
+        ),
+    )
 
     def __str__(self) -> str:
         """Return the entry point name for backward-compatible string formatting."""
@@ -677,16 +948,79 @@ class EntryPoint(BaseModel):
         Computed from the canonical (normalized) name, direction, and
         effective controllability.  See :func:`compute_entry_point_id`.
         """
-        return compute_entry_point_id(self.name, self.direction, self.controllability)
+        return compute_entry_point_id(
+            self.name, self.direction, self.controllability, self.ingress_zone
+        )
 
     @property
     def effective_controllability(self) -> str:
-        """The resolved controllability (explicit or inferred via heuristic)."""
+        """The resolved controllability (explicit or inferred via heuristic).
+
+        When ``controllability`` is explicitly set to ``"system"`` from a
+        reviewed profile, it is preserved as ``"system"`` — heuristics only
+        apply when ``controllability`` is ``None`` (cmps.9 review correction 5).
+        """
+        if self.controllability == "system":
+            return "system"
         return classify_entry_point(self.name, self.direction, self.controllability)
+
+    @property
+    def effective_ingress_zone(self) -> str | None:
+        """The explicit ingress zone, or the direction-derived default."""
+        if self.ingress_zone is not None:
+            return self.ingress_zone
+        if self.direction in ("input", "bidirectional"):
+            return "input"
+        return None
+
+    @model_validator(mode="after")
+    def validate_ingress_zone_consistency(self) -> EntryPoint:
+        """Reject output-only entries with an ingress zone (cmps.9 review 5).
+
+        Output-only entry points are not attacker-accessible ingress paths.
+        Assigning a Schneider zone to them is a contradiction — the zone
+        would imply the attacker can enter through an output surface.
+        """
+        if self.direction == "output" and self.ingress_zone is not None:
+            raise ValueError(
+                f"Entry point '{self.name}' has direction='output' but "
+                f"ingress_zone='{self.ingress_zone}'. Output-only entry "
+                f"points cannot have an ingress zone — they are not "
+                f"attacker-accessible ingress paths."
+            )
+        return self
+
+
+def is_attacker_accessible_ingress(
+    ep: EntryPoint,
+    active_zones: set[str] | frozenset[str] | None = None,
+) -> bool:
+    """Centralized predicate: is this entry point an attacker-accessible ingress route?
+
+    An entry point is attacker-accessible for ingress iff ALL hold:
+    - ``direction != "output"`` (not output-only)
+    - ``effective_controllability != "system"`` (not system-controlled)
+    - ``effective_ingress_zone`` is present (not None)
+    - when *active_zones* is supplied, the effective ingress zone is active
+
+    Use this single predicate everywhere attacker-accessible ingress is
+    determined: candidate expansion, coverage gap denominators, remediation
+    selection, pinned ingress generation/admission, final semantic
+    validation, and eval expected-entry-point denominators (cmps.9 third
+    review correction 2).
+    """
+    if ep.direction == "output":
+        return False
+    if ep.effective_controllability == "system":
+        return False
+    zone = ep.effective_ingress_zone
+    if zone is None:
+        return False
+    return active_zones is None or zone in active_zones
 
 
 def _coerce_entry_points(
-    v: list[Union[str, dict, EntryPoint]],
+    v: list[str | dict | EntryPoint],
 ) -> list[EntryPoint]:
     """Coerce a list of mixed entry point representations to EntryPoint objects.
 
@@ -708,7 +1042,7 @@ def _coerce_entry_points(
             item = {k: val for k, val in item.items() if k != "entry_point_id"}
             result.append(EntryPoint(**item))
         else:
-            raise ValueError(
+            raise TypeError(
                 f"entry_points items must be str, dict, or EntryPoint, got {type(item)}"
             )
     return result
@@ -771,7 +1105,7 @@ class Stage1Profile(BaseModel):
     @classmethod
     def coerce_entry_points(
         cls,
-        v: list[Union[str, dict, EntryPoint]],
+        v: list[str | dict | EntryPoint],
     ) -> list[EntryPoint]:
         return _coerce_entry_points(v)
 
@@ -802,11 +1136,24 @@ class Stage1Profile(BaseModel):
         (has_persistent_memory, multi_agent, hitl) are computed properties
         on CapabilityProfile derived solely from kc_subcodes, so they are
         excluded from the data dict.
+
+        Inferred profiles are always forced to ``inferred_partial``
+        completeness — the LLM cannot self-promote to
+        ``operator_confirmed_complete`` (cmps.9).
         """
         data = self.model_dump(
             exclude={"has_persistent_memory", "multi_agent", "hitl"},
         )
         data["zones_active"] = derive_zones_from_kc(self.kc_subcodes)
+        # Force inferred_partial — LLM output cannot declare completeness.
+        data["entry_point_completeness"] = InventoryCompleteness.inferred_partial.value
+        data["tool_inventory_completeness"] = (
+            InventoryCompleteness.inferred_partial.value
+        )
+        data.pop("entry_point_evidence", None)
+        data.pop("tool_inventory_evidence", None)
+        data.pop("inventory_completeness", None)
+        data.pop("evidence_sources", None)
         return CapabilityProfile(**data)
 
 
@@ -890,25 +1237,58 @@ class CapabilityProfile(BaseModel):
         ),
     )
 
+    # --- Inventory completeness / evidence (cmps.9) ---
+
+    entry_point_completeness: InventoryCompleteness = Field(
+        default=InventoryCompleteness.inferred_partial,
+        description=(
+            "Evidence/completeness state for the entry-point inventory. "
+            "Inferred profiles are always 'inferred_partial'. Only operator-reviewed "
+            "profiles may declare 'operator_confirmed_complete' with entry_point_evidence."
+        ),
+    )
+    entry_point_evidence: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Explicit evidence sources for operator_confirmed_complete entry-point "
+            "inventory. Required when entry_point_completeness is operator_confirmed_complete."
+        ),
+    )
+    tool_inventory_completeness: InventoryCompleteness = Field(
+        default=InventoryCompleteness.inferred_partial,
+        description=(
+            "Evidence/completeness state for the tool inventory. "
+            "Inferred profiles are always 'inferred_partial'. Only operator-reviewed "
+            "profiles may declare 'operator_confirmed_complete' with tool_inventory_evidence."
+        ),
+    )
+    tool_inventory_evidence: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Explicit evidence sources for operator_confirmed_complete tool "
+            "inventory. Required when tool_inventory_completeness is operator_confirmed_complete."
+        ),
+    )
+
     # --- Stage 2 (optional) ---
 
-    tool_types: Optional[list[ToolType]] = Field(
+    tool_types: list[ToolType] | None = Field(
         default=None,
         description="Tools and APIs the system can invoke (populated at moderate/thorough depth).",
     )
-    data_flows: Optional[list[DataFlow]] = Field(
+    data_flows: list[DataFlow] | None = Field(
         default=None,
         description="Data flows between zones and components (populated at moderate/thorough depth).",
     )
-    trust_boundaries: Optional[list[TrustBoundary]] = Field(
+    trust_boundaries: list[TrustBoundary] | None = Field(
         default=None,
         description="Trust boundaries in the system architecture (populated at thorough depth).",
     )
-    memory_mechanisms: Optional[list[MemoryMechanism]] = Field(
+    memory_mechanisms: list[MemoryMechanism] | None = Field(
         default=None,
         description="Memory and state persistence mechanisms (populated at moderate/thorough depth).",
     )
-    external_integrations: Optional[list[ExternalIntegration]] = Field(
+    external_integrations: list[ExternalIntegration] | None = Field(
         default=None,
         description="External systems the agent integrates with (populated at moderate/thorough depth).",
     )
@@ -944,7 +1324,7 @@ class CapabilityProfile(BaseModel):
     @classmethod
     def coerce_entry_points(
         cls,
-        v: list[Union[str, dict, EntryPoint]],
+        v: list[str | dict | EntryPoint],
     ) -> list[EntryPoint]:
         return _coerce_entry_points(v)
 
@@ -1010,22 +1390,115 @@ class CapabilityProfile(BaseModel):
             )
 
         # tool_execution active requires a non-empty tool_inventory
-        if "tool_execution" in zones:
-            if not self.tool_inventory:
-                raise ValueError(
-                    "Zone 'tool_execution' is active but tool_inventory is "
-                    "empty or None.  When the system has tool execution "
-                    "capability, you must provide a tool_inventory listing "
-                    "the tools and APIs the system can invoke.  Add a "
-                    "'tool_inventory' section to your capability profile YAML "
-                    "with at least one entry, e.g.:\n"
-                    "  tool_inventory:\n"
-                    "    - name: my_tool\n"
-                    "      description: What the tool does"
-                )
+        if "tool_execution" in zones and not self.tool_inventory:
+            raise ValueError(
+                "Zone 'tool_execution' is active but tool_inventory is "
+                "empty or None.  When the system has tool execution "
+                "capability, you must provide a tool_inventory listing "
+                "the tools and APIs the system can invoke.  Add a "
+                "'tool_inventory' section to your capability profile YAML "
+                "with at least one entry, e.g.:\n"
+                "  tool_inventory:\n"
+                "    - name: my_tool\n"
+                "      description: What the tool does"
+            )
 
         # Deduplicate entry points by canonical identity and reject
         # ambiguous/colliding identities.
         self.entry_points = deduplicate_entry_points(self.entry_points)
 
+        # Deduplicate tool inventory by canonical identity (cmps.9)
+        if self.tool_inventory:
+            self.tool_inventory = deduplicate_tool_inventory(self.tool_inventory)
+
+        # Deduplicate external integrations by canonical identity (cmps.9)
+        if self.external_integrations:
+            self.external_integrations = deduplicate_external_integrations(
+                self.external_integrations
+            )
+
+        # Category-specific completeness/evidence validation (cmps.9 review)
+        # Evidence must be nonblank — whitespace-only strings do not count.
+        _ep_evidence_nonblank = [
+            e for e in self.entry_point_evidence if e and e.strip()
+        ]
+        _ti_evidence_nonblank = [
+            e for e in self.tool_inventory_evidence if e and e.strip()
+        ]
+        if (
+            self.entry_point_completeness
+            == InventoryCompleteness.operator_confirmed_complete
+            and not _ep_evidence_nonblank
+        ):
+            raise ValueError(
+                "entry_point_completeness is 'operator_confirmed_complete' but "
+                "entry_point_evidence is empty or whitespace-only. Operator-"
+                "confirmed complete inventories must provide explicit nonblank "
+                "evidence sources."
+            )
+        if (
+            self.tool_inventory_completeness
+            == InventoryCompleteness.operator_confirmed_complete
+            and not _ti_evidence_nonblank
+        ):
+            raise ValueError(
+                "tool_inventory_completeness is 'operator_confirmed_complete' but "
+                "tool_inventory_evidence is empty or whitespace-only. Operator-"
+                "confirmed complete inventories must provide explicit nonblank "
+                "evidence sources."
+            )
+
         return self
+
+    # --- Resource resolution helpers (cmps.9) ---
+
+    def entry_point_lookup(self) -> dict[str, EntryPoint]:
+        """Build a canonical ID → EntryPoint lookup map."""
+        return {ep.entry_point_id: ep for ep in self.entry_points}
+
+    def resolve_entry_point(self, entry_point_id: str) -> EntryPoint | None:
+        """Resolve a canonical entry_point_id to an EntryPoint, or None if not found."""
+        return self.entry_point_lookup().get(entry_point_id)
+
+    def tool_lookup(self) -> dict[str, ToolInventoryEntry]:
+        """Build a canonical tool_id → ToolInventoryEntry lookup map."""
+        if not self.tool_inventory:
+            return {}
+        return {t.tool_id: t for t in self.tool_inventory}
+
+    def resolve_tool(self, tool_id: str) -> ToolInventoryEntry | None:
+        """Resolve a canonical tool_id to a ToolInventoryEntry, or None if not found."""
+        return self.tool_lookup().get(tool_id)
+
+    def integration_lookup(self) -> dict[str, ExternalIntegration]:
+        """Build a canonical integration_id → ExternalIntegration lookup map."""
+        if not self.external_integrations:
+            return {}
+        return {i.integration_id: i for i in self.external_integrations}
+
+    def resolve_integration(self, integration_id: str) -> ExternalIntegration | None:
+        """Resolve a canonical integration_id to an ExternalIntegration, or None."""
+        return self.integration_lookup().get(integration_id)
+
+    @property
+    def is_entry_point_inventory_complete(self) -> bool:
+        """True when entry-point inventory is operator-confirmed complete with evidence."""
+        return (
+            self.entry_point_completeness
+            == InventoryCompleteness.operator_confirmed_complete
+        )
+
+    @property
+    def is_tool_inventory_complete(self) -> bool:
+        """True when tool inventory is operator-confirmed complete with evidence."""
+        return (
+            self.tool_inventory_completeness
+            == InventoryCompleteness.operator_confirmed_complete
+        )
+
+    @property
+    def is_inventory_complete(self) -> bool:
+        """True when ALL inventory categories are operator-confirmed complete."""
+        return (
+            self.is_entry_point_inventory_complete and self.is_tool_inventory_complete
+        )

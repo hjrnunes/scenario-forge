@@ -15,6 +15,8 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from scenario_forge.eval.consistency import score_consistency
 from scenario_forge.eval.diversity import score_diversity
 from scenario_forge.eval.gherkin import score_gherkin
@@ -26,7 +28,10 @@ from scenario_forge.manifest import (
     find_run_dir,
     load_strict_resolver,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    is_attacker_accessible_ingress,
+)
 
 
 def run_evaluation(
@@ -136,22 +141,20 @@ def run_evaluation(
         if cap_data and isinstance(cap_data, dict):
             try:
                 cap_profile = CapabilityProfile.model_validate(cap_data)
+                active_zones_val = (
+                    set(cap_profile.zones_active) if cap_profile.zones_active else set()
+                )
                 ingress_eps = [
-                    ep for ep in cap_profile.entry_points if ep.direction != "output"
+                    ep
+                    for ep in cap_profile.entry_points
+                    if is_attacker_accessible_ingress(ep, active_zones_val)
                 ]
                 expected_entry_points = len(ingress_eps)
-            except Exception:
+            except ValidationError:
+                # A malformed profile must not produce attacker-accessibility
+                # inferences from raw dicts — the validated profile is the
+                # normative path (cmps.9 third review correction 2).
                 cap_profile = None
-                ep_list = cap_data.get("entry_points")
-                if isinstance(ep_list, list):
-                    ingress_eps = [
-                        ep
-                        for ep in ep_list
-                        if not (
-                            isinstance(ep, dict) and ep.get("direction") == "output"
-                        )
-                    ]
-                    expected_entry_points = len(ingress_eps)
             za_list = cap_data.get("zones_active")
             if isinstance(za_list, list):
                 active_zones = {str(z) for z in za_list}

@@ -16,6 +16,7 @@ Covers the acceptance contract:
 from __future__ import annotations
 
 import os
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,20 +24,24 @@ import pytest
 import yaml
 
 from scenario_forge.manifest import (
+    MANIFEST_FILENAME,
+    ArtifactEntry,
+    ArtifactRole,
     AttemptDisposition,
     AttemptPhase,
     AttemptRecord,
-    ArtifactEntry,
-    ArtifactRole,
     GitProvenance,
     ManifestIntegrityError,
     ManifestInventoryResolver,
     RunManifest,
     RunStatus,
+    atomic_write_yaml,
     build_artifact_entry,
     build_in_memory_resolver,
+    capture_provenance,
     compute_config_digest,
     compute_file_sha256,
+    finalize_manifest,
     find_run_dir,
     generate_sortable_run_id,
     is_run_dir,
@@ -45,18 +50,13 @@ from scenario_forge.manifest import (
     load_strict_resolver,
     required_singleton_roles,
     resolve_run_dir,
-    validate_completed_inventory,
     validate_attempt_equations,
+    validate_completed_inventory,
     validate_run_id,
     write_failed_manifest,
     write_manifest_sentinel,
-    finalize_manifest,
-    atomic_write_yaml,
-    MANIFEST_FILENAME,
-    capture_provenance,
 )
 from tests.manifest_helpers import build_test_run_dir
-
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -120,7 +120,7 @@ class TestImmutableTwoRun:
             if f.is_file():
                 snapshot[f.relative_to(run_dir_1).as_posix()] = f.read_bytes()
 
-        run_dir_2, run_id_2 = resolve_run_dir(collection)
+        run_dir_2, _run_id_2 = resolve_run_dir(collection)
         (run_dir_2 / "use-case.txt").write_text("different use case")
 
         for rel, original_bytes in snapshot.items():
@@ -130,7 +130,7 @@ class TestImmutableTwoRun:
 
     def test_existing_run_dir_not_reused(self, tmp_path: Path):
         collection = tmp_path / "output"
-        run_dir, run_id = resolve_run_dir(collection)
+        _run_dir, run_id = resolve_run_dir(collection)
         with pytest.raises(FileExistsError):
             resolve_run_dir(collection, run_id=run_id)
 
@@ -162,8 +162,9 @@ class TestRunLocalLogging:
     """Logs are run-local and never append across runs."""
 
     def test_log_file_mode_is_write_not_append(self, tmp_path: Path):
-        from scenario_forge.log_config import setup_logging
         import logging
+
+        from scenario_forge.log_config import setup_logging
 
         collection = tmp_path / "output"
         run_dir, _ = resolve_run_dir(collection)
@@ -1168,10 +1169,10 @@ class TestPipelineLifecycle:
         mock_report,
         tmp_path: Path,
     ):
-        from scenario_forge.models.capability_profile import CapabilityProfile
-        from scenario_forge.pipeline.threats import ThreatSurface
         from scenario_forge.llm.client import LLMResult
+        from scenario_forge.models.capability_profile import CapabilityProfile
         from scenario_forge.pipeline.runner import run_pipeline
+        from scenario_forge.pipeline.threats import ThreatSurface
 
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
@@ -1244,8 +1245,8 @@ class TestPipelineLifecycle:
         mock_report,
         tmp_path: Path,
     ):
-        from scenario_forge.pipeline.threats import ThreatSurface
         from scenario_forge.pipeline.runner import run_pipeline
+        from scenario_forge.pipeline.threats import ThreatSurface
 
         mock_profile.side_effect = RuntimeError("LLM connection failed")
         coherence = MagicMock()
@@ -1292,10 +1293,10 @@ class TestPipelineLifecycle:
         mock_report,
         tmp_path: Path,
     ):
-        from scenario_forge.models.capability_profile import CapabilityProfile
-        from scenario_forge.pipeline.threats import ThreatSurface
         from scenario_forge.llm.client import LLMResult
+        from scenario_forge.models.capability_profile import CapabilityProfile
         from scenario_forge.pipeline.runner import run_pipeline
+        from scenario_forge.pipeline.threats import ThreatSurface
 
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
@@ -1378,10 +1379,10 @@ class TestPipelineLifecycle:
         mock_report,
         tmp_path: Path,
     ):
-        from scenario_forge.models.capability_profile import CapabilityProfile
-        from scenario_forge.pipeline.threats import ThreatSurface
         from scenario_forge.llm.client import LLMResult
+        from scenario_forge.models.capability_profile import CapabilityProfile
         from scenario_forge.pipeline.runner import run_pipeline
+        from scenario_forge.pipeline.threats import ThreatSurface
 
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
@@ -1954,17 +1955,19 @@ class TestFaultInjection:
 
         risk, sssom = self._inputs(tmp_path)
         collection = tmp_path / "output"
-        with patch(
-            "scenario_forge.pipeline.runner.LLMClient.__init__",
-            side_effect=RuntimeError("client failure"),
+        with (
+            patch(
+                "scenario_forge.pipeline.runner.LLMClient.__init__",
+                side_effect=RuntimeError("client failure"),
+            ),
+            pytest.raises(RuntimeError, match="client failure"),
         ):
-            with pytest.raises(RuntimeError, match="client failure"):
-                run_pipeline(
-                    use_case="chatbot",
-                    risk_extraction_path=risk,
-                    sssom_path=sssom,
-                    output_dir=collection,
-                )
+            run_pipeline(
+                use_case="chatbot",
+                risk_extraction_path=risk,
+                sssom_path=sssom,
+                output_dir=collection,
+            )
         run_dir = next(path for path in collection.iterdir() if path.is_dir())
         assert load_manifest(run_dir).status == RunStatus.FAILED
 
@@ -1973,17 +1976,19 @@ class TestFaultInjection:
 
         risk, sssom = self._inputs(tmp_path)
         collection = tmp_path / "output"
-        with patch(
-            "scenario_forge.pipeline.runner.write_use_case",
-            side_effect=OSError("disk full"),
+        with (
+            patch(
+                "scenario_forge.pipeline.runner.write_use_case",
+                side_effect=OSError("disk full"),
+            ),
+            pytest.raises(OSError, match="disk full"),
         ):
-            with pytest.raises(OSError, match="disk full"):
-                run_pipeline(
-                    use_case="chatbot",
-                    risk_extraction_path=risk,
-                    sssom_path=sssom,
-                    output_dir=collection,
-                )
+            run_pipeline(
+                use_case="chatbot",
+                risk_extraction_path=risk,
+                sssom_path=sssom,
+                output_dir=collection,
+            )
         run_dir = next(path for path in collection.iterdir() if path.is_dir())
         manifest = load_manifest(run_dir)
         assert manifest.status == RunStatus.FAILED
@@ -1994,17 +1999,19 @@ class TestFaultInjection:
         from scenario_forge.pipeline.runner import run_pipeline
 
         risk, sssom = self._inputs(tmp_path)
-        with patch(
-            "scenario_forge.pipeline.runner.finalize_manifest",
-            side_effect=RuntimeError("finalize failure"),
+        with (
+            patch(
+                "scenario_forge.pipeline.runner.finalize_manifest",
+                side_effect=RuntimeError("finalize failure"),
+            ),
+            pytest.raises(RuntimeError, match="finalize failure"),
         ):
-            with pytest.raises(RuntimeError, match="finalize failure"):
-                run_pipeline(
-                    use_case="chatbot",
-                    risk_extraction_path=risk,
-                    sssom_path=sssom,
-                    output_dir=tmp_path / "output",
-                )
+            run_pipeline(
+                use_case="chatbot",
+                risk_extraction_path=risk,
+                sssom_path=sssom,
+                output_dir=tmp_path / "output",
+            )
 
     @patch("scenario_forge.report.generator.generate_report")
     @patch("scenario_forge.pipeline.runner.analyze_attacker_diversity")
@@ -2027,8 +2034,8 @@ class TestFaultInjection:
         tmp_path: Path,
     ):
         """Fatal error during client construction writes failed manifest."""
-        from scenario_forge.pipeline.threats import ThreatSurface
         from scenario_forge.pipeline.runner import run_pipeline
+        from scenario_forge.pipeline.threats import ThreatSurface
 
         coherence = MagicMock()
         coherence.has_warnings = False
@@ -2041,17 +2048,19 @@ class TestFaultInjection:
         sssom_path = tmp_path / "sssom.tsv"
         sssom_path.write_text("")
 
-        with patch(
-            "scenario_forge.pipeline.runner.LLMClient",
-            side_effect=RuntimeError("bad config"),
+        with (
+            patch(
+                "scenario_forge.pipeline.runner.LLMClient",
+                side_effect=RuntimeError("bad config"),
+            ),
+            pytest.raises(RuntimeError, match="bad config"),
         ):
-            with pytest.raises(RuntimeError, match="bad config"):
-                run_pipeline(
-                    use_case="A chatbot",
-                    risk_extraction_path=risk_path,
-                    sssom_path=sssom_path,
-                    output_dir=collection,
-                )
+            run_pipeline(
+                use_case="A chatbot",
+                risk_extraction_path=risk_path,
+                sssom_path=sssom_path,
+                output_dir=collection,
+            )
 
         runs = [d for d in collection.iterdir() if d.is_dir() and is_run_dir(d)]
         assert len(runs) == 1
@@ -2080,10 +2089,10 @@ class TestFaultInjection:
         tmp_path: Path,
     ):
         """Report generation failure results in completed_with_errors."""
-        from scenario_forge.models.capability_profile import CapabilityProfile
-        from scenario_forge.pipeline.threats import ThreatSurface
         from scenario_forge.llm.client import LLMResult
+        from scenario_forge.models.capability_profile import CapabilityProfile
         from scenario_forge.pipeline.runner import run_pipeline
+        from scenario_forge.pipeline.threats import ThreatSurface
 
         profile = CapabilityProfile(
             zones_active=["input", "reasoning"],
@@ -2487,7 +2496,7 @@ class TestThirdReviewSerializedIdentity:
         return run_dir, manifest
 
     def test_missing_serialized_scenario_id_rejected(self, tmp_path: Path):
-        run_dir, manifest = self._make_run_with_scenario(
+        run_dir, _manifest = self._make_run_with_scenario(
             tmp_path,
             yaml_content=yaml.dump({"candidate_id": "cand:v1:abc"}),
         )
@@ -2497,7 +2506,7 @@ class TestThirdReviewSerializedIdentity:
             load_strict_resolver(run_dir)
 
     def test_missing_serialized_candidate_id_rejected(self, tmp_path: Path):
-        run_dir, manifest = self._make_run_with_scenario(
+        run_dir, _manifest = self._make_run_with_scenario(
             tmp_path,
             yaml_content=yaml.dump({"scenario_id": "s1"}),
         )
@@ -2507,7 +2516,7 @@ class TestThirdReviewSerializedIdentity:
             load_strict_resolver(run_dir)
 
     def test_mismatched_serialized_scenario_id_rejected(self, tmp_path: Path):
-        run_dir, manifest = self._make_run_with_scenario(
+        run_dir, _manifest = self._make_run_with_scenario(
             tmp_path,
             yaml_content=yaml.dump(
                 {"scenario_id": "wrong", "candidate_id": "cand:v1:abc"}
@@ -2517,7 +2526,7 @@ class TestThirdReviewSerializedIdentity:
             load_strict_resolver(run_dir)
 
     def test_mismatched_serialized_candidate_id_rejected(self, tmp_path: Path):
-        run_dir, manifest = self._make_run_with_scenario(
+        run_dir, _manifest = self._make_run_with_scenario(
             tmp_path,
             yaml_content=yaml.dump({"scenario_id": "s1", "candidate_id": "wrong"}),
         )
@@ -2647,6 +2656,7 @@ class TestThirdReviewCallLogFailure:
 
         from scenario_forge.llm.client import LLMResult
         from scenario_forge.models.attack_tree import (
+            AiSystemAction,
             AttackTree,
             AttackTreeNode,
             GateType,
@@ -2685,7 +2695,7 @@ class TestThirdReviewCallLogFailure:
             compute_candidate_id,
         )
         from scenario_forge.pipeline.coverage import CoverageGaps
-        from scenario_forge.pipeline.runner import run_pipeline, compute_scenario_id
+        from scenario_forge.pipeline.runner import compute_scenario_id, run_pipeline
         from scenario_forge.pipeline.seeds import ScenarioSeed
         from scenario_forge.pipeline.threats import ThreatSurface
 
@@ -2791,7 +2801,7 @@ class TestThirdReviewCallLogFailure:
             envelope = ScenarioEnvelope(
                 scenario_id=expected_sid,
                 candidate_id=cid,
-                generated_at=datetime.now(),
+                generated_at=datetime.now(tz=UTC),
                 generator_version="0.1.0",
                 narrative=NarrativeLayer(
                     title="Test Scenario",
@@ -2823,12 +2833,14 @@ class TestThirdReviewCallLogFailure:
                                 gate=GateType.LEAF,
                                 zone="input",
                                 technique_id="AML.T0051",
+                                action=AiSystemAction(),
                             ),
                             AttackTreeNode(
                                 id="n1.2",
                                 label="Path B",
                                 gate=GateType.LEAF,
                                 zone="reasoning",
+                                action=AiSystemAction(),
                             ),
                         ],
                     ),
@@ -2971,14 +2983,14 @@ class TestThirdReviewCallLogFailure:
                 "scenario_forge.pipeline.runner.write_call_log",
                 side_effect=OSError("call-log disk full"),
             ),
+            pytest.raises(Exception, match="Call-log write failed"),
         ):
-            with pytest.raises(Exception, match="Call-log write failed"):
-                run_pipeline(
-                    use_case="A chatbot",
-                    risk_extraction_path=risk_path,
-                    sssom_path=sssom_path,
-                    output_dir=tmp_path / "output",
-                )
+            run_pipeline(
+                use_case="A chatbot",
+                risk_extraction_path=risk_path,
+                sssom_path=sssom_path,
+                output_dir=tmp_path / "output",
+            )
 
         # --- Verify failed manifest evidence ---
         collection = tmp_path / "output"

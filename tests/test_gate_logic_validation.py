@@ -8,9 +8,14 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import (
+    AiSystemAction,
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+)
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -32,11 +37,10 @@ from scenario_forge.models.scenario import (
     TechniqueMaturity,
 )
 from scenario_forge.pipeline.validation import (
-    _has_or_gates,
     _count_or_gates,
+    _has_or_gates,
     validate_gate_logic_consistency,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -44,13 +48,14 @@ from scenario_forge.pipeline.validation import (
 
 
 def _leaf(
-    node_id: str, label: str, zone: str, technique_id: str | None = None
+    node_id: str, label: str, zone: str | None, technique_id: str | None = None
 ) -> AttackTreeNode:
     return AttackTreeNode(
         id=node_id,
         label=label,
         gate=GateType.LEAF,
         zone=zone,
+        action=AiSystemAction(),
         technique_id=technique_id,
     )
 
@@ -210,7 +215,7 @@ def _make_scenario(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         scenario_seed_metadata={
             "seed_id": tree.seed_id,

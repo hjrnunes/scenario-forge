@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import logging
 
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode
+from scenario_forge.models.attack_tree import AiSystemAction, AttackTree, AttackTreeNode
 from scenario_forge.pipeline.generate import (
     _collect_threat_ids_from_tree,
     _warn_dominant_threat_id_crossref,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,6 +35,7 @@ def _leaf(node_id: str, threat_id: str | None = None) -> AttackTreeNode:
         label=f"Step {node_id}",
         gate="LEAF",
         zone="input",
+        action=AiSystemAction(),
         threat_id=threat_id,
     )
 

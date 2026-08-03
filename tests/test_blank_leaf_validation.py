@@ -12,9 +12,10 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -44,10 +45,19 @@ from scenario_forge.pipeline.validation import (
     validate_blank_leaves,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build valid actionable leaves while testing technique annotations."""
+    if kwargs.get("gate") == GateType.LEAF:
+        kwargs.setdefault("action", AiSystemAction())
+    return _AttackTreeNode(**kwargs)
 
 
 def _make_envelope(
@@ -127,7 +137,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,

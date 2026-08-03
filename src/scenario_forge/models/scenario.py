@@ -15,13 +15,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.capability_profile import ConfidenceLevel
-
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -103,7 +102,7 @@ class NarrativeStep(BaseModel):
     effect: str = Field(
         description="What happens as a result -- system response or state change."
     )
-    control_point: Optional[str] = Field(
+    control_point: str | None = Field(
         default=None,
         description="Defensive control at this step, if one exists.",
     )
@@ -208,11 +207,11 @@ class RiskCardRef(BaseModel):
     grounding_confidence: ConfidenceLevel = Field(
         description="Grounding confidence level: high, medium, or low.",
     )
-    threat: Optional[str] = None
-    threat_source: Optional[str] = None
-    vulnerability: Optional[str] = None
-    consequence: Optional[str] = None
-    impact: Optional[str] = None
+    threat: str | None = None
+    threat_source: str | None = None
+    vulnerability: str | None = None
+    consequence: str | None = None
+    impact: str | None = None
 
 
 class TaxonomyChain(BaseModel):
@@ -230,7 +229,7 @@ class TaxonomyChain(BaseModel):
         default_factory=list,
         description="OWASP ASI Top 10 entry IDs (e.g. ['ASI02', 'ASI06']).",
     )
-    atlas_technique_ids: Optional[list[str]] = Field(
+    atlas_technique_ids: list[str] | None = Field(
         default=None,
         description="MITRE ATLAS technique IDs (e.g. ['AML.T0051']). May be empty.",
     )
@@ -332,7 +331,7 @@ class GenerationMetadata(BaseModel):
     call_metadata: list[CallMetadata] = Field(
         description="Per-call metadata for each LLM call that produced this scenario.",
     )
-    notes: Optional[list[str]] = Field(
+    notes: list[str] | None = Field(
         default=None,
         description="Generation-time notes and warnings.",
     )
@@ -392,6 +391,102 @@ class SemanticViolation(BaseModel):
     )
 
 
+class CorpusClaimCategory(str, Enum):
+    """Inventory category for closed-world corpus claim applicability."""
+
+    entry_points = "entry_points"
+    tool_inventory = "tool_inventory"
+
+
+class CorpusClaimStatus(str, Enum):
+    """Whether closed-world corpus claims are applicable for a category."""
+
+    applicable = "applicable"
+    not_applicable = "not_applicable"
+
+
+class CorpusClaimApplicability(BaseModel):
+    """Typed, category-specific closed-world corpus claim applicability record.
+
+    Closed-world omission/phantom claims (e.g. "no omitted tools") are
+    ``not_applicable`` until the relevant inventory category is
+    operator-confirmed complete.  When the category *is* complete, claims
+    are ``applicable`` and unknown emitted IDs still fail independently
+    via phantom validation (cmps.9 review correction 2).
+
+    Status-appropriate payloads are enforced (cmps.9 third review
+    correction 1):
+
+    - ``applicable``: requires at least one nonblank evidence item;
+      ``reason`` must be ``None``.
+    - ``not_applicable``: requires a nonblank ``reason``; ``evidence``
+      must be empty.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: CorpusClaimCategory = Field(
+        description="Inventory category this record applies to."
+    )
+    status: CorpusClaimStatus = Field(
+        description=(
+            "``applicable`` when the category inventory is "
+            "operator-confirmed complete; ``not_applicable`` when it is "
+            "inferred_partial."
+        ),
+    )
+    reason: str | None = Field(
+        default=None,
+        description=(
+            "Human-readable reason for the status, e.g. why claims are "
+            "not_applicable for a partial inventory."
+        ),
+    )
+    evidence: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Evidence sources supporting the status. For "
+            "``applicable`` records this carries the operator-confirmed "
+            "evidence; for ``not_applicable`` it is empty."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_status_payload(self) -> CorpusClaimApplicability:
+        if self.status == CorpusClaimStatus.applicable:
+            if self.reason is not None:
+                raise ValueError(
+                    f"applicable corpus claim for category "
+                    f"'{self.category.value}' must not carry a reason."
+                )
+            if not self.evidence:
+                raise ValueError(
+                    f"applicable corpus claim for category "
+                    f"'{self.category.value}' requires at least one "
+                    f"nonblank evidence item."
+                )
+            blank_evidence = [e for e in self.evidence if not e.strip()]
+            if blank_evidence:
+                raise ValueError(
+                    f"applicable corpus claim for category "
+                    f"'{self.category.value}' has blank/whitespace-only "
+                    f"evidence item(s): {blank_evidence}. Every evidence "
+                    f"item must be nonblank."
+                )
+        elif self.status == CorpusClaimStatus.not_applicable:
+            if self.reason is None or not self.reason.strip():
+                raise ValueError(
+                    f"not_applicable corpus claim for category "
+                    f"'{self.category.value}' requires a nonblank reason."
+                )
+            if self.evidence:
+                raise ValueError(
+                    f"not_applicable corpus claim for category "
+                    f"'{self.category.value}' must not carry evidence."
+                )
+        return self
+
+
 class SemanticValidation(BaseModel):
     """Semantic (Python logic) validation results."""
 
@@ -402,6 +497,68 @@ class SemanticValidation(BaseModel):
         default_factory=list,
         description="List of semantic validation violations found.",
     )
+    corpus_claim_applicability: list[CorpusClaimApplicability] = Field(
+        default_factory=lambda: [
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+                reason="Inferred partial inventory.",
+            ),
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.not_applicable,
+                reason="Inferred partial inventory.",
+            ),
+        ],
+        min_length=2,
+        max_length=2,
+        description=(
+            "Typed, category-specific closed-world corpus claim "
+            "applicability records. Partial inventory categories are "
+            "structurally ``not_applicable``; operator-confirmed-complete "
+            "categories are ``applicable``. This is independent of "
+            "phantom.valid — unknown emitted IDs still fail regardless. "
+            "Exactly one entry_points and one tool_inventory record "
+            "are required (cmps.9 third review correction 1)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_corpus_claim_completeness(self) -> SemanticValidation:
+        """Require exactly one ``entry_points`` and one ``tool_inventory``
+        record — no empty, missing, or duplicate categories (cmps.9 third
+        review correction 1).
+        """
+        categories = [r.category for r in self.corpus_claim_applicability]
+        cat_counts: dict[str, int] = {}
+        for c in categories:
+            cat_counts[c.value] = cat_counts.get(c.value, 0) + 1
+        required = {
+            CorpusClaimCategory.entry_points.value,
+            CorpusClaimCategory.tool_inventory.value,
+        }
+        missing = required - set(cat_counts)
+        if missing:
+            raise ValueError(
+                f"corpus_claim_applicability is missing required "
+                f"category record(s): {sorted(missing)}. Exactly one "
+                f"entry_points and one tool_inventory record are required."
+            )
+        duplicates = {c: n for c, n in cat_counts.items() if n > 1}
+        if duplicates:
+            raise ValueError(
+                f"corpus_claim_applicability has duplicate category "
+                f"record(s): {duplicates}. Exactly one entry_points and "
+                f"one tool_inventory record are required."
+            )
+        extra = set(cat_counts) - required
+        if extra:
+            raise ValueError(
+                f"corpus_claim_applicability has unexpected category "
+                f"record(s): {sorted(extra)}. Only entry_points and "
+                f"tool_inventory are valid categories."
+            )
+        return self
 
 
 class ValidationBlock(BaseModel):
@@ -410,7 +567,7 @@ class ValidationBlock(BaseModel):
     phantom: PhantomValidation = Field(default_factory=PhantomValidation)
     structural: StructuralValidation = Field(default_factory=StructuralValidation)
     semantic: SemanticValidation = Field(default_factory=SemanticValidation)
-    parsimony_unprunable: Optional[str] = Field(
+    parsimony_unprunable: str | None = Field(
         default=None,
         description="Set when parsimony pruning could not bring the tree within budget.",
     )
@@ -489,7 +646,7 @@ class ScenarioEnvelope(BaseModel):
         return v
 
     version: int = Field(
-        default=1,
+        default=2,
         description="Monotonically increasing version number.",
     )
     generated_at: datetime = Field(
@@ -501,7 +658,7 @@ class ScenarioEnvelope(BaseModel):
 
     # --- Scenario Seed Metadata ---
 
-    scenario_seed_metadata: Optional[dict[str, Any]] = Field(
+    scenario_seed_metadata: dict[str, Any] | None = Field(
         default=None,
         description=(
             "Rich metadata from the scenario seed: seed_id, threat_id, "
@@ -566,11 +723,11 @@ class ScenarioEnvelope(BaseModel):
 
     # --- Validation ---
 
-    validation: Optional[ValidationBlock] = Field(
+    validation: ValidationBlock | None = Field(
         default=None,
         description="Unified validation results (phantom, structural, semantic).",
     )
-    validation_passed: Optional[bool] = Field(
+    validation_passed: bool | None = Field(
         default=None,
         description="True only if all three validation sub-blocks are valid. None if validation has not run.",
     )

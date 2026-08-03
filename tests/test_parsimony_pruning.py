@@ -10,9 +10,10 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -39,10 +40,23 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.validation import enforce_parsimony
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: helpers to build minimal valid objects
 # ---------------------------------------------------------------------------
+
+
+_AttackTreeNode = AttackTreeNode
+
+
+def AttackTreeNode(**kwargs):
+    """Build valid actionable leaves for parsimony tests."""
+    if kwargs.get("gate") == GateType.LEAF:
+        # Historical fixtures used the removed output zone; these tests only
+        # exercise tree shape and pruning, so map it to a valid AI zone.
+        if kwargs.get("zone") == "output":
+            kwargs["zone"] = "reasoning"
+        kwargs.setdefault("action", AiSystemAction())
+    return _AttackTreeNode(**kwargs)
 
 
 def _make_tree(
@@ -131,7 +145,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -228,10 +242,10 @@ class TestCompliantTrees:
 
 
 class TestPruningOrder:
-    """Unannotated leaves should be pruned; annotated ones preserved."""
+    """Typed-action leaves are preserved regardless of technique annotation."""
 
-    def test_unannotated_leaves_pruned(self) -> None:
-        """Excess unannotated leaves are removed."""
+    def test_unannotated_typed_action_leaves_are_unprunable(self) -> None:
+        """Excess leaves with typed actions are not removed."""
         # 1 technique -> budget = 4. Tree has 5 leaves: 1 annotated, 4 unannotated.
         root = AttackTreeNode(
             id="n1",
@@ -275,19 +289,15 @@ class TestPruningOrder:
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        assert len(result.pruned_scenarios) == 1
-        pruned_scenario, pruned_nodes = result.pruned_scenarios[0]
-        # Should have pruned 1 leaf (5 - 4 = 1)
-        assert len(pruned_nodes) == 1
-        # All pruned nodes should be unannotated
-        for pn in pruned_nodes:
-            assert pn.node_id != "n1.1"  # annotated leaf must survive
-        # Annotated leaf must still be in the tree
+        assert len(result.pruned_scenarios) == 0
+        assert len(result.unprunable_scenarios) == 1
+        unchanged_scenario, actual, budget = result.unprunable_scenarios[0]
+        assert (actual, budget) == (5, 4)
         from scenario_forge.pipeline.validation import _collect_leaves
 
-        remaining = _collect_leaves(pruned_scenario.attack_tree.root)
-        annotated_ids = [leaf.id for leaf in remaining if leaf.technique_id]
-        assert "n1.1" in annotated_ids
+        assert [
+            leaf.id for leaf in _collect_leaves(unchanged_scenario.attack_tree.root)
+        ] == ["n1.1", "n1.2", "n1.3", "n1.4", "n1.5"]
 
     def test_annotated_leaves_never_pruned(self) -> None:
         """When all excess leaves have technique_ids, they cannot be pruned."""
@@ -350,7 +360,7 @@ class TestPruningOrder:
 
 
 class TestGateCollapse:
-    """When pruning leaves a gate with 1 child, it should be collapsed."""
+    """Typed-action trees do not collapse because they cannot be pruned."""
 
     def test_and_gate_collapses(self) -> None:
         """Pruning one child of a 2-child AND gate collapses the gate."""
@@ -413,16 +423,11 @@ class TestGateCollapse:
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        assert len(result.pruned_scenarios) == 1
-        pruned_scenario, pruned_nodes = result.pruned_scenarios[0]
-
-        # The AND gate n1.1 should have been collapsed
-        pruned_root = pruned_scenario.attack_tree.root
-        # All children of root should be LEAFs now (n1.1 collapsed to its single child)
-        for child in pruned_root.children:
-            assert child.gate == GateType.LEAF, (
-                f"Expected LEAF but got {child.gate} for {child.id}"
-            )
+        assert len(result.pruned_scenarios) == 0
+        assert len(result.unprunable_scenarios) == 1
+        unchanged, actual, budget = result.unprunable_scenarios[0]
+        assert (actual, budget) == (5, 4)
+        assert unchanged.attack_tree.root.model_dump() == root.model_dump()
 
 
 # ---------------------------------------------------------------------------
@@ -483,10 +488,10 @@ class TestBudgetCalculation:
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        # Should prune 1 leaf (6 -> 5)
-        assert len(result.pruned_scenarios) == 1
-        _, pruned_nodes = result.pruned_scenarios[0]
-        assert len(pruned_nodes) == 1
+        assert len(result.pruned_scenarios) == 0
+        assert len(result.unprunable_scenarios) == 1
+        _, actual, budget = result.unprunable_scenarios[0]
+        assert (actual, budget) == (6, 5)
 
     def test_one_technique_budget_4(self) -> None:
         """With 1 technique, budget = 2*1+2 = 4."""
@@ -586,9 +591,10 @@ class TestBudgetCalculation:
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        assert len(result.pruned_scenarios) == 1
-        _, pruned_nodes = result.pruned_scenarios[0]
-        assert len(pruned_nodes) == 1
+        assert len(result.pruned_scenarios) == 0
+        assert len(result.unprunable_scenarios) == 1
+        _, actual, budget = result.unprunable_scenarios[0]
+        assert (actual, budget) == (7, 6)
 
 
 # ---------------------------------------------------------------------------
@@ -630,8 +636,8 @@ class TestMinimumViableTree:
 
         assert len(result.compliant_scenarios) == 1
 
-    def test_pruned_tree_is_valid_pydantic(self) -> None:
-        """After pruning, the tree should be valid Pydantic."""
+    def test_unprunable_tree_remains_valid_pydantic(self) -> None:
+        """An unprunable typed-action tree remains valid Pydantic."""
         # 1 technique -> budget = 4. Tree has 5 leaves.
         root = AttackTreeNode(
             id="n1",
@@ -675,10 +681,10 @@ class TestMinimumViableTree:
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        assert len(result.pruned_scenarios) == 1
-        pruned_scenario, _ = result.pruned_scenarios[0]
+        assert len(result.unprunable_scenarios) == 1
+        unchanged_scenario, _, _ = result.unprunable_scenarios[0]
         # Re-validate with Pydantic
-        tree = pruned_scenario.attack_tree
+        tree = unchanged_scenario.attack_tree
         validated = AttackTree.model_validate(tree.model_dump())
         assert validated.root.id == "n1"
 
@@ -746,11 +752,14 @@ class TestMinimumViableTree:
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        assert len(result.pruned_scenarios) == 1
-        pruned_scenario, pruned_nodes = result.pruned_scenarios[0]
+        assert len(result.unprunable_scenarios) == 1
+        unchanged_scenario, _, _ = result.unprunable_scenarios[0]
 
-        # After pruning, tree should still be valid
-        validated = AttackTree.model_validate(pruned_scenario.attack_tree.model_dump())
+        # Without pruning, the original tree should still be valid and unchanged.
+        assert unchanged_scenario.attack_tree.root.model_dump() == root.model_dump()
+        validated = AttackTree.model_validate(
+            unchanged_scenario.attack_tree.model_dump()
+        )
 
         # Check all AND/OR gates have >= 2 children
         def check_gates(node: AttackTreeNode) -> None:
@@ -771,7 +780,7 @@ class TestMinimumViableTree:
 
 
 class TestAndGatePreference:
-    """Leaves under AND gates should be pruned before OR-gate leaves."""
+    """Gate preference is irrelevant when every leaf has a typed action."""
 
     def test_and_children_pruned_first(self) -> None:
         """When both AND and OR children are candidates, AND is pruned first."""
@@ -833,8 +842,8 @@ class TestAndGatePreference:
         scenario = _make_envelope(root)
         result = enforce_parsimony([scenario])
 
-        assert len(result.pruned_scenarios) == 1
-        _, pruned_nodes = result.pruned_scenarios[0]
-        assert len(pruned_nodes) == 1
-        # The AND-child should have been pruned
-        assert pruned_nodes[0].parent_gate == "AND"
+        assert len(result.pruned_scenarios) == 0
+        assert len(result.unprunable_scenarios) == 1
+        unchanged, actual, budget = result.unprunable_scenarios[0]
+        assert (actual, budget) == (5, 4)
+        assert unchanged.attack_tree.root.model_dump() == root.model_dump()

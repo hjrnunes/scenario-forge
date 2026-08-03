@@ -12,7 +12,6 @@ from scenario_forge.pipeline.generate import (
     _sanitize_yaml_colons,
 )
 
-
 # ---------------------------------------------------------------------------
 # _sanitize_yaml_colons unit tests
 # ---------------------------------------------------------------------------
@@ -131,6 +130,8 @@ class TestParseAttackTreeYamlColonHandling:
             f"  description: {description}\n"
             "  gate: LEAF\n"
             "  zone: input\n"
+            "  action:\n"
+            "    kind: ai_system_action\n"
         )
 
     @staticmethod
@@ -169,6 +170,8 @@ class TestParseAttackTreeYamlColonHandling:
             "  label: Phase 1: Reconnaissance via OSINT\n"
             "  gate: LEAF\n"
             "  zone: input\n"
+            "  action:\n"
+            "    kind: ai_system_action\n"
         )
         tree = _parse_attack_tree_yaml(raw, self._mock_seed())
         assert tree.root.label == "Phase 1: Reconnaissance via OSINT"
@@ -185,6 +188,8 @@ class TestParseAttackTreeYamlColonHandling:
             "  label: Step 1: Access\n"
             "  gate: LEAF\n"
             "  zone: input\n"
+            "  action:\n"
+            "    kind: ai_system_action\n"
             "```\n"
         )
         tree = _parse_attack_tree_yaml(raw, self._mock_seed())

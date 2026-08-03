@@ -31,7 +31,7 @@
     "version": {
       "type": "integer",
       "minimum": 1,
-      "default": 1
+      "default": 2
     },
     "generated_at": {
       "type": "string",
@@ -154,9 +154,62 @@
         }
       }
     },
+    "AiSystemAction": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": { "kind": { "const": "ai_system_action", "default": "ai_system_action" } },
+      "additionalProperties": false
+    },
+    "ExternalPreconditionAction": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "external_precondition", "default": "external_precondition" },
+        "access_provenance": { "oneOf": [{ "type": "string" }, { "type": "null" }], "default": null }
+      },
+      "additionalProperties": false
+    },
+    "ImpactAction": {
+      "type": "object",
+      "required": ["kind", "boundary", "target"],
+      "properties": {
+        "kind": { "const": "impact", "default": "impact" },
+        "boundary": { "type": "string", "enum": ["internal", "external"] },
+        "target": { "type": "string", "maxLength": 200 }
+      },
+      "additionalProperties": false
+    },
+    "ToolInvocationAction": {
+      "type": "object",
+      "required": ["kind", "tool_id"],
+      "properties": {
+        "kind": { "const": "tool_invocation", "default": "tool_invocation" },
+        "tool_id": { "type": "string", "pattern": "^tool:v1:[0-9a-f]{32}$" },
+        "integration_id": { "oneOf": [{ "type": "string", "pattern": "^int:v1:[0-9a-f]{32}$" }, { "type": "null" }], "default": null }
+      },
+      "additionalProperties": false
+    },
+    "IntegrationInteractionAction": {
+      "type": "object",
+      "required": ["kind", "integration_id"],
+      "properties": {
+        "kind": { "const": "integration_interaction", "default": "integration_interaction" },
+        "integration_id": { "type": "string", "pattern": "^int:v1:[0-9a-f]{32}$" }
+      },
+      "additionalProperties": false
+    },
+    "InitialIngressAction": {
+      "type": "object",
+      "required": ["kind", "entry_point_id"],
+      "properties": {
+        "kind": { "const": "initial_ingress", "default": "initial_ingress" },
+        "entry_point_id": { "type": "string", "pattern": "^ep:v1:[0-9a-f]{32}$" }
+      },
+      "additionalProperties": false
+    },
     "AttackTreeNode": {
       "type": "object",
-      "required": ["id", "label", "gate", "zone"],
+      "required": ["id", "label", "gate"],
       "properties": {
         "id": {
           "type": "string",
@@ -173,7 +226,18 @@
           "type": "string",
           "enum": ["AND", "OR", "LEAF"]
         },
-        "zone": { "type": "string", "minLength": 1 },
+        "zone": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "action": {
+          "oneOf": [
+            { "$ref": "#/$defs/AiSystemAction" },
+            { "$ref": "#/$defs/ExternalPreconditionAction" },
+            { "$ref": "#/$defs/ImpactAction" },
+            { "$ref": "#/$defs/ToolInvocationAction" },
+            { "$ref": "#/$defs/IntegrationInteractionAction" },
+            { "$ref": "#/$defs/InitialIngressAction" },
+            { "type": "null" }
+          ]
+        },
         "threat_id": {
           "oneOf": [
             { "type": "string", "pattern": "^T\\d+$" },
@@ -235,7 +299,18 @@
             "properties": { "gate": { "const": "LEAF" } }
           },
           "then": {
+            "required": ["action"],
             "properties": {
+              "action": {
+                "oneOf": [
+                  { "$ref": "#/$defs/AiSystemAction" },
+                  { "$ref": "#/$defs/ExternalPreconditionAction" },
+                  { "$ref": "#/$defs/ImpactAction" },
+                  { "$ref": "#/$defs/ToolInvocationAction" },
+                  { "$ref": "#/$defs/IntegrationInteractionAction" },
+                  { "$ref": "#/$defs/InitialIngressAction" }
+                ]
+              },
               "children": {
                 "oneOf": [
                   { "type": "null" },
@@ -251,6 +326,7 @@
           },
           "then": {
             "properties": {
+              "action": { "type": "null" },
               "children": {
                 "type": "array",
                 "items": { "$ref": "#/$defs/AttackTreeNode" },
@@ -259,6 +335,118 @@
             },
             "required": ["children"]
           }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "external_precondition" } }
+              }
+            }
+          },
+          "then": { "properties": { "zone": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "ai_system_action" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "tool_invocation" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "const": "tool_execution" } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "integration_interaction" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": { "kind": { "const": "initial_ingress" } }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind", "boundary"],
+                "properties": {
+                  "kind": { "const": "impact" },
+                  "boundary": { "const": "internal" }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": ["zone"],
+            "properties": { "zone": { "type": "string", "enum": ["input", "reasoning", "tool_execution", "memory", "inter_agent"] } }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"],
+            "properties": {
+              "action": {
+                "type": "object",
+                "required": ["kind", "boundary"],
+                "properties": {
+                  "kind": { "const": "impact" },
+                  "boundary": { "const": "external" }
+                }
+              }
+            }
+          },
+          "then": { "properties": { "zone": { "type": "null" } } }
         }
       ]
     },
@@ -478,6 +666,60 @@
         }
       }
     },
+    "CorpusClaimApplicability": {
+      "type": "object",
+      "required": ["category", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["entry_points", "tool_inventory"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["applicable", "not_applicable"]
+        },
+        "reason": {
+          "type": ["string", "null"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "applicable" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reason": { "type": "null" },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "\\S" }
+              }
+            },
+            "required": ["evidence"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "not_applicable" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reason": { "type": "string", "pattern": "\\S" },
+              "evidence": { "type": "array", "maxItems": 0 }
+            },
+            "required": ["reason"]
+          }
+        }
+      ]
+    },
     "SemanticValidation": {
       "type": "object",
       "required": ["valid"],
@@ -486,8 +728,35 @@
         "violations": {
           "type": "array",
           "items": { "$ref": "#/$defs/SemanticViolation" }
+        },
+        "corpus_claim_applicability": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CorpusClaimApplicability" },
+          "minItems": 2,
+          "maxItems": 2,
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": { "category": { "const": "entry_points" } },
+                "required": ["category"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": { "category": { "const": "tool_inventory" } },
+                "required": ["category"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ]
         }
-      }
+      },
+      "required": ["valid", "corpus_claim_applicability"]
     },
     "ValidationBlock": {
       "type": "object",

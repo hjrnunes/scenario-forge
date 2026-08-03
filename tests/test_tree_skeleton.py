@@ -13,18 +13,27 @@ Covers:
 from __future__ import annotations
 
 import logging
+from typing import Self
 from unittest.mock import MagicMock
 
 from scenario_forge.llm.client import LLMResult
-from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import (
+    AiSystemAction,
+    AttackTree,
+    AttackTreeNode,
+    GateType,
+)
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    ToolInventoryEntry,
+)
 from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
 from scenario_forge.pipeline.generate import (
     _build_tree_skeleton,
+    _call_attack_tree,
     _format_skeleton_yaml,
     _validate_mandatory_leaves,
-    _call_attack_tree,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -71,7 +80,11 @@ def _make_tree(technique_ids: list[str]) -> AttackTree:
     """Build a minimal valid tree with given technique IDs on leaves."""
     if not technique_ids:
         root = AttackTreeNode(
-            id="n1", label="Root", gate=GateType.LEAF, zone="input"
+            id="n1",
+            label="Root",
+            gate=GateType.LEAF,
+            zone="input",
+            action=AiSystemAction(),
         )
     elif len(technique_ids) == 1:
         root = AttackTreeNode(
@@ -85,12 +98,14 @@ def _make_tree(technique_ids: list[str]) -> AttackTree:
                     label="Setup step",
                     gate=GateType.LEAF,
                     zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
                     id="n1.2",
                     label="Technique leaf",
                     gate=GateType.LEAF,
                     zone="input",
+                    action=AiSystemAction(),
                     technique_id=technique_ids[0],
                 ),
             ],
@@ -104,6 +119,7 @@ def _make_tree(technique_ids: list[str]) -> AttackTree:
                     label=f"Technique {tid}",
                     gate=GateType.LEAF,
                     zone="input",
+                    action=AiSystemAction(),
                     technique_id=tid,
                 )
             )
@@ -149,11 +165,17 @@ root:
       label: Inject prompt
       gate: LEAF
       zone: input
+      action:
+        kind: initial_ingress
+        entry_point_id: ep:v1:aa202037d5bb19758e399770ed232905
       technique_id: AML.T0054
     - id: n1.2
       label: Invoke tool
       gate: LEAF
       zone: tool_execution
+      action:
+        kind: tool_invocation
+        tool_id: tool:v1:c877fbde6877ae812fa11d00e82fc062
       technique_id: AML.T0053
 """
 
@@ -276,9 +298,7 @@ class TestBuildTreeSkeleton:
                 effect="AI Agent Tool Invocation [AML.T0053] succeeds",
             ),
         ]
-        narrative = _make_narrative(
-            steps=steps, zone_sequence=["tool_execution"]
-        )
+        narrative = _make_narrative(steps=steps, zone_sequence=["tool_execution"])
         result = _build_tree_skeleton(
             narrative,
             ["AML.T0053"],
@@ -386,10 +406,7 @@ class TestValidateMandatoryLeaves:
         gen_logger = logging.getLogger("scenario_forge.pipeline.generate")
         with CaptureHandler(gen_logger) as handler:
             _validate_mandatory_leaves(tree, skeleton, "AP-T2-05")
-            assert not any(
-                "missing" in r.getMessage().lower()
-                for r in handler.records
-            )
+            assert not any("missing" in r.getMessage().lower() for r in handler.records)
 
     def test_missing_technique_logs_warning(self) -> None:
         """Missing mandatory technique produces a warning."""
@@ -415,8 +432,7 @@ class TestValidateMandatoryLeaves:
             warnings = [
                 r
                 for r in handler.records
-                if "AML.T0053" in r.getMessage()
-                and "missing" in r.getMessage().lower()
+                if "AML.T0053" in r.getMessage() and "missing" in r.getMessage().lower()
             ]
             assert len(warnings) == 1
 
@@ -444,6 +460,15 @@ class TestSkeletonInCall2Prompt:
             narrative=narrative,
             client=client,
             use_case="A test use case",
+            profile=CapabilityProfile(
+                zones_active=["input", "reasoning", "tool_execution"],
+                entry_points=["user chat interface"],
+                confidence="high",
+                kc_subcodes=["KC6.1.1"],
+                tool_inventory=[
+                    ToolInventoryEntry(name="test_tool", description="A test tool")
+                ],
+            ),
             pinned_technique_ids=pinned_ids,
             pinned_technique_names=pinned_names,
         )
@@ -473,6 +498,15 @@ class TestSkeletonInCall2Prompt:
             narrative=narrative,
             client=client,
             use_case="A test use case",
+            profile=CapabilityProfile(
+                zones_active=["input", "reasoning", "tool_execution"],
+                entry_points=["user chat interface"],
+                confidence="high",
+                kc_subcodes=["KC6.1.1"],
+                tool_inventory=[
+                    ToolInventoryEntry(name="test_tool", description="A test tool")
+                ],
+            ),
             pinned_technique_ids=None,
             pinned_technique_names=None,
         )
@@ -646,7 +680,7 @@ class CaptureHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         self.records.append(record)
 
-    def __enter__(self) -> CaptureHandler:
+    def __enter__(self) -> Self:
         self._logger.addHandler(self)
         self._prev_level = self._logger.level
         self._logger.setLevel(logging.DEBUG)

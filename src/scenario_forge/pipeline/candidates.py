@@ -11,9 +11,10 @@ import hashlib
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import combinations
-from typing import Literal, Sequence
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -28,6 +29,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     classify_entry_point,
     compute_entry_point_id,
+    is_attacker_accessible_ingress,
 )
 from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -624,10 +626,16 @@ def expand_candidates(
 
     candidates: list[CandidateTriple] = []
 
-    # Filter out output-only entry points — they are not attacker-accessible
-    # ingress channels. Only input and bidirectional entry points participate
-    # in the candidate cross-product.
-    ingress_points = [ep for ep in profile.entry_points if ep.direction != "output"]
+    # Filter to attacker-accessible ingress entry points using the
+    # centralized predicate (cmps.9 third review correction 2).
+    # This excludes output-only, system-controlled, and entries whose
+    # canonical ingress zone is inactive.
+    active_zones = set(profile.zones_active) if profile.zones_active else set()
+    ingress_points = [
+        ep
+        for ep in profile.entry_points
+        if is_attacker_accessible_ingress(ep, active_zones)
+    ]
 
     if not ingress_points:
         logger.warning(
@@ -637,14 +645,14 @@ def expand_candidates(
         )
         return []
 
-    output_only_count = len(profile.entry_points) - len(ingress_points)
-    if output_only_count > 0:
+    excluded_count = len(profile.entry_points) - len(ingress_points)
+    if excluded_count > 0:
         logger.info(
-            "Entry point direction filter: %d/%d entry points are ingress-capable "
-            "(%d output-only excluded)",
+            "Entry point filter: %d/%d entry points are attacker-accessible "
+            "(%d excluded: output-only or system-controlled)",
             len(ingress_points),
             len(profile.entry_points),
-            output_only_count,
+            excluded_count,
         )
 
     for seed in eligible_seeds:
@@ -799,7 +807,7 @@ def _canonicalize_techniques(
             name or description metadata.
     """
     if not ids:
-        return tuple(), tuple(), tuple()
+        return (), (), ()
 
     # Pad names/descriptions to match ids length (defensive).
     padded_names = tuple(names) + ("",) * max(0, len(ids) - len(names))
@@ -1279,7 +1287,7 @@ def filter_candidates(
                     user_prompt=user_prompt,
                     response_format=BatchFilterResponse,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - infrastructure/parse exception, records synthetic call log
                 # Infrastructure/parse exception — record a synthetic
                 # call log entry since we have no LLMResult.
                 seed_call_logs.append(
@@ -1353,7 +1361,7 @@ def filter_candidates(
                     seed_id,
                     submitted_ids,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - reconciliation exception, records error
                 ok = False
                 err = f"Reconciliation exception: {exc}"
 

@@ -15,13 +15,12 @@ from scenario_forge.models.attack_tree import (
     AttackTree,
     AttackTreeNode,
     GateType,
-    repair_attack_tree_dict,
 )
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    is_attacker_accessible_ingress,
+)
 from scenario_forge.models.scenario import ActorProfile, NarrativeLayer
-from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.prompts import render_prompt
-
 from scenario_forge.pipeline.generate.constants import (
     _STEP_NODE_CORRESPONDENCE_FLOOR,
     compute_leaf_budget,
@@ -36,6 +35,8 @@ from scenario_forge.pipeline.generate.zones import (
     _collect_zones_from_tree,
     _enforce_zones_attack_tree,
 )
+from scenario_forge.pipeline.seeds import ScenarioSeed
+from scenario_forge.prompts import render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -176,9 +177,12 @@ def _parse_attack_tree_yaml(raw: str, seed: ScenarioSeed) -> AttackTree:
     if isinstance(data, dict) and "attack_tree" in data:
         data = data["attack_tree"]
 
-    # Repair single-child AND/OR nodes before Pydantic validation.
-    if isinstance(data, dict):
-        data = repair_attack_tree_dict(data)
+    # Strict typed normal generation: do NOT repair single-child AND/OR
+    # gates before Pydantic validation.  Malformed gates must be rejected
+    # by the model validator so the caller retries or rejects — no silent
+    # structural mutation (cmps.9 review correction 3).
+    # repair_attack_tree_dict is retained only for post-pruning repair in
+    # validation.py (explicit parsimony boundary).
 
     return AttackTree.model_validate(data)
 
@@ -230,7 +234,7 @@ def _build_tree_skeleton(
         # pick the first valid zone from the constraint set.
         valid_zones = TECHNIQUE_ZONE_CONSTRAINTS.get(tid)
         if valid_zones is not None and zone not in valid_zones:
-            zone = sorted(valid_zones)[0]
+            zone = min(valid_zones)
 
         leaves.append(
             {
@@ -297,6 +301,135 @@ def _validate_mandatory_leaves(
             )
 
 
+def _enumerate_root_to_leaf_paths(node: AttackTreeNode) -> list[list[AttackTreeNode]]:
+    """Enumerate all root-to-leaf paths through the attack tree.
+
+    Each path is a list of leaf nodes.  AND gates contribute all children
+    to the same path(s); OR gates create one branch per child.
+    """
+    if node.gate == GateType.LEAF:
+        return [[node]]
+    if not node.children:
+        return []
+    if node.gate == GateType.AND:
+        # All children must succeed — merge their paths.
+        merged: list[list[AttackTreeNode]] = [[]]
+        for child in node.children:
+            child_paths = _enumerate_root_to_leaf_paths(child)
+            if not child_paths:
+                continue
+            merged = [m + cp for m in merged for cp in child_paths]
+        return merged
+    # OR gate: each child is a separate branch.
+    paths: list[list[AttackTreeNode]] = []
+    for child in node.children:
+        paths.extend(_enumerate_root_to_leaf_paths(child))
+    return paths
+
+
+def _collect_all_leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
+    """Collect all LEAF nodes from the tree (depth-first)."""
+    if node.gate == GateType.LEAF:
+        return [node]
+    leaves: list[AttackTreeNode] = []
+    if node.children:
+        for child in node.children:
+            leaves.extend(_collect_all_leaves(child))
+    return leaves
+
+
+def _validate_pinned_ingress(
+    tree: AttackTree,
+    pinned_entry_point_id: str | None,
+    profile: CapabilityProfile | None = None,
+) -> list[str]:
+    """Validate that every root-to-leaf path has an initial_ingress leaf.
+
+    When ``pinned_entry_point_id`` is supplied, every initial_ingress action
+    in the tree must use that exact entry point ID.  Every final attack path
+    must contain at least one initial_ingress leaf.
+
+    When *profile* is supplied, each initial_ingress leaf's zone must match
+    the resolved entry point's canonical ``effective_ingress_zone``.  A
+    mismatch is a violation — the zone is never silently repaired from a
+    label (cmps.9 review correction 3).
+    """
+    paths = _enumerate_root_to_leaf_paths(tree.root)
+    violations: list[str] = []
+
+    for path_idx, path in enumerate(paths, 1):
+        ingress_leaves = [
+            leaf
+            for leaf in path
+            if leaf.action is not None and leaf.action.kind == "initial_ingress"
+        ]
+        if not ingress_leaves:
+            violations.append(
+                f"missing-initial-ingress: attack path {path_idx} has no "
+                f"initial_ingress leaf action. Every root-to-leaf path must "
+                f"contain an initial ingress."
+            )
+
+    if pinned_entry_point_id is not None:
+        all_ingress = [
+            leaf
+            for leaf in _collect_all_leaves(tree.root)
+            if leaf.action is not None and leaf.action.kind == "initial_ingress"
+        ]
+        for leaf in all_ingress:
+            action = leaf.action
+            assert action is not None  # guarded by filter above
+            if action.entry_point_id != pinned_entry_point_id:
+                violations.append(
+                    f"pinned-entry-point-mismatch: initial_ingress action uses "
+                    f"entry_point_id '{action.entry_point_id}', expected "
+                    f"'{pinned_entry_point_id}'."
+                )
+
+    # Validate ingress zone against canonical entry-point zone (cmps.9 review 3).
+    # Also reject ingress-capable entries whose effective canonical ingress
+    # zone is not active in the profile (cmps.9 review correction 5).
+    # Use the centralized attacker-accessible ingress predicate so that
+    # output-only, system-controlled, missing-zone, and inactive-zone entry
+    # points are all rejected through one authority (cmps.9 third review 2).
+    if profile is not None:
+        active_zones = set(profile.zones_active) if profile.zones_active else set()
+        for leaf in _collect_all_leaves(tree.root):
+            action = leaf.action
+            if action is None or action.kind != "initial_ingress":
+                continue
+            resolved_ep = profile.resolve_entry_point(action.entry_point_id)
+            if resolved_ep is None:
+                violations.append(
+                    f"unresolved-ingress-zone: initial_ingress leaf '{leaf.id}' "
+                    f"references entry_point_id '{action.entry_point_id}' "
+                    f"that has no canonical ingress zone."
+                )
+                continue
+            if not is_attacker_accessible_ingress(resolved_ep, active_zones):
+                violations.append(
+                    f"inaccessible-ingress-entry-point: initial_ingress leaf "
+                    f"'{leaf.id}' references entry point "
+                    f"'{resolved_ep.name}' (entry_point_id "
+                    f"'{action.entry_point_id}') which is not an "
+                    f"attacker-accessible ingress route (output-only, "
+                    f"system-controlled, or inactive ingress zone)."
+                )
+                continue
+            expected_zone = resolved_ep.effective_ingress_zone
+            assert expected_zone is not None  # predicate guarantees this
+            if leaf.zone != expected_zone:
+                violations.append(
+                    f"ingress-zone-mismatch: initial_ingress leaf '{leaf.id}' "
+                    f"has zone '{leaf.zone}' but entry point "
+                    f"'{action.entry_point_id}' requires zone "
+                    f"'{expected_zone}'. The zone must match the canonical "
+                    f"entry-point ingress zone, not be inferred from a label."
+                )
+
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Context builder and LLM call
 # ---------------------------------------------------------------------------
@@ -311,6 +444,7 @@ def build_call2_context(
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
     consistency_feedback: str | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 2 (Attack Tree).
 
@@ -399,12 +533,16 @@ def build_call2_context(
 
     # Build focused ontology context block for this seed
     # Use narrative.entry_point for the entry point (it was pinned upstream)
-    _tree_ep_direction = _lookup_entry_point_direction(
-        profile, narrative.entry_point
-    ) if profile else None
-    _tree_ep_controllability = _lookup_entry_point_controllability(
-        profile, narrative.entry_point
-    ) if profile else None
+    _tree_ep_direction = (
+        _lookup_entry_point_direction(profile, narrative.entry_point)
+        if profile
+        else None
+    )
+    _tree_ep_controllability = (
+        _lookup_entry_point_controllability(profile, narrative.entry_point)
+        if profile
+        else None
+    )
     ontology_context = _build_ontology_context(
         entry_point_name=narrative.entry_point or "",
         entry_point_direction=_tree_ep_direction,
@@ -412,6 +550,27 @@ def build_call2_context(
         technique_ids=list(tech_ids_for_tree) if tech_ids_for_tree else [],
         entry_point_controllability=_tree_ep_controllability,
     )
+
+    entry_points = (profile.entry_points if profile else None) or []
+    if pinned_entry_point_id is not None:
+        entry_points = [
+            entry_point
+            for entry_point in entry_points
+            if entry_point.entry_point_id == pinned_entry_point_id
+        ]
+        # Defense-in-depth: reject inaccessible pinned entry points before
+        # exposing them to the LLM (cmps.9 third review correction 2).
+        if profile is not None and len(entry_points) == 1:
+            active_zones = set(profile.zones_active) if profile.zones_active else set()
+            if not is_attacker_accessible_ingress(entry_points[0], active_zones):
+                from scenario_forge.pipeline.generate.assembly import GenerationError
+
+                raise GenerationError(
+                    f"Pinned entry point '{pinned_entry_point_id}' "
+                    f"('{entry_points[0].name}') is not an attacker-accessible "
+                    f"ingress route (output-only, system-controlled, or "
+                    f"inactive ingress zone)."
+                )
 
     return {
         "seed": seed,
@@ -426,6 +585,10 @@ def build_call2_context(
         "skeleton_section": skeleton_section,
         "ontology_context": ontology_context,
         "tool_inventory": (profile.tool_inventory if profile else None) or [],
+        "external_integrations": (profile.external_integrations if profile else None)
+        or [],
+        "entry_points": entry_points,
+        "pinned_entry_point_id": pinned_entry_point_id,
         "kill_chain": seed.kill_chain,
         "consistency_feedback": consistency_feedback,
         # Non-template data for post-generation validation
@@ -443,6 +606,7 @@ def _call_attack_tree(
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
     consistency_feedback: str | None = None,
+    pinned_entry_point_id: str | None = None,
 ) -> tuple[AttackTree, LLMResult]:
     """Generate an attack tree for a scenario seed (Call 2).
 
@@ -462,6 +626,7 @@ def _call_attack_tree(
         pinned_technique_ids=pinned_technique_ids,
         pinned_technique_names=pinned_technique_names,
         consistency_feedback=consistency_feedback,
+        pinned_entry_point_id=pinned_entry_point_id,
     )
 
     skeleton = ctx["skeleton"]
@@ -470,6 +635,8 @@ def _call_attack_tree(
         "call2_system.j2",
         zones_active=profile.zones_active if profile else [],
         tool_inventory=ctx["tool_inventory"],
+        external_integrations=ctx["external_integrations"],
+        entry_points=ctx["entry_points"],
     )
 
     result = client.complete(
@@ -480,7 +647,7 @@ def _call_attack_tree(
 
     try:
         tree = _parse_attack_tree_yaml(result.content, seed)
-    except Exception as first_error:
+    except Exception as first_error:  # noqa: BLE001
         # One retry with error feedback — Call 2 produces unstructured YAML
         # which is the most fragile output format in the pipeline.
         logger.warning("Attack tree YAML parse failed, retrying: %s", first_error)
@@ -502,20 +669,47 @@ def _call_attack_tree(
 
         try:
             tree = _parse_attack_tree_yaml(retry_result.content, seed)
-        except Exception:
+        except Exception:  # noqa: BLE001
             raise first_error
 
+        if profile is not None:
+            id_violations = resolve_action_ids(tree, profile)
+            if id_violations:
+                raise ValueError(
+                    "Unresolved typed action IDs in attack tree: "
+                    + "; ".join(id_violations)
+                )
         tree = _enforce_zones_attack_tree(
             tree,
             profile.zones_active if profile else None,
         )
+        ingress_violations = _validate_pinned_ingress(
+            tree, pinned_entry_point_id, profile
+        )
+        if ingress_violations:
+            raise ValueError(
+                "Invalid initial ingress in attack tree: "
+                + "; ".join(ingress_violations)
+            )
         _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
         return tree, retry_result
 
+    if profile is not None:
+        id_violations = resolve_action_ids(tree, profile)
+        if id_violations:
+            raise ValueError(
+                "Unresolved typed action IDs in attack tree: "
+                + "; ".join(id_violations)
+            )
     tree = _enforce_zones_attack_tree(
         tree,
         profile.zones_active if profile else None,
     )
+    ingress_violations = _validate_pinned_ingress(tree, pinned_entry_point_id, profile)
+    if ingress_violations:
+        raise ValueError(
+            "Invalid initial ingress in attack tree: " + "; ".join(ingress_violations)
+        )
     _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
     return tree, result
 
@@ -584,10 +778,13 @@ def _validate_technique_zone_node(node: AttackTreeNode) -> int:
     """Recursively strip technique_ids that violate zone constraints.
 
     Returns the number of technique_ids stripped.
+
+    Action-aware (cmps.9): nodes with zone=None (external preconditions,
+    external impacts) are skipped — they are outside the AI boundary.
     """
     stripped = 0
     if node.gate == GateType.LEAF:
-        if node.technique_id is not None:
+        if node.technique_id is not None and node.zone is not None:
             valid_zones = TECHNIQUE_ZONE_CONSTRAINTS.get(node.technique_id)
             if valid_zones is not None and node.zone not in valid_zones:
                 logger.warning(
@@ -622,6 +819,7 @@ def _validate_technique_zone_compatibility(tree: AttackTree) -> int:
 # Post-generation consistency enforcement
 # ---------------------------------------------------------------------------
 
+
 def _count_leaves(node: AttackTreeNode) -> int:
     """Count leaf nodes in an attack tree rooted at *node*."""
     if node.gate == GateType.LEAF:
@@ -633,9 +831,7 @@ def _count_leaves(node: AttackTreeNode) -> int:
     return total
 
 
-def _check_non_actionable_leaves(
-    root: AttackTreeNode, violations: list[str]
-) -> None:
+def _check_non_actionable_leaves(root: AttackTreeNode, violations: list[str]) -> None:
     """Check 6: flag non-actionable observation leaves.
 
     Walks the tree collecting LEAF nodes without a technique_id whose
@@ -643,8 +839,14 @@ def _check_non_actionable_leaves(
     appends a violation describing them.
     """
     _OBSERVATION_KEYWORDS = [
-        "confirm", "observe", "verify", "monitor",
-        "validate", "note ", "detect ", "assess ",
+        "confirm",
+        "observe",
+        "verify",
+        "monitor",
+        "validate",
+        "note ",
+        "detect ",
+        "assess ",
     ]
 
     def _collect_leaves_recursive(node: AttackTreeNode) -> list[AttackTreeNode]:
@@ -703,9 +905,7 @@ def _check_consistency(
     # Check 1: parsimony
     leaf_count = _count_leaves(tree.root)
     if leaf_count > parsimony_budget:
-        violations.append(
-            f"parsimony: {leaf_count} leaves > {parsimony_budget} budget"
-        )
+        violations.append(f"parsimony: {leaf_count} leaves > {parsimony_budget} budget")
 
     # Check 2: zone-sequence consistency
     narrative_zones = set(narrative.zone_sequence)
@@ -721,9 +921,7 @@ def _check_consistency(
     # Check 3: step-node correspondence
     step_count = len(narrative.steps)
     if leaf_count > 0 and step_count > 0:
-        correspondence = min(step_count, leaf_count) / max(
-            step_count, leaf_count
-        )
+        correspondence = min(step_count, leaf_count) / max(step_count, leaf_count)
         if correspondence < step_node_floor:
             violations.append(
                 f"step-node: {correspondence:.2f} < {step_node_floor} floor"
@@ -738,10 +936,7 @@ def _check_consistency(
     if threat_id is not None:
         all_threat_ids = {
             tid
-            for tid in (
-                n_tid
-                for n_tid in _collect_threat_ids_from_tree_set(tree.root)
-            )
+            for tid in (n_tid for n_tid in _collect_threat_ids_from_tree_set(tree.root))
         }
         if threat_id not in all_threat_ids:
             violations.append(
@@ -751,12 +946,9 @@ def _check_consistency(
                 f"At least one node must have threat_id='{threat_id}'"
             )
 
-    # Check 5: tool-execution leaf grounding
+    # Check 5: tool-execution leaf grounding (typed action check)
     if tool_names is not None:
-        tool_names_lower = [tn.lower() for tn in tool_names]
-        _check_tool_execution_leaf_grounding(
-            tree.root, tool_names_lower, violations
-        )
+        _check_tool_execution_leaf_grounding(tree.root, violations)
 
     # Check 6: non-actionable leaf padding
     _check_non_actionable_leaves(tree.root, violations)
@@ -792,30 +984,108 @@ def _collect_threat_ids_from_tree_set(
 
 def _check_tool_execution_leaf_grounding(
     node: AttackTreeNode,
-    tool_names_lower: list[str],
     violations: list[str],
 ) -> None:
-    """Check that tool_execution leaf nodes reference a known tool.
+    """Check that tool_execution leaf nodes have a resolvable typed action (cmps.9).
 
-    Appends a violation for each tool_execution leaf whose label does not
-    contain any tool name from the inventory (case-insensitive).
+    Uses typed action data, not label matching.  Per the authoritative
+    ``ACTION_ZONE_RULES`` matrix, both ``tool_invocation`` and
+    ``integration_interaction`` are valid in ``tool_execution``:
+
+    - Leaves in ``tool_execution`` zone without a typed action whose kind
+      is ``tool_invocation`` or ``integration_interaction``: flag as
+      untyped-tool-execution.
     """
     if node.gate == GateType.LEAF:
         if node.zone == "tool_execution":
-            label_lower = node.label.lower()
-            found = any(
-                tn in label_lower or label_lower in tn
-                for tn in tool_names_lower
-            )
-            if not found:
+            action = node.action
+            if action is None or action.kind not in (
+                "tool_invocation",
+                "integration_interaction",
+            ):
                 violations.append(
-                    f"ungrounded-tool-leaf: leaf '{node.id}' in "
-                    f"tool_execution zone has label '{node.label}' which "
-                    f"does not reference any tool from the inventory. "
-                    f"Use a specific tool name in the label."
+                    f"untyped-tool-execution: leaf '{node.id}' in "
+                    f"tool_execution zone has no tool_invocation or "
+                    f"integration_interaction action. Every tool_execution "
+                    f"leaf must carry a resolvable typed action."
                 )
     elif node.children:
         for child in node.children:
-            _check_tool_execution_leaf_grounding(
-                child, tool_names_lower, violations
-            )
+            _check_tool_execution_leaf_grounding(child, violations)
+
+
+# ---------------------------------------------------------------------------
+# Post-generation canonical ID resolution (cmps.9)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_action_ids_node(
+    node: AttackTreeNode,
+    profile: CapabilityProfile,
+    violations: list[str],
+) -> None:
+    """Recursively verify that all typed action IDs resolve to profile resources.
+
+    Unknown/ambiguous IDs are generation/admission violations.  Never fuzzy-join
+    names or auto-add resources.
+    """
+    if node.gate == GateType.LEAF and node.action is not None:
+        action = node.action
+        kind = action.kind
+
+        if kind == "initial_ingress":
+            ep = profile.resolve_entry_point(action.entry_point_id)
+            if ep is None:
+                violations.append(
+                    f"unresolved-entry-point-id: leaf '{node.id}' has "
+                    f"initial_ingress action with entry_point_id "
+                    f"'{action.entry_point_id}' that does not resolve to "
+                    f"any entry point in the capability profile."
+                )
+
+        elif kind == "tool_invocation":
+            tool = profile.resolve_tool(action.tool_id)
+            if tool is None:
+                violations.append(
+                    f"unresolved-tool-id: leaf '{node.id}' has "
+                    f"tool_invocation action with tool_id "
+                    f"'{action.tool_id}' that does not resolve to "
+                    f"any tool in the capability profile."
+                )
+            if action.integration_id is not None:
+                integ = profile.resolve_integration(action.integration_id)
+                if integ is None:
+                    violations.append(
+                        f"unresolved-integration-id: leaf '{node.id}' has "
+                        f"tool_invocation action with integration_id "
+                        f"'{action.integration_id}' that does not resolve "
+                        f"to any integration in the capability profile."
+                    )
+
+        elif kind == "integration_interaction":
+            integ = profile.resolve_integration(action.integration_id)
+            if integ is None:
+                violations.append(
+                    f"unresolved-integration-id: leaf '{node.id}' has "
+                    f"integration_interaction action with integration_id "
+                    f"'{action.integration_id}' that does not resolve "
+                    f"to any integration in the capability profile."
+                )
+
+    if node.children:
+        for child in node.children:
+            _resolve_action_ids_node(child, profile, violations)
+
+
+def resolve_action_ids(
+    tree: AttackTree,
+    profile: CapabilityProfile,
+) -> list[str]:
+    """Verify that all typed action IDs in the tree resolve to profile resources.
+
+    Returns a list of violation descriptions (empty if all IDs resolve).
+    Unknown/ambiguous IDs are fatal generation/admission violations.
+    """
+    violations: list[str] = []
+    _resolve_action_ids_node(tree.root, profile, violations)
+    return violations

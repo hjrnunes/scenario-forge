@@ -133,12 +133,15 @@ def entry_point_entropy(
 
     ep_name_to_ids: dict[str, set[str]] = {}
     if profile is not None:
-        # Only ingress-capable EPs are in the coverage universe, so the
-        # fallback map must exclude output-only entries — otherwise an
-        # output EP with the same display name as a unique ingress EP
-        # would make the fallback appear ambiguous.
+        # Only attacker-accessible EPs are in the coverage universe
+        # (cmps.9 third review correction 2).
+        from scenario_forge.models.capability_profile import (
+            is_attacker_accessible_ingress,
+        )
+
+        active_zones_div = set(profile.zones_active) if profile.zones_active else set()
         for ep in profile.entry_points:
-            if ep.direction == "output":
+            if not is_attacker_accessible_ingress(ep, active_zones_div):
                 continue
             key = _canonical_entry_point_name(ep.name)
             ep_name_to_ids.setdefault(key, set()).add(ep.entry_point_id)
@@ -177,9 +180,12 @@ def entry_point_entropy(
         return entropy
 
     if profile is not None:
-        # Exact canonical set arithmetic.
+        # Exact canonical set arithmetic — only attacker-accessible EPs
+        # (cmps.9 third review correction 2).
         expected_ids = {
-            ep.entry_point_id for ep in profile.entry_points if ep.direction != "output"
+            ep.entry_point_id
+            for ep in profile.entry_points
+            if is_attacker_accessible_ingress(ep, active_zones_div)
         }
         # Only count IDs that are in the expected set — unknown IDs
         # must not inflate coverage.
@@ -199,7 +205,9 @@ def entry_point_entropy(
     }
     if profile is not None:
         expected_ids = {
-            ep.entry_point_id for ep in profile.entry_points if ep.direction != "output"
+            ep.entry_point_id
+            for ep in profile.entry_points
+            if is_attacker_accessible_ingress(ep, active_zones_div)
         }
         covered_ids = used_ids & expected_ids
         result["covered_entry_point_count"] = len(covered_ids)

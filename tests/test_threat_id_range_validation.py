@@ -7,10 +7,9 @@ threat_id may differ from the scenario-level threat_id).
 
 from __future__ import annotations
 
-from scenario_forge.models.attack_tree import AttackTreeNode, GateType
+from scenario_forge.models.attack_tree import AiSystemAction, AttackTreeNode, GateType
 from scenario_forge.models.scenario import SemanticViolation
 from scenario_forge.pipeline.validation import _check_tree_threat_ids
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -24,6 +23,7 @@ def _leaf(node_id: str, threat_id: str | None = None) -> AttackTreeNode:
         gate=GateType.LEAF,
         zone="input",
         threat_id=threat_id,
+        action=AiSystemAction(),
     )
 
 

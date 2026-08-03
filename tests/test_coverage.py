@@ -23,13 +23,14 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -40,6 +41,7 @@ from scenario_forge.models.capability_profile import (
     compute_entry_point_id,
 )
 from scenario_forge.models.scenario import (
+    ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
     CallMetadata,
@@ -59,7 +61,11 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
     TechniqueMaturity,
 )
-from scenario_forge.models.scenario import ActorProfile
+from scenario_forge.pipeline.candidates import (
+    CandidateTriple,
+    FilteredSeed,
+    compute_candidate_id,
+)
 from scenario_forge.pipeline.coverage import (
     AttackerDiversityResult,
     CoverageGaps,
@@ -69,11 +75,6 @@ from scenario_forge.pipeline.coverage import (
     analyze_coverage_gaps,
     write_coverage_report,
 )
-from scenario_forge.pipeline.candidates import (
-    CandidateTriple,
-    FilteredSeed,
-    compute_candidate_id,
-)
 from scenario_forge.pipeline.generate import compute_scenario_id
 from scenario_forge.pipeline.runner import (
     _compute_gap_attributions,
@@ -82,7 +83,6 @@ from scenario_forge.pipeline.runner import (
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: helpers to build minimal valid objects
@@ -160,10 +160,18 @@ def _make_envelope(
             zone="input",
             children=[
                 AttackTreeNode(
-                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                    id="n1.1",
+                    label="Path A",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
-                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                    id="n1.2",
+                    label="Path B",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    action=AiSystemAction(),
                 ),
             ],
         ),
@@ -226,7 +234,7 @@ def _make_envelope(
             1,
         ),
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         actor_profile=actor_profile,
         narrative=narrative,
@@ -258,7 +266,7 @@ def _make_profile(
     if "inter_agent" in zones_active:
         kc.append("KC2.3")
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc):
+    if any(c.startswith(("KC5.", "KC6.")) for c in kc):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -1018,7 +1026,7 @@ class TestRemediateCoverageGaps:
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             [_make_seed()],
             profile,
@@ -1037,17 +1045,15 @@ class TestRemediateCoverageGaps:
 
     def test_no_seeds_records_skip_note(self, tmp_path: Path):
         """When seeds are empty, each uncovered EP gets a skip note."""
+        ep_name = "user prompts (zone 1)"
+        ep_id = compute_entry_point_id(ep_name, "bidirectional", None)
         gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id="chat-input-id", name="chat input (zone 1)"
-                )
-            ]
+            uncovered_entry_points=[EntryPointGap(entry_point_id=ep_id, name=ep_name)]
         )
         profile = _make_profile()
         client = MagicMock()
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             [],
             profile,
@@ -1075,8 +1081,11 @@ class TestRemediateCoverageGaps:
         uncovered = ["chat input (zone 1)", "admin dashboard (zone 2)"]
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id=f"ep-{i}-id", name=name)
-                for i, name in enumerate(uncovered)
+                EntryPointGap(
+                    entry_point_id=compute_entry_point_id(name, "bidirectional", None),
+                    name=name,
+                )
+                for name in uncovered
             ]
         )
         profile = _make_profile(
@@ -1106,7 +1115,7 @@ class TestRemediateCoverageGaps:
         mock_generate.side_effect = gen_side_effect
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, _notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             seeds,
             profile,
@@ -1136,20 +1145,26 @@ class TestRemediateCoverageGaps:
         self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """When generate_scenario raises, we record a note and continue."""
+        ep_fail_name = "ep-fail (zone 1)"
+        ep_ok_name = "ep-ok (zone 2)"
+        ep_fail_id = compute_entry_point_id(ep_fail_name, "bidirectional", None)
+        ep_ok_id = compute_entry_point_id(ep_ok_name, "bidirectional", None)
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-fail-id", name="ep-fail (zone 1)"),
-                EntryPointGap(entry_point_id="ep-ok-id", name="ep-ok (zone 2)"),
+                EntryPointGap(entry_point_id=ep_fail_id, name=ep_fail_name),
+                EntryPointGap(entry_point_id=ep_ok_id, name=ep_ok_name),
             ]
         )
-        profile = _make_profile(zones_active=["input", "reasoning"])
+        profile = _make_profile(
+            entry_points=[ep_fail_name, ep_ok_name],
+            zones_active=["input", "reasoning"],
+        )
         seeds = [_make_seed()]
         client = MagicMock()
 
         # First call fails, second succeeds with matching IDs.
         run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         seed_ok = seeds[0]
-        ep_ok_id = "ep-ok-id"
         pinned_tids = seed_ok.atlas_technique_ids or seed_ok.laaf_technique_ids or []
         ok_cand_id = compute_candidate_id(seed_ok.seed_id, ep_ok_id, pinned_tids)
         ok_envelope = _make_remediation_envelope(
@@ -1163,7 +1178,7 @@ class TestRemediateCoverageGaps:
         ]
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             seeds,
             profile,
@@ -1191,19 +1206,19 @@ class TestRemediateCoverageGaps:
         self, mock_write_log, mock_write, mock_generate, tmp_path: Path
     ):
         """Verify generate_scenario receives the correct seed, profile, and use_case."""
+        ep_name = "api gateway (zone 3)"
+        ep_id = compute_entry_point_id(ep_name, "bidirectional", None)
         gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id="api-gateway-id", name="api gateway (zone 3)"
-                )
-            ]
+            uncovered_entry_points=[EntryPointGap(entry_point_id=ep_id, name=ep_name)]
         )
-        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
+        profile = _make_profile(
+            entry_points=[ep_name],
+            zones_active=["input", "reasoning", "tool_execution"],
+        )
         seed = _make_seed(seed_id="AP-T5-01")
         client = MagicMock()
 
         run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        ep_id = "api-gateway-id"
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         mock_envelope = _make_remediation_envelope(
@@ -1214,7 +1229,7 @@ class TestRemediateCoverageGaps:
         mock_generate.return_value = (mock_envelope, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        _scenarios, _notes, _attempted, _failed = _remediate_coverage_gaps(
             gaps,
             [seed],
             profile,

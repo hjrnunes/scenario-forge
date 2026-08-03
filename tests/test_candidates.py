@@ -46,7 +46,6 @@ from scenario_forge.pipeline.candidates import (
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -620,7 +619,7 @@ class TestExpandCandidates:
         assert len(singles) == math.comb(n_techniques, 1)
         assert len(pairs) == math.comb(n_techniques, 2)
 
-    def test_expand_candidates_max_techniques_3(self):  # noqa: E301
+    def test_expand_candidates_max_techniques_3(self):
         """max_techniques=3 with 3 techniques produces C(3,1)+C(3,2)+C(3,3)=7."""
         n_techniques = 3
         technique_ids = ["AML.T0051", "AML.T0054", "AML.T0053"]
@@ -971,13 +970,12 @@ class TestClassifyEntryPointExplicitControllability:
             == "indirect"
         )
 
-    def test_explicit_system_downgraded_for_non_output(self):
-        """Explicit controllability='system' is downgraded to 'indirect' when
-        direction is not 'output' — the attacker can influence data through
-        a non-output ingress path."""
+    def test_explicit_system_preserved_for_non_output(self):
+        """Explicit controllability='system' is preserved as 'system' even when
+        direction is not 'output' — a reviewed profile declaring 'system' must
+        remain system-controlled (cmps.9 review correction 5)."""
         assert (
-            classify_entry_point("user prompts", "bidirectional", "system")
-            == "indirect"
+            classify_entry_point("user prompts", "bidirectional", "system") == "system"
         )
 
     def test_explicit_system_preserved_for_output(self):
@@ -1074,7 +1072,7 @@ class TestRuleSupplyChainMismatch:
         assert "supply chain" in rationale
 
     def test_t0010_on_indirect_ep_rejected(self):
-        reject, rationale = _rule_supply_chain_mismatch(
+        reject, _rationale = _rule_supply_chain_mismatch(
             "AML.T0010",
             "RAG knowledge-grounding",
             "indirect",
@@ -1441,7 +1439,7 @@ class TestApplyRuleBasedFilter:
             entry_point="RAG knowledge-grounding",
             technique_ids=("AML.T0051.000", "AML.T0054"),
         )
-        passed, rejected, verdicts = apply_rule_based_filter([candidate], profile)
+        passed, rejected, _verdicts = apply_rule_based_filter([candidate], profile)
         assert len(passed) == 0
         assert len(rejected) == 1
 
@@ -1568,7 +1566,7 @@ class TestApplyRuleBasedFilter:
             entry_point="unknown ep",
             technique_ids=("AML.T0054",),
         )
-        passed, rejected, _ = apply_rule_based_filter([candidate], profile)
+        passed, _rejected, _ = apply_rule_based_filter([candidate], profile)
         assert len(passed) == 1
 
     def test_multiple_candidates_mixed(self):
@@ -1717,7 +1715,7 @@ def _make_zoned_profile(
     if hitl:
         kc_codes.append("KCX-HITL")
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in kc_codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in kc_codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]

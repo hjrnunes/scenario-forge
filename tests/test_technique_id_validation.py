@@ -6,12 +6,10 @@ formats are accepted, and invalid IDs are rejected.
 
 from __future__ import annotations
 
-import re
-
 import pytest
 from pydantic import ValidationError
 
-from scenario_forge.models.attack_tree import AttackTreeNode
+from scenario_forge.models.attack_tree import AiSystemAction, AttackTreeNode
 
 
 def _make_leaf(technique_id: str | None = None) -> dict:
@@ -21,6 +19,7 @@ def _make_leaf(technique_id: str | None = None) -> dict:
         "label": "Test node",
         "gate": "LEAF",
         "zone": "input",
+        "action": AiSystemAction(),
     }
     if technique_id is not None:
         node["technique_id"] = technique_id
@@ -88,20 +87,20 @@ class TestInvalidTechniqueIds:
     @pytest.mark.parametrize(
         "tid",
         [
-            "T0054",           # missing AML. prefix
-            "AML.T054",        # only 3 digits
-            "AML.T00541",      # 5 digits
-            "AML.T0054.01",    # sub-technique with 2 digits
+            "T0054",  # missing AML. prefix
+            "AML.T054",  # only 3 digits
+            "AML.T00541",  # 5 digits
+            "AML.T0054.01",  # sub-technique with 2 digits
             "AML.T0054.0001",  # sub-technique with 4 digits
-            "aml.t0054",       # lowercase
-            "ATLAS.T0054",     # wrong prefix
-            "X1",              # invalid LAAF prefix letter
-            "A1",              # not S, M, or L
-            "s1",              # lowercase LAAF
-            "S",               # missing digit
-            "M0a",             # non-digit suffix
-            "",                # empty string
-            "random",          # arbitrary string
+            "aml.t0054",  # lowercase
+            "ATLAS.T0054",  # wrong prefix
+            "X1",  # invalid LAAF prefix letter
+            "A1",  # not S, M, or L
+            "s1",  # lowercase LAAF
+            "S",  # missing digit
+            "M0a",  # non-digit suffix
+            "",  # empty string
+            "random",  # arbitrary string
         ],
     )
     def test_invalid_ids_rejected(self, tid: str) -> None:

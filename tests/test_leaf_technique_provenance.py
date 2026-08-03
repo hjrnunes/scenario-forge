@@ -13,13 +13,19 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
-    AttackTreeNode,
     GateType,
+    ImpactAction,
+    ToolInvocationAction,
 )
+from scenario_forge.models.attack_tree import (
+    AttackTreeNode as _AttackTreeNode,
+)
+from scenario_forge.models.capability_profile import compute_tool_id
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -45,6 +51,22 @@ from scenario_forge.pipeline.validation import (
     _is_consequence_leaf,
     check_leaf_technique_provenance,
 )
+
+
+def AttackTreeNode(**kwargs) -> _AttackTreeNode:
+    """Build a node, supplying the typed action required by leaf nodes."""
+    if kwargs.get("gate") == GateType.LEAF and "action" not in kwargs:
+        zone = kwargs.get("zone")
+        if zone == "tool_execution":
+            kwargs["action"] = ToolInvocationAction(
+                tool_id=compute_tool_id("test_tool", "A test tool")
+            )
+        elif zone == "output":
+            kwargs["zone"] = None
+            kwargs["action"] = ImpactAction(boundary="external", target=kwargs["label"])
+        else:
+            kwargs["action"] = AiSystemAction()
+    return _AttackTreeNode(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +168,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         scenario_seed_metadata=seed_metadata,
         narrative=narrative,
@@ -714,6 +736,15 @@ class TestIsConsequenceLeaf:
             zone="output",
         )
 
+    def _active_node(self, label: str) -> AttackTreeNode:
+        return AttackTreeNode(
+            id="n1.1",
+            label=label,
+            gate=GateType.LEAF,
+            zone="reasoning",
+            action=AiSystemAction(),
+        )
+
     def test_victim_transfers(self) -> None:
         assert _is_consequence_leaf(self._node("Victim transfers funds"))
 
@@ -768,33 +799,33 @@ class TestIsConsequenceLeaf:
     # --- Non-consequence labels (attack work) ---
 
     def test_inject_payload_not_consequence(self) -> None:
-        assert not _is_consequence_leaf(self._node("Inject malicious payload"))
+        assert not _is_consequence_leaf(self._active_node("Inject malicious payload"))
 
     def test_craft_phishing_not_consequence(self) -> None:
-        assert not _is_consequence_leaf(self._node("Craft phishing lure"))
+        assert not _is_consequence_leaf(self._active_node("Craft phishing lure"))
 
     def test_manipulate_reasoning_not_consequence(self) -> None:
         assert not _is_consequence_leaf(
-            self._node("Manipulate reasoning via context injection")
+            self._active_node("Manipulate reasoning via context injection")
         )
 
     def test_establish_rapport_not_consequence(self) -> None:
         assert not _is_consequence_leaf(
-            self._node("Establish rapport with target employee")
+            self._active_node("Establish rapport with target employee")
         )
 
     def test_deliver_payload_not_consequence(self) -> None:
         assert not _is_consequence_leaf(
-            self._node("Deliver social engineering payload")
+            self._active_node("Deliver social engineering payload")
         )
 
     def test_exploit_tool_not_consequence(self) -> None:
         assert not _is_consequence_leaf(
-            self._node("Exploit tool execution vulnerability")
+            self._active_node("Exploit tool execution vulnerability")
         )
 
     def test_bypass_guardrails_not_consequence(self) -> None:
-        assert not _is_consequence_leaf(self._node("Bypass input guardrails"))
+        assert not _is_consequence_leaf(self._active_node("Bypass input guardrails"))
 
     def test_description_triggers_consequence(self) -> None:
         """Consequence pattern in description counts."""
@@ -806,7 +837,7 @@ class TestIsConsequenceLeaf:
 
     def test_label_only_no_description(self) -> None:
         """Attack-work label without description is not consequence."""
-        node = self._node("Perform lateral movement")
+        node = self._active_node("Perform lateral movement")
         assert not _is_consequence_leaf(node)
 
 

@@ -14,10 +14,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
+    ToolInvocationAction,
 )
+from scenario_forge.models.capability_profile import compute_tool_id
 from scenario_forge.models.scenario import (
     NarrativeLayer,
     NarrativeStep,
@@ -28,7 +31,6 @@ from scenario_forge.pipeline.generate import (
     _count_leaves,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -36,11 +38,17 @@ from scenario_forge.pipeline.generate import (
 
 def _make_leaf(node_id: str, zone: str = "input", **kwargs) -> AttackTreeNode:
     """Create a minimal LEAF node."""
+    action = (
+        ToolInvocationAction(tool_id=compute_tool_id("test_tool", "A test tool"))
+        if zone == "tool_execution"
+        else AiSystemAction()
+    )
     return AttackTreeNode(
         id=node_id,
         label=f"Leaf {node_id}",
         gate=GateType.LEAF,
         zone=zone,
+        action=action,
         **kwargs,
     )
 
@@ -525,7 +533,7 @@ class TestConsistencyRetryLoop:
 
         from scenario_forge.pipeline.generate import generate_scenario
 
-        envelope, _ = generate_scenario(
+        _envelope, _ = generate_scenario(
             seed=seed,
             profile=profile,
             client=client,
@@ -601,7 +609,7 @@ class TestConsistencyRetryLoop:
 
         from scenario_forge.pipeline.generate import generate_scenario
 
-        envelope, _ = generate_scenario(
+        _envelope, _ = generate_scenario(
             seed=seed,
             profile=profile,
             client=client,
@@ -676,7 +684,7 @@ class TestConsistencyRetryLoop:
         from scenario_forge.pipeline.generate import generate_scenario
 
         # Should NOT raise — scenario is kept despite violations
-        envelope, _ = generate_scenario(
+        _envelope, _ = generate_scenario(
             seed=seed,
             profile=profile,
             client=client,
@@ -791,8 +799,8 @@ class TestToolExecutionLeafGrounding:
 
         assert not any("ungrounded-tool-leaf" in v for v in violations)
 
-    def test_leaf_with_generic_label_violation(self) -> None:
-        """Leaf with generic label triggers violation."""
+    def test_typed_tool_leaf_with_generic_label_is_grounded(self) -> None:
+        """Typed tool identity makes a generic prose label irrelevant."""
         root = _make_or_root(
             _make_leaf("n1.1", zone="input"),
             _make_leaf("n1.2", zone="tool_execution"),
@@ -808,9 +816,7 @@ class TestToolExecutionLeafGrounding:
             tool_names=["database_query", "send_email"],
         )
 
-        tool_violations = [v for v in violations if "ungrounded-tool-leaf" in v]
-        assert len(tool_violations) == 1
-        assert "Execute malicious operation" in tool_violations[0]
+        assert not any("ungrounded-tool-leaf" in v for v in violations)
 
     def test_no_tool_names_skips_check(self) -> None:
         """When tool_names is None, the check is skipped."""
@@ -921,3 +927,86 @@ class TestNonActionableLeaves:
         _check_non_actionable_leaves(root, violations)
 
         assert not any("non-actionable-leaves" in v for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# Tests: direct integration_interaction in tool_execution (cmps.9 review 2.1)
+# ---------------------------------------------------------------------------
+
+
+class TestDirectIntegrationInToolExecution:
+    """A direct integration_interaction in tool_execution must not trigger
+    false consistency failures (cmps.9 second review correction 1).
+
+    The authoritative ACTION_ZONE_RULES matrix allows both tool_invocation
+    and integration_interaction in tool_execution.  The grounding check
+    must accept either, and the consistency path must not retry or flag
+    a valid typed direct integration.
+    """
+
+    def test_integration_interaction_in_tool_execution_no_violation(self) -> None:
+        """An integration_interaction leaf in tool_execution passes grounding."""
+        from scenario_forge.models.attack_tree import IntegrationInteractionAction
+
+        root = _make_or_root(
+            _make_leaf("n1.1", zone="input"),
+            AttackTreeNode(
+                id="n1.2",
+                label="Direct integration interaction",
+                gate=GateType.LEAF,
+                zone="tool_execution",
+                action=IntegrationInteractionAction(
+                    integration_id="int:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                ),
+            ),
+        )
+        tree = _make_tree(root)
+        narrative = _make_narrative(["input", "tool_execution"], step_count=2)
+
+        violations = _check_consistency(
+            tree,
+            narrative,
+            parsimony_budget=10,
+            tool_names=["database_query"],
+        )
+
+        # No untyped-tool-execution violation for the integration leaf
+        assert not any("untyped-tool-execution" in v for v in violations)
+
+    def test_integration_interaction_grounding_no_violation(self) -> None:
+        """Direct grounding check accepts integration_interaction."""
+        from scenario_forge.models.attack_tree import IntegrationInteractionAction
+        from scenario_forge.pipeline.generate.tree import (
+            _check_tool_execution_leaf_grounding,
+        )
+
+        node = AttackTreeNode(
+            id="n1",
+            label="Direct integration call",
+            gate=GateType.LEAF,
+            zone="tool_execution",
+            action=IntegrationInteractionAction(
+                integration_id="int:v1:cccccccccccccccccccccccccccccccc",
+            ),
+        )
+        violations: list[str] = []
+        _check_tool_execution_leaf_grounding(node, violations)
+        assert not any("untyped-tool-execution" in v for v in violations)
+
+    def test_ai_action_in_tool_execution_still_flagged(self) -> None:
+        """An ai_system_action in tool_execution is still flagged (not a
+        valid typed action for that zone per the matrix)."""
+        from scenario_forge.pipeline.generate.tree import (
+            _check_tool_execution_leaf_grounding,
+        )
+
+        node = AttackTreeNode(
+            id="n1",
+            label="AI reasoning in tool zone",
+            gate=GateType.LEAF,
+            zone="tool_execution",
+            action=AiSystemAction(),
+        )
+        violations: list[str] = []
+        _check_tool_execution_leaf_grounding(node, violations)
+        assert any("untyped-tool-execution" in v for v in violations)

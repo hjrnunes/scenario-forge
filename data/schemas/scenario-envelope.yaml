@@ -36,7 +36,7 @@
 
 schema:
   name: scenario-envelope
-  version: "0.1.0"
+  version: "0.2.0"
   description: >
     Envelope schema wrapping the four output layers of a scenario-forge scenario
     into a single queryable document.
@@ -113,19 +113,19 @@ fields:
         type: str
         required: true
         description: >
-          The entry point the attack uses, from the capability profile.
-          Example: "user prompts (zone 1)", "RAG-retrieved documents (zone 1)".
+          Human-readable entry point selected from the capability profile. Its
+          canonical entry_point_id is the identity referenced by the attack
+          tree's initial_ingress action; display text is not canonical identity.
 
       zone_sequence:
-        type: list[int]
+        type: list[string]
         required: true
         description: >
           Ordered list encoding the attack propagation path through Schneider
-          zones. Example: [1, 2, 3] for an attack entering via input, traversing
+          zones. Example: [input, reasoning, tool_execution] for an attack entering via input, traversing
           reasoning, and reaching tool execution.
         item_constraints:
-          min: 1
-          max: 5
+          valid_values: [input, reasoning, tool_execution, memory, inter_agent]
 
       steps:
         type: list[NarrativeStep]
@@ -168,10 +168,10 @@ fields:
         type: int
         required: true
       zone:
-        type: int
+        type: string
         required: true
-        description: "Schneider zone (1-5) where this step occurs."
-        enum: [1, 2, 3, 4, 5]
+        description: "Schneider zone where this step occurs."
+        enum: [input, reasoning, tool_execution, memory, inter_agent]
       action:
         type: str
         required: true
@@ -203,9 +203,11 @@ fields:
       tree schema (scenario-forge-13k). Treated as an opaque sub-document here.
       Produced by LLM Call 2.
 
-      Nodes carry: zone annotation, threat/technique IDs, MAESTRO layer, control
-      point, structural exposure type, and evidence level per the design doc
-      (section 9.1).
+      Nodes carry optional zone annotation, threat/technique IDs, MAESTRO layer,
+      control point, structural exposure type, and evidence level per the design
+      doc (section 9.1). LEAF nodes also carry a typed action discriminated by
+      action.kind; AND/OR nodes never carry an action. External preconditions
+      and external impacts omit zone.
 
   # ===================================================================
   # Layer 3: Behavior Specification
@@ -316,17 +318,19 @@ fields:
         type: object
         required: true
         description: >
-          References to the capability profile that scoped this scenario.
+          References to the capability profile that scoped this scenario. The
+          source profile records entry_point_completeness/entry_point_evidence
+          separately from tool_inventory_completeness/tool_inventory_evidence;
+          completeness in one category never implies completeness in the other.
         fields:
           zones_traversed:
-            type: list[int]
+            type: list[string]
             required: true
             description: >
               Ordered list encoding the attack propagation path through
               Schneider zones. Mirrors narrative.zone_sequence.
             item_constraints:
-              min: 1
-              max: 5
+              valid_values: [input, reasoning, tool_execution, memory, inter_agent]
           architecture_match:
             type: str
             required: true
@@ -338,12 +342,14 @@ fields:
             type: str
             required: true
             description: >
-              Which entry point the attack uses from the capability profile.
+              Human-readable entry point selected from the capability profile.
+              Canonical linkage uses the entry_point_id referenced by the attack
+              tree's initial_ingress action, not this display text.
 
       # --- MAESTRO ---
 
       maestro_layers:
-        type: list[int]
+        type: list[string]
         required: true
         description: >
           MAESTRO architectural layers targeted by this scenario.
@@ -492,6 +498,73 @@ fields:
         required: true
         description: "Wall-clock duration of the LLM call in milliseconds."
 
+  # ===================================================================
+  # Validation models (cmps.9)
+  # ===================================================================
+
+  CorpusClaimCategory:
+    type: str
+    required: true
+    enum: ["entry_points", "tool_inventory"]
+    description: >-
+      Inventory category for closed-world corpus claim applicability.
+
+  CorpusClaimStatus:
+    type: str
+    required: true
+    enum: ["applicable", "not_applicable"]
+    description: >-
+      Whether closed-world corpus claims are applicable for a category.
+
+  CorpusClaimApplicability:
+    type: object
+    required: true
+    description: >-
+      Typed, category-specific closed-world corpus claim applicability record.
+      Status-appropriate payloads are enforced:
+      ``applicable`` requires nonblank evidence and no reason;
+      ``not_applicable`` requires a nonblank reason and no evidence.
+    fields:
+      category:
+        type: CorpusClaimCategory
+        required: true
+      status:
+        type: CorpusClaimStatus
+        required: true
+      reason:
+        type: Optional[str]
+        required: false
+        description: >-
+          Required (nonblank, non-whitespace-only) when status is
+          not_applicable; must be null when status is applicable.
+      evidence:
+        type: list[str]
+        required: false
+        description: >-
+          Required (at least one item, every item nonblank/non-whitespace-only)
+          when status is applicable; must be empty when status is not_applicable.
+
+  SemanticValidation:
+    type: object
+    required: true
+    description: >-
+      Semantic validation results. corpus_claim_applicability must contain
+      exactly one entry_points and one tool_inventory record.
+    fields:
+      valid:
+        type: bool
+        required: true
+      violations:
+        type: list[SemanticViolation]
+        required: false
+      corpus_claim_applicability:
+        type: list[CorpusClaimApplicability]
+        required: true
+        min_items: 2
+        max_items: 2
+        description: >-
+          Exactly one entry_points and one tool_inventory record required.
+
 # =====================================================================
 # Example: Complete scenario document
 # =====================================================================
@@ -523,12 +596,12 @@ example:
       each individual booking call stays within the agent's granted
       permissions.
 
-    entry_point: "user prompts (zone 1)"
-    zone_sequence: [1, 2, 3]
+    entry_point: "user prompts (zone: input)"
+    zone_sequence: [input, reasoning, tool_execution]
 
     steps:
       - step_number: 1
-        zone: 1
+        zone: input
         action: >
           Attacker submits a booking request with an ambiguously worded
           quantity ("book seats for our whole department — all 500 of us")
@@ -539,7 +612,7 @@ example:
         control_point: "Input validation / quantity reasonableness check"
 
       - step_number: 2
-        zone: 2
+        zone: reasoning
         action: >
           The agent's reasoning layer interprets the request literally,
           constructing a tool call with quantity=500 without applying
@@ -551,7 +624,7 @@ example:
         control_point: "Business rule enforcement in reasoning layer"
 
       - step_number: 3
-        zone: 3
+        zone: tool_execution
         action: >
           The agent executes the booking API call with quantity=500. The
           API itself accepts the call because the agent's service account
@@ -583,32 +656,43 @@ example:
   attack_tree:
     # Internal structure defined by scenario-forge-13k schema.
     # Placeholder showing the expected top-level shape.
+    id: "tree-T2-S1"
+    seed_id: "T2-S1"
+    goal: "Achieve unauthorized mass booking via parameter pollution"
     root:
-      id: "root"
+      id: "n1"
       label: "Achieve unauthorized mass booking via parameter pollution"
       gate: "AND"
-      zone: 3
-      threat_ids: ["T2"]
-      technique_ids: ["AML.T0054"]
+      zone: tool_execution
+      threat_id: "T2"
+      technique_id: "AML.T0054"
       maestro_layer: 1
       children:
-        - id: "node-1"
+        - id: "n1.1"
           label: "Craft ambiguous quantity prompt"
           gate: "LEAF"
-          zone: 1
+          zone: input
+          action:
+            kind: "initial_ingress"
+            entry_point_id: "ep:v1:00000000000000000000000000000000"
           control_point: "Input validation"
           evidence_level: "assumed"
-        - id: "node-2"
+        - id: "n1.2"
           label: "Agent reasons without business rule check"
           gate: "LEAF"
-          zone: 2
+          zone: reasoning
+          action:
+            kind: "ai_system_action"
           control_point: "Business rule enforcement"
           structural_exposure: "single_point_of_failure"
           evidence_level: "assumed"
-        - id: "node-3"
+        - id: "n1.3"
           label: "Booking API accepts unbounded quantity"
           gate: "LEAF"
-          zone: 3
+          zone: tool_execution
+          action:
+            kind: "tool_invocation"
+            tool_id: "tool:v1:00000000000000000000000000000000"
           control_point: "API parameter bounds"
           evidence_level: "assumed"
 
@@ -663,9 +747,9 @@ example:
       scenario_seed: "T2-S1"
 
     capability_profile:
-      zones_traversed: [1, 2, 3]
+      zones_traversed: [input, reasoning, tool_execution]
       architecture_match: "explicit"
-      entry_point: "user prompts (zone 1)"
+      entry_point: "user prompts (zone: input)"
 
     maestro_layers: [1, 2]
 
@@ -699,5 +783,5 @@ example:
         completion_tokens: 940
         duration_ms: 4800
     notes:
-      - "Capability profile indicates zone 3 (tool execution) is active; T2 scenarios are in scope."
+      - "Capability profile indicates tool_execution (Tool Execution) is active; T2 scenarios are in scope."
       - "Architecture match is explicit: use case description mentions booking API integration."

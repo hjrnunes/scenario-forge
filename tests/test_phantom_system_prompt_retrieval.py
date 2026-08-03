@@ -11,9 +11,10 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -46,7 +47,6 @@ from scenario_forge.pipeline.validation import (
     _check_system_prompt_retrieval,
     validate_phantom_capabilities,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -96,10 +96,18 @@ def _make_envelope(
             zone="input",
             children=[
                 AttackTreeNode(
-                    id="n1.1", label="Path A", gate=GateType.LEAF, zone="input"
+                    id="n1.1",
+                    label="Path A",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    action=AiSystemAction(),
                 ),
                 AttackTreeNode(
-                    id="n1.2", label="Path B", gate=GateType.LEAF, zone="reasoning"
+                    id="n1.2",
+                    label="Path B",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    action=AiSystemAction(),
                 ),
             ],
         ),
@@ -154,7 +162,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -174,7 +182,7 @@ def _make_profile(
         entry_points = ["user prompts (zone 1)"]
     codes = kc_subcodes or ["KC1.1"]
     kw = {}
-    if any(c.startswith("KC5.") or c.startswith("KC6.") for c in codes):
+    if any(c.startswith(("KC5.", "KC6.")) for c in codes):
         kw["tool_inventory"] = [
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ]
@@ -520,8 +528,10 @@ class TestSystemPromptRetrievalIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The agent uses the configuration API to retrieve the "
-                    "system prompt and extract internal operating instructions."
+                    (
+                        "The agent uses the configuration API to retrieve the "
+                        "system prompt and extract internal operating instructions."
+                    )
                 ],
             ),
         ]
@@ -538,8 +548,10 @@ class TestSystemPromptRetrievalIntegration:
             _make_envelope(
                 step_actions=["The attacker probes the system."],
                 step_effects=[
-                    "The agent calls the diagnostic endpoint to retrieve "
-                    "internal configuration details."
+                    (
+                        "The agent calls the diagnostic endpoint to retrieve "
+                        "internal configuration details."
+                    )
                 ],
             ),
         ]
@@ -554,8 +566,10 @@ class TestSystemPromptRetrievalIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker retrieves the system prompt by exploiting "
-                    "a backend configuration lookup tool."
+                    (
+                        "The attacker retrieves the system prompt by exploiting "
+                        "a backend configuration lookup tool."
+                    )
                 ],
             ),
         ]
@@ -611,12 +625,16 @@ class TestSystemPromptRetrievalIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The attacker crafts a prompt injection to manipulate "
-                    "the agent's reasoning."
+                    (
+                        "The attacker crafts a prompt injection to manipulate "
+                        "the agent's reasoning."
+                    )
                 ],
                 step_effects=[
-                    "The system follows the injected instructions and "
-                    "reveals sensitive customer data."
+                    (
+                        "The system follows the injected instructions and "
+                        "reveals sensitive customer data."
+                    )
                 ],
             ),
         ]
@@ -632,8 +650,10 @@ class TestSystemPromptRetrievalIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The agent uses the diagnostic API to retrieve "
-                    "system configuration."
+                    (
+                        "The agent uses the diagnostic API to retrieve "
+                        "system configuration."
+                    )
                 ],
             ),
         ]
@@ -670,12 +690,16 @@ class TestSystemPromptRetrievalIntegration:
         scenarios = [
             _make_envelope(
                 step_actions=[
-                    "The administrator configures the chatbot settings "
-                    "through the management dashboard."
+                    (
+                        "The administrator configures the chatbot settings "
+                        "through the management dashboard."
+                    )
                 ],
                 step_effects=[
-                    "The chatbot updates its greeting message according "
-                    "to the new configuration."
+                    (
+                        "The chatbot updates its greeting message according "
+                        "to the new configuration."
+                    )
                 ],
             ),
         ]
@@ -694,8 +718,10 @@ class TestSystemPromptRetrievalIntegration:
         )
         flagged = _make_envelope(
             step_actions=[
-                "The attacker extracts the system prompt via "
-                "a diagnostic endpoint call."
+                (
+                    "The attacker extracts the system prompt via "
+                    "a diagnostic endpoint call."
+                )
             ],
             scenario_id="scenario:v2:3eeab37ecf938cf0e0255163f2983c909c89e4147245dd3c66cc114d12240a78",
         )

@@ -14,14 +14,17 @@ from __future__ import annotations
 
 from scenario_forge.data.atlas import TECHNIQUE_ZONE_CONSTRAINTS
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
+    ExternalPreconditionAction,
     GateType,
+    ToolInvocationAction,
 )
+from scenario_forge.models.capability_profile import compute_tool_id
 from scenario_forge.pipeline.generate import (
     _validate_technique_zone_compatibility,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -30,16 +33,25 @@ from scenario_forge.pipeline.generate import (
 
 def _leaf(
     node_id: str,
-    zone: str,
+    zone: str | None,
     technique_id: str | None = None,
 ) -> AttackTreeNode:
     """Create a minimal LEAF node."""
+    if zone is None:
+        action = ExternalPreconditionAction()
+    elif zone == "tool_execution":
+        action = ToolInvocationAction(
+            tool_id=compute_tool_id("test_tool", "A test tool")
+        )
+    else:
+        action = AiSystemAction()
     return AttackTreeNode(
         id=node_id,
         label=f"Leaf {node_id}",
         gate=GateType.LEAF,
         zone=zone,
         technique_id=technique_id,
+        action=action,
     )
 
 
@@ -93,9 +105,7 @@ class TestValidTechniqueZonePreserved:
     def test_reasoning_zone_with_reasoning_technique(self) -> None:
         # AML.T0054 is valid in {"input", "reasoning"}
         leaf = _leaf("n1.1", "reasoning", technique_id="AML.T0054")
-        root = _gate(
-            "n1", "reasoning", GateType.OR, [leaf, _leaf("n1.2", "reasoning")]
-        )
+        root = _gate("n1", "reasoning", GateType.OR, [leaf, _leaf("n1.2", "reasoning")])
         tree = _tree(root)
 
         count = _validate_technique_zone_compatibility(tree)
@@ -137,9 +147,7 @@ class TestInvalidTechniqueZoneStripped:
     def test_input_technique_in_reasoning_zone_stripped(self) -> None:
         # AML.T0052 is only valid in {"input"}
         leaf = _leaf("n1.1", "reasoning", technique_id="AML.T0052")
-        root = _gate(
-            "n1", "reasoning", GateType.OR, [leaf, _leaf("n1.2", "reasoning")]
-        )
+        root = _gate("n1", "reasoning", GateType.OR, [leaf, _leaf("n1.2", "reasoning")])
         tree = _tree(root)
 
         count = _validate_technique_zone_compatibility(tree)
@@ -173,9 +181,7 @@ class TestUnconstrainedTechniquePass:
         assert fake_technique not in TECHNIQUE_ZONE_CONSTRAINTS
 
         leaf = _leaf("n1.1", "memory", technique_id=fake_technique)
-        root = _gate(
-            "n1", "memory", GateType.OR, [leaf, _leaf("n1.2", "memory")]
-        )
+        root = _gate("n1", "memory", GateType.OR, [leaf, _leaf("n1.2", "memory")])
         tree = _tree(root)
 
         count = _validate_technique_zone_compatibility(tree)
@@ -197,9 +203,7 @@ class TestNonLeafNotAffected:
             [_leaf("n1.1.1", "input"), _leaf("n1.1.2", "input")],
             technique_id="AML.T0053",
         )
-        root = _gate(
-            "n1", "input", GateType.OR, [inner_gate, _leaf("n1.2", "input")]
-        )
+        root = _gate("n1", "input", GateType.OR, [inner_gate, _leaf("n1.2", "input")])
         tree = _tree(root)
 
         count = _validate_technique_zone_compatibility(tree)
@@ -328,17 +332,13 @@ class TestAdversarialCases:
             GateType.OR,
             [level3, _leaf("n1.1.2", "input")],
         )
-        root = _gate(
-            "n1", "input", GateType.OR, [level2, _leaf("n1.2", "input")]
-        )
+        root = _gate("n1", "input", GateType.OR, [level2, _leaf("n1.2", "input")])
         tree = _tree(root)
 
         count = _validate_technique_zone_compatibility(tree)
 
         assert count == 1
-        assert (
-            tree.root.children[0].children[0].children[0].technique_id is None
-        )
+        assert tree.root.children[0].children[0].children[0].technique_id is None
 
     def test_single_leaf_tree_invalid(self) -> None:
         # Edge case: tree is just a single leaf node (root is the leaf).
@@ -349,6 +349,7 @@ class TestAdversarialCases:
             gate=GateType.LEAF,
             zone="input",
             technique_id="AML.T0053",
+            action=AiSystemAction(),
         )
         tree = _tree(root)
 

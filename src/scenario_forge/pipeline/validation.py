@@ -36,7 +36,10 @@ from scenario_forge.models.attack_tree import (
 
 if TYPE_CHECKING:
     from scenario_forge.models.capability_profile import CapabilityProfile
-    from scenario_forge.models.scenario import ScenarioEnvelope
+    from scenario_forge.models.scenario import (
+        CorpusClaimApplicability,
+        ScenarioEnvelope,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -324,10 +327,12 @@ _ATTACKER_CONTEXT_RE = re.compile(
 # Gherkin step keywords that indicate attacker actions (Given/When/And).
 # Then/But/* lines describe system outcomes and should still be checked.
 _GHERKIN_ATTACKER_STEP_RE = re.compile(
-    r"^\s*(?:Given|When|And)\b", re.IGNORECASE,
+    r"^\s*(?:Given|When|And)\b",
+    re.IGNORECASE,
 )
 _GHERKIN_OUTCOME_STEP_RE = re.compile(
-    r"^\s*(?:Then\b|But\b|\*)", re.IGNORECASE,
+    r"^\s*(?:Then\b|But\b|\*)",
+    re.IGNORECASE,
 )
 
 
@@ -367,10 +372,7 @@ def _check_privilege_escalation(
         for ep in profile.entry_points
     )
     # KC6.4 = identity / auth management; KC6.3 = database (may include role tables)
-    admin_kc = any(
-        code.startswith("KC6.4") or code.startswith("KC6.3")
-        for code in profile.kc_subcodes
-    )
+    admin_kc = any(code.startswith(("KC6.4", "KC6.3")) for code in profile.kc_subcodes)
     if admin_entry or admin_kc:
         return None
 
@@ -396,8 +398,7 @@ def _check_credential_exposure(
     # If profile declares extensive API access that handles auth, or
     # entry points involving APIs/HTTP, credential references may be legit.
     api_kc = any(
-        code.startswith("KC6.1.2") or code.startswith("KC6.1.3")
-        for code in profile.kc_subcodes
+        code.startswith(("KC6.1.2", "KC6.1.3")) for code in profile.kc_subcodes
     )
     api_entry = any(
         "api" in ep.name.lower() or "http" in ep.name.lower()
@@ -452,8 +453,7 @@ def _check_code_execution(
         return None
 
     has_code_exec = any(
-        code.startswith("KC6.2.2") or code.startswith("KC6.5")
-        for code in profile.kc_subcodes
+        code.startswith(("KC6.2.2", "KC6.5")) for code in profile.kc_subcodes
     )
     if has_code_exec:
         return None
@@ -626,121 +626,6 @@ def _check_system_prompt_retrieval(
 
 
 # ---------------------------------------------------------------------------
-# Phantom tool invocation — patterns and helpers
-# ---------------------------------------------------------------------------
-
-# Patterns to extract named tool/API/endpoint references from narrative text.
-# Each pattern's group 1 captures the raw name preceding the keyword.
-# The first three patterns require title-case words ([A-Z][a-z]+) to
-# discriminate proper-noun tool names from generic references.
-_PHANTOM_TOOL_EXTRACTORS = [
-    # "<Title Case Name> tool" — e.g. "Policy Audit tool invocation"
-    re.compile(
-        r"\b((?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+){0,4})\s+tool\b"
-    ),
-    # "<Title Case Name> API" — e.g. "Payment Processing API"
-    re.compile(
-        r"\b((?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+){0,4})\s+API\b"
-    ),
-    # "<Title Case Name> endpoint" — e.g. "Admin Configuration endpoint"
-    re.compile(
-        r"\b((?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+){0,4})\s+endpoint\b"
-    ),
-    # "API calls to <action>" — e.g. "API calls to overwrite audit logs"
-    re.compile(
-        r"\bAPI\s+calls?\s+to\s+(\w+(?:\s+\w+){0,5})",
-        re.IGNORECASE,
-    ),
-]
-
-# Words stripped from the leading/trailing edges of extracted tool names.
-_TOOL_NAME_NOISE = frozenset({
-    "the", "a", "an", "this", "that", "its", "our", "their",
-    "some", "each", "every", "my", "your",
-    # Gherkin step keywords (title-cased at line starts)
-    "and", "or", "but", "given", "when", "then",
-})
-
-# Stop words excluded from word-overlap comparisons.
-_OVERLAP_STOP = _TOOL_NAME_NOISE | frozenset({
-    "and", "or", "for", "to", "in", "on", "at", "by", "of", "with",
-})
-
-
-def _clean_tool_name(raw: str) -> str | None:
-    """Strip leading/trailing noise words from an extracted tool name.
-
-    Returns the cleaned name in lowercase, or ``None`` if the remaining
-    name has fewer than 2 significant words (too generic to be a named
-    tool reference).
-    """
-    words = raw.split()
-    while words and words[0].lower() in _TOOL_NAME_NOISE:
-        words.pop(0)
-    while words and words[-1].lower() in _TOOL_NAME_NOISE:
-        words.pop()
-    if len(words) < 2:
-        return None
-    return " ".join(words).lower()
-
-
-def _check_phantom_tool_invocation(
-    text: str,
-    profile: CapabilityProfile,
-    field_name: str = "",
-    zone: str = "",
-) -> str | None:
-    """Return a match string if text references a tool/API/endpoint not in the profile.
-
-    Extracts named tool, API, and endpoint references from the text and
-    compares them against the profile's ``entry_points``.  A reference is
-    phantom if no entry-point name contains the referenced name
-    (case-insensitive substring match for named tools, word-overlap match
-    for action-based API references).
-    """
-    ep_names = [ep.name.lower() for ep in profile.entry_points]
-
-    for idx, pattern in enumerate(_PHANTOM_TOOL_EXTRACTORS):
-        for m in pattern.finditer(text):
-            raw_name = m.group(1).strip()
-            name = _clean_tool_name(raw_name)
-            if name is None:
-                continue
-
-            if idx < 3:
-                # Named tool/API/endpoint — substring containment check
-                found = any(
-                    name in ep_name or ep_name in name
-                    for ep_name in ep_names
-                )
-            else:
-                # "API calls to <action>" — word-overlap check.
-                # Post-extraction filter: require at least one title-cased
-                # word in the raw capture (after removing stop words).
-                # All-lowercase action descriptions like "clear the queue"
-                # are generic verbs, not named tool references.
-                raw_words = [
-                    w for w in raw_name.split()
-                    if w.lower() not in _OVERLAP_STOP
-                ]
-                if not any(w[0].isupper() for w in raw_words if w):
-                    continue
-
-                name_words = set(name.split()) - _OVERLAP_STOP
-                found = False
-                for ep_name in ep_names:
-                    ep_words = set(ep_name.split()) - _OVERLAP_STOP
-                    if name_words and ep_words and name_words & ep_words:
-                        found = True
-                        break
-
-            if not found:
-                return m.group(0)
-
-    return None
-
-
-# ---------------------------------------------------------------------------
 # Main validation function
 # ---------------------------------------------------------------------------
 
@@ -748,71 +633,83 @@ _CHECKERS = [
     (
         "privilege_escalation",
         _check_privilege_escalation,
-        "Profile lacks admin entry points and KC6.3/KC6.4 subcodes — "
-        "dynamic privilege escalation is a phantom capability.",
+        (
+            "Profile lacks admin entry points and KC6.3/KC6.4 subcodes — "
+            "dynamic privilege escalation is a phantom capability."
+        ),
     ),
     (
         "credential_exposure",
         _check_credential_exposure,
-        "Profile lacks KC6.1.2/KC6.1.3 (extensive API access) and no "
-        "API/HTTP entry points — infrastructure credential exposure "
-        "is a phantom capability.",
+        (
+            "Profile lacks KC6.1.2/KC6.1.3 (extensive API access) and no "
+            "API/HTTP entry points — infrastructure credential exposure "
+            "is a phantom capability."
+        ),
     ),
     (
         "code_execution",
         _check_code_execution,
-        "Profile lacks KC6.2.2 (code execution) and KC6.5 (filesystem) "
-        "— arbitrary code execution is a phantom capability.",
+        (
+            "Profile lacks KC6.2.2 (code execution) and KC6.5 (filesystem) "
+            "— arbitrary code execution is a phantom capability."
+        ),
     ),
     (
         "mass_broadcasting",
         _check_mass_broadcasting,
-        "Profile lacks persistent memory and multi-agent capabilities "
-        "— the system is reactive (single-session) and cannot broadcast "
-        "to multiple users.",
+        (
+            "Profile lacks persistent memory and multi-agent capabilities "
+            "— the system is reactive (single-session) and cannot broadcast "
+            "to multiple users."
+        ),
     ),
     (
         "cross_session_access",
         _check_cross_session_access,
-        "Profile lacks persistent memory — the system operates within "
-        "a single authenticated session and cannot access other users' "
-        "sessions or data.",
+        (
+            "Profile lacks persistent memory — the system operates within "
+            "a single authenticated session and cannot access other users' "
+            "sessions or data."
+        ),
     ),
     (
         "audit_monitoring_write",
         _check_audit_monitoring_write,
-        "No KC subcode grants audit/monitoring write access — agents "
-        "read from monitoring systems but cannot modify audit trails "
-        "or suppress alerts.",
-    ),
-    (
-        "phantom_tool_invocation",
-        _check_phantom_tool_invocation,
-        "Narrative references a tool, API, or endpoint not found in "
-        "the profile's entry points — this capability is phantom.",
+        (
+            "No KC subcode grants audit/monitoring write access — agents "
+            "read from monitoring systems but cannot modify audit trails "
+            "or suppress alerts."
+        ),
     ),
     (
         "session_introspection",
         _check_session_introspection,
-        "Agents never have access to their own session tokens, API "
-        "authorization headers, or bearer tokens — the platform handles "
-        "authentication transparently.",
+        (
+            "Agents never have access to their own session tokens, API "
+            "authorization headers, or bearer tokens — the platform handles "
+            "authentication transparently."
+        ),
     ),
     (
         "api_response_fabrication",
         _check_api_response_fabrication,
-        "Scenario assumes APIs return data types not in the profile — "
-        "system metadata, prompt fragments, model configuration, or "
-        "internal system information are not returned by normal API "
-        "endpoints.",
+        (
+            "Scenario assumes APIs return data types not in the profile — "
+            "system metadata, prompt fragments, model configuration, or "
+            "internal system information are not returned by normal API "
+            "endpoints."
+        ),
     ),
     (
         "system_prompt_retrieval",
         _check_system_prompt_retrieval,
-        "Agents never have access to their own system prompt via "
-        "API or tool calls — no configuration API, diagnostic endpoint, "
-        "or introspection tool exposes system prompts.  The platform "
-        "injects them opaquely.",
+        (
+            "Agents never have access to their own system prompt via "
+            "API or tool calls — no configuration API, diagnostic endpoint, "
+            "or introspection tool exposes system prompts.  The platform "
+            "injects them opaquely."
+        ),
     ),
 ]
 
@@ -873,7 +770,8 @@ def validate_phantom_capabilities(
             for label, zone in _collect_node_labels(scenario.attack_tree.root):
                 for category, checker, reason in _CHECKERS:
                     matched = checker(
-                        label, profile,
+                        label,
+                        profile,
                         field_name="tree_label",
                         zone=zone,
                     )
@@ -891,9 +789,7 @@ def validate_phantom_capabilities(
         # Also check Gherkin behavior_spec text
         if scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
             for category, checker, reason in _CHECKERS:
-                matched = checker(
-                    scenario.behavior_spec, profile, field_name="gherkin"
-                )
+                matched = checker(scenario.behavior_spec, profile, field_name="gherkin")
                 if matched is not None:
                     violations.append(
                         PhantomViolation(
@@ -905,32 +801,22 @@ def validate_phantom_capabilities(
                         )
                     )
 
-        # Check tool_execution leaf nodes against tool inventory.
-        # Mirrors the semantic phantom_tool check so that phantom.valid
-        # is set to false when a tool_execution leaf references a phantom tool.
-        if profile.tool_inventory and scenario.attack_tree and scenario.attack_tree.root:
-            tool_names_normalized = [
-                _normalize_tool_name(t.name) for t in profile.tool_inventory
-            ]
+        # Resolve typed tool invocations regardless of inventory completeness.
+        if scenario.attack_tree and scenario.attack_tree.root:
             leaves = _collect_leaves(scenario.attack_tree.root)
             for leaf in leaves:
-                if leaf.zone != "tool_execution":
+                if leaf.action is None or leaf.action.kind != "tool_invocation":
                     continue
-                label_normalized = _normalize_tool_name(leaf.label)
-                found = any(
-                    tn in label_normalized or label_normalized in tn
-                    for tn in tool_names_normalized
-                )
-                if not found:
+                if profile.resolve_tool(leaf.action.tool_id) is None:
                     violations.append(
                         PhantomViolation(
                             step_number=0,
                             field="attack_tree",
                             category="phantom_tool_invocation",
-                            matched_text=leaf.label,
+                            matched_text=leaf.action.tool_id,
                             reason=(
-                                f"Leaf node '{leaf.id}' in tool_execution zone "
-                                f"does not reference any tool from the inventory"
+                                f"Leaf node '{leaf.id}' references unknown tool_id "
+                                f"'{leaf.action.tool_id}'"
                             ),
                         )
                     )
@@ -1181,9 +1067,7 @@ def validate_scenario_structure(
 # ---------------------------------------------------------------------------
 
 # Regex for technique IDs: bracketed [AML.T0054] and bare AML.T0054 references.
-_NARRATIVE_TECHNIQUE_RE = re.compile(
-    r"\[?(AML\.T\d{4}(?:\.\d{3})?)\]?"
-)
+_NARRATIVE_TECHNIQUE_RE = re.compile(r"\[?(AML\.T\d{4}(?:\.\d{3})?)\]?")
 
 
 def _extract_narrative_technique_ids(
@@ -1279,82 +1163,6 @@ def _extract_gherkin_zones_for_validation(gherkin_text: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def _find_entry_point_by_name(
-    profile: CapabilityProfile,
-    narrative_ep_text: str,
-) -> Any:
-    """Find a matching entry point from the profile by name substring match.
-
-    The narrative entry_point text often doesn't exactly match the profile
-    entry point name, so we use case-insensitive substring matching in
-    both directions.
-
-    Returns the first matching ``EntryPoint``, or ``None`` if no match.
-    """
-    narrative_lower = narrative_ep_text.lower()
-    for ep in profile.entry_points:
-        ep_lower = ep.name.lower()
-        if ep_lower in narrative_lower or narrative_lower in ep_lower:
-            return ep
-    return None
-
-
-def _normalize_tool_name(name: str) -> str:
-    """Normalize a tool name for fuzzy matching.
-
-    Lowercases, strips surrounding whitespace, and replaces underscores
-    and hyphens with spaces for uniform comparison.
-    """
-    return name.lower().strip().replace("_", " ").replace("-", " ")
-
-
-def _check_phantom_tool_in_tree(
-    scenarios: list[ScenarioEnvelope],
-    profile: CapabilityProfile,
-) -> dict[str, list[tuple[str, str]]]:
-    """Check attack tree leaf nodes in tool_execution zone against tool inventory.
-
-    Returns a dict mapping scenario_id to a list of (node_id, node_label)
-    tuples for nodes that reference tools not in the inventory.
-    Only runs when tool_inventory is available and non-empty.
-    """
-    if not profile.tool_inventory:
-        return {}
-
-    # Build normalized tool name set for fuzzy matching
-    tool_names = [_normalize_tool_name(t.name) for t in profile.tool_inventory]
-
-    results: dict[str, list[tuple[str, str]]] = {}
-
-    for scenario in scenarios:
-        if not scenario.attack_tree or not scenario.attack_tree.root:
-            continue
-
-        violations: list[tuple[str, str]] = []
-        leaves = _collect_leaves(scenario.attack_tree.root)
-
-        for leaf in leaves:
-            if leaf.zone != "tool_execution":
-                continue
-
-            # Normalize the leaf label for comparison
-            label_normalized = _normalize_tool_name(leaf.label)
-
-            # Check if any tool name appears as a substring in the label
-            found = any(
-                tool_name in label_normalized or label_normalized in tool_name
-                for tool_name in tool_names
-            )
-
-            if not found:
-                violations.append((leaf.id, leaf.label))
-
-        if violations:
-            results[scenario.scenario_id] = violations
-
-    return results
-
-
 def validate_scenario_semantics(
     scenarios: list[ScenarioEnvelope],
     profile: CapabilityProfile,
@@ -1373,8 +1181,8 @@ def validate_scenario_semantics(
          text but absent from the attack tree.
       6. ``zone_omission_tree``: narrative zones missing from attack tree.
       7. ``zone_omission_gherkin``: narrative zones missing from Gherkin.
-      8. ``phantom_tool``: tool_execution leaf nodes referencing tools not
-         in the profile's tool inventory.
+      8. Typed action IDs resolve to canonical profile resources, and
+         tool_execution leaves carry tool_invocation actions.
       9. ``seed_technique_provenance``: at least one seed technique from
          ``laaf_technique_ids`` must appear in the attack tree.
      10. ``zone_coverage_dropout``: narrative zone absent from BOTH tree
@@ -1384,6 +1192,9 @@ def validate_scenario_semantics(
     Scenarios are never removed -- violations are recorded as warnings.
     """
     from scenario_forge.data.atlas import ATLAS_TECHNIQUE_NAMES
+    from scenario_forge.models.capability_profile import (
+        is_attacker_accessible_ingress,
+    )
     from scenario_forge.models.scenario import (
         SemanticValidation,
         SemanticViolation,
@@ -1452,9 +1263,7 @@ def validate_scenario_semantics(
                 )
 
         # 5. Narrative technique orphan detection (bv5s).
-        narrative_technique_ids = _extract_narrative_technique_ids(
-            scenario.narrative
-        )
+        narrative_technique_ids = _extract_narrative_technique_ids(scenario.narrative)
         orphan_techniques = narrative_technique_ids - tree_technique_set
         for orphan_tid in sorted(orphan_techniques):
             violations.append(
@@ -1479,9 +1288,7 @@ def validate_scenario_semantics(
         compound_omission = len(omitted_tree_zones) >= 2
         for zone in omitted_tree_zones:
             is_terminal = zone == terminal_zone
-            severity = (
-                "major" if is_terminal or compound_omission else "minor"
-            )
+            severity = "major" if is_terminal or compound_omission else "minor"
             violations.append(
                 SemanticViolation(
                     rule="zone_omission_tree",
@@ -1527,34 +1334,99 @@ def validate_scenario_semantics(
                 )
             )
 
-        # 8. Phantom tool check — tool_execution leaf nodes referencing
-        #    tools not in the profile's tool inventory (4w56).
-        if profile.tool_inventory:
-            tool_names_normalized = [
-                _normalize_tool_name(t.name) for t in profile.tool_inventory
-            ]
-            leaves = _collect_leaves(scenario.attack_tree.root)
-            for leaf in leaves:
-                if leaf.zone != "tool_execution":
-                    continue
-                label_normalized = _normalize_tool_name(leaf.label)
-                found = any(
-                    tn in label_normalized or label_normalized in tn
-                    for tn in tool_names_normalized
+        # 8. Typed action and canonical resource checks. Unknown emitted IDs
+        #    fail even when the profile inventory is only inferred_partial.
+        leaves = _collect_leaves(scenario.attack_tree.root)
+        for leaf in leaves:
+            action = leaf.action
+            if leaf.zone == "tool_execution" and (
+                action is None
+                or action.kind not in {"tool_invocation", "integration_interaction"}
+            ):
+                violations.append(
+                    SemanticViolation(
+                        rule="untyped-tool-execution",
+                        message=(
+                            f"Leaf node '{leaf.id}' is in tool_execution zone "
+                            "but does not have a tool_invocation or "
+                            "integration_interaction action"
+                        ),
+                        severity="major",
+                    )
                 )
-                if not found:
+            if action is None:
+                continue
+            if action.kind == "initial_ingress":
+                resolved_ep = profile.resolve_entry_point(action.entry_point_id)
+                if resolved_ep is None:
                     violations.append(
                         SemanticViolation(
-                            rule="phantom_tool",
+                            rule="unknown_entry_point_id",
                             message=(
-                                f"Leaf node '{leaf.id}' in tool_execution zone "
-                                f"references '{leaf.label}' which does not match "
-                                f"any tool in the inventory: "
-                                f"{[t.name for t in profile.tool_inventory]}"
+                                f"Leaf node '{leaf.id}' references unknown "
+                                f"entry_point_id '{action.entry_point_id}'"
                             ),
                             severity="major",
                         )
                     )
+                elif not is_attacker_accessible_ingress(
+                    resolved_ep,
+                    set(profile.zones_active) if profile.zones_active else set(),
+                ):
+                    violations.append(
+                        SemanticViolation(
+                            rule="inaccessible_ingress_entry_point",
+                            message=(
+                                f"Leaf node '{leaf.id}' references entry "
+                                f"point '{resolved_ep.name}' "
+                                f"(entry_point_id '{action.entry_point_id}') "
+                                f"which is not an attacker-accessible ingress "
+                                f"route (output-only, system-controlled, or "
+                                f"inactive ingress zone)."
+                            ),
+                            severity="major",
+                        )
+                    )
+            elif action.kind == "tool_invocation":
+                if profile.resolve_tool(action.tool_id) is None:
+                    violations.append(
+                        SemanticViolation(
+                            rule="phantom_tool",
+                            message=(
+                                f"Leaf node '{leaf.id}' references unknown "
+                                f"tool_id '{action.tool_id}'"
+                            ),
+                            severity="major",
+                        )
+                    )
+                if (
+                    action.integration_id is not None
+                    and profile.resolve_integration(action.integration_id) is None
+                ):
+                    violations.append(
+                        SemanticViolation(
+                            rule="unknown_integration_id",
+                            message=(
+                                f"Leaf node '{leaf.id}' references unknown "
+                                f"integration_id '{action.integration_id}'"
+                            ),
+                            severity="major",
+                        )
+                    )
+            elif (
+                action.kind == "integration_interaction"
+                and profile.resolve_integration(action.integration_id) is None
+            ):
+                violations.append(
+                    SemanticViolation(
+                        rule="unknown_integration_id",
+                        message=(
+                            f"Leaf node '{leaf.id}' references unknown "
+                            f"integration_id '{action.integration_id}'"
+                        ),
+                        severity="major",
+                    )
+                )
 
         # 9. Seed technique provenance — at least one seed technique from
         #    laaf_technique_ids must appear in the attack tree (0lfx).
@@ -1577,15 +1449,11 @@ def validate_scenario_semantics(
         # 11. Goal-category alignment — flag mismatches between goal_category
         #     and the actor type or attack mechanism (kum3).
         _goal_cat = (
-            scenario.actor_profile.goal_category
-            if scenario.actor_profile
-            else None
+            scenario.actor_profile.goal_category if scenario.actor_profile else None
         )
         if _goal_cat and isinstance(_goal_cat, str):
             _actor_type = (
-                scenario.actor_profile.actor_type
-                if scenario.actor_profile
-                else None
+                scenario.actor_profile.actor_type if scenario.actor_profile else None
             )
 
             # 11a. Supply-chain goal on non-supply-chain actor.
@@ -1594,10 +1462,7 @@ def validate_scenario_semantics(
                 "adversarial-user",
                 "cybercriminal",
             }
-            if (
-                _goal_cat.startswith("IN-7")
-                and _actor_type in _NON_SUPPLY_CHAIN_ACTORS
-            ):
+            if _goal_cat.startswith("IN-7") and _actor_type in _NON_SUPPLY_CHAIN_ACTORS:
                 violations.append(
                     SemanticViolation(
                         rule="goal_actor_mismatch",
@@ -1613,17 +1478,22 @@ def validate_scenario_semantics(
             # 11b. Data exfiltration goal on financial fraud attack.
             if _goal_cat.startswith("PR-1"):
                 _financial_keywords = [
-                    "refund", "payment", "billing", "transaction",
+                    "refund",
+                    "payment",
+                    "billing",
+                    "transaction",
                 ]
                 leaves = _collect_leaves(scenario.attack_tree.root)
-                _has_financial_tool_leaf = any(
-                    leaf.zone == "tool_execution"
-                    and any(
-                        kw in leaf.label.lower()
-                        for kw in _financial_keywords
-                    )
-                    for leaf in leaves
-                )
+                _has_financial_tool_leaf = False
+                for leaf in leaves:
+                    if leaf.action is None or leaf.action.kind != "tool_invocation":
+                        continue
+                    resolved_tool = profile.resolve_tool(leaf.action.tool_id)
+                    if resolved_tool is not None and any(
+                        kw in resolved_tool.name.lower() for kw in _financial_keywords
+                    ):
+                        _has_financial_tool_leaf = True
+                        break
                 if _has_financial_tool_leaf:
                     violations.append(
                         SemanticViolation(
@@ -1641,15 +1511,14 @@ def validate_scenario_semantics(
             # 11c. Safety bypass goal on social engineering attack.
             if _goal_cat.startswith("AB-1"):
                 _se_keywords = [
-                    "phishing", "credential", "social engineering",
+                    "phishing",
+                    "credential",
+                    "social engineering",
                     "impersonat",
                 ]
                 _narrative_text = " ".join(
                     [scenario.narrative.title, scenario.narrative.summary]
-                    + [
-                        f"{s.action} {s.effect}"
-                        for s in scenario.narrative.steps
-                    ]
+                    + [f"{s.action} {s.effect}" for s in scenario.narrative.steps]
                 ).lower()
                 _has_social_engineering = any(
                     kw in _narrative_text for kw in _se_keywords
@@ -1672,18 +1541,24 @@ def validate_scenario_semantics(
         #     points, or external actors using system-controllability (internal)
         #     entry points, indicate a mismatch.
         _actor_type_12 = (
-            scenario.actor_profile.actor_type
-            if scenario.actor_profile
-            else None
+            scenario.actor_profile.actor_type if scenario.actor_profile else None
         )
-        _ep_text_12 = scenario.narrative.entry_point if scenario.narrative else None
-        if _actor_type_12 and _ep_text_12 and profile and profile.entry_points:
-            _matched_ep = _find_entry_point_by_name(profile, _ep_text_12)
+        _ingress_actions_12 = [
+            leaf.action
+            for leaf in leaves
+            if leaf.action is not None and leaf.action.kind == "initial_ingress"
+        ]
+        if _actor_type_12 and _ingress_actions_12:
+            _matched_ep = profile.resolve_entry_point(
+                _ingress_actions_12[0].entry_point_id
+            )
             if _matched_ep and _matched_ep.controllability is not None:
                 _INSIDER_ACTORS = {"malicious-insider", "negligent-insider"}
                 _EXTERNAL_ACTORS = {
-                    "adversarial-user", "cybercriminal",
-                    "hacktivist", "automated-agent",
+                    "adversarial-user",
+                    "cybercriminal",
+                    "hacktivist",
+                    "automated-agent",
                 }
                 if (
                     _actor_type_12 in _INSIDER_ACTORS
@@ -1720,9 +1595,13 @@ def validate_scenario_semantics(
                         )
                     )
 
+        # 13. Corpus-wide closed-world claim applicability (cmps.9 review)
+        corpus_claims = check_corpus_claims_applicability(scenario, profile)
+
         semantic = SemanticValidation(
             valid=len(violations) == 0,
             violations=violations,
+            corpus_claim_applicability=corpus_claims,
         )
 
         if scenario.validation is None:
@@ -1736,6 +1615,87 @@ def validate_scenario_semantics(
             and scenario.validation.structural.valid
             and scenario.validation.semantic.valid
         )
+
+
+def check_corpus_claims_applicability(
+    scenario: ScenarioEnvelope,
+    profile: CapabilityProfile,
+) -> list[CorpusClaimApplicability]:
+    """Return typed category-specific closed-world corpus claim applicability.
+
+    For each inventory category (entry_points, tool_inventory):
+    - ``inferred_partial`` → ``not_applicable`` with a typed reason.
+    - ``operator_confirmed_complete`` → ``applicable`` carrying evidence.
+
+    This is independent of ``phantom.valid`` — unknown emitted IDs still
+    fail regardless of completeness (cmps.9 review correction 2).
+    """
+    from scenario_forge.models.scenario import (
+        CorpusClaimApplicability,
+        CorpusClaimCategory,
+        CorpusClaimStatus,
+    )
+
+    del scenario
+    records: list[CorpusClaimApplicability] = []
+
+    # Entry-point inventory
+    if profile.is_entry_point_inventory_complete:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.applicable,
+                reason=None,
+                evidence=[e for e in profile.entry_point_evidence if e and e.strip()],
+            )
+        )
+    else:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.entry_points,
+                status=CorpusClaimStatus.not_applicable,
+                reason=(
+                    "Entry-point inventory is inferred_partial, not "
+                    "operator-confirmed complete — closed-world corpus "
+                    "claims are not applicable."
+                ),
+            )
+        )
+
+    # Tool inventory
+    if profile.is_tool_inventory_complete:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.applicable,
+                reason=None,
+                evidence=[
+                    e for e in profile.tool_inventory_evidence if e and e.strip()
+                ],
+            )
+        )
+    else:
+        records.append(
+            CorpusClaimApplicability(
+                category=CorpusClaimCategory.tool_inventory,
+                status=CorpusClaimStatus.not_applicable,
+                reason=(
+                    "Tool inventory is inferred_partial, not "
+                    "operator-confirmed complete — closed-world corpus "
+                    "claims are not applicable."
+                ),
+            )
+        )
+
+    return records
+
+
+def validate_semantic(
+    scenarios: list[ScenarioEnvelope],
+    profile: CapabilityProfile,
+) -> None:
+    """Compatibility entry point for semantic scenario validation."""
+    validate_scenario_semantics(scenarios, profile)
 
 
 def _check_tree_threat_ids(
@@ -1818,29 +1778,43 @@ _CONSEQUENCE_LEAF_PATTERNS: list[re.Pattern[str]] = [
     for p in [
         # Victim / target performing an action as a result of manipulation
         r"\bvictim\s+\w+",
-        r"\btarget\s+(?:user|employee|operator|person|individual)\s+"
-        r"(?:transfer|send|comply|reveal|disclose|provide|submit)\w*",
+        (
+            r"\btarget\s+(?:user|employee|operator|person|individual)\s+"
+            r"(?:transfer|send|comply|reveal|disclose|provide|submit)\w*"
+        ),
         # Data / asset terminal-outcome language
-        r"\b(?:data|credentials?|information|secrets?|funds?|assets?|money)"
-        r"\s+(?:exfiltrated|stolen|harvested|captured|diverted|"
-        r"compromised|lost|leaked|extracted|obtained)\b",
+        (
+            r"\b(?:data|credentials?|information|secrets?|funds?|assets?|money)"
+            r"\s+(?:exfiltrated|stolen|harvested|captured|diverted|"
+            r"compromised|lost|leaked|extracted|obtained)\b"
+        ),
         # Exfiltration as terminal step
         r"\b(?:exfiltrate|siphon)\s",
         # Attack / breach completion
-        r"\b(?:attack|breach|compromise|infiltration|campaign|objective)"
-        r"\s+(?:succeed|complet|achiev|accomplish|finalize)\w*",
+        (
+            r"\b(?:attack|breach|compromise|infiltration|campaign|objective)"
+            r"\s+(?:succeed|complet|achiev|accomplish|finalize)\w*"
+        ),
         # Impact / damage realization
-        r"\b(?:impact|damage|loss|harm)"
-        r"\s+(?:realiz|materializ|inflict|occur)\w*",
+        (
+            r"\b(?:impact|damage|loss|harm)"
+            r"\s+(?:realiz|materializ|inflict|occur)\w*"
+        ),
         # Goal achievement (allow intervening words)
-        r"\b(?:achieve|accomplish)\w*\b"
-        r"[^.]{0,30}\b(?:goal|objective|purpose|aim)\b",
+        (
+            r"\b(?:achieve|accomplish)\w*\b"
+            r"[^.]{0,30}\b(?:goal|objective|purpose|aim)\b"
+        ),
         # System state as terminal outcome
-        r"\b(?:system|account|network|infrastructure)"
-        r"\s+(?:fully\s+)?(?:compromised|breached|corrupted|infected)\b",
+        (
+            r"\b(?:system|account|network|infrastructure)"
+            r"\s+(?:fully\s+)?(?:compromised|breached|corrupted|infected)\b"
+        ),
         # Access gained as terminal outcome
-        r"\b(?:gain|obtain|establish|secure)\w*"
-        r"\s+(?:persistent|unauthorized|full|complete|admin|root)\s+access\b",
+        (
+            r"\b(?:gain|obtain|establish|secure)\w*"
+            r"\s+(?:persistent|unauthorized|full|complete|admin|root)\s+access\b"
+        ),
     ]
 ]
 
@@ -1853,6 +1827,9 @@ def _is_consequence_leaf(node: AttackTreeNode) -> bool:
     steps.  They are exempt from the ``technique_id`` requirement
     because they are not technique-driven actions.
     """
+    if node.action is not None:
+        return node.action.kind == "impact"
+
     text = node.label
     if node.description:
         text = f"{text} {node.description}"
@@ -2075,9 +2052,7 @@ def _collect_leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
     return leaves
 
 
-def _find_parent(
-    root: AttackTreeNode, target_id: str
-) -> AttackTreeNode | None:
+def _find_parent(root: AttackTreeNode, target_id: str) -> AttackTreeNode | None:
     """Find the parent of the node with the given id."""
     if root.children:
         for child in root.children:
@@ -2161,9 +2136,10 @@ def enforce_parsimony(
     deprecated and ignored -- the canonical formula lives in
     ``compute_leaf_budget()``.  They are retained for API compatibility.
 
-    Leaves without a technique_id are pruning candidates.  They are
-    removed one at a time (most redundant first) until the leaf count
-    is within budget, or no more safe candidates remain.
+    Leaves without a technique_id or typed action are pruning candidates.
+    They are removed one at a time (most redundant first) until the leaf
+    count is within budget, or no more safe candidates remain. Typed leaves
+    are preserved even when that makes the scenario unprunable.
 
     After pruning, single-child AND/OR gates are collapsed via
     ``_repair_node`` and the resulting tree is re-validated with Pydantic.
@@ -2199,12 +2175,12 @@ def enforce_parsimony(
                 break
 
             # Find pruning candidates: unannotated leaves
-            candidates: list[
-                tuple[AttackTreeNode, AttackTreeNode, list[str]]
-            ] = []
+            candidates: list[tuple[AttackTreeNode, AttackTreeNode, list[str]]] = []
             for leaf in current_leaves:
                 if leaf.technique_id:
                     continue  # never prune annotated leaves
+                if leaf.action is not None:
+                    continue  # never prune leaves with typed actions (cmps.9 review)
                 parent = _find_parent(pruned_root, leaf.id)
                 if parent is None:
                     continue  # root node, can't prune
@@ -2220,9 +2196,7 @@ def enforce_parsimony(
                 break  # no safe candidates remain
 
             # Sort by pruning priority
-            candidates.sort(
-                key=lambda x: _pruning_priority(x[0], x[1], x[2])
-            )
+            candidates.sort(key=lambda x: _pruning_priority(x[0], x[1], x[2]))
 
             # Prune the best candidate
             leaf, parent, siblings = candidates[0]
@@ -2263,22 +2237,16 @@ def enforce_parsimony(
                 pruned_scenario.attack_tree = AttackTree.model_validate(
                     pruned_scenario.attack_tree.model_dump()
                 )
-                result.pruned_scenarios.append(
-                    (pruned_scenario, pruned_nodes)
-                )
-            except Exception as exc:
+                result.pruned_scenarios.append((pruned_scenario, pruned_nodes))
+            except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Pruned tree for %s failed Pydantic validation: %s",
                     scenario.scenario_id,
                     exc,
                 )
-                result.unprunable_scenarios.append(
-                    (scenario, leaf_count, budget)
-                )
+                result.unprunable_scenarios.append((scenario, leaf_count, budget))
         else:
-            result.unprunable_scenarios.append(
-                (scenario, final_leaf_count, budget)
-            )
+            result.unprunable_scenarios.append((scenario, final_leaf_count, budget))
 
     return result
 
@@ -2298,7 +2266,13 @@ _GOAL_NARRATIVE_KEYWORDS: dict[str, list[str]] = {
     "AV-4": ["alert", "saturation", "flood", "overwhelm", "fatigue"],
     "AV-5": ["cascading", "chain failure", "propagat", "domino"],
     # Integrity
-    "IN-1": ["manipulat", "output corruption", "misleading", "incorrect output", "alter"],
+    "IN-1": [
+        "manipulat",
+        "output corruption",
+        "misleading",
+        "incorrect output",
+        "alter",
+    ],
     "IN-2": ["disinformation", "misinformation", "false information", "propagat"],
     "IN-3": ["decision", "corrupt", "judgment", "misguide", "wrong choice"],
     "IN-4": ["goal manipulation", "intent", "redirect", "subvert purpose"],
@@ -2313,7 +2287,13 @@ _GOAL_NARRATIVE_KEYWORDS: dict[str, list[str]] = {
     "PR-5": ["cross-session", "session leak", "data leakage", "bleed"],
     "PR-6": ["credential", "identity theft", "steal identity", "authentication"],
     # Abuse
-    "AB-1": ["jailbreak", "safety bypass", "guardrail", "restricted content", "content filter"],
+    "AB-1": [
+        "jailbreak",
+        "safety bypass",
+        "guardrail",
+        "restricted content",
+        "content filter",
+    ],
     "AB-2": ["malware", "malicious code", "code generation", "virus", "exploit code"],
     "AB-3": ["fraud", "financial", "unauthorized transaction", "scam", "fraudulent"],
     "AB-4": ["social engineer", "phishing", "deception", "impersonat", "lure"],
@@ -2321,7 +2301,13 @@ _GOAL_NARRATIVE_KEYWORDS: dict[str, list[str]] = {
     "AB-6": ["privilege", "escalat", "elevated access", "admin", "unauthorized access"],
     "AB-7": ["impersonat", "identity abuse", "spoof", "pose as", "pretend"],
     "AB-8": ["evidence", "anti-forensic", "destroy", "erase", "cover tracks"],
-    "AB-9": ["resource hijack", "cost amplif", "compute abuse", "crypto", "resource consumption"],
+    "AB-9": [
+        "resource hijack",
+        "cost amplif",
+        "compute abuse",
+        "crypto",
+        "resource consumption",
+    ],
 }
 
 
@@ -2492,11 +2478,31 @@ def _extract_mechanism_keywords(attack_pattern_name: str) -> list[str]:
         List of lowercase mechanism keywords (e.g. ['identity', 'spoofing',
         'credential', 'theft']).
     """
-    _STOP_WORDS = frozenset({
-        "a", "an", "and", "at", "by", "for", "from", "in", "into",
-        "of", "on", "or", "the", "to", "via", "with", "through",
-        "using", "based", "attack", "against",
-    })
+    _STOP_WORDS = frozenset(
+        {
+            "a",
+            "an",
+            "and",
+            "at",
+            "by",
+            "for",
+            "from",
+            "in",
+            "into",
+            "of",
+            "on",
+            "or",
+            "the",
+            "to",
+            "via",
+            "with",
+            "through",
+            "using",
+            "based",
+            "attack",
+            "against",
+        }
+    )
 
     # Split on non-alphanumeric characters
     tokens = re.split(r"[^a-zA-Z0-9]+", attack_pattern_name.lower())

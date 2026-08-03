@@ -17,13 +17,15 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from scenario_forge.manifest import AttemptRecord
 from scenario_forge.models.attack_tree import (
+    AiSystemAction,
     AttackTree,
     AttackTreeNode,
     GateType,
@@ -58,10 +60,10 @@ from scenario_forge.pipeline.candidates import (
     CandidateOrigin,
     CandidateTriple,
     RemovalDecision,
+    _canonicalize_techniques,
     apply_rule_based_filter,
     canonicalize_and_dedup,
     compute_candidate_id,
-    _canonicalize_techniques,
 )
 from scenario_forge.pipeline.coverage import CoverageGaps, EntryPointGap
 from scenario_forge.pipeline.generate import (
@@ -77,8 +79,6 @@ from scenario_forge.pipeline.generate.assembly import (
 )
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps
 from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.manifest import AttemptRecord
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,6 +87,17 @@ from scenario_forge.manifest import AttemptRecord
 _VALID_RUN_ID = "20260101T000000_" + "a" * 32
 _VALID_LEGACY_RUN_ID = "a" * 32
 _VALID_CANDIDATE_ID = "cand:v1:" + "1" * 32
+
+# Canonical entry_point_id for "user prompts (zone 1)" — the first entry
+# point in ``_make_profile()``.  Remediation now resolves entry_point_id
+# against the profile (cmps.9 correction 2), so tests must use the real
+# computed ID rather than a synthetic placeholder.
+_USER_PROMPT_EP_ID = compute_entry_point_id(
+    "user prompts (zone 1)", "bidirectional", None
+)
+_ADMIN_CONSOLE_EP_ID = compute_entry_point_id(
+    "admin console (zone 2)", "bidirectional", None
+)
 
 
 def _make_ref(risk_id: str = "risk-1") -> RiskCardRef:
@@ -151,12 +162,14 @@ def _make_envelope(
                 gate=GateType.LEAF,
                 zone="input",
                 technique_id="AML.T0051",
+                action=AiSystemAction(),
             ),
             AttackTreeNode(
                 id="n1.2",
                 label="Path B",
                 gate=GateType.LEAF,
                 zone="reasoning",
+                action=AiSystemAction(),
             ),
         ],
     )
@@ -219,7 +232,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id=candidate_id,
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
@@ -283,9 +296,11 @@ class TestSafePairedArtifacts:
                 raise OSError("Injected failure on feature write")
             return original_open(self_path, *args, **kwargs)
 
-        with patch.object(Path, "open", failing_open):
-            with pytest.raises(OSError, match="Injected failure"):
-                write_scenario_outputs(envelope, tmp_path)
+        with (
+            patch.object(Path, "open", failing_open),
+            pytest.raises(OSError, match="Injected failure"),
+        ):
+            write_scenario_outputs(envelope, tmp_path)
 
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
@@ -443,7 +458,9 @@ class TestCandidateIdReservation:
 
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-1-id", name="user prompts (zone 1)"),
+                EntryPointGap(
+                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
+                ),
             ]
         )
         seeds = [_make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))]
@@ -487,7 +504,7 @@ class TestCallLogFailureAfterArtifact:
     ):
         # Compute the actual candidate_id that remediation will use.
         seed = _make_seed(seed_id="AP-T1-01")
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         sid = compute_scenario_id(_VALID_RUN_ID, cand_id, 1)
@@ -501,7 +518,9 @@ class TestCallLogFailureAfterArtifact:
 
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-1-id", name="user prompts (zone 1)"),
+                EntryPointGap(
+                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
+                ),
             ]
         )
         seeds = [_make_seed(seed_id="AP-T1-01")]
@@ -557,9 +576,11 @@ class TestRemediationFunnelEquations:
 
         gaps = CoverageGaps(
             uncovered_entry_points=[
-                EntryPointGap(entry_point_id="ep-ok-id", name="user prompts (zone 1)"),
                 EntryPointGap(
-                    entry_point_id="ep-fail-id", name="admin console (zone 2)"
+                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
+                ),
+                EntryPointGap(
+                    entry_point_id=_ADMIN_CONSOLE_EP_ID, name="admin console (zone 2)"
                 ),
             ]
         )
@@ -568,7 +589,7 @@ class TestRemediationFunnelEquations:
         receipts: list[dict] = []
         attempts_list: list[AttemptRecord] = []
 
-        scenarios, notes, attempted, failed = _remediate_coverage_gaps(
+        scenarios, _notes, attempted, failed = _remediate_coverage_gaps(
             gaps,
             seeds,
             profile,
@@ -600,26 +621,26 @@ class TestCandidateFunnelValidation:
     """CandidateFunnel must reject negative and inconsistent counts."""
 
     def _valid_funnel_kwargs(self) -> dict:
-        return dict(
-            expanded_instances=10,
-            unique_pre_rule_identities=8,
-            rule_rejected=2,
-            rule_transformed=1,
-            post_rule_collapsed=1,
-            filter_submitted=5,
-            filter_accepted=3,
-            selected=3,
-            main_attempted=3,
-            main_admitted=2,
-            generation_failed=1,
-            remediation_attempted=0,
-            remediation_admitted=0,
-            remediation_failed=0,
-            attempted=3,
-            admitted=2,
-            quarantined=1,
-            persisted_artifacts=2,
-        )
+        return {
+            "expanded_instances": 10,
+            "unique_pre_rule_identities": 8,
+            "rule_rejected": 2,
+            "rule_transformed": 1,
+            "post_rule_collapsed": 1,
+            "filter_submitted": 5,
+            "filter_accepted": 3,
+            "selected": 3,
+            "main_attempted": 3,
+            "main_admitted": 2,
+            "generation_failed": 1,
+            "remediation_attempted": 0,
+            "remediation_admitted": 0,
+            "remediation_failed": 0,
+            "attempted": 3,
+            "admitted": 2,
+            "quarantined": 1,
+            "persisted_artifacts": 2,
+        }
 
     def test_valid_funnel_accepted(self):
         f = CandidateFunnel(**self._valid_funnel_kwargs())
@@ -862,7 +883,7 @@ class TestRemovalDecisionProvenance:
             "scenario_forge.pipeline.candidates._run_rules_on_technique",
             side_effect=mock_rules,
         ):
-            rule_passed, rule_rejected, verdicts = apply_rule_based_filter(
+            rule_passed, _rule_rejected, _verdicts = apply_rule_based_filter(
                 [candidate], profile
             )
 
@@ -967,7 +988,7 @@ class TestRemediationCandidateId:
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
         ep_name = "user prompts (zone 1)"
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051", "AML.T0052"))
 
         gaps = CoverageGaps(
@@ -1082,9 +1103,11 @@ class TestWriteFailureAfterCreation:
                 fh.write = failing_fh_write
             return fh
 
-        with patch.object(Path, "open", open_with_failing_yaml_write):
-            with pytest.raises(OSError, match="Injected write failure"):
-                write_scenario_outputs(envelope, tmp_path)
+        with (
+            patch.object(Path, "open", open_with_failing_yaml_write),
+            pytest.raises(OSError, match="Injected write failure"),
+        ):
+            write_scenario_outputs(envelope, tmp_path)
 
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         assert not yaml_path.exists(), "YAML must be cleaned up on write failure"
@@ -1109,9 +1132,11 @@ class TestWriteFailureAfterCreation:
                 fh.write = failing_fh_write
             return fh
 
-        with patch.object(Path, "open", open_with_failing_feature_write):
-            with pytest.raises(OSError, match="Injected write failure"):
-                write_scenario_outputs(envelope, tmp_path)
+        with (
+            patch.object(Path, "open", open_with_failing_feature_write),
+            pytest.raises(OSError, match="Injected write failure"),
+        ):
+            write_scenario_outputs(envelope, tmp_path)
 
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
@@ -1184,9 +1209,9 @@ class TestCleanupFailureFatal:
         with (
             patch.object(Path, "open", open_with_failing_feature_write),
             patch.object(Path, "unlink", failing_unlink),
+            pytest.raises(ScenarioForgeIntegrityError, match="Failed to clean up"),
         ):
-            with pytest.raises(ScenarioForgeIntegrityError, match="Failed to clean up"):
-                write_scenario_outputs(envelope, tmp_path)
+            write_scenario_outputs(envelope, tmp_path)
 
 
 # ---------------------------------------------------------------------------#
@@ -1309,7 +1334,7 @@ class TestRemediationLaafFallback:
         seed.atlas_technique_ids = []
 
         ep_name = "user prompts (zone 1)"
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         gaps = CoverageGaps(
             uncovered_entry_points=[
                 EntryPointGap(entry_point_id=ep_id, name=ep_name),
@@ -1354,7 +1379,7 @@ class TestForgedReturnIdentity:
         """Remediation returned envelope with wrong candidate_id must
         raise ScenarioForgeIntegrityError, not write."""
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         wrong_cid = "cand:v1:22222222222222222222222222222222"
@@ -1399,7 +1424,7 @@ class TestForgedReturnIdentity:
         """Remediation returned envelope with wrong scenario_id must
         raise ScenarioForgeIntegrityError, not write."""
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
-        ep_id = "ep-1-id"
+        ep_id = _USER_PROMPT_EP_ID
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
         wrong_sid = "scenario:v2:" + "f" * 64
@@ -1502,20 +1527,20 @@ class TestCrossCandidateMetadataConflict:
         must raise ValueError before template selection."""
         ep = "user prompts (input)"
         ep_id = compute_entry_point_id(ep, "input", None)
-        common_kwargs = dict(
-            seed_id="AP-T7-01",
-            threat_id="T7",
-            threat_name="Threat T7",
-            attack_pattern_name="Pattern",
-            attack_pattern_description="Description",
-            entry_point=ep,
-            atlas_technique_ids=("AML.T0051", "AML.T0052"),
-            risk_card_ref=_make_ref(),
-            owasp_llm_ids=["LLM01"],
-            direction="input",
-            entry_point_id=ep_id,
-            origins=(),
-        )
+        common_kwargs = {
+            "seed_id": "AP-T7-01",
+            "threat_id": "T7",
+            "threat_name": "Threat T7",
+            "attack_pattern_name": "Pattern",
+            "attack_pattern_description": "Description",
+            "entry_point": ep,
+            "atlas_technique_ids": ("AML.T0051", "AML.T0052"),
+            "risk_card_ref": _make_ref(),
+            "owasp_llm_ids": ["LLM01"],
+            "direction": "input",
+            "entry_point_id": ep_id,
+            "origins": (),
+        }
         c1 = CandidateTriple(
             atlas_technique_names=("Name A", "Name B"),
             atlas_technique_descriptions=("Desc A", "Desc B"),
@@ -1541,20 +1566,20 @@ class TestCrossCandidateMetadataConflict:
         descriptions must raise ValueError."""
         ep = "user prompts (input)"
         ep_id = compute_entry_point_id(ep, "input", None)
-        common_kwargs = dict(
-            seed_id="AP-T7-01",
-            threat_id="T7",
-            threat_name="Threat T7",
-            attack_pattern_name="Pattern",
-            attack_pattern_description="Description",
-            entry_point=ep,
-            atlas_technique_ids=("AML.T0051", "AML.T0052"),
-            risk_card_ref=_make_ref(),
-            owasp_llm_ids=["LLM01"],
-            direction="input",
-            entry_point_id=ep_id,
-            origins=(),
-        )
+        common_kwargs = {
+            "seed_id": "AP-T7-01",
+            "threat_id": "T7",
+            "threat_name": "Threat T7",
+            "attack_pattern_name": "Pattern",
+            "attack_pattern_description": "Description",
+            "entry_point": ep,
+            "atlas_technique_ids": ("AML.T0051", "AML.T0052"),
+            "risk_card_ref": _make_ref(),
+            "owasp_llm_ids": ["LLM01"],
+            "direction": "input",
+            "entry_point_id": ep_id,
+            "origins": (),
+        }
         c1 = CandidateTriple(
             atlas_technique_names=("Name A", "Name B"),
             atlas_technique_descriptions=("Desc A", "Desc B"),
