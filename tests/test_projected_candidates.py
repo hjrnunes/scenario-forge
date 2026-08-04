@@ -63,7 +63,7 @@ def _step(step_id: str, order: int, *, conditional: bool = False) -> dict[str, A
         else None,
         "executor_role": "attacker" if attacker else "system",
         "boundary_position": "crossing" if attacker else "inside",
-        "action_kind": "deliver" if attacker else "persist" if final else "invoke",
+        "action_kind": "prepare" if attacker else "impact" if final else "observe",
         "consumed": [],
         "produced": [
             {"kind": "effect", "ref_id": f"effect.{order}", "value_type": "boolean"}
@@ -306,11 +306,11 @@ def test_selected_step_preconditions_persist_true_false_and_unknown_evidence() -
     assert unknown.infeasibilities[0].precondition_results[0].result == "unknown"
 
 
-def test_bindings_exactly_cover_slots_and_support_direct_and_indirect_ingress() -> None:
+def test_bindings_exactly_cover_slots_and_indirect_ingress_fails_closed() -> None:
     result = _project()
-    assert {c.ingress_controllability for c in result.candidates} == {
-        "direct",
-        "indirect",
+    assert {c.ingress_controllability for c in result.candidates} == {"direct"}
+    assert {issue.code for issue in result.infeasibilities} == {
+        "unsupported_requirement_derivation"
     }
     for candidate in result.candidates:
         assert {b.slot_id for b in candidate.projection.bindings} == {
@@ -319,13 +319,12 @@ def test_bindings_exactly_cover_slots_and_support_direct_and_indirect_ingress() 
             "source",
             "boundary",
         }
-        kinds = {requirement.kind for requirement in candidate.execution_requirements}
-        expected = (
-            "direct_input_control"
-            if candidate.ingress_controllability == "direct"
-            else "upstream_source_influence"
-        )
-        assert expected in kinds
+        assert {
+            requirement.kind for requirement in candidate.execution_requirements
+        } == {
+            "direct_input_control",
+            "security_outcome_assertion",
+        }
 
 
 def test_unsupported_binding_is_typed_infeasibility() -> None:
@@ -350,47 +349,33 @@ def test_expansion_is_bounded_coverage_aware_stable_and_deduplicated() -> None:
     assert first.candidates == second.candidates
     assert len(first.candidates) == len({c.candidate_id for c in first.candidates}) == 3
     assert first.limitations[0].code == "candidate_budget_exhausted"
-    assert len({c.canonical_ingress.entry_point_id for c in first.candidates}) == 2
-
-
-def test_execution_requirements_are_complete_versioned_and_digest_verified() -> None:
-    indirect = next(
-        c for c in _project().candidates if c.ingress_controllability == "indirect"
+    assert {c.ingress_controllability for c in first.candidates} == {"direct"}
+    assert (
+        len(
+            {
+                binding.resource_ref.tool_id
+                for candidate in first.candidates
+                for binding in candidate.projection.bindings
+                if binding.resource_ref.kind == "tool"
+            }
+        )
+        == 2
     )
-    assert {r.kind for r in indirect.execution_requirements} == {
-        "upstream_source_influence",
-        "state_changing_tool_fixture",
-        "observation",
+
+
+def test_explicit_execution_requirements_are_versioned_and_digest_verified() -> None:
+    direct = _project().candidates[0]
+    assert {r.kind for r in direct.execution_requirements} == {
+        "direct_input_control",
         "security_outcome_assertion",
     }
-    observations = {
-        r.observation
-        for r in indirect.execution_requirements
-        if r.kind == "observation"
-    }
-    assert observations == {"model_context", "tool_invocation", "persistent_state"}
-    assert indirect.requirement_derivation_version == "1"
-    assert len(indirect.execution_requirements_digest) == 64
-    forged = indirect.model_dump(mode="json")
+    assert direct.requirement_derivation_version == "1"
+    assert len(direct.execution_requirements_digest) == 64
+    forged = direct.model_dump(mode="json")
     forged["execution_requirements_digest"] = ZERO
     with pytest.raises(ValidationError, match="requirements_digest"):
-        type(indirect).model_validate(forged)
+        type(direct).model_validate(forged)
 
-    result = _project()
-    direct = next(
-        candidate
-        for candidate in result.candidates
-        if candidate.ingress_controllability == "direct"
-    )
-    forged = indirect.model_dump(mode="json")
-    forged["execution_requirements"] = [
-        item.model_dump(mode="json") for item in direct.execution_requirements
-    ]
-    forged["execution_requirements_digest"] = direct.execution_requirements_digest
-    forged["complexity_inputs"]["execution_requirement_count"] = len(
-        direct.execution_requirements
-    )
-    structurally_valid = type(indirect).model_validate(forged)
     snapshot = capture_capability_snapshot(_profile(), (_evidence(),))
     raw = _pattern()
     resolver = TaxonomyResolver(
@@ -398,23 +383,31 @@ def test_execution_requirements_are_complete_versioned_and_digest_verified() -> 
         .AttackPattern.model_validate(raw)
         .canonical_chain.taxonomy_context
     )
-    with pytest.raises(ValueError, match="requirements do not match"):
-        validate_projected_candidate(
-            structurally_valid.model_dump(mode="json"),
-            snapshot,
-            raw,
-            resolver,
-            expected_catalog_pin=indirect.projection.catalog_pin,
-        )
-
     with pytest.raises(ValueError, match="catalog pin"):
         validate_projected_candidate(
-            indirect.model_dump(mode="json"),
+            direct.model_dump(mode="json"),
             snapshot,
             raw,
             resolver,
             expected_catalog_pin="f" * 64,
         )
+
+
+@pytest.mark.parametrize("action_kind", ["deliver", "transform", "invoke", "persist"])
+def test_unlinked_action_resources_and_observations_are_never_inferred(
+    action_kind: str,
+) -> None:
+    raw = _pattern(conditional=False)
+    raw["canonical_chain"]["steps"][1]["action_kind"] = action_kind
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    assert result.candidates == ()
+    assert {issue.code for issue in result.infeasibilities} == {
+        "unsupported_requirement_derivation"
+    }
+    assert any(action_kind in issue.detail for issue in result.infeasibilities)
 
 
 def test_candidate_v2_identity_is_stable_and_sensitive_to_every_identity_axis() -> None:
@@ -436,7 +429,7 @@ def test_candidate_v2_identity_is_stable_and_sensitive_to_every_identity_axis() 
     assert {c.candidate_id for c in changed_projection}.isdisjoint(
         {c.candidate_id for c in baseline}
     )
-    assert len({c.candidate_id for c in baseline}) == 2  # canonical ingress/bindings
+    assert len({c.candidate_id for c in baseline}) == 1
 
     forged = baseline[0].model_dump(mode="json")
     forged["candidate_id"] = "cand:v2:" + "0" * 32
@@ -544,11 +537,16 @@ def test_catalog_pin_and_candidate_identity_ignore_record_order_and_duplicates()
         "AP-T1-01",
         "AP-T1-02",
     }
-    assert {item.pattern_id for item in bounded.limitations} == {
-        "AP-T1-01",
-        "AP-T1-02",
-    }
+    assert bounded.limitations == ()
 
     reordered = deepcopy(first)
     reordered["canonical_chain"]["resource_slots"].reverse()
     assert _project(pattern=first) == _project(pattern=reordered)
+
+    divergent = deepcopy(first)
+    divergent["canonical_chain"]["semantic_revision"] = 2
+    divergent["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        divergent["canonical_chain"]
+    )
+    with pytest.raises(ValueError, match="share one pattern id"):
+        project_authoritative_candidates([first, divergent], resolver, snapshot)

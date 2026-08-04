@@ -34,16 +34,13 @@ from scenario_forge.models.attack_pattern import (
     IntegrationResourceReference,
     MappingDecision,
     NotCondition,
-    ObservationRequirement,
     ProjectionSnapshot,
     ResourceBinding,
     SecurityOutcomeAssertionRequirement,
-    StateChangingToolFixtureRequirement,
     StepOmission,
     TaxonomyResolver,
     ToolResourceReference,
     TrustBoundaryResourceReference,
-    UpstreamSourceInfluenceRequirement,
     compute_projection_digest,
     evaluate_condition,
     validate_attack_pattern,
@@ -275,7 +272,6 @@ class ProjectionIssue(ProjectionModel):
         "precondition_not_satisfied",
         "missing_compatible_resource",
         "incompatible_profile",
-        "unsupported_indirect_ingress",
         "unsupported_requirement_derivation",
         "inapplicable_projection",
     ]
@@ -557,19 +553,6 @@ def _coverage_first_combinations(
     return tuple(ordered)
 
 
-def _state_changing_tool_ids(profile: CapabilityProfile) -> set[str]:
-    state_changing_names = {
-        item.name.casefold().strip()
-        for item in profile.tool_types or ()
-        if item.can_modify_state
-    }
-    return {
-        item.tool_id
-        for item in profile.tool_inventory or ()
-        if item.name.casefold().strip() in state_changing_names
-    }
-
-
 def _derive_execution_requirements(
     pattern_id: str,
     chain: CanonicalAttackChain,
@@ -584,117 +567,40 @@ def _derive_execution_requirements(
     if ingress is None:  # qualification guard
         raise ValueError("canonical ingress is absent from snapshot")
 
-    requirements: list[ExecutionRequirement] = []
-    if ingress.effective_controllability == "direct":
-        requirements.append(
-            DirectInputControlRequirement(
-                schema_version="1",
-                requirement_id="req.direct-input.ingress",
-                kind="direct_input_control",
-                entry_point_slot_id=chain.initial_ingress_slot_id,
-            )
-        )
-    else:
-        source_slots = [
-            slot
-            for slot in chain.resource_slots
-            if slot.slot_id != chain.initial_ingress_slot_id
-            and slot.purpose == "supporting"
-            and slot.kind in ("entry_point", "integration")
-        ]
-        boundary_slots = [
-            slot for slot in chain.resource_slots if slot.kind == "trust_boundary"
-        ]
-        if len(source_slots) != 1 or len(boundary_slots) != 1:
-            return None, ProjectionIssue(
-                code="unsupported_indirect_ingress",
-                pattern_id=pattern_id,
-                detail=(
-                    "indirect ingress requires exactly one supporting entry-point/"
-                    "integration source slot and one trust-boundary slot"
-                ),
-            )
-        source = source_slots[0]
-        source_ref = bindings[source.slot_id]
-        requirements.append(
-            UpstreamSourceInfluenceRequirement(
-                schema_version="1",
-                requirement_id="req.upstream-source.ingress",
-                kind="upstream_source_influence",
-                source_slot_id=source.slot_id,
-                source_identity_kind=source_ref.kind,
-                trust_boundary_slot_id=boundary_slots[0].slot_id,
-            )
-        )
-
     selected_steps = [
         step
         for step in chain.steps
         if step.step_id in set(projection.selected_step_ids)
     ]
     action_kinds = {step.action_kind for step in selected_steps}
-    tool_slots = [slot for slot in chain.resource_slots if slot.kind == "tool"]
-    integration_slots = [
-        slot for slot in chain.resource_slots if slot.kind == "integration"
-    ]
-    if "invoke" in action_kinds and len(tool_slots) != 1:
+    unsupported_actions = action_kinds & {"deliver", "transform", "invoke", "persist"}
+    if ingress.effective_controllability != "direct":
         return None, ProjectionIssue(
             code="unsupported_requirement_derivation",
             pattern_id=pattern_id,
-            detail="selected invoke semantics require exactly one declared tool slot",
+            detail=(
+                "indirect ingress requires explicit upstream-source and "
+                "trust-boundary linkage"
+            ),
         )
-    if "persist" in action_kinds and len(integration_slots) != 1:
+    if unsupported_actions:
         return None, ProjectionIssue(
             code="unsupported_requirement_derivation",
             pattern_id=pattern_id,
-            detail="selected persist semantics require exactly one integration slot",
-        )
-    if action_kinds & {"deliver", "transform"}:
-        requirements.append(
-            ObservationRequirement(
-                schema_version="1",
-                requirement_id="req.observation.ingress-context",
-                kind="observation",
-                observation="model_context",
-                binding_slot_id=chain.initial_ingress_slot_id,
-            )
+            detail=(
+                "selected action semantics require explicit step-to-resource and "
+                "observation linkage: " + ", ".join(sorted(unsupported_actions))
+            ),
         )
 
-    state_changing = _state_changing_tool_ids(snapshot.profile)
-    for slot in chain.resource_slots:
-        resource = bindings[slot.slot_id]
-        if isinstance(resource, ToolResourceReference) and "invoke" in action_kinds:
-            if resource.tool_id in state_changing:
-                requirements.append(
-                    StateChangingToolFixtureRequirement(
-                        schema_version="1",
-                        requirement_id=f"req.state-tool.{slot.slot_id}",
-                        kind="state_changing_tool_fixture",
-                        tool_slot_id=slot.slot_id,
-                    )
-                )
-            requirements.append(
-                ObservationRequirement(
-                    schema_version="1",
-                    requirement_id=f"req.observation.tool.{slot.slot_id}",
-                    kind="observation",
-                    observation="tool_invocation",
-                    binding_slot_id=slot.slot_id,
-                )
-            )
-        if (
-            isinstance(resource, IntegrationResourceReference)
-            and "persist" in action_kinds
-        ):
-            requirements.append(
-                ObservationRequirement(
-                    schema_version="1",
-                    requirement_id=f"req.observation.state.{slot.slot_id}",
-                    kind="observation",
-                    observation="persistent_state",
-                    binding_slot_id=slot.slot_id,
-                )
-            )
+    requirements: list[ExecutionRequirement] = [
+        DirectInputControlRequirement(
+            schema_version="1",
+            requirement_id="req.direct-input.ingress",
+            kind="direct_input_control",
+            entry_point_slot_id=chain.initial_ingress_slot_id,
+        )
+    ]
 
     for step in selected_steps:
         for postcondition in step.observable_postconditions:
@@ -924,21 +830,13 @@ def project_authoritative_candidates(
                 f"authoritative attack pattern qualification failed: {exc}"
             ) from exc
         qualified.append((pattern, _pattern_pin(pattern)))
-    by_pattern: dict[tuple[str, str, int, str], tuple[AttackPattern, str]] = {}
+    by_pattern: dict[str, tuple[AttackPattern, str]] = {}
     for item in qualified:
         pattern, pattern_pin = item
-        key = (
-            pattern.id,
-            pattern.canonical_chain.chain_id,
-            pattern.canonical_chain.semantic_revision,
-            pattern.canonical_chain.semantic_digest,
-        )
-        previous = by_pattern.get(key)
+        previous = by_pattern.get(pattern.id)
         if previous is not None and previous[1] != pattern_pin:
-            raise ValueError(
-                "conflicting authoritative records share one chain identity"
-            )
-        by_pattern[key] = item
+            raise ValueError("conflicting authoritative records share one pattern id")
+        by_pattern[pattern.id] = item
     qualified = [by_pattern[key] for key in sorted(by_pattern)]
     catalog_pin = _content_pin(
         "scenario-forge:authoritative-catalog:v1",
@@ -1082,6 +980,35 @@ def project_authoritative_candidates(
                 for slot in missing_slots
             )
             continue
+
+        ingress_index = next(
+            index
+            for index, slot in enumerate(chain.resource_slots)
+            if slot.slot_id == chain.initial_ingress_slot_id
+        )
+        direct_ingress_options = tuple(
+            option
+            for option in option_sets[ingress_index]
+            if isinstance(option, EntryPointResourceReference)
+            and snapshot.profile.resolve_entry_point(
+                option.entry_point_id
+            ).effective_controllability
+            == "direct"
+        )
+        if len(direct_ingress_options) != len(option_sets[ingress_index]):
+            issues.append(
+                ProjectionIssue(
+                    code="unsupported_requirement_derivation",
+                    pattern_id=pattern.id,
+                    detail=(
+                        "indirect ingress requires explicit upstream-source and "
+                        "trust-boundary linkage"
+                    ),
+                )
+            )
+        if not direct_ingress_options:
+            continue
+        option_sets[ingress_index] = direct_ingress_options
 
         total_bindings = prod(len(options) for options in option_sets)
         generated_for_pattern: list[ProjectedCandidate] = []
