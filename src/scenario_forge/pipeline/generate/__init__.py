@@ -21,6 +21,7 @@ from scenario_forge.llm.client import LLMClient
 
 # actor
 from scenario_forge.pipeline.generate.actor import (
+    ActorAccessViolation,
     Call0Response,
     _call_actor_profile,
     _enforce_capability_floor,
@@ -28,9 +29,11 @@ from scenario_forge.pipeline.generate.actor import (
     _normalize_actor_type,
     _normalize_capability_level,
     _validate_actor_type,
+    build_actor_access_provenance,
     build_call0_context,
     compute_compatible_actor_types,
     compute_minimum_capability_level,
+    validate_actor_access_provenance,
 )
 
 # assembly
@@ -191,6 +194,7 @@ __all__ = [
     "_PHASE_KEYWORDS",
     "_THREAT_GOAL_EXCLUSIONS",
     "_ZONE_TO_DEFAULT_MAESTRO",
+    "ActorAccessViolation",
     # actor
     "Call0Response",
     # narrative
@@ -266,6 +270,7 @@ __all__ = [
     "_validate_technique_zone_node",
     "_warn_dominant_threat_id_crossref",
     "assign_entry_point",
+    "build_actor_access_provenance",
     "build_call0_context",
     "build_call1_context",
     "build_call2_context",
@@ -289,6 +294,7 @@ __all__ = [
     "get_overused_structural_patterns",
     "replace_scenario_outputs",
     "select_attack_goal",
+    "validate_actor_access_provenance",
     "validate_attack_tree_zones",
     "write_call_log",
     "write_scenario_outputs",

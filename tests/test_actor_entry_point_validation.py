@@ -1,15 +1,10 @@
-"""Tests for actor-type vs entry-point controllability validation (Rule 12).
-
-Covers:
-- Insider actor + direct controllability EP -> violation
-- External actor + system controllability EP -> violation
-- Valid combinations produce no violations
-- No matching entry point in profile -> graceful skip
-"""
+"""Tests for cmps.6 typed access provenance validation (Rule 12)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+
+import pytest
 
 from scenario_forge.models.attack_tree import (
     AiSystemAction,
@@ -24,6 +19,7 @@ from scenario_forge.models.capability_profile import (
     ToolInventoryEntry,
 )
 from scenario_forge.models.scenario import (
+    ActorAccessProvenance,
     ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
@@ -46,10 +42,6 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.validation import validate_scenario_semantics
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _make_profile(
     entry_points: list[EntryPoint] | None = None,
@@ -71,7 +63,7 @@ def _make_profile(
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
         tool_inventory=[
-            ToolInventoryEntry(name="test_tool", description="A test tool"),
+            ToolInventoryEntry(name="test_tool", description="A test tool")
         ],
     )
 
@@ -82,50 +74,26 @@ def _make_envelope(
     zone_sequence: list[str] | None = None,
     seed_metadata: dict | None = None,
     entry_point_id: str | None = None,
+    access: ActorAccessProvenance | None = None,
 ) -> ScenarioEnvelope:
-    """Build a minimal valid ScenarioEnvelope for actor/entry-point tests."""
+    """Build a minimal valid scenario with an optional cmps.6 access record."""
     if zone_sequence is None:
         zone_sequence = ["input", "reasoning"]
-
-    steps = [
-        NarrativeStep(
-            step_number=1,
-            zone=zone_sequence[0],
-            action="Crafting a malicious prompt.",
-            effect="System processes input.",
-        ),
-    ]
 
     narrative = NarrativeLayer(
         title="Test Scenario",
         summary="A test summary.",
         entry_point=narrative_entry_point,
         zone_sequence=zone_sequence,
-        steps=steps,
-    )
-
-    children = [
-        AttackTreeNode(
-            id="n1.1",
-            label="Step 1",
-            gate=GateType.LEAF,
-            zone="input",
-            technique_id="AML.T0051.000",
-            action=(
-                InitialIngressAction(entry_point_id=entry_point_id)
-                if entry_point_id is not None
-                else AiSystemAction()
+        steps=[
+            NarrativeStep(
+                step_number=1,
+                zone=zone_sequence[0],
+                action="Crafting a malicious prompt.",
+                effect="System processes input.",
             ),
-        ),
-        AttackTreeNode(
-            id="n1.2",
-            label="Step 2",
-            gate=GateType.LEAF,
-            zone="reasoning",
-            action=AiSystemAction(),
-        ),
-    ]
-
+        ],
+    )
     attack_tree = AttackTree(
         id="tree-AP-T1-01",
         seed_id="AP-T1-01",
@@ -135,10 +103,29 @@ def _make_envelope(
             label="Root",
             gate=GateType.OR,
             zone="input",
-            children=children,
+            children=[
+                AttackTreeNode(
+                    id="n1.1",
+                    label="Step 1",
+                    gate=GateType.LEAF,
+                    zone="input",
+                    technique_id="AML.T0051.000",
+                    action=(
+                        InitialIngressAction(entry_point_id=entry_point_id)
+                        if entry_point_id is not None
+                        else AiSystemAction()
+                    ),
+                ),
+                AttackTreeNode(
+                    id="n1.2",
+                    label="Step 2",
+                    gate=GateType.LEAF,
+                    zone="reasoning",
+                    action=AiSystemAction(),
+                ),
+            ],
         ),
     )
-
     actor_profile = ActorProfile(
         actor_type=actor_type,
         capability_level="intermediate",
@@ -146,8 +133,8 @@ def _make_envelope(
         desires=["Exfiltrate data."],
         intentions=["Inject crafted payload."],
         resources=["Open-source tools."],
+        access=access,
     )
-
     faceting = FacetingMetadata(
         risk_card=RiskCardRef(
             risk_id="test-risk",
@@ -169,7 +156,6 @@ def _make_envelope(
         ),
         maestro_layers=[1, 2],
     )
-
     priority = Priority(
         composite=0.7,
         signals=PrioritySignals(
@@ -181,7 +167,6 @@ def _make_envelope(
             structural_exposure=StructuralExposureSignal.none,
         ),
     )
-
     generation = GenerationMetadata(
         model="test-model",
         call_metadata=[
@@ -193,7 +178,6 @@ def _make_envelope(
             ),
         ],
     )
-
     if seed_metadata is None:
         seed_metadata = {
             "seed_id": "AP-T1-01",
@@ -224,161 +208,256 @@ def _find_violations(envelope: ScenarioEnvelope, rule: str) -> list:
     return [v for v in envelope.validation.semantic.violations if v.rule == rule]
 
 
-# ---------------------------------------------------------------------------
-# Tests: Insider actor + direct controllability -> violation
-# ---------------------------------------------------------------------------
+def _access(entry_point_id: str, access_class: str = "direct", **evidence: str):
+    return ActorAccessProvenance(
+        initial_entry_point_id=entry_point_id,
+        access_class=access_class,
+        **evidence,
+    )
 
 
-class TestInsiderDirectControllabilityMismatch:
-    """Insider actors using direct-controllability entry points are flagged."""
+def _validate(
+    profile: CapabilityProfile,
+    actor_type: str,
+    access: ActorAccessProvenance | None,
+    entry_point_id: str | None = None,
+) -> ScenarioEnvelope:
+    if entry_point_id is None:
+        entry_point_id = profile.entry_points[0].entry_point_id
+    envelope = _make_envelope(
+        actor_type=actor_type,
+        narrative_entry_point=profile.entry_points[0].name,
+        entry_point_id=entry_point_id,
+        access=access,
+    )
+    validate_scenario_semantics([envelope], profile)
+    return envelope
 
-    def test_malicious_insider_direct_ep_flags(self) -> None:
-        """malicious-insider + direct controllability EP -> violation."""
-        profile = _make_profile(
-            entry_points=[
-                EntryPoint(
-                    name="chat interface",
-                    direction="input",
-                    controllability="direct",
-                ),
-            ],
-        )
-        envelope = _make_envelope(
-            actor_type="malicious-insider",
-            narrative_entry_point="chat interface",
-            entry_point_id=profile.entry_points[0].entry_point_id,
-        )
-        validate_scenario_semantics([envelope], profile)
 
-        violations = _find_violations(envelope, "actor_entry_point_mismatch")
+class TestMissingAccessProvenance:
+    def test_insider_with_ingress_and_no_access_flags(self) -> None:
+        profile = _make_profile()
+        envelope = _validate(profile, "malicious-insider", None)
+
+        violations = _find_violations(envelope, "missing_access_provenance")
         assert len(violations) == 1
-        assert "malicious-insider" in violations[0].message
-        assert "direct-controllability" in violations[0].message
-        assert violations[0].severity == "moderate"
-
-    def test_negligent_insider_direct_ep_flags(self) -> None:
-        """negligent-insider + direct controllability EP -> violation."""
-        profile = _make_profile(
-            entry_points=[
-                EntryPoint(
-                    name="user prompts (zone 1)",
-                    direction="input",
-                    controllability="direct",
-                ),
-            ],
-        )
-        envelope = _make_envelope(
-            actor_type="negligent-insider",
-            narrative_entry_point="user prompts (zone 1)",
-            entry_point_id=profile.entry_points[0].entry_point_id,
-        )
-        validate_scenario_semantics([envelope], profile)
-
-        violations = _find_violations(envelope, "actor_entry_point_mismatch")
-        assert len(violations) == 1
-        assert "negligent-insider" in violations[0].message
         assert violations[0].severity == "moderate"
 
 
-# ---------------------------------------------------------------------------
-# Tests: External actor + system controllability -> violation
-# ---------------------------------------------------------------------------
-
-
-class TestExternalSystemControllabilityMismatch:
-    """External actors using system-controllability entry points are flagged."""
-
-    def test_adversarial_user_system_ep_flags(self) -> None:
-        """adversarial-user + system controllability EP -> violation."""
+class TestActorAccessClassIncompatible:
+    @pytest.mark.parametrize(
+        "actor_type", ["adversarial-user", "cybercriminal", "hacktivist"]
+    )
+    def test_disallowed_actor_with_indirect_access_flags(self, actor_type: str) -> None:
         profile = _make_profile(
-            entry_points=[
+            [
+                EntryPoint(
+                    name="knowledge base", direction="input", controllability="indirect"
+                )
+            ]
+        )
+        ep_id = profile.entry_points[0].entry_point_id
+        access = _access(
+            ep_id,
+            "indirect",
+            influence_source="Public documents",
+            influence_mechanism="Poisoned content",
+            trust_boundary="Document ingestion boundary",
+        )
+        envelope = _validate(profile, actor_type, access)
+
+        violations = _find_violations(envelope, "actor_access_class_incompatible")
+        assert len(violations) == 1
+        assert violations[0].severity == "major"
+
+
+class TestIncompleteIndirectEvidence:
+    @pytest.mark.parametrize(
+        "missing_field",
+        ["influence_source", "influence_mechanism", "trust_boundary"],
+    )
+    def test_missing_indirect_evidence_flags(self, missing_field: str) -> None:
+        profile = _make_profile(
+            [
+                EntryPoint(
+                    name="knowledge base", direction="input", controllability="indirect"
+                )
+            ]
+        )
+        evidence = {
+            "influence_source": "Public documents",
+            "influence_mechanism": "Poisoned content",
+            "trust_boundary": "Document ingestion boundary",
+        }
+        evidence.pop(missing_field)
+        ep_id = profile.entry_points[0].entry_point_id
+        envelope = _validate(
+            profile, "supply-chain-actor", _access(ep_id, "indirect", **evidence)
+        )
+
+        violations = _find_violations(envelope, "incomplete_indirect_evidence")
+        assert len(violations) == 1
+        assert violations[0].severity == "major"
+
+    def test_complete_indirect_evidence_passes(self) -> None:
+        profile = _make_profile(
+            [
+                EntryPoint(
+                    name="knowledge base", direction="input", controllability="indirect"
+                )
+            ]
+        )
+        ep_id = profile.entry_points[0].entry_point_id
+        access = _access(
+            ep_id,
+            "indirect",
+            influence_source="Public documents",
+            influence_mechanism="Poisoned content",
+            trust_boundary="Document ingestion boundary",
+        )
+        envelope = _validate(profile, "supply-chain-actor", access)
+        assert not _find_violations(envelope, "incomplete_indirect_evidence")
+
+
+class TestMissingInsiderAdvantage:
+    @pytest.mark.parametrize("actor_type", ["malicious-insider", "negligent-insider"])
+    def test_direct_insider_without_advantage_flags(self, actor_type: str) -> None:
+        profile = _make_profile()
+        ep_id = profile.entry_points[0].entry_point_id
+        envelope = _validate(profile, actor_type, _access(ep_id))
+
+        violations = _find_violations(envelope, "missing_insider_advantage")
+        assert len(violations) == 1
+        assert violations[0].severity == "major"
+
+    def test_direct_insider_with_advantage_passes(self) -> None:
+        profile = _make_profile()
+        ep_id = profile.entry_points[0].entry_point_id
+        access = _access(
+            ep_id, material_insider_advantage="Privileged internal credentials"
+        )
+        envelope = _validate(profile, "malicious-insider", access)
+        assert not _find_violations(envelope, "missing_insider_advantage")
+
+
+class TestValidActorAccessCombinations:
+    @pytest.mark.parametrize(
+        ("actor_type", "access_class", "evidence"),
+        [
+            ("cybercriminal", "direct", {}),
+            (
+                "supply-chain-actor",
+                "indirect",
+                {
+                    "influence_source": "Dependency package",
+                    "influence_mechanism": "Compromised release",
+                    "trust_boundary": "Package ingestion boundary",
+                },
+            ),
+            (
+                "malicious-insider",
+                "direct",
+                {"material_insider_advantage": "Privileged internal credentials"},
+            ),
+            (
+                "nation-state",
+                "indirect",
+                {
+                    "influence_source": "External corpus",
+                    "influence_mechanism": "Coordinated poisoning",
+                    "trust_boundary": "Training data boundary",
+                },
+            ),
+        ],
+    )
+    def test_valid_combination_has_no_access_violation(
+        self, actor_type: str, access_class: str, evidence: dict[str, str]
+    ) -> None:
+        profile = _make_profile(
+            [
+                EntryPoint(
+                    name="ingress", direction="input", controllability=access_class
+                )
+            ]
+        )
+        ep_id = profile.entry_points[0].entry_point_id
+        envelope = _validate(
+            profile, actor_type, _access(ep_id, access_class, **evidence)
+        )
+
+        access_rules = {
+            "missing_access_provenance",
+            "actor_access_class_incompatible",
+            "incomplete_indirect_evidence",
+            "missing_insider_advantage",
+            "initial_entry_point_id_mismatch",
+            "ineligible_ingress_entry_point",
+        }
+        assert not [
+            violation
+            for rule in access_rules
+            for violation in _find_violations(envelope, rule)
+        ]
+
+
+class TestInitialEntryPointIdMismatch:
+    def test_access_id_different_from_tree_id_flags(self) -> None:
+        profile = _make_profile(
+            [
+                EntryPoint(
+                    name="primary ingress", direction="input", controllability="direct"
+                ),
+                EntryPoint(
+                    name="other ingress", direction="input", controllability="direct"
+                ),
+            ]
+        )
+        tree_ep_id = profile.entry_points[0].entry_point_id
+        access_ep_id = profile.entry_points[1].entry_point_id
+        envelope = _validate(
+            profile, "cybercriminal", _access(access_ep_id), tree_ep_id
+        )
+
+        violations = _find_violations(envelope, "initial_entry_point_id_mismatch")
+        assert len(violations) == 1
+        assert violations[0].severity == "major"
+
+    def test_matching_access_and_tree_id_passes(self) -> None:
+        profile = _make_profile()
+        ep_id = profile.entry_points[0].entry_point_id
+        envelope = _validate(profile, "cybercriminal", _access(ep_id))
+        assert not _find_violations(envelope, "initial_entry_point_id_mismatch")
+
+
+class TestIneligibleIngressEntryPoint:
+    def test_output_only_entry_point_flags(self) -> None:
+        profile = _make_profile(
+            [
+                EntryPoint(
+                    name="response stream", direction="output", controllability="direct"
+                )
+            ]
+        )
+        ep_id = profile.entry_points[0].entry_point_id
+        envelope = _validate(profile, "cybercriminal", _access(ep_id))
+
+        violations = _find_violations(envelope, "ineligible_ingress_entry_point")
+        assert len(violations) == 1
+        assert violations[0].severity == "major"
+
+    def test_system_controlled_entry_point_flags(self) -> None:
+        profile = _make_profile(
+            [
                 EntryPoint(
                     name="internal scheduler",
                     direction="input",
                     controllability="system",
-                ),
-            ],
+                )
+            ]
         )
-        envelope = _make_envelope(
-            actor_type="adversarial-user",
-            narrative_entry_point="internal scheduler",
-            entry_point_id=profile.entry_points[0].entry_point_id,
-        )
-        validate_scenario_semantics([envelope], profile)
+        ep_id = profile.entry_points[0].entry_point_id
+        envelope = _validate(profile, "cybercriminal", _access(ep_id))
 
-        violations = _find_violations(envelope, "actor_entry_point_mismatch")
+        violations = _find_violations(envelope, "ineligible_ingress_entry_point")
         assert len(violations) == 1
-        assert "adversarial-user" in violations[0].message
-        assert "system-controllability" in violations[0].message
-        assert violations[0].severity == "moderate"
-
-
-# ---------------------------------------------------------------------------
-# Tests: Valid combinations -> no violation
-# ---------------------------------------------------------------------------
-
-
-class TestValidActorEntryPointCombinations:
-    """Valid actor/entry-point combinations produce no violations."""
-
-    def test_cybercriminal_direct_ep_passes(self) -> None:
-        """cybercriminal + direct controllability EP -> no violation."""
-        profile = _make_profile(
-            entry_points=[
-                EntryPoint(
-                    name="chat interface",
-                    direction="input",
-                    controllability="direct",
-                ),
-            ],
-        )
-        envelope = _make_envelope(
-            actor_type="cybercriminal",
-            narrative_entry_point="chat interface",
-            entry_point_id=profile.entry_points[0].entry_point_id,
-        )
-        validate_scenario_semantics([envelope], profile)
-
-        violations = _find_violations(envelope, "actor_entry_point_mismatch")
-        assert len(violations) == 0
-
-    def test_insider_indirect_ep_passes(self) -> None:
-        """malicious-insider + indirect controllability EP -> no violation."""
-        profile = _make_profile(
-            entry_points=[
-                EntryPoint(
-                    name="RAG knowledge base",
-                    direction="input",
-                    controllability="indirect",
-                ),
-            ],
-        )
-        envelope = _make_envelope(
-            actor_type="malicious-insider",
-            narrative_entry_point="RAG knowledge base",
-            entry_point_id=profile.entry_points[0].entry_point_id,
-        )
-        validate_scenario_semantics([envelope], profile)
-
-        violations = _find_violations(envelope, "actor_entry_point_mismatch")
-        assert len(violations) == 0
-
-    def test_no_matching_ep_skips_gracefully(self) -> None:
-        """Narrative EP not matching any profile EP -> no violation (skip)."""
-        profile = _make_profile(
-            entry_points=[
-                EntryPoint(
-                    name="admin console",
-                    direction="input",
-                    controllability="system",
-                ),
-            ],
-        )
-        envelope = _make_envelope(
-            actor_type="malicious-insider",
-            narrative_entry_point="completely unrelated entry point",
-        )
-        validate_scenario_semantics([envelope], profile)
-
-        violations = _find_violations(envelope, "actor_entry_point_mismatch")
-        assert len(violations) == 0
+        assert violations[0].severity == "major"

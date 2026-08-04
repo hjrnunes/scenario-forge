@@ -278,36 +278,42 @@ _CAPABILITY_FLOORS: dict[str, str] = {
 #
 # Allowed (negligent-insider plausible):
 #   T2  — Tool Misuse (accidental misuse)
-_ADVERSARIAL_ONLY_THREATS: frozenset[str] = frozenset({
-    "T3",   # Privilege Compromise
-    "T6",   # Intent Breaking / Goal Manipulation (prompt injection)
-    "T7",   # Misaligned & Deceptive Behaviors (emergent agent misalignment)
-    "T8",   # Repudiation & Untraceability (deliberate audit trail manipulation)
-    "T9",   # Identity Spoofing
-    "T10",  # Overwhelming HITL (deliberate flooding)
-    "T15",  # Human Manipulation
-})
+_ADVERSARIAL_ONLY_THREATS: frozenset[str] = frozenset(
+    {
+        "T3",  # Privilege Compromise
+        "T6",  # Intent Breaking / Goal Manipulation (prompt injection)
+        "T7",  # Misaligned & Deceptive Behaviors (emergent agent misalignment)
+        "T8",  # Repudiation & Untraceability (deliberate audit trail manipulation)
+        "T9",  # Identity Spoofing
+        "T10",  # Overwhelming HITL (deliberate flooding)
+        "T15",  # Human Manipulation
+    }
+)
 
 # Technique pairs that form a natural execution chain (one enables the other).
 # When a 2-technique seed's pair is in this set, the multi-technique escalation
 # rule (R2) does NOT trigger — the chain is a single logical step.
-CHAIN_TECHNIQUE_PAIRS: frozenset[tuple[str, str]] = frozenset({
-    ("AML.T0051.001", "AML.T0067"),
-    ("AML.T0066", "AML.T0057"),
-    ("AML.T0070", "AML.T0057"),
-})
+CHAIN_TECHNIQUE_PAIRS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("AML.T0051.001", "AML.T0067"),
+        ("AML.T0066", "AML.T0057"),
+        ("AML.T0070", "AML.T0057"),
+    }
+)
 
-ALL_ACTOR_TYPES: frozenset[str] = frozenset({
-    "adversarial-user",
-    "malicious-insider",
-    "negligent-insider",
-    "supply-chain-actor",
-    "cybercriminal",
-    "nation-state",
-    "hacktivist",
-    "competitor",
-    "automated-agent",
-})
+ALL_ACTOR_TYPES: frozenset[str] = frozenset(
+    {
+        "adversarial-user",
+        "malicious-insider",
+        "negligent-insider",
+        "supply-chain-actor",
+        "cybercriminal",
+        "nation-state",
+        "hacktivist",
+        "competitor",
+        "automated-agent",
+    }
+)
 
 # Actor-goal incompatibility map.  For each goal_id, lists actor types
 # whose motivational profile is structurally incompatible with that goal.
@@ -364,6 +370,54 @@ _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
 }
 
 
+# ---------------------------------------------------------------------------#
+# Typed access-class → actor compatibility (cmps.6)
+# ---------------------------------------------------------------------------#
+#
+# Replaces blanket direct/indirect actor allowlists (old R2/R3) with a
+# typed map keyed by the canonical access class derived from the entry
+# point's ``effective_controllability``.  No keyword heuristics, no
+# per-entry-point-name exceptions.
+#
+# ``direct`` access: any actor can reach a direct/public ingress surface.
+#   Insider actors using direct ingress must still provide structured
+#   ``material_insider_advantage`` evidence — validated post-hoc, not
+#   pre-filtered.
+#
+# ``indirect`` access: only actors that can plausibly hold indirect
+#   influence over an upstream data source.  The actor must provide
+#   ``influence_source``, ``influence_mechanism``, and ``trust_boundary``
+#   evidence — validated post-hoc.
+#
+# ``system`` controllability entry points are NOT eligible ingress at all
+# (they are downstream resources only); this is enforced by
+# ``is_attacker_accessible_ingress`` and the candidate filter, not by an
+# actor allowlist.
+
+_ACTOR_ACCESS_CLASS_COMPAT: dict[str, frozenset[str]] = {
+    "direct": frozenset(ALL_ACTOR_TYPES),
+    "indirect": frozenset(
+        {
+            "supply-chain-actor",
+            "malicious-insider",
+            "nation-state",
+            "competitor",
+            "automated-agent",
+        }
+    ),
+}
+
+# Insider actor types that require structured material insider advantage
+# when using direct/public ingress (cmps.6).
+_INSIDER_ACTOR_TYPES: frozenset[str] = frozenset(
+    {"malicious-insider", "negligent-insider"}
+)
+
+# Maximum retries for actor/access provenance mismatch before quarantine
+# (cmps.6 retry/quarantine seam).
+_ACTOR_ACCESS_MAX_RETRIES: int = 2
+
+
 # ---------------------------------------------------------------------------
 # Goal zone requirements and HITL
 # ---------------------------------------------------------------------------
@@ -396,7 +450,10 @@ _THREAT_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # T9 (Identity Spoofing): about impersonation, not model extraction
     "T9": {"PR-3"},  # PR-3 Model Extraction is theft, not spoofing
     # T10 (Overwhelming HITL): about trust calibration degradation, not flooding
-    "T10": {"AV-1", "AV-5"},  # AV-1 Service Denial / AV-5 Cascading Failure are DoS, not trust abuse
+    "T10": {
+        "AV-1",
+        "AV-5",
+    },  # AV-1 Service Denial / AV-5 Cascading Failure are DoS, not trust abuse
     # T15 (Human Manipulation): no evidence destruction or resource hijack
     "T15": {"AB-8", "AB-9"},
 }

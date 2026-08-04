@@ -42,4 +42,4 @@ Produce a BDI actor profile for this attack pattern applied to the target system
 {% endif %}
 {% endif %}
 **Intention budget:** List exactly {{ pinned_technique_count }} intention(s). Each intention must directly instantiate one pinned technique as a concrete action.
-{{ technique_context }}{{ technique_framing_0 }}{{ goal_section }}{{ diversity_section }}
+{{ technique_context }}{{ technique_framing_0 }}{{ goal_section }}{{ diversity_section }}{{ access_provenance_section | default('') }}

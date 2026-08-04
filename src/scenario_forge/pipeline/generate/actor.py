@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
@@ -11,16 +12,19 @@ from pydantic import BaseModel
 from scenario_forge.data.atlas import TECHNIQUE_PROPERTIES
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.models.scenario import ACTOR_TYPES, ActorProfile
-from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.prompts import render_prompt
-
+from scenario_forge.models.scenario import (
+    ACTOR_TYPES,
+    ActorAccessProvenance,
+    ActorProfile,
+)
 from scenario_forge.pipeline.generate.constants import (
+    _ACTOR_ACCESS_CLASS_COMPAT,
     _ACTOR_GOAL_INCOMPATIBLE,
     _ADVERSARIAL_INTENTION_KEYWORDS,
     _ADVERSARIAL_ONLY_THREATS,
     _CAPABILITY_FLOORS,
     _CAPABILITY_ORDER,
+    _INSIDER_ACTOR_TYPES,
     ALL_ACTOR_TYPES,
     CHAIN_TECHNIQUE_PAIRS,
 )
@@ -32,6 +36,8 @@ from scenario_forge.pipeline.generate.ontology import (
     _lookup_entry_point_direction,
     build_kc_definitions_block,
 )
+from scenario_forge.pipeline.seeds import ScenarioSeed
+from scenario_forge.prompts import render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +56,11 @@ class Call0Response(BaseModel):
     desires: list[str]
     intentions: list[str]
     resources: list[str]
+    # cmps.6 access provenance evidence (LLM-generated, validated post-hoc)
+    influence_source: str | None = None
+    influence_mechanism: str | None = None
+    trust_boundary: str | None = None
+    material_insider_advantage: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +191,17 @@ def compute_minimum_capability_level(
     return floor
 
 
+def _ep_controllability_to_access_class(ep_controllability: str | None) -> str | None:
+    """Map an entry point's effective controllability to a typed access class.
+
+    Returns ``"direct"``, ``"indirect"``, or ``None`` (for ``system`` or
+    unknown — system entry points are not eligible ingress at all).
+    """
+    if ep_controllability in ("direct", "indirect"):
+        return ep_controllability
+    return None
+
+
 def compute_compatible_actor_types(
     atlas_technique_ids: list[str] | tuple[str, ...] | None,
     ep_controllability: str | None,
@@ -189,22 +211,25 @@ def compute_compatible_actor_types(
 ) -> set[str]:
     """Compute the set of structurally compatible actor types for a seed.
 
-    Applies six rules in order, narrowing from the full actor-type set:
+    Applies rules in order, narrowing from the full actor-type set:
 
     R1 -- Adversarial-only threat: remove negligent-insider
-    R2 -- Indirect EP access floor: restrict to
-         {supply-chain-actor, malicious-insider, nation-state} (except T2+RAG)
-    R3 -- System EP: restrict to {malicious-insider, supply-chain-actor, nation-state}
-    R4 -- Technique requires direct access: remove negligent-insider and
+    R2 -- Typed access-class compatibility (cmps.6): when the entry
+         point's effective controllability maps to a canonical access
+         class (``direct`` or ``indirect``), restrict to actors in
+         ``_ACTOR_ACCESS_CLASS_COMPAT[access_class]``.  ``system``
+         controllability is not eligible ingress — no actor is
+         pre-filtered; the candidate filter and ingress validation
+         reject system entry points before generation.
+    R3 -- Technique requires direct access: remove negligent-insider and
          supply-chain-actor; verify EP is direct
-    R5 -- Supply chain target layer: restrict to
+    R4 -- Supply chain target layer: restrict to
          {supply-chain-actor, nation-state, malicious-insider, automated-agent}
-    R6 -- Actor-goal consistency: remove actor types whose motivational
+    R5 -- Actor-goal consistency: remove actor types whose motivational
          profile is incompatible with the assigned goal category
 
     Returns:
-        Set of compatible actor type strings. Never empty (R3/R5 restrictions
-        always leave at least one type).
+        Set of compatible actor type strings. Never empty.
     """
     compatible = set(ALL_ACTOR_TYPES)
     tech_ids = list(atlas_technique_ids) if atlas_technique_ids else []
@@ -213,25 +238,14 @@ def compute_compatible_actor_types(
     if threat_id in _ADVERSARIAL_ONLY_THREATS:
         compatible.discard("negligent-insider")
 
-    # R2 -- Indirect EP access floor (with T2+RAG exception)
-    # Indirect entry points (e.g. RAG knowledge-grounding, authenticated
-    # customer context) require upstream or privileged write access.
-    # Only supply-chain-actor, malicious-insider, and nation-state have
-    # the positioning to inject through these channels.
-    if ep_controllability == "indirect":
-        # Exception: T2 + entry point contains "rag" or "knowledge"
-        ep_name_lower = (entry_point_name or "").lower()
-        is_t2_rag = threat_id == "T2" and (
-            "rag" in ep_name_lower or "knowledge" in ep_name_lower
-        )
-        if not is_t2_rag:
-            compatible &= {"supply-chain-actor", "malicious-insider", "nation-state"}
+    # R2 -- Typed access-class compatibility (cmps.6)
+    access_class = _ep_controllability_to_access_class(ep_controllability)
+    if access_class is not None:
+        allowed = _ACTOR_ACCESS_CLASS_COMPAT.get(access_class)
+        if allowed is not None:
+            compatible &= set(allowed)
 
-    # R3 -- System EP restriction
-    if ep_controllability == "system":
-        compatible &= {"malicious-insider", "supply-chain-actor", "nation-state"}
-
-    # R4 -- Technique requires direct access
+    # R3 -- Technique requires direct access
     for tid in tech_ids:
         props = TECHNIQUE_PROPERTIES.get(tid)
         if props and props.get("requires_direct_access"):
@@ -239,7 +253,7 @@ def compute_compatible_actor_types(
             compatible.discard("supply-chain-actor")
             break
 
-    # R5 -- Supply chain target layer
+    # R4 -- Supply chain target layer
     for tid in tech_ids:
         props = TECHNIQUE_PROPERTIES.get(tid)
         if props and props.get("target_layer") == "supply_chain":
@@ -251,11 +265,11 @@ def compute_compatible_actor_types(
             }
             break
 
-    # R6 -- Actor-goal consistency
+    # R5 -- Actor-goal consistency
     if goal_id and goal_id in _ACTOR_GOAL_INCOMPATIBLE:
         incompatible = _ACTOR_GOAL_INCOMPATIBLE[goal_id]
         pruned = compatible - incompatible
-        # Safety: never empty the set — skip R6 if it would
+        # Safety: never empty the set — skip R5 if it would
         if pruned:
             compatible = pruned
 
@@ -294,6 +308,139 @@ def _validate_actor_type(actor_profile: ActorProfile) -> ActorProfile:
             update={"actor_type": "adversarial-user"},
         )
     return actor_profile
+
+
+# ---------------------------------------------------------------------------#
+# Actor access provenance (cmps.6)
+# ---------------------------------------------------------------------------#
+
+
+@dataclass
+class ActorAccessViolation:
+    """A single actor/access provenance violation detected during generation."""
+
+    rule: str
+    message: str
+
+
+def build_actor_access_provenance(
+    entry_point_id: str,
+    ep_controllability: str | None,
+    actor_type: str,
+    resp: Call0Response,
+) -> ActorAccessProvenance:
+    """Construct an :class:`ActorAccessProvenance` from canonical EP identity
+    and LLM-generated evidence.
+
+    ``access_class`` is derived from the entry point's canonical
+    ``effective_controllability`` — never LLM-inferred.  The evidence fields
+    are taken from the LLM response.
+    """
+    access_class = _ep_controllability_to_access_class(ep_controllability)
+    if access_class is None:
+        # System/unknown controllability — not eligible ingress.  Default
+        # to "direct" so the provenance object is constructible; the
+        # candidate filter / ingress validation rejects system entry points
+        # before this point, and semantic validation will flag the mismatch.
+        access_class = "direct"
+
+    return ActorAccessProvenance(
+        initial_entry_point_id=entry_point_id,
+        access_class=access_class,  # type: ignore[arg-type]
+        influence_source=resp.influence_source,
+        influence_mechanism=resp.influence_mechanism,
+        trust_boundary=resp.trust_boundary,
+        material_insider_advantage=resp.material_insider_advantage,
+    )
+
+
+def validate_actor_access_provenance(
+    actor_profile: ActorProfile,
+) -> list[ActorAccessViolation]:
+    """Validate typed access provenance evidence on an actor profile.
+
+    Returns a list of violations (empty if valid).  This replaces keyword-
+    based insider access checks with structured evidence validation.
+
+    Checks:
+    1. ``access`` provenance must be present.
+    2. Actor type must be compatible with ``access_class``
+       (``_ACTOR_ACCESS_CLASS_COMPAT``).
+    3. Indirect ingress requires ``influence_source``,
+       ``influence_mechanism``, and ``trust_boundary``.
+    4. Insider actors using direct/public ingress require
+       ``material_insider_advantage``.
+    """
+    violations: list[ActorAccessViolation] = []
+
+    access = actor_profile.access
+    if access is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="missing_access_provenance",
+                message=(
+                    f"Actor '{actor_profile.actor_type}' has no typed access "
+                    f"provenance (cmps.6)."
+                ),
+            )
+        )
+        return violations
+
+    # 2. Actor-type / access-class compatibility
+    allowed = _ACTOR_ACCESS_CLASS_COMPAT.get(access.access_class)
+    if allowed is not None and actor_profile.actor_type not in allowed:
+        violations.append(
+            ActorAccessViolation(
+                rule="actor_access_class_incompatible",
+                message=(
+                    f"Actor '{actor_profile.actor_type}' is incompatible with "
+                    f"access_class '{access.access_class}' — eligible actors: "
+                    f"{sorted(allowed)}."
+                ),
+            )
+        )
+
+    # 3. Indirect ingress evidence completeness
+    if access.access_class == "indirect":
+        missing = []
+        if not access.influence_source or not access.influence_source.strip():
+            missing.append("influence_source")
+        if not access.influence_mechanism or not access.influence_mechanism.strip():
+            missing.append("influence_mechanism")
+        if not access.trust_boundary or not access.trust_boundary.strip():
+            missing.append("trust_boundary")
+        if missing:
+            violations.append(
+                ActorAccessViolation(
+                    rule="incomplete_indirect_evidence",
+                    message=(
+                        f"Indirect ingress requires structured evidence: "
+                        f"missing {missing}."
+                    ),
+                )
+            )
+
+    # 4. Insider + direct/public ingress requires material insider advantage
+    if (
+        access.access_class == "direct"
+        and actor_profile.actor_type in _INSIDER_ACTOR_TYPES
+        and (
+            not access.material_insider_advantage
+            or not access.material_insider_advantage.strip()
+        )
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="missing_insider_advantage",
+                message=(
+                    f"Insider actor '{actor_profile.actor_type}' using "
+                    f"direct/public ingress requires structured "
+                    f"material_insider_advantage evidence."
+                ),
+            )
+        )
+
+    return violations
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +537,7 @@ def build_call0_context(
         excluded_set = set(excluded_actor_types) if excluded_actor_types else set()
         fallback_candidates = compatible_actor_types - excluded_set
         if fallback_candidates:
-            preferred_actor_type = sorted(fallback_candidates)[0]
+            preferred_actor_type = min(fallback_candidates)
             logger.debug(
                 "Actor type constraint override: preferred '%s' not compatible "
                 "for seed %s — falling back to '%s'",
@@ -400,7 +547,7 @@ def build_call0_context(
             )
         else:
             # All compatible types are excluded; pick any compatible type
-            preferred_actor_type = sorted(compatible_actor_types)[0]
+            preferred_actor_type = min(compatible_actor_types)
 
     # Build actor type diversity guidance
     diversity_section = ""
@@ -492,6 +639,55 @@ def build_call0_context(
         entry_point_controllability=pinned_entry_point_controllability,
     )
 
+    # Build access provenance section for the prompt (cmps.6)
+    access_provenance_section = ""
+    if pinned_entry_point_id:
+        access_class = _ep_controllability_to_access_class(
+            _ep_controllability_for_floor
+        )
+        if access_class == "indirect":
+            access_provenance_section = (
+                "\n## Access Provenance Constraint (MANDATORY)\n"
+                "The pinned entry point is an **indirect** ingress surface — "
+                "the actor influences an upstream data source rather than "
+                "typing input directly. You MUST provide structured evidence:\n"
+                "- `influence_source`: the data source or channel the actor "
+                "influences (e.g. 'RAG knowledge base', 'product catalog feed')\n"
+                "- `influence_mechanism`: how the actor exerts influence "
+                "(e.g. 'document poisoning', 'supply-chain staging')\n"
+                "- `trust_boundary`: what trust boundary the influence crosses "
+                "before reaching the system (e.g. 'external content provider → "
+                "retrieval pipeline', 'third-party data feed → ingestion layer')\n"
+            )
+        elif access_class == "direct":
+            # Check if the actor type might be an insider
+            _is_insider = (
+                forced_actor_type in _INSIDER_ACTOR_TYPES
+                if forced_actor_type
+                else (
+                    preferred_actor_type in _INSIDER_ACTOR_TYPES
+                    if preferred_actor_type
+                    else False
+                )
+            )
+            if _is_insider:
+                access_provenance_section = (
+                    "\n## Access Provenance Constraint (MANDATORY)\n"
+                    "The pinned entry point is a **direct** ingress surface "
+                    "and the actor is an insider. You MUST provide:\n"
+                    "- `material_insider_advantage`: a structured material "
+                    "advantage beyond public access that justifies why an "
+                    "insider uses this surface (e.g. 'knowledge of internal "
+                    "rate-limit bypass', 'access to pre-production config "
+                    "overrides affecting input validation')\n"
+                )
+            else:
+                access_provenance_section = (
+                    "\n## Access Provenance Constraint\n"
+                    "The pinned entry point is a **direct** ingress surface. "
+                    "The actor interacts through the normal user interface.\n"
+                )
+
     return {
         # System prompt variables
         "minimum_capability_level": minimum_capability_level,
@@ -504,8 +700,10 @@ def build_call0_context(
         "technique_framing_0": technique_framing_0,
         "goal_section": goal_section,
         "diversity_section": diversity_section,
+        "access_provenance_section": access_provenance_section,
         "pinned_entry_point": pinned_entry_point,
         "pinned_entry_point_direction": pinned_entry_point_direction,
+        "pinned_entry_point_id": pinned_entry_point_id,
         "pinned_technique_count": pinned_technique_count,
         "kc_definitions": kc_definitions,
         "ontology_context": ontology_context,
@@ -605,4 +803,19 @@ def _call_actor_profile(
         intentions=resp.intentions,
         resources=resp.resources,
     )
+
+    # Build typed access provenance from canonical EP identity (cmps.6)
+    if pinned_entry_point_id:
+        ep_controllability = _lookup_entry_point_controllability(
+            profile,
+            pinned_entry_point,
+            pinned_entry_point_id,
+        )
+        actor_profile.access = build_actor_access_provenance(
+            entry_point_id=pinned_entry_point_id,
+            ep_controllability=ep_controllability,
+            actor_type=actor_type,
+            resp=resp,
+        )
+
     return actor_profile, result

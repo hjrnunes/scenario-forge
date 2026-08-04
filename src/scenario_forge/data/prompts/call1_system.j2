@@ -35,10 +35,10 @@ This model divides an AI system into architectural layers an attack may traverse
 
 ### Actor-Type Entry Point Access (INVARIANT)
 If the pinned entry point has INDIRECT controllability:
-- ONLY a supply-chain-actor may write to, inject into, or modify data flowing through this entry point, AND only through a documented upstream source (e.g., a third-party data feed, a vendor integration, a pre-existing pipeline).
+- Actors that may hold indirect influence (supply-chain-actor, malicious-insider, nation-state, competitor, automated-agent) may write to, inject into, or modify data flowing through this entry point, AND only through a documented upstream source with structured evidence (influence_source, influence_mechanism, trust_boundary).
 - All other actor types CANNOT directly inject, upload, or modify content in this entry point. They may only interact with whatever data the entry point already contains or delivers.
 
-Do NOT invent upload portals, merchant dashboards, partner repositories, or write-access mechanisms for indirect-controllability entry points unless the actor is a supply-chain-actor. If the narrative requires the attacker to modify data in an indirect entry point, the actor MUST be a supply-chain-actor with a plausible upstream position.
+Do NOT invent upload portals, merchant dashboards, partner repositories, or write-access mechanisms for indirect-controllability entry points unless the actor is in the indirect-compatible set with structured influence evidence. If the narrative requires the attacker to modify data in an indirect entry point, the actor MUST provide influence_source, influence_mechanism, and trust_boundary evidence.
 
 {% include '_blackbox.j2' %}
 

@@ -148,6 +148,70 @@ ACTOR_TYPES: list[str] = list(ActorType.__args__)  # type: ignore[attr-defined]
 """All valid actor type values as a plain list (for diversity tracking)."""
 
 
+class ActorAccessProvenance(BaseModel):
+    """Typed evidence linking an actor to the scenario's canonical initial ingress.
+
+    Replaces blanket direct/indirect actor allowlists and keyword insider
+    checks with structured access provenance grounded in the canonical
+    entry-point identity (cmps.6).
+
+    ``access_class`` is derived from the pinned entry point's canonical
+    ``effective_controllability`` — it is never LLM-inferred.  The evidence
+    fields are LLM-generated structured strings validated for completeness,
+    not keyword-matched.
+
+    - ``indirect`` ingress requires ``influence_source``, ``influence_mechanism``,
+      and ``trust_boundary``.
+    - Insider actors (``malicious-insider``, ``negligent-insider``) using
+      ``direct``/public ingress require ``material_insider_advantage``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    initial_entry_point_id: str = Field(
+        description=(
+            "Canonical entry_point_id (ep:v1:…) inherited from the initial "
+            "ingress.  The scenario must inherit exactly one."
+        ),
+        pattern=r"^ep:v1:[0-9a-f]{32}$",
+    )
+    access_class: Literal["direct", "indirect"] = Field(
+        description=(
+            "Attacker access class derived from the entry point's canonical "
+            "effective controllability: 'direct' (types input directly) or "
+            "'indirect' (influences an upstream data source)."
+        ),
+    )
+    influence_source: str | None = Field(
+        default=None,
+        description=(
+            "The data source or channel the actor influences "
+            "(required for indirect access)."
+        ),
+    )
+    influence_mechanism: str | None = Field(
+        default=None,
+        description=(
+            "How the actor exerts influence — e.g. poisoning, injection, "
+            "staging (required for indirect access)."
+        ),
+    )
+    trust_boundary: str | None = Field(
+        default=None,
+        description=(
+            "Trust-boundary evidence: what boundary the indirect influence "
+            "crosses before reaching the system (required for indirect access)."
+        ),
+    )
+    material_insider_advantage: str | None = Field(
+        default=None,
+        description=(
+            "Structured material insider advantage beyond public access "
+            "(required for insider actors using direct/public ingress)."
+        ),
+    )
+
+
 class ActorProfile(BaseModel):
     """Threat actor profile grounding the scenario narrative."""
 
@@ -168,6 +232,13 @@ class ActorProfile(BaseModel):
     )
     resources: list[str] = Field(
         description="What the actor has access to (e.g. 'open-source tools', 'insider credentials').",
+    )
+    access: ActorAccessProvenance | None = Field(
+        default=None,
+        description=(
+            "Typed access provenance linking the actor to the scenario's "
+            "canonical initial ingress (cmps.6)."
+        ),
     )
     goal_category: str | None = Field(
         default=None,
@@ -679,6 +750,20 @@ class ScenarioEnvelope(BaseModel):
     actor_profile: ActorProfile | None = Field(
         default=None,
         description="Threat actor profile grounding the scenario narrative.",
+    )
+
+    # --- Canonical Initial Ingress (cmps.6) ---
+
+    initial_entry_point_id: str | None = Field(
+        default=None,
+        description=(
+            "Canonical entry_point_id (ep:v1:…) inherited from the attack "
+            "tree's initial_ingress action(s).  A scenario must inherit "
+            "exactly one — only direct/indirect input or bidirectional entry "
+            "points are eligible; system/output channels are downstream "
+            "resources only."
+        ),
+        pattern=r"^ep:v1:[0-9a-f]{32}$",
     )
 
     # --- Layer 1: Narrative ---

@@ -27,6 +27,7 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
 )
 from scenario_forge.pipeline.generate.constants import (
+    _ACTOR_ACCESS_MAX_RETRIES,
     _ADVERSARIAL_ONLY_THREATS,
     _CONSISTENCY_MAX_RETRIES,
     _GENERATOR_VERSION,
@@ -351,6 +352,11 @@ def _assemble_envelope(
         scenario_seed_metadata=scenario_seed_metadata,
         legitimate_task=use_case,
         actor_profile=actor_profile,
+        initial_entry_point_id=(
+            actor_profile.access.initial_entry_point_id
+            if actor_profile and actor_profile.access
+            else None
+        ),
         narrative=narrative,
         attack_tree=attack_tree,
         behavior_spec=behavior_spec,
@@ -559,6 +565,61 @@ def generate_scenario(
         actor_profile.goal_category = attack_goal["id"]
         actor_profile.goal_category_name = attack_goal["name"]
         actor_profile.goal_category_parent = attack_goal["category_name"]
+
+    # --- Post-Call-0: actor/access provenance validation + retry (cmps.6) ---
+    _validate_access = _gen.validate_actor_access_provenance
+    _access_violations = (
+        _validate_access(actor_profile) if pinned_entry_point_id else []
+    )
+    _access_retry = 0
+    while _access_violations and _access_retry < _ACTOR_ACCESS_MAX_RETRIES:
+        _access_retry += 1
+        _access_feedback = "\n".join(f"- {v.message}" for v in _access_violations)
+        logger.warning(
+            "Actor/access provenance violations in %s (retry %d/%d): %s",
+            partial_scenario_id,
+            _access_retry,
+            _ACTOR_ACCESS_MAX_RETRIES,
+            _access_feedback,
+        )
+        try:
+            actor_profile, result0 = _call_actor_profile(
+                seed,
+                profile,
+                client,
+                use_case,
+                excluded_actor_types=excluded_actor_types,
+                preferred_capability_level=preferred_capability_level,
+                attack_goal=attack_goal,
+                pinned_technique_ids=pinned_technique_ids,
+                forced_actor_type=actor_profile.actor_type,
+                pinned_entry_point=pinned_entry_point,
+                pinned_entry_point_id=pinned_entry_point_id,
+            )
+            actor_profile = _validate_actor_type(actor_profile)
+            if attack_goal is not None:
+                actor_profile.goal_category = attack_goal["id"]
+                actor_profile.goal_category_name = attack_goal["name"]
+                actor_profile.goal_category_parent = attack_goal["category_name"]
+        except Exception as exc:  # noqa: BLE001 - retry must catch all
+            logger.warning(
+                "Actor/access retry %d/%d failed for %s: %s",
+                _access_retry,
+                _ACTOR_ACCESS_MAX_RETRIES,
+                partial_scenario_id,
+                exc,
+            )
+            break
+        _access_violations = _validate_access(actor_profile)
+
+    if _access_violations:
+        logger.warning(
+            "Actor/access provenance violations persist after %d retries for "
+            "%s — proceeding to semantic validation for quarantine: %s",
+            _access_retry,
+            partial_scenario_id,
+            "; ".join(v.message for v in _access_violations),
+        )
 
     call_metas.append(_call_metadata(CallName.actor_profile, result0))
     results[CallName.actor_profile] = result0

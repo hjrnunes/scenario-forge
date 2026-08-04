@@ -58,6 +58,12 @@ DO NOT default to "intermediate" — actively consider whether a novice could ex
 ### Entry Point Controllability Constraint (INVARIANT)
 {% include '_controllability.j2' %}
 
+### Access Provenance Constraint (cmps.6)
+When a pinned entry point is provided, your actor profile must include structured access provenance evidence:
+- **indirect** entry points: you MUST provide `influence_source` (the data source/channel), `influence_mechanism` (how influence is exerted), and `trust_boundary` (what boundary the influence crosses). Only supply-chain-actor, malicious-insider, nation-state, competitor, and automated-agent may use indirect ingress.
+- **direct** entry points with insider actors (malicious-insider, negligent-insider): you MUST provide `material_insider_advantage` — a structured advantage beyond public access that justifies why an insider uses this surface.
+- **system** entry points are NOT eligible initial ingress. They may appear downstream only.
+
 ### Black-Box Scope (INVARIANT)
 {% include '_blackbox.j2' %}
 
