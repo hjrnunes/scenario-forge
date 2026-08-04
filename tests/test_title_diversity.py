@@ -24,14 +24,14 @@ from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.prompts import render_prompt
 
 # Default kwargs for rendering call1_system.j2 (requires profile variables)
-_CALL1_SYS_DEFAULTS = dict(
-    has_persistent_memory=False,
-    multi_agent=False,
-    hitl=False,
-    zones_active=["input", "reasoning", "tool_execution"],
-    kc_subcodes=[],
-    tool_inventory=[],
-)
+_CALL1_SYS_DEFAULTS = {
+    "has_persistent_memory": False,
+    "multi_agent": False,
+    "hitl": False,
+    "zones_active": ["input", "reasoning", "tool_execution"],
+    "kc_subcodes": [],
+    "tool_inventory": [],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +105,7 @@ def _make_mock_client(title: str = "Test Title") -> MagicMock:
     step.effect = "Agent compromised"
     step.control_point = None
     mock_response.steps = [step]
+    mock_response.access_realization = None
 
     result = MagicMock()
     result.content = mock_response

@@ -26,6 +26,7 @@ Align the attack tree structure with this tactical progression. Each kill chain 
 {% endfor %}
 {% endif %}
 {{ actor_section }}
+{{ access_provenance_block | default('') }}
 {{ technique_context }}{{ technique_constraint }}{{ skeleton_section | default('') }}
 
 ## Narrative (from Call 1)

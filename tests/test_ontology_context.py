@@ -263,7 +263,7 @@ class TestLookupEntryPointControllability:
         assert result is None
 
     def test_returns_none_controllability_when_field_is_none(self):
-        """Returns None when entry point exists but controllability is None."""
+        """Infers direct for an input entry point with no controllability."""
         from scenario_forge.models.capability_profile import (
             CapabilityProfile,
             EntryPoint,
@@ -282,4 +282,5 @@ class TestLookupEntryPointControllability:
             confidence="medium",
         )
         result = _lookup_entry_point_controllability(profile, "chat interface")
-        assert result is None
+        # cmps.6 returns effective controllability, which input infers as direct.
+        assert result == "direct"

@@ -45,4 +45,24 @@ Write a concrete attack narrative for this attack pattern applied to the target 
 {% elif pinned_entry_point and pinned_entry_point_direction == 'bidirectional' %}
 **Entry point direction: BIDIRECTIONAL.** The attack involves "{{ pinned_entry_point }}" (direction: BIDIRECTIONAL). The attacker can both send data into the system and observe data coming out through this channel. Describe how the attacker exploits either or both directions of this channel.
 {% endif %}
-{{ technique_context }}{{ technique_framing }}{{ actor_section }}{{ goal_section | default('') }}{{ diversity_section }}{{ pattern_section }}{{ structural_section }}
+{{ technique_context }}{{ technique_framing }}{{ actor_section }}{{ access_provenance_block | default('') }}{{ goal_section | default('') }}{{ diversity_section }}{{ pattern_section }}{{ structural_section }}
+{% if realization_feedback is defined and realization_feedback %}
+## Narrative Access Realization Feedback (RETRY — cmps.6)
+The previous narrative's typed access_realization did not match the actor access provenance. Fix these specific issues:
+{{ realization_feedback }}
+
+You MUST include an `access_realization` object in your response with the canonical ingress/source/boundary IDs from the Actor Access Provenance block above, and a `responsible_step_number` pointing to the narrative step where the actor realizes the initial access.
+{% else %}
+## Narrative Access Realization (REQUIRED — cmps.6)
+You MUST include an `access_realization` object in your response. It must contain:
+- `initial_entry_point_id`: the canonical entry_point_id from the Actor Access Provenance block above
+- `influence_source`: the influence_source from the provenance block (or null for direct access)
+- `trust_boundary_id`: the trust_boundary_id from the provenance block (or null for direct access)
+- `responsible_step_number`: the step number where the actor realizes the initial access described by the provenance block
+The access_realization must exactly match the Actor Access Provenance block — no keyword matching, no invention.
+{% endif %}
+{% if access_feedback is defined and access_feedback %}
+## Actor Access Feedback (RETRY — cmps.6)
+The previous actor access provenance had these violations. The narrative must be consistent with the corrected provenance:
+{{ access_feedback }}
+{% endif %}

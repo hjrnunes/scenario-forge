@@ -137,6 +137,7 @@ class TestSchemaDrift:
         envelope = ScenarioEnvelope(
             scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             generated_at=datetime.now(tz=UTC),
             generator_version="0.1.0",
             narrative=NarrativeLayer(

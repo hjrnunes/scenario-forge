@@ -22,21 +22,20 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.generate import generate_scenario
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _make_seed(**overrides) -> ScenarioSeed:
-    defaults = dict(
-        seed_id="AP-T7-01",
-        threat_id="T7",
-        threat_name="Misaligned Behaviors",
-        attack_pattern_name="Misaligned pattern",
-        attack_pattern_description="desc",
-        owasp_origin="LLM09",
-        risk_card_ref=RiskCardRef(
+    defaults = {
+        "seed_id": "AP-T7-01",
+        "threat_id": "T7",
+        "threat_name": "Misaligned Behaviors",
+        "attack_pattern_name": "Misaligned pattern",
+        "attack_pattern_description": "desc",
+        "owasp_origin": "LLM09",
+        "risk_card_ref": RiskCardRef(
             risk_id="R-01",
             risk_name="Test risk",
             risk_description="Description for R-01",
@@ -44,10 +43,10 @@ def _make_seed(**overrides) -> ScenarioSeed:
             confidence=0.9,
             grounding_confidence=ConfidenceLevel.high,
         ),
-        owasp_llm_ids=["LLM09"],
-        agentic_threat_ids=["T7"],
-        atlas_technique_ids=["AML.T0054"],
-    )
+        "owasp_llm_ids": ["LLM09"],
+        "agentic_threat_ids": ["T7"],
+        "atlas_technique_ids": ["AML.T0054"],
+    }
     defaults.update(overrides)
     return ScenarioSeed(**defaults)
 
@@ -164,7 +163,7 @@ class TestEntryPointOverride:
         wrong_narrative = _make_narrative(entry_point="user prompts (input)")
         tree_mock = _make_tree_mock()
 
-        mock_call_actor.return_value = (actor, _make_llm_result(actor))
+        mock_call_actor.return_value = (actor, _make_llm_result(actor), None)
         mock_validate.return_value = actor
         mock_call_narrative.return_value = (
             wrong_narrative,
@@ -179,6 +178,7 @@ class TestEntryPointOverride:
             profile=profile,
             client=client,
             use_case="Test use case",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=pinned_ep,
@@ -218,7 +218,7 @@ class TestEntryPointOverride:
         correct_narrative = _make_narrative(entry_point=pinned_ep)
         tree_mock = _make_tree_mock()
 
-        mock_call_actor.return_value = (actor, _make_llm_result(actor))
+        mock_call_actor.return_value = (actor, _make_llm_result(actor), None)
         mock_validate.return_value = actor
         mock_call_narrative.return_value = (
             correct_narrative,
@@ -233,6 +233,7 @@ class TestEntryPointOverride:
             profile=profile,
             client=client,
             use_case="Test use case",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=pinned_ep,
@@ -267,7 +268,7 @@ class TestEntryPointOverride:
         narrative = _make_narrative(entry_point=original_ep)
         tree_mock = _make_tree_mock()
 
-        mock_call_actor.return_value = (actor, _make_llm_result(actor))
+        mock_call_actor.return_value = (actor, _make_llm_result(actor), None)
         mock_validate.return_value = actor
         mock_call_narrative.return_value = (
             narrative,
@@ -282,6 +283,7 @@ class TestEntryPointOverride:
             profile=profile,
             client=client,
             use_case="Test use case",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=None,
@@ -327,7 +329,7 @@ class TestEntryPointOverride:
         wrong_narrative = _make_narrative(entry_point="user prompts (input)")
         tree_mock = _make_tree_mock()
 
-        mock_call_actor.return_value = (actor, _make_llm_result(actor))
+        mock_call_actor.return_value = (actor, _make_llm_result(actor), None)
         mock_validate.return_value = actor
         mock_call_narrative.return_value = (
             wrong_narrative,
@@ -343,6 +345,7 @@ class TestEntryPointOverride:
                 profile=profile,
                 client=client,
                 use_case="Test use case",
+                pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
                 pinned_entry_point=pinned_ep,

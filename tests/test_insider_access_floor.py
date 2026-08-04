@@ -1,13 +1,7 @@
-"""Tests for insider access floor validation (6xe7 bead, Fix C).
+"""Tests for cmps.6 structured-evidence-based insider access validation.
 
-Covers:
-- Malicious-insider scenarios with insider-specific actions pass
-- Malicious-insider scenarios with only public actions are flagged
-- Non-insider actor types are not checked (always pass)
-- Keyword matching on narrative steps (action + effect)
-- Keyword matching on narrative summary
-- Keyword matching on actor profile resources
-- Multiple scenarios batch validation
+Covers direct insider ingress with and without a material insider advantage,
+indirect insider ingress, non-insider actors, and mixed batch validation.
 """
 
 from __future__ import annotations
@@ -21,6 +15,7 @@ from scenario_forge.models.attack_tree import (
     GateType,
 )
 from scenario_forge.models.scenario import (
+    ActorAccessProvenance,
     ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
@@ -41,14 +36,15 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
     TechniqueMaturity,
 )
-from scenario_forge.pipeline.validation import (
-    _has_insider_access_markers,
-    validate_insider_access_floor,
-)
+from scenario_forge.pipeline.validation import validate_insider_access_floor
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+ENTRY_POINT_ID = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+DEFAULT_INSIDER_ACCESS = ActorAccessProvenance(
+    initial_entry_point_id=ENTRY_POINT_ID,
+    ingress_mode="direct",
+    access_class="public",
+    material_insider_advantage="Authorized access to internal customer records.",
+)
 
 
 def _make_envelope(
@@ -58,6 +54,7 @@ def _make_envelope(
     summary: str = "An insider attacks the system.",
     resources: list[str] | None = None,
     scenario_id: str = "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
+    access: ActorAccessProvenance | None = DEFAULT_INSIDER_ACCESS,
 ) -> ScenarioEnvelope:
     """Build a minimal ScenarioEnvelope with an actor profile for testing."""
     if step_actions is None:
@@ -77,7 +74,6 @@ def _make_envelope(
         )
         for i, action in enumerate(step_actions)
     ]
-
     narrative = NarrativeLayer(
         title="Test Scenario",
         summary=summary,
@@ -85,7 +81,6 @@ def _make_envelope(
         zone_sequence=["input", "reasoning"],
         steps=steps,
     )
-
     actor_profile = ActorProfile(
         actor_type=actor_type,
         capability_level="intermediate",
@@ -93,8 +88,8 @@ def _make_envelope(
         desires=["Extract sensitive data."],
         intentions=["Exploit internal access to steal data."],
         resources=resources or ["Standard tools"],
+        access=access,
     )
-
     attack_tree = AttackTree(
         id="tree-AP-T1-01",
         seed_id="AP-T1-01",
@@ -122,7 +117,6 @@ def _make_envelope(
             ],
         ),
     )
-
     faceting = FacetingMetadata(
         risk_card=RiskCardRef(
             risk_id="test-risk",
@@ -144,7 +138,6 @@ def _make_envelope(
         ),
         maestro_layers=[1, 2],
     )
-
     priority = Priority(
         composite=0.7,
         signals=PrioritySignals(
@@ -156,7 +149,6 @@ def _make_envelope(
             structural_exposure=StructuralExposureSignal.none,
         ),
     )
-
     generation = GenerationMetadata(
         model="test-model",
         call_metadata=[
@@ -168,12 +160,12 @@ def _make_envelope(
             ),
         ],
     )
-
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
+        initial_entry_point_id=ENTRY_POINT_ID,
         narrative=narrative,
         actor_profile=actor_profile,
         attack_tree=attack_tree,
@@ -184,309 +176,129 @@ def _make_envelope(
     )
 
 
-# ---------------------------------------------------------------------------
-# Tests: insider access keyword helper
-# ---------------------------------------------------------------------------
+class TestInsiderStructuredAccess:
+    def test_direct_access_with_material_insider_advantage_passes(self):
+        result = validate_insider_access_floor([_make_envelope()])
+        assert result.flagged_count == 0
+        assert result.clean_count == 1
 
-
-class TestInsiderAccessMarkers:
-    """Unit tests for the keyword matching helper."""
-
-    def test_internal_system_matches(self):
-        assert _has_insider_access_markers("Access the internal system to extract data")
-
-    def test_admin_panel_matches(self):
-        assert _has_insider_access_markers("Navigate to the admin panel")
-
-    def test_admin_console_matches(self):
-        assert _has_insider_access_markers("Log into the admin console")
-
-    def test_backend_access_matches(self):
-        assert _has_insider_access_markers("Leverage backend access to the database")
-
-    def test_employee_portal_matches(self):
-        assert _has_insider_access_markers("Use the employee portal credentials")
-
-    def test_privileged_access_matches(self):
-        assert _has_insider_access_markers(
-            "Exploit privileged access to internal resources"
+    def test_indirect_access_passes(self):
+        access = ActorAccessProvenance(
+            initial_entry_point_id=ENTRY_POINT_ID,
+            ingress_mode="indirect",
+            access_class="supply_chain",
+            influence_source="ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            influence_mechanism="Poisoned content",
+            trust_boundary_id="tb:v1:cccccccccccccccccccccccccccccccc",
         )
+        result = validate_insider_access_floor([_make_envelope(access=access)])
+        assert result.flagged_count == 0
+        assert result.clean_count == 1
 
-    def test_corporate_vpn_matches(self):
-        assert _has_insider_access_markers(
-            "Connect via corporate VPN to reach internal servers"
+    def test_direct_privileged_access_without_material_advantage_flagged(self):
+        access = ActorAccessProvenance(
+            initial_entry_point_id=ENTRY_POINT_ID,
+            ingress_mode="direct",
+            access_class="privileged",
         )
-
-    def test_intranet_matches(self):
-        assert _has_insider_access_markers("Access the intranet documentation")
-
-    def test_deployment_pipeline_matches(self):
-        assert _has_insider_access_markers(
-            "Modify the deployment pipeline configuration"
-        )
-
-    def test_service_account_matches(self):
-        assert _has_insider_access_markers("Use the service account to authenticate")
-
-    def test_production_access_matches(self):
-        assert _has_insider_access_markers("Gain production access to the database")
-
-    def test_insider_keyword_matches(self):
-        assert _has_insider_access_markers("Leveraging insider knowledge of the system")
-
-    def test_hr_system_matches(self):
-        assert _has_insider_access_markers("Query the HR system for employee records")
-
-    def test_public_interface_no_match(self):
-        assert not _has_insider_access_markers(
-            "Send a carefully crafted prompt to the chatbot"
-        )
-
-    def test_generic_attack_no_match(self):
-        assert not _has_insider_access_markers(
-            "Submit malicious input through the customer-facing form"
-        )
-
-    def test_empty_string_no_match(self):
-        assert not _has_insider_access_markers("")
-
-
-# ---------------------------------------------------------------------------
-# Tests: insider scenarios with insider-specific actions pass
-# ---------------------------------------------------------------------------
-
-
-class TestInsiderWithInsiderActions:
-    """Malicious-insider scenarios exercising insider-specific actions pass."""
-
-    def test_insider_with_internal_system_passes(self):
-        scenarios = [
-            _make_envelope(
-                step_actions=["Access the internal system to extract customer data"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
-        assert result.flagged_count == 0
-        assert result.clean_count == 1
-
-    def test_insider_with_admin_panel_passes(self):
-        scenarios = [
-            _make_envelope(
-                step_actions=["Log into the admin panel and modify access controls"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
-        assert result.flagged_count == 0
-        assert result.clean_count == 1
-
-    def test_insider_with_backend_access_passes(self):
-        scenarios = [
-            _make_envelope(
-                step_actions=["Use backend access to modify transaction records"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
-        assert result.flagged_count == 0
-        assert result.clean_count == 1
-
-    def test_insider_with_insider_effect_passes(self):
-        """Insider marker in step effect (not action) should still count."""
-        scenarios = [
-            _make_envelope(
-                step_actions=["Execute the data exfiltration plan"],
-                step_effects=["The internal system returns sensitive records"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
-        assert result.flagged_count == 0
-        assert result.clean_count == 1
-
-    def test_insider_with_insider_summary_passes(self):
-        """Insider marker in narrative summary should count."""
-        scenarios = [
-            _make_envelope(
-                summary="An insider leverages admin console access to steal data",
-                step_actions=["Proceed with the attack plan"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
-        assert result.flagged_count == 0
-        assert result.clean_count == 1
-
-    def test_insider_with_insider_resources_passes(self):
-        """Insider marker in actor resources should count."""
-        scenarios = [
-            _make_envelope(
-                step_actions=["Execute the data theft plan"],
-                resources=["Employee portal credentials", "Knowledge of workflows"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
-        assert result.flagged_count == 0
-        assert result.clean_count == 1
-
-
-# ---------------------------------------------------------------------------
-# Tests: insider scenarios with only public actions are flagged
-# ---------------------------------------------------------------------------
-
-
-class TestInsiderWithOnlyPublicActions:
-    """Malicious-insider scenarios using only public interface are flagged."""
-
-    def test_insider_with_public_prompt_flagged(self):
-        scenarios = [
-            _make_envelope(
-                summary="A threat actor attacks the chatbot.",
-                step_actions=["Send a jailbreak prompt to the chatbot"],
-                step_effects=["The chatbot processes the input and responds"],
-                resources=["Open-source tools", "Public documentation"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
+        result = validate_insider_access_floor([_make_envelope(access=access)])
         assert result.flagged_count == 1
         assert result.clean_count == 0
 
-    def test_insider_with_only_customer_interface_flagged(self):
-        scenarios = [
-            _make_envelope(
-                summary="The attacker submits crafted queries.",
-                step_actions=[
-                    "Submit malicious input through the customer-facing form",
-                    "Wait for the system to generate a response",
-                ],
-                step_effects=[
-                    "The system processes the query",
-                    "The system returns manipulated output",
-                ],
-                resources=["Standard attack tools"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
+
+class TestInsiderMissingStructuredEvidence:
+    def test_direct_access_without_material_insider_advantage_flagged(self):
+        access = ActorAccessProvenance(
+            initial_entry_point_id=ENTRY_POINT_ID,
+            ingress_mode="direct",
+            access_class="public",
+        )
+        result = validate_insider_access_floor([_make_envelope(access=access)])
         assert result.flagged_count == 1
         assert result.clean_count == 0
 
-    def test_flagged_violation_has_correct_actor_type(self):
-        scenarios = [
-            _make_envelope(
-                summary="An attack via public interface.",
-                step_actions=["Send crafted input through the API"],
-                resources=["Public documentation"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
+    def test_direct_access_with_blank_material_insider_advantage_flagged(self):
+        access = ActorAccessProvenance(
+            initial_entry_point_id=ENTRY_POINT_ID,
+            ingress_mode="direct",
+            access_class="authenticated",
+            material_insider_advantage="   ",
+        )
+        result = validate_insider_access_floor([_make_envelope(access=access)])
         assert result.flagged_count == 1
+        assert result.clean_count == 0
+
+    def test_no_access_provenance_flagged(self):
+        result = validate_insider_access_floor([_make_envelope(access=None)])
+        assert result.flagged_count == 1
+        assert result.clean_count == 0
+
+    def test_violation_identifies_actor_and_missing_evidence(self):
+        result = validate_insider_access_floor([_make_envelope(access=None)])
         _scenario, violation = result.flagged_scenarios[0]
         assert violation.actor_type == "malicious-insider"
-
-    def test_flagged_violation_has_reason(self):
-        scenarios = [
-            _make_envelope(
-                summary="An attack.",
-                step_actions=["Send a prompt"],
-                resources=["Tools"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
-        assert result.flagged_count == 1
-        _scenario, violation = result.flagged_scenarios[0]
-        assert (
-            "insider-specific" in violation.reason.lower()
-            or "insider" in violation.reason.lower()
-        )
-
-
-# ---------------------------------------------------------------------------
-# Tests: non-insider actor types are not checked
-# ---------------------------------------------------------------------------
+        reason = violation.reason.lower()
+        assert "material_insider_advantage" in reason or "access provenance" in reason
 
 
 class TestNonInsiderActorsSkipped:
-    """Non-insider actor types always pass -- no insider access floor check."""
-
-    def test_adversarial_user_always_passes(self):
-        scenarios = [
-            _make_envelope(
-                actor_type="adversarial-user",
-                step_actions=["Send a jailbreak prompt"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
+    def test_adversarial_user_passes_without_access(self):
+        result = validate_insider_access_floor(
+            [_make_envelope(actor_type="adversarial-user", access=None)]
+        )
         assert result.flagged_count == 0
         assert result.clean_count == 1
 
-    def test_cybercriminal_always_passes(self):
-        scenarios = [
-            _make_envelope(
-                actor_type="cybercriminal",
-                step_actions=["Send a phishing payload"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
+    def test_cybercriminal_passes_without_material_advantage(self):
+        access = ActorAccessProvenance(
+            initial_entry_point_id=ENTRY_POINT_ID,
+            ingress_mode="direct",
+            access_class="public",
+        )
+        result = validate_insider_access_floor(
+            [_make_envelope(actor_type="cybercriminal", access=access)]
+        )
         assert result.flagged_count == 0
         assert result.clean_count == 1
 
-    def test_supply_chain_actor_always_passes(self):
-        scenarios = [
-            _make_envelope(
-                actor_type="supply-chain-actor",
-                step_actions=["Inject malicious code into the dependency"],
-            )
-        ]
-        result = validate_insider_access_floor(scenarios)
+    def test_supply_chain_actor_passes_regardless_of_access(self):
+        result = validate_insider_access_floor(
+            [_make_envelope(actor_type="supply-chain-actor", access=None)]
+        )
         assert result.flagged_count == 0
         assert result.clean_count == 1
 
     def test_scenario_without_actor_profile_passes(self):
-        """Scenario with no actor_profile should pass (not applicable)."""
-        envelope = _make_envelope(
-            actor_type="adversarial-user",
-            step_actions=["Do something"],
-        )
-        # Remove actor profile
+        envelope = _make_envelope()
         envelope.actor_profile = None
         result = validate_insider_access_floor([envelope])
         assert result.flagged_count == 0
         assert result.clean_count == 1
 
 
-# ---------------------------------------------------------------------------
-# Tests: batch validation
-# ---------------------------------------------------------------------------
-
-
 class TestBatchValidation:
-    """Validate correct handling of mixed scenario batches."""
-
     def test_mixed_batch_correct_counts(self):
-        """A batch with both passing and failing insider scenarios."""
+        missing_advantage = ActorAccessProvenance(
+            initial_entry_point_id=ENTRY_POINT_ID,
+            ingress_mode="direct",
+            access_class="public",
+        )
+        flagged_id = "scenario:v2:cc2675b912bd0ffb62b4b2b77b59c46712c32ac167201286e694bdd306ed11d0"
         scenarios = [
-            # Passes: insider with internal system
             _make_envelope(
                 scenario_id="scenario:v2:cff7f3f347f1cb94c1a3120f82e8564d63ef811b41784cc50d2d7b2ec05da64b",
-                step_actions=["Access the internal system"],
             ),
-            # Fails: insider with only public actions
-            _make_envelope(
-                scenario_id="scenario:v2:cc2675b912bd0ffb62b4b2b77b59c46712c32ac167201286e694bdd306ed11d0",
-                summary="An attack.",
-                step_actions=["Send a prompt to the chatbot"],
-                resources=["Tools"],
-            ),
-            # Passes: not an insider
+            _make_envelope(scenario_id=flagged_id, access=missing_advantage),
             _make_envelope(
                 scenario_id="scenario:v2:3c4623849a49a53911c4a3e48d8cead8a1858960bccdea7a1b978d73ec2f06d7",
                 actor_type="adversarial-user",
-                step_actions=["Send a prompt"],
+                access=None,
             ),
         ]
         result = validate_insider_access_floor(scenarios)
         assert result.clean_count == 2
         assert result.flagged_count == 1
-        assert (
-            result.flagged_scenarios[0][0].scenario_id
-            == "scenario:v2:cc2675b912bd0ffb62b4b2b77b59c46712c32ac167201286e694bdd306ed11d0"
-        )
+        assert result.flagged_scenarios[0][0].scenario_id == flagged_id
 
     def test_empty_batch(self):
         result = validate_insider_access_floor([])

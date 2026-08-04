@@ -137,6 +137,97 @@ class PipelineResult(BaseModel):
     run_id: str | None = None
 
 
+def _iter_leaves(node):
+    """Yield all leaf nodes in an attack tree (no private imports)."""
+    if not node.children:
+        yield node
+        return
+    for child in node.children:
+        yield from _iter_leaves(child)
+
+
+def _assert_entry_point_ownership(
+    envelope: ScenarioEnvelope, candidate_entry_point_id: str
+) -> None:
+    """Assert that the envelope, actor access, candidate, and all tree
+    initial_ingress IDs all equal the one candidate-owned ID (cmps.6).
+
+    Raises :class:`ScenarioForgeIntegrityError` on any mismatch or when
+    actor access provenance is missing.  This is the pre-write ownership
+    gate — it runs immediately before the first artifact write so no
+    divergent-ID or unevidenced scenario can be persisted.
+    """
+    # 1. Envelope top-level ID must equal the candidate ID.
+    if envelope.initial_entry_point_id != candidate_entry_point_id:
+        raise ScenarioForgeIntegrityError(
+            f"Envelope initial_entry_point_id "
+            f"'{envelope.initial_entry_point_id}' does not match candidate "
+            f"entry_point_id '{candidate_entry_point_id}'. Aborting run."
+        )
+
+    # 2. Actor access provenance must exist and its ID must equal the
+    #    candidate ID.  Missing access is a fatal integrity error — the
+    #    cmps.6 policy is authoritative, not optional.
+    actor = envelope.actor_profile
+    if actor is None or actor.access is None:
+        raise ScenarioForgeIntegrityError(
+            "Actor access provenance is missing — every generated scenario "
+            "must carry typed access evidence (cmps.6). Aborting run."
+        )
+    if actor.access.initial_entry_point_id != candidate_entry_point_id:
+        raise ScenarioForgeIntegrityError(
+            f"Actor access initial_entry_point_id "
+            f"'{actor.access.initial_entry_point_id}' does not match "
+            f"candidate entry_point_id '{candidate_entry_point_id}'. "
+            f"Aborting run."
+        )
+
+    # 3. Every tree initial_ingress ID must equal the candidate ID.
+    if envelope.attack_tree is not None:
+        for leaf in _iter_leaves(envelope.attack_tree.root):
+            if (
+                leaf.action is not None
+                and leaf.action.kind == "initial_ingress"
+                and leaf.action.entry_point_id != candidate_entry_point_id
+            ):
+                raise ScenarioForgeIntegrityError(
+                    f"Attack tree initial_ingress action '{leaf.id}' uses "
+                    f"entry_point_id '{leaf.action.entry_point_id}' which "
+                    f"diverges from candidate '{candidate_entry_point_id}'. "
+                    f"Aborting run."
+                )
+
+
+def _run_early_access_gate(
+    envelope: ScenarioEnvelope,
+    profile: CapabilityProfile,
+) -> list[str]:
+    """Run the cmps.6 access gate immediately after generation (cmps.6).
+
+    Returns a list of violation messages (empty if valid).  This is the
+    early gate that prevents invalid-access scenarios from participating
+    in coverage remediation or diversity state — not a replacement for
+    full semantic validation, which runs later and catches additional
+    issues (phantom, structural, etc.).
+    """
+    from scenario_forge.pipeline.generate.actor import (
+        validate_actor_access_provenance,
+    )
+    from scenario_forge.pipeline.generate.narrative import (
+        validate_narrative_access_realization,
+    )
+
+    violations: list[str] = []
+    if envelope.actor_profile is not None:
+        for v in validate_actor_access_provenance(envelope.actor_profile, profile):
+            violations.append(v.message)
+        for v in validate_narrative_access_realization(
+            envelope.narrative, envelope.actor_profile
+        ):
+            violations.append(v.message)
+    return violations
+
+
 def _compute_gap_attributions(
     coverage_gaps: CoverageGaps,
     seeds: list[ScenarioSeed],
@@ -342,6 +433,7 @@ def _remediate_coverage_gaps(
     attempts: list[AttemptRecord],
     available_goals: list[dict] | None = None,
     goal_usage: Counter | None = None,
+    early_quarantined_sids: set[str] | None = None,
 ) -> tuple[list[ScenarioEnvelope], list[str], int, int]:
     """Generate additional scenarios for entry points that received none.
 
@@ -501,6 +593,19 @@ def _remediate_coverage_gaps(
                     f"'{expected_sid}' from compute_scenario_id. Aborting run."
                 )
 
+            # Pre-write candidate-ownership assertion (cmps.6): the
+            # envelope, actor access, candidate (ep_id), and every tree
+            # initial_ingress ID must all equal the one candidate-owned ID.
+            # Same gate as main generation — no divergent IDs accepted.
+            # ep_id is always a non-empty canonical ID (EntryPointGap
+            # requires entry_point_id: str); an absent ID is a fatal bug.
+            if not ep_id:
+                raise ScenarioForgeIntegrityError(
+                    "Remediation entry point gap has no canonical "
+                    "entry_point_id — cannot assert ownership. Aborting run."
+                )
+            _assert_entry_point_ownership(envelope, ep_id)
+
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
 
             # Record a provisional receipt immediately after successful
@@ -531,12 +636,24 @@ def _remediate_coverage_gaps(
                 disposition=AttemptDisposition.ADMITTED,
             )
 
-            if (
-                goal_usage is not None
-                and envelope.actor_profile is not None
-                and envelope.actor_profile.goal_category is not None
-            ):
-                goal_usage[envelope.actor_profile.goal_category] += 1
+            # cmps.6 early access gate for remediation: only update
+            # goal_usage for access-valid scenarios.
+            _rem_access_violations = _run_early_access_gate(envelope, profile)
+            if not _rem_access_violations:
+                if (
+                    goal_usage is not None
+                    and envelope.actor_profile is not None
+                    and envelope.actor_profile.goal_category is not None
+                ):
+                    goal_usage[envelope.actor_profile.goal_category] += 1
+            else:
+                if early_quarantined_sids is not None:
+                    early_quarantined_sids.add(envelope.scenario_id)
+                logger.warning(
+                    "Remediation early access gate QUARANTINED %s: %s",
+                    envelope.scenario_id,
+                    "; ".join(_rem_access_violations),
+                )
             logger.info(
                 "    Remediation scenario generated: %s (entry point: %s)",
                 envelope.scenario_id,
@@ -1111,6 +1228,7 @@ def run_pipeline(
     input_hashes: InputHashes = InputHashes()
     provenance: Provenance | None = None
     partial_manifest: RunManifest | None = None
+    early_quarantined_sids: set[str] = set()
 
     try:
         # --- Capture input hashes at run start (before inputs can change) ---
@@ -1569,6 +1687,12 @@ def run_pipeline(
                         f"compute_scenario_id(run_id, candidate_id, 1). Aborting run."
                     )
 
+                # Pre-write candidate-ownership assertion (cmps.6): the
+                # envelope, actor access, candidate (fseed.entry_point_id),
+                # and every tree initial_ingress ID must all equal the one
+                # candidate-owned ID.  No divergent IDs accepted.
+                _assert_entry_point_ownership(envelope, fseed.entry_point_id)
+
                 yaml_path, feature_path = write_scenario_outputs(
                     envelope, scenarios_dir
                 )
@@ -1605,8 +1729,27 @@ def run_pipeline(
                     disposition=AttemptDisposition.ADMITTED,
                 )
 
-                # Update diversity counters for subsequent seeds.
-                tracker.update(envelope, attack_pattern_name=fseed.attack_pattern_name)
+                # cmps.6 early access gate: run immediately after write to
+                # prevent invalid-access scenarios from participating in
+                # coverage remediation or diversity state.  The scenario
+                # is still in ``scenarios`` (for artifact reconciliation)
+                # and ADMITTED (late quarantine will catch it via full
+                # semantic validation), but it does NOT update diversity
+                # and is excluded from coverage gap analysis.
+                _early_access_violations = _run_early_access_gate(envelope, profile)
+                if _early_access_violations:
+                    early_quarantined_sids.add(envelope.scenario_id)
+                    logger.warning(
+                        "Early access gate QUARANTINED %s: %s",
+                        envelope.scenario_id,
+                        "; ".join(_early_access_violations),
+                    )
+                else:
+                    # Update diversity counters for subsequent seeds only
+                    # for access-valid scenarios (cmps.6).
+                    tracker.update(
+                        envelope, attack_pattern_name=fseed.attack_pattern_name
+                    )
 
                 notes = envelope.generation.notes or []
                 generation_notes.extend(notes)
@@ -1649,7 +1792,14 @@ def run_pipeline(
         # --- Coverage Remediation Pass (before validation) ---
         # Remediation scenarios go through the same generation/write/admission
         # path as main candidates, then pass through all validation passes.
-        pre_remediation_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        # cmps.6: exclude early-quarantined scenarios from coverage analysis
+        # so they don't suppress remediation for their entry point.
+        pre_remediation_scenarios = [
+            s for s in scenarios if s.scenario_id not in early_quarantined_sids
+        ]
+        pre_remediation_gaps = analyze_coverage_gaps(
+            profile, threat_surface, pre_remediation_scenarios
+        )
         rem_attempted = 0
         rem_failed = 0
         rem_admitted = 0
@@ -1670,6 +1820,7 @@ def run_pipeline(
                     attempts=attempts,
                     available_goals=available_goals,
                     goal_usage=tracker.goal_usage,
+                    early_quarantined_sids=early_quarantined_sids,
                 )
             )
             rem_admitted = len(remediation_scenarios)
@@ -1865,10 +2016,36 @@ def run_pipeline(
             "  %d scenario YAML(s) re-written with validation metadata", rewrite_count
         )
 
+        # --- cmps.6: compute quarantine partition before coverage/eval ---
+        # Validation is complete; partition admitted vs quarantined now so
+        # coverage, diversity, eval, and report only see admitted scenarios.
+        # Quarantine artifacts/receipts are retained as forensic evidence.
+        # Include early-quarantined scenarios (from the cmps.6 access gate)
+        # in addition to validation-failed scenarios.
+        quarantined_sids = {
+            s.scenario_id
+            for s in scenarios
+            if s.scenario_id in early_quarantined_sids
+            or (
+                s.validation is not None
+                and (
+                    not s.validation.phantom.valid
+                    or not s.validation.structural.valid
+                    or not s.validation.semantic.valid
+                )
+            )
+        }
+        quarantined_count = len(quarantined_sids)
+        admitted_scenarios = [
+            s for s in scenarios if s.scenario_id not in quarantined_sids
+        ]
+
         # --- Coverage Analysis ---
         logger.info("[Post-Generation] Analyzing coverage gaps...")
-        coverage_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        attacker_diversity = analyze_attacker_diversity(scenarios)
+        coverage_gaps = analyze_coverage_gaps(
+            profile, threat_surface, admitted_scenarios
+        )
+        attacker_diversity = analyze_attacker_diversity(admitted_scenarios)
 
         # --- Funnel-stage attribution for coverage gaps ---
         if coverage_gaps.has_gaps:
@@ -1892,18 +2069,6 @@ def run_pipeline(
 
         persisted_artifacts = len(artifact_records)
 
-        # --- Compute quarantine count ---
-        quarantined_count = sum(
-            1
-            for s in scenarios
-            if s.validation is not None
-            and (
-                not s.validation.phantom.valid
-                or not s.validation.structural.valid
-                or not s.validation.semantic.valid
-            )
-        )
-
         # --- Write final run manifest — single complete build ---
         funnel = CandidateFunnel(
             expanded_instances=expanded_instances,
@@ -1921,6 +2086,8 @@ def run_pipeline(
             remediation_admitted=rem_admitted,
             remediation_failed=rem_failed,
             attempted=attempted_count,
+            # Funnel admission counts include generated artifacts later
+            # partitioned into admitted and quarantined dispositions.
             admitted=len(scenarios),
             quarantined=quarantined_count,
             persisted_artifacts=persisted_artifacts,
@@ -1980,20 +2147,9 @@ def run_pipeline(
                 "unprunable_count": parsimony_unprunable_count,
             },
         }
-        # --- Determine quarantine status ---
         # --- Determine quarantine status and update attempt records ---
         has_quarantine = quarantined_count > 0
         if has_quarantine:
-            quarantined_sids = {
-                s.scenario_id
-                for s in scenarios
-                if s.validation is not None
-                and (
-                    not s.validation.phantom.valid
-                    or not s.validation.structural.valid
-                    or not s.validation.semantic.valid
-                )
-            }
             for a in attempts:
                 if (
                     a.disposition == AttemptDisposition.ADMITTED
@@ -2006,7 +2162,14 @@ def run_pipeline(
                     )
 
         # --- Build pre-eval in-memory inventory (no persisted started manifest) ---
-        pre_eval_inventory = _build_run_inventory(run_dir, write_receipts, scenarios)
+        # cmps.6: exclude quarantined scenario artifacts from eval/report
+        # inventories; retain all receipts for the final forensic inventory.
+        admitted_receipts = [
+            r for r in write_receipts if r["scenario_id"] not in quarantined_sids
+        ]
+        pre_eval_inventory = _build_run_inventory(
+            run_dir, admitted_receipts, admitted_scenarios
+        )
         eval_snapshot_manifest = RunManifest(
             manifest_version=MANIFEST_VERSION,
             status=RunStatus.STARTED,
@@ -2055,7 +2218,10 @@ def run_pipeline(
 
         # --- Build in-memory inventory with scorecard for report ---
         pre_report_inventory = _build_run_inventory(
-            run_dir, write_receipts, scenarios, include_eval=eval_success
+            run_dir,
+            admitted_receipts,
+            admitted_scenarios,
+            include_eval=eval_success,
         )
         # Compute intended final status for the report view.
         # This is the status the run will have if report generation succeeds.
@@ -2143,7 +2309,7 @@ def run_pipeline(
             threat_surface=threat_surface,
             seeds=seeds,
             filtered_seeds=filtered_seeds,
-            scenarios=scenarios,
+            scenarios=admitted_scenarios,
             governance_only_count=governance_count,
             generation_notes=generation_notes,
             run_dir=run_dir,

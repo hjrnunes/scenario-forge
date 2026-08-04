@@ -27,6 +27,7 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
 )
 from scenario_forge.pipeline.generate.constants import (
+    _ACTOR_ACCESS_MAX_RETRIES,
     _ADVERSARIAL_ONLY_THREATS,
     _CONSISTENCY_MAX_RETRIES,
     _GENERATOR_VERSION,
@@ -270,6 +271,7 @@ def _assemble_envelope(
     model_name: str,
     use_case: str,
     notes: list[str],
+    pinned_entry_point_id: str,
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_entry_point: str | None = None,
@@ -351,6 +353,7 @@ def _assemble_envelope(
         scenario_seed_metadata=scenario_seed_metadata,
         legitimate_task=use_case,
         actor_profile=actor_profile,
+        initial_entry_point_id=pinned_entry_point_id,
         narrative=narrative,
         attack_tree=attack_tree,
         behavior_spec=behavior_spec,
@@ -370,6 +373,7 @@ def generate_scenario(
     profile: CapabilityProfile,
     client: LLMClient,
     use_case: str,
+    pinned_entry_point_id: str,
     preferred_entry_point: str | None = None,
     excluded_entry_points: list[str] | None = None,
     excluded_patterns: list[str] | None = None,
@@ -382,7 +386,6 @@ def generate_scenario(
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
     prior_titles: list[str] | None = None,
-    pinned_entry_point_id: str | None = None,
     run_id: str = "",
     candidate_id: str = "",
     attempt: int = 1,
@@ -447,6 +450,7 @@ def generate_scenario(
     _validate_technique_zone_compat = _gen._validate_technique_zone_compatibility
     _warn_dominant_threat_id_crossref_fn = _gen._warn_dominant_threat_id_crossref
     _assemble_envelope_fn = _gen._assemble_envelope
+    _validate_realization = _gen.narrative.validate_narrative_access_realization
 
     # Enforce identity inputs at the generation boundary.
     _validate_run_id(run_id)
@@ -479,8 +483,9 @@ def generate_scenario(
             )
 
     # --- Call 0: Actor Profile ---
+    _diversity_notes: list[str] = []
     try:
-        actor_profile, result0 = _call_actor_profile(
+        actor_profile, result0, _div_limitation = _call_actor_profile(
             seed,
             profile,
             client,
@@ -493,6 +498,11 @@ def generate_scenario(
             pinned_entry_point=pinned_entry_point,
             pinned_entry_point_id=pinned_entry_point_id,
         )
+        if _div_limitation:
+            _diversity_notes.append(
+                f"Diversity limitation: forced actor '{_div_limitation}' was "
+                f"incompatible, replaced with feasible fallback."
+            )
     except Exception as exc:
         call_log_entries.append(
             _call_log_entry_error(
@@ -516,7 +526,7 @@ def generate_scenario(
         )
         corrected_type = actor_profile.actor_type
         try:
-            actor_profile, result0 = _call_actor_profile(
+            actor_profile, result0, _div_limitation = _call_actor_profile(
                 seed,
                 profile,
                 client,
@@ -529,6 +539,11 @@ def generate_scenario(
                 pinned_entry_point=pinned_entry_point,
                 pinned_entry_point_id=pinned_entry_point_id,
             )
+            if _div_limitation:
+                _diversity_notes.append(
+                    f"Diversity limitation: forced actor '{_div_limitation}' "
+                    f"was incompatible, replaced with feasible fallback."
+                )
         except Exception as exc:
             call_log_entries.append(
                 _call_log_entry_error(
@@ -559,6 +574,85 @@ def generate_scenario(
         actor_profile.goal_category = attack_goal["id"]
         actor_profile.goal_category_name = attack_goal["name"]
         actor_profile.goal_category_parent = attack_goal["category_name"]
+
+    # --- Post-Call-0: actor/access provenance validation + retry (cmps.6) ---
+    _validate_access = _gen.validate_actor_access_provenance
+    _access_violations = (
+        _validate_access(actor_profile, profile) if pinned_entry_point_id else []
+    )
+    _access_retry = 0
+    while _access_violations and _access_retry < _ACTOR_ACCESS_MAX_RETRIES:
+        _access_retry += 1
+        _access_feedback = "\n".join(f"- {v.message}" for v in _access_violations)
+        logger.warning(
+            "Actor/access provenance violations in %s (retry %d/%d): %s",
+            partial_scenario_id,
+            _access_retry,
+            _ACTOR_ACCESS_MAX_RETRIES,
+            _access_feedback,
+        )
+        # cmps.6: if the violation indicates actor/evidence incompatibility,
+        # do not force the same actor type — let the LLM pick a feasible one.
+        _force_type: str | None = actor_profile.actor_type
+        if any(
+            v.rule
+            in (
+                "access_class_ingress_mode_incompatible",
+                "missing_insider_advantage",
+            )
+            for v in _access_violations
+        ):
+            _force_type = None
+            logger.info(
+                "Access retry %d: not forcing actor '%s' due to "
+                "access-class/ingress-mode incompatibility",
+                _access_retry,
+                actor_profile.actor_type,
+            )
+        try:
+            actor_profile, result0, _div_limitation = _call_actor_profile(
+                seed,
+                profile,
+                client,
+                use_case,
+                excluded_actor_types=excluded_actor_types,
+                preferred_capability_level=preferred_capability_level,
+                attack_goal=attack_goal,
+                pinned_technique_ids=pinned_technique_ids,
+                forced_actor_type=_force_type,
+                pinned_entry_point=pinned_entry_point,
+                pinned_entry_point_id=pinned_entry_point_id,
+                access_feedback=_access_feedback,
+            )
+            if _div_limitation:
+                _diversity_notes.append(
+                    f"Diversity limitation: forced actor '{_div_limitation}' "
+                    f"was incompatible, replaced with feasible fallback."
+                )
+            actor_profile = _validate_actor_type(actor_profile)
+            if attack_goal is not None:
+                actor_profile.goal_category = attack_goal["id"]
+                actor_profile.goal_category_name = attack_goal["name"]
+                actor_profile.goal_category_parent = attack_goal["category_name"]
+        except Exception as exc:  # noqa: BLE001 - retry must catch all
+            logger.warning(
+                "Actor/access retry %d/%d failed for %s: %s",
+                _access_retry,
+                _ACTOR_ACCESS_MAX_RETRIES,
+                partial_scenario_id,
+                exc,
+            )
+            break
+        _access_violations = _validate_access(actor_profile, profile)
+
+    if _access_violations:
+        logger.warning(
+            "Actor/access provenance violations persist after %d retries for "
+            "%s — proceeding to semantic validation for quarantine: %s",
+            _access_retry,
+            partial_scenario_id,
+            "; ".join(v.message for v in _access_violations),
+        )
 
     call_metas.append(_call_metadata(CallName.actor_profile, result0))
     results[CallName.actor_profile] = result0
@@ -596,6 +690,100 @@ def generate_scenario(
     call_log_entries.append(
         _call_log_entry(CallName.narrative, result1, partial_scenario_id)
     )
+
+    # --- Post-Call-1: unified title + access-realization validation (cmps.6) ---
+    # Every accepted Call 1 result must pass BOTH title uniqueness and
+    # access-realization constraints.  Title retries and realization
+    # retries share one bounded retry path so no later replacement
+    # can bypass access validation.
+    _call1_retry = 0
+    _augmented_titles = list(prior_titles) if prior_titles else []
+    while _call1_retry < _ACTOR_ACCESS_MAX_RETRIES:
+        _needs_retry = False
+        _retry_feedback_parts: list[str] = []
+
+        # Check access realization.
+        _realization_violations = _validate_realization(narrative, actor_profile)
+        if _realization_violations:
+            _needs_retry = True
+            _realization_feedback = "\n".join(
+                f"- {v.message}" for v in _realization_violations
+            )
+            _retry_feedback_parts.append(_realization_feedback)
+            logger.warning(
+                "Narrative access realization violations in %s (retry %d/%d): %s",
+                partial_scenario_id,
+                _call1_retry + 1,
+                _ACTOR_ACCESS_MAX_RETRIES,
+                _realization_feedback,
+            )
+
+        # Check title uniqueness.
+        _title_duplicate = prior_titles is not None and narrative.title in prior_titles
+        if _title_duplicate:
+            _needs_retry = True
+            if f"DUPLICATE — DO NOT REUSE: {narrative.title}" not in _augmented_titles:
+                _augmented_titles = list(prior_titles) + [
+                    f"DUPLICATE — DO NOT REUSE: {narrative.title}"
+                ]
+            _retry_feedback_parts.append(
+                f"Title '{narrative.title}' is an exact duplicate of a "
+                f"previously generated title — choose a different title."
+            )
+            logger.warning(
+                "Exact duplicate title for %s: '%s' — retrying Call 1",
+                partial_scenario_id,
+                narrative.title,
+            )
+
+        if not _needs_retry:
+            break
+
+        _call1_retry += 1
+        _combined_feedback = "\n".join(_retry_feedback_parts)
+        try:
+            narrative, result1 = _call_narrative(
+                seed,
+                profile,
+                client,
+                use_case,
+                actor_profile=actor_profile,
+                preferred_entry_point=preferred_entry_point,
+                excluded_entry_points=excluded_entry_points,
+                excluded_patterns=excluded_patterns,
+                excluded_structural_patterns=excluded_structural_patterns,
+                pinned_entry_point=pinned_entry_point,
+                pinned_technique_ids=pinned_technique_ids,
+                prior_titles=_augmented_titles if _augmented_titles else prior_titles,
+                pinned_entry_point_id=pinned_entry_point_id,
+                realization_feedback=(
+                    _realization_feedback if _realization_violations else None
+                ),
+            )
+            if pinned_entry_point and narrative.entry_point != pinned_entry_point:
+                narrative = narrative.model_copy(
+                    update={"entry_point": pinned_entry_point},
+                )
+        except Exception as exc:  # noqa: BLE001 - retry must catch all
+            logger.warning(
+                "Call 1 retry %d/%d failed for %s: %s",
+                _call1_retry,
+                _ACTOR_ACCESS_MAX_RETRIES,
+                partial_scenario_id,
+                exc,
+            )
+            break
+
+    # Re-check after loop exits (either all passed or retries exhausted).
+    _realization_violations = _validate_realization(narrative, actor_profile)
+    if _realization_violations:
+        logger.warning(
+            "Narrative access realization violations persist after %d retries "
+            "for %s — proceeding to semantic validation for quarantine: %s",
+            _call1_retry,
+            partial_scenario_id,
+            "; ".join(v.message for v in _realization_violations),
+        )
 
     # --- Post-Call-1 heuristic checks (warn-only, gmtc) ---
     try:
@@ -647,39 +835,6 @@ def generate_scenario(
         narrative = narrative.model_copy(
             update={"entry_point": pinned_entry_point},
         )
-
-    # --- Post-Call-1: title dedup enforcement ---
-    if prior_titles and narrative.title in prior_titles:
-        logger.warning(
-            "Exact duplicate title for %s: '%s' — retrying Call 1",
-            partial_scenario_id,
-            narrative.title,
-        )
-        augmented_titles = prior_titles + [
-            f"DUPLICATE — DO NOT REUSE: {narrative.title}"
-        ]
-        try:
-            narrative, result1 = _call_narrative(
-                seed,
-                profile,
-                client,
-                use_case,
-                actor_profile=actor_profile,
-                preferred_entry_point=preferred_entry_point,
-                excluded_entry_points=excluded_entry_points,
-                excluded_patterns=excluded_patterns,
-                excluded_structural_patterns=excluded_structural_patterns,
-                pinned_entry_point=pinned_entry_point,
-                pinned_technique_ids=pinned_technique_ids,
-                prior_titles=augmented_titles,
-                pinned_entry_point_id=pinned_entry_point_id,
-            )
-            if pinned_entry_point and narrative.entry_point != pinned_entry_point:
-                narrative = narrative.model_copy(
-                    update={"entry_point": pinned_entry_point},
-                )
-        except (ValueError, AttributeError) as exc:
-            logger.debug("Narrative entry_point update skipped: %s", exc)
 
     # --- Call 2: Attack Tree (with consistency enforcement retries) ---
     # Compute parsimony budget using the same formula as _call_attack_tree.
@@ -819,10 +974,11 @@ def generate_scenario(
         call_metadata_list=call_metas,
         model_name=client.model,
         use_case=use_case,
-        notes=[],
+        notes=_diversity_notes if _diversity_notes else [],
         actor_profile=actor_profile,
         pinned_technique_ids=pinned_technique_ids,
         pinned_entry_point=pinned_entry_point,
+        pinned_entry_point_id=pinned_entry_point_id,
         run_id=run_id,
         candidate_id=candidate_id,
         attempt=attempt,

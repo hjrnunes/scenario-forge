@@ -232,6 +232,7 @@ class TestTaxonomyChainReconciliation:
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
 
         # Should contain only the technique actually in the tree
@@ -255,6 +256,7 @@ class TestTaxonomyChainReconciliation:
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids == ["AML.T0054"]
@@ -277,6 +279,7 @@ class TestTaxonomyChainReconciliation:
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -298,6 +301,7 @@ class TestTaxonomyChainReconciliation:
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -319,6 +323,7 @@ class TestTaxonomyChainReconciliation:
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
 
         # atlas_provenance_ids documents where the scenario came from (seed provenance)
@@ -347,6 +352,7 @@ class TestTaxonomyChainReconciliation:
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
 
         assert set(envelope.faceting.taxonomy_chain.atlas_technique_ids) == {

@@ -4,23 +4,29 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
 
 from scenario_forge.data.atlas import TECHNIQUE_PROPERTIES
 from scenario_forge.llm.client import LLMClient, LLMResult
-from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.models.scenario import ACTOR_TYPES, ActorProfile
-from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.prompts import render_prompt
-
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    is_attacker_accessible_ingress,
+)
+from scenario_forge.models.scenario import (
+    ACTOR_TYPES,
+    ActorAccessProvenance,
+    ActorProfile,
+)
 from scenario_forge.pipeline.generate.constants import (
     _ACTOR_GOAL_INCOMPATIBLE,
     _ADVERSARIAL_INTENTION_KEYWORDS,
     _ADVERSARIAL_ONLY_THREATS,
     _CAPABILITY_FLOORS,
     _CAPABILITY_ORDER,
+    _INSIDER_ACTOR_TYPES,
     ALL_ACTOR_TYPES,
     CHAIN_TECHNIQUE_PAIRS,
 )
@@ -32,6 +38,8 @@ from scenario_forge.pipeline.generate.ontology import (
     _lookup_entry_point_direction,
     build_kc_definitions_block,
 )
+from scenario_forge.pipeline.seeds import ScenarioSeed
+from scenario_forge.prompts import render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +58,12 @@ class Call0Response(BaseModel):
     desires: list[str]
     intentions: list[str]
     resources: list[str]
+    # cmps.6 access provenance evidence (LLM-generated, validated post-hoc)
+    access_class: str | None = None
+    influence_source: str | None = None
+    influence_mechanism: str | None = None
+    trust_boundary_id: str | None = None
+    material_insider_advantage: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +194,17 @@ def compute_minimum_capability_level(
     return floor
 
 
+def _ep_controllability_to_ingress_mode(ep_controllability: str | None) -> str | None:
+    """Map an entry point's effective controllability to an ingress mode.
+
+    Returns ``"direct"``, ``"indirect"``, or ``None`` (for ``system`` or
+    unknown — system entry points are not eligible ingress at all).
+    """
+    if ep_controllability in ("direct", "indirect"):
+        return ep_controllability
+    return None
+
+
 def compute_compatible_actor_types(
     atlas_technique_ids: list[str] | tuple[str, ...] | None,
     ep_controllability: str | None,
@@ -189,22 +214,23 @@ def compute_compatible_actor_types(
 ) -> set[str]:
     """Compute the set of structurally compatible actor types for a seed.
 
-    Applies six rules in order, narrowing from the full actor-type set:
+    Applies rules in order, narrowing from the full actor-type set:
 
     R1 -- Adversarial-only threat: remove negligent-insider
-    R2 -- Indirect EP access floor: restrict to
-         {supply-chain-actor, malicious-insider, nation-state} (except T2+RAG)
-    R3 -- System EP: restrict to {malicious-insider, supply-chain-actor, nation-state}
-    R4 -- Technique requires direct access: remove negligent-insider and
+    R2 -- (Removed cmps.6) The blanket indirect actor allowlist has been
+         removed.  Actor eligibility for indirect ingress is determined
+         by typed evidence validated post-hoc, not by a categorical
+         allowlist.  System controllability entry points are rejected
+         by ``is_attacker_accessible_ingress`` before generation.
+    R3 -- Technique requires direct access: remove negligent-insider and
          supply-chain-actor; verify EP is direct
-    R5 -- Supply chain target layer: restrict to
+    R4 -- Supply chain target layer: restrict to
          {supply-chain-actor, nation-state, malicious-insider, automated-agent}
-    R6 -- Actor-goal consistency: remove actor types whose motivational
+    R5 -- Actor-goal consistency: remove actor types whose motivational
          profile is incompatible with the assigned goal category
 
     Returns:
-        Set of compatible actor type strings. Never empty (R3/R5 restrictions
-        always leave at least one type).
+        Set of compatible actor type strings. Never empty.
     """
     compatible = set(ALL_ACTOR_TYPES)
     tech_ids = list(atlas_technique_ids) if atlas_technique_ids else []
@@ -213,25 +239,12 @@ def compute_compatible_actor_types(
     if threat_id in _ADVERSARIAL_ONLY_THREATS:
         compatible.discard("negligent-insider")
 
-    # R2 -- Indirect EP access floor (with T2+RAG exception)
-    # Indirect entry points (e.g. RAG knowledge-grounding, authenticated
-    # customer context) require upstream or privileged write access.
-    # Only supply-chain-actor, malicious-insider, and nation-state have
-    # the positioning to inject through these channels.
-    if ep_controllability == "indirect":
-        # Exception: T2 + entry point contains "rag" or "knowledge"
-        ep_name_lower = (entry_point_name or "").lower()
-        is_t2_rag = threat_id == "T2" and (
-            "rag" in ep_name_lower or "knowledge" in ep_name_lower
-        )
-        if not is_t2_rag:
-            compatible &= {"supply-chain-actor", "malicious-insider", "nation-state"}
+    # R2 removed (cmps.6): no blanket indirect actor allowlist.
+    # Actor eligibility for indirect ingress is determined by typed
+    # evidence (influence_source, influence_mechanism, trust_boundary)
+    # validated post-hoc by validate_actor_access_provenance.
 
-    # R3 -- System EP restriction
-    if ep_controllability == "system":
-        compatible &= {"malicious-insider", "supply-chain-actor", "nation-state"}
-
-    # R4 -- Technique requires direct access
+    # R3 -- Technique requires direct access
     for tid in tech_ids:
         props = TECHNIQUE_PROPERTIES.get(tid)
         if props and props.get("requires_direct_access"):
@@ -239,7 +252,7 @@ def compute_compatible_actor_types(
             compatible.discard("supply-chain-actor")
             break
 
-    # R5 -- Supply chain target layer
+    # R4 -- Supply chain target layer
     for tid in tech_ids:
         props = TECHNIQUE_PROPERTIES.get(tid)
         if props and props.get("target_layer") == "supply_chain":
@@ -251,11 +264,11 @@ def compute_compatible_actor_types(
             }
             break
 
-    # R6 -- Actor-goal consistency
+    # R5 -- Actor-goal consistency
     if goal_id and goal_id in _ACTOR_GOAL_INCOMPATIBLE:
         incompatible = _ACTOR_GOAL_INCOMPATIBLE[goal_id]
         pruned = compatible - incompatible
-        # Safety: never empty the set — skip R6 if it would
+        # Safety: never empty the set — skip R5 if it would
         if pruned:
             compatible = pruned
 
@@ -296,6 +309,393 @@ def _validate_actor_type(actor_profile: ActorProfile) -> ActorProfile:
     return actor_profile
 
 
+# ---------------------------------------------------------------------------#
+# Actor access provenance (cmps.6)
+# ---------------------------------------------------------------------------#
+
+
+@dataclass
+class ActorAccessViolation:
+    """A single actor/access provenance violation detected during generation."""
+
+    rule: str
+    message: str
+
+
+def build_actor_access_provenance(
+    entry_point_id: str,
+    ep_controllability: str | None,
+    actor_type: str,
+    resp: Call0Response,
+) -> ActorAccessProvenance:
+    """Construct an :class:`ActorAccessProvenance` from canonical EP identity
+    and LLM-generated evidence.
+
+    ``ingress_mode`` is derived from the entry point's canonical
+    ``effective_controllability`` — never LLM-inferred.  ``access_class``
+    and the evidence fields are taken from the LLM response.
+
+    Unresolved/system controllability raises ``ValueError`` — system entry
+    points are not eligible ingress and must never default to direct.
+    """
+    ingress_mode = _ep_controllability_to_ingress_mode(ep_controllability)
+    if ingress_mode is None:
+        raise ValueError(
+            f"Entry point '{entry_point_id}' has effective controllability "
+            f"'{ep_controllability}' — not eligible ingress (system/unknown)."
+        )
+
+    return ActorAccessProvenance(
+        initial_entry_point_id=entry_point_id,
+        ingress_mode=ingress_mode,
+        access_class=resp.access_class,
+        influence_source=resp.influence_source,
+        influence_mechanism=resp.influence_mechanism,
+        trust_boundary_id=resp.trust_boundary_id,
+        material_insider_advantage=resp.material_insider_advantage,
+    )
+
+
+def _canonical_checks(
+    violations: list[ActorAccessViolation],
+    access: ActorAccessProvenance,
+    actor_type: str,
+    profile: CapabilityProfile,
+) -> None:
+    """Populate *violations* with canonical-profile resolution checks.
+
+    Pure function — no I/O, no logging.  Separated from
+    :func:`validate_actor_access_provenance` so it can be unit-tested
+    in isolation and reused by semantic validation.
+    """
+    # 5. Resolve initial entry point — must be eligible ingress.
+    initial_ep = profile.resolve_entry_point(access.initial_entry_point_id)
+    if initial_ep is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="unresolved_entry_point_id",
+                message=(
+                    f"initial_entry_point_id "
+                    f"'{access.initial_entry_point_id}' does not resolve "
+                    f"to any entry point in the capability profile."
+                ),
+            )
+        )
+        # Cannot continue canonical checks without the initial EP.
+        return
+
+    if not is_attacker_accessible_ingress(
+        initial_ep,
+        set(profile.zones_active) if profile.zones_active else set(),
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="ineligible_ingress_entry_point",
+                message=(
+                    f"initial_entry_point_id "
+                    f"'{access.initial_entry_point_id}' resolves to "
+                    f"'{initial_ep.name}' which is not an attacker-"
+                    f"accessible ingress route."
+                ),
+            )
+        )
+
+    # 5b. effective_controllability must match the declared ingress_mode.
+    _ep_ctrl = initial_ep.effective_controllability
+    if _ep_ctrl == "system":
+        violations.append(
+            ActorAccessViolation(
+                rule="system_entry_point_as_ingress",
+                message=(
+                    f"initial_entry_point_id "
+                    f"'{access.initial_entry_point_id}' has effective "
+                    f"controllability 'system' — not eligible ingress."
+                ),
+            )
+        )
+    elif _ep_ctrl != access.ingress_mode:
+        violations.append(
+            ActorAccessViolation(
+                rule="ingress_mode_controllability_mismatch",
+                message=(
+                    f"ingress_mode '{access.ingress_mode}' does not match "
+                    f"the entry point's effective controllability "
+                    f"'{_ep_ctrl}' (entry_point_id "
+                    f"'{access.initial_entry_point_id}')."
+                ),
+            )
+        )
+
+    # 6–8. Indirect ingress canonical relation checks.
+    if access.ingress_mode != "indirect":
+        return
+
+    # influence_source must be present and resolve to a different EP.
+    if not access.influence_source or not access.influence_source.strip():
+        return  # Already flagged as missing in structural checks.
+
+    source_ep = profile.resolve_entry_point(access.influence_source)
+    if source_ep is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="unresolved_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' "
+                    f"does not resolve to any entry point in the "
+                    f"capability profile."
+                ),
+            )
+        )
+        return
+
+    # 6a. No self-relation — source must differ from initial ingress.
+    if source_ep.entry_point_id == initial_ep.entry_point_id:
+        violations.append(
+            ActorAccessViolation(
+                rule="self_relation_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' is the "
+                    f"same entry point as the initial ingress "
+                    f"'{access.initial_entry_point_id}' — no declared "
+                    f"self-relation model accepts this (cmps.6)."
+                ),
+            )
+        )
+        return
+
+    # 6b. Source must be attacker-accessible (not output-only or system).
+    if source_ep.direction == "output":
+        violations.append(
+            ActorAccessViolation(
+                rule="output_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' resolves "
+                    f"to '{source_ep.name}' which is output-only — an "
+                    f"output channel cannot be an actor-controlled "
+                    f"influence source."
+                ),
+            )
+        )
+    if source_ep.effective_controllability == "system":
+        violations.append(
+            ActorAccessViolation(
+                rule="system_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' resolves "
+                    f"to '{source_ep.name}' which is system-controlled — "
+                    f"not an actor-accessible influence source."
+                ),
+            )
+        )
+
+    # 7. trust_boundary_id must resolve to a declared TrustBoundary.
+    if not access.trust_boundary_id or not access.trust_boundary_id.strip():
+        return  # Already flagged as missing in structural checks.
+
+    boundary = profile.resolve_trust_boundary(access.trust_boundary_id)
+    if boundary is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="unresolved_trust_boundary",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' does "
+                    f"not resolve to any TrustBoundary in the capability "
+                    f"profile — fabricated boundaries are not accepted."
+                ),
+            )
+        )
+        return
+
+    # 7a. Boundary to_zone must match the initial EP's effective_ingress_zone.
+    initial_zone = initial_ep.effective_ingress_zone
+    if initial_zone is not None and boundary.to_zone != initial_zone:
+        violations.append(
+            ActorAccessViolation(
+                rule="trust_boundary_target_zone_mismatch",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' has "
+                    f"to_zone '{boundary.to_zone}' but the initial entry "
+                    f"point '{initial_ep.name}' has effective_ingress_zone "
+                    f"'{initial_zone}' — boundary must target the initial "
+                    f"ingress zone."
+                ),
+            )
+        )
+
+    # 7b. Boundary from_zone must correspond to the source EP's
+    #      effective_ingress_zone or an explicitly modeled external zone.
+    source_zone = source_ep.effective_ingress_zone
+    if (
+        source_zone is not None
+        and boundary.from_zone != source_zone
+        and boundary.from_zone != "external"
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="trust_boundary_source_zone_mismatch",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' "
+                    f"has from_zone '{boundary.from_zone}' but the "
+                    f"influence source '{source_ep.name}' has "
+                    f"effective_ingress_zone '{source_zone}' — boundary "
+                    f"source side must correspond to the influence "
+                    f"source zone or 'external'."
+                ),
+            )
+        )
+
+    # 8. Declared profile flow: the boundary must connect source→initial
+    #    ingress zones, proving a declared profile flow rather than a
+    #    fabricated relation.  If the boundary's from_zone is "external",
+    #    the source EP must have indirect controllability (upstream data
+    #    provider).  This is the relational proof — not just ID format.
+    if (
+        boundary.from_zone == "external"
+        and source_ep.effective_controllability != "indirect"
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="external_boundary_source_not_indirect",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' "
+                    f"has from_zone 'external' but influence source "
+                    f"'{source_ep.name}' has effective controllability "
+                    f"'{source_ep.effective_controllability}' — external "
+                    f"boundary source requires an indirect-controllable "
+                    f"upstream entry point."
+                ),
+            )
+        )
+
+
+def validate_actor_access_provenance(
+    actor_profile: ActorProfile,
+    profile: CapabilityProfile | None = None,
+) -> list[ActorAccessViolation]:
+    """Validate typed access provenance evidence on an actor profile.
+
+    Returns a list of violations (empty if valid).  This replaces keyword-
+    based insider access checks and blanket allowlists with structured
+    access provenance grounded in the canonical entry-point identity
+    (cmps.6).
+
+    Checks (structural — no profile needed):
+    1. ``access`` provenance must be present.
+    2. ``ingress_mode`` / ``access_class`` consistency (e.g. supply_chain
+       access with direct ingress is inconsistent; public access with
+       indirect ingress is inconsistent).
+    3. Indirect ingress requires ``influence_source``,
+       ``influence_mechanism``, and ``trust_boundary_id``.
+    4. Insider actors using ``direct`` ingress require
+       ``material_insider_advantage`` regardless of ``access_class`` —
+       enum choice is not evidence.
+
+    Checks (canonical — when *profile* is supplied):
+    5. ``initial_entry_point_id`` must resolve to an eligible ingress EP.
+       Its ``effective_controllability`` must match the declared
+       ``ingress_mode`` and must not be ``system`` (unresolved/system
+       fails, never defaults to direct).
+    6. ``influence_source`` must resolve to a **different** canonical EP
+       (no self-relation unless explicitly modeled).  The source EP must
+       be attacker-accessible (not output-only or system-controlled).
+    7. ``trust_boundary_id`` must resolve to a ``TrustBoundary`` declared
+       in the profile.  The boundary's ``to_zone`` must equal the initial
+       EP's ``effective_ingress_zone``.  The boundary's ``from_zone`` must
+       correspond to the source EP's ``effective_ingress_zone`` or an
+       explicitly modeled external relation (``external`` zone).
+    8. There must be a declared profile flow connecting
+       source→boundary→initial-ingress; profiles lacking enough data fail
+       explicitly (partial), never silently infer the relation.
+    """
+    violations: list[ActorAccessViolation] = []
+
+    access = actor_profile.access
+    if access is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="missing_access_provenance",
+                message=(
+                    f"Actor '{actor_profile.actor_type}' has no typed access "
+                    f"provenance (cmps.6)."
+                ),
+            )
+        )
+        return violations
+
+    # 2. Ingress-mode / access-class consistency
+    if access.ingress_mode == "direct" and access.access_class == "supply_chain":
+        violations.append(
+            ActorAccessViolation(
+                rule="access_class_ingress_mode_incompatible",
+                message=(
+                    f"Actor '{actor_profile.actor_type}' has access_class "
+                    f"'supply_chain' but ingress_mode 'direct' — supply-chain "
+                    f"access requires indirect ingress (upstream influence)."
+                ),
+            )
+        )
+    if access.ingress_mode == "indirect" and access.access_class == "public":
+        violations.append(
+            ActorAccessViolation(
+                rule="access_class_ingress_mode_incompatible",
+                message=(
+                    f"Actor '{actor_profile.actor_type}' has access_class "
+                    f"'public' but ingress_mode 'indirect' — public access "
+                    f"cannot influence upstream data sources."
+                ),
+            )
+        )
+
+    # 3. Indirect ingress evidence completeness
+    if access.ingress_mode == "indirect":
+        missing = []
+        if not access.influence_source or not access.influence_source.strip():
+            missing.append("influence_source")
+        if not access.influence_mechanism or not access.influence_mechanism.strip():
+            missing.append("influence_mechanism")
+        if not access.trust_boundary_id or not access.trust_boundary_id.strip():
+            missing.append("trust_boundary_id")
+        if missing:
+            violations.append(
+                ActorAccessViolation(
+                    rule="incomplete_indirect_evidence",
+                    message=(
+                        f"Indirect ingress requires structured evidence: "
+                        f"missing {missing}."
+                    ),
+                )
+            )
+
+    # 4. Insider + direct ingress → material_insider_advantage (regardless
+    #    of access_class — enum choice is not evidence).
+    if (
+        access.ingress_mode == "direct"
+        and actor_profile.actor_type in _INSIDER_ACTOR_TYPES
+        and (
+            not access.material_insider_advantage
+            or not access.material_insider_advantage.strip()
+        )
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="missing_insider_advantage",
+                message=(
+                    f"Insider actor '{actor_profile.actor_type}' using "
+                    f"direct ingress requires structured "
+                    f"material_insider_advantage evidence regardless of "
+                    f"access_class ('{access.access_class}') — enum choice "
+                    f"is not evidence (cmps.6)."
+                ),
+            )
+        )
+
+    # 5–8. Canonical resolution (when profile is provided)
+    if profile is not None:
+        _canonical_checks(violations, access, actor_profile.actor_type, profile)
+
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Context builder and LLM call
 # ---------------------------------------------------------------------------
@@ -313,6 +713,7 @@ def build_call0_context(
     forced_actor_type: str | None = None,
     pinned_entry_point: str | None = None,
     pinned_entry_point_id: str | None = None,
+    access_feedback: str | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 0 (Actor Profile).
 
@@ -390,7 +791,7 @@ def build_call0_context(
         excluded_set = set(excluded_actor_types) if excluded_actor_types else set()
         fallback_candidates = compatible_actor_types - excluded_set
         if fallback_candidates:
-            preferred_actor_type = sorted(fallback_candidates)[0]
+            preferred_actor_type = min(fallback_candidates)
             logger.debug(
                 "Actor type constraint override: preferred '%s' not compatible "
                 "for seed %s — falling back to '%s'",
@@ -400,21 +801,26 @@ def build_call0_context(
             )
         else:
             # All compatible types are excluded; pick any compatible type
-            preferred_actor_type = sorted(compatible_actor_types)[0]
+            preferred_actor_type = min(compatible_actor_types)
 
     # Build actor type diversity guidance
     diversity_section = ""
+    _diversity_limitation: str | None = None
     if forced_actor_type:
         # Hard constraint — override any preferred/excluded hints.
-        # Log warning if forced type not in compatible set (diversity override).
+        # cmps.6: incompatible forced types must be replaced before prompt
+        # rendering with a feasible actor; diversity must never force an
+        # incompatible actor.  Record the limitation so callers know.
         if forced_actor_type not in compatible_actor_types:
+            _diversity_limitation = forced_actor_type
             logger.warning(
                 "Forced actor_type '%s' not in compatible set %s for seed %s "
-                "— respecting force (diversity override)",
+                "— replacing with feasible fallback (cmps.6)",
                 forced_actor_type,
                 sorted(compatible_actor_types),
                 seed.seed_id,
             )
+            forced_actor_type = min(compatible_actor_types)
         diversity_section = (
             "\n## Actor Type Constraint\n"
             f"- You MUST use actor_type: {forced_actor_type}. "
@@ -492,6 +898,107 @@ def build_call0_context(
         entry_point_controllability=pinned_entry_point_controllability,
     )
 
+    # Build access provenance section for the prompt (cmps.6)
+    access_provenance_section = ""
+    if pinned_entry_point_id:
+        ingress_mode = _ep_controllability_to_ingress_mode(
+            pinned_entry_point_controllability
+        )
+        if ingress_mode == "indirect":
+            # Build explicit lists of valid trust-boundary IDs and upstream
+            # entry-point IDs so the LLM can choose a valid source→boundary→
+            # ingress path without inventing opaque hashes (cmps.6).
+            _boundaries_ctx = ""
+            if profile.trust_boundaries:
+                _boundary_lines = []
+                for tb in profile.trust_boundaries:
+                    _boundary_lines.append(
+                        f"  - `{tb.trust_boundary_id}`: "
+                        f"{tb.name} ({tb.from_zone}→{tb.to_zone})"
+                    )
+                _boundaries_ctx = (
+                    "\nValid trust_boundary_id values (choose one that "
+                    "connects the influence source zone to the pinned "
+                    "entry point zone):\n" + "\n".join(_boundary_lines) + "\n"
+                )
+
+            _upstream_eps_ctx = ""
+            _pinned_ep = profile.resolve_entry_point(pinned_entry_point_id)
+            if _pinned_ep is not None:
+                _upstream_eps = [
+                    ep
+                    for ep in profile.entry_points
+                    if ep.entry_point_id != pinned_entry_point_id
+                    and ep.direction != "output"
+                    and ep.effective_controllability != "system"
+                ]
+                if _upstream_eps:
+                    _up_lines = []
+                    for ep in _upstream_eps:
+                        _up_lines.append(
+                            f"  - `{ep.entry_point_id}`: {ep.name} "
+                            f"(direction={ep.direction}, "
+                            f"controllability={ep.effective_controllability}, "
+                            f"zone={ep.effective_ingress_zone})"
+                        )
+                    _upstream_eps_ctx = (
+                        "\nValid influence_source entry-point IDs "
+                        "(the upstream data source the actor influences):\n"
+                        + "\n".join(_up_lines)
+                        + "\n"
+                    )
+
+            access_provenance_section = (
+                "\n## Access Provenance Constraint (MANDATORY)\n"
+                "The pinned entry point is an **indirect** ingress surface — "
+                "the actor influences an upstream data source rather than "
+                "typing input directly. You MUST provide structured evidence:\n"
+                "- `access_class`: one of `public`, `authenticated`, "
+                "`privileged`, `supply_chain` — the actor's relationship to "
+                "the system\n"
+                "- `influence_source`: the canonical entry-point ID of the "
+                "data source or channel the actor influences\n"
+                "- `influence_mechanism`: how the actor exerts influence "
+                "(e.g. 'document poisoning', 'supply-chain staging')\n"
+                "- `trust_boundary_id`: a canonical `tb:v1:…` ID "
+                "referencing a TrustBoundary declared in the capability "
+                "profile\n"
+                f"{_upstream_eps_ctx}"
+                f"{_boundaries_ctx}"
+            )
+        elif ingress_mode == "direct":
+            # Check if the actor type might be an insider
+            _is_insider = (
+                forced_actor_type in _INSIDER_ACTOR_TYPES
+                if forced_actor_type
+                else (
+                    preferred_actor_type in _INSIDER_ACTOR_TYPES
+                    if preferred_actor_type
+                    else False
+                )
+            )
+            if _is_insider:
+                access_provenance_section = (
+                    "\n## Access Provenance Constraint (MANDATORY)\n"
+                    "The pinned entry point is a **direct** ingress surface "
+                    "and the actor is an insider. You MUST provide:\n"
+                    "- `access_class`: one of `public`, `authenticated`, "
+                    "`privileged` — the actor's relationship to the system\n"
+                    "- `material_insider_advantage`: a structured material "
+                    "advantage beyond public access that justifies why an "
+                    "insider uses this surface (e.g. 'knowledge of internal "
+                    "rate-limit bypass', 'access to pre-production config "
+                    "overrides affecting input validation')\n"
+                )
+            else:
+                access_provenance_section = (
+                    "\n## Access Provenance Constraint\n"
+                    "The pinned entry point is a **direct** ingress surface. "
+                    "The actor interacts through the normal user interface.\n"
+                    "- `access_class`: one of `public`, `authenticated`, "
+                    "`privileged` — the actor's relationship to the system\n"
+                )
+
     return {
         # System prompt variables
         "minimum_capability_level": minimum_capability_level,
@@ -504,8 +1011,12 @@ def build_call0_context(
         "technique_framing_0": technique_framing_0,
         "goal_section": goal_section,
         "diversity_section": diversity_section,
+        "diversity_limitation": _diversity_limitation,
+        "access_provenance_section": access_provenance_section,
+        "access_feedback": access_feedback or "",
         "pinned_entry_point": pinned_entry_point,
         "pinned_entry_point_direction": pinned_entry_point_direction,
+        "pinned_entry_point_id": pinned_entry_point_id,
         "pinned_technique_count": pinned_technique_count,
         "kc_definitions": kc_definitions,
         "ontology_context": ontology_context,
@@ -526,7 +1037,8 @@ def _call_actor_profile(
     forced_actor_type: str | None = None,
     pinned_entry_point: str | None = None,
     pinned_entry_point_id: str | None = None,
-) -> tuple[ActorProfile, LLMResult]:
+    access_feedback: str | None = None,
+) -> tuple[ActorProfile, LLMResult, str | None]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
     Delegates context building to :func:`build_call0_context`, then renders
@@ -547,6 +1059,7 @@ def _call_actor_profile(
         forced_actor_type=forced_actor_type,
         pinned_entry_point=pinned_entry_point,
         pinned_entry_point_id=pinned_entry_point_id,
+        access_feedback=access_feedback,
     )
 
     result = client.complete(
@@ -605,4 +1118,19 @@ def _call_actor_profile(
         intentions=resp.intentions,
         resources=resp.resources,
     )
-    return actor_profile, result
+
+    # Build typed access provenance from canonical EP identity (cmps.6)
+    if pinned_entry_point_id:
+        ep_controllability = _lookup_entry_point_controllability(
+            profile,
+            pinned_entry_point,
+            pinned_entry_point_id,
+        )
+        actor_profile.access = build_actor_access_provenance(
+            entry_point_id=pinned_entry_point_id,
+            ep_controllability=ep_controllability,
+            actor_type=actor_type,
+            resp=resp,
+        )
+
+    return actor_profile, result, ctx.get("diversity_limitation")

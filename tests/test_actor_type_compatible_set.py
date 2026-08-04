@@ -2,13 +2,11 @@
 
 Covers:
 - R1: Adversarial-only threat -> remove negligent-insider
-- R2: Indirect EP access floor -> restrict to {supply-chain-actor,
-      malicious-insider, nation-state} (T2+RAG exception)
-- R3: System EP -> restrict to {malicious-insider, supply-chain-actor, nation-state}
-- R4: Technique requires direct access -> remove negligent-insider, supply-chain-actor
-- R5: Supply chain target layer -> restrict to {supply-chain-actor, nation-state,
+- R2 (removed): Indirect EP has no blanket actor allowlist
+- R3: Technique requires direct access -> remove negligent-insider, supply-chain-actor
+- R4: Supply chain target layer -> restrict to {supply-chain-actor, nation-state,
       malicious-insider, automated-agent}
-- R6: Actor-goal consistency -> remove actors incompatible with assigned goal
+- R5: Actor-goal consistency -> remove actors incompatible with assigned goal
 - Rule stacking
 - Diversity tracker interaction
 - Prompt template integration
@@ -16,16 +14,17 @@ Covers:
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from scenario_forge.pipeline.generate import (
-    ALL_ACTOR_TYPES,
     _ACTOR_GOAL_INCOMPATIBLE,
     _ADVERSARIAL_ONLY_THREATS,
+    ALL_ACTOR_TYPES,
     compute_compatible_actor_types,
 )
 from scenario_forge.prompts import render_prompt
-
 
 # ---------------------------------------------------------------------------
 # R1: Adversarial-only threat -> remove negligent-insider
@@ -37,153 +36,65 @@ class TestR1AdversarialOnlyThreat:
 
     @pytest.mark.parametrize("threat_id", list(_ADVERSARIAL_ONLY_THREATS))
     def test_all_adversarial_threats_exclude_negligent(self, threat_id: str):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "direct", threat_id
-        )
+        result = compute_compatible_actor_types(["AML.T0053"], "direct", threat_id)
         assert "negligent-insider" not in result
 
     def test_non_adversarial_threat_keeps_negligent(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0053"], "direct", "T2")
         assert "negligent-insider" in result
 
     def test_none_threat_keeps_negligent(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "direct", None
-        )
+        result = compute_compatible_actor_types(["AML.T0053"], "direct", None)
         assert "negligent-insider" in result
 
 
 # ---------------------------------------------------------------------------
-# R2: Indirect EP access floor (T2+RAG exception)
+# R2 removed: no blanket indirect actor allowlist
 # ---------------------------------------------------------------------------
 
 
-class TestR2IndirectEP:
-    """R2: Indirect EP restricts to {supply-chain-actor, malicious-insider,
-    nation-state}, except T2+RAG/knowledge which skips R2 entirely."""
+class TestIndirectEPNoBlanketAllowlist:
+    """Indirect controllability does not categorically filter actor types."""
 
-    def test_indirect_ep_restricts_to_three_actors(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert result == {"supply-chain-actor", "malicious-insider", "nation-state"}
+    def test_indirect_ep_keeps_all_actors_when_no_other_rule_applies(self):
+        result = compute_compatible_actor_types(["AML.T0053"], "indirect", "T2")
+        assert result == ALL_ACTOR_TYPES
+        assert {"cybercriminal", "adversarial-user", "hacktivist"} <= result
 
-    def test_indirect_ep_excludes_adversarial_user(self):
+    def test_entry_point_name_does_not_create_indirect_allowlist(self):
         result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert "adversarial-user" not in result
-
-    def test_indirect_ep_excludes_hacktivist(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert "hacktivist" not in result
-
-    def test_indirect_ep_excludes_competitor(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert "competitor" not in result
-
-    def test_indirect_ep_excludes_script_kiddie(self):
-        """Automated-agent (closest to script-kiddie) excluded from indirect."""
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert "automated-agent" not in result
-
-    def test_indirect_ep_keeps_supply_chain(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert "supply-chain-actor" in result
-
-    def test_indirect_ep_keeps_malicious_insider(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert "malicious-insider" in result
-
-    def test_indirect_ep_keeps_nation_state(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2"
-        )
-        assert "nation-state" in result
-
-    def test_t2_rag_exception_keeps_all(self):
-        """T2+RAG exception skips R2 entirely -- full actor set preserved."""
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2",
+            ["AML.T0053"],
+            "indirect",
+            "T2",
             entry_point_name="RAG knowledge-grounding system",
         )
-        assert "negligent-insider" in result
-        assert "adversarial-user" in result
         assert result == ALL_ACTOR_TYPES
-
-    def test_t2_knowledge_exception_keeps_all(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2",
-            entry_point_name="Knowledge base ingestion",
-        )
-        assert "negligent-insider" in result
-        assert result == ALL_ACTOR_TYPES
-
-    def test_t2_rag_case_insensitive(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T2",
-            entry_point_name="rag Knowledge System",
-        )
-        assert "negligent-insider" in result
-        assert result == ALL_ACTOR_TYPES
-
-    def test_non_t2_indirect_no_exception(self):
-        # T1 is not adversarial-only, but R2 fires for indirect EP without T2
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T1",
-            entry_point_name="RAG knowledge-grounding system",
-        )
-        assert result == {"supply-chain-actor", "malicious-insider", "nation-state"}
 
     def test_direct_ep_no_r2_effect(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0053"], "direct", "T2")
         assert "negligent-insider" in result
         assert result == ALL_ACTOR_TYPES
 
 
 # ---------------------------------------------------------------------------
-# R3: System EP -> restrict to small set
+# R3: System EP — not eligible ingress (cmps.6)
 # ---------------------------------------------------------------------------
 
 
 class TestR3SystemEP:
-    """R3: System EP restricts to {malicious-insider, supply-chain-actor, nation-state}."""
+    """R3: System EP is not eligible ingress — no actor pre-filtering.
 
-    def test_system_ep_restricts(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "system", "T2"
-        )
-        assert result == {"malicious-insider", "supply-chain-actor", "nation-state"}
+    System entry points are rejected by is_attacker_accessible_ingress and
+    the candidate filter before generation. No actor allowlist is applied.
+    """
 
-    def test_system_ep_excludes_external_actors(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "system", "T2"
-        )
-        for excluded in [
-            "adversarial-user", "cybercriminal", "hacktivist",
-            "competitor", "automated-agent", "negligent-insider",
-        ]:
-            assert excluded not in result
+    def test_system_ep_no_actor_restriction(self):
+        """System EP does not restrict actors — rejected at ingress, not actor level."""
+        result = compute_compatible_actor_types(["AML.T0053"], "system", "T2")
+        assert result == ALL_ACTOR_TYPES
 
-    def test_direct_ep_no_r3(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "direct", "T2"
-        )
-        # Should have the full set minus any other rule effects
+    def test_direct_ep_no_restriction(self):
+        result = compute_compatible_actor_types(["AML.T0053"], "direct", "T2")
         assert len(result) == len(ALL_ACTOR_TYPES)
 
 
@@ -198,25 +109,19 @@ class TestR4DirectAccessTechnique:
 
     def test_direct_access_technique_removes_negligent_and_supply_chain(self):
         # AML.T0051.000 has requires_direct_access = True
-        result = compute_compatible_actor_types(
-            ["AML.T0051.000"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0051.000"], "direct", "T2")
         assert "negligent-insider" not in result
         assert "supply-chain-actor" not in result
 
     def test_direct_access_technique_t0054(self):
         # AML.T0054 also has requires_direct_access = True
-        result = compute_compatible_actor_types(
-            ["AML.T0054"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0054"], "direct", "T2")
         assert "negligent-insider" not in result
         assert "supply-chain-actor" not in result
 
     def test_non_direct_access_keeps_both(self):
         # AML.T0053 has requires_direct_access = False
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0053"], "direct", "T2")
         assert "negligent-insider" in result
         assert "supply-chain-actor" in result
 
@@ -230,50 +135,52 @@ class TestR4DirectAccessTechnique:
 
 
 # ---------------------------------------------------------------------------
-# R5: Supply chain target layer
+# R4: Supply chain target layer
 # ---------------------------------------------------------------------------
 
 
-class TestR5SupplyChainTargetLayer:
-    """R5: Supply chain target layer restricts to specific set."""
+class TestR4SupplyChainTargetLayer:
+    """R4: Supply chain target layer restricts to specific set."""
 
     def test_supply_chain_technique_restricts(self):
         # AML.T0010 has target_layer = "supply_chain"
-        result = compute_compatible_actor_types(
-            ["AML.T0010"], "direct", "T2"
-        )
-        expected = {"supply-chain-actor", "nation-state", "malicious-insider", "automated-agent"}
+        result = compute_compatible_actor_types(["AML.T0010"], "direct", "T2")
+        expected = {
+            "supply-chain-actor",
+            "nation-state",
+            "malicious-insider",
+            "automated-agent",
+        }
         assert result == expected
 
     def test_supply_chain_technique_t0048(self):
         # AML.T0048 also has target_layer = "supply_chain"
-        result = compute_compatible_actor_types(
-            ["AML.T0048"], "direct", "T2"
-        )
-        expected = {"supply-chain-actor", "nation-state", "malicious-insider", "automated-agent"}
+        result = compute_compatible_actor_types(["AML.T0048"], "direct", "T2")
+        expected = {
+            "supply-chain-actor",
+            "nation-state",
+            "malicious-insider",
+            "automated-agent",
+        }
         assert result == expected
 
     def test_non_supply_chain_no_restriction(self):
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0053"], "direct", "T2")
         assert len(result) == len(ALL_ACTOR_TYPES)
 
     def test_automated_agent_included_in_supply_chain(self):
         """Automated agents can participate in supply chain attacks."""
-        result = compute_compatible_actor_types(
-            ["AML.T0010"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0010"], "direct", "T2")
         assert "automated-agent" in result
 
 
 # ---------------------------------------------------------------------------
-# R6: Actor-goal consistency
+# R5: Actor-goal consistency
 # ---------------------------------------------------------------------------
 
 
-class TestR6ActorGoalConsistency:
-    """R6: Actor types incompatible with the assigned goal are removed."""
+class TestR5ActorGoalConsistency:
+    """R5: Actor types incompatible with the assigned goal are removed."""
 
     def test_hacktivist_excluded_from_fraud(self):
         result = compute_compatible_actor_types(
@@ -321,8 +228,8 @@ class TestR6ActorGoalConsistency:
         )
         assert "hacktivist" in result
 
-    def test_no_goal_id_no_r6_effect(self):
-        """Without goal_id, R6 does not fire -- all actors remain."""
+    def test_no_goal_id_no_r5_effect(self):
+        """Without goal_id, R5 does not fire -- all actors remain."""
         result = compute_compatible_actor_types(
             ["AML.T0053"], "direct", "T2", goal_id=None
         )
@@ -335,13 +242,12 @@ class TestR6ActorGoalConsistency:
         )
         assert result == ALL_ACTOR_TYPES
 
-    def test_r6_never_empties_set(self):
-        """R6 safety: if removing incompatible actors would empty the set,
-        R6 is skipped."""
+    def test_r5_never_empties_set(self):
+        """R5 safety: if removing incompatible actors would empty the set,
+        R5 is skipped."""
         # Construct a scenario where only hacktivist/competitor remain
         # after other rules. This is artificial but tests the safety net.
-        # R3 restricts to {malicious-insider, supply-chain-actor, nation-state}
-        # so AB-3 removing hacktivist/competitor is a no-op. Use direct EP instead.
+        # A simple direct EP isolates actor-goal consistency from other rules.
         result = compute_compatible_actor_types(
             ["AML.T0053"], "direct", "T2", goal_id="AB-3"
         )
@@ -363,13 +269,12 @@ class TestRuleStacking:
     """Multiple rules narrowing the compatible set together."""
 
     def test_r1_and_r3_stacking(self):
-        # T7 (adversarial-only) + system EP
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "system", "T7"
-        )
-        # R1 removes negligent-insider, R3 restricts to {malicious, supply-chain, nation-state}
-        # negligent-insider is already not in R3's set, so effectively same as R3
-        assert result == {"malicious-insider", "supply-chain-actor", "nation-state"}
+        # T7 (adversarial-only) + system EP — system EP no longer restricts
+        # actors (cmps.6); only R1 fires.
+        result = compute_compatible_actor_types(["AML.T0053"], "system", "T7")
+        # R1 removes negligent-insider; system EP no restriction
+        assert "negligent-insider" not in result
+        assert result == ALL_ACTOR_TYPES - {"negligent-insider"}
 
     def test_r4_and_r5_stacking(self):
         # A technique that both requires direct access AND targets supply chain
@@ -378,32 +283,33 @@ class TestRuleStacking:
         result = compute_compatible_actor_types(
             ["AML.T0054", "AML.T0010"], "direct", "T2"
         )
-        # R4 removes negligent-insider and supply-chain-actor
-        # R5 restricts to {supply-chain-actor, nation-state, malicious-insider, automated-agent}
+        # R3 removes negligent-insider and supply-chain-actor
+        # R4 restricts to {supply-chain-actor, nation-state, malicious-insider, automated-agent}
         # Intersection: nation-state, malicious-insider, automated-agent
         # (supply-chain-actor removed by R4)
         assert result == {"nation-state", "malicious-insider", "automated-agent"}
 
     def test_r1_r2_stacking_indirect_adversarial_only(self):
-        # T7 (adversarial-only) + indirect EP: R1 removes negligent-insider,
-        # R2 restricts to {supply-chain, malicious-insider, nation-state}
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "indirect", "T7"
-        )
+        # T7 (adversarial-only) removes negligent-insider; indirect EP adds no
+        # categorical actor restriction because R2 has been removed.
+        result = compute_compatible_actor_types(["AML.T0053"], "indirect", "T7")
         assert "negligent-insider" not in result
-        assert "adversarial-user" not in result
-        assert result == {"supply-chain-actor", "malicious-insider", "nation-state"}
+        assert {"cybercriminal", "adversarial-user", "hacktivist"} <= result
+        assert result == ALL_ACTOR_TYPES - {"negligent-insider"}
 
-    def test_r2_and_r6_stacking(self):
-        # Indirect EP + AB-3 goal: R2 restricts to 3 actors, R6 removes
-        # hacktivist/competitor (already removed by R2), no further effect
+    def test_removed_r2_and_r5_stacking(self):
+        # Indirect EP adds no restriction; actor-goal consistency removes
+        # hacktivist and competitor for AB-3.
         result = compute_compatible_actor_types(
             ["AML.T0053"], "indirect", "T2", goal_id="AB-3"
         )
-        assert result == {"supply-chain-actor", "malicious-insider", "nation-state"}
+        assert "competitor" not in result
+        assert "hacktivist" not in result
+        assert {"cybercriminal", "adversarial-user"} <= result
+        assert result == ALL_ACTOR_TYPES - {"hacktivist", "competitor"}
 
-    def test_r6_with_direct_ep(self):
-        # Direct EP + AB-3 goal: R6 removes hacktivist and competitor
+    def test_r5_with_direct_ep(self):
+        # Direct EP + AB-3 goal: R5 removes hacktivist and competitor
         result = compute_compatible_actor_types(
             ["AML.T0053"], "direct", "T2", goal_id="AB-3"
         )
@@ -414,16 +320,20 @@ class TestRuleStacking:
         assert "cybercriminal" in result
 
     def test_all_rules_combined(self):
-        # R1 (T7) + R3 (system) + R5 (supply chain technique) + R6 (AB-3)
+        # R1 (T7) + R4 (supply chain technique) + R5 (AB-3 goal)
+        # System EP no longer restricts actors (cmps.6)
         result = compute_compatible_actor_types(
             ["AML.T0010"], "system", "T7", goal_id="AB-3"
         )
         # R1: remove negligent-insider
-        # R3: restrict to {malicious, supply-chain, nation-state}
-        # R5: restrict to {supply-chain, nation-state, malicious, automated-agent}
-        # Intersection of R3 and R5: {malicious-insider, supply-chain-actor, nation-state}
-        # R6: AB-3 removes hacktivist/competitor (already gone) -- no change
-        assert result == {"malicious-insider", "supply-chain-actor", "nation-state"}
+        # R4 (supply chain target): restrict to {supply-chain, nation-state, malicious, automated-agent}
+        # R5 (AB-3): remove hacktivist/competitor (already gone)
+        assert result == {
+            "supply-chain-actor",
+            "nation-state",
+            "malicious-insider",
+            "automated-agent",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -437,9 +347,15 @@ class TestAllActorTypes:
 
     def test_contains_expected_types(self):
         expected = {
-            "adversarial-user", "malicious-insider", "negligent-insider",
-            "supply-chain-actor", "cybercriminal", "nation-state",
-            "hacktivist", "competitor", "automated-agent",
+            "adversarial-user",
+            "malicious-insider",
+            "negligent-insider",
+            "supply-chain-actor",
+            "cybercriminal",
+            "nation-state",
+            "hacktivist",
+            "competitor",
+            "automated-agent",
         }
         assert ALL_ACTOR_TYPES == expected
 
@@ -454,18 +370,26 @@ class TestActorTypePromptConstraint:
     set is narrower than full."""
 
     # Minimal user-prompt context needed to render call0_user.j2
-    _USER_CTX: dict = {
+    _USER_CTX: ClassVar[dict] = {
         "use_case": "test",
-        "seed": type("S", (), {
-            "attack_pattern_name": "X",
-            "attack_pattern_description": "X",
-            "threat_name": "X",
-            "threat_description": "X",
-        })(),
-        "profile": type("P", (), {
-            "zones_active": ["input"],
-            "entry_points": [],
-        })(),
+        "seed": type(
+            "S",
+            (),
+            {
+                "attack_pattern_name": "X",
+                "attack_pattern_description": "X",
+                "threat_name": "X",
+                "threat_description": "X",
+            },
+        )(),
+        "profile": type(
+            "P",
+            (),
+            {
+                "zones_active": ["input"],
+                "entry_points": [],
+            },
+        )(),
         "kc_definitions": "",
         "tool_inventory": [],
         "ontology_context": "",
@@ -476,11 +400,15 @@ class TestActorTypePromptConstraint:
         "technique_framing_0": "",
         "goal_section": "",
         "diversity_section": "",
+        "access_feedback": "",
         "minimum_capability_level": "novice",
     }
 
     def test_constraint_appears_when_narrowed(self):
-        ctx = {**self._USER_CTX, "compatible_actor_types": ["adversarial-user", "cybercriminal"]}
+        ctx = {
+            **self._USER_CTX,
+            "compatible_actor_types": ["adversarial-user", "cybercriminal"],
+        }
         prompt = render_prompt("call0_user.j2", **ctx)
         assert "Actor Type Constraint" in prompt
         assert "adversarial-user" in prompt
@@ -530,15 +458,11 @@ class TestEdgeCases:
         assert result == ALL_ACTOR_TYPES
 
     def test_unknown_technique_ignored(self):
-        result = compute_compatible_actor_types(
-            ["UNKNOWN.T9999"], "direct", "T2"
-        )
+        result = compute_compatible_actor_types(["UNKNOWN.T9999"], "direct", "T2")
         assert result == ALL_ACTOR_TYPES
 
     def test_tuple_technique_ids_accepted(self):
-        result = compute_compatible_actor_types(
-            ("AML.T0051.000",), "direct", "T2"
-        )
+        result = compute_compatible_actor_types(("AML.T0051.000",), "direct", "T2")
         assert "negligent-insider" not in result
 
     def test_result_is_set(self):
@@ -547,13 +471,12 @@ class TestEdgeCases:
 
     def test_never_empty_with_system_ep(self):
         """R3 always leaves at least 3 types."""
-        result = compute_compatible_actor_types(
-            ["AML.T0053"], "system", "T2"
-        )
+        result = compute_compatible_actor_types(["AML.T0053"], "system", "T2")
         assert len(result) >= 1
 
     def test_validate_actor_type_still_runs(self):
         """_validate_actor_type is defence-in-depth — not removed by ok0p.
         This test verifies the function is still importable."""
         from scenario_forge.pipeline.generate import _validate_actor_type
+
         assert callable(_validate_actor_type)

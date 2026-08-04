@@ -137,6 +137,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
+        initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
