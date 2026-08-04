@@ -30,3 +30,5 @@ output/
 # AI working files (findings are exploratory, not committed)
 ai/findings/
 ai/.DS_Store
+.opencode
+opencode.json
