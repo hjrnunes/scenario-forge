@@ -337,13 +337,13 @@ class TestBDIRegeneration:
     to isolate the regeneration logic from Pydantic model assembly.
     """
 
-    _PATCHES = [
+    _PATCHES = (
         "scenario_forge.pipeline.generate._assemble_envelope",
         "scenario_forge.pipeline.generate._call_attack_tree",
         "scenario_forge.pipeline.generate._call_behavior_spec",
         "scenario_forge.pipeline.generate._call_narrative",
         "scenario_forge.pipeline.generate._call_actor_profile",
-    ]
+    )
 
     @patch(_PATCHES[0])
     @patch(_PATCHES[1])
@@ -673,13 +673,13 @@ def _make_seed_with_threat(threat_id: str) -> ScenarioSeed:
 class TestAdversarialOnlyThreats:
     """Tests for negligent-insider exclusion based on threat_id."""
 
-    _PATCHES = [
+    _PATCHES = (
         "scenario_forge.pipeline.generate._assemble_envelope",
         "scenario_forge.pipeline.generate._call_attack_tree",
         "scenario_forge.pipeline.generate._call_behavior_spec",
         "scenario_forge.pipeline.generate._call_narrative",
         "scenario_forge.pipeline.generate._call_actor_profile",
-    ]
+    )
 
     def test_constant_contains_expected_threats(self):
         """Verify the adversarial-only set includes the correct threat IDs."""

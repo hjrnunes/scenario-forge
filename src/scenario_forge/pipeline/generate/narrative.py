@@ -81,9 +81,7 @@ def _is_latin_or_common(char: str) -> bool:
     if cat[0] in ("P", "S", "N", "Z"):
         return True
     # Latin letters (accented, extended) have "LATIN" in their Unicode name
-    if "LATIN" in name:
-        return True
-    return False
+    return "LATIN" in name
 
 
 def _sanitize_non_latin(text: str) -> str:

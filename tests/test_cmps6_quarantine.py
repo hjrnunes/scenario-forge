@@ -50,6 +50,8 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
     valid_seed = filtered("cand:v1:11111111111111111111111111111111")
     invalid_seed = filtered("cand:v1:22222222222222222222222222222222")
 
+    from scenario_forge.models.scenario import NarrativeAccessRealization
+
     valid_access = ActorAccessProvenance(
         initial_entry_point_id=entry_point.entry_point_id,
         ingress_mode="direct",
@@ -69,6 +71,13 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
             entry_point_id=entry_point.entry_point_id,
             access=deepcopy(access),
         )
+        # Valid scenario must carry a matching access_realization so it
+        # passes the cmps.6 narrative realization semantic check.
+        if fseed is valid_seed:
+            envelope.narrative.access_realization = NarrativeAccessRealization(
+                initial_entry_point_id=entry_point.entry_point_id,
+                responsible_step_number=1,
+            )
         envelope.candidate_id = fseed.candidate_id
         envelope.scenario_id = compute_scenario_id(
             kwargs["run_id"], fseed.candidate_id, 1

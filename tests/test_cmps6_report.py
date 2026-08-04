@@ -1,4 +1,9 @@
-"""Report rendering coverage for cmps.6 actor access provenance."""
+"""Report rendering coverage for cmps.6 actor access provenance.
+
+Tests use schema-valid ``ScenarioEnvelope`` objects serialized via
+``model_dump()`` to exercise the real report rendering path, not raw
+dicts that bypass model validation.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,15 @@ import pytest
 from scenario_forge.models.capability_profile import compute_trust_boundary_id
 from scenario_forge.models.scenario import ActorAccessProvenance
 from scenario_forge.report.template import _build_actor_profile_block
+from tests.test_actor_entry_point_validation import _make_envelope
+
+
+def _envelope_with_access(access: ActorAccessProvenance):
+    """Build a schema-valid ScenarioEnvelope carrying the given access."""
+    return _make_envelope(
+        entry_point_id=access.initial_entry_point_id,
+        access=access,
+    )
 
 
 @pytest.mark.parametrize(
@@ -43,17 +57,9 @@ from scenario_forge.report.template import _build_actor_profile_block
 def test_actor_profile_renders_access_provenance(
     access: ActorAccessProvenance, expected_evidence: list[str]
 ) -> None:
-    scenario = {
-        "actor_profile": {
-            "actor_type": "malicious-insider",
-            "capability_level": "advanced",
-            "beliefs": [],
-            "desires": [],
-            "intentions": [],
-            "resources": [],
-            "access": access.model_dump(),
-        }
-    }
+    """The actor profile block renders structured access provenance fields."""
+    envelope = _envelope_with_access(access)
+    scenario = envelope.model_dump()
 
     html = _build_actor_profile_block(scenario)
 

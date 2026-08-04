@@ -1603,6 +1603,26 @@ def validate_scenario_semantics(
                     )
                 )
 
+        # 12h. Narrative access realization validation (cmps.6).
+        #      Delegate to the shared pure validator from generate.narrative
+        #      so semantic validation catches persistent realization
+        #      mismatches after Call-1 retry exhaustion.  This ensures
+        #      persistently invalid narrative realization is quarantined,
+        #      not silently admitted.
+        if _actor_type_12 and _access_12 is not None:
+            from scenario_forge.pipeline.generate.narrative import (
+                validate_narrative_access_realization as _vnr,
+            )
+
+            for _v in _vnr(scenario.narrative, scenario.actor_profile):
+                violations.append(
+                    SemanticViolation(
+                        rule=_v.rule,
+                        message=_v.message,
+                        severity="major",
+                    )
+                )
+
         # 13. Corpus-wide closed-world claim applicability (cmps.9 review)
         corpus_claims = check_corpus_claims_applicability(scenario, profile)
 

@@ -28,14 +28,14 @@ from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 
 
 def _make_seed(**overrides) -> ScenarioSeed:
-    defaults = dict(
-        seed_id="AP-T7-01",
-        threat_id="T7",
-        threat_name="Misaligned Behaviors",
-        attack_pattern_name="Misaligned pattern",
-        attack_pattern_description="desc",
-        owasp_origin="LLM09",
-        risk_card_ref=RiskCardRef(
+    defaults = {
+        "seed_id": "AP-T7-01",
+        "threat_id": "T7",
+        "threat_name": "Misaligned Behaviors",
+        "attack_pattern_name": "Misaligned pattern",
+        "attack_pattern_description": "desc",
+        "owasp_origin": "LLM09",
+        "risk_card_ref": RiskCardRef(
             risk_id="R-01",
             risk_name="Test risk",
             risk_description="Description for R-01",
@@ -43,10 +43,10 @@ def _make_seed(**overrides) -> ScenarioSeed:
             confidence=0.9,
             grounding_confidence=ConfidenceLevel.high,
         ),
-        owasp_llm_ids=["LLM09"],
-        agentic_threat_ids=["T7"],
-        atlas_technique_ids=["AML.T0054"],
-    )
+        "owasp_llm_ids": ["LLM09"],
+        "agentic_threat_ids": ["T7"],
+        "atlas_technique_ids": ["AML.T0054"],
+    }
     defaults.update(overrides)
     return ScenarioSeed(**defaults)
 

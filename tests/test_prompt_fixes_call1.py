@@ -83,37 +83,37 @@ def _make_actor_profile(
 
 def _render_call1_system(**overrides: object) -> str:
     """Render call1_system.j2 with sensible profile defaults."""
-    defaults = dict(
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
-        zones_active=["input", "reasoning", "tool_execution"],
-        kc_subcodes=[],
-        tool_inventory=[],
-    )
+    defaults = {
+        "has_persistent_memory": False,
+        "multi_agent": False,
+        "hitl": False,
+        "zones_active": ["input", "reasoning", "tool_execution"],
+        "kc_subcodes": [],
+        "tool_inventory": [],
+    }
     defaults.update(overrides)
     return render_prompt("call1_system.j2", **defaults)
 
 
 def _render_call1_user(**overrides: object) -> str:
     """Render call1_user.j2 with sensible defaults, overriding as needed."""
-    defaults = dict(
-        use_case="A financial chatbot",
-        seed=_make_seed(),
-        profile=_make_profile(),
-        owasp_llm_formatted="LLM01: Prompt Injection",
-        technique_context="",
-        technique_framing="",
-        actor_section="",
-        goal_section="",
-        diversity_section="",
-        pattern_section="",
-        structural_section="",
-        pinned_entry_point=None,
-        pinned_entry_point_direction=None,
-        kc_definitions="",
-        tool_inventory=[],
-    )
+    defaults = {
+        "use_case": "A financial chatbot",
+        "seed": _make_seed(),
+        "profile": _make_profile(),
+        "owasp_llm_formatted": "LLM01: Prompt Injection",
+        "technique_context": "",
+        "technique_framing": "",
+        "actor_section": "",
+        "goal_section": "",
+        "diversity_section": "",
+        "pattern_section": "",
+        "structural_section": "",
+        "pinned_entry_point": None,
+        "pinned_entry_point_direction": None,
+        "kc_definitions": "",
+        "tool_inventory": [],
+    }
     defaults.update(overrides)
     return render_prompt("call1_user.j2", **defaults)
 
@@ -223,22 +223,22 @@ class TestWwjzGoalSectionRendering:
 
     def test_goal_section_absent_when_not_provided(self):
         """Template uses default('') so omitting goal_section is safe."""
-        defaults = dict(
-            use_case="A financial chatbot",
-            seed=_make_seed(),
-            profile=_make_profile(),
-            owasp_llm_formatted="LLM01: Prompt Injection",
-            technique_context="",
-            technique_framing="",
-            actor_section="",
-            diversity_section="",
-            pattern_section="",
-            structural_section="",
-            pinned_entry_point=None,
-            pinned_entry_point_direction=None,
-            kc_definitions="",
-            tool_inventory=[],
-        )
+        defaults = {
+            "use_case": "A financial chatbot",
+            "seed": _make_seed(),
+            "profile": _make_profile(),
+            "owasp_llm_formatted": "LLM01: Prompt Injection",
+            "technique_context": "",
+            "technique_framing": "",
+            "actor_section": "",
+            "diversity_section": "",
+            "pattern_section": "",
+            "structural_section": "",
+            "pinned_entry_point": None,
+            "pinned_entry_point_direction": None,
+            "kc_definitions": "",
+            "tool_inventory": [],
+        }
         # Deliberately omit goal_section — template default('') handles it
         prompt = render_prompt("call1_user.j2", **defaults)
         assert "Attack Goal" not in prompt
