@@ -295,7 +295,7 @@ class TestAccessClassIngressModeIncompatible:
         profile = _make_indirect_profile()
         ep_id = profile.entry_points[0].entry_point_id
         source_id = profile.entry_points[1].entry_point_id
-        boundary_id = compute_trust_boundary_id("memory", "input")
+        boundary_id = compute_trust_boundary_id("memory", "input", "memory-to-input")
         access = _access(
             ep_id,
             ingress_mode="indirect",
@@ -322,7 +322,7 @@ class TestIncompleteIndirectEvidence:
         profile = _make_indirect_profile()
         ep_id = profile.entry_points[0].entry_point_id
         source_id = profile.entry_points[1].entry_point_id
-        boundary_id = compute_trust_boundary_id("memory", "input")
+        boundary_id = compute_trust_boundary_id("memory", "input", "memory-to-input")
         evidence = {
             "influence_source": source_id,
             "influence_mechanism": "Poisoned content",
@@ -348,7 +348,7 @@ class TestIncompleteIndirectEvidence:
         profile = _make_indirect_profile()
         ep_id = profile.entry_points[0].entry_point_id
         source_id = profile.entry_points[1].entry_point_id
-        boundary_id = compute_trust_boundary_id("memory", "input")
+        boundary_id = compute_trust_boundary_id("memory", "input", "memory-to-input")
         access = _access(
             ep_id,
             ingress_mode="indirect",
@@ -400,7 +400,9 @@ class TestValidActorAccessCombinations:
                 "supply_chain",
                 {
                     "influence_mechanism": "Compromised release",
-                    "trust_boundary_id": compute_trust_boundary_id("memory", "input"),
+                    "trust_boundary_id": compute_trust_boundary_id(
+                        "memory", "input", "memory-to-input"
+                    ),
                 },
             ),
             (
@@ -415,7 +417,9 @@ class TestValidActorAccessCombinations:
                 "supply_chain",
                 {
                     "influence_mechanism": "Coordinated poisoning",
-                    "trust_boundary_id": compute_trust_boundary_id("memory", "input"),
+                    "trust_boundary_id": compute_trust_boundary_id(
+                        "memory", "input", "memory-to-input"
+                    ),
                 },
             ),
         ],

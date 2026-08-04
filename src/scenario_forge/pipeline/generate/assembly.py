@@ -691,21 +691,56 @@ def generate_scenario(
         _call_log_entry(CallName.narrative, result1, partial_scenario_id)
     )
 
-    # --- Post-Call-1: narrative access realization validation + retry (cmps.6) ---
-    _realization_violations = _validate_realization(narrative, actor_profile)
-    _realization_retry = 0
-    while _realization_violations and _realization_retry < _ACTOR_ACCESS_MAX_RETRIES:
-        _realization_retry += 1
-        _realization_feedback = "\n".join(
-            f"- {v.message}" for v in _realization_violations
-        )
-        logger.warning(
-            "Narrative access realization violations in %s (retry %d/%d): %s",
-            partial_scenario_id,
-            _realization_retry,
-            _ACTOR_ACCESS_MAX_RETRIES,
-            _realization_feedback,
-        )
+    # --- Post-Call-1: unified title + access-realization validation (cmps.6) ---
+    # Every accepted Call 1 result must pass BOTH title uniqueness and
+    # access-realization constraints.  Title retries and realization
+    # retries share one bounded retry path so no later replacement
+    # can bypass access validation.
+    _call1_retry = 0
+    _augmented_titles = list(prior_titles) if prior_titles else []
+    while _call1_retry < _ACTOR_ACCESS_MAX_RETRIES:
+        _needs_retry = False
+        _retry_feedback_parts: list[str] = []
+
+        # Check access realization.
+        _realization_violations = _validate_realization(narrative, actor_profile)
+        if _realization_violations:
+            _needs_retry = True
+            _realization_feedback = "\n".join(
+                f"- {v.message}" for v in _realization_violations
+            )
+            _retry_feedback_parts.append(_realization_feedback)
+            logger.warning(
+                "Narrative access realization violations in %s (retry %d/%d): %s",
+                partial_scenario_id,
+                _call1_retry + 1,
+                _ACTOR_ACCESS_MAX_RETRIES,
+                _realization_feedback,
+            )
+
+        # Check title uniqueness.
+        _title_duplicate = prior_titles is not None and narrative.title in prior_titles
+        if _title_duplicate:
+            _needs_retry = True
+            if f"DUPLICATE — DO NOT REUSE: {narrative.title}" not in _augmented_titles:
+                _augmented_titles = list(prior_titles) + [
+                    f"DUPLICATE — DO NOT REUSE: {narrative.title}"
+                ]
+            _retry_feedback_parts.append(
+                f"Title '{narrative.title}' is an exact duplicate of a "
+                f"previously generated title — choose a different title."
+            )
+            logger.warning(
+                "Exact duplicate title for %s: '%s' — retrying Call 1",
+                partial_scenario_id,
+                narrative.title,
+            )
+
+        if not _needs_retry:
+            break
+
+        _call1_retry += 1
+        _combined_feedback = "\n".join(_retry_feedback_parts)
         try:
             narrative, result1 = _call_narrative(
                 seed,
@@ -719,9 +754,11 @@ def generate_scenario(
                 excluded_structural_patterns=excluded_structural_patterns,
                 pinned_entry_point=pinned_entry_point,
                 pinned_technique_ids=pinned_technique_ids,
-                prior_titles=prior_titles,
+                prior_titles=_augmented_titles if _augmented_titles else prior_titles,
                 pinned_entry_point_id=pinned_entry_point_id,
-                realization_feedback=_realization_feedback,
+                realization_feedback=(
+                    _realization_feedback if _realization_violations else None
+                ),
             )
             if pinned_entry_point and narrative.entry_point != pinned_entry_point:
                 narrative = narrative.model_copy(
@@ -729,20 +766,21 @@ def generate_scenario(
                 )
         except Exception as exc:  # noqa: BLE001 - retry must catch all
             logger.warning(
-                "Narrative realization retry %d/%d failed for %s: %s",
-                _realization_retry,
+                "Call 1 retry %d/%d failed for %s: %s",
+                _call1_retry,
                 _ACTOR_ACCESS_MAX_RETRIES,
                 partial_scenario_id,
                 exc,
             )
             break
-        _realization_violations = _validate_realization(narrative, actor_profile)
 
+    # Re-check after loop exits (either all passed or retries exhausted).
+    _realization_violations = _validate_realization(narrative, actor_profile)
     if _realization_violations:
         logger.warning(
             "Narrative access realization violations persist after %d retries "
             "for %s — proceeding to semantic validation for quarantine: %s",
-            _realization_retry,
+            _call1_retry,
             partial_scenario_id,
             "; ".join(v.message for v in _realization_violations),
         )
@@ -797,39 +835,6 @@ def generate_scenario(
         narrative = narrative.model_copy(
             update={"entry_point": pinned_entry_point},
         )
-
-    # --- Post-Call-1: title dedup enforcement ---
-    if prior_titles and narrative.title in prior_titles:
-        logger.warning(
-            "Exact duplicate title for %s: '%s' — retrying Call 1",
-            partial_scenario_id,
-            narrative.title,
-        )
-        augmented_titles = prior_titles + [
-            f"DUPLICATE — DO NOT REUSE: {narrative.title}"
-        ]
-        try:
-            narrative, result1 = _call_narrative(
-                seed,
-                profile,
-                client,
-                use_case,
-                actor_profile=actor_profile,
-                preferred_entry_point=preferred_entry_point,
-                excluded_entry_points=excluded_entry_points,
-                excluded_patterns=excluded_patterns,
-                excluded_structural_patterns=excluded_structural_patterns,
-                pinned_entry_point=pinned_entry_point,
-                pinned_technique_ids=pinned_technique_ids,
-                prior_titles=augmented_titles,
-                pinned_entry_point_id=pinned_entry_point_id,
-            )
-            if pinned_entry_point and narrative.entry_point != pinned_entry_point:
-                narrative = narrative.model_copy(
-                    update={"entry_point": pinned_entry_point},
-                )
-        except (ValueError, AttributeError) as exc:
-            logger.debug("Narrative entry_point update skipped: %s", exc)
 
     # --- Call 2: Attack Tree (with consistency enforcement retries) ---
     # Compute parsimony budget using the same formula as _call_attack_tree.

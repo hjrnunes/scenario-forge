@@ -33,14 +33,16 @@ def _envelope_with_access(access: ActorAccessProvenance):
                 access_class="supply_chain",
                 influence_source="ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 influence_mechanism="A compromised supplier submits documents",
-                trust_boundary_id=compute_trust_boundary_id("memory", "input"),
+                trust_boundary_id=compute_trust_boundary_id(
+                    "memory", "input", "memory-to-input"
+                ),
             ),
             [
                 "Influence source",
                 "ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "A compromised supplier submits documents",
                 "Trust boundary ID",
-                compute_trust_boundary_id("memory", "input"),
+                compute_trust_boundary_id("memory", "input", "memory-to-input"),
             ],
         ),
         (

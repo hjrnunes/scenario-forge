@@ -41,6 +41,7 @@ from scenario_forge.models.capability_profile import (
     compute_entry_point_id,
 )
 from scenario_forge.models.scenario import (
+    ActorAccessProvenance,
     ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
@@ -105,10 +106,15 @@ def _make_remediation_envelope(
     candidate_id: str,
     entry_point: str = "user prompts (zone 1)",
     scenario_seed: str = "AP-T1-01",
+    entry_point_id: str | None = None,
 ) -> ScenarioEnvelope:
     """Build an envelope with IDs matching compute_scenario_id for remediation mocks."""
     scenario_id = compute_scenario_id(run_id, candidate_id, 1)
-    env = _make_envelope(entry_point=entry_point, scenario_seed=scenario_seed)
+    env = _make_envelope(
+        entry_point=entry_point,
+        scenario_seed=scenario_seed,
+        entry_point_id=entry_point_id,
+    )
     env.scenario_id = scenario_id
     env.candidate_id = candidate_id
     return env
@@ -122,6 +128,7 @@ def _make_envelope(
     summary: str = "The attacker exploits user prompts to inject malicious instructions.",
     step_actions: list[str] | None = None,
     actor_type: str | None = "adversarial-user",
+    entry_point_id: str | None = None,
 ) -> ScenarioEnvelope:
     """Build a minimal valid ScenarioEnvelope for testing."""
     if zone_sequence is None:
@@ -218,6 +225,15 @@ def _make_envelope(
 
     actor_profile = None
     if actor_type is not None:
+        access = ActorAccessProvenance(
+            initial_entry_point_id=(
+                entry_point_id
+                if entry_point_id is not None
+                else "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            ingress_mode="direct",
+            access_class="public",
+        )
         actor_profile = ActorProfile(
             actor_type=actor_type,  # type: ignore[arg-type]
             capability_level="intermediate",
@@ -225,6 +241,7 @@ def _make_envelope(
             desires=["Exfiltrate sensitive data"],
             intentions=["Exploit the chat interface"],
             resources=["open-source tools"],
+            access=access,
         )
 
     return ScenarioEnvelope(
@@ -234,7 +251,11 @@ def _make_envelope(
             1,
         ),
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
-        initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        initial_entry_point_id=(
+            entry_point_id
+            if entry_point_id is not None
+            else "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         actor_profile=actor_profile,
@@ -1105,11 +1126,13 @@ class TestRemediateCoverageGaps:
 
         def gen_side_effect(*args, **kwargs):
             cid = kwargs["candidate_id"]
+            ep_id = kwargs.get("pinned_entry_point_id", "")
             env = _make_remediation_envelope(
                 run_id=run_id,
                 candidate_id=cid,
                 entry_point=kwargs.get("pinned_entry_point", "user prompts (zone 1)"),
                 scenario_seed=kwargs.get("pinned_entry_point_id", "ep-id"),
+                entry_point_id=ep_id,
             )
             return (env, [])
 
@@ -1172,6 +1195,7 @@ class TestRemediateCoverageGaps:
             run_id=run_id,
             candidate_id=ok_cand_id,
             entry_point="ep-ok (zone 2)",
+            entry_point_id=ep_ok_id,
         )
         mock_generate.side_effect = [
             RuntimeError("LLM timeout"),
@@ -1226,6 +1250,7 @@ class TestRemediateCoverageGaps:
             run_id=run_id,
             candidate_id=cand_id,
             entry_point="api gateway (zone 3)",
+            entry_point_id=ep_id,
         )
         mock_generate.return_value = (mock_envelope, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)

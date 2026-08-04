@@ -36,6 +36,8 @@ from scenario_forge.models.capability_profile import (
     compute_entry_point_id,
 )
 from scenario_forge.models.scenario import (
+    ActorAccessProvenance,
+    ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
     CallMetadata,
@@ -149,6 +151,7 @@ def _make_envelope(
     scenario_id: str = "scenario:v2:8986bff34d530423761ccda45590e6f5c577814b6d647fd4a8001da76dd789b6",
     behavior_spec: str | None = None,
     candidate_id: str = _VALID_CANDIDATE_ID,
+    entry_point_id: str = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ) -> ScenarioEnvelope:
     root = AttackTreeNode(
         id="n1",
@@ -232,9 +235,22 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id=candidate_id,
-        initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        initial_entry_point_id=entry_point_id,
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
+        actor_profile=ActorProfile(
+            actor_type="adversarial-user",
+            capability_level="intermediate",
+            beliefs=["The system exposes a chat API"],
+            desires=["Exfiltrate sensitive data"],
+            intentions=["Exploit the chat interface"],
+            resources=["open-source tools"],
+            access=ActorAccessProvenance(
+                initial_entry_point_id=entry_point_id,
+                ingress_mode="direct",
+                access_class="public",
+            ),
+        ),
         narrative=narrative,
         attack_tree=attack_tree,
         behavior_spec=behavior_spec if behavior_spec is not None else {},
@@ -451,6 +467,7 @@ class TestCandidateIdReservation:
             env = _make_envelope(
                 scenario_id=sid,
                 candidate_id=cid,
+                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
             )
             return env, []
 
@@ -512,6 +529,7 @@ class TestCallLogFailureAfterArtifact:
         env = _make_envelope(
             scenario_id=sid,
             candidate_id=cand_id,
+            entry_point_id=ep_id,
         )
         mock_generate.return_value = (env, [])
         mock_write.return_value = (tmp_path / "test.yaml", None)
@@ -570,7 +588,16 @@ class TestRemediationFunnelEquations:
                 raise RuntimeError("LLM timeout")
             cid = kwargs["candidate_id"]
             sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
-            return (_make_envelope(scenario_id=sid, candidate_id=cid), [])
+            return (
+                _make_envelope(
+                    scenario_id=sid,
+                    candidate_id=cid,
+                    entry_point_id=kwargs.get(
+                        "pinned_entry_point_id", _USER_PROMPT_EP_ID
+                    ),
+                ),
+                [],
+            )
 
         mock_generate.side_effect = gen
         mock_write.return_value = (tmp_path / "test.yaml", None)
@@ -982,6 +1009,7 @@ class TestRemediationCandidateId:
             env = _make_envelope(
                 scenario_id=sid,
                 candidate_id=cid,
+                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
             )
             return env, []
 
@@ -1323,7 +1351,11 @@ class TestRemediationLaafFallback:
             captured_candidate_id.append(kwargs.get("candidate_id"))
             cid = kwargs.get("candidate_id", _VALID_CANDIDATE_ID)
             sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
-            env = _make_envelope(scenario_id=sid, candidate_id=cid)
+            env = _make_envelope(
+                scenario_id=sid,
+                candidate_id=cid,
+                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
+            )
             return env, []
 
         mock_generate.side_effect = capture

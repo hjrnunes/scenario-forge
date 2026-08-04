@@ -198,6 +198,36 @@ def _assert_entry_point_ownership(
                 )
 
 
+def _run_early_access_gate(
+    envelope: ScenarioEnvelope,
+    profile: CapabilityProfile,
+) -> list[str]:
+    """Run the cmps.6 access gate immediately after generation (cmps.6).
+
+    Returns a list of violation messages (empty if valid).  This is the
+    early gate that prevents invalid-access scenarios from participating
+    in coverage remediation or diversity state — not a replacement for
+    full semantic validation, which runs later and catches additional
+    issues (phantom, structural, etc.).
+    """
+    from scenario_forge.pipeline.generate.actor import (
+        validate_actor_access_provenance,
+    )
+    from scenario_forge.pipeline.generate.narrative import (
+        validate_narrative_access_realization,
+    )
+
+    violations: list[str] = []
+    if envelope.actor_profile is not None:
+        for v in validate_actor_access_provenance(envelope.actor_profile, profile):
+            violations.append(v.message)
+        for v in validate_narrative_access_realization(
+            envelope.narrative, envelope.actor_profile
+        ):
+            violations.append(v.message)
+    return violations
+
+
 def _compute_gap_attributions(
     coverage_gaps: CoverageGaps,
     seeds: list[ScenarioSeed],
@@ -403,6 +433,7 @@ def _remediate_coverage_gaps(
     attempts: list[AttemptRecord],
     available_goals: list[dict] | None = None,
     goal_usage: Counter | None = None,
+    early_quarantined_sids: set[str] | None = None,
 ) -> tuple[list[ScenarioEnvelope], list[str], int, int]:
     """Generate additional scenarios for entry points that received none.
 
@@ -562,6 +593,19 @@ def _remediate_coverage_gaps(
                     f"'{expected_sid}' from compute_scenario_id. Aborting run."
                 )
 
+            # Pre-write candidate-ownership assertion (cmps.6): the
+            # envelope, actor access, candidate (ep_id), and every tree
+            # initial_ingress ID must all equal the one candidate-owned ID.
+            # Same gate as main generation — no divergent IDs accepted.
+            # ep_id is always a non-empty canonical ID (EntryPointGap
+            # requires entry_point_id: str); an absent ID is a fatal bug.
+            if not ep_id:
+                raise ScenarioForgeIntegrityError(
+                    "Remediation entry point gap has no canonical "
+                    "entry_point_id — cannot assert ownership. Aborting run."
+                )
+            _assert_entry_point_ownership(envelope, ep_id)
+
             yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
 
             # Record a provisional receipt immediately after successful
@@ -592,12 +636,24 @@ def _remediate_coverage_gaps(
                 disposition=AttemptDisposition.ADMITTED,
             )
 
-            if (
-                goal_usage is not None
-                and envelope.actor_profile is not None
-                and envelope.actor_profile.goal_category is not None
-            ):
-                goal_usage[envelope.actor_profile.goal_category] += 1
+            # cmps.6 early access gate for remediation: only update
+            # goal_usage for access-valid scenarios.
+            _rem_access_violations = _run_early_access_gate(envelope, profile)
+            if not _rem_access_violations:
+                if (
+                    goal_usage is not None
+                    and envelope.actor_profile is not None
+                    and envelope.actor_profile.goal_category is not None
+                ):
+                    goal_usage[envelope.actor_profile.goal_category] += 1
+            else:
+                if early_quarantined_sids is not None:
+                    early_quarantined_sids.add(envelope.scenario_id)
+                logger.warning(
+                    "Remediation early access gate QUARANTINED %s: %s",
+                    envelope.scenario_id,
+                    "; ".join(_rem_access_violations),
+                )
             logger.info(
                 "    Remediation scenario generated: %s (entry point: %s)",
                 envelope.scenario_id,
@@ -1172,6 +1228,7 @@ def run_pipeline(
     input_hashes: InputHashes = InputHashes()
     provenance: Provenance | None = None
     partial_manifest: RunManifest | None = None
+    early_quarantined_sids: set[str] = set()
 
     try:
         # --- Capture input hashes at run start (before inputs can change) ---
@@ -1672,8 +1729,27 @@ def run_pipeline(
                     disposition=AttemptDisposition.ADMITTED,
                 )
 
-                # Update diversity counters for subsequent seeds.
-                tracker.update(envelope, attack_pattern_name=fseed.attack_pattern_name)
+                # cmps.6 early access gate: run immediately after write to
+                # prevent invalid-access scenarios from participating in
+                # coverage remediation or diversity state.  The scenario
+                # is still in ``scenarios`` (for artifact reconciliation)
+                # and ADMITTED (late quarantine will catch it via full
+                # semantic validation), but it does NOT update diversity
+                # and is excluded from coverage gap analysis.
+                _early_access_violations = _run_early_access_gate(envelope, profile)
+                if _early_access_violations:
+                    early_quarantined_sids.add(envelope.scenario_id)
+                    logger.warning(
+                        "Early access gate QUARANTINED %s: %s",
+                        envelope.scenario_id,
+                        "; ".join(_early_access_violations),
+                    )
+                else:
+                    # Update diversity counters for subsequent seeds only
+                    # for access-valid scenarios (cmps.6).
+                    tracker.update(
+                        envelope, attack_pattern_name=fseed.attack_pattern_name
+                    )
 
                 notes = envelope.generation.notes or []
                 generation_notes.extend(notes)
@@ -1716,7 +1792,14 @@ def run_pipeline(
         # --- Coverage Remediation Pass (before validation) ---
         # Remediation scenarios go through the same generation/write/admission
         # path as main candidates, then pass through all validation passes.
-        pre_remediation_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
+        # cmps.6: exclude early-quarantined scenarios from coverage analysis
+        # so they don't suppress remediation for their entry point.
+        pre_remediation_scenarios = [
+            s for s in scenarios if s.scenario_id not in early_quarantined_sids
+        ]
+        pre_remediation_gaps = analyze_coverage_gaps(
+            profile, threat_surface, pre_remediation_scenarios
+        )
         rem_attempted = 0
         rem_failed = 0
         rem_admitted = 0
@@ -1737,6 +1820,7 @@ def run_pipeline(
                     attempts=attempts,
                     available_goals=available_goals,
                     goal_usage=tracker.goal_usage,
+                    early_quarantined_sids=early_quarantined_sids,
                 )
             )
             rem_admitted = len(remediation_scenarios)
@@ -1936,14 +2020,19 @@ def run_pipeline(
         # Validation is complete; partition admitted vs quarantined now so
         # coverage, diversity, eval, and report only see admitted scenarios.
         # Quarantine artifacts/receipts are retained as forensic evidence.
+        # Include early-quarantined scenarios (from the cmps.6 access gate)
+        # in addition to validation-failed scenarios.
         quarantined_sids = {
             s.scenario_id
             for s in scenarios
-            if s.validation is not None
-            and (
-                not s.validation.phantom.valid
-                or not s.validation.structural.valid
-                or not s.validation.semantic.valid
+            if s.scenario_id in early_quarantined_sids
+            or (
+                s.validation is not None
+                and (
+                    not s.validation.phantom.valid
+                    or not s.validation.structural.valid
+                    or not s.validation.semantic.valid
+                )
             )
         }
         quarantined_count = len(quarantined_sids)

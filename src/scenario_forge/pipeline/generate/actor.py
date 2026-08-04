@@ -905,6 +905,49 @@ def build_call0_context(
             pinned_entry_point_controllability
         )
         if ingress_mode == "indirect":
+            # Build explicit lists of valid trust-boundary IDs and upstream
+            # entry-point IDs so the LLM can choose a valid source→boundary→
+            # ingress path without inventing opaque hashes (cmps.6).
+            _boundaries_ctx = ""
+            if profile.trust_boundaries:
+                _boundary_lines = []
+                for tb in profile.trust_boundaries:
+                    _boundary_lines.append(
+                        f"  - `{tb.trust_boundary_id}`: "
+                        f"{tb.name} ({tb.from_zone}→{tb.to_zone})"
+                    )
+                _boundaries_ctx = (
+                    "\nValid trust_boundary_id values (choose one that "
+                    "connects the influence source zone to the pinned "
+                    "entry point zone):\n" + "\n".join(_boundary_lines) + "\n"
+                )
+
+            _upstream_eps_ctx = ""
+            _pinned_ep = profile.resolve_entry_point(pinned_entry_point_id)
+            if _pinned_ep is not None:
+                _upstream_eps = [
+                    ep
+                    for ep in profile.entry_points
+                    if ep.entry_point_id != pinned_entry_point_id
+                    and ep.direction != "output"
+                    and ep.effective_controllability != "system"
+                ]
+                if _upstream_eps:
+                    _up_lines = []
+                    for ep in _upstream_eps:
+                        _up_lines.append(
+                            f"  - `{ep.entry_point_id}`: {ep.name} "
+                            f"(direction={ep.direction}, "
+                            f"controllability={ep.effective_controllability}, "
+                            f"zone={ep.effective_ingress_zone})"
+                        )
+                    _upstream_eps_ctx = (
+                        "\nValid influence_source entry-point IDs "
+                        "(the upstream data source the actor influences):\n"
+                        + "\n".join(_up_lines)
+                        + "\n"
+                    )
+
             access_provenance_section = (
                 "\n## Access Provenance Constraint (MANDATORY)\n"
                 "The pinned entry point is an **indirect** ingress surface — "
@@ -920,6 +963,8 @@ def build_call0_context(
                 "- `trust_boundary_id`: a canonical `tb:v1:…` ID "
                 "referencing a TrustBoundary declared in the capability "
                 "profile\n"
+                f"{_upstream_eps_ctx}"
+                f"{_boundaries_ctx}"
             )
         elif ingress_mode == "direct":
             # Check if the actor type might be an insider

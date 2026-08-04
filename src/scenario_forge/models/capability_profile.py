@@ -384,7 +384,7 @@ class TrustBoundary(BaseModel):
     @property
     def trust_boundary_id(self) -> str:
         """Deterministic, versioned, collision-resistant canonical identity."""
-        return compute_trust_boundary_id(self.from_zone, self.to_zone)
+        return compute_trust_boundary_id(self.from_zone, self.to_zone, self.name)
 
 
 class MemoryMechanism(BaseModel):
@@ -830,17 +830,84 @@ def compute_integration_id(
 _TRUST_BOUNDARY_ID_VERSION = "v1"
 
 
-def compute_trust_boundary_id(from_zone: str, to_zone: str) -> str:
+def compute_trust_boundary_id(from_zone: str, to_zone: str, name: str = "") -> str:
     """Compute a deterministic, versioned, collision-resistant trust_boundary_id.
 
     Format: ``tb:<version>:<32-char hex digest (128-bit)>``
 
-    The ID is derived from the canonical zone transition (from_zone→to_zone).
-    Two boundaries with the same zone transition produce the same ID.
+    The ID is derived from the canonical zone transition (from_zone→to_zone)
+    **and** the canonicalized boundary name.  Two boundaries with the same
+    zone transition but different names produce different IDs; exact
+    semantic duplicates (same name + same transition) produce the same ID.
     """
-    identity = f"{from_zone}|{to_zone}"
+    canonical_name = _canonical_trust_boundary_name(name)
+    identity = f"{canonical_name}|{from_zone}|{to_zone}"
     h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
     return f"tb:{_TRUST_BOUNDARY_ID_VERSION}:{h}"
+
+
+def _canonical_trust_boundary_name(name: str) -> str:
+    """Normalize a trust-boundary name for canonical identity comparison."""
+    s = name.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.rstrip(".,;:")
+    return s
+
+
+def _trust_boundary_identity_tuple(
+    name: str, from_zone: str, to_zone: str
+) -> tuple[str, str, str]:
+    """Return the canonical identity tuple for a trust boundary."""
+    return (_canonical_trust_boundary_name(name), from_zone, to_zone)
+
+
+def deduplicate_trust_boundaries(
+    trust_boundaries: list[TrustBoundary],
+) -> list[TrustBoundary]:
+    """Deduplicate semantic duplicates and reject ambiguous/colliding identities.
+
+    Two trust boundaries are *semantic duplicates* when they share the same
+    ``trust_boundary_id`` and the same canonical identity tuple — only the
+    first is kept.
+
+    Two trust boundaries *collide* when they share the same
+    ``trust_boundary_id`` but have different canonical identity tuples.
+    This is rejected with a :class:`ValueError`.
+
+    Args:
+        trust_boundaries: Raw list of trust boundaries (may contain duplicates).
+
+    Returns:
+        Deduplicated list preserving first-encounter order.
+
+    Raises:
+        ValueError: If two boundaries with different canonical identity
+            tuples produce the same ``trust_boundary_id``.
+    """
+    seen: dict[str, tuple[tuple[str, str, str], TrustBoundary]] = {}
+    for tb in trust_boundaries:
+        tbid = tb.trust_boundary_id
+        identity_tuple = _trust_boundary_identity_tuple(
+            tb.name, tb.from_zone, tb.to_zone
+        )
+        if tbid in seen:
+            existing_tuple, existing_tb = seen[tbid]
+            if existing_tuple != identity_tuple:
+                raise ValueError(
+                    f"Ambiguous trust boundary identity: '{tb.name}' and "
+                    f"'{existing_tb.name}' resolve to the same "
+                    f"trust_boundary_id {tbid} but have different canonical "
+                    f"identity tuples ({identity_tuple} vs {existing_tuple}). "
+                    f"Remove or disambiguate one of them."
+                )
+            logger.debug(
+                "Deduplicating trust boundary '%s' (same identity as '%s')",
+                tb.name,
+                existing_tb.name,
+            )
+            continue
+        seen[tbid] = (identity_tuple, tb)
+    return [tb for _, tb in seen.values()]
 
 
 def deduplicate_external_integrations(
@@ -1440,6 +1507,10 @@ class CapabilityProfile(BaseModel):
             self.external_integrations = deduplicate_external_integrations(
                 self.external_integrations
             )
+
+        # Deduplicate trust boundaries by canonical identity (cmps.6)
+        if self.trust_boundaries:
+            self.trust_boundaries = deduplicate_trust_boundaries(self.trust_boundaries)
 
         # Category-specific completeness/evidence validation (cmps.9 review)
         # Evidence must be nonblank — whitespace-only strings do not count.

@@ -26,7 +26,7 @@ from tests.test_actor_entry_point_validation import _make_envelope
 
 _EP_A = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 _EP_B = "ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-_TB = compute_trust_boundary_id("memory", "input")
+_TB = compute_trust_boundary_id("memory", "input", "memory-to-input")
 
 
 def _actor(access: ActorAccessProvenance) -> ActorProfile:
@@ -172,7 +172,9 @@ def test_wrong_influence_source():
 def test_wrong_trust_boundary_id():
     """Indirect realization with a divergent trust_boundary_id is invalid."""
     access = _indirect_access()
-    wrong_tb = compute_trust_boundary_id("tool_execution", "input")
+    wrong_tb = compute_trust_boundary_id(
+        "tool_execution", "input", "tool-exec-to-input"
+    )
     nar = _narrative(
         NarrativeAccessRealization(
             initial_entry_point_id=_EP_A,

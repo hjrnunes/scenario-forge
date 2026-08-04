@@ -81,7 +81,7 @@ def _make_indirect_profile() -> tuple[CapabilityProfile, str, str, str]:
         zones_active=["memory", "input", "reasoning", "tool_execution"],
         trust_boundaries=[boundary],
     )
-    boundary_id = compute_trust_boundary_id("memory", "input")
+    boundary_id = compute_trust_boundary_id("memory", "input", "memory-to-input")
     return profile, target.entry_point_id, source.entry_point_id, boundary_id
 
 
