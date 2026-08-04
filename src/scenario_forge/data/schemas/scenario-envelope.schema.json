@@ -14,7 +14,8 @@
     "behavior_spec",
     "faceting",
     "priority",
-    "generation"
+    "generation",
+    "initial_entry_point_id"
   ],
   "properties": {
     "scenario_id": {
@@ -120,15 +121,8 @@
       "$ref": "#/$defs/GenerationMetadata"
     },
     "initial_entry_point_id": {
-      "oneOf": [
-        {
-          "type": "string",
-          "pattern": "^ep:v1:[0-9a-f]{32}$"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string",
+      "pattern": "^ep:v1:[0-9a-f]{32}$"
     }
   },
   "$defs": {
@@ -1550,6 +1544,7 @@
       "additionalProperties": false,
       "required": [
         "initial_entry_point_id",
+        "ingress_mode",
         "access_class"
       ],
       "properties": {
@@ -1557,11 +1552,20 @@
           "type": "string",
           "pattern": "^ep:v1:[0-9a-f]{32}$"
         },
-        "access_class": {
+        "ingress_mode": {
           "type": "string",
           "enum": [
             "direct",
             "indirect"
+          ]
+        },
+        "access_class": {
+          "type": "string",
+          "enum": [
+            "public",
+            "authenticated",
+            "privileged",
+            "supply_chain"
           ]
         },
         "influence_source": {

@@ -60,18 +60,23 @@ def _lookup_entry_point_controllability(
     entry_point_name: str | None,
     entry_point_id: str | None = None,
 ) -> str | None:
-    """Look up the controllability for an entry point in the capability profile.
+    """Look up the **effective** controllability for an entry point.
 
     When *entry_point_id* is provided, looks up by canonical ID (preferred).
     Otherwise falls back to matching by *entry_point_name*.
 
-    Returns the controllability string ('direct', 'indirect', or 'system'),
-    or ``None`` if the entry point is not found.
+    Returns the **effective** controllability string ('direct', 'indirect',
+    or 'system'), or ``None`` if the entry point is not found.
+
+    Uses :attr:`EntryPoint.effective_controllability` (which applies the
+    inference heuristic when ``controllability`` is ``None``) rather than
+    the raw ``controllability`` field — this prevents misclassifying
+    inferred-effective-indirect entry points as direct (cmps.6 review).
     """
     if entry_point_id is not None:
         for ep in profile.entry_points:
             if ep.entry_point_id == entry_point_id:
-                return ep.controllability
+                return ep.effective_controllability
         logger.warning(
             "Entry point with entry_point_id '%s' not found in profile "
             "entry_points; controllability lookup returning None",
@@ -82,7 +87,7 @@ def _lookup_entry_point_controllability(
         return None
     for ep in profile.entry_points:
         if ep.name == entry_point_name:
-            return ep.controllability
+            return ep.effective_controllability
     logger.warning(
         "Entry point '%s' not found in profile entry_points; "
         "controllability lookup returning None",

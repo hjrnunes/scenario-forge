@@ -274,6 +274,7 @@ def _assemble_envelope(
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_entry_point: str | None = None,
+    pinned_entry_point_id: str | None = None,
     run_id: str = "",
     candidate_id: str = "",
     attempt: int = 1,
@@ -353,9 +354,13 @@ def _assemble_envelope(
         legitimate_task=use_case,
         actor_profile=actor_profile,
         initial_entry_point_id=(
-            actor_profile.access.initial_entry_point_id
-            if actor_profile and actor_profile.access
-            else None
+            pinned_entry_point_id
+            if pinned_entry_point_id
+            else (
+                actor_profile.access.initial_entry_point_id
+                if actor_profile and actor_profile.access
+                else ""
+            )
         ),
         narrative=narrative,
         attack_tree=attack_tree,
@@ -569,7 +574,7 @@ def generate_scenario(
     # --- Post-Call-0: actor/access provenance validation + retry (cmps.6) ---
     _validate_access = _gen.validate_actor_access_provenance
     _access_violations = (
-        _validate_access(actor_profile) if pinned_entry_point_id else []
+        _validate_access(actor_profile, profile) if pinned_entry_point_id else []
     )
     _access_retry = 0
     while _access_violations and _access_retry < _ACTOR_ACCESS_MAX_RETRIES:
@@ -582,6 +587,24 @@ def generate_scenario(
             _ACTOR_ACCESS_MAX_RETRIES,
             _access_feedback,
         )
+        # cmps.6: if the violation indicates actor/evidence incompatibility,
+        # do not force the same actor type — let the LLM pick a feasible one.
+        _force_type: str | None = actor_profile.actor_type
+        if any(
+            v.rule
+            in (
+                "access_class_ingress_mode_incompatible",
+                "missing_insider_advantage",
+            )
+            for v in _access_violations
+        ):
+            _force_type = None
+            logger.info(
+                "Access retry %d: not forcing actor '%s' due to "
+                "access-class/ingress-mode incompatibility",
+                _access_retry,
+                actor_profile.actor_type,
+            )
         try:
             actor_profile, result0 = _call_actor_profile(
                 seed,
@@ -592,9 +615,10 @@ def generate_scenario(
                 preferred_capability_level=preferred_capability_level,
                 attack_goal=attack_goal,
                 pinned_technique_ids=pinned_technique_ids,
-                forced_actor_type=actor_profile.actor_type,
+                forced_actor_type=_force_type,
                 pinned_entry_point=pinned_entry_point,
                 pinned_entry_point_id=pinned_entry_point_id,
+                access_feedback=_access_feedback,
             )
             actor_profile = _validate_actor_type(actor_profile)
             if attack_goal is not None:
@@ -610,7 +634,7 @@ def generate_scenario(
                 exc,
             )
             break
-        _access_violations = _validate_access(actor_profile)
+        _access_violations = _validate_access(actor_profile, profile)
 
     if _access_violations:
         logger.warning(
@@ -884,6 +908,7 @@ def generate_scenario(
         actor_profile=actor_profile,
         pinned_technique_ids=pinned_technique_ids,
         pinned_entry_point=pinned_entry_point,
+        pinned_entry_point_id=pinned_entry_point_id,
         run_id=run_id,
         candidate_id=candidate_id,
         attempt=attempt,

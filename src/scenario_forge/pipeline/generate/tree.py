@@ -519,6 +519,33 @@ def build_call2_context(
             f"- Capability level: {actor_profile.capability_level}\n"
         )
 
+    # Build structured access provenance block (cmps.6)
+    access_provenance_block = ""
+    if actor_profile is not None and actor_profile.access is not None:
+        _a = actor_profile.access
+        access_provenance_block = (
+            "\n## Actor Access Provenance (AUTHORITATIVE — cmps.6)\n"
+            "This structured block is authoritative over any advisory "
+            "kill-chain wording. The attack tree's initial_ingress action "
+            "must use exactly this entry_point_id and be consistent with "
+            "this evidence.\n"
+            f"- initial_entry_point_id: {_a.initial_entry_point_id}\n"
+            f"- ingress_mode: {_a.ingress_mode}\n"
+            f"- access_class: {_a.access_class}\n"
+        )
+        if _a.influence_source:
+            access_provenance_block += f"- influence_source: {_a.influence_source}\n"
+        if _a.influence_mechanism:
+            access_provenance_block += (
+                f"- influence_mechanism: {_a.influence_mechanism}\n"
+            )
+        if _a.trust_boundary:
+            access_provenance_block += f"- trust_boundary: {_a.trust_boundary}\n"
+        if _a.material_insider_advantage:
+            access_provenance_block += (
+                f"- material_insider_advantage: {_a.material_insider_advantage}\n"
+            )
+
     # Compute concrete leaf budget so the LLM sees the exact number
     technique_count = len(tech_ids_for_tree) if tech_ids_for_tree else 0
     leaf_budget = compute_leaf_budget(technique_count)
@@ -577,6 +604,7 @@ def build_call2_context(
         "use_case": use_case,
         "arch_section": arch_section,
         "actor_section": actor_section,
+        "access_provenance_block": access_provenance_block,
         "technique_context": technique_context,
         "technique_constraint": technique_constraint,
         "narrative": narrative,

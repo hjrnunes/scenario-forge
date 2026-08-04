@@ -912,8 +912,9 @@ def validate_insider_access_floor(
 
     Replaces the former keyword-based check (cmps.6).  When the actor type
     is an insider (``malicious-insider`` or ``negligent-insider``) using
-    direct/public ingress (``access.access_class == "direct"``), the
-    ``access.material_insider_advantage`` field must be present and nonblank.
+    direct ingress with ``public``/``authenticated`` access, the
+    ``access.material_insider_advantage`` field must be present and
+    nonblank.
 
     Scenarios without an ``access`` provenance block are flagged — the
     policy is authoritative, not optional.
@@ -948,22 +949,24 @@ def validate_insider_access_floor(
             result.flagged_scenarios.append((scenario, violation))
             continue
 
-        # Only direct/public ingress requires material insider advantage.
-        # Indirect ingress already requires influence evidence (validated
-        # separately in validate_actor_access_provenance and semantic
-        # validation).
-        if access.access_class == "direct":
+        # Direct ingress with public/authenticated access requires material
+        # insider advantage.  Indirect ingress is validated via influence
+        # evidence in the shared access-policy validator.
+        if access.ingress_mode == "direct" and access.access_class in (
+            "public",
+            "authenticated",
+        ):
             advantage = access.material_insider_advantage
             if not advantage or not advantage.strip():
                 violation = InsiderAccessViolation(
                     scenario_id=scenario.scenario_id,
                     actor_type=actor.actor_type,
                     reason=(
-                        f"Insider actor '{actor.actor_type}' using direct/"
-                        f"public ingress lacks structured "
-                        f"material_insider_advantage evidence — "
-                        f"indistinguishable from an external actor using "
-                        f"the public interface (cmps.6)."
+                        f"Insider actor '{actor.actor_type}' using "
+                        f"'{access.access_class}' access with direct ingress "
+                        f"lacks structured material_insider_advantage "
+                        f"evidence — indistinguishable from an external "
+                        f"actor using the public interface (cmps.6)."
                     ),
                 )
                 logger.warning(
@@ -976,7 +979,8 @@ def validate_insider_access_floor(
             else:
                 result.clean_scenarios.append(scenario)
         else:
-            # Indirect ingress — validated via influence evidence, not here.
+            # Indirect ingress or privileged access — validated via
+            # influence evidence / access-policy validator, not here.
             result.clean_scenarios.append(scenario)
 
     return result
@@ -1182,7 +1186,6 @@ def validate_scenario_semantics(
         is_attacker_accessible_ingress,
     )
     from scenario_forge.models.scenario import (
-        ACTOR_TYPES,
         SemanticValidation,
         SemanticViolation,
         ValidationBlock,
@@ -1524,12 +1527,9 @@ def validate_scenario_semantics(
                     )
 
         # 12. Actor / access provenance validation (cmps.6).
-        #     Replaces the former blanket actor-type / entry-point
-        #     controllability alignment (3fve) with typed access provenance:
-        #     - access_class must be compatible with actor type
-        #     - indirect ingress requires source, mechanism, trust-boundary
-        #     - insider + direct/public ingress requires material_insider_advantage
-        #     - initial_entry_point_id must match the attack tree's ingress
+        #     Uses the shared pure validator from generate.actor to avoid
+        #     duplicating rule maps.  Adds tree-wide ID invariants that the
+        #     pure validator cannot check (it has no tree context).
         _actor_type_12 = (
             scenario.actor_profile.actor_type if scenario.actor_profile else None
         )
@@ -1553,125 +1553,54 @@ def validate_scenario_semantics(
             )
 
         if _actor_type_12 and _access_12 is not None:
-            # 12a. Access-class / actor-type compatibility
-            _ACCESS_CLASS_COMPAT = {
-                "direct": frozenset(ACTOR_TYPES),
-                "indirect": frozenset(
-                    {
-                        "supply-chain-actor",
-                        "malicious-insider",
-                        "nation-state",
-                        "competitor",
-                        "automated-agent",
-                    }
-                ),
-            }
-            _allowed_12 = _ACCESS_CLASS_COMPAT.get(_access_12.access_class)
-            if _allowed_12 is not None and _actor_type_12 not in _allowed_12:
+            # 12a–12e: delegate to the shared pure access-policy validator.
+            from scenario_forge.pipeline.generate.actor import (
+                validate_actor_access_provenance as _vap,
+            )
+
+            for _v in _vap(scenario.actor_profile, profile):
                 violations.append(
                     SemanticViolation(
-                        rule="actor_access_class_incompatible",
-                        message=(
-                            f"Actor '{_actor_type_12}' is incompatible with "
-                            f"access_class '{_access_12.access_class}' — "
-                            f"eligible actors: {sorted(_allowed_12)}."
-                        ),
+                        rule=_v.rule,
+                        message=_v.message,
                         severity="major",
                     )
                 )
 
-            # 12b. Indirect ingress evidence completeness
-            if _access_12.access_class == "indirect":
-                _missing_ev = []
-                if (
-                    not _access_12.influence_source
-                    or not _access_12.influence_source.strip()
-                ):
-                    _missing_ev.append("influence_source")
-                if (
-                    not _access_12.influence_mechanism
-                    or not _access_12.influence_mechanism.strip()
-                ):
-                    _missing_ev.append("influence_mechanism")
-                if (
-                    not _access_12.trust_boundary
-                    or not _access_12.trust_boundary.strip()
-                ):
-                    _missing_ev.append("trust_boundary")
-                if _missing_ev:
-                    violations.append(
-                        SemanticViolation(
-                            rule="incomplete_indirect_evidence",
-                            message=(
-                                f"Indirect ingress requires structured "
-                                f"evidence: missing {_missing_ev}."
-                            ),
-                            severity="major",
-                        )
-                    )
-
-            # 12c. Insider + direct/public ingress requires material advantage
-            _INSIDER_ACTORS_12 = {"malicious-insider", "negligent-insider"}
-            if (
-                _access_12.access_class == "direct"
-                and _actor_type_12 in _INSIDER_ACTORS_12
-                and (
-                    not _access_12.material_insider_advantage
-                    or not _access_12.material_insider_advantage.strip()
-                )
-            ):
+            # 12f. Tree-wide initial_entry_point_id invariant: every
+            #      initial_ingress action must use exactly the same canonical
+            #      ID as the actor access provenance and the top-level
+            #      scenario envelope.  No divergent IDs accepted.
+            _canonical_ep_id = scenario.initial_entry_point_id
+            if _access_12.initial_entry_point_id != _canonical_ep_id:
                 violations.append(
                     SemanticViolation(
-                        rule="missing_insider_advantage",
+                        rule="initial_entry_point_id_mismatch",
                         message=(
-                            f"Insider actor '{_actor_type_12}' using "
-                            f"direct/public ingress requires structured "
-                            f"material_insider_advantage evidence."
+                            f"Actor access initial_entry_point_id "
+                            f"'{_access_12.initial_entry_point_id}' does not "
+                            f"match scenario envelope "
+                            f"initial_entry_point_id '{_canonical_ep_id}'."
                         ),
                         severity="major",
                     )
                 )
-
-            # 12d. initial_entry_point_id must match the attack tree's ingress
-            if _ingress_actions_12:
-                _tree_ep_id = _ingress_actions_12[0].entry_point_id
-                if _access_12.initial_entry_point_id != _tree_ep_id:
+            for _ingress_act in _ingress_actions_12:
+                if _ingress_act.entry_point_id != _canonical_ep_id:
                     violations.append(
                         SemanticViolation(
                             rule="initial_entry_point_id_mismatch",
                             message=(
-                                f"Actor access initial_entry_point_id "
-                                f"'{_access_12.initial_entry_point_id}' does "
-                                f"not match attack tree initial_ingress "
-                                f"entry_point_id '{_tree_ep_id}'."
+                                f"Attack tree initial_ingress action "
+                                f"'{_ingress_act.action_id}' uses "
+                                f"entry_point_id "
+                                f"'{_ingress_act.entry_point_id}' which "
+                                f"diverges from canonical "
+                                f"'{_canonical_ep_id}'."
                             ),
                             severity="major",
                         )
                     )
-
-            # 12e. initial_entry_point_id must resolve to an eligible ingress EP
-            _resolved_ep_12 = profile.resolve_entry_point(
-                _access_12.initial_entry_point_id
-            )
-            if _resolved_ep_12 is not None and not is_attacker_accessible_ingress(
-                _resolved_ep_12,
-                set(profile.zones_active) if profile.zones_active else set(),
-            ):
-                violations.append(
-                    SemanticViolation(
-                        rule="ineligible_ingress_entry_point",
-                        message=(
-                            f"Actor access initial_entry_point_id "
-                            f"'{_access_12.initial_entry_point_id}' "
-                            f"resolves to entry point "
-                            f"'{_resolved_ep_12.name}' which is not an "
-                            f"attacker-accessible ingress route "
-                            f"(output-only, system-controlled, or "
-                            f"inactive ingress zone)."
-                        ),
-                        severity="major",
-                    )
-                )
 
         # 13. Corpus-wide closed-world claim applicability (cmps.9 review)
         corpus_claims = check_corpus_claims_applicability(scenario, profile)

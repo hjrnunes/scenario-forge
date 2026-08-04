@@ -2801,6 +2801,7 @@ class TestThirdReviewCallLogFailure:
             envelope = ScenarioEnvelope(
                 scenario_id=expected_sid,
                 candidate_id=cid,
+                initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 generated_at=datetime.now(tz=UTC),
                 generator_version="0.1.0",
                 narrative=NarrativeLayer(

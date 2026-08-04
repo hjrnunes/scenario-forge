@@ -41,7 +41,8 @@ from scenario_forge.pipeline.validation import validate_insider_access_floor
 ENTRY_POINT_ID = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DEFAULT_INSIDER_ACCESS = ActorAccessProvenance(
     initial_entry_point_id=ENTRY_POINT_ID,
-    access_class="direct",
+    ingress_mode="direct",
+    access_class="public",
     material_insider_advantage="Authorized access to internal customer records.",
 )
 
@@ -164,6 +165,7 @@ def _make_envelope(
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
+        initial_entry_point_id=ENTRY_POINT_ID,
         narrative=narrative,
         actor_profile=actor_profile,
         attack_tree=attack_tree,
@@ -183,10 +185,21 @@ class TestInsiderStructuredAccess:
     def test_indirect_access_passes(self):
         access = ActorAccessProvenance(
             initial_entry_point_id=ENTRY_POINT_ID,
-            access_class="indirect",
-            influence_source="A trusted knowledge base",
+            ingress_mode="indirect",
+            access_class="supply_chain",
+            influence_source=ENTRY_POINT_ID,
             influence_mechanism="Poisoned content",
             trust_boundary="External content ingestion boundary",
+        )
+        result = validate_insider_access_floor([_make_envelope(access=access)])
+        assert result.flagged_count == 0
+        assert result.clean_count == 1
+
+    def test_direct_privileged_access_passes_without_material_advantage(self):
+        access = ActorAccessProvenance(
+            initial_entry_point_id=ENTRY_POINT_ID,
+            ingress_mode="direct",
+            access_class="privileged",
         )
         result = validate_insider_access_floor([_make_envelope(access=access)])
         assert result.flagged_count == 0
@@ -197,7 +210,8 @@ class TestInsiderMissingStructuredEvidence:
     def test_direct_access_without_material_insider_advantage_flagged(self):
         access = ActorAccessProvenance(
             initial_entry_point_id=ENTRY_POINT_ID,
-            access_class="direct",
+            ingress_mode="direct",
+            access_class="public",
         )
         result = validate_insider_access_floor([_make_envelope(access=access)])
         assert result.flagged_count == 1
@@ -206,7 +220,8 @@ class TestInsiderMissingStructuredEvidence:
     def test_direct_access_with_blank_material_insider_advantage_flagged(self):
         access = ActorAccessProvenance(
             initial_entry_point_id=ENTRY_POINT_ID,
-            access_class="direct",
+            ingress_mode="direct",
+            access_class="authenticated",
             material_insider_advantage="   ",
         )
         result = validate_insider_access_floor([_make_envelope(access=access)])
@@ -237,7 +252,8 @@ class TestNonInsiderActorsSkipped:
     def test_cybercriminal_passes_without_material_advantage(self):
         access = ActorAccessProvenance(
             initial_entry_point_id=ENTRY_POINT_ID,
-            access_class="direct",
+            ingress_mode="direct",
+            access_class="public",
         )
         result = validate_insider_access_floor(
             [_make_envelope(actor_type="cybercriminal", access=access)]
@@ -264,7 +280,8 @@ class TestBatchValidation:
     def test_mixed_batch_correct_counts(self):
         missing_advantage = ActorAccessProvenance(
             initial_entry_point_id=ENTRY_POINT_ID,
-            access_class="direct",
+            ingress_mode="direct",
+            access_class="public",
         )
         flagged_id = "scenario:v2:cc2675b912bd0ffb62b4b2b77b59c46712c32ac167201286e694bdd306ed11d0"
         scenarios = [

@@ -371,44 +371,19 @@ _ADVERSARIAL_INTENTION_KEYWORDS: set[str] = {
 
 
 # ---------------------------------------------------------------------------#
-# Typed access-class → actor compatibility (cmps.6)
+# Actor access policy constants (cmps.6)
 # ---------------------------------------------------------------------------#
 #
-# Replaces blanket direct/indirect actor allowlists (old R2/R3) with a
-# typed map keyed by the canonical access class derived from the entry
-# point's ``effective_controllability``.  No keyword heuristics, no
-# per-entry-point-name exceptions.
-#
-# ``direct`` access: any actor can reach a direct/public ingress surface.
-#   Insider actors using direct ingress must still provide structured
-#   ``material_insider_advantage`` evidence — validated post-hoc, not
-#   pre-filtered.
-#
-# ``indirect`` access: only actors that can plausibly hold indirect
-#   influence over an upstream data source.  The actor must provide
-#   ``influence_source``, ``influence_mechanism``, and ``trust_boundary``
-#   evidence — validated post-hoc.
-#
-# ``system`` controllability entry points are NOT eligible ingress at all
-# (they are downstream resources only); this is enforced by
-# ``is_attacker_accessible_ingress`` and the candidate filter, not by an
-# actor allowlist.
-
-_ACTOR_ACCESS_CLASS_COMPAT: dict[str, frozenset[str]] = {
-    "direct": frozenset(ALL_ACTOR_TYPES),
-    "indirect": frozenset(
-        {
-            "supply-chain-actor",
-            "malicious-insider",
-            "nation-state",
-            "competitor",
-            "automated-agent",
-        }
-    ),
-}
+# The blanket direct/indirect actor allowlist has been removed.  Actor
+# eligibility for a given ingress surface comes from threat/technique/
+# motivation constraints (R1, R3, R4, R5 in compute_compatible_actor_types)
+# plus typed evidence validated post-hoc by validate_actor_access_provenance.
+# No actor type is categorically excluded from indirect ingress — the actor
+# must provide structured influence evidence (influence_source,
+# influence_mechanism, trust_boundary) that resolves canonically.
 
 # Insider actor types that require structured material insider advantage
-# when using direct/public ingress (cmps.6).
+# when using public/authenticated access with direct ingress (cmps.6).
 _INSIDER_ACTOR_TYPES: frozenset[str] = frozenset(
     {"malicious-insider", "negligent-insider"}
 )
@@ -416,6 +391,13 @@ _INSIDER_ACTOR_TYPES: frozenset[str] = frozenset(
 # Maximum retries for actor/access provenance mismatch before quarantine
 # (cmps.6 retry/quarantine seam).
 _ACTOR_ACCESS_MAX_RETRIES: int = 2
+
+# Canonical trust-boundary zone labels for indirect influence evidence.
+# A trust boundary is a ``source_zone→target_zone`` pair where both zones
+# are from ZONE_NAMES (or "external" for the upstream source side).
+_TRUST_BOUNDARY_SOURCE_ZONES: frozenset[str] = frozenset(
+    {"external", "input", "inter_agent", "memory", "tool_execution", "reasoning"}
+)
 
 
 # ---------------------------------------------------------------------------

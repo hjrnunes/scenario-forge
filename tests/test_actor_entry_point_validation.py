@@ -188,6 +188,11 @@ def _make_envelope(
     return ScenarioEnvelope(
         scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
+        initial_entry_point_id=(
+            actor_profile.access.initial_entry_point_id
+            if actor_profile.access is not None
+            else "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
@@ -208,9 +213,15 @@ def _find_violations(envelope: ScenarioEnvelope, rule: str) -> list:
     return [v for v in envelope.validation.semantic.violations if v.rule == rule]
 
 
-def _access(entry_point_id: str, access_class: str = "direct", **evidence: str):
+def _access(
+    entry_point_id: str,
+    ingress_mode: str = "direct",
+    access_class: str = "public",
+    **evidence: str,
+):
     return ActorAccessProvenance(
         initial_entry_point_id=entry_point_id,
+        ingress_mode=ingress_mode,
         access_class=access_class,
         **evidence,
     )
@@ -244,7 +255,7 @@ class TestMissingAccessProvenance:
         assert violations[0].severity == "moderate"
 
 
-class TestActorAccessClassIncompatible:
+class TestAccessClassIngressModeIncompatible:
     @pytest.mark.parametrize(
         "actor_type", ["adversarial-user", "cybercriminal", "hacktivist"]
     )
@@ -259,14 +270,17 @@ class TestActorAccessClassIncompatible:
         ep_id = profile.entry_points[0].entry_point_id
         access = _access(
             ep_id,
-            "indirect",
-            influence_source="Public documents",
+            ingress_mode="indirect",
+            access_class="public",
+            influence_source=ep_id,
             influence_mechanism="Poisoned content",
-            trust_boundary="Document ingestion boundary",
+            trust_boundary="external→input",
         )
         envelope = _validate(profile, actor_type, access)
 
-        violations = _find_violations(envelope, "actor_access_class_incompatible")
+        violations = _find_violations(
+            envelope, "access_class_ingress_mode_incompatible"
+        )
         assert len(violations) == 1
         assert violations[0].severity == "major"
 
@@ -285,14 +299,21 @@ class TestIncompleteIndirectEvidence:
             ]
         )
         evidence = {
-            "influence_source": "Public documents",
+            "influence_source": profile.entry_points[0].entry_point_id,
             "influence_mechanism": "Poisoned content",
-            "trust_boundary": "Document ingestion boundary",
+            "trust_boundary": "external→input",
         }
         evidence.pop(missing_field)
         ep_id = profile.entry_points[0].entry_point_id
         envelope = _validate(
-            profile, "supply-chain-actor", _access(ep_id, "indirect", **evidence)
+            profile,
+            "supply-chain-actor",
+            _access(
+                ep_id,
+                ingress_mode="indirect",
+                access_class="supply_chain",
+                **evidence,
+            ),
         )
 
         violations = _find_violations(envelope, "incomplete_indirect_evidence")
@@ -310,10 +331,11 @@ class TestIncompleteIndirectEvidence:
         ep_id = profile.entry_points[0].entry_point_id
         access = _access(
             ep_id,
-            "indirect",
-            influence_source="Public documents",
+            ingress_mode="indirect",
+            access_class="supply_chain",
+            influence_source=ep_id,
             influence_mechanism="Poisoned content",
-            trust_boundary="Document ingestion boundary",
+            trust_boundary="external→input",
         )
         envelope = _validate(profile, "supply-chain-actor", access)
         assert not _find_violations(envelope, "incomplete_indirect_evidence")
@@ -324,7 +346,11 @@ class TestMissingInsiderAdvantage:
     def test_direct_insider_without_advantage_flags(self, actor_type: str) -> None:
         profile = _make_profile()
         ep_id = profile.entry_points[0].entry_point_id
-        envelope = _validate(profile, actor_type, _access(ep_id))
+        envelope = _validate(
+            profile,
+            actor_type,
+            _access(ep_id, ingress_mode="direct", access_class="authenticated"),
+        )
 
         violations = _find_violations(envelope, "missing_insider_advantage")
         assert len(violations) == 1
@@ -334,7 +360,10 @@ class TestMissingInsiderAdvantage:
         profile = _make_profile()
         ep_id = profile.entry_points[0].entry_point_id
         access = _access(
-            ep_id, material_insider_advantage="Privileged internal credentials"
+            ep_id,
+            ingress_mode="direct",
+            access_class="authenticated",
+            material_insider_advantage="Privileged internal credentials",
         )
         envelope = _validate(profile, "malicious-insider", access)
         assert not _find_violations(envelope, "missing_insider_advantage")
@@ -342,56 +371,74 @@ class TestMissingInsiderAdvantage:
 
 class TestValidActorAccessCombinations:
     @pytest.mark.parametrize(
-        ("actor_type", "access_class", "evidence"),
+        ("actor_type", "ingress_mode", "access_class", "evidence"),
         [
-            ("cybercriminal", "direct", {}),
+            ("cybercriminal", "direct", "public", {}),
             (
                 "supply-chain-actor",
                 "indirect",
+                "supply_chain",
                 {
-                    "influence_source": "Dependency package",
                     "influence_mechanism": "Compromised release",
-                    "trust_boundary": "Package ingestion boundary",
+                    "trust_boundary": "external→input",
                 },
             ),
             (
                 "malicious-insider",
                 "direct",
+                "authenticated",
                 {"material_insider_advantage": "Privileged internal credentials"},
             ),
             (
                 "nation-state",
                 "indirect",
+                "supply_chain",
                 {
-                    "influence_source": "External corpus",
                     "influence_mechanism": "Coordinated poisoning",
-                    "trust_boundary": "Training data boundary",
+                    "trust_boundary": "external→input",
                 },
             ),
         ],
     )
     def test_valid_combination_has_no_access_violation(
-        self, actor_type: str, access_class: str, evidence: dict[str, str]
+        self,
+        actor_type: str,
+        ingress_mode: str,
+        access_class: str,
+        evidence: dict[str, str],
     ) -> None:
         profile = _make_profile(
             [
                 EntryPoint(
-                    name="ingress", direction="input", controllability=access_class
+                    name="ingress", direction="input", controllability=ingress_mode
                 )
             ]
         )
         ep_id = profile.entry_points[0].entry_point_id
+        if ingress_mode == "indirect":
+            evidence = {"influence_source": ep_id, **evidence}
         envelope = _validate(
-            profile, actor_type, _access(ep_id, access_class, **evidence)
+            profile,
+            actor_type,
+            _access(
+                ep_id,
+                ingress_mode=ingress_mode,
+                access_class=access_class,
+                **evidence,
+            ),
         )
 
         access_rules = {
             "missing_access_provenance",
-            "actor_access_class_incompatible",
+            "access_class_ingress_mode_incompatible",
             "incomplete_indirect_evidence",
             "missing_insider_advantage",
             "initial_entry_point_id_mismatch",
             "ineligible_ingress_entry_point",
+            "unresolved_entry_point_id",
+            "unresolved_influence_source",
+            "invalid_trust_boundary_format",
+            "invalid_trust_boundary_zone",
         }
         assert not [
             violation
@@ -401,7 +448,52 @@ class TestValidActorAccessCombinations:
 
 
 class TestInitialEntryPointIdMismatch:
-    def test_access_id_different_from_tree_id_flags(self) -> None:
+    def test_divergent_access_and_ingress_ids_both_flag(self) -> None:
+        profile = _make_profile(
+            [
+                EntryPoint(
+                    name="canonical ingress",
+                    direction="input",
+                    controllability="direct",
+                ),
+                EntryPoint(
+                    name="actor ingress",
+                    direction="input",
+                    controllability="direct",
+                ),
+                EntryPoint(
+                    name="tree ingress",
+                    direction="input",
+                    controllability="direct",
+                ),
+            ]
+        )
+        canonical_id, actor_id, tree_id = (
+            entry_point.entry_point_id for entry_point in profile.entry_points
+        )
+        envelope = _make_envelope(
+            actor_type="cybercriminal",
+            narrative_entry_point=profile.entry_points[0].name,
+            entry_point_id=tree_id,
+            access=_access(actor_id),
+        )
+        envelope.initial_entry_point_id = canonical_id
+        ingress_action = envelope.attack_tree.root.children[0].action
+        assert ingress_action is not None
+        # Rule 12f includes the action identifier in its violation message,
+        # while the typed action currently inherits that identifier from its
+        # containing node rather than declaring it as a model field.
+        object.__setattr__(ingress_action, "action_id", "n1.1")
+
+        validate_scenario_semantics([envelope], profile)
+
+        violations = _find_violations(envelope, "initial_entry_point_id_mismatch")
+        assert len(violations) == 2
+        assert all(violation.severity == "major" for violation in violations)
+        assert any("Actor access" in violation.message for violation in violations)
+        assert any("Attack tree" in violation.message for violation in violations)
+
+    def test_access_id_different_from_envelope_id_flags(self) -> None:
         profile = _make_profile(
             [
                 EntryPoint(
@@ -412,11 +504,19 @@ class TestInitialEntryPointIdMismatch:
                 ),
             ]
         )
-        tree_ep_id = profile.entry_points[0].entry_point_id
+        envelope_ep_id = profile.entry_points[0].entry_point_id
         access_ep_id = profile.entry_points[1].entry_point_id
-        envelope = _validate(
-            profile, "cybercriminal", _access(access_ep_id), tree_ep_id
+        access = _access(envelope_ep_id, ingress_mode="direct", access_class="public")
+        envelope = _make_envelope(
+            actor_type="cybercriminal",
+            narrative_entry_point=profile.entry_points[0].name,
+            entry_point_id=envelope_ep_id,
+            access=access,
         )
+        # Diverge actor provenance after construction so the tree remains
+        # aligned with the canonical envelope ID.
+        access.initial_entry_point_id = access_ep_id
+        validate_scenario_semantics([envelope], profile)
 
         violations = _find_violations(envelope, "initial_entry_point_id_mismatch")
         assert len(violations) == 1
@@ -425,7 +525,11 @@ class TestInitialEntryPointIdMismatch:
     def test_matching_access_and_tree_id_passes(self) -> None:
         profile = _make_profile()
         ep_id = profile.entry_points[0].entry_point_id
-        envelope = _validate(profile, "cybercriminal", _access(ep_id))
+        envelope = _validate(
+            profile,
+            "cybercriminal",
+            _access(ep_id, ingress_mode="direct", access_class="public"),
+        )
         assert not _find_violations(envelope, "initial_entry_point_id_mismatch")
 
 
@@ -439,7 +543,11 @@ class TestIneligibleIngressEntryPoint:
             ]
         )
         ep_id = profile.entry_points[0].entry_point_id
-        envelope = _validate(profile, "cybercriminal", _access(ep_id))
+        envelope = _validate(
+            profile,
+            "cybercriminal",
+            _access(ep_id, ingress_mode="direct", access_class="public"),
+        )
 
         violations = _find_violations(envelope, "ineligible_ingress_entry_point")
         assert len(violations) == 1
@@ -456,7 +564,11 @@ class TestIneligibleIngressEntryPoint:
             ]
         )
         ep_id = profile.entry_points[0].entry_point_id
-        envelope = _validate(profile, "cybercriminal", _access(ep_id))
+        envelope = _validate(
+            profile,
+            "cybercriminal",
+            _access(ep_id, ingress_mode="direct", access_class="public"),
+        )
 
         violations = _find_violations(envelope, "ineligible_ingress_entry_point")
         assert len(violations) == 1

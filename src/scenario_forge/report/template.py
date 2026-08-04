@@ -4563,6 +4563,41 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
 
     list_style = 'style="margin:4px 0 0 16px;padding:0;font-size:13px;color:var(--text-secondary);line-height:1.6;"'
 
+    # Build access provenance sub-block (cmps.6)
+    access = actor_profile.get("access")
+    access_html = ""
+    if access:
+        _ingress = access.get("ingress_mode", "")
+        _access_cls = access.get("access_class", "")
+        _ep_id = access.get("initial_entry_point_id", "")
+        _access_lines = [
+            f"<li>Ingress: <strong>{_esc(_ingress)}</strong></li>",
+            f"<li>Access class: <strong>{_esc(_access_cls)}</strong></li>",
+            f"<li>Entry point ID: <code>{_esc(_ep_id)}</code></li>",
+        ]
+        if access.get("influence_source"):
+            _access_lines.append(
+                f"<li>Influence source: <code>{_esc(access['influence_source'])}</code></li>"
+            )
+        if access.get("influence_mechanism"):
+            _access_lines.append(
+                f"<li>Influence mechanism: {_esc(access['influence_mechanism'])}</li>"
+            )
+        if access.get("trust_boundary"):
+            _access_lines.append(
+                f"<li>Trust boundary: {_esc(access['trust_boundary'])}</li>"
+            )
+        if access.get("material_insider_advantage"):
+            _access_lines.append(
+                f"<li>Material insider advantage: {_esc(access['material_insider_advantage'])}</li>"
+            )
+        access_html = (
+            '<div style="margin-bottom:8px;">'
+            '<strong style="color:var(--text-muted);font-size:11px;">ACCESS PROVENANCE:</strong>'
+            f"<ul {list_style}>{''.join(_access_lines)}</ul>"
+            "</div>"
+        )
+
     return f"""
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
               <span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(type_color)},0.15);color:{type_color};">{_esc(type_display)}</span>
@@ -4586,6 +4621,7 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
                 <strong style="color:var(--text-muted);font-size:11px;">RESOURCES:</strong>
                 <ul {list_style}>{resources_items}</ul>
               </div>
+              {access_html}
             </div>"""
 
 

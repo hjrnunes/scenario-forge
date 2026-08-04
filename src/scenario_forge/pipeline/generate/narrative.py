@@ -290,6 +290,32 @@ def build_call1_context(
             + f"- Resources: {resources_str}\n"
         )
 
+    # Build structured access provenance block (cmps.6)
+    access_provenance_block = ""
+    if actor_profile is not None and actor_profile.access is not None:
+        _a = actor_profile.access
+        access_provenance_block = (
+            "\n## Actor Access Provenance (AUTHORITATIVE — cmps.6)\n"
+            "This structured block is authoritative over any advisory "
+            "kill-chain wording. The narrative must be consistent with "
+            "this evidence.\n"
+            f"- initial_entry_point_id: {_a.initial_entry_point_id}\n"
+            f"- ingress_mode: {_a.ingress_mode}\n"
+            f"- access_class: {_a.access_class}\n"
+        )
+        if _a.influence_source:
+            access_provenance_block += f"- influence_source: {_a.influence_source}\n"
+        if _a.influence_mechanism:
+            access_provenance_block += (
+                f"- influence_mechanism: {_a.influence_mechanism}\n"
+            )
+        if _a.trust_boundary:
+            access_provenance_block += f"- trust_boundary: {_a.trust_boundary}\n"
+        if _a.material_insider_advantage:
+            access_provenance_block += (
+                f"- material_insider_advantage: {_a.material_insider_advantage}\n"
+            )
+
     # Build goal category section for narrative grounding
     goal_section = ""
     if actor_profile is not None and actor_profile.goal_category:
@@ -374,6 +400,7 @@ def build_call1_context(
         "technique_context": technique_context_1,
         "technique_framing": technique_framing_1,
         "actor_section": actor_section,
+        "access_provenance_block": access_provenance_block,
         "goal_section": goal_section,
         "diversity_section": diversity_section,
         "pattern_section": pattern_section,
