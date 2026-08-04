@@ -855,8 +855,18 @@ def _semantic_digest(value: Any, digest_field: str, domain: str) -> str:
 
 
 def compute_chain_semantic_digest(chain: CanonicalAttackChain | dict[str, Any]) -> str:
+    payload = (
+        chain.model_dump(mode="python") if isinstance(chain, BaseModel) else dict(chain)
+    )
+    # Canonicalize the optional LAAF axis: an omitted ``laaf`` key in
+    # ``taxonomy_context`` frames exactly like the explicit ``None`` that
+    # model validation materializes, so a caller may sign a raw dict that
+    # omits the key and still pass validation.  Never mutates ``chain``.
+    context = payload.get("taxonomy_context")
+    if isinstance(context, dict) and "laaf" not in context:
+        payload["taxonomy_context"] = {**context, "laaf": None}
     return _semantic_digest(
-        chain, "semantic_digest", "scenario-forge:canonical-chain:v1"
+        payload, "semantic_digest", "scenario-forge:canonical-chain:v1"
     )
 
 

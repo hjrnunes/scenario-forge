@@ -626,6 +626,22 @@ def test_atlas_only_chain_parses_and_qualifies_without_laaf_pin() -> None:
     )
 
 
+def test_omitted_laaf_key_signs_and_qualifies_like_explicit_null() -> None:
+    explicit = atlas_only_chain_data()
+    omitted = deepcopy(explicit)
+    del omitted["taxonomy_context"]["laaf"]
+    # Signing the omitted-key raw dict through the public helper frames the
+    # optional axis exactly like the explicit null that model validation
+    # materializes, and never mutates the caller's dict.
+    omitted["semantic_digest"] = compute_chain_semantic_digest(omitted)
+    assert "laaf" not in omitted["taxonomy_context"]
+    assert omitted["semantic_digest"] == explicit["semantic_digest"]
+    pattern = validate_attack_pattern(
+        {**pattern_data(), "canonical_chain": omitted}, atlas_only_resolver()
+    )
+    assert pattern.canonical_chain.taxonomy_context.laaf is None
+
+
 @pytest.mark.parametrize(
     "scope,decision",
     [

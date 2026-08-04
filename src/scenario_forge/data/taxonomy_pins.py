@@ -9,7 +9,9 @@ Authority rules:
   never taxonomy mapping targets.
 - Every SSSOM ``skos:relatedMatch`` row is unqualified migration provenance.
   Rows are digested as mapping-set content only; they never populate
-  resolver membership and never confer ``ExactMapping`` authority.
+  resolver membership and never confer ``ExactMapping`` authority.  The
+  mapping-set pin itself is fail-closed: see
+  :func:`compute_mapping_set_digest` for the strict v1 canonical profile.
 - LAAF is optional and non-authoritative for v1.  Nothing LAAF is bundled
   or vendored here; a future authoritative LAAF release must be supplied
   explicitly as pin plus identifier membership, with strict coherence.
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unicodedata
 from collections.abc import Iterable
 from pathlib import Path
@@ -31,7 +34,6 @@ from typing import Any, Literal
 
 import yaml
 
-from scenario_forge.data.sssom import load_sssom
 from scenario_forge.models.attack_pattern import TaxonomyContext, TaxonomyPin
 
 _DEFAULT_ATLAS_PATH = (
@@ -45,8 +47,19 @@ _DEFAULT_MAPPING_SET_DIR = (
     Path(__file__).resolve().parents[3] / "data" / "taxonomies" / "attack-patterns"
 )
 _MAPPING_SET_GLOB = "attack-patterns*.sssom.tsv"
+_EXPECTED_MAPPING_SET_FILES = frozenset(
+    {
+        "attack-patterns.sssom.tsv",
+        "attack-patterns-agentic-only.sssom.tsv",
+        "attack-patterns-atlas-derived.sssom.tsv",
+        "attack-patterns-comms-human-supply.sssom.tsv",
+        "attack-patterns-halluc-intent.sssom.tsv",
+        "attack-patterns-memory-tool.sssom.tsv",
+    }
+)
 _MAPPING_SET_DOMAIN = "scenario-forge:mapping-set:v1"
 
+# Strict v1 pin profile: exactly these six explicit-source columns.
 _MAPPING_ROW_FIELDS = (
     "subject_id",
     "subject_source",
@@ -55,6 +68,15 @@ _MAPPING_ROW_FIELDS = (
     "object_source",
     "mapping_justification",
 )
+# Semantic comment metadata the profile knows how to pin.  Scalar keys carry
+# ``# key: value``; ``curie_map`` carries an indented block of
+# ``#   prefix: uri`` entries.  Any other comment shaped like metadata (a
+# lowercase-identifier ``key: value``) is rejected rather than silently
+# dropped; free explanatory comments are excluded from the pin.
+_METADATA_SCALAR_KEYS = frozenset({"mapping_set_id", "mapping_set_version"})
+_METADATA_BLOCK_KEYS = frozenset({"curie_map"})
+_METADATA_KEY_RE = re.compile(r"^([a-z][a-z0-9_]*):[ \t]*(.*)$")
+_CURIE_ENTRY_RE = re.compile(r"^([^:\s]+):[ \t]*(\S.*)$")
 
 
 def load_atlas_pin(path: str | Path | None = None) -> TaxonomyPin:
@@ -111,34 +133,180 @@ def _canonical_json(value: Any) -> str:
     )
 
 
+def _nfc(value: str) -> str:
+    return unicodedata.normalize("NFC", value)
+
+
 def _mapping_set_paths(paths: Iterable[str | Path] | None) -> list[Path]:
     if paths is not None:
-        return [Path(p) for p in paths]
-    return sorted(_DEFAULT_MAPPING_SET_DIR.glob(_MAPPING_SET_GLOB))
+        files = [Path(p) for p in paths]
+        if not files:
+            raise ValueError("mapping-set pin requires at least one SSSOM file")
+        return files
+    files = sorted(_DEFAULT_MAPPING_SET_DIR.glob(_MAPPING_SET_GLOB))
+    names = {f.name for f in files}
+    if names != _EXPECTED_MAPPING_SET_FILES:
+        missing = sorted(_EXPECTED_MAPPING_SET_FILES - names)
+        unexpected = sorted(names - _EXPECTED_MAPPING_SET_FILES)
+        raise ValueError(
+            "bundled mapping set must contain exactly the pinned SSSOM files; "
+            f"missing={missing} unexpected={unexpected}"
+        )
+    return files
+
+
+def _read_strict_sssom(
+    path: Path,
+) -> tuple[
+    list[tuple[str, str]], list[tuple[str, str]], list[tuple[int, tuple[str, ...]]]
+]:
+    """Parse one SSSOM TSV file under the strict v1 pin profile.
+
+    Returns ``(scalar_metadata, curie_map_entries, rows)`` where rows are
+    ``(line_number, fields)`` pairs in :data:`_MAPPING_ROW_FIELDS` order.
+    Fails closed: unsupported metadata keys, unknown or missing columns,
+    malformed rows, and ambiguous duplicate metadata all raise.
+    """
+    scalars: list[tuple[str, str]] = []
+    curies: list[tuple[str, str]] = []
+    rows: list[tuple[int, tuple[str, ...]]] = []
+    header: list[str] | None = None
+    in_metadata_block = False
+    seen_scalar_keys: set[str] = set()
+    seen_curie_prefixes: set[str] = set()
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.startswith("#"):
+            content = line[1:]
+            indented = len(content) - len(content.lstrip(" \t")) >= 2
+            body = content.strip()
+            if indented and in_metadata_block:
+                match = _CURIE_ENTRY_RE.match(body)
+                if not match:
+                    raise ValueError(
+                        f"{path}:{lineno}: malformed curie_map entry: {body!r}"
+                    )
+                prefix, uri = match.group(1), match.group(2).strip()
+                if prefix in seen_curie_prefixes:
+                    raise ValueError(
+                        f"{path}:{lineno}: duplicate curie_map prefix {prefix!r}"
+                    )
+                seen_curie_prefixes.add(prefix)
+                curies.append((prefix, uri))
+                continue
+            in_metadata_block = False
+            if not body:
+                continue  # blank comment: excluded from the pin
+            match = _METADATA_KEY_RE.match(body)
+            if match is None:
+                continue  # free explanatory comment: excluded from the pin
+            key, value = match.group(1), match.group(2).strip()
+            if key in _METADATA_SCALAR_KEYS:
+                if not value:
+                    raise ValueError(f"{path}:{lineno}: empty {key} value")
+                if key in seen_scalar_keys:
+                    raise ValueError(f"{path}:{lineno}: duplicate {key} metadata")
+                seen_scalar_keys.add(key)
+                scalars.append((key, value))
+            elif key in _METADATA_BLOCK_KEYS:
+                if value:
+                    raise ValueError(
+                        f"{path}:{lineno}: {key} must introduce an indented block"
+                    )
+                in_metadata_block = True
+            else:
+                raise ValueError(
+                    f"{path}:{lineno}: unsupported mapping-set metadata {key!r}; "
+                    "the v1 pin profile must be extended to pin it"
+                )
+            continue
+        in_metadata_block = False
+        if not line.strip():
+            continue
+        cells = line.split("\t")
+        if header is None:
+            if len(cells) != len(set(cells)):
+                raise ValueError(f"{path}:{lineno}: duplicate header columns")
+            unknown = sorted(set(cells) - set(_MAPPING_ROW_FIELDS))
+            missing = sorted(set(_MAPPING_ROW_FIELDS) - set(cells))
+            if unknown or missing:
+                raise ValueError(
+                    f"{path}:{lineno}: header does not match the v1 pin profile; "
+                    f"unknown columns={unknown} missing columns={missing}"
+                )
+            header = cells
+            continue
+        if len(cells) != len(header):
+            raise ValueError(
+                f"{path}:{lineno}: row has {len(cells)} cells, expected {len(header)}"
+            )
+        row = tuple(cells[header.index(field)] for field in _MAPPING_ROW_FIELDS)
+        if any(not cell for cell in row):
+            raise ValueError(f"{path}:{lineno}: row has an empty cell")
+        rows.append((lineno, row))
+    if header is None:
+        raise ValueError(f"{path}: lacks the required SSSOM header row")
+    return scalars, curies, rows
 
 
 def compute_mapping_set_digest(paths: Iterable[str | Path] | None = None) -> str:
     """Normalized content digest over the attack-pattern SSSOM mapping set.
 
-    Rows are NFC-normalized and framed as a sorted set keyed by canonical
-    JSON, so the digest is independent of file layout and row order but
-    sensitive to any row addition, removal, or content edit.  Defaults to
-    the bundled ``attack-patterns*.sssom.tsv`` files.
+    Strict v1 canonical profile:
+
+    - Default discovery requires exactly the six pinned bundled files
+      (:data:`_EXPECTED_MAPPING_SET_FILES`); a missing or unexpected file
+      fails rather than pinning a subset.  Explicit ``paths`` pin a custom
+      set but must name at least one file.
+    - Rows must use exactly the six explicit-source columns in
+      :data:`_MAPPING_ROW_FIELDS`; unknown/missing columns, malformed rows,
+      and empty cells are rejected.
+    - Supported semantic comment metadata (``mapping_set_id``,
+      ``mapping_set_version``, and ``curie_map`` blocks) is canonicalized
+      into the pin; any other comment shaped like metadata is rejected, so
+      a metadata edit either changes the digest or fails.  Free explanatory
+      comments are excluded.
+    - Rows and metadata are NFC-normalized and framed as sorted
+      canonical-JSON sets under a versioned domain, so the digest is
+      independent of paths, file partitioning, file order, and row order
+      but sensitive to any content addition, removal, or edit.
+    - Duplicate canonical rows are rejected (including duplicates across
+      file partitions): a set framing must never silently erase malformed
+      duplicate provenance.  A mapping set with no rows is rejected.
     """
-    rows = {
-        _canonical_json(
-            {
-                field: unicodedata.normalize("NFC", getattr(mapping, field))
-                for field in _MAPPING_ROW_FIELDS
-            }
-        )
-        for path in _mapping_set_paths(paths)
-        for mapping in load_sssom(path)
-    }
+    metadata: set[str] = set()
+    rows: set[str] = set()
+    row_origins: dict[str, str] = {}
+    total_rows = 0
+    for path in _mapping_set_paths(paths):
+        scalars, curies, file_rows = _read_strict_sssom(path)
+        for key, value in scalars:
+            metadata.add(_canonical_json([key, _nfc(value)]))
+        for prefix, uri in curies:
+            metadata.add(_canonical_json(["curie_map", _nfc(prefix), _nfc(uri)]))
+        for lineno, row in file_rows:
+            total_rows += 1
+            canonical = _canonical_json(
+                {
+                    field: _nfc(value)
+                    for field, value in zip(_MAPPING_ROW_FIELDS, row, strict=True)
+                }
+            )
+            if canonical in rows:
+                raise ValueError(
+                    "duplicate mapping row across the mapping set: "
+                    f"{canonical} first seen at {row_origins[canonical]}, "
+                    f"again at {path}:{lineno}"
+                )
+            rows.add(canonical)
+            row_origins[canonical] = f"{path}:{lineno}"
+    if total_rows == 0:
+        raise ValueError("mapping set contains no rows")
     payload = (
         _MAPPING_SET_DOMAIN.encode()
         + b"\0"
-        + _canonical_json(sorted(rows)).encode("utf-8")
+        + _canonical_json({"metadata": sorted(metadata), "rows": sorted(rows)}).encode(
+            "utf-8"
+        )
     )
     return hashlib.sha256(payload).hexdigest()
 

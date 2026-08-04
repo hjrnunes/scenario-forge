@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from scenario_forge.data.taxonomy_pins import (
+    _EXPECTED_MAPPING_SET_FILES,
     PinnedTaxonomyResolver,
     compute_mapping_set_digest,
     load_atlas_identifiers,
@@ -59,11 +60,28 @@ _ROW_C = (
 )
 
 
-def _write_sssom(path: Path, rows: list[tuple[str, ...]]) -> Path:
-    lines = ["\t".join(_SSSOM_HEADER)]
+def _write_sssom(
+    path: Path,
+    rows: list[tuple[str, ...]],
+    *,
+    comments: list[str] | None = None,
+    header: tuple[str, ...] = _SSSOM_HEADER,
+) -> Path:
+    lines = [f"#{comment}" for comment in comments or []]
+    lines.append("\t".join(header))
     lines.extend("\t".join(row) for row in rows)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+# Supported semantic metadata: written verbatim after the ``#`` marker.
+_METADATA_COMMENTS = [
+    " mapping_set_id: https://example.org/mappings/test",
+    " mapping_set_version: 2026-08-04",
+    " curie_map:",
+    "   scenario-forge: https://github.com/hjrnunes/scenario-forge/",
+    "   laaf: https://github.com/laaf-ai/laaf/",
+]
 
 
 @pytest.fixture(scope="module")
@@ -175,9 +193,157 @@ def test_mapping_set_digest_is_path_and_order_independent(tmp_path: Path) -> Non
     assert compute_mapping_set_digest([f2, f1]) == baseline
     # File layout does not matter: the same rows in one file digest equally.
     assert compute_mapping_set_digest([combined]) == baseline
-    # Rows are a set: restating a row in a second file changes nothing.
-    repeated = _write_sssom(tmp_path / "repeated.sssom.tsv", [_ROW_B, _ROW_C, _ROW_B])
-    assert compute_mapping_set_digest([f1, repeated]) == baseline
+    # Identical supported metadata across partitions collapses likewise.
+    m1 = _write_sssom(
+        tmp_path / "m1.sssom.tsv", [_ROW_A, _ROW_B], comments=_METADATA_COMMENTS
+    )
+    m2 = _write_sssom(tmp_path / "m2.sssom.tsv", [_ROW_C], comments=_METADATA_COMMENTS)
+    m_combined = _write_sssom(
+        tmp_path / "m3.sssom.tsv",
+        [_ROW_C, _ROW_A, _ROW_B],
+        comments=_METADATA_COMMENTS,
+    )
+    assert compute_mapping_set_digest([m1, m2]) == compute_mapping_set_digest(
+        [m_combined]
+    )
+
+
+def test_mapping_set_digest_rejects_empty_inputs(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least one SSSOM file"):
+        compute_mapping_set_digest([])
+    header_only = _write_sssom(tmp_path / "empty.sssom.tsv", [])
+    with pytest.raises(ValueError, match="no rows"):
+        compute_mapping_set_digest([header_only])
+
+
+def test_bundled_discovery_requires_exactly_the_pinned_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "scenario_forge.data.taxonomy_pins._DEFAULT_MAPPING_SET_DIR", tmp_path
+    )
+    # Empty default discovery fails rather than pinning an empty set.
+    with pytest.raises(ValueError, match="missing="):
+        compute_mapping_set_digest()
+    names = sorted(_EXPECTED_MAPPING_SET_FILES)
+    assert len(names) == 6
+    for name in names[:5]:
+        _write_sssom(tmp_path / name, [_ROW_A])
+    # A single missing bundled file fails; the error names it.
+    with pytest.raises(ValueError, match=r"missing=\['attack-patterns.sssom.tsv'\]"):
+        compute_mapping_set_digest()
+    _write_sssom(tmp_path / names[5], [_ROW_B])
+    # An unexpected extra file fails as well: no glob subset or superset pins.
+    _write_sssom(tmp_path / "attack-patterns-extra.sssom.tsv", [_ROW_C])
+    with pytest.raises(
+        ValueError, match=r"unexpected=\['attack-patterns-extra.sssom.tsv'\]"
+    ):
+        compute_mapping_set_digest()
+
+
+def test_duplicate_canonical_rows_are_rejected_deterministically(
+    tmp_path: Path,
+) -> None:
+    first = _write_sssom(tmp_path / "first.sssom.tsv", [_ROW_A, _ROW_B])
+    second = _write_sssom(tmp_path / "second.sssom.tsv", [_ROW_C, _ROW_B])
+    # Duplicates across file partitions are rejected with both origins.
+    with pytest.raises(ValueError, match="duplicate mapping row") as across:
+        compute_mapping_set_digest([first, second])
+    assert "first.sssom.tsv" in str(across.value)
+    assert "second.sssom.tsv" in str(across.value)
+    with pytest.raises(ValueError) as again:
+        compute_mapping_set_digest([first, second])
+    assert str(across.value) == str(again.value)
+    # Duplicates within a single file are rejected too.
+    within = _write_sssom(tmp_path / "within.sssom.tsv", [_ROW_A, _ROW_A])
+    with pytest.raises(ValueError, match="duplicate mapping row"):
+        compute_mapping_set_digest([within])
+
+
+def test_supported_semantic_metadata_is_pinned_and_content_sensitive(
+    tmp_path: Path,
+) -> None:
+    with_meta = _write_sssom(
+        tmp_path / "with.sssom.tsv", [_ROW_A, _ROW_B], comments=_METADATA_COMMENTS
+    )
+    without_meta = _write_sssom(tmp_path / "without.sssom.tsv", [_ROW_A, _ROW_B])
+    baseline = compute_mapping_set_digest([with_meta])
+    # Metadata is pinned content: adding or removing it changes the digest.
+    assert compute_mapping_set_digest([without_meta]) != baseline
+    # Editing a supported scalar key changes the digest.
+    edited_version = _write_sssom(
+        tmp_path / "version.sssom.tsv",
+        [_ROW_A, _ROW_B],
+        comments=[c.replace("2026-08-04", "2026-08-05") for c in _METADATA_COMMENTS],
+    )
+    assert compute_mapping_set_digest([edited_version]) != baseline
+    # Editing curie_map changes the digest even though rows carry explicit
+    # source columns (identifier interpretation is pinned, not ignored).
+    edited_curie = _write_sssom(
+        tmp_path / "curie.sssom.tsv",
+        [_ROW_A, _ROW_B],
+        comments=[
+            c.replace("laaf-ai/laaf/", "laaf-ai/laaf-v2/") for c in _METADATA_COMMENTS
+        ],
+    )
+    assert compute_mapping_set_digest([edited_curie]) != baseline
+
+
+def test_unsupported_semantic_metadata_is_rejected(tmp_path: Path) -> None:
+    rejected = _write_sssom(
+        tmp_path / "unknown.sssom.tsv",
+        [_ROW_A],
+        comments=[" license: https://example.org/license"],
+    )
+    with pytest.raises(ValueError, match="unsupported mapping-set metadata"):
+        compute_mapping_set_digest([rejected])
+    duplicate_scalar = _write_sssom(
+        tmp_path / "dup.sssom.tsv",
+        [_ROW_A],
+        comments=[
+            " mapping_set_id: https://example.org/a",
+            " mapping_set_id: https://example.org/b",
+        ],
+    )
+    with pytest.raises(ValueError, match="duplicate mapping_set_id"):
+        compute_mapping_set_digest([duplicate_scalar])
+
+
+def test_unknown_or_missing_row_columns_are_rejected(tmp_path: Path) -> None:
+    extra = _write_sssom(
+        tmp_path / "extra.sssom.tsv",
+        [_ROW_A + ("0.9",)],
+        header=_SSSOM_HEADER + ("confidence",),
+    )
+    with pytest.raises(ValueError, match=r"unknown columns=\['confidence'\]"):
+        compute_mapping_set_digest([extra])
+    missing = _write_sssom(
+        tmp_path / "missing.sssom.tsv",
+        [_ROW_A[:5]],
+        header=_SSSOM_HEADER[:5],
+    )
+    with pytest.raises(
+        ValueError, match=r"missing columns=\['mapping_justification'\]"
+    ):
+        compute_mapping_set_digest([missing])
+
+
+def test_free_explanatory_comments_are_excluded_from_the_pin(
+    tmp_path: Path,
+) -> None:
+    commented = _write_sssom(
+        tmp_path / "commented.sssom.tsv",
+        [_ROW_A],
+        comments=[
+            " SSSOM TSV for test mappings",
+            " Provenance mappings: handwritten explanations, not metadata",
+            " (parenthetical note)",
+        ],
+    )
+    plain = _write_sssom(tmp_path / "plain.sssom.tsv", [_ROW_A])
+    assert compute_mapping_set_digest([commented]) == compute_mapping_set_digest(
+        [plain]
+    )
 
 
 def test_mapping_set_digest_is_content_sensitive(tmp_path: Path) -> None:
