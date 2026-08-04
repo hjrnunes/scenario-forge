@@ -1,432 +1,615 @@
-"""Tests for attack pattern schema models and kill_chain field support (bead 05in).
+"""Focused tests for the authoritative attack-pattern contract."""
 
-Covers:
-- KillChainStep and EvidenceLink Pydantic model validation
-- AttackPattern model with and without kill_chain/evidence
-- validate_attack_pattern() helper
-- Loader pass-through: kill_chain survives YAML round-trip via load_attack_patterns
-- Backward compatibility: patterns without kill_chain still load
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
+from copy import deepcopy
+from typing import Any
+import unicodedata
 
 import pytest
-import yaml
-from pydantic import ValidationError
+from jsonschema import Draft202012Validator
+from pydantic import TypeAdapter, ValidationError
 
 from scenario_forge.data.loaders import load_attack_patterns
 from scenario_forge.models.attack_pattern import (
     AttackPattern,
-    EvidenceLink,
-    KillChainStep,
+    AuthoritativeFactReference,
+    CanonicalAttackChain,
+    Condition,
+    ConditionEvaluationResult,
+    EvaluatedFactEvidence,
+    ExecutionRequirement,
+    LegacyAttackPatternRecord,
+    ProjectionSnapshot,
+    compute_chain_semantic_digest,
+    compute_projection_digest,
+    evaluate_condition,
     validate_attack_pattern,
+    validate_legacy_attack_pattern,
+    validate_projection_snapshot,
 )
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-MINIMAL_PATTERN = {
-    "id": "AP-T1-01",
-    "threat_id": "T1",
-    "name": "Test pattern",
-    "description": "A test attack pattern.",
-    "prerequisite_capabilities": {
-        "min_zones": ["input", "memory"],
-        "kc_requires": {"all": ["KCX-PMEM"], "any": ["KC4.3"]},
+ZERO = "0" * 64
+ONE = "1" * 64
+CHAIN_GOLDEN = "85ca7548621d1fc8285044d454d6c7e6012c6303e4e51fe3f0a63c0f91cbdea7"
+PROJECTION_GOLDEN = "053b053b50a768736daa394eb4a90b748b5df1e235fdfd84d44a777e1269faa0"
+REFS = {
+    "entry_point": {"kind": "entry_point", "entry_point_id": "ep:v1:" + "1" * 32},
+    "tool": {"kind": "tool", "tool_id": "tool:v1:" + "2" * 32},
+    "integration": {"kind": "integration", "integration_id": "int:v1:" + "3" * 32},
+    "trust_boundary": {
+        "kind": "trust_boundary",
+        "trust_boundary_id": "tb:v1:" + "4" * 32,
     },
 }
 
-PATTERN_WITH_KILL_CHAIN = {
-    **MINIMAL_PATTERN,
-    "id": "AP-T1-05",
-    "name": "Memory poisoning via connected application injection",
-    "kill_chain": [
-        {
-            "step": "setup",
-            "tactic": "AML.TA0003",
-            "techniques": ["AML.T0065", "AML.T0068"],
-            "abstract_action": "Craft adversarial prompt injection concealed within shareable content.",
-        },
-        {
-            "step": "delivery",
-            "tactic": "AML.TA0004",
-            "techniques": ["AML.T0093"],
-            "abstract_action": "Deliver through a connected application the agent treats as trusted.",
-        },
-    ],
-    "evidence": [
-        {"source": "AML.CS0040", "type": "direct_demonstration"},
-        {"source": "AML.CS0041", "type": "variant"},
-    ],
-}
+
+def fact(value_type: str = "string") -> dict[str, Any]:
+    return {
+        "namespace": "profile",
+        "fact_id": "mode",
+        "value_type": value_type,
+        "property_path": [],
+    }
 
 
-# ---------------------------------------------------------------------------
-# KillChainStep model tests
-# ---------------------------------------------------------------------------
+def equality() -> dict[str, Any]:
+    return {"op": "equality", "schema_version": "1", "fact": fact(), "value": "active"}
 
 
-class TestKillChainStep:
-    """Tests for the KillChainStep Pydantic model."""
-
-    def test_valid_step(self):
-        step = KillChainStep(
-            step="setup",
-            tactic="AML.TA0003",
-            techniques=["AML.T0065"],
-            abstract_action="Do something adversarial.",
-        )
-        assert step.step == "setup"
-        assert step.tactic == "AML.TA0003"
-        assert step.techniques == ["AML.T0065"]
-
-    def test_invalid_tactic_format(self):
-        """Tactic must match ^AML\\.TA\\d{4}$."""
-        with pytest.raises(ValidationError, match="tactic"):
-            KillChainStep(
-                step="setup",
-                tactic="WRONG-FORMAT",
-                techniques=["AML.T0065"],
-                abstract_action="Action.",
-            )
-
-    def test_tactic_missing_prefix(self):
-        """Tactic without AML. prefix should fail."""
-        with pytest.raises(ValidationError, match="tactic"):
-            KillChainStep(
-                step="setup",
-                tactic="TA0003",
-                techniques=["AML.T0065"],
-                abstract_action="Action.",
-            )
-
-    def test_tactic_too_few_digits(self):
-        """Tactic with fewer than 4 digits should fail."""
-        with pytest.raises(ValidationError, match="tactic"):
-            KillChainStep(
-                step="setup",
-                tactic="AML.TA003",
-                techniques=["AML.T0065"],
-                abstract_action="Action.",
-            )
-
-    def test_empty_techniques_list(self):
-        """Techniques list must have at least 1 element."""
-        with pytest.raises(ValidationError, match="techniques"):
-            KillChainStep(
-                step="setup",
-                tactic="AML.TA0003",
-                techniques=[],
-                abstract_action="Action.",
-            )
-
-    def test_invalid_technique_id(self):
-        """Technique IDs must start with AML.T."""
-        with pytest.raises(ValidationError, match="AML.T"):
-            KillChainStep(
-                step="setup",
-                tactic="AML.TA0003",
-                techniques=["WRONG.X0001"],
-                abstract_action="Action.",
-            )
-
-    def test_multiple_techniques(self):
-        """Multiple technique IDs are accepted."""
-        step = KillChainStep(
-            step="exploitation",
-            tactic="AML.TA0005",
-            techniques=["AML.T0001", "AML.T0002", "AML.T0003"],
-            abstract_action="Do multiple things.",
-        )
-        assert len(step.techniques) == 3
-
-
-# ---------------------------------------------------------------------------
-# EvidenceLink model tests
-# ---------------------------------------------------------------------------
-
-
-class TestEvidenceLink:
-    """Tests for the EvidenceLink Pydantic model."""
-
-    def test_valid_direct_demonstration(self):
-        link = EvidenceLink(source="AML.CS0040", type="direct_demonstration")
-        assert link.source == "AML.CS0040"
-        assert link.type == "direct_demonstration"
-
-    def test_valid_variant(self):
-        link = EvidenceLink(source="AML.CS0041", type="variant")
-        assert link.type == "variant"
-
-    def test_valid_enrichment(self):
-        link = EvidenceLink(source="NIST-REF-01", type="enrichment")
-        assert link.type == "enrichment"
-
-    def test_invalid_type(self):
-        """Type must be one of the three allowed literals."""
-        with pytest.raises(ValidationError, match="type"):
-            EvidenceLink(source="AML.CS0040", type="invalid_type")
-
-
-# ---------------------------------------------------------------------------
-# AttackPattern model tests
-# ---------------------------------------------------------------------------
-
-
-class TestAttackPattern:
-    """Tests for the AttackPattern Pydantic model."""
-
-    def test_minimal_pattern_no_kill_chain(self):
-        """Pattern without kill_chain or evidence validates fine."""
-        pattern = AttackPattern.model_validate(MINIMAL_PATTERN)
-        assert pattern.id == "AP-T1-01"
-        assert pattern.kill_chain is None
-        assert pattern.evidence is None
-
-    def test_pattern_with_kill_chain(self):
-        """Pattern with kill_chain and evidence validates correctly."""
-        pattern = AttackPattern.model_validate(PATTERN_WITH_KILL_CHAIN)
-        assert pattern.id == "AP-T1-05"
-        assert pattern.kill_chain is not None
-        assert len(pattern.kill_chain) == 2
-        assert pattern.kill_chain[0].step == "setup"
-        assert pattern.kill_chain[1].tactic == "AML.TA0004"
-        assert pattern.evidence is not None
-        assert len(pattern.evidence) == 2
-
-    def test_pattern_with_nist_classification(self):
-        """Pattern with nist_classification field validates."""
-        data = {
-            **MINIMAL_PATTERN,
-            "nist_classification": {
-                "attacker_goal": "integrity",
-                "attacker_knowledge": "black_box",
-                "learning_stage": "deployment",
-                "attack_class": "poisoning.targeted_poisoning",
-            },
-        }
-        pattern = AttackPattern.model_validate(data)
-        assert pattern.nist_classification is not None
-        assert pattern.nist_classification.attacker_goal == "integrity"
-
-    def test_pattern_with_nist_no_attack_class(self):
-        """NIST classification without optional attack_class field."""
-        data = {
-            **MINIMAL_PATTERN,
-            "nist_classification": {
-                "attacker_goal": "abuse",
-                "attacker_knowledge": "gray_box",
-                "learning_stage": "deployment",
-            },
-        }
-        pattern = AttackPattern.model_validate(data)
-        assert pattern.nist_classification.attack_class is None
-
-    def test_kill_chain_only_no_evidence(self):
-        """kill_chain without evidence is valid."""
-        data = {
-            **MINIMAL_PATTERN,
-            "kill_chain": PATTERN_WITH_KILL_CHAIN["kill_chain"],
-        }
-        pattern = AttackPattern.model_validate(data)
-        assert pattern.kill_chain is not None
-        assert pattern.evidence is None
-
-    def test_evidence_only_no_kill_chain(self):
-        """evidence without kill_chain is valid."""
-        data = {
-            **MINIMAL_PATTERN,
-            "evidence": [{"source": "AML.CS0040", "type": "direct_demonstration"}],
-        }
-        pattern = AttackPattern.model_validate(data)
-        assert pattern.kill_chain is None
-        assert pattern.evidence is not None
-
-    def test_empty_kill_chain_list(self):
-        """Empty kill_chain list is valid (no steps)."""
-        data = {**MINIMAL_PATTERN, "kill_chain": []}
-        pattern = AttackPattern.model_validate(data)
-        assert pattern.kill_chain == []
-
-
-# ---------------------------------------------------------------------------
-# validate_attack_pattern() tests
-# ---------------------------------------------------------------------------
-
-
-class TestValidateAttackPattern:
-    """Tests for the validate_attack_pattern() helper function."""
-
-    def test_valid_pattern(self):
-        result = validate_attack_pattern(MINIMAL_PATTERN)
-        assert isinstance(result, AttackPattern)
-        assert result.id == "AP-T1-01"
-
-    def test_valid_pattern_with_kill_chain(self):
-        result = validate_attack_pattern(PATTERN_WITH_KILL_CHAIN)
-        assert result.kill_chain is not None
-        assert len(result.kill_chain) == 2
-
-    def test_invalid_pattern_raises(self):
-        """Missing required fields should raise ValidationError."""
-        with pytest.raises(ValidationError):
-            validate_attack_pattern({"id": "AP-T1-01"})
-
-    def test_invalid_kill_chain_tactic(self):
-        """Invalid tactic in kill_chain raises ValidationError."""
-        data = {
-            **MINIMAL_PATTERN,
-            "kill_chain": [
-                {
-                    "step": "setup",
-                    "tactic": "BAD",
-                    "techniques": ["AML.T0065"],
-                    "abstract_action": "Action.",
-                }
+def step(step_id: str, order: int, attacker: bool) -> dict[str, Any]:
+    final = order == 3
+    return {
+        "step_id": step_id,
+        "requirement": "conditional" if order == 2 else "required",
+        "condition": equality() if order == 2 else None,
+        "executor_role": "attacker" if attacker else "system",
+        "boundary_position": "crossing" if attacker else "inside",
+        "action_kind": "deliver" if attacker else "impact",
+        "consumed": [],
+        "produced": [
+            {"kind": "effect", "ref_id": f"effect.{order}", "value_type": "boolean"}
+        ],
+        "preconditions": [],
+        "observable_postconditions": [
+            {
+                "postcondition_id": f"post.{order}",
+                "description": "observable",
+                "security_relevant": final,
+                "terminal": final,
+            }
+        ],
+        "order": order,
+        "attacker_controlled": attacker,
+        "provenance": {
+            "tier": "observed",
+            "references": [
+                {"reference_type": "catalog", "reference_id": f"case-{order}"}
             ],
-        }
-        with pytest.raises(ValidationError, match="tactic"):
-            validate_attack_pattern(data)
+            "confidence": 90,
+            "adaptation_rationale": "represented",
+        },
+        "mappings": (
+            [{"decision": "exact", "taxonomy": "ATLAS", "ids": ["AML.T0001"]}]
+            if attacker
+            else [{"decision": "not_applicable", "taxonomy": "LAAF"}]
+        ),
+    }
 
 
-# ---------------------------------------------------------------------------
-# Loader pass-through tests
-# ---------------------------------------------------------------------------
+def resign_chain(raw: dict[str, Any]) -> dict[str, Any]:
+    raw["semantic_digest"] = compute_chain_semantic_digest(raw)
+    return raw
 
 
-class TestLoaderPassThrough:
-    """Tests that kill_chain field passes through the YAML loader."""
-
-    def test_kill_chain_survives_round_trip(self, tmp_path: Path):
-        """kill_chain present in YAML is accessible in loaded dict."""
-        patterns_yaml = {
-            "source": {"name": "test", "version": "0.1.0"},
-            "patterns": {
-                "AP-T1-05": {
-                    "id": "AP-T1-05",
-                    "threat_id": "T1",
-                    "name": "Pattern with kill chain",
-                    "description": "Test pattern with kill chain.",
-                    "prerequisite_capabilities": {
-                        "min_zones": ["input", "memory"],
-                    },
-                    "kill_chain": [
-                        {
-                            "step": "setup",
-                            "tactic": "AML.TA0003",
-                            "techniques": ["AML.T0065"],
-                            "abstract_action": "Craft injection.",
-                        },
-                    ],
-                    "evidence": [
-                        {"source": "AML.CS0040", "type": "direct_demonstration"},
-                    ],
-                },
+def chain_data() -> dict[str, Any]:
+    return resign_chain(
+        {
+            "schema_version": "v1",
+            "pattern_id": "AP-T1-01",
+            "chain_id": "chain.1",
+            "semantic_revision": 1,
+            "semantic_digest": ZERO,
+            "taxonomy_context": {
+                "atlas": {"release": "v1", "digest": ZERO},
+                "laaf": {"release": "v1", "digest": ONE},
+                "mapping_set_digest": ZERO,
             },
-        }
-
-        p = tmp_path / "attack-patterns-test.yaml"
-        p.write_text(yaml.dump(patterns_yaml, default_flow_style=False))
-
-        result = load_attack_patterns(path=p)
-
-        assert "AP-T1-05" in result
-        pattern = result["AP-T1-05"]
-
-        # kill_chain passes through as raw dict/list
-        assert "kill_chain" in pattern
-        assert len(pattern["kill_chain"]) == 1
-        assert pattern["kill_chain"][0]["step"] == "setup"
-        assert pattern["kill_chain"][0]["tactic"] == "AML.TA0003"
-
-        # evidence passes through too
-        assert "evidence" in pattern
-        assert pattern["evidence"][0]["source"] == "AML.CS0040"
-
-    def test_pattern_without_kill_chain_still_loads(self, tmp_path: Path):
-        """Patterns without kill_chain load normally (backward compat)."""
-        patterns_yaml = {
-            "source": {"name": "test", "version": "0.1.0"},
-            "patterns": {
-                "AP-T1-01": {
-                    "id": "AP-T1-01",
-                    "threat_id": "T1",
-                    "name": "Legacy pattern",
-                    "description": "No kill chain here.",
-                    "prerequisite_capabilities": {
-                        "min_zones": ["input", "memory"],
-                    },
+            "mappings": [
+                {"decision": "exact", "taxonomy": "ATLAS", "ids": ["AML.T0001"]}
+            ],
+            "steps": [
+                step("step.1", 1, True),
+                step("step.2", 2, False),
+                step("step.3", 3, False),
+            ],
+            "earliest_attacker_controlled_step_id": "step.1",
+            "resource_slots": [
+                {
+                    "slot_id": "ingress",
+                    "kind": "entry_point",
+                    "purpose": "initial_ingress",
                 },
-            },
+                {"slot_id": "tool", "kind": "tool", "purpose": "supporting"},
+                {"slot_id": "source", "kind": "integration", "purpose": "supporting"},
+                {"slot_id": "boundary", "kind": "trust_boundary", "purpose": "target"},
+            ],
+            "initial_ingress_slot_id": "ingress",
         }
+    )
 
-        p = tmp_path / "attack-patterns-legacy.yaml"
-        p.write_text(yaml.dump(patterns_yaml, default_flow_style=False))
 
-        result = load_attack_patterns(path=p)
+def pattern_data() -> dict[str, Any]:
+    return {
+        "id": "AP-T1-01",
+        "threat_id": "T1",
+        "name": "Pattern",
+        "description": "Canonical",
+        "prerequisite_capabilities": {"min_zones": ["input"]},
+        "canonical_chain": chain_data(),
+    }
 
-        assert "AP-T1-01" in result
-        pattern = result["AP-T1-01"]
-        assert "kill_chain" not in pattern
-        assert "evidence" not in pattern
 
-    def test_mixed_patterns_with_and_without_kill_chain(self, tmp_path: Path):
-        """File with both old and new format patterns loads correctly."""
-        patterns_yaml = {
-            "source": {"name": "test", "version": "0.1.0"},
-            "patterns": {
-                "AP-T1-01": {
-                    "id": "AP-T1-01",
-                    "threat_id": "T1",
-                    "name": "Legacy pattern",
-                    "description": "No kill chain.",
-                    "prerequisite_capabilities": {"min_zones": ["input"]},
-                },
-                "AP-T1-05": {
-                    "id": "AP-T1-05",
-                    "threat_id": "T1",
-                    "name": "New pattern",
-                    "description": "Has kill chain.",
-                    "prerequisite_capabilities": {"min_zones": ["input", "memory"]},
-                    "kill_chain": [
-                        {
-                            "step": "setup",
-                            "tactic": "AML.TA0003",
-                            "techniques": ["AML.T0065"],
-                            "abstract_action": "Setup action.",
-                        },
-                    ],
-                },
-            },
+def condition_result(result: str = "true") -> dict[str, Any]:
+    return {
+        "condition_step_id": "step.2",
+        "result": result,
+        "evidence": [
+            {
+                "fact": fact(),
+                "status": "present",
+                "value": "inactive" if result == "false" else "active",
+            }
+        ],
+    }
+
+
+def resign_projection(raw: dict[str, Any]) -> dict[str, Any]:
+    raw["projection_digest"] = compute_projection_digest(raw)
+    return raw
+
+
+def projection_data(result: str = "true") -> dict[str, Any]:
+    selected = (
+        ["step.1", "step.3"] if result == "false" else ["step.1", "step.2", "step.3"]
+    )
+    return resign_projection(
+        {
+            "schema_version": "1",
+            "source_chain": chain_data(),
+            "selected_step_ids": selected,
+            "condition_results": [condition_result(result)],
+            "omissions": [{"step_id": "step.2", "reason": "condition_false"}]
+            if result == "false"
+            else [],
+            "bindings": [
+                {"slot_id": key, "resource_ref": deepcopy(REFS[kind])}
+                for key, kind in (
+                    ("ingress", "entry_point"),
+                    ("tool", "tool"),
+                    ("source", "integration"),
+                    ("boundary", "trust_boundary"),
+                )
+            ],
+            "catalog_pin": ONE,
+            "pattern_pin": ZERO,
+            "capability_fact_snapshot_digest": ONE,
+            "projection_digest": ZERO,
         }
+    )
 
-        p = tmp_path / "attack-patterns-mixed.yaml"
-        p.write_text(yaml.dump(patterns_yaml, default_flow_style=False))
 
-        result = load_attack_patterns(path=p)
+def invalid_chain(mutation: Any) -> None:
+    raw = chain_data()
+    mutation(raw)
+    resign_chain(raw)
+    with pytest.raises(ValidationError):
+        CanonicalAttackChain.model_validate(raw)
 
-        assert len(result) == 2
-        assert "kill_chain" not in result["AP-T1-01"]
-        assert "kill_chain" in result["AP-T1-05"]
 
-    def test_existing_patterns_still_load(self):
-        """Real attack pattern files from the repo load without error."""
-        result = load_attack_patterns()
-        assert isinstance(result, dict)
-        assert len(result) > 0
+def test_roundtrip_digest_stability_and_structural_schema() -> None:
+    pattern = AttackPattern.model_validate(pattern_data())
+    assert pattern.canonical_chain.semantic_digest == CHAIN_GOLDEN
+    assert AttackPattern.model_validate(pattern.model_dump(mode="json")) == pattern
+    assert (
+        compute_chain_semantic_digest(pattern.canonical_chain)
+        == chain_data()["semantic_digest"]
+    )
+    reordered = {key: chain_data()[key] for key in reversed(chain_data())}
+    assert compute_chain_semantic_digest(reordered) == chain_data()["semantic_digest"]
+    schema = AttackPattern.model_json_schema()
+    Draft202012Validator.check_schema(schema)
+    assert Draft202012Validator(schema).is_valid(pattern.model_dump(mode="json"))
 
-        # Spot-check: existing patterns should not have kill_chain yet
-        for pid, pattern in result.items():
-            assert "id" in pattern, f"{pid} missing 'id'"
-            assert "threat_id" in pattern, f"{pid} missing 'threat_id'"
 
-    def test_existing_patterns_validate(self):
-        """All existing patterns validate through the model."""
-        patterns = load_attack_patterns()
-        for pid, pattern in patterns.items():
-            validated = validate_attack_pattern(pattern)
-            assert validated.id == pid
+def test_chain_digest_normalization_and_semantic_sensitivity() -> None:
+    raw = chain_data()
+    reordered = deepcopy(raw)
+    reordered["mappings"].reverse()
+    reordered["resource_slots"].reverse()
+    assert compute_chain_semantic_digest(reordered) == raw["semantic_digest"]
+
+    nfc = deepcopy(raw)
+    nfd = deepcopy(raw)
+    nfc["steps"][0]["provenance"]["adaptation_rationale"] = "caf\u00e9"
+    nfd["steps"][0]["provenance"]["adaptation_rationale"] = unicodedata.normalize(
+        "NFD", "caf\u00e9"
+    )
+    assert compute_chain_semantic_digest(nfc) == compute_chain_semantic_digest(nfd)
+
+    for mutation in (
+        lambda c: c.update(semantic_revision=2),
+        lambda c: c["steps"].reverse(),
+        lambda c: c["taxonomy_context"]["atlas"].update(release="v2"),
+    ):
+        changed = deepcopy(raw)
+        mutation(changed)
+        assert compute_chain_semantic_digest(changed) != raw["semantic_digest"]
+
+
+def test_legacy_catalog_stays_isolated() -> None:
+    records = load_attack_patterns()
+    assert len(records) == 71
+    assert all(
+        isinstance(validate_legacy_attack_pattern(r), LegacyAttackPatternRecord)
+        for r in records.values()
+    )
+    assert all(
+        not Draft202012Validator(AttackPattern.model_json_schema()).is_valid(r)
+        for r in records.values()
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c["steps"][0].update(executor_role="system"),
+        lambda c: c["steps"][1].update(executor_role="attacker"),
+        lambda c: c["steps"][1].update(
+            mappings=[{"decision": "exact", "taxonomy": "ATLAS", "ids": ["AML.T0001"]}]
+        ),
+        lambda c: c["steps"][1].update(
+            mappings=[
+                {"decision": "unmapped", "taxonomy": "ATLAS", "rationale": "none"}
+            ]
+        ),
+        lambda c: c["steps"][0].update(
+            attacker_controlled=False,
+            executor_role="system",
+            mappings=[{"decision": "not_applicable", "taxonomy": "ATLAS"}],
+        ),
+        lambda c: c["steps"][0].update(execution_requirements=[]),
+        lambda c: c["resource_slots"][0].update(kind="tool"),
+    ],
+)
+def test_chain_role_start_mapping_and_authored_requirement_negatives(
+    mutation: Any,
+) -> None:
+    invalid_chain(mutation)
+
+
+def test_condition_evidence_present_absent_unknown_contract() -> None:
+    assert ConditionEvaluationResult.model_validate(condition_result()).result == "true"
+    unknown = condition_result("unknown")
+    unknown["evidence"][0].update(status="unknown", value=None)
+    assert ConditionEvaluationResult.model_validate(unknown).result == "unknown"
+    for status, value in (
+        ("present", None),
+        ("absent", "active"),
+        ("unknown", "active"),
+        ("present", True),
+    ):
+        raw = condition_result()
+        raw["evidence"][0].update(status=status, value=value)
+        with pytest.raises(ValidationError):
+            ConditionEvaluationResult.model_validate(raw)
+    duplicate = condition_result()
+    duplicate["evidence"].append(deepcopy(duplicate["evidence"][0]))
+    with pytest.raises(ValidationError, match="unique"):
+        ConditionEvaluationResult.model_validate(duplicate)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda p: p.update(selected_step_ids=[]),
+        lambda p: p.update(
+            selected_step_ids=["step.2", "step.3"],
+            omissions=[{"step_id": "step.1", "reason": "condition_false"}],
+        ),
+        lambda p: p.update(
+            selected_step_ids=["step.1", "step.2"],
+            omissions=[{"step_id": "step.3", "reason": "condition_false"}],
+        ),
+        lambda p: p["condition_results"][0].update(result="unknown"),
+        lambda p: p["condition_results"][0]["evidence"][0]["fact"].update(
+            fact_id="unrelated"
+        ),
+        lambda p: p.update(
+            omissions=[{"step_id": "step.2", "reason": "condition_false"}]
+        ),
+        lambda p: p["omissions"].append(
+            {"step_id": "step.1", "reason": "condition_false"}
+        ),
+        lambda p: p["bindings"].pop(),
+        lambda p: p["bindings"].append(deepcopy(p["bindings"][0])),
+        lambda p: p["bindings"][0].update(resource_ref=deepcopy(REFS["tool"])),
+        lambda p: p["source_chain"]["steps"][0].update(action_kind="prepare"),
+    ],
+)
+def test_projection_source_semantics_negatives(mutation: Any) -> None:
+    raw = projection_data()
+    mutation(raw)
+    resign_projection(raw)
+    with pytest.raises(ValidationError):
+        ProjectionSnapshot.model_validate(raw)
+
+
+def test_projection_roundtrip_false_omission_and_digest() -> None:
+    assert projection_data()["projection_digest"] == PROJECTION_GOLDEN
+    projection = ProjectionSnapshot.model_validate(projection_data("false"))
+    assert projection.selected_step_ids == ("step.1", "step.3")
+    assert (
+        ProjectionSnapshot.model_validate(projection.model_dump(mode="json"))
+        == projection
+    )
+    changed = projection_data()
+    changed["source_chain"]["steps"][0]["action_kind"] = "prepare"
+    assert compute_projection_digest(changed) != projection_data()["projection_digest"]
+
+
+@pytest.mark.parametrize(
+    "kind,field",
+    [
+        ("entry_point", "entry_point_id"),
+        ("tool", "tool_id"),
+        ("integration", "integration_id"),
+        ("trust_boundary", "trust_boundary_id"),
+    ],
+)
+def test_resource_reference_domain_patterns(kind: str, field: str) -> None:
+    raw = projection_data()
+    binding = next(b for b in raw["bindings"] if b["resource_ref"]["kind"] == kind)
+    binding["resource_ref"][field] = "arbitrary"
+    resign_projection(raw)
+    with pytest.raises(ValidationError):
+        ProjectionSnapshot.model_validate(raw)
+
+
+def requirements() -> list[dict[str, Any]]:
+    return [
+        {
+            "schema_version": "1",
+            "requirement_id": "r1",
+            "kind": "direct_input_control",
+            "entry_point_slot_id": "ingress",
+        },
+        {
+            "schema_version": "1",
+            "requirement_id": "r2",
+            "kind": "upstream_source_influence",
+            "source_slot_id": "source",
+            "source_identity_kind": "integration",
+            "trust_boundary_slot_id": "boundary",
+        },
+        {
+            "schema_version": "1",
+            "requirement_id": "r3",
+            "kind": "state_changing_tool_fixture",
+            "tool_slot_id": "tool",
+        },
+        {
+            "schema_version": "1",
+            "requirement_id": "r4",
+            "kind": "observation",
+            "observation": "tool_invocation",
+            "binding_slot_id": "tool",
+        },
+        {
+            "schema_version": "1",
+            "requirement_id": "r5",
+            "kind": "security_outcome_assertion",
+            "source_step_id": "step.3",
+            "postcondition_id": "post.3",
+        },
+    ]
+
+
+def test_every_execution_requirement_union_shape_and_upstream_source_kinds() -> None:
+    adapter = TypeAdapter(ExecutionRequirement)
+    assert [adapter.validate_python(r).kind for r in requirements()] == [
+        r["kind"] for r in requirements()
+    ]
+    upstream = requirements()[1]
+    upstream["source_identity_kind"] = "entry_point"
+    assert adapter.validate_python(upstream).source_identity_kind == "entry_point"
+    for invalid in ("tool", "trust_boundary"):
+        upstream["source_identity_kind"] = invalid
+        with pytest.raises(ValidationError):
+            adapter.validate_python(upstream)
+
+
+def parsed_condition(raw: dict[str, Any]) -> Condition:
+    return TypeAdapter(Condition).validate_python(raw)
+
+
+def evidence(
+    fact_raw: dict[str, Any], status: str, value: Any = None
+) -> EvaluatedFactEvidence:
+    return EvaluatedFactEvidence.model_validate(
+        {"fact": fact_raw, "status": status, "value": value}
+    )
+
+
+def test_pure_condition_evaluator_complete_evidence_and_kleene_semantics() -> None:
+    fact_a = fact()
+    fact_b = {**fact(), "fact_id": "enabled", "value_type": "boolean"}
+    a = equality()
+    b = {"op": "equality", "schema_version": "1", "fact": fact_b, "value": True}
+    present_a = evidence(fact_a, "present", "active")
+    absent_a = evidence(fact_a, "absent")
+    unknown_a = evidence(fact_a, "unknown")
+    present_b = evidence(fact_b, "present", True)
+    unknown_b = evidence(fact_b, "unknown")
+    extra = evidence({**fact(), "fact_id": "extra"}, "absent")
+
+    exists_false = parsed_condition(
+        {"op": "existence", "schema_version": "1", "fact": fact_a, "exists": False}
+    )
+    assert evaluate_condition(exists_false, (absent_a,)) == "true"
+    assert evaluate_condition(exists_false, (unknown_a,)) == "unknown"
+
+    all_condition = parsed_condition(
+        {"op": "all", "schema_version": "1", "operands": [a, b]}
+    )
+    any_condition = parsed_condition(
+        {"op": "any", "schema_version": "1", "operands": [a, b]}
+    )
+    not_condition = parsed_condition({"op": "not", "schema_version": "1", "operand": a})
+    assert evaluate_condition(all_condition, (absent_a, unknown_b)) == "false"
+    assert evaluate_condition(all_condition, (present_a, unknown_b)) == "unknown"
+    assert evaluate_condition(any_condition, (present_a, unknown_b)) == "true"
+    assert evaluate_condition(any_condition, (absent_a, unknown_b)) == "unknown"
+    assert evaluate_condition(not_condition, (present_a,)) == "false"
+    assert evaluate_condition(not_condition, (unknown_a,)) == "unknown"
+    for invalid in (
+        (present_a,),
+        (present_a, present_b, present_b),
+        (present_a, present_b, extra),
+    ):
+        with pytest.raises(ValueError):
+            evaluate_condition(all_condition, invalid)
+
+
+def test_projection_rejects_evidence_result_mismatches_and_partial_evidence() -> None:
+    for status, value, result in (
+        ("present", "inactive", "true"),
+        ("unknown", None, "true"),
+        ("present", "active", "false"),
+    ):
+        raw = projection_data(result)
+        raw["condition_results"][0]["evidence"][0].update(status=status, value=value)
+        resign_projection(raw)
+        with pytest.raises(ValidationError, match="recorded condition result"):
+            ProjectionSnapshot.model_validate(raw)
+
+    raw = projection_data()
+    second = {**fact(), "fact_id": "other"}
+    raw["source_chain"]["steps"][1]["condition"] = {
+        "op": "all",
+        "schema_version": "1",
+        "operands": [
+            equality(),
+            {"op": "equality", "schema_version": "1", "fact": second, "value": "yes"},
+        ],
+    }
+    resign_chain(raw["source_chain"])
+    resign_projection(raw)
+    with pytest.raises(ValidationError, match="exactly cover"):
+        ProjectionSnapshot.model_validate(raw)
+
+
+class SnapshotResolver:
+    capability_fact_snapshot_digest = ONE
+
+    def __init__(self) -> None:
+        self.reading = evidence(fact(), "present", "active")
+        self.missing_kind: str | None = None
+
+    def fact(
+        self, reference: AuthoritativeFactReference
+    ) -> EvaluatedFactEvidence | None:
+        return self.reading if reference == self.reading.fact else None
+
+    def contains_resource(self, reference: Any) -> bool:
+        return reference.kind != self.missing_kind
+
+
+def test_projection_snapshot_requires_external_qualification() -> None:
+    with pytest.raises(TypeError):
+        validate_projection_snapshot(projection_data())  # type: ignore[call-arg]
+    assert validate_projection_snapshot(projection_data(), SnapshotResolver())
+
+    resolver = SnapshotResolver()
+    resolver.capability_fact_snapshot_digest = ZERO
+    with pytest.raises(ValueError, match="digest pin"):
+        validate_projection_snapshot(projection_data(), resolver)
+
+    resolver = SnapshotResolver()
+    resolver.reading = resolver.reading.model_copy(
+        update={"fact": resolver.reading.fact.model_copy(update={"fact_id": "missing"})}
+    )
+    with pytest.raises(ValueError, match="fact is missing"):
+        validate_projection_snapshot(projection_data(), resolver)
+
+    for status, value in (("absent", None), ("present", "inactive")):
+        resolver = SnapshotResolver()
+        resolver.reading = evidence(fact(), status, value)
+        with pytest.raises(ValueError, match="does not match"):
+            validate_projection_snapshot(projection_data(), resolver)
+
+    for kind in REFS:
+        resolver = SnapshotResolver()
+        resolver.missing_kind = kind
+        with pytest.raises(ValueError, match=kind):
+            validate_projection_snapshot(projection_data(), resolver)
+
+
+class Resolver:
+    taxonomy_context = CanonicalAttackChain.model_validate(
+        chain_data()
+    ).taxonomy_context
+
+    def contains(self, taxonomy: str, identifier: str) -> bool:
+        return taxonomy == "ATLAS" and identifier == "AML.T0001"
+
+
+def test_required_qualification_resolver_ids_and_pins() -> None:
+    assert validate_attack_pattern(pattern_data(), Resolver()).id == "AP-T1-01"
+    with pytest.raises(TypeError):
+        validate_attack_pattern(pattern_data())  # type: ignore[call-arg]
+    raw = pattern_data()
+    raw["canonical_chain"]["steps"][0]["mappings"][0]["ids"] = ["AML.UNKNOWN"]
+    resign_chain(raw["canonical_chain"])
+    with pytest.raises(ValueError, match="unknown ATLAS id"):
+        validate_attack_pattern(raw, Resolver())
+    resolver = Resolver()
+    resolver.taxonomy_context = resolver.taxonomy_context.model_copy(
+        update={"mapping_set_digest": ONE}
+    )
+    with pytest.raises(ValueError, match="pins"):
+        validate_attack_pattern(pattern_data(), resolver)
+
+
+def test_condition_ast_stays_discriminated_and_bounded() -> None:
+    adapter = TypeAdapter(Condition)
+    assert adapter.validate_python(equality()).op == "equality"
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {"op": "all", "schema_version": "1", "operands": [equality()]}
+        )
+    nested = equality()
+    for _ in range(4):
+        nested = {"op": "not", "schema_version": "1", "operand": nested}
+    with pytest.raises(ValidationError, match="structural limits"):
+        adapter.validate_python(nested)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda p: p.update(extra=True),
+        lambda p: p.pop("canonical_chain"),
+        lambda p: p["canonical_chain"]["steps"][0].pop("executor_role"),
+        lambda p: p["canonical_chain"]["steps"][0]["produced"][0].update(
+            kind="invented"
+        ),
+        lambda p: p["canonical_chain"].update(semantic_revision="1"),
+    ],
+)
+def test_generated_schema_structural_negative_parity(mutation: Any) -> None:
+    raw = pattern_data()
+    mutation(raw)
+    if "canonical_chain" in raw:
+        resign_chain(raw["canonical_chain"])
+    with pytest.raises(ValidationError):
+        AttackPattern.model_validate(raw)
+    assert not Draft202012Validator(AttackPattern.model_json_schema()).is_valid(raw)
