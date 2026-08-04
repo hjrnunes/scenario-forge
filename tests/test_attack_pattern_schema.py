@@ -1,8 +1,8 @@
 """Focused tests for the authoritative attack-pattern contract."""
 
+import unicodedata
 from copy import deepcopy
 from typing import Any
-import unicodedata
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -577,6 +577,149 @@ def test_required_qualification_resolver_ids_and_pins() -> None:
     )
     with pytest.raises(ValueError, match="pins"):
         validate_attack_pattern(pattern_data(), resolver)
+
+
+def atlas_only_chain_data() -> dict[str, Any]:
+    """Chain variant with no LAAF pin and exclusively ATLAS decisions."""
+    raw = chain_data()
+    raw["taxonomy_context"]["laaf"] = None
+    for step_raw in raw["steps"]:
+        for mapping in step_raw["mappings"]:
+            if mapping["taxonomy"] == "LAAF":
+                mapping["taxonomy"] = "ATLAS"
+    return resign_chain(raw)
+
+
+def atlas_only_pattern_data() -> dict[str, Any]:
+    return {**pattern_data(), "canonical_chain": atlas_only_chain_data()}
+
+
+class MembershipResolver:
+    def __init__(self, context: Any, members: set[tuple[str, str]]) -> None:
+        self.taxonomy_context = context
+        self.members = members
+
+    def contains(self, taxonomy: str, identifier: str) -> bool:
+        return (taxonomy, identifier) in self.members
+
+
+def atlas_only_resolver() -> MembershipResolver:
+    context = CanonicalAttackChain.model_validate(
+        atlas_only_chain_data()
+    ).taxonomy_context
+    assert context.laaf is None
+    return MembershipResolver(context, {("ATLAS", "AML.T0001")})
+
+
+def test_atlas_only_chain_parses_and_qualifies_without_laaf_pin() -> None:
+    pattern = validate_attack_pattern(atlas_only_pattern_data(), atlas_only_resolver())
+    assert pattern.canonical_chain.taxonomy_context.laaf is None
+    assert AttackPattern.model_validate(pattern.model_dump(mode="json")) == pattern
+    schema = AttackPattern.model_json_schema()
+    assert Draft202012Validator(schema).is_valid(pattern.model_dump(mode="json"))
+    # The optional axis is content: adding a pin changes the chain digest.
+    pinned = atlas_only_chain_data()
+    pinned["taxonomy_context"]["laaf"] = {"release": "v1", "digest": ONE}
+    assert (
+        compute_chain_semantic_digest(pinned)
+        != atlas_only_chain_data()["semantic_digest"]
+    )
+
+
+def test_omitted_laaf_key_signs_and_qualifies_like_explicit_null() -> None:
+    explicit = atlas_only_chain_data()
+    omitted = deepcopy(explicit)
+    del omitted["taxonomy_context"]["laaf"]
+    # Signing the omitted-key raw dict through the public helper frames the
+    # optional axis exactly like the explicit null that model validation
+    # materializes, and never mutates the caller's dict.
+    omitted["semantic_digest"] = compute_chain_semantic_digest(omitted)
+    assert "laaf" not in omitted["taxonomy_context"]
+    assert omitted["semantic_digest"] == explicit["semantic_digest"]
+    pattern = validate_attack_pattern(
+        {**pattern_data(), "canonical_chain": omitted}, atlas_only_resolver()
+    )
+    assert pattern.canonical_chain.taxonomy_context.laaf is None
+
+
+@pytest.mark.parametrize(
+    "scope,decision",
+    [
+        ("chain", "exact"),
+        ("chain", "unmapped"),
+        ("step_attacker", "exact"),
+        ("step_attacker", "unmapped"),
+        ("step_system", "not_applicable"),
+    ],
+)
+def test_laaf_decisions_fail_closed_without_a_pin(scope: str, decision: str) -> None:
+    raw = atlas_only_chain_data()
+    mapping: dict[str, Any] = {"decision": decision, "taxonomy": "LAAF"}
+    if decision == "exact":
+        mapping["ids"] = ["L1"]
+    elif decision == "unmapped":
+        mapping["rationale"] = "Legacy migration hint only."
+    if scope == "chain":
+        raw["mappings"].append(mapping)
+    elif scope == "step_attacker":
+        raw["steps"][0]["mappings"] = [mapping]
+    else:
+        raw["steps"][1]["mappings"] = [mapping]
+    resign_chain(raw)
+    with pytest.raises(ValidationError, match="LAAF taxonomy pin"):
+        CanonicalAttackChain.model_validate(raw)
+    pattern_raw = {**pattern_data(), "canonical_chain": raw}
+    with pytest.raises(ValueError, match="LAAF taxonomy pin"):
+        validate_attack_pattern(pattern_raw, atlas_only_resolver())
+
+
+def laaf_pinned_chain_data(laaf_ids: list[str]) -> dict[str, Any]:
+    """Chain variant with an explicit LAAF pin and an exact LAAF mapping."""
+    raw = chain_data()
+    raw["mappings"].append({"decision": "exact", "taxonomy": "LAAF", "ids": laaf_ids})
+    return resign_chain(raw)
+
+
+def laaf_pinned_pattern_data(laaf_ids: list[str]) -> dict[str, Any]:
+    return {**pattern_data(), "canonical_chain": laaf_pinned_chain_data(laaf_ids)}
+
+
+def laaf_pinned_context() -> Any:
+    return CanonicalAttackChain.model_validate(
+        laaf_pinned_chain_data(["L1"])
+    ).taxonomy_context
+
+
+def test_explicit_laaf_pin_and_membership_qualifies() -> None:
+    context = laaf_pinned_context()
+    resolver = MembershipResolver(context, {("ATLAS", "AML.T0001"), ("LAAF", "L1")})
+    assert validate_attack_pattern(laaf_pinned_pattern_data(["L1"]), resolver)
+
+
+def test_exact_laaf_id_outside_explicit_membership_fails() -> None:
+    context = laaf_pinned_context()
+    resolver = MembershipResolver(context, {("ATLAS", "AML.T0001"), ("LAAF", "L2")})
+    with pytest.raises(ValueError, match="unknown LAAF id"):
+        validate_attack_pattern(laaf_pinned_pattern_data(["L1"]), resolver)
+
+
+def test_mismatched_laaf_pin_fails_and_atlas_only_resolver_rejects_pin() -> None:
+    context = laaf_pinned_context()
+    assert context.laaf is not None
+    mismatched = context.model_copy(
+        update={"laaf": context.laaf.model_copy(update={"digest": ZERO})}
+    )
+    resolver = MembershipResolver(mismatched, {("ATLAS", "AML.T0001"), ("LAAF", "L1")})
+    with pytest.raises(ValueError, match="pins"):
+        validate_attack_pattern(laaf_pinned_pattern_data(["L1"]), resolver)
+    # An ATLAS-only resolver can never accept an explicit chain LAAF pin:
+    # taxonomy_context equality stays meaningful across the optional axis.
+    atlas_only = MembershipResolver(
+        context.model_copy(update={"laaf": None}),
+        {("ATLAS", "AML.T0001"), ("LAAF", "L1")},
+    )
+    with pytest.raises(ValueError, match="pins"):
+        validate_attack_pattern(laaf_pinned_pattern_data(["L1"]), atlas_only)
 
 
 def test_condition_ast_stays_discriminated_and_bounded() -> None:

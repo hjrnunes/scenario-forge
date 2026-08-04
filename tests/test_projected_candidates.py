@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from scenario_forge.models.attack_pattern import (
+    AttackPattern,
     AuthoritativeFactReference,
     EvaluatedFactEvidence,
     compute_chain_semantic_digest,
@@ -104,7 +105,9 @@ def _pattern(*, conditional: bool = True) -> dict[str, Any]:
         "semantic_digest": ZERO,
         "taxonomy_context": {
             "atlas": {"release": "v1", "digest": ZERO},
-            "laaf": {"release": "unavailable", "digest": ZERO},
+            # ATLAS-only: no LAAF pin exists; the canonical framing of an
+            # absent pin is JSON null, so digests cover ``"laaf": None``.
+            "laaf": None,
             "mapping_set_digest": ZERO,
         },
         "mappings": [{"decision": "exact", "taxonomy": "ATLAS", "ids": ["AML.T0001"]}],
@@ -486,7 +489,7 @@ def test_kc_all_and_any_prerequisites_are_authoritative_profile_gates() -> None:
 
 
 @pytest.mark.parametrize("decision", ["exact", "unmapped", "not_applicable"])
-def test_initial_v1_rejects_all_laaf_and_never_projects_it_as_semantics(
+def test_laaf_decisions_fail_closed_without_an_explicit_laaf_pin(
     decision: str,
 ) -> None:
     raw = _pattern()
@@ -502,8 +505,36 @@ def test_initial_v1_rejects_all_laaf_and_never_projects_it_as_semantics(
     raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
         raw["canonical_chain"]
     )
-    with pytest.raises(ValueError, match="ATLAS-only"):
+    with pytest.raises(ValueError, match="LAAF taxonomy pin"):
         _project(pattern=raw)
+
+    # Normal qualification rejects the same record through the projection
+    # boundary even when the resolver itself is valid and ATLAS-only.
+    snapshot = capture_capability_snapshot(_profile(), (_evidence(),))
+    with pytest.raises(ValueError, match="qualification failed"):
+        project_authoritative_candidates([raw], _atlas_only_resolver(), snapshot)
+
+
+def _atlas_only_resolver() -> TaxonomyResolver:
+    """Resolver pinned to the default fixture's ATLAS-only taxonomy context."""
+    context = AttackPattern.model_validate(_pattern()).canonical_chain.taxonomy_context
+    assert context.laaf is None
+    return TaxonomyResolver(context)
+
+
+def test_serialized_candidate_authority_validation_passes_without_placeholder() -> None:
+    candidate = _project().candidates[0]
+    chain = candidate.projection.source_chain
+    assert chain.taxonomy_context.laaf is None
+    snapshot = capture_capability_snapshot(_profile(), (_evidence(),))
+    validated = validate_projected_candidate(
+        candidate.model_dump(mode="json"),
+        snapshot,
+        _pattern(),
+        _atlas_only_resolver(),
+        expected_catalog_pin=candidate.projection.catalog_pin,
+    )
+    assert validated == candidate
 
 
 def test_catalog_pin_and_candidate_identity_ignore_record_order_and_duplicates() -> (

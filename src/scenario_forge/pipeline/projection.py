@@ -52,8 +52,6 @@ from scenario_forge.models.capability_profile import (
 )
 
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-_UNAVAILABLE_LAAF_RELEASE = "unavailable"
-_UNAVAILABLE_LAAF_DIGEST = "0" * 64
 
 
 class ProjectionModel(BaseModel):
@@ -679,11 +677,9 @@ def validate_projected_candidate(
     snapshot.assert_integrity()
     candidate = ProjectedCandidate.model_validate(candidate_dict)
     authoritative = validate_attack_pattern(authoritative_record, taxonomy_resolver)
-    _reject_non_authoritative_laaf(authoritative.canonical_chain)
     authoritative = AttackPattern.model_validate(
         _normalize_semantic_order(authoritative.model_dump(mode="json"))
     )
-    _reject_non_authoritative_laaf(candidate.projection.source_chain)
     if candidate.projection.source_chain != authoritative.canonical_chain:
         raise ValueError("candidate source chain does not match authoritative pattern")
     if candidate.pattern_id != authoritative.id:
@@ -771,30 +767,6 @@ def _pattern_pin(pattern: AttackPattern) -> str:
     )
 
 
-def _reject_non_authoritative_laaf(chain: CanonicalAttackChain) -> None:
-    if (
-        chain.taxonomy_context.laaf.release != _UNAVAILABLE_LAAF_RELEASE
-        or chain.taxonomy_context.laaf.digest != _UNAVAILABLE_LAAF_DIGEST
-    ):
-        raise ValueError(
-            "canonical v1 requires the fixed unavailable-LAAF placeholder until "
-            "TaxonomyContext makes the non-authoritative taxonomy optional"
-        )
-    mapping_scopes = (
-        chain.mappings,
-        *(step.mappings for step in chain.steps),
-    )
-    if any(
-        mapping.taxonomy == "LAAF"
-        for mappings in mapping_scopes
-        for mapping in mappings
-    ):
-        raise ValueError(
-            "authoritative LAAF mappings are unavailable for canonical v1; "
-            "initial qualification is ATLAS-only"
-        )
-
-
 def project_authoritative_candidates(
     records: Sequence[dict[str, Any]],
     taxonomy_resolver: TaxonomyResolver,
@@ -821,7 +793,6 @@ def project_authoritative_candidates(
             )
         try:
             pattern = validate_attack_pattern(raw, taxonomy_resolver)
-            _reject_non_authoritative_laaf(pattern.canonical_chain)
             pattern = AttackPattern.model_validate(
                 _normalize_semantic_order(pattern.model_dump(mode="json"))
             )
