@@ -19,7 +19,6 @@ from scenario_forge.models.scenario import ActorProfile, RiskCardRef
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.prompts import render_prompt
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -34,7 +33,9 @@ def _make_profile() -> CapabilityProfile:
         ],
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KC1.1", "KC6.1.1"],
-        tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+        tool_inventory=[
+            ToolInventoryEntry(name="test_tool", description="A test tool")
+        ],
     )
 
 
@@ -176,16 +177,13 @@ class TestBto7ActorTypeEntryPointAccess:
 
     def test_section_header_present(self):
         prompt = _render_call1_system()
-        assert "Actor-Type Entry Point Access (INVARIANT)" in prompt
+        assert "Actor Access Provenance (INVARIANT" in prompt
 
     def test_supply_chain_actor_mentioned(self):
         prompt = _render_call1_system()
-        # Find the actor-type EP section
-        idx = prompt.index("Actor-Type Entry Point Access (INVARIANT)")
-        # Extract from there to end or next section
-        section_end = prompt.index("###", idx + 1)
-        section = prompt[idx:section_end]
-        assert "supply-chain-actor" in section
+        # The old blanket allowlist was removed (cmps.6). The new section
+        # uses evidence-authoritative wording for indirect eligibility.
+        assert "No blanket actor-type allowlist" in prompt
 
     def test_do_not_invent_portals(self):
         prompt = _render_call1_system()
@@ -193,11 +191,9 @@ class TestBto7ActorTypeEntryPointAccess:
 
     def test_indirect_controllability_constraint(self):
         prompt = _render_call1_system()
-        idx = prompt.index("Actor-Type Entry Point Access (INVARIANT)")
-        section_end = prompt.index("###", idx + 1)
-        section = prompt[idx:section_end]
-        assert "INDIRECT controllability" in section
-        assert "CANNOT directly inject" in section
+        # The controllability include describes indirect semantics.
+        assert "INDIRECT controllability" in prompt
+        assert "CANNOT directly write to" in prompt
 
 
 # ---------------------------------------------------------------------------

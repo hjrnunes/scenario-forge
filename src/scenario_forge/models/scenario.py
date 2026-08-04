@@ -108,6 +108,49 @@ class NarrativeStep(BaseModel):
     )
 
 
+class NarrativeAccessRealization(BaseModel):
+    """Typed narrative access realization reference (cmps.6).
+
+    Links the narrative to the actor's structured access provenance without
+    relying on prose keyword matching.  The fields must exactly agree with
+    ``ActorAccessProvenance`` — this is a cross-artifact invariant, not a
+    keyword check.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    initial_entry_point_id: str = Field(
+        description=(
+            "Canonical entry_point_id (ep:v1:…) of the initial ingress "
+            "this narrative realizes.  Must match actor access provenance."
+        ),
+        pattern=r"^ep:v1:[0-9a-f]{32}$",
+    )
+    influence_source: str | None = Field(
+        default=None,
+        description=(
+            "Canonical entry_point_id of the upstream influence source, "
+            "if indirect.  Must match actor access provenance."
+        ),
+        pattern=r"^ep:v1:[0-9a-f]{32}$",
+    )
+    trust_boundary_id: str | None = Field(
+        default=None,
+        description=(
+            "Canonical trust_boundary_id (tb:v1:…) of the boundary crossed, "
+            "if indirect.  Must match actor access provenance."
+        ),
+        pattern=r"^tb:v1:[0-9a-f]{32}$",
+    )
+    responsible_step_number: int = Field(
+        description=(
+            "Step number in the narrative where the actor realizes the "
+            "initial access described by the provenance block."
+        ),
+        ge=1,
+    )
+
+
 class NarrativeLayer(BaseModel):
     """Layer 1: Schneider-style attack narrative with structured steps."""
 
@@ -125,6 +168,13 @@ class NarrativeLayer(BaseModel):
     steps: list[NarrativeStep] = Field(
         description="Ordered sequence of attack steps.",
         min_length=1,
+    )
+    access_realization: NarrativeAccessRealization | None = Field(
+        default=None,
+        description=(
+            "Typed narrative access realization reference (cmps.6). "
+            "Validated against actor access provenance — no keyword matching."
+        ),
     )
 
 
@@ -169,10 +219,15 @@ class ActorAccessProvenance(BaseModel):
 
     - ``indirect`` ingress requires ``influence_source`` (a canonical
       ``entry_point_id`` resolvable in the profile), ``influence_mechanism``,
-      and ``trust_boundary`` (a canonical ``source_zone→target_zone`` pair
-      validated against the profile's active zones).
-    - Insider actors using ``public``/``authenticated`` access with
-      ``direct`` ingress require ``material_insider_advantage``.
+      and ``trust_boundary_id`` (a canonical ``tb:v1:…`` referencing a
+      ``TrustBoundary`` declared in the profile).  The boundary's
+      ``to_zone`` must match the pinned entry point's
+      ``effective_ingress_zone``, and the influence source must not be
+      the same as the initial ingress (no self-relation unless explicitly
+      modeled).
+    - Insider actors using ``direct`` ingress require
+      ``material_insider_advantage`` regardless of ``access_class`` —
+      enum choice is not evidence.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -218,14 +273,15 @@ class ActorAccessProvenance(BaseModel):
             "staging (required for indirect ingress mode)."
         ),
     )
-    trust_boundary: str | None = Field(
+    trust_boundary_id: str | None = Field(
         default=None,
         description=(
-            "Canonical trust-boundary zone transition (e.g. "
-            "'external→input') — the boundary the indirect influence "
-            "crosses before reaching the system (required for indirect "
-            "ingress mode).  Both zones must be in ZONE_NAMES."
+            "Canonical trust_boundary_id (tb:v1:…) referencing a "
+            "TrustBoundary declared in the capability profile (required "
+            "for indirect ingress mode).  The boundary's to_zone must "
+            "match the pinned entry point's effective_ingress_zone."
         ),
+        pattern=r"^tb:v1:[0-9a-f]{32}$",
     )
     material_insider_advantage: str | None = Field(
         default=None,

@@ -539,8 +539,8 @@ def build_call2_context(
             access_provenance_block += (
                 f"- influence_mechanism: {_a.influence_mechanism}\n"
             )
-        if _a.trust_boundary:
-            access_provenance_block += f"- trust_boundary: {_a.trust_boundary}\n"
+        if _a.trust_boundary_id:
+            access_provenance_block += f"- trust_boundary_id: {_a.trust_boundary_id}\n"
         if _a.material_insider_advantage:
             access_provenance_block += (
                 f"- material_insider_advantage: {_a.material_insider_advantage}\n"

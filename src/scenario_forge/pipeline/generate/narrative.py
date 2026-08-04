@@ -5,16 +5,19 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.models.scenario import ActorProfile, NarrativeLayer, NarrativeStep
-from scenario_forge.pipeline.seeds import ScenarioSeed
-from scenario_forge.prompts import render_prompt
-
+from scenario_forge.models.scenario import (
+    ActorProfile,
+    NarrativeAccessRealization,
+    NarrativeLayer,
+    NarrativeStep,
+)
 from scenario_forge.pipeline.generate.constants import _OWASP_LLM_NAMES
 from scenario_forge.pipeline.generate.diversity import _format_structural_exclusions
 from scenario_forge.pipeline.generate.ontology import (
@@ -26,6 +29,8 @@ from scenario_forge.pipeline.generate.ontology import (
     build_kc_definitions_block,
 )
 from scenario_forge.pipeline.generate.zones import _enforce_zones_narrative
+from scenario_forge.pipeline.seeds import ScenarioSeed
+from scenario_forge.prompts import render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ class Call1Step(BaseModel):
     zone: str
     action: str
     effect: str
-    control_point: Optional[str] = None
+    control_point: str | None = None
 
 
 class Call1Response(BaseModel):
@@ -56,6 +61,7 @@ class Call1Response(BaseModel):
         ),
     )
     steps: list[Call1Step] = Field(min_length=1)
+    access_realization: NarrativeAccessRealization | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +146,7 @@ def _sanitize_narrative(narrative: NarrativeLayer) -> NarrativeLayer:
             entry_point=narrative.entry_point,
             zone_sequence=narrative.zone_sequence,
             steps=new_steps,
+            access_realization=narrative.access_realization,
         )
     return narrative
 
@@ -189,7 +196,143 @@ def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
         entry_point=resp.entry_point,
         zone_sequence=zone_sequence,
         steps=steps,
+        access_realization=resp.access_realization,
     )
+
+
+# ---------------------------------------------------------------------------
+# Narrative access realization validation (cmps.6)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class NarrativeRealizationViolation:
+    """A narrative access-realization mismatch (cmps.6)."""
+
+    rule: str
+    message: str
+
+
+def validate_narrative_access_realization(
+    narrative: NarrativeLayer,
+    actor_profile: ActorProfile | None,
+) -> list[NarrativeRealizationViolation]:
+    """Validate that the narrative's access realization matches actor provenance.
+
+    Pure function — no I/O, no keyword matching.  Compares the typed
+    ``NarrativeAccessRealization`` on the narrative against the
+    ``ActorAccessProvenance`` on the actor profile.  Returns a list of
+    violations (empty if valid).
+
+    Checks:
+    1. If actor access provenance exists, the narrative must carry an
+       access_realization.
+    2. ``initial_entry_point_id`` must match.
+    3. ``influence_source`` must match (or both be None).
+    4. ``trust_boundary_id`` must match (or both be None).
+    5. ``responsible_step_number`` must refer to an existing narrative step.
+    6. Direct access must omit indirect-only references (influence_source,
+       trust_boundary_id must be None when ingress_mode is direct).
+    """
+    violations: list[NarrativeRealizationViolation] = []
+
+    access = actor_profile.access if actor_profile else None
+    if access is None:
+        return violations  # Actor access missing is flagged separately.
+
+    realization = narrative.access_realization
+    if realization is None:
+        violations.append(
+            NarrativeRealizationViolation(
+                rule="missing_access_realization",
+                message=(
+                    "Narrative lacks typed access_realization — required "
+                    "when actor access provenance is present (cmps.6)."
+                ),
+            )
+        )
+        return violations
+
+    # 2. initial_entry_point_id must match.
+    if realization.initial_entry_point_id != access.initial_entry_point_id:
+        violations.append(
+            NarrativeRealizationViolation(
+                rule="realization_entry_point_mismatch",
+                message=(
+                    f"Narrative access_realization initial_entry_point_id "
+                    f"'{realization.initial_entry_point_id}' does not match "
+                    f"actor access provenance "
+                    f"'{access.initial_entry_point_id}'."
+                ),
+            )
+        )
+
+    # 3. influence_source must match (or both None).
+    if (realization.influence_source or None) != (access.influence_source or None):
+        violations.append(
+            NarrativeRealizationViolation(
+                rule="realization_influence_source_mismatch",
+                message=(
+                    f"Narrative access_realization influence_source "
+                    f"'{realization.influence_source}' does not match actor "
+                    f"access provenance '{access.influence_source}'."
+                ),
+            )
+        )
+
+    # 4. trust_boundary_id must match (or both None).
+    if (realization.trust_boundary_id or None) != (access.trust_boundary_id or None):
+        violations.append(
+            NarrativeRealizationViolation(
+                rule="realization_trust_boundary_mismatch",
+                message=(
+                    f"Narrative access_realization trust_boundary_id "
+                    f"'{realization.trust_boundary_id}' does not match actor "
+                    f"access provenance '{access.trust_boundary_id}'."
+                ),
+            )
+        )
+
+    # 5. responsible_step_number must refer to an existing step.
+    step_numbers = {s.step_number for s in narrative.steps}
+    if realization.responsible_step_number not in step_numbers:
+        violations.append(
+            NarrativeRealizationViolation(
+                rule="realization_step_not_found",
+                message=(
+                    f"Narrative access_realization responsible_step_number "
+                    f"{realization.responsible_step_number} does not refer "
+                    f"to any narrative step (valid: {sorted(step_numbers)})."
+                ),
+            )
+        )
+
+    # 6. Direct access must omit indirect-only references.
+    if access.ingress_mode == "direct":
+        if realization.influence_source is not None:
+            violations.append(
+                NarrativeRealizationViolation(
+                    rule="direct_realization_has_indirect_ref",
+                    message=(
+                        "Narrative access_realization has influence_source "
+                        "but actor access provenance is direct ingress — "
+                        "direct access must omit indirect-only references."
+                    ),
+                )
+            )
+        if realization.trust_boundary_id is not None:
+            violations.append(
+                NarrativeRealizationViolation(
+                    rule="direct_realization_has_indirect_ref",
+                    message=(
+                        "Narrative access_realization has trust_boundary_id "
+                        "but actor access provenance is direct ingress — "
+                        "direct access must omit indirect-only references."
+                    ),
+                )
+            )
+
+    return violations
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +353,8 @@ def build_call1_context(
     pinned_technique_ids: list[str] | None = None,
     prior_titles: list[str] | None = None,
     pinned_entry_point_id: str | None = None,
+    access_feedback: str | None = None,
+    realization_feedback: str | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 1 (Narrative).
 
@@ -309,8 +454,8 @@ def build_call1_context(
             access_provenance_block += (
                 f"- influence_mechanism: {_a.influence_mechanism}\n"
             )
-        if _a.trust_boundary:
-            access_provenance_block += f"- trust_boundary: {_a.trust_boundary}\n"
+        if _a.trust_boundary_id:
+            access_provenance_block += f"- trust_boundary_id: {_a.trust_boundary_id}\n"
         if _a.material_insider_advantage:
             access_provenance_block += (
                 f"- material_insider_advantage: {_a.material_insider_advantage}\n"
@@ -411,6 +556,8 @@ def build_call1_context(
         "ontology_context": ontology_context,
         "tool_inventory": profile.tool_inventory or [],
         "kill_chain": seed.kill_chain,
+        "access_feedback": access_feedback or "",
+        "realization_feedback": realization_feedback or "",
     }
 
 
@@ -428,6 +575,8 @@ def _call_narrative(
     pinned_technique_ids: list[str] | None = None,
     prior_titles: list[str] | None = None,
     pinned_entry_point_id: str | None = None,
+    access_feedback: str | None = None,
+    realization_feedback: str | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     """Generate an attack narrative for a scenario seed (Call 1).
 
@@ -450,6 +599,8 @@ def _call_narrative(
         pinned_technique_ids=pinned_technique_ids,
         prior_titles=prior_titles,
         pinned_entry_point_id=pinned_entry_point_id,
+        access_feedback=access_feedback,
+        realization_feedback=realization_feedback,
     )
 
     result = client.complete(

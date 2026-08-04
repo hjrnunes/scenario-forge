@@ -105,6 +105,7 @@ def _make_mock_client(title: str = "Test Title") -> MagicMock:
     step.effect = "Agent compromised"
     step.control_point = None
     mock_response.steps = [step]
+    mock_response.access_realization = None
 
     result = MagicMock()
     result.content = mock_response

@@ -949,13 +949,11 @@ def validate_insider_access_floor(
             result.flagged_scenarios.append((scenario, violation))
             continue
 
-        # Direct ingress with public/authenticated access requires material
-        # insider advantage.  Indirect ingress is validated via influence
-        # evidence in the shared access-policy validator.
-        if access.ingress_mode == "direct" and access.access_class in (
-            "public",
-            "authenticated",
-        ):
+        # Direct ingress requires material insider advantage regardless
+        # of access_class (enum choice is not evidence).  Indirect ingress
+        # is validated via influence evidence in the shared access-policy
+        # validator.
+        if access.ingress_mode == "direct":
             advantage = access.material_insider_advantage
             if not advantage or not advantage.strip():
                 violation = InsiderAccessViolation(
@@ -963,10 +961,10 @@ def validate_insider_access_floor(
                     actor_type=actor.actor_type,
                     reason=(
                         f"Insider actor '{actor.actor_type}' using "
-                        f"'{access.access_class}' access with direct ingress "
-                        f"lacks structured material_insider_advantage "
-                        f"evidence — indistinguishable from an external "
-                        f"actor using the public interface (cmps.6)."
+                        f"direct ingress lacks structured "
+                        f"material_insider_advantage evidence regardless "
+                        f"of access_class '{access.access_class}' — enum "
+                        f"choice is not evidence (cmps.6)."
                     ),
                 )
                 logger.warning(
@@ -979,8 +977,8 @@ def validate_insider_access_floor(
             else:
                 result.clean_scenarios.append(scenario)
         else:
-            # Indirect ingress or privileged access — validated via
-            # influence evidence / access-policy validator, not here.
+            # Indirect ingress — validated via influence evidence /
+            # access-policy validator, not here.
             result.clean_scenarios.append(scenario)
 
     return result
@@ -1535,7 +1533,7 @@ def validate_scenario_semantics(
         )
         _access_12 = scenario.actor_profile.access if scenario.actor_profile else None
         _ingress_actions_12 = [
-            leaf.action
+            (leaf.id, leaf.action)
             for leaf in leaves
             if leaf.action is not None and leaf.action.kind == "initial_ingress"
         ]
@@ -1567,10 +1565,8 @@ def validate_scenario_semantics(
                     )
                 )
 
-            # 12f. Tree-wide initial_entry_point_id invariant: every
-            #      initial_ingress action must use exactly the same canonical
-            #      ID as the actor access provenance and the top-level
-            #      scenario envelope.  No divergent IDs accepted.
+            # 12f. Actor access initial_entry_point_id must match the
+            #      scenario envelope.  Run even if tree has no ingress.
             _canonical_ep_id = scenario.initial_entry_point_id
             if _access_12.initial_entry_point_id != _canonical_ep_id:
                 violations.append(
@@ -1585,22 +1581,27 @@ def validate_scenario_semantics(
                         severity="major",
                     )
                 )
-            for _ingress_act in _ingress_actions_12:
-                if _ingress_act.entry_point_id != _canonical_ep_id:
-                    violations.append(
-                        SemanticViolation(
-                            rule="initial_entry_point_id_mismatch",
-                            message=(
-                                f"Attack tree initial_ingress action "
-                                f"'{_ingress_act.action_id}' uses "
-                                f"entry_point_id "
-                                f"'{_ingress_act.entry_point_id}' which "
-                                f"diverges from canonical "
-                                f"'{_canonical_ep_id}'."
-                            ),
-                            severity="major",
-                        )
+
+        # 12g. Tree-wide initial_entry_point_id invariant: every
+        #      initial_ingress action must use exactly the same canonical
+        #      ID as the top-level scenario envelope.  Run regardless of
+        #      actor access presence (the tree invariant is independent).
+        _canonical_ep_id = scenario.initial_entry_point_id
+        for _leaf_id, _ingress_act in _ingress_actions_12:
+            if _ingress_act.entry_point_id != _canonical_ep_id:
+                violations.append(
+                    SemanticViolation(
+                        rule="initial_entry_point_id_mismatch",
+                        message=(
+                            f"Attack tree initial_ingress action "
+                            f"'{_leaf_id}' uses entry_point_id "
+                            f"'{_ingress_act.entry_point_id}' which "
+                            f"diverges from canonical "
+                            f"'{_canonical_ep_id}'."
+                        ),
+                        severity="major",
                     )
+                )
 
         # 13. Corpus-wide closed-world claim applicability (cmps.9 review)
         corpus_claims = check_corpus_claims_applicability(scenario, profile)

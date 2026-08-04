@@ -12,7 +12,6 @@ from pydantic import BaseModel
 from scenario_forge.data.atlas import TECHNIQUE_PROPERTIES
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import (
-    ZONE_NAMES,
     CapabilityProfile,
     is_attacker_accessible_ingress,
 )
@@ -44,11 +43,6 @@ from scenario_forge.prompts import render_prompt
 
 logger = logging.getLogger(__name__)
 
-# Valid source zones for trust-boundary evidence (cmps.6).  The source side
-# of an indirect influence boundary must be one of the canonical zones or
-# the special ``external`` zone representing out-of-system data providers.
-_TRUST_BOUNDARY_SOURCE_ZONES: frozenset[str] = frozenset({*ZONE_NAMES, "external"})
-
 
 # ---------------------------------------------------------------------------
 # Intermediate model for structured output
@@ -68,7 +62,7 @@ class Call0Response(BaseModel):
     access_class: str | None = None
     influence_source: str | None = None
     influence_mechanism: str | None = None
-    trust_boundary: str | None = None
+    trust_boundary_id: str | None = None
     material_insider_advantage: str | None = None
 
 
@@ -357,9 +351,221 @@ def build_actor_access_provenance(
         access_class=resp.access_class,
         influence_source=resp.influence_source,
         influence_mechanism=resp.influence_mechanism,
-        trust_boundary=resp.trust_boundary,
+        trust_boundary_id=resp.trust_boundary_id,
         material_insider_advantage=resp.material_insider_advantage,
     )
+
+
+def _canonical_checks(
+    violations: list[ActorAccessViolation],
+    access: ActorAccessProvenance,
+    actor_type: str,
+    profile: CapabilityProfile,
+) -> None:
+    """Populate *violations* with canonical-profile resolution checks.
+
+    Pure function — no I/O, no logging.  Separated from
+    :func:`validate_actor_access_provenance` so it can be unit-tested
+    in isolation and reused by semantic validation.
+    """
+    # 5. Resolve initial entry point — must be eligible ingress.
+    initial_ep = profile.resolve_entry_point(access.initial_entry_point_id)
+    if initial_ep is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="unresolved_entry_point_id",
+                message=(
+                    f"initial_entry_point_id "
+                    f"'{access.initial_entry_point_id}' does not resolve "
+                    f"to any entry point in the capability profile."
+                ),
+            )
+        )
+        # Cannot continue canonical checks without the initial EP.
+        return
+
+    if not is_attacker_accessible_ingress(
+        initial_ep,
+        set(profile.zones_active) if profile.zones_active else set(),
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="ineligible_ingress_entry_point",
+                message=(
+                    f"initial_entry_point_id "
+                    f"'{access.initial_entry_point_id}' resolves to "
+                    f"'{initial_ep.name}' which is not an attacker-"
+                    f"accessible ingress route."
+                ),
+            )
+        )
+
+    # 5b. effective_controllability must match the declared ingress_mode.
+    _ep_ctrl = initial_ep.effective_controllability
+    if _ep_ctrl == "system":
+        violations.append(
+            ActorAccessViolation(
+                rule="system_entry_point_as_ingress",
+                message=(
+                    f"initial_entry_point_id "
+                    f"'{access.initial_entry_point_id}' has effective "
+                    f"controllability 'system' — not eligible ingress."
+                ),
+            )
+        )
+    elif _ep_ctrl != access.ingress_mode:
+        violations.append(
+            ActorAccessViolation(
+                rule="ingress_mode_controllability_mismatch",
+                message=(
+                    f"ingress_mode '{access.ingress_mode}' does not match "
+                    f"the entry point's effective controllability "
+                    f"'{_ep_ctrl}' (entry_point_id "
+                    f"'{access.initial_entry_point_id}')."
+                ),
+            )
+        )
+
+    # 6–8. Indirect ingress canonical relation checks.
+    if access.ingress_mode != "indirect":
+        return
+
+    # influence_source must be present and resolve to a different EP.
+    if not access.influence_source or not access.influence_source.strip():
+        return  # Already flagged as missing in structural checks.
+
+    source_ep = profile.resolve_entry_point(access.influence_source)
+    if source_ep is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="unresolved_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' "
+                    f"does not resolve to any entry point in the "
+                    f"capability profile."
+                ),
+            )
+        )
+        return
+
+    # 6a. No self-relation — source must differ from initial ingress.
+    if source_ep.entry_point_id == initial_ep.entry_point_id:
+        violations.append(
+            ActorAccessViolation(
+                rule="self_relation_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' is the "
+                    f"same entry point as the initial ingress "
+                    f"'{access.initial_entry_point_id}' — no declared "
+                    f"self-relation model accepts this (cmps.6)."
+                ),
+            )
+        )
+        return
+
+    # 6b. Source must be attacker-accessible (not output-only or system).
+    if source_ep.direction == "output":
+        violations.append(
+            ActorAccessViolation(
+                rule="output_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' resolves "
+                    f"to '{source_ep.name}' which is output-only — an "
+                    f"output channel cannot be an actor-controlled "
+                    f"influence source."
+                ),
+            )
+        )
+    if source_ep.effective_controllability == "system":
+        violations.append(
+            ActorAccessViolation(
+                rule="system_influence_source",
+                message=(
+                    f"influence_source '{access.influence_source}' resolves "
+                    f"to '{source_ep.name}' which is system-controlled — "
+                    f"not an actor-accessible influence source."
+                ),
+            )
+        )
+
+    # 7. trust_boundary_id must resolve to a declared TrustBoundary.
+    if not access.trust_boundary_id or not access.trust_boundary_id.strip():
+        return  # Already flagged as missing in structural checks.
+
+    boundary = profile.resolve_trust_boundary(access.trust_boundary_id)
+    if boundary is None:
+        violations.append(
+            ActorAccessViolation(
+                rule="unresolved_trust_boundary",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' does "
+                    f"not resolve to any TrustBoundary in the capability "
+                    f"profile — fabricated boundaries are not accepted."
+                ),
+            )
+        )
+        return
+
+    # 7a. Boundary to_zone must match the initial EP's effective_ingress_zone.
+    initial_zone = initial_ep.effective_ingress_zone
+    if initial_zone is not None and boundary.to_zone != initial_zone:
+        violations.append(
+            ActorAccessViolation(
+                rule="trust_boundary_target_zone_mismatch",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' has "
+                    f"to_zone '{boundary.to_zone}' but the initial entry "
+                    f"point '{initial_ep.name}' has effective_ingress_zone "
+                    f"'{initial_zone}' — boundary must target the initial "
+                    f"ingress zone."
+                ),
+            )
+        )
+
+    # 7b. Boundary from_zone must correspond to the source EP's
+    #      effective_ingress_zone or an explicitly modeled external zone.
+    source_zone = source_ep.effective_ingress_zone
+    if (
+        source_zone is not None
+        and boundary.from_zone != source_zone
+        and boundary.from_zone != "external"
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="trust_boundary_source_zone_mismatch",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' "
+                    f"has from_zone '{boundary.from_zone}' but the "
+                    f"influence source '{source_ep.name}' has "
+                    f"effective_ingress_zone '{source_zone}' — boundary "
+                    f"source side must correspond to the influence "
+                    f"source zone or 'external'."
+                ),
+            )
+        )
+
+    # 8. Declared profile flow: the boundary must connect source→initial
+    #    ingress zones, proving a declared profile flow rather than a
+    #    fabricated relation.  If the boundary's from_zone is "external",
+    #    the source EP must have indirect controllability (upstream data
+    #    provider).  This is the relational proof — not just ID format.
+    if (
+        boundary.from_zone == "external"
+        and source_ep.effective_controllability != "indirect"
+    ):
+        violations.append(
+            ActorAccessViolation(
+                rule="external_boundary_source_not_indirect",
+                message=(
+                    f"trust_boundary_id '{access.trust_boundary_id}' "
+                    f"has from_zone 'external' but influence source "
+                    f"'{source_ep.name}' has effective controllability "
+                    f"'{source_ep.effective_controllability}' — external "
+                    f"boundary source requires an indirect-controllable "
+                    f"upstream entry point."
+                ),
+            )
+        )
 
 
 def validate_actor_access_provenance(
@@ -369,22 +575,37 @@ def validate_actor_access_provenance(
     """Validate typed access provenance evidence on an actor profile.
 
     Returns a list of violations (empty if valid).  This replaces keyword-
-    based insider access checks with structured evidence validation.
+    based insider access checks and blanket allowlists with structured
+    access provenance grounded in the canonical entry-point identity
+    (cmps.6).
 
-    When *profile* is supplied, canonical resolution checks are performed:
-    - ``influence_source`` must resolve to an entry point in the profile.
-    - ``trust_boundary`` zones must be valid zone names.
-    - ``initial_entry_point_id`` must resolve to an eligible ingress EP.
-
-    Checks:
+    Checks (structural — no profile needed):
     1. ``access`` provenance must be present.
     2. ``ingress_mode`` / ``access_class`` consistency (e.g. supply_chain
-       access with direct ingress is inconsistent).
+       access with direct ingress is inconsistent; public access with
+       indirect ingress is inconsistent).
     3. Indirect ingress requires ``influence_source``,
-       ``influence_mechanism``, and ``trust_boundary``.
-    4. Insider actors using public/authenticated access with direct
-       ingress require ``material_insider_advantage``.
-    5. Canonical resolution (when profile is provided).
+       ``influence_mechanism``, and ``trust_boundary_id``.
+    4. Insider actors using ``direct`` ingress require
+       ``material_insider_advantage`` regardless of ``access_class`` —
+       enum choice is not evidence.
+
+    Checks (canonical — when *profile* is supplied):
+    5. ``initial_entry_point_id`` must resolve to an eligible ingress EP.
+       Its ``effective_controllability`` must match the declared
+       ``ingress_mode`` and must not be ``system`` (unresolved/system
+       fails, never defaults to direct).
+    6. ``influence_source`` must resolve to a **different** canonical EP
+       (no self-relation unless explicitly modeled).  The source EP must
+       be attacker-accessible (not output-only or system-controlled).
+    7. ``trust_boundary_id`` must resolve to a ``TrustBoundary`` declared
+       in the profile.  The boundary's ``to_zone`` must equal the initial
+       EP's ``effective_ingress_zone``.  The boundary's ``from_zone`` must
+       correspond to the source EP's ``effective_ingress_zone`` or an
+       explicitly modeled external relation (``external`` zone).
+    8. There must be a declared profile flow connecting
+       source→boundary→initial-ingress; profiles lacking enough data fail
+       explicitly (partial), never silently infer the relation.
     """
     violations: list[ActorAccessViolation] = []
 
@@ -432,8 +653,8 @@ def validate_actor_access_provenance(
             missing.append("influence_source")
         if not access.influence_mechanism or not access.influence_mechanism.strip():
             missing.append("influence_mechanism")
-        if not access.trust_boundary or not access.trust_boundary.strip():
-            missing.append("trust_boundary")
+        if not access.trust_boundary_id or not access.trust_boundary_id.strip():
+            missing.append("trust_boundary_id")
         if missing:
             violations.append(
                 ActorAccessViolation(
@@ -445,11 +666,11 @@ def validate_actor_access_provenance(
                 )
             )
 
-    # 4. Insider + public/authenticated + direct → material_insider_advantage
+    # 4. Insider + direct ingress → material_insider_advantage (regardless
+    #    of access_class — enum choice is not evidence).
     if (
         access.ingress_mode == "direct"
         and actor_profile.actor_type in _INSIDER_ACTOR_TYPES
-        and access.access_class in ("public", "authenticated")
         and (
             not access.material_insider_advantage
             or not access.material_insider_advantage.strip()
@@ -460,95 +681,17 @@ def validate_actor_access_provenance(
                 rule="missing_insider_advantage",
                 message=(
                     f"Insider actor '{actor_profile.actor_type}' using "
-                    f"'{access.access_class}' access with direct ingress "
-                    f"requires structured material_insider_advantage evidence."
+                    f"direct ingress requires structured "
+                    f"material_insider_advantage evidence regardless of "
+                    f"access_class ('{access.access_class}') — enum choice "
+                    f"is not evidence (cmps.6)."
                 ),
             )
         )
 
-    # 5. Canonical resolution (when profile is provided)
+    # 5–8. Canonical resolution (when profile is provided)
     if profile is not None:
-        _resolved_ep = profile.resolve_entry_point(access.initial_entry_point_id)
-        if _resolved_ep is None:
-            violations.append(
-                ActorAccessViolation(
-                    rule="unresolved_entry_point_id",
-                    message=(
-                        f"initial_entry_point_id "
-                        f"'{access.initial_entry_point_id}' does not resolve "
-                        f"to any entry point in the capability profile."
-                    ),
-                )
-            )
-        elif not is_attacker_accessible_ingress(
-            _resolved_ep,
-            set(profile.zones_active) if profile.zones_active else set(),
-        ):
-            violations.append(
-                ActorAccessViolation(
-                    rule="ineligible_ingress_entry_point",
-                    message=(
-                        f"initial_entry_point_id "
-                        f"'{access.initial_entry_point_id}' resolves to "
-                        f"'{_resolved_ep.name}' which is not an attacker-"
-                        f"accessible ingress route."
-                    ),
-                )
-            )
-
-        # Resolve influence_source if provided
-        if access.influence_source and access.influence_source.strip():
-            _src_ep = profile.resolve_entry_point(access.influence_source)
-            if _src_ep is None:
-                violations.append(
-                    ActorAccessViolation(
-                        rule="unresolved_influence_source",
-                        message=(
-                            f"influence_source '{access.influence_source}' "
-                            f"does not resolve to any entry point in the "
-                            f"capability profile."
-                        ),
-                    )
-                )
-
-        # Validate trust_boundary zone format
-        if access.trust_boundary and access.trust_boundary.strip():
-            _tb = access.trust_boundary.strip()
-            if "→" not in _tb:
-                violations.append(
-                    ActorAccessViolation(
-                        rule="invalid_trust_boundary_format",
-                        message=(
-                            f"trust_boundary '{_tb}' must be a "
-                            f"'source_zone→target_zone' pair."
-                        ),
-                    )
-                )
-            else:
-                _src_zone, _, _tgt_zone = _tb.partition("→")
-                _src_zone, _tgt_zone = _src_zone.strip(), _tgt_zone.strip()
-                if _src_zone not in _TRUST_BOUNDARY_SOURCE_ZONES:
-                    violations.append(
-                        ActorAccessViolation(
-                            rule="invalid_trust_boundary_zone",
-                            message=(
-                                f"trust_boundary source zone '{_src_zone}' "
-                                f"is not a valid zone (expected one of "
-                                f"{sorted(_TRUST_BOUNDARY_SOURCE_ZONES)})."
-                            ),
-                        )
-                    )
-                if _tgt_zone not in ZONE_NAMES:
-                    violations.append(
-                        ActorAccessViolation(
-                            rule="invalid_trust_boundary_zone",
-                            message=(
-                                f"trust_boundary target zone '{_tgt_zone}' "
-                                f"is not a valid zone (expected one of "
-                                f"{list(ZONE_NAMES)})."
-                            ),
-                        )
-                    )
+        _canonical_checks(violations, access, actor_profile.actor_type, profile)
 
     return violations
 
@@ -774,8 +917,9 @@ def build_call0_context(
                 "data source or channel the actor influences\n"
                 "- `influence_mechanism`: how the actor exerts influence "
                 "(e.g. 'document poisoning', 'supply-chain staging')\n"
-                "- `trust_boundary`: a `source_zone→target_zone` pair "
-                "describing the trust boundary the influence crosses\n"
+                "- `trust_boundary_id`: a canonical `tb:v1:…` ID "
+                "referencing a TrustBoundary declared in the capability "
+                "profile\n"
             )
         elif ingress_mode == "direct":
             # Check if the actor type might be an insider
@@ -849,7 +993,7 @@ def _call_actor_profile(
     pinned_entry_point: str | None = None,
     pinned_entry_point_id: str | None = None,
     access_feedback: str | None = None,
-) -> tuple[ActorProfile, LLMResult]:
+) -> tuple[ActorProfile, LLMResult, str | None]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
     Delegates context building to :func:`build_call0_context`, then renders
@@ -944,4 +1088,4 @@ def _call_actor_profile(
             resp=resp,
         )
 
-    return actor_profile, result
+    return actor_profile, result, ctx.get("diversity_limitation")

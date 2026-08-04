@@ -187,23 +187,23 @@ class TestInsiderStructuredAccess:
             initial_entry_point_id=ENTRY_POINT_ID,
             ingress_mode="indirect",
             access_class="supply_chain",
-            influence_source=ENTRY_POINT_ID,
+            influence_source="ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             influence_mechanism="Poisoned content",
-            trust_boundary="External content ingestion boundary",
+            trust_boundary_id="tb:v1:cccccccccccccccccccccccccccccccc",
         )
         result = validate_insider_access_floor([_make_envelope(access=access)])
         assert result.flagged_count == 0
         assert result.clean_count == 1
 
-    def test_direct_privileged_access_passes_without_material_advantage(self):
+    def test_direct_privileged_access_without_material_advantage_flagged(self):
         access = ActorAccessProvenance(
             initial_entry_point_id=ENTRY_POINT_ID,
             ingress_mode="direct",
             access_class="privileged",
         )
         result = validate_insider_access_floor([_make_envelope(access=access)])
-        assert result.flagged_count == 0
-        assert result.clean_count == 1
+        assert result.flagged_count == 1
+        assert result.clean_count == 0
 
 
 class TestInsiderMissingStructuredEvidence:

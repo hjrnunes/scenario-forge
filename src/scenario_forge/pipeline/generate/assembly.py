@@ -271,10 +271,10 @@ def _assemble_envelope(
     model_name: str,
     use_case: str,
     notes: list[str],
+    pinned_entry_point_id: str,
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_entry_point: str | None = None,
-    pinned_entry_point_id: str | None = None,
     run_id: str = "",
     candidate_id: str = "",
     attempt: int = 1,
@@ -353,15 +353,7 @@ def _assemble_envelope(
         scenario_seed_metadata=scenario_seed_metadata,
         legitimate_task=use_case,
         actor_profile=actor_profile,
-        initial_entry_point_id=(
-            pinned_entry_point_id
-            if pinned_entry_point_id
-            else (
-                actor_profile.access.initial_entry_point_id
-                if actor_profile and actor_profile.access
-                else ""
-            )
-        ),
+        initial_entry_point_id=pinned_entry_point_id,
         narrative=narrative,
         attack_tree=attack_tree,
         behavior_spec=behavior_spec,
@@ -381,6 +373,7 @@ def generate_scenario(
     profile: CapabilityProfile,
     client: LLMClient,
     use_case: str,
+    pinned_entry_point_id: str,
     preferred_entry_point: str | None = None,
     excluded_entry_points: list[str] | None = None,
     excluded_patterns: list[str] | None = None,
@@ -393,7 +386,6 @@ def generate_scenario(
     pinned_technique_ids: list[str] | None = None,
     pinned_technique_names: list[str] | None = None,
     prior_titles: list[str] | None = None,
-    pinned_entry_point_id: str | None = None,
     run_id: str = "",
     candidate_id: str = "",
     attempt: int = 1,
@@ -458,6 +450,7 @@ def generate_scenario(
     _validate_technique_zone_compat = _gen._validate_technique_zone_compatibility
     _warn_dominant_threat_id_crossref_fn = _gen._warn_dominant_threat_id_crossref
     _assemble_envelope_fn = _gen._assemble_envelope
+    _validate_realization = _gen.narrative.validate_narrative_access_realization
 
     # Enforce identity inputs at the generation boundary.
     _validate_run_id(run_id)
@@ -490,8 +483,9 @@ def generate_scenario(
             )
 
     # --- Call 0: Actor Profile ---
+    _diversity_notes: list[str] = []
     try:
-        actor_profile, result0 = _call_actor_profile(
+        actor_profile, result0, _div_limitation = _call_actor_profile(
             seed,
             profile,
             client,
@@ -504,6 +498,11 @@ def generate_scenario(
             pinned_entry_point=pinned_entry_point,
             pinned_entry_point_id=pinned_entry_point_id,
         )
+        if _div_limitation:
+            _diversity_notes.append(
+                f"Diversity limitation: forced actor '{_div_limitation}' was "
+                f"incompatible, replaced with feasible fallback."
+            )
     except Exception as exc:
         call_log_entries.append(
             _call_log_entry_error(
@@ -527,7 +526,7 @@ def generate_scenario(
         )
         corrected_type = actor_profile.actor_type
         try:
-            actor_profile, result0 = _call_actor_profile(
+            actor_profile, result0, _div_limitation = _call_actor_profile(
                 seed,
                 profile,
                 client,
@@ -540,6 +539,11 @@ def generate_scenario(
                 pinned_entry_point=pinned_entry_point,
                 pinned_entry_point_id=pinned_entry_point_id,
             )
+            if _div_limitation:
+                _diversity_notes.append(
+                    f"Diversity limitation: forced actor '{_div_limitation}' "
+                    f"was incompatible, replaced with feasible fallback."
+                )
         except Exception as exc:
             call_log_entries.append(
                 _call_log_entry_error(
@@ -606,7 +610,7 @@ def generate_scenario(
                 actor_profile.actor_type,
             )
         try:
-            actor_profile, result0 = _call_actor_profile(
+            actor_profile, result0, _div_limitation = _call_actor_profile(
                 seed,
                 profile,
                 client,
@@ -620,6 +624,11 @@ def generate_scenario(
                 pinned_entry_point_id=pinned_entry_point_id,
                 access_feedback=_access_feedback,
             )
+            if _div_limitation:
+                _diversity_notes.append(
+                    f"Diversity limitation: forced actor '{_div_limitation}' "
+                    f"was incompatible, replaced with feasible fallback."
+                )
             actor_profile = _validate_actor_type(actor_profile)
             if attack_goal is not None:
                 actor_profile.goal_category = attack_goal["id"]
@@ -681,6 +690,62 @@ def generate_scenario(
     call_log_entries.append(
         _call_log_entry(CallName.narrative, result1, partial_scenario_id)
     )
+
+    # --- Post-Call-1: narrative access realization validation + retry (cmps.6) ---
+    _realization_violations = _validate_realization(narrative, actor_profile)
+    _realization_retry = 0
+    while _realization_violations and _realization_retry < _ACTOR_ACCESS_MAX_RETRIES:
+        _realization_retry += 1
+        _realization_feedback = "\n".join(
+            f"- {v.message}" for v in _realization_violations
+        )
+        logger.warning(
+            "Narrative access realization violations in %s (retry %d/%d): %s",
+            partial_scenario_id,
+            _realization_retry,
+            _ACTOR_ACCESS_MAX_RETRIES,
+            _realization_feedback,
+        )
+        try:
+            narrative, result1 = _call_narrative(
+                seed,
+                profile,
+                client,
+                use_case,
+                actor_profile=actor_profile,
+                preferred_entry_point=preferred_entry_point,
+                excluded_entry_points=excluded_entry_points,
+                excluded_patterns=excluded_patterns,
+                excluded_structural_patterns=excluded_structural_patterns,
+                pinned_entry_point=pinned_entry_point,
+                pinned_technique_ids=pinned_technique_ids,
+                prior_titles=prior_titles,
+                pinned_entry_point_id=pinned_entry_point_id,
+                realization_feedback=_realization_feedback,
+            )
+            if pinned_entry_point and narrative.entry_point != pinned_entry_point:
+                narrative = narrative.model_copy(
+                    update={"entry_point": pinned_entry_point},
+                )
+        except Exception as exc:  # noqa: BLE001 - retry must catch all
+            logger.warning(
+                "Narrative realization retry %d/%d failed for %s: %s",
+                _realization_retry,
+                _ACTOR_ACCESS_MAX_RETRIES,
+                partial_scenario_id,
+                exc,
+            )
+            break
+        _realization_violations = _validate_realization(narrative, actor_profile)
+
+    if _realization_violations:
+        logger.warning(
+            "Narrative access realization violations persist after %d retries "
+            "for %s — proceeding to semantic validation for quarantine: %s",
+            _realization_retry,
+            partial_scenario_id,
+            "; ".join(v.message for v in _realization_violations),
+        )
 
     # --- Post-Call-1 heuristic checks (warn-only, gmtc) ---
     try:
@@ -904,7 +969,7 @@ def generate_scenario(
         call_metadata_list=call_metas,
         model_name=client.model,
         use_case=use_case,
-        notes=[],
+        notes=_diversity_notes if _diversity_notes else [],
         actor_profile=actor_profile,
         pinned_technique_ids=pinned_technique_ids,
         pinned_entry_point=pinned_entry_point,

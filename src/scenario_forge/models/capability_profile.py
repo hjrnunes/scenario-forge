@@ -380,6 +380,12 @@ class TrustBoundary(BaseModel):
         description="Whether this boundary was explicit, inferred, or hypothesized",
     )
 
+    @computed_field
+    @property
+    def trust_boundary_id(self) -> str:
+        """Deterministic, versioned, collision-resistant canonical identity."""
+        return compute_trust_boundary_id(self.from_zone, self.to_zone)
+
 
 class MemoryMechanism(BaseModel):
     """A memory and state persistence mechanism."""
@@ -817,6 +823,24 @@ def compute_integration_id(
     identity = "|".join(identity_tuple)
     h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
     return f"int:{_INTEGRATION_ID_VERSION}:{h}"
+
+
+# --- Canonical trust boundary identity (cmps.6) ---
+
+_TRUST_BOUNDARY_ID_VERSION = "v1"
+
+
+def compute_trust_boundary_id(from_zone: str, to_zone: str) -> str:
+    """Compute a deterministic, versioned, collision-resistant trust_boundary_id.
+
+    Format: ``tb:<version>:<32-char hex digest (128-bit)>``
+
+    The ID is derived from the canonical zone transition (from_zone→to_zone).
+    Two boundaries with the same zone transition produce the same ID.
+    """
+    identity = f"{from_zone}|{to_zone}"
+    h = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return f"tb:{_TRUST_BOUNDARY_ID_VERSION}:{h}"
 
 
 def deduplicate_external_integrations(
@@ -1479,6 +1503,16 @@ class CapabilityProfile(BaseModel):
     def resolve_integration(self, integration_id: str) -> ExternalIntegration | None:
         """Resolve a canonical integration_id to an ExternalIntegration, or None."""
         return self.integration_lookup().get(integration_id)
+
+    def trust_boundary_lookup(self) -> dict[str, TrustBoundary]:
+        """Build a canonical trust_boundary_id → TrustBoundary lookup map."""
+        if not self.trust_boundaries:
+            return {}
+        return {tb.trust_boundary_id: tb for tb in self.trust_boundaries}
+
+    def resolve_trust_boundary(self, trust_boundary_id: str) -> TrustBoundary | None:
+        """Resolve a canonical trust_boundary_id to a TrustBoundary, or None."""
+        return self.trust_boundary_lookup().get(trust_boundary_id)
 
     @property
     def is_entry_point_inventory_complete(self) -> bool:

@@ -137,6 +137,67 @@ class PipelineResult(BaseModel):
     run_id: str | None = None
 
 
+def _iter_leaves(node):
+    """Yield all leaf nodes in an attack tree (no private imports)."""
+    if not node.children:
+        yield node
+        return
+    for child in node.children:
+        yield from _iter_leaves(child)
+
+
+def _assert_entry_point_ownership(
+    envelope: ScenarioEnvelope, candidate_entry_point_id: str
+) -> None:
+    """Assert that the envelope, actor access, candidate, and all tree
+    initial_ingress IDs all equal the one candidate-owned ID (cmps.6).
+
+    Raises :class:`ScenarioForgeIntegrityError` on any mismatch or when
+    actor access provenance is missing.  This is the pre-write ownership
+    gate — it runs immediately before the first artifact write so no
+    divergent-ID or unevidenced scenario can be persisted.
+    """
+    # 1. Envelope top-level ID must equal the candidate ID.
+    if envelope.initial_entry_point_id != candidate_entry_point_id:
+        raise ScenarioForgeIntegrityError(
+            f"Envelope initial_entry_point_id "
+            f"'{envelope.initial_entry_point_id}' does not match candidate "
+            f"entry_point_id '{candidate_entry_point_id}'. Aborting run."
+        )
+
+    # 2. Actor access provenance must exist and its ID must equal the
+    #    candidate ID.  Missing access is a fatal integrity error — the
+    #    cmps.6 policy is authoritative, not optional.
+    actor = envelope.actor_profile
+    if actor is None or actor.access is None:
+        raise ScenarioForgeIntegrityError(
+            "Actor access provenance is missing — every generated scenario "
+            "must carry typed access evidence (cmps.6). Aborting run."
+        )
+    if actor.access.initial_entry_point_id != candidate_entry_point_id:
+        raise ScenarioForgeIntegrityError(
+            f"Actor access initial_entry_point_id "
+            f"'{actor.access.initial_entry_point_id}' does not match "
+            f"candidate entry_point_id '{candidate_entry_point_id}'. "
+            f"Aborting run."
+        )
+
+    # 3. Every tree initial_ingress ID must equal the candidate ID.
+    if envelope.attack_tree is not None:
+        for leaf in _iter_leaves(envelope.attack_tree.root):
+            if (
+                leaf.action is not None
+                and leaf.action.kind == "initial_ingress"
+                and leaf.action.entry_point_id != candidate_entry_point_id
+            ):
+                raise ScenarioForgeIntegrityError(
+                    f"Attack tree initial_ingress action '{leaf.id}' uses "
+                    f"entry_point_id '{leaf.action.entry_point_id}' which "
+                    f"diverges from candidate '{candidate_entry_point_id}'. "
+                    f"Aborting run."
+                )
+
+
 def _compute_gap_attributions(
     coverage_gaps: CoverageGaps,
     seeds: list[ScenarioSeed],
@@ -1569,6 +1630,12 @@ def run_pipeline(
                         f"compute_scenario_id(run_id, candidate_id, 1). Aborting run."
                     )
 
+                # Pre-write candidate-ownership assertion (cmps.6): the
+                # envelope, actor access, candidate (fseed.entry_point_id),
+                # and every tree initial_ingress ID must all equal the one
+                # candidate-owned ID.  No divergent IDs accepted.
+                _assert_entry_point_ownership(envelope, fseed.entry_point_id)
+
                 yaml_path, feature_path = write_scenario_outputs(
                     envelope, scenarios_dir
                 )
@@ -1865,10 +1932,31 @@ def run_pipeline(
             "  %d scenario YAML(s) re-written with validation metadata", rewrite_count
         )
 
+        # --- cmps.6: compute quarantine partition before coverage/eval ---
+        # Validation is complete; partition admitted vs quarantined now so
+        # coverage, diversity, eval, and report only see admitted scenarios.
+        # Quarantine artifacts/receipts are retained as forensic evidence.
+        quarantined_sids = {
+            s.scenario_id
+            for s in scenarios
+            if s.validation is not None
+            and (
+                not s.validation.phantom.valid
+                or not s.validation.structural.valid
+                or not s.validation.semantic.valid
+            )
+        }
+        quarantined_count = len(quarantined_sids)
+        admitted_scenarios = [
+            s for s in scenarios if s.scenario_id not in quarantined_sids
+        ]
+
         # --- Coverage Analysis ---
         logger.info("[Post-Generation] Analyzing coverage gaps...")
-        coverage_gaps = analyze_coverage_gaps(profile, threat_surface, scenarios)
-        attacker_diversity = analyze_attacker_diversity(scenarios)
+        coverage_gaps = analyze_coverage_gaps(
+            profile, threat_surface, admitted_scenarios
+        )
+        attacker_diversity = analyze_attacker_diversity(admitted_scenarios)
 
         # --- Funnel-stage attribution for coverage gaps ---
         if coverage_gaps.has_gaps:
@@ -1892,18 +1980,6 @@ def run_pipeline(
 
         persisted_artifacts = len(artifact_records)
 
-        # --- Compute quarantine count ---
-        quarantined_count = sum(
-            1
-            for s in scenarios
-            if s.validation is not None
-            and (
-                not s.validation.phantom.valid
-                or not s.validation.structural.valid
-                or not s.validation.semantic.valid
-            )
-        )
-
         # --- Write final run manifest — single complete build ---
         funnel = CandidateFunnel(
             expanded_instances=expanded_instances,
@@ -1921,6 +1997,8 @@ def run_pipeline(
             remediation_admitted=rem_admitted,
             remediation_failed=rem_failed,
             attempted=attempted_count,
+            # Funnel admission counts include generated artifacts later
+            # partitioned into admitted and quarantined dispositions.
             admitted=len(scenarios),
             quarantined=quarantined_count,
             persisted_artifacts=persisted_artifacts,
@@ -1980,20 +2058,9 @@ def run_pipeline(
                 "unprunable_count": parsimony_unprunable_count,
             },
         }
-        # --- Determine quarantine status ---
         # --- Determine quarantine status and update attempt records ---
         has_quarantine = quarantined_count > 0
         if has_quarantine:
-            quarantined_sids = {
-                s.scenario_id
-                for s in scenarios
-                if s.validation is not None
-                and (
-                    not s.validation.phantom.valid
-                    or not s.validation.structural.valid
-                    or not s.validation.semantic.valid
-                )
-            }
             for a in attempts:
                 if (
                     a.disposition == AttemptDisposition.ADMITTED
@@ -2006,7 +2073,14 @@ def run_pipeline(
                     )
 
         # --- Build pre-eval in-memory inventory (no persisted started manifest) ---
-        pre_eval_inventory = _build_run_inventory(run_dir, write_receipts, scenarios)
+        # cmps.6: exclude quarantined scenario artifacts from eval/report
+        # inventories; retain all receipts for the final forensic inventory.
+        admitted_receipts = [
+            r for r in write_receipts if r["scenario_id"] not in quarantined_sids
+        ]
+        pre_eval_inventory = _build_run_inventory(
+            run_dir, admitted_receipts, admitted_scenarios
+        )
         eval_snapshot_manifest = RunManifest(
             manifest_version=MANIFEST_VERSION,
             status=RunStatus.STARTED,
@@ -2055,7 +2129,10 @@ def run_pipeline(
 
         # --- Build in-memory inventory with scorecard for report ---
         pre_report_inventory = _build_run_inventory(
-            run_dir, write_receipts, scenarios, include_eval=eval_success
+            run_dir,
+            admitted_receipts,
+            admitted_scenarios,
+            include_eval=eval_success,
         )
         # Compute intended final status for the report view.
         # This is the status the run will have if report generation succeeds.
@@ -2143,7 +2220,7 @@ def run_pipeline(
             threat_surface=threat_surface,
             seeds=seeds,
             filtered_seeds=filtered_seeds,
-            scenarios=scenarios,
+            scenarios=admitted_scenarios,
             governance_only_count=governance_count,
             generation_notes=generation_notes,
             run_dir=run_dir,

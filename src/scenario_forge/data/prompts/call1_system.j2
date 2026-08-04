@@ -33,12 +33,10 @@ This model divides an AI system into architectural layers an attack may traverse
 ### Ontology Context Constraint (INVARIANT)
 {% set _artifact = "Your narrative" %}{% include '_ontology_context_constraint.j2' %}
 
-### Actor-Type Entry Point Access (INVARIANT)
-If the pinned entry point has INDIRECT controllability:
-- Actors that may hold indirect influence (supply-chain-actor, malicious-insider, nation-state, competitor, automated-agent) may write to, inject into, or modify data flowing through this entry point, AND only through a documented upstream source with structured evidence (influence_source, influence_mechanism, trust_boundary).
-- All other actor types CANNOT directly inject, upload, or modify content in this entry point. They may only interact with whatever data the entry point already contains or delivers.
+### Actor Access Provenance (INVARIANT — cmps.6)
+The actor access provenance block in the Actor Profile section is **authoritative**.  If the pinned entry point has INDIRECT controllability, the actor MUST provide structured influence evidence (influence_source, influence_mechanism, trust_boundary_id) — the narrative must not contradict this evidence.  No blanket actor-type allowlist determines indirect eligibility; the structured evidence does.  If advisory kill-chain wording conflicts with the access provenance block, the access provenance block wins.
 
-Do NOT invent upload portals, merchant dashboards, partner repositories, or write-access mechanisms for indirect-controllability entry points unless the actor is in the indirect-compatible set with structured influence evidence. If the narrative requires the attacker to modify data in an indirect entry point, the actor MUST provide influence_source, influence_mechanism, and trust_boundary evidence.
+Do NOT invent upload portals, merchant dashboards, partner repositories, or write-access mechanisms for indirect-controllability entry points unless the actor access provenance includes structured influence evidence.  If the narrative requires the attacker to modify data in an indirect entry point, the actor access provenance MUST include influence_source, influence_mechanism, and trust_boundary_id.
 
 {% include '_blackbox.j2' %}
 

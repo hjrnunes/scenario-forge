@@ -4583,9 +4583,9 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
             _access_lines.append(
                 f"<li>Influence mechanism: {_esc(access['influence_mechanism'])}</li>"
             )
-        if access.get("trust_boundary"):
+        if access.get("trust_boundary_id"):
             _access_lines.append(
-                f"<li>Trust boundary: {_esc(access['trust_boundary'])}</li>"
+                f"<li>Trust boundary ID: <code>{_esc(access['trust_boundary_id'])}</code></li>"
             )
         if access.get("material_insider_advantage"):
             _access_lines.append(

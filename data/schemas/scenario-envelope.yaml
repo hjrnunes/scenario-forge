@@ -135,6 +135,36 @@ fields:
           Ordered sequence of attack steps. Each step is annotated with the
           Schneider zone where the action occurs.
 
+      access_realization:
+        type: object
+        required: false
+        description: >
+          Typed narrative access realization reference (cmps.6). Links the
+          narrative to the actor's structured access provenance without
+          relying on prose keyword matching.  Must exactly match
+          ActorAccessProvenance when present.
+        fields:
+          initial_entry_point_id:
+            type: str
+            required: true
+            pattern: "^ep:v1:[0-9a-f]{32}$"
+            description: "Canonical entry_point_id of the initial ingress."
+          influence_source:
+            type: str
+            required: false
+            pattern: "^ep:v1:[0-9a-f]{32}$"
+            description: "Canonical entry_point_id of the upstream influence source (indirect only)."
+          trust_boundary_id:
+            type: str
+            required: false
+            pattern: "^tb:v1:[0-9a-f]{32}$"
+            description: "Canonical trust_boundary_id of the boundary crossed (indirect only)."
+          responsible_step_number:
+            type: int
+            required: true
+            minimum: 1
+            description: "Narrative step where the actor realizes the initial access."
+
       causal_chain_reframed:
         type: object
         required: false

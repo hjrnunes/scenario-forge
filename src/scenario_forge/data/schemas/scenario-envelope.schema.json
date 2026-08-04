@@ -298,6 +298,56 @@
             "$ref": "#/$defs/NarrativeStep"
           },
           "minItems": 1
+        },
+        "access_realization": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NarrativeAccessRealization"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "NarrativeAccessRealization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_entry_point_id",
+        "responsible_step_number"
+      ],
+      "properties": {
+        "initial_entry_point_id": {
+          "type": "string",
+          "pattern": "^ep:v1:[0-9a-f]{32}$"
+        },
+        "influence_source": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^ep:v1:[0-9a-f]{32}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trust_boundary_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^tb:v1:[0-9a-f]{32}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "responsible_step_number": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
@@ -1588,10 +1638,11 @@
             }
           ]
         },
-        "trust_boundary": {
+        "trust_boundary_id": {
           "oneOf": [
             {
-              "type": "string"
+              "type": "string",
+              "pattern": "^tb:v1:[0-9a-f]{32}$"
             },
             {
               "type": "null"

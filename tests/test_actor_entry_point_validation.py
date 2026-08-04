@@ -14,9 +14,12 @@ from scenario_forge.models.attack_tree import (
     InitialIngressAction,
 )
 from scenario_forge.models.capability_profile import (
+    BoundaryConfidence,
     CapabilityProfile,
     EntryPoint,
     ToolInventoryEntry,
+    TrustBoundary,
+    compute_trust_boundary_id,
 )
 from scenario_forge.models.scenario import (
     ActorAccessProvenance,
@@ -46,6 +49,7 @@ from scenario_forge.pipeline.validation import validate_scenario_semantics
 def _make_profile(
     entry_points: list[EntryPoint] | None = None,
     zones_active: list[str] | None = None,
+    trust_boundaries: list[TrustBoundary] | None = None,
 ) -> CapabilityProfile:
     if zones_active is None:
         zones_active = ["input", "reasoning", "tool_execution"]
@@ -60,11 +64,38 @@ def _make_profile(
     return CapabilityProfile(
         zones_active=zones_active,
         entry_points=entry_points,
+        trust_boundaries=trust_boundaries,
         confidence="high",
         kc_subcodes=["KC1.1", "KC6.1.1"],
         tool_inventory=[
             ToolInventoryEntry(name="test_tool", description="A test tool")
         ],
+    )
+
+
+def _make_indirect_profile() -> CapabilityProfile:
+    """Build a profile with two input EPs and a trust boundary for indirect access."""
+    target = EntryPoint(
+        name="knowledge base",
+        direction="input",
+        controllability="indirect",
+    )
+    source = EntryPoint(
+        name="memory store feed",
+        direction="input",
+        controllability="indirect",
+        ingress_zone="memory",
+    )
+    boundary = TrustBoundary(
+        name="memory-to-input",
+        from_zone="memory",
+        to_zone="input",
+        confidence=BoundaryConfidence.explicit,
+    )
+    return _make_profile(
+        entry_points=[target, source],
+        zones_active=["memory", "input", "reasoning", "tool_execution"],
+        trust_boundaries=[boundary],
     )
 
 
@@ -259,22 +290,19 @@ class TestAccessClassIngressModeIncompatible:
     @pytest.mark.parametrize(
         "actor_type", ["adversarial-user", "cybercriminal", "hacktivist"]
     )
-    def test_disallowed_actor_with_indirect_access_flags(self, actor_type: str) -> None:
-        profile = _make_profile(
-            [
-                EntryPoint(
-                    name="knowledge base", direction="input", controllability="indirect"
-                )
-            ]
-        )
+    def test_indirect_public_access_flags(self, actor_type: str) -> None:
+        """Public access_class with indirect ingress is incompatible for any actor."""
+        profile = _make_indirect_profile()
         ep_id = profile.entry_points[0].entry_point_id
+        source_id = profile.entry_points[1].entry_point_id
+        boundary_id = compute_trust_boundary_id("memory", "input")
         access = _access(
             ep_id,
             ingress_mode="indirect",
             access_class="public",
-            influence_source=ep_id,
+            influence_source=source_id,
             influence_mechanism="Poisoned content",
-            trust_boundary="external→input",
+            trust_boundary_id=boundary_id,
         )
         envelope = _validate(profile, actor_type, access)
 
@@ -288,23 +316,19 @@ class TestAccessClassIngressModeIncompatible:
 class TestIncompleteIndirectEvidence:
     @pytest.mark.parametrize(
         "missing_field",
-        ["influence_source", "influence_mechanism", "trust_boundary"],
+        ["influence_source", "influence_mechanism", "trust_boundary_id"],
     )
     def test_missing_indirect_evidence_flags(self, missing_field: str) -> None:
-        profile = _make_profile(
-            [
-                EntryPoint(
-                    name="knowledge base", direction="input", controllability="indirect"
-                )
-            ]
-        )
+        profile = _make_indirect_profile()
+        ep_id = profile.entry_points[0].entry_point_id
+        source_id = profile.entry_points[1].entry_point_id
+        boundary_id = compute_trust_boundary_id("memory", "input")
         evidence = {
-            "influence_source": profile.entry_points[0].entry_point_id,
+            "influence_source": source_id,
             "influence_mechanism": "Poisoned content",
-            "trust_boundary": "external→input",
+            "trust_boundary_id": boundary_id,
         }
         evidence.pop(missing_field)
-        ep_id = profile.entry_points[0].entry_point_id
         envelope = _validate(
             profile,
             "supply-chain-actor",
@@ -321,21 +345,17 @@ class TestIncompleteIndirectEvidence:
         assert violations[0].severity == "major"
 
     def test_complete_indirect_evidence_passes(self) -> None:
-        profile = _make_profile(
-            [
-                EntryPoint(
-                    name="knowledge base", direction="input", controllability="indirect"
-                )
-            ]
-        )
+        profile = _make_indirect_profile()
         ep_id = profile.entry_points[0].entry_point_id
+        source_id = profile.entry_points[1].entry_point_id
+        boundary_id = compute_trust_boundary_id("memory", "input")
         access = _access(
             ep_id,
             ingress_mode="indirect",
             access_class="supply_chain",
-            influence_source=ep_id,
+            influence_source=source_id,
             influence_mechanism="Poisoned content",
-            trust_boundary="external→input",
+            trust_boundary_id=boundary_id,
         )
         envelope = _validate(profile, "supply-chain-actor", access)
         assert not _find_violations(envelope, "incomplete_indirect_evidence")
@@ -380,7 +400,7 @@ class TestValidActorAccessCombinations:
                 "supply_chain",
                 {
                     "influence_mechanism": "Compromised release",
-                    "trust_boundary": "external→input",
+                    "trust_boundary_id": compute_trust_boundary_id("memory", "input"),
                 },
             ),
             (
@@ -395,7 +415,7 @@ class TestValidActorAccessCombinations:
                 "supply_chain",
                 {
                     "influence_mechanism": "Coordinated poisoning",
-                    "trust_boundary": "external→input",
+                    "trust_boundary_id": compute_trust_boundary_id("memory", "input"),
                 },
             ),
         ],
@@ -407,16 +427,23 @@ class TestValidActorAccessCombinations:
         access_class: str,
         evidence: dict[str, str],
     ) -> None:
-        profile = _make_profile(
-            [
-                EntryPoint(
-                    name="ingress", direction="input", controllability=ingress_mode
-                )
-            ]
+        profile = (
+            _make_indirect_profile()
+            if ingress_mode == "indirect"
+            else _make_profile(
+                [
+                    EntryPoint(
+                        name="ingress", direction="input", controllability=ingress_mode
+                    )
+                ]
+            )
         )
         ep_id = profile.entry_points[0].entry_point_id
         if ingress_mode == "indirect":
-            evidence = {"influence_source": ep_id, **evidence}
+            evidence = {
+                "influence_source": profile.entry_points[1].entry_point_id,
+                **evidence,
+            }
         envelope = _validate(
             profile,
             actor_type,
@@ -437,8 +464,15 @@ class TestValidActorAccessCombinations:
             "ineligible_ingress_entry_point",
             "unresolved_entry_point_id",
             "unresolved_influence_source",
-            "invalid_trust_boundary_format",
-            "invalid_trust_boundary_zone",
+            "unresolved_trust_boundary",
+            "trust_boundary_target_zone_mismatch",
+            "trust_boundary_source_zone_mismatch",
+            "self_relation_influence_source",
+            "output_influence_source",
+            "system_influence_source",
+            "system_entry_point_as_ingress",
+            "ingress_mode_controllability_mismatch",
+            "external_boundary_source_not_indirect",
         }
         assert not [
             violation
@@ -478,13 +512,6 @@ class TestInitialEntryPointIdMismatch:
             access=_access(actor_id),
         )
         envelope.initial_entry_point_id = canonical_id
-        ingress_action = envelope.attack_tree.root.children[0].action
-        assert ingress_action is not None
-        # Rule 12f includes the action identifier in its violation message,
-        # while the typed action currently inherits that identifier from its
-        # containing node rather than declaring it as a model field.
-        object.__setattr__(ingress_action, "action_id", "n1.1")
-
         validate_scenario_semantics([envelope], profile)
 
         violations = _find_violations(envelope, "initial_entry_point_id_mismatch")

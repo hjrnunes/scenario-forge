@@ -503,7 +503,7 @@ class TestConsistencyRetryLoop:
         mock_actor.actor_type = "cybercriminal"
         mock_actor.goal_category = None
         mock_result0 = MagicMock()
-        mock_call0.return_value = (mock_actor, mock_result0)
+        mock_call0.return_value = (mock_actor, mock_result0, None)
         mock_validate_actor.return_value = mock_actor
 
         # Mock Call 1 (narrative)
@@ -538,6 +538,7 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
@@ -583,7 +584,7 @@ class TestConsistencyRetryLoop:
         mock_actor.actor_type = "cybercriminal"
         mock_actor.goal_category = None
         mock_result0 = MagicMock()
-        mock_call0.return_value = (mock_actor, mock_result0)
+        mock_call0.return_value = (mock_actor, mock_result0, None)
         mock_validate_actor.return_value = mock_actor
 
         narrative = _make_narrative(["input", "reasoning"], step_count=3)
@@ -614,6 +615,7 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
@@ -657,7 +659,7 @@ class TestConsistencyRetryLoop:
         mock_actor.actor_type = "cybercriminal"
         mock_actor.goal_category = None
         mock_result0 = MagicMock()
-        mock_call0.return_value = (mock_actor, mock_result0)
+        mock_call0.return_value = (mock_actor, mock_result0, None)
         mock_validate_actor.return_value = mock_actor
 
         narrative = _make_narrative(["input", "reasoning"], step_count=4)
@@ -689,6 +691,7 @@ class TestConsistencyRetryLoop:
             profile=profile,
             client=client,
             use_case="Test system",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],

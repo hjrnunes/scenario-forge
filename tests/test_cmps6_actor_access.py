@@ -9,9 +9,12 @@ import pytest
 
 from scenario_forge.llm.client import LLMResult
 from scenario_forge.models.capability_profile import (
+    BoundaryConfidence,
     CapabilityProfile,
     ConfidenceLevel,
     EntryPoint,
+    TrustBoundary,
+    compute_trust_boundary_id,
     is_attacker_accessible_ingress,
 )
 from scenario_forge.models.scenario import (
@@ -44,13 +47,42 @@ def _make_entry_point(
 def _make_profile(
     entry_points: list[EntryPoint] | None = None,
     zones_active: list[str] | None = None,
+    trust_boundaries: list[TrustBoundary] | None = None,
 ) -> CapabilityProfile:
     return CapabilityProfile(
         zones_active=zones_active or ["input", "reasoning", "tool_execution"],
         entry_points=entry_points or [_make_entry_point()],
+        trust_boundaries=trust_boundaries,
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KC1.1"],
     )
+
+
+def _make_indirect_profile() -> tuple[CapabilityProfile, str, str, str]:
+    """Build a profile with two indirect EPs and a trust boundary.
+
+    Returns (profile, target_ep_id, source_ep_id, boundary_id).
+    """
+    target = _make_entry_point("RAG retrieval", controllability="indirect")
+    source = EntryPoint(
+        name="memory store feed",
+        direction="input",
+        controllability="indirect",
+        ingress_zone="memory",
+    )
+    boundary = TrustBoundary(
+        name="memory-to-input",
+        from_zone="memory",
+        to_zone="input",
+        confidence=BoundaryConfidence.explicit,
+    )
+    profile = _make_profile(
+        entry_points=[target, source],
+        zones_active=["memory", "input", "reasoning", "tool_execution"],
+        trust_boundaries=[boundary],
+    )
+    boundary_id = compute_trust_boundary_id("memory", "input")
+    return profile, target.entry_point_id, source.entry_point_id, boundary_id
 
 
 def _make_seed(
@@ -81,7 +113,7 @@ def _make_call0_response(
     access_class: str = "public",
     influence_source: str | None = None,
     influence_mechanism: str | None = None,
-    trust_boundary: str | None = None,
+    trust_boundary_id: str | None = None,
     material_insider_advantage: str | None = None,
 ):
     from scenario_forge.pipeline.generate.actor import Call0Response
@@ -96,7 +128,7 @@ def _make_call0_response(
         access_class=access_class,
         influence_source=influence_source,
         influence_mechanism=influence_mechanism,
-        trust_boundary=trust_boundary,
+        trust_boundary_id=trust_boundary_id,
         material_insider_advantage=material_insider_advantage,
     )
 
@@ -108,7 +140,7 @@ def _make_actor_with_access(
     access_class: str = "public",
     influence_source: str | None = None,
     influence_mechanism: str | None = None,
-    trust_boundary: str | None = None,
+    trust_boundary_id: str | None = None,
     material_insider_advantage: str | None = None,
 ) -> ActorProfile:
     return ActorProfile(
@@ -124,7 +156,7 @@ def _make_actor_with_access(
             access_class=access_class,
             influence_source=influence_source,
             influence_mechanism=influence_mechanism,
-            trust_boundary=trust_boundary,
+            trust_boundary_id=trust_boundary_id,
             material_insider_advantage=material_insider_advantage,
         ),
     )
@@ -151,30 +183,27 @@ class TestValidateActorAccessProvenance:
         assert validate_actor_access_provenance(actor, profile) == []
 
     def test_valid_indirect_influence_resolves_canonically(self):
-        ingress = _make_entry_point("RAG retrieval", controllability="indirect")
-        source = _make_entry_point("supplier document feed", controllability="indirect")
-        profile = _make_profile([ingress, source])
+        profile, target_id, source_id, boundary_id = _make_indirect_profile()
         actor = _make_actor_with_access(
             actor_type="cybercriminal",
-            entry_point_id=ingress.entry_point_id,
+            entry_point_id=target_id,
             ingress_mode="indirect",
             access_class="authenticated",
-            influence_source=source.entry_point_id,
+            influence_source=source_id,
             influence_mechanism="document poisoning",
-            trust_boundary="external→input",
+            trust_boundary_id=boundary_id,
         )
         assert validate_actor_access_provenance(actor, profile) == []
 
     def test_unresolved_indirect_source_rejected(self):
-        ingress = _make_entry_point("RAG retrieval", controllability="indirect")
-        profile = _make_profile([ingress])
+        profile, target_id, _, boundary_id = _make_indirect_profile()
         actor = _make_actor_with_access(
-            entry_point_id=ingress.entry_point_id,
+            entry_point_id=target_id,
             ingress_mode="indirect",
             access_class="authenticated",
             influence_source="ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             influence_mechanism="poisoning",
-            trust_boundary="external→input",
+            trust_boundary_id=boundary_id,
         )
         rules = [v.rule for v in validate_actor_access_provenance(actor, profile)]
         assert "unresolved_influence_source" in rules
@@ -187,19 +216,17 @@ class TestValidateActorAccessProvenance:
             v.rule for v in validate_actor_access_provenance(actor)
         ]
 
-    def test_invalid_trust_boundary_zone_format_rejected(self):
-        ingress = _make_entry_point("RAG retrieval", controllability="indirect")
-        source = _make_entry_point("supplier feed", controllability="indirect")
-        profile = _make_profile([ingress, source])
+    def test_fabricated_trust_boundary_rejected(self):
+        profile, target_id, source_id, _ = _make_indirect_profile()
         actor = _make_actor_with_access(
-            entry_point_id=ingress.entry_point_id,
+            entry_point_id=target_id,
             ingress_mode="indirect",
             access_class="supply_chain",
-            influence_source=source.entry_point_id,
+            influence_source=source_id,
             influence_mechanism="poisoning",
-            trust_boundary="internet=>database",
+            trust_boundary_id="tb:v1:cccccccccccccccccccccccccccccccc",
         )
-        assert "invalid_trust_boundary_format" in [
+        assert "unresolved_trust_boundary" in [
             v.rule for v in validate_actor_access_provenance(actor, profile)
         ]
 
@@ -213,7 +240,7 @@ class TestValidateActorAccessProvenance:
             access_class=access_class,
             influence_source="ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             influence_mechanism="poisoning",
-            trust_boundary="external→input",
+            trust_boundary_id="tb:v1:cccccccccccccccccccccccccccccccc",
         )
         assert "access_class_ingress_mode_incompatible" in [
             v.rule for v in validate_actor_access_provenance(actor)
@@ -230,9 +257,18 @@ class TestValidateActorAccessProvenance:
         )
         assert validate_actor_access_provenance(actor) == []
 
-    def test_privileged_insider_does_not_need_public_access_advantage(self):
+    def test_privileged_insider_still_requires_material_advantage(self):
+        """Direct insiders require material advantage regardless of access_class."""
         actor = _make_actor_with_access(
             actor_type="malicious-insider", access_class="privileged"
+        )
+        assert "missing_insider_advantage" in [
+            v.rule for v in validate_actor_access_provenance(actor)
+        ]
+        actor = _make_actor_with_access(
+            actor_type="malicious-insider",
+            access_class="privileged",
+            material_insider_advantage="Internal admin credentials and network access.",
         )
         assert validate_actor_access_provenance(actor) == []
 
@@ -243,11 +279,12 @@ class TestBuildActorAccessProvenance:
         access_class = (
             "authenticated" if controllability == "direct" else "supply_chain"
         )
+        _, _, _, boundary_id = _make_indirect_profile()
         resp = _make_call0_response(
             access_class=access_class,
             influence_source="ep:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             influence_mechanism="poisoning",
-            trust_boundary="external→input",
+            trust_boundary_id=boundary_id,
         )
         access = build_actor_access_provenance(
             "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -357,7 +394,9 @@ class TestRetryRouting:
         result = LLMResult(
             content=None, prompt_tokens=1, completion_tokens=1, duration_ms=1
         )
-        mock_actor, _ = self._generate(profile, ep, [(bad, result), (good, result)])
+        mock_actor, _ = self._generate(
+            profile, ep, [(bad, result, None), (good, result, None)]
+        )
         assert mock_actor.call_count == 2
         assert (
             "no typed access provenance"
@@ -382,11 +421,70 @@ class TestRetryRouting:
         )
         with caplog.at_level("WARNING"):
             mock_actor, assemble = self._generate(
-                profile, ep, [(bad, result)] * (1 + _ACTOR_ACCESS_MAX_RETRIES)
+                profile, ep, [(bad, result, None)] * (1 + _ACTOR_ACCESS_MAX_RETRIES)
             )
         assert mock_actor.call_count == 1 + _ACTOR_ACCESS_MAX_RETRIES
         assert assemble.called
         assert "proceeding to semantic validation" in caplog.text
+
+    def test_diversity_limitation_persisted_in_assemble_notes(self):
+        """Diversity limitation notes are passed to _assemble_envelope."""
+        from scenario_forge.pipeline.generate import generate_scenario
+
+        ep = _make_entry_point()
+        profile = _make_profile([ep])
+        good = _make_actor_with_access(entry_point_id=ep.entry_point_id)
+        result = LLMResult(
+            content=None, prompt_tokens=1, completion_tokens=1, duration_ms=1
+        )
+        llm_result = LLMResult(
+            content=None, prompt_tokens=100, completion_tokens=50, duration_ms=500
+        )
+        # Use a seed with supply-chain technique that restricts actors,
+        # and force an incompatible actor type to trigger the limitation.
+        seed = _make_seed(atlas_ids=["AML.T0010"])
+        with (
+            patch(
+                TestRetryRouting._PATCHES[4],
+                return_value=(good, result, "adversarial-user"),
+            ),
+            patch(TestRetryRouting._PATCHES[3], return_value=(MagicMock(), llm_result)),
+            patch(TestRetryRouting._PATCHES[2], return_value=(MagicMock(), llm_result)),
+            patch(TestRetryRouting._PATCHES[1], return_value=(MagicMock(), llm_result)),
+            patch(TestRetryRouting._PATCHES[0], return_value=MagicMock()) as assemble,
+        ):
+            generate_scenario(
+                seed=seed,
+                profile=profile,
+                client=MagicMock(model="test"),
+                use_case="test",
+                pinned_entry_point=ep.name,
+                pinned_entry_point_id=ep.entry_point_id,
+                pinned_technique_ids=["AML.T0010"],
+                preferred_actor_type="adversarial-user",
+                run_id="20240101T120000_abcdef1234567890abcdef1234567890",
+                candidate_id="cand:v1:11111111111111111111111111111111",
+            )
+        _, assemble_kwargs = assemble.call_args
+        notes = assemble_kwargs.get("notes", [])
+        assert any("Diversity limitation" in n for n in notes)
+
+
+def test_diversity_limitation_round_trip_serialization():
+    """Diversity limitation notes survive model serialization round-trip."""
+    from scenario_forge.models.scenario import GenerationMetadata
+
+    notes = [
+        (
+            "Diversity limitation: forced actor 'adversarial-user' was "
+            "incompatible, replaced with feasible fallback."
+        )
+    ]
+    gen = GenerationMetadata(model="test", call_metadata=[], notes=notes)
+    dumped = gen.model_dump()
+    restored = GenerationMetadata.model_validate(dumped)
+    assert restored.notes == notes
+    assert "Diversity limitation" in restored.notes[0]
 
 
 def test_actor_type_constants_remain_complete():
