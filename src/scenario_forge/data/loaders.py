@@ -180,8 +180,14 @@ def load_attack_patterns(
     is ``None``, globs all ``attack-patterns*.yaml`` files from the
     default directory and merges their ``patterns`` dicts into one.
 
+    Merging fails loudly on duplicate pattern IDs across files: a pinned
+    catalog must not silently overwrite one record with another.
+
     Returns:
         Dict mapping pattern IDs (e.g. 'AP-T7-01') to their full pattern dicts.
+
+    Raises:
+        ValueError: If the merged files declare the same pattern ID.
     """
     if path is not None:
         return _load_single_attack_patterns_file(Path(path))
@@ -193,8 +199,16 @@ def load_attack_patterns(
         return _load_single_attack_patterns_file(_DEFAULT_ATTACK_PATTERNS_PATH)
 
     merged: dict[str, dict] = {}
+    origins: dict[str, Path] = {}
     for f in files:
-        merged.update(_load_single_attack_patterns_file(f))
+        for pattern_id, pattern in _load_single_attack_patterns_file(f).items():
+            if pattern_id in merged:
+                raise ValueError(
+                    f"duplicate attack pattern id {pattern_id!r} across "
+                    f"merged files: {origins[pattern_id]} and {f}"
+                )
+            merged[pattern_id] = pattern
+            origins[pattern_id] = f
     return merged
 
 

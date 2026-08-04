@@ -95,8 +95,16 @@ class TaxonomyPin(ContractModel):
 
 
 class TaxonomyContext(ContractModel):
+    """Pinned taxonomy releases; LAAF is optional and non-authoritative for v1.
+
+    An absent ``laaf`` pin means the context is ATLAS-only: any LAAF mapping
+    decision in the chain then fails closed.  An explicit pin is meaningful
+    only when the qualifying resolver pins the identical context and carries
+    authoritative LAAF membership for every exact id.
+    """
+
     atlas: TaxonomyPin
-    laaf: TaxonomyPin
+    laaf: TaxonomyPin | None = None
     mapping_set_digest: Digest
 
 
@@ -579,6 +587,14 @@ class CanonicalAttackChain(ContractModel):
             raise ValueError("duplicate taxonomy decisions in chain scope")
         if not any(isinstance(mapping, ExactMapping) for mapping in self.mappings):
             raise ValueError("chain requires an exact ATLAS or LAAF mapping")
+        if self.taxonomy_context.laaf is None and any(
+            mapping.taxonomy == "LAAF"
+            for scope in (self.mappings, *(step.mappings for step in self.steps))
+            for mapping in scope
+        ):
+            raise ValueError(
+                "LAAF mapping decisions require an explicit LAAF taxonomy pin"
+            )
         if len({s.step_id for s in self.steps}) != len(self.steps):
             raise ValueError("step ids must be unique")
         if [s.order for s in self.steps] != list(range(1, len(self.steps) + 1)):
