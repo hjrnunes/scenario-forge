@@ -184,6 +184,14 @@ def test_bundled_mapping_set_digest_is_deterministic() -> None:
     int(digest, 16)
 
 
+def test_bundled_mapping_set_digest_golden() -> None:
+    """Golden pin: any change to the v1 framing or bundled content is explicit."""
+    assert (
+        compute_mapping_set_digest()
+        == "7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3"
+    )
+
+
 def test_mapping_set_digest_is_path_and_order_independent(tmp_path: Path) -> None:
     f1 = _write_sssom(tmp_path / "one.sssom.tsv", [_ROW_A, _ROW_B])
     f2 = _write_sssom(tmp_path / "two.sssom.tsv", [_ROW_C])
@@ -307,6 +315,58 @@ def test_unsupported_semantic_metadata_is_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="duplicate mapping_set_id"):
         compute_mapping_set_digest([duplicate_scalar])
+
+
+def test_cross_file_conflicting_scalar_metadata_is_rejected(tmp_path: Path) -> None:
+    first = _write_sssom(
+        tmp_path / "first.sssom.tsv",
+        [_ROW_A],
+        comments=[" mapping_set_version: 2026-08-04"],
+    )
+    second = _write_sssom(
+        tmp_path / "second.sssom.tsv",
+        [_ROW_B],
+        comments=[" mapping_set_version: 2026-08-05"],
+    )
+    with pytest.raises(
+        ValueError, match="conflicting mapping-set metadata 'mapping_set_version'"
+    ) as excinfo:
+        compute_mapping_set_digest([first, second])
+    assert "first.sssom.tsv" in str(excinfo.value)
+    assert "second.sssom.tsv" in str(excinfo.value)
+    # Identical repeated declarations across partitions remain accepted.
+    identical = _write_sssom(
+        tmp_path / "identical.sssom.tsv",
+        [_ROW_B],
+        comments=[" mapping_set_version: 2026-08-04"],
+    )
+    assert compute_mapping_set_digest([first, identical])
+
+
+def test_cross_file_conflicting_curie_map_is_rejected(tmp_path: Path) -> None:
+    first = _write_sssom(
+        tmp_path / "first.sssom.tsv",
+        [_ROW_A],
+        comments=[" curie_map:", "   laaf: https://github.com/laaf-ai/laaf/"],
+    )
+    second = _write_sssom(
+        tmp_path / "second.sssom.tsv",
+        [_ROW_B],
+        comments=[" curie_map:", "   laaf: https://github.com/laaf-ai/laaf-v2/"],
+    )
+    with pytest.raises(
+        ValueError, match="conflicting curie_map prefix 'laaf'"
+    ) as excinfo:
+        compute_mapping_set_digest([first, second])
+    assert "first.sssom.tsv" in str(excinfo.value)
+    assert "second.sssom.tsv" in str(excinfo.value)
+    # The same prefix resolving to the same URI across partitions is accepted.
+    identical = _write_sssom(
+        tmp_path / "identical.sssom.tsv",
+        [_ROW_B],
+        comments=[" curie_map:", "   laaf: https://github.com/laaf-ai/laaf/"],
+    )
+    assert compute_mapping_set_digest([first, identical])
 
 
 def test_unknown_or_missing_row_columns_are_rejected(tmp_path: Path) -> None:

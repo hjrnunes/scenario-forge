@@ -158,17 +158,20 @@ def _mapping_set_paths(paths: Iterable[str | Path] | None) -> list[Path]:
 def _read_strict_sssom(
     path: Path,
 ) -> tuple[
-    list[tuple[str, str]], list[tuple[str, str]], list[tuple[int, tuple[str, ...]]]
+    list[tuple[int, str, str]],
+    list[tuple[int, str, str]],
+    list[tuple[int, tuple[str, ...]]],
 ]:
     """Parse one SSSOM TSV file under the strict v1 pin profile.
 
-    Returns ``(scalar_metadata, curie_map_entries, rows)`` where rows are
-    ``(line_number, fields)`` pairs in :data:`_MAPPING_ROW_FIELDS` order.
-    Fails closed: unsupported metadata keys, unknown or missing columns,
-    malformed rows, and ambiguous duplicate metadata all raise.
+    Returns ``(scalar_metadata, curie_map_entries, rows)`` as
+    ``(line_number, ...)`` triples, with row fields in
+    :data:`_MAPPING_ROW_FIELDS` order.  Fails closed: unsupported metadata
+    keys, unknown or missing columns, malformed rows, and ambiguous
+    duplicate metadata all raise.
     """
-    scalars: list[tuple[str, str]] = []
-    curies: list[tuple[str, str]] = []
+    scalars: list[tuple[int, str, str]] = []
+    curies: list[tuple[int, str, str]] = []
     rows: list[tuple[int, tuple[str, ...]]] = []
     header: list[str] | None = None
     in_metadata_block = False
@@ -191,7 +194,7 @@ def _read_strict_sssom(
                         f"{path}:{lineno}: duplicate curie_map prefix {prefix!r}"
                     )
                 seen_curie_prefixes.add(prefix)
-                curies.append((prefix, uri))
+                curies.append((lineno, prefix, uri))
                 continue
             in_metadata_block = False
             if not body:
@@ -206,7 +209,7 @@ def _read_strict_sssom(
                 if key in seen_scalar_keys:
                     raise ValueError(f"{path}:{lineno}: duplicate {key} metadata")
                 seen_scalar_keys.add(key)
-                scalars.append((key, value))
+                scalars.append((lineno, key, value))
             elif key in _METADATA_BLOCK_KEYS:
                 if value:
                     raise ValueError(
@@ -261,10 +264,13 @@ def compute_mapping_set_digest(paths: Iterable[str | Path] | None = None) -> str
       :data:`_MAPPING_ROW_FIELDS`; unknown/missing columns, malformed rows,
       and empty cells are rejected.
     - Supported semantic comment metadata (``mapping_set_id``,
-      ``mapping_set_version``, and ``curie_map`` blocks) is canonicalized
-      into the pin; any other comment shaped like metadata is rejected, so
-      a metadata edit either changes the digest or fails.  Free explanatory
-      comments are excluded.
+      ``mapping_set_version``, and ``curie_map`` blocks) is NFC-normalized
+      and merged globally, keyed by scalar key and CURIE prefix with first
+      origins retained.  Identical repeated declarations across partitions
+      are accepted; conflicting values for the same key or prefix are
+      rejected with both origins, so a metadata edit either changes the
+      digest or fails.  Any other comment shaped like metadata is rejected;
+      free explanatory comments are excluded.
     - Rows and metadata are NFC-normalized and framed as sorted
       canonical-JSON sets under a versioned domain, so the digest is
       independent of paths, file partitioning, file order, and row order
@@ -273,16 +279,33 @@ def compute_mapping_set_digest(paths: Iterable[str | Path] | None = None) -> str
       file partitions): a set framing must never silently erase malformed
       duplicate provenance.  A mapping set with no rows is rejected.
     """
-    metadata: set[str] = set()
+    scalar_metadata: dict[str, tuple[str, str]] = {}
+    curie_map: dict[str, tuple[str, str]] = {}
     rows: set[str] = set()
     row_origins: dict[str, str] = {}
     total_rows = 0
     for path in _mapping_set_paths(paths):
         scalars, curies, file_rows = _read_strict_sssom(path)
-        for key, value in scalars:
-            metadata.add(_canonical_json([key, _nfc(value)]))
-        for prefix, uri in curies:
-            metadata.add(_canonical_json(["curie_map", _nfc(prefix), _nfc(uri)]))
+        for lineno, key, value in scalars:
+            normalized = _nfc(value)
+            origin = f"{path}:{lineno}"
+            existing = scalar_metadata.setdefault(key, (normalized, origin))
+            if existing[0] != normalized:
+                raise ValueError(
+                    f"conflicting mapping-set metadata {key!r}: {existing[0]!r} "
+                    f"declared at {existing[1]} but {normalized!r} declared at "
+                    f"{origin}"
+                )
+        for lineno, prefix, uri in curies:
+            normalized_uri = _nfc(uri)
+            origin = f"{path}:{lineno}"
+            existing = curie_map.setdefault(_nfc(prefix), (normalized_uri, origin))
+            if existing[0] != normalized_uri:
+                raise ValueError(
+                    f"conflicting curie_map prefix {prefix!r}: {existing[0]!r} "
+                    f"declared at {existing[1]} but {normalized_uri!r} declared at "
+                    f"{origin}"
+                )
         for lineno, row in file_rows:
             total_rows += 1
             canonical = _canonical_json(
@@ -301,6 +324,13 @@ def compute_mapping_set_digest(paths: Iterable[str | Path] | None = None) -> str
             row_origins[canonical] = f"{path}:{lineno}"
     if total_rows == 0:
         raise ValueError("mapping set contains no rows")
+    metadata = {
+        _canonical_json([key, value]) for key, (value, _) in scalar_metadata.items()
+    }
+    metadata.update(
+        _canonical_json(["curie_map", prefix, uri])
+        for prefix, (uri, _) in curie_map.items()
+    )
     payload = (
         _MAPPING_SET_DOMAIN.encode()
         + b"\0"
