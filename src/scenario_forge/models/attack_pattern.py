@@ -101,7 +101,7 @@ class TaxonomyContext(ContractModel):
 
 
 class TaxonomyResolver(Protocol):
-    """Optional no-I/O resolver supplied by the caller."""
+    """Required no-I/O resolver used by the qualification helper."""
 
     @property
     def taxonomy_context(self) -> TaxonomyContext: ...
@@ -269,10 +269,36 @@ def _check_condition(condition: Condition) -> None:
     walk(condition, 1)
 
 
+class EvaluatedFactEvidence(ContractModel):
+    fact: AuthoritativeFactReference
+    status: Literal["known", "unknown"]
+    value: Scalar | None
+
+    @model_validator(mode="after")
+    def coherent(self) -> EvaluatedFactEvidence:
+        if self.status == "unknown":
+            if self.value is not None:
+                raise ValueError("unknown fact evidence requires a null value")
+        elif self.value is None:
+            raise ValueError("known fact evidence requires a value")
+        else:
+            _validate_fact_scalar(self.fact, self.value)
+        return self
+
+
 class ConditionEvaluationResult(ContractModel):
     condition_step_id: Identifier
     result: Literal["true", "false", "unknown"]
-    evidence_refs: tuple[OutputReference, ...] = Field(min_length=1)
+    evidence: tuple[EvaluatedFactEvidence, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_evidence_facts(self) -> ConditionEvaluationResult:
+        facts = [
+            _canonical_json(item.fact.model_dump(mode="json")) for item in self.evidence
+        ]
+        if len(facts) != len(set(facts)):
+            raise ValueError("condition evidence facts must be unique")
+        return self
 
 
 class ProvenanceReference(ContractModel):
@@ -347,24 +373,71 @@ class ObservablePostcondition(ContractModel):
     terminal: StrictBool
 
 
-class ExecutionRequirement(ContractModel):
+class DirectInputControlRequirement(ContractModel):
     schema_version: Literal["1"]
     requirement_id: Identifier
-    kind: Literal[
-        "network_access",
-        "credential",
-        "human_action",
-        "compute",
-        "storage",
-        "capability",
-    ]
+    kind: Literal["direct_input_control"]
+    entry_point_slot_id: Identifier
+
+
+class UpstreamSourceInfluenceRequirement(ContractModel):
+    schema_version: Literal["1"]
+    requirement_id: Identifier
+    kind: Literal["upstream_source_influence"]
+    source_slot_id: Identifier
+    trust_boundary_slot_id: Identifier
+
+
+class StateChangingToolFixtureRequirement(ContractModel):
+    schema_version: Literal["1"]
+    requirement_id: Identifier
+    kind: Literal["state_changing_tool_fixture"]
+    tool_slot_id: Identifier
+
+
+class ObservationRequirement(ContractModel):
+    schema_version: Literal["1"]
+    requirement_id: Identifier
+    kind: Literal["observation"]
+    observation: Literal["model_context", "tool_invocation", "persistent_state"]
+    binding_slot_id: Identifier
+
+
+class SecurityOutcomeAssertionRequirement(ContractModel):
+    schema_version: Literal["1"]
+    requirement_id: Identifier
+    kind: Literal["security_outcome_assertion"]
+    source_step_id: Identifier
+    postcondition_id: Identifier
+
+
+ExecutionRequirement: TypeAlias = Annotated[
+    DirectInputControlRequirement
+    | UpstreamSourceInfluenceRequirement
+    | StateChangingToolFixtureRequirement
+    | ObservationRequirement
+    | SecurityOutcomeAssertionRequirement,
+    Field(discriminator="kind"),
+]
+
+
+def _condition_fact_keys(condition: Condition) -> set[str]:
+    if isinstance(condition, (AllCondition, AnyCondition)):
+        return {
+            fact
+            for operand in condition.operands
+            for fact in _condition_fact_keys(operand)
+        }
+    if isinstance(condition, NotCondition):
+        return _condition_fact_keys(condition.operand)
+    return {_canonical_json(condition.fact.model_dump(mode="json"))}
 
 
 class CanonicalChainStep(ContractModel):
     step_id: Identifier
     requirement: Literal["required", "conditional"]
     condition: Condition | None
-    executor_role: Literal["attacker", "system", "operator", "external_service"]
+    executor_role: Literal["attacker", "system", "operator"]
     boundary_position: Literal["outside", "crossing", "inside"]
     action_kind: Literal[
         "prepare", "deliver", "invoke", "transform", "persist", "observe", "impact"
@@ -373,7 +446,6 @@ class CanonicalChainStep(ContractModel):
     produced: tuple[OutputReference, ...] = Field(min_length=1)
     preconditions: tuple[StepPrecondition, ...]
     observable_postconditions: tuple[ObservablePostcondition, ...] = Field(min_length=1)
-    execution_requirements: tuple[ExecutionRequirement, ...]
     order: StrictInt = Field(gt=0)
     attacker_controlled: StrictBool
     provenance: StepProvenance
@@ -396,7 +468,6 @@ class CanonicalChainStep(ContractModel):
                 "observable postconditions",
                 "postcondition_id",
             ),
-            (self.execution_requirements, "execution requirements", "requirement_id"),
         ):
             ids = [getattr(item, attribute) for item in collection]
             if len(ids) != len(set(ids)):
@@ -404,19 +475,21 @@ class CanonicalChainStep(ContractModel):
         taxonomies = [mapping.taxonomy for mapping in self.mappings]
         if len(set(taxonomies)) != len(taxonomies):
             raise ValueError("duplicate taxonomy decisions in step scope")
-        if (
-            any(isinstance(m, NotApplicableMapping) for m in self.mappings)
-            and self.attacker_controlled
-        ):
-            raise ValueError(
-                "not_applicable is only valid for non-attacker transitions"
-            )
+        if (self.executor_role == "attacker") != self.attacker_controlled:
+            raise ValueError("executor role must agree with attacker control")
+        if self.attacker_controlled:
+            if any(isinstance(m, NotApplicableMapping) for m in self.mappings):
+                raise ValueError(
+                    "attacker mappings must be exact or rationalized unmapped"
+                )
+        elif any(not isinstance(m, NotApplicableMapping) for m in self.mappings):
+            raise ValueError("non-attacker mappings must all be not_applicable")
         return self
 
 
 class ResourceSlot(ContractModel):
     slot_id: Identifier
-    kind: Literal["artifact", "state", "endpoint", "identity", "service"]
+    kind: Literal["entry_point", "tool", "integration", "trust_boundary"]
     purpose: Literal["initial_ingress", "intermediate", "target", "supporting"]
 
 
@@ -445,9 +518,8 @@ class CanonicalAttackChain(ContractModel):
         if [s.order for s in self.steps] != list(range(1, len(self.steps) + 1)):
             raise ValueError("steps must be in total order 1..N")
         attacker = [s for s in self.steps if s.attacker_controlled]
-        if (
-            not attacker
-            or self.earliest_attacker_controlled_step_id != attacker[0].step_id
+        if not self.steps[0].attacker_controlled or (
+            self.earliest_attacker_controlled_step_id != self.steps[0].step_id
         ):
             raise ValueError("earliest attacker-controlled step is incorrect")
         for step in self.steps[:-1]:
@@ -480,12 +552,16 @@ class CanonicalAttackChain(ContractModel):
         ]
         if len(ingress) != 1 or ingress[0].slot_id != self.initial_ingress_slot_id:
             raise ValueError("exactly one referenced initial ingress slot is required")
+        if ingress[0].kind != "entry_point":
+            raise ValueError("initial ingress slot must be an entry_point")
         if self.semantic_digest != compute_chain_semantic_digest(self):
             raise ValueError("semantic_digest does not match chain semantics")
         return self
 
 
 class AttackPattern(ContractModel):
+    """Structurally parsed pattern; taxonomy qualification is intentionally separate."""
+
     id: str
     threat_id: str
     name: str
@@ -501,9 +577,33 @@ class AttackPattern(ContractModel):
         return self
 
 
-class CanonicalResourceReference(ContractModel):
-    canonical_id: Identifier
-    kind: Literal["artifact", "state", "endpoint", "identity", "service"]
+class EntryPointResourceReference(ContractModel):
+    kind: Literal["entry_point"]
+    entry_point_id: str = Field(pattern=r"^ep:v1:[0-9a-f]{32}$")
+
+
+class ToolResourceReference(ContractModel):
+    kind: Literal["tool"]
+    tool_id: str = Field(pattern=r"^tool:v1:[0-9a-f]{32}$")
+
+
+class IntegrationResourceReference(ContractModel):
+    kind: Literal["integration"]
+    integration_id: str = Field(pattern=r"^int:v1:[0-9a-f]{32}$")
+
+
+class TrustBoundaryResourceReference(ContractModel):
+    kind: Literal["trust_boundary"]
+    trust_boundary_id: str = Field(pattern=r"^tb:v1:[0-9a-f]{32}$")
+
+
+CanonicalResourceReference: TypeAlias = Annotated[
+    EntryPointResourceReference
+    | ToolResourceReference
+    | IntegrationResourceReference
+    | TrustBoundaryResourceReference,
+    Field(discriminator="kind"),
+]
 
 
 class ResourceBinding(ContractModel):
@@ -513,52 +613,35 @@ class ResourceBinding(ContractModel):
 
 class StepOmission(ContractModel):
     step_id: Identifier
-    reason: Literal["condition_false", "condition_unknown", "not_selected"]
-    condition_step_id: Identifier | None
+    reason: Literal["condition_false"]
 
 
 class ProjectionSnapshot(ContractModel):
     schema_version: Literal["1"]
-    catalog_pin: Digest
-    pattern_id: str
-    pattern_pin: Digest
-    chain_id: Identifier
-    chain_semantic_digest: Digest
-    semantic_revision: StrictInt = Field(gt=0)
-    all_step_ids: tuple[Identifier, ...] = Field(min_length=1)
-    taxonomy_context: TaxonomyContext
-    selected_steps: tuple[CanonicalChainStep, ...]
+    source_chain: CanonicalAttackChain
+    selected_step_ids: tuple[Identifier, ...] = Field(min_length=1)
     condition_results: tuple[ConditionEvaluationResult, ...]
     omissions: tuple[StepOmission, ...]
     bindings: tuple[ResourceBinding, ...]
-    resource_slots: tuple[ResourceSlot, ...] = Field(min_length=1)
-    initial_ingress_slot_id: Identifier
-    initial_ingress_reference: CanonicalResourceReference
+    catalog_pin: Digest
+    pattern_pin: Digest
+    capability_fact_snapshot_digest: Digest
     projection_digest: Digest
 
     @model_validator(mode="after")
     def semantics(self) -> ProjectionSnapshot:
-        selected = [s.step_id for s in self.selected_steps]
+        source_ids = [s.step_id for s in self.source_chain.steps]
+        selected = list(self.selected_step_ids)
         omitted = [o.step_id for o in self.omissions]
         if len(set(selected)) != len(selected) or len(set(omitted)) != len(omitted):
             raise ValueError("selected and omitted step ids must be unique")
         if set(selected) & set(omitted) or set(selected) | set(omitted) != set(
-            self.all_step_ids
+            source_ids
         ):
             raise ValueError(
-                "selected and omitted steps must exactly partition all_step_ids"
+                "selected and omitted steps must exactly partition source steps"
             )
-        orders = [s.order for s in self.selected_steps]
-        if len(orders) != len(set(orders)) or orders != sorted(orders):
-            raise ValueError("selected step order must increase")
-        if any(order > len(self.all_step_ids) for order in orders):
-            raise ValueError("selected step order exceeds the source chain")
-        if len(self.all_step_ids) != len(set(self.all_step_ids)):
-            raise ValueError("all_step_ids must be unique")
-        if any(
-            self.all_step_ids[step.order - 1] != step.step_id
-            for step in self.selected_steps
-        ):
+        if selected != [step_id for step_id in source_ids if step_id in set(selected)]:
             raise ValueError("selected steps must retain source chain order")
         if len({r.condition_step_id for r in self.condition_results}) != len(
             self.condition_results
@@ -566,9 +649,9 @@ class ProjectionSnapshot(ContractModel):
             raise ValueError("condition result step ids must be unique")
         if len({b.slot_id for b in self.bindings}) != len(self.bindings):
             raise ValueError("slot bindings must be unique")
-        slots = {slot.slot_id: slot for slot in self.resource_slots}
-        if len(slots) != len(self.resource_slots):
-            raise ValueError("projection resource slot ids must be unique")
+        slots = {slot.slot_id: slot for slot in self.source_chain.resource_slots}
+        if set(slots) != {binding.slot_id for binding in self.bindings}:
+            raise ValueError("bindings must exactly cover all source resource slots")
         for binding in self.bindings:
             slot = slots.get(binding.slot_id)
             if slot is None:
@@ -576,58 +659,60 @@ class ProjectionSnapshot(ContractModel):
             if binding.resource_ref.kind != slot.kind:
                 raise ValueError("binding resource kind must match its slot")
         ingress = [
-            b for b in self.bindings if b.slot_id == self.initial_ingress_slot_id
+            b
+            for b in self.bindings
+            if b.slot_id == self.source_chain.initial_ingress_slot_id
         ]
-        if (
-            len(ingress) != 1
-            or ingress[0].resource_ref != self.initial_ingress_reference
+        if len(ingress) != 1 or not isinstance(
+            ingress[0].resource_ref, EntryPointResourceReference
         ):
-            raise ValueError("ingress requires exactly one coherent binding")
-        ingress_slots = [
-            s for s in self.resource_slots if s.purpose == "initial_ingress"
-        ]
-        if (
-            len(ingress_slots) != 1
-            or ingress_slots[0].slot_id != self.initial_ingress_slot_id
-        ):
-            raise ValueError("projection requires exactly one referenced ingress slot")
+            raise ValueError(
+                "ingress binding must be an entry-point canonical reference"
+            )
         results = {r.condition_step_id: r.result for r in self.condition_results}
-        if not set(results).issubset(self.all_step_ids):
-            raise ValueError("condition result references an absent chain step")
-        selected_by_id = {step.step_id: step for step in self.selected_steps}
-        for step_id, result in results.items():
-            selected_step = selected_by_id.get(step_id)
-            if selected_step is not None and (
-                selected_step.requirement != "conditional" or result != "true"
-            ):
-                raise ValueError(
-                    "selected condition results require a true conditional step"
-                )
-        selected_conditionals = {
-            step.step_id
-            for step in self.selected_steps
+        conditional_ids = {
+            s.step_id for s in self.source_chain.steps if s.requirement == "conditional"
+        }
+        if set(results) != conditional_ids:
+            raise ValueError(
+                "condition results must exactly cover conditional source steps"
+            )
+        if any(result == "unknown" for result in results.values()):
+            raise ValueError("projection condition results cannot be unknown")
+        conditional_steps = {
+            step.step_id: step
+            for step in self.source_chain.steps
             if step.requirement == "conditional"
         }
-        if not selected_conditionals.issubset(results):
-            raise ValueError("selected conditional steps require condition results")
-        for omission in self.omissions:
-            if omission.reason == "not_selected":
-                if (
-                    omission.condition_step_id is not None
-                    or omission.step_id in results
-                ):
-                    raise ValueError("not_selected forbids a condition result")
-            else:
-                expected = (
-                    "false" if omission.reason == "condition_false" else "unknown"
+        for result in self.condition_results:
+            condition = conditional_steps[result.condition_step_id].condition
+            if condition is None:  # pragma: no cover - guaranteed by step validation
+                raise ValueError("conditional source step requires a condition")
+            condition_facts = _condition_fact_keys(condition)
+            evidence_facts = {
+                _canonical_json(item.fact.model_dump(mode="json"))
+                for item in result.evidence
+            }
+            if not evidence_facts.issubset(condition_facts):
+                raise ValueError(
+                    "condition evidence must reference source condition facts"
                 )
-                if (
-                    results.get(omission.step_id) != expected
-                    or omission.condition_step_id != omission.step_id
-                ):
-                    raise ValueError(
-                        "conditional omission requires a coherent condition result"
-                    )
+        expected_selected = [
+            s.step_id
+            for s in self.source_chain.steps
+            if s.requirement == "required" or results[s.step_id] == "true"
+        ]
+        if selected != expected_selected:
+            raise ValueError(
+                "selected steps do not match source requirements and results"
+            )
+        expected_omitted = {
+            step_id for step_id, result in results.items() if result == "false"
+        }
+        if set(omitted) != expected_omitted:
+            raise ValueError("omissions must exactly identify false conditional steps")
+        if self.source_chain.steps[-1].step_id not in selected:
+            raise ValueError("source terminal final step must be selected")
         if self.projection_digest != compute_projection_digest(self):
             raise ValueError("projection_digest does not match projection semantics")
         return self
@@ -635,10 +720,10 @@ class ProjectionSnapshot(ContractModel):
 
 class ExecutionRequirementSummary(ContractModel):
     schema_version: Literal["1"]
-    chain_id: Identifier
-    chain_semantic_digest: Digest
+    source_projection: ProjectionSnapshot
+    projection_digest: Digest
     contributing_step_ids: tuple[Identifier, ...] = Field(min_length=1)
-    requirements: tuple[ExecutionRequirement, ...]
+    requirements: tuple[ExecutionRequirement, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def unique(self) -> ExecutionRequirementSummary:
@@ -646,6 +731,54 @@ class ExecutionRequirementSummary(ContractModel):
             raise ValueError("contributing step ids must be unique")
         if len({r.requirement_id for r in self.requirements}) != len(self.requirements):
             raise ValueError("execution requirement ids must be unique")
+        if self.projection_digest != self.source_projection.projection_digest:
+            raise ValueError("projection_digest must match source projection")
+        selected = set(self.source_projection.selected_step_ids)
+        if not set(self.contributing_step_ids).issubset(selected):
+            raise ValueError("contributors must be selected projection steps")
+        slots = {
+            binding.slot_id: binding.resource_ref.kind
+            for binding in self.source_projection.bindings
+        }
+        source_steps = {
+            step.step_id: {
+                post.postcondition_id: post for post in step.observable_postconditions
+            }
+            for step in self.source_projection.source_chain.steps
+            if step.step_id in selected
+        }
+        for requirement in self.requirements:
+            if isinstance(requirement, DirectInputControlRequirement):
+                references = ((requirement.entry_point_slot_id, "entry_point"),)
+            elif isinstance(requirement, UpstreamSourceInfluenceRequirement):
+                references = (
+                    (requirement.source_slot_id, "integration"),
+                    (requirement.trust_boundary_slot_id, "trust_boundary"),
+                )
+            elif isinstance(requirement, StateChangingToolFixtureRequirement):
+                references = ((requirement.tool_slot_id, "tool"),)
+            elif isinstance(requirement, ObservationRequirement):
+                references = ((requirement.binding_slot_id, None),)
+            else:
+                references = ()
+                if (
+                    requirement.source_step_id not in source_steps
+                    or requirement.postcondition_id
+                    not in source_steps[requirement.source_step_id]
+                    or not source_steps[requirement.source_step_id][
+                        requirement.postcondition_id
+                    ].security_relevant
+                ):
+                    raise ValueError(
+                        "security outcome must reference a selected security postcondition"
+                    )
+            for slot_id, expected_kind in references:
+                if slot_id not in slots or (
+                    expected_kind is not None and slots[slot_id] != expected_kind
+                ):
+                    raise ValueError(
+                        "requirement references an absent or wrong-domain binding"
+                    )
         return self
 
 
@@ -659,12 +792,11 @@ _UNORDERED_FIELDS = {
     "ids",
     "resource_slots",
     "values",
-    "evidence_refs",
+    "evidence",
     "condition_results",
     "omissions",
     "bindings",
     "requirements",
-    "execution_requirements",
     "contributing_step_ids",
     "operands",
     "min_zones",
@@ -727,24 +859,22 @@ def validate_legacy_attack_pattern(
 
 
 def validate_attack_pattern(
-    pattern_dict: dict[str, Any], resolver: TaxonomyResolver | None = None
+    pattern_dict: dict[str, Any], resolver: TaxonomyResolver
 ) -> AttackPattern:
+    """Parse and qualify a pattern; ``AttackPattern.model_validate`` only parses."""
     pattern = AttackPattern.model_validate(pattern_dict)
-    if resolver is not None:
-        if resolver.taxonomy_context != pattern.canonical_chain.taxonomy_context:
-            raise ValueError("taxonomy resolver pins do not match canonical chain pins")
-        mapping_scopes = [
-            pattern.canonical_chain.mappings,
-            *(s.mappings for s in pattern.canonical_chain.steps),
-        ]
-        for mappings in mapping_scopes:
-            for mapping in mappings:
-                if isinstance(mapping, ExactMapping):
-                    for identifier in mapping.ids:
-                        if not resolver.contains(mapping.taxonomy, identifier):
-                            raise ValueError(
-                                f"unknown {mapping.taxonomy} id: {identifier}"
-                            )
+    if resolver.taxonomy_context != pattern.canonical_chain.taxonomy_context:
+        raise ValueError("taxonomy resolver pins do not match canonical chain pins")
+    mapping_scopes = [
+        pattern.canonical_chain.mappings,
+        *(s.mappings for s in pattern.canonical_chain.steps),
+    ]
+    for mappings in mapping_scopes:
+        for mapping in mappings:
+            if isinstance(mapping, ExactMapping):
+                for identifier in mapping.ids:
+                    if not resolver.contains(mapping.taxonomy, identifier):
+                        raise ValueError(f"unknown {mapping.taxonomy} id: {identifier}")
     return pattern
 
 
