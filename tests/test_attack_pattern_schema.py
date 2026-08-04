@@ -11,23 +11,26 @@ from pydantic import TypeAdapter, ValidationError
 from scenario_forge.data.loaders import load_attack_patterns
 from scenario_forge.models.attack_pattern import (
     AttackPattern,
+    AuthoritativeFactReference,
     CanonicalAttackChain,
     Condition,
     ConditionEvaluationResult,
+    EvaluatedFactEvidence,
     ExecutionRequirement,
-    ExecutionRequirementSummary,
     LegacyAttackPatternRecord,
     ProjectionSnapshot,
     compute_chain_semantic_digest,
     compute_projection_digest,
+    evaluate_condition,
     validate_attack_pattern,
     validate_legacy_attack_pattern,
+    validate_projection_snapshot,
 )
 
 ZERO = "0" * 64
 ONE = "1" * 64
 CHAIN_GOLDEN = "85ca7548621d1fc8285044d454d6c7e6012c6303e4e51fe3f0a63c0f91cbdea7"
-PROJECTION_GOLDEN = "a5d528f465191b14c5c6149b5e5844b4c5f6faf1a707dc57c6ddd48eaa7f1ccc"
+PROJECTION_GOLDEN = "053b053b50a768736daa394eb4a90b748b5df1e235fdfd84d44a777e1269faa0"
 REFS = {
     "entry_point": {"kind": "entry_point", "entry_point_id": "ep:v1:" + "1" * 32},
     "tool": {"kind": "tool", "tool_id": "tool:v1:" + "2" * 32},
@@ -149,7 +152,13 @@ def condition_result(result: str = "true") -> dict[str, Any]:
     return {
         "condition_step_id": "step.2",
         "result": result,
-        "evidence": [{"fact": fact(), "status": "known", "value": "active"}],
+        "evidence": [
+            {
+                "fact": fact(),
+                "status": "present",
+                "value": "inactive" if result == "false" else "active",
+            }
+        ],
     }
 
 
@@ -277,12 +286,17 @@ def test_chain_role_start_mapping_and_authored_requirement_negatives(
     invalid_chain(mutation)
 
 
-def test_condition_evidence_known_unknown_contract() -> None:
+def test_condition_evidence_present_absent_unknown_contract() -> None:
     assert ConditionEvaluationResult.model_validate(condition_result()).result == "true"
     unknown = condition_result("unknown")
     unknown["evidence"][0].update(status="unknown", value=None)
     assert ConditionEvaluationResult.model_validate(unknown).result == "unknown"
-    for status, value in (("known", None), ("unknown", "active"), ("known", True)):
+    for status, value in (
+        ("present", None),
+        ("absent", "active"),
+        ("unknown", "active"),
+        ("present", True),
+    ):
         raw = condition_result()
         raw["evidence"][0].update(status=status, value=value)
         with pytest.raises(ValidationError):
@@ -373,6 +387,7 @@ def requirements() -> list[dict[str, Any]]:
             "requirement_id": "r2",
             "kind": "upstream_source_influence",
             "source_slot_id": "source",
+            "source_identity_kind": "integration",
             "trust_boundary_slot_id": "boundary",
         },
         {
@@ -398,51 +413,144 @@ def requirements() -> list[dict[str, Any]]:
     ]
 
 
-def summary_data() -> dict[str, Any]:
-    projection = projection_data()
-    return {
-        "schema_version": "1",
-        "source_projection": projection,
-        "projection_digest": projection["projection_digest"],
-        "contributing_step_ids": ["step.1"],
-        "requirements": requirements(),
-    }
-
-
-def test_every_execution_requirement_union_shape_and_summary() -> None:
+def test_every_execution_requirement_union_shape_and_upstream_source_kinds() -> None:
     adapter = TypeAdapter(ExecutionRequirement)
     assert [adapter.validate_python(r).kind for r in requirements()] == [
         r["kind"] for r in requirements()
     ]
-    summary = ExecutionRequirementSummary.model_validate(summary_data())
-    assert (
-        ExecutionRequirementSummary.model_validate(summary.model_dump(mode="json"))
-        == summary
+    upstream = requirements()[1]
+    upstream["source_identity_kind"] = "entry_point"
+    assert adapter.validate_python(upstream).source_identity_kind == "entry_point"
+    for invalid in ("tool", "trust_boundary"):
+        upstream["source_identity_kind"] = invalid
+        with pytest.raises(ValidationError):
+            adapter.validate_python(upstream)
+
+
+def parsed_condition(raw: dict[str, Any]) -> Condition:
+    return TypeAdapter(Condition).validate_python(raw)
+
+
+def evidence(
+    fact_raw: dict[str, Any], status: str, value: Any = None
+) -> EvaluatedFactEvidence:
+    return EvaluatedFactEvidence.model_validate(
+        {"fact": fact_raw, "status": status, "value": value}
     )
 
 
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        lambda s: s.update(projection_digest=ZERO),
-        lambda s: s.update(contributing_step_ids=["absent"]),
-        lambda s: s["requirements"][0].update(entry_point_slot_id="tool"),
-        lambda s: s["requirements"][1].update(trust_boundary_slot_id="source"),
-        lambda s: s["requirements"][2].update(tool_slot_id="ingress"),
-        lambda s: s["requirements"][3].update(binding_slot_id="absent"),
-        lambda s: s["requirements"][4].update(source_step_id="step.2"),
-        lambda s: s["requirements"][4].update(postcondition_id="absent"),
-        lambda s: s["requirements"][4].update(
-            source_step_id="step.1", postcondition_id="post.1"
-        ),
-        lambda s: s.update(requirements=[]),
-    ],
-)
-def test_execution_summary_projection_pinning_and_refs(mutation: Any) -> None:
-    raw = summary_data()
-    mutation(raw)
-    with pytest.raises(ValidationError):
-        ExecutionRequirementSummary.model_validate(raw)
+def test_pure_condition_evaluator_complete_evidence_and_kleene_semantics() -> None:
+    fact_a = fact()
+    fact_b = {**fact(), "fact_id": "enabled", "value_type": "boolean"}
+    a = equality()
+    b = {"op": "equality", "schema_version": "1", "fact": fact_b, "value": True}
+    present_a = evidence(fact_a, "present", "active")
+    absent_a = evidence(fact_a, "absent")
+    unknown_a = evidence(fact_a, "unknown")
+    present_b = evidence(fact_b, "present", True)
+    unknown_b = evidence(fact_b, "unknown")
+    extra = evidence({**fact(), "fact_id": "extra"}, "absent")
+
+    exists_false = parsed_condition(
+        {"op": "existence", "schema_version": "1", "fact": fact_a, "exists": False}
+    )
+    assert evaluate_condition(exists_false, (absent_a,)) == "true"
+    assert evaluate_condition(exists_false, (unknown_a,)) == "unknown"
+
+    all_condition = parsed_condition(
+        {"op": "all", "schema_version": "1", "operands": [a, b]}
+    )
+    any_condition = parsed_condition(
+        {"op": "any", "schema_version": "1", "operands": [a, b]}
+    )
+    not_condition = parsed_condition({"op": "not", "schema_version": "1", "operand": a})
+    assert evaluate_condition(all_condition, (absent_a, unknown_b)) == "false"
+    assert evaluate_condition(all_condition, (present_a, unknown_b)) == "unknown"
+    assert evaluate_condition(any_condition, (present_a, unknown_b)) == "true"
+    assert evaluate_condition(any_condition, (absent_a, unknown_b)) == "unknown"
+    assert evaluate_condition(not_condition, (present_a,)) == "false"
+    assert evaluate_condition(not_condition, (unknown_a,)) == "unknown"
+    for invalid in (
+        (present_a,),
+        (present_a, present_b, present_b),
+        (present_a, present_b, extra),
+    ):
+        with pytest.raises(ValueError):
+            evaluate_condition(all_condition, invalid)
+
+
+def test_projection_rejects_evidence_result_mismatches_and_partial_evidence() -> None:
+    for status, value, result in (
+        ("present", "inactive", "true"),
+        ("unknown", None, "true"),
+        ("present", "active", "false"),
+    ):
+        raw = projection_data(result)
+        raw["condition_results"][0]["evidence"][0].update(status=status, value=value)
+        resign_projection(raw)
+        with pytest.raises(ValidationError, match="recorded condition result"):
+            ProjectionSnapshot.model_validate(raw)
+
+    raw = projection_data()
+    second = {**fact(), "fact_id": "other"}
+    raw["source_chain"]["steps"][1]["condition"] = {
+        "op": "all",
+        "schema_version": "1",
+        "operands": [
+            equality(),
+            {"op": "equality", "schema_version": "1", "fact": second, "value": "yes"},
+        ],
+    }
+    resign_chain(raw["source_chain"])
+    resign_projection(raw)
+    with pytest.raises(ValidationError, match="exactly cover"):
+        ProjectionSnapshot.model_validate(raw)
+
+
+class SnapshotResolver:
+    capability_fact_snapshot_digest = ONE
+
+    def __init__(self) -> None:
+        self.reading = evidence(fact(), "present", "active")
+        self.missing_kind: str | None = None
+
+    def fact(
+        self, reference: AuthoritativeFactReference
+    ) -> EvaluatedFactEvidence | None:
+        return self.reading if reference == self.reading.fact else None
+
+    def contains_resource(self, reference: Any) -> bool:
+        return reference.kind != self.missing_kind
+
+
+def test_projection_snapshot_requires_external_qualification() -> None:
+    with pytest.raises(TypeError):
+        validate_projection_snapshot(projection_data())  # type: ignore[call-arg]
+    assert validate_projection_snapshot(projection_data(), SnapshotResolver())
+
+    resolver = SnapshotResolver()
+    resolver.capability_fact_snapshot_digest = ZERO
+    with pytest.raises(ValueError, match="digest pin"):
+        validate_projection_snapshot(projection_data(), resolver)
+
+    resolver = SnapshotResolver()
+    resolver.reading = resolver.reading.model_copy(
+        update={"fact": resolver.reading.fact.model_copy(update={"fact_id": "missing"})}
+    )
+    with pytest.raises(ValueError, match="fact is missing"):
+        validate_projection_snapshot(projection_data(), resolver)
+
+    for status, value in (("absent", None), ("present", "inactive")):
+        resolver = SnapshotResolver()
+        resolver.reading = evidence(fact(), status, value)
+        with pytest.raises(ValueError, match="does not match"):
+            validate_projection_snapshot(projection_data(), resolver)
+
+    for kind in REFS:
+        resolver = SnapshotResolver()
+        resolver.missing_kind = kind
+        with pytest.raises(ValueError, match=kind):
+            validate_projection_snapshot(projection_data(), resolver)
 
 
 class Resolver:

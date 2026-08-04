@@ -109,6 +109,19 @@ class TaxonomyResolver(Protocol):
     def contains(self, taxonomy: Literal["ATLAS", "LAAF"], identifier: str) -> bool: ...
 
 
+class CapabilitySnapshotResolver(Protocol):
+    """No-I/O abstraction over one pinned capability/fact snapshot."""
+
+    @property
+    def capability_fact_snapshot_digest(self) -> Digest: ...
+
+    def fact(
+        self, reference: AuthoritativeFactReference
+    ) -> EvaluatedFactEvidence | None: ...
+
+    def contains_resource(self, reference: CanonicalResourceReference) -> bool: ...
+
+
 class TypedReference(ContractModel):
     ref_id: Identifier
     value_type: Literal["string", "integer", "boolean", "object", "bytes"]
@@ -271,16 +284,16 @@ def _check_condition(condition: Condition) -> None:
 
 class EvaluatedFactEvidence(ContractModel):
     fact: AuthoritativeFactReference
-    status: Literal["known", "unknown"]
+    status: Literal["present", "absent", "unknown"]
     value: Scalar | None
 
     @model_validator(mode="after")
     def coherent(self) -> EvaluatedFactEvidence:
-        if self.status == "unknown":
+        if self.status in ("absent", "unknown"):
             if self.value is not None:
-                raise ValueError("unknown fact evidence requires a null value")
+                raise ValueError("absent/unknown fact evidence requires a null value")
         elif self.value is None:
-            raise ValueError("known fact evidence requires a value")
+            raise ValueError("present fact evidence requires a value")
         else:
             _validate_fact_scalar(self.fact, self.value)
         return self
@@ -385,6 +398,7 @@ class UpstreamSourceInfluenceRequirement(ContractModel):
     requirement_id: Identifier
     kind: Literal["upstream_source_influence"]
     source_slot_id: Identifier
+    source_identity_kind: Literal["entry_point", "integration"]
     trust_boundary_slot_id: Identifier
 
 
@@ -431,6 +445,58 @@ def _condition_fact_keys(condition: Condition) -> set[str]:
     if isinstance(condition, NotCondition):
         return _condition_fact_keys(condition.operand)
     return {_canonical_json(condition.fact.model_dump(mode="json"))}
+
+
+def evaluate_condition(
+    condition: Condition, evidence: tuple[EvaluatedFactEvidence, ...]
+) -> Literal["true", "false", "unknown"]:
+    """Purely evaluate the closed condition AST against complete fact evidence."""
+    keyed = {
+        _canonical_json(item.fact.model_dump(mode="json")): item for item in evidence
+    }
+    if len(keyed) != len(evidence):
+        raise ValueError("condition evidence facts must be unique")
+    if set(keyed) != _condition_fact_keys(condition):
+        raise ValueError("condition evidence must exactly cover condition facts")
+
+    def evaluate(node: Condition) -> Literal["true", "false", "unknown"]:
+        if isinstance(node, AllCondition):
+            results = tuple(evaluate(item) for item in node.operands)
+            return (
+                "false"
+                if "false" in results
+                else "unknown"
+                if "unknown" in results
+                else "true"
+            )
+        if isinstance(node, AnyCondition):
+            results = tuple(evaluate(item) for item in node.operands)
+            return (
+                "true"
+                if "true" in results
+                else "unknown"
+                if "unknown" in results
+                else "false"
+            )
+        if isinstance(node, NotCondition):
+            result = evaluate(node.operand)
+            return {"true": "false", "false": "true", "unknown": "unknown"}[result]
+
+        item = keyed[_canonical_json(node.fact.model_dump(mode="json"))]
+        if item.status == "unknown":
+            return "unknown"
+        if isinstance(node, ExistenceCondition):
+            present = item.status == "present"
+            return "true" if present == node.exists else "false"
+        if item.status == "absent":
+            return "false"
+        if isinstance(node, MembershipCondition):
+            matches = item.value in node.values
+        else:
+            matches = item.value == node.value
+        return "true" if matches else "false"
+
+    return evaluate(condition)
 
 
 class CanonicalChainStep(ContractModel):
@@ -617,6 +683,8 @@ class StepOmission(ContractModel):
 
 
 class ProjectionSnapshot(ContractModel):
+    """Local structural/pure semantic parse; use qualification for external facts."""
+
     schema_version: Literal["1"]
     source_chain: CanonicalAttackChain
     selected_step_ids: tuple[Identifier, ...] = Field(min_length=1)
@@ -688,15 +756,9 @@ class ProjectionSnapshot(ContractModel):
             condition = conditional_steps[result.condition_step_id].condition
             if condition is None:  # pragma: no cover - guaranteed by step validation
                 raise ValueError("conditional source step requires a condition")
-            condition_facts = _condition_fact_keys(condition)
-            evidence_facts = {
-                _canonical_json(item.fact.model_dump(mode="json"))
-                for item in result.evidence
-            }
-            if not evidence_facts.issubset(condition_facts):
-                raise ValueError(
-                    "condition evidence must reference source condition facts"
-                )
+            evaluated = evaluate_condition(condition, result.evidence)
+            if evaluated != result.result:
+                raise ValueError("recorded condition result does not match evidence")
         expected_selected = [
             s.step_id
             for s in self.source_chain.steps
@@ -715,70 +777,6 @@ class ProjectionSnapshot(ContractModel):
             raise ValueError("source terminal final step must be selected")
         if self.projection_digest != compute_projection_digest(self):
             raise ValueError("projection_digest does not match projection semantics")
-        return self
-
-
-class ExecutionRequirementSummary(ContractModel):
-    schema_version: Literal["1"]
-    source_projection: ProjectionSnapshot
-    projection_digest: Digest
-    contributing_step_ids: tuple[Identifier, ...] = Field(min_length=1)
-    requirements: tuple[ExecutionRequirement, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def unique(self) -> ExecutionRequirementSummary:
-        if len(set(self.contributing_step_ids)) != len(self.contributing_step_ids):
-            raise ValueError("contributing step ids must be unique")
-        if len({r.requirement_id for r in self.requirements}) != len(self.requirements):
-            raise ValueError("execution requirement ids must be unique")
-        if self.projection_digest != self.source_projection.projection_digest:
-            raise ValueError("projection_digest must match source projection")
-        selected = set(self.source_projection.selected_step_ids)
-        if not set(self.contributing_step_ids).issubset(selected):
-            raise ValueError("contributors must be selected projection steps")
-        slots = {
-            binding.slot_id: binding.resource_ref.kind
-            for binding in self.source_projection.bindings
-        }
-        source_steps = {
-            step.step_id: {
-                post.postcondition_id: post for post in step.observable_postconditions
-            }
-            for step in self.source_projection.source_chain.steps
-            if step.step_id in selected
-        }
-        for requirement in self.requirements:
-            if isinstance(requirement, DirectInputControlRequirement):
-                references = ((requirement.entry_point_slot_id, "entry_point"),)
-            elif isinstance(requirement, UpstreamSourceInfluenceRequirement):
-                references = (
-                    (requirement.source_slot_id, "integration"),
-                    (requirement.trust_boundary_slot_id, "trust_boundary"),
-                )
-            elif isinstance(requirement, StateChangingToolFixtureRequirement):
-                references = ((requirement.tool_slot_id, "tool"),)
-            elif isinstance(requirement, ObservationRequirement):
-                references = ((requirement.binding_slot_id, None),)
-            else:
-                references = ()
-                if (
-                    requirement.source_step_id not in source_steps
-                    or requirement.postcondition_id
-                    not in source_steps[requirement.source_step_id]
-                    or not source_steps[requirement.source_step_id][
-                        requirement.postcondition_id
-                    ].security_relevant
-                ):
-                    raise ValueError(
-                        "security outcome must reference a selected security postcondition"
-                    )
-            for slot_id, expected_kind in references:
-                if slot_id not in slots or (
-                    expected_kind is not None and slots[slot_id] != expected_kind
-                ):
-                    raise ValueError(
-                        "requirement references an absent or wrong-domain binding"
-                    )
         return self
 
 
@@ -876,6 +874,31 @@ def validate_attack_pattern(
                     if not resolver.contains(mapping.taxonomy, identifier):
                         raise ValueError(f"unknown {mapping.taxonomy} id: {identifier}")
     return pattern
+
+
+def validate_projection_snapshot(
+    snapshot_dict: dict[str, Any], resolver: CapabilitySnapshotResolver
+) -> ProjectionSnapshot:
+    """Parse and externally qualify a projection against a mandatory pinned resolver."""
+    snapshot = ProjectionSnapshot.model_validate(snapshot_dict)
+    if (
+        resolver.capability_fact_snapshot_digest
+        != snapshot.capability_fact_snapshot_digest
+    ):
+        raise ValueError("capability snapshot resolver digest pin does not match")
+    for result in snapshot.condition_results:
+        for supplied in result.evidence:
+            authoritative = resolver.fact(supplied.fact)
+            if authoritative is None:
+                raise ValueError("authoritative condition fact is missing")
+            if authoritative != supplied:
+                raise ValueError(
+                    "condition fact evidence does not match resolver reading"
+                )
+    for binding in snapshot.bindings:
+        if not resolver.contains_resource(binding.resource_ref):
+            raise ValueError(f"missing {binding.resource_ref.kind} resource")
+    return snapshot
 
 
 AllCondition.model_rebuild()
