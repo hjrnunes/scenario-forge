@@ -4,8 +4,10 @@ The artifact at ``data/taxonomies/attack-patterns/catalog-lineage.yaml`` is
 the final authoritative lineage record for the 71 legacy attack-pattern
 source IDs.  These tests pin its contract: exact source coverage, closed
 vocabularies, resulting-record completeness, resolver-backed exact mappings,
-split/supersede integrity, overlap-group resolution, taxonomy pins, and the
-deterministic NFC/order-normalized semantic digest (with a golden value).
+split/supersede integrity, overlap-group resolution, taxonomy pins, the
+source-catalog content pin (same-count source edits must fail), the pinned
+case-step citation gate, and the deterministic NFC/order-normalized
+semantic digest (with a golden value).
 """
 
 from __future__ import annotations
@@ -21,7 +23,10 @@ from jsonschema.exceptions import ValidationError
 
 from scenario_forge.data.catalog_lineage import (
     _DEFAULT_LINEAGE_PATH,
+    SOURCE_CATALOG_CANONICALIZATION,
     compute_catalog_lineage_digest,
+    compute_source_catalog_digest,
+    load_atlas_case_step_index,
     load_catalog_lineage,
     load_catalog_lineage_schema,
     validate_catalog_lineage,
@@ -31,7 +36,7 @@ from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
 
 AP_DIR = _DEFAULT_LINEAGE_PATH.parent
 
-GOLDEN_DIGEST = "2e54117e812935d401c76e0d2487c5ff5b8696ea61ff4bb68b3c0032ea4a59db"
+GOLDEN_DIGEST = "be5e34dc5c798b16c193e5689531e43f1f3d375330c2a47373607e37fa244a3d"
 
 # Tokens that would indicate an unfinished decision.  Final language such as
 # "split evaluation concluded" is a resolved decision and is not flagged.
@@ -81,10 +86,17 @@ def resolver():
 
 
 @pytest.fixture(scope="module")
-def artifact(patterns, resolver, owners) -> dict:
+def case_steps():
+    return load_atlas_case_step_index()
+
+
+@pytest.fixture(scope="module")
+def artifact(patterns, resolver, case_steps, owners) -> dict:
     data = load_catalog_lineage()
     # The production artifact must pass the full validation gate unchanged.
-    validate_catalog_lineage(data, patterns=patterns, resolver=resolver, owners=owners)
+    validate_catalog_lineage(
+        data, patterns=patterns, resolver=resolver, case_steps=case_steps, owners=owners
+    )
     return data
 
 
@@ -377,30 +389,43 @@ class TestDigest:
 
 
 class TestMutationRejection:
-    def _expect_failure(self, artifact, fn, patterns, resolver, owners):
+    def _expect_failure(self, artifact, fn, patterns, resolver, case_steps, owners):
         mutant = _mutate(artifact, fn)
         # Keep the digest consistent so the mutation under test is what fails.
         mutant["release"]["semantic_digest"] = compute_catalog_lineage_digest(mutant)
         with pytest.raises((ValueError, ValidationError)):
             validate_catalog_lineage(
-                mutant, patterns=patterns, resolver=resolver, owners=owners
+                mutant,
+                patterns=patterns,
+                resolver=resolver,
+                case_steps=case_steps,
+                owners=owners,
             )
 
-    def test_missing_source_rejected(self, artifact, patterns, resolver, owners):
+    def test_missing_source_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
         self._expect_failure(
-            artifact, lambda a: a["sources"].pop(0), patterns, resolver, owners
+            artifact,
+            lambda a: a["sources"].pop(0),
+            patterns,
+            resolver,
+            case_steps,
+            owners,
         )
 
-    def test_extra_source_rejected(self, artifact, patterns, resolver, owners):
+    def test_extra_source_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
         def add(a):
             dupe = copy.deepcopy(a["sources"][0])
             dupe["source_pattern_id"] = "AP-T99-01"
             a["sources"].append(dupe)
 
-        self._expect_failure(artifact, add, patterns, resolver, owners)
+        self._expect_failure(artifact, add, patterns, resolver, case_steps, owners)
 
     def test_result_on_retired_source_rejected(
-        self, artifact, patterns, resolver, owners
+        self, artifact, patterns, resolver, case_steps, owners
     ):
         def add(a):
             retired = next(s for s in a["sources"] if s["disposition"] == "retire")
@@ -415,26 +440,28 @@ class TestMutationRejection:
             record["source_file"] = retired["source_file"]
             retired["resulting_patterns"] = [record]
 
-        self._expect_failure(artifact, add, patterns, resolver, owners)
+        self._expect_failure(artifact, add, patterns, resolver, case_steps, owners)
 
-    def test_unknown_atlas_id_rejected(self, artifact, patterns, resolver, owners):
+    def test_unknown_atlas_id_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
         def swap(a):
             record = next(r for s in a["sources"] for r in s["resulting_patterns"])
             record["atlas_chain_mappings"][0]["id"] = "AML.T9999"
 
-        self._expect_failure(artifact, swap, patterns, resolver, owners)
+        self._expect_failure(artifact, swap, patterns, resolver, case_steps, owners)
 
     def test_blank_identity_rationale_rejected(
-        self, artifact, patterns, resolver, owners
+        self, artifact, patterns, resolver, case_steps, owners
     ):
         def blank(a):
             record = next(r for s in a["sources"] for r in s["resulting_patterns"])
             record["atlas_chain_mappings"][0]["operational_identity_rationale"] = ""
 
-        self._expect_failure(artifact, blank, patterns, resolver, owners)
+        self._expect_failure(artifact, blank, patterns, resolver, case_steps, owners)
 
     def test_colliding_resulting_id_rejected(
-        self, artifact, patterns, resolver, owners
+        self, artifact, patterns, resolver, case_steps, owners
     ):
         def collide(a):
             entry = next(
@@ -444,40 +471,298 @@ class TestMutationRejection:
             )
             entry["resulting_patterns"][1]["pattern_id"] = "AP-T1-01"
 
-        self._expect_failure(artifact, collide, patterns, resolver, owners)
+        self._expect_failure(artifact, collide, patterns, resolver, case_steps, owners)
 
-    def test_pin_mismatch_rejected(self, artifact, patterns, resolver, owners):
+    def test_pin_mismatch_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
         self._expect_failure(
             artifact,
             lambda a: a["taxonomy_context"]["atlas"].__setitem__("digest", "0" * 64),
             patterns,
             resolver,
+            case_steps,
             owners,
         )
 
-    def test_stale_digest_rejected(self, artifact, patterns, resolver, owners):
+    def test_stale_digest_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
         mutant = _mutate(
             artifact, lambda a: a["sources"][0].__setitem__("rationale", "tampered")
         )
         with pytest.raises(ValueError, match="digest mismatch"):
             validate_catalog_lineage(
-                mutant, patterns=patterns, resolver=resolver, owners=owners
+                mutant,
+                patterns=patterns,
+                resolver=resolver,
+                case_steps=case_steps,
+                owners=owners,
             )
 
     def test_unresolved_overlap_member_rejected(
-        self, artifact, patterns, resolver, owners
+        self, artifact, patterns, resolver, case_steps, owners
     ):
         def drop(a):
             group = next(g for g in a["overlap_groups"] if g["group_id"] == "OG-02")
             group["members"] = [m for m in group["members"] if m != "AP-T12-03"]
 
-        self._expect_failure(artifact, drop, patterns, resolver, owners)
+        self._expect_failure(artifact, drop, patterns, resolver, case_steps, owners)
+
+
+class TestSourceCatalogPin:
+    """The artifact pins the exact canonicalized production loader records.
+
+    These tests prove that same-count edits to source content — which every
+    pre-existing id/count check would wave through — are detected.  The pin
+    covers loader-record content; it does not claim to pin source YAML
+    bytes.
+    """
+
+    def test_pin_matches_production_records(self, artifact, patterns, owners):
+        pin = artifact["source_catalog_context"]
+        assert pin["canonicalization"] == SOURCE_CATALOG_CANONICALIZATION
+        assert pin["record_count"] == 71 == len(patterns)
+        assert pin["file_manifest"] == sorted(set(owners.values()))
+        assert (
+            pin["digest"]
+            == compute_source_catalog_digest(patterns, owners, pin["file_manifest"])
+            != "0" * 64
+        )
+
+    def test_pin_is_deterministic_and_order_framed(self, patterns, owners):
+        manifest = sorted(set(owners.values()))
+        digest = compute_source_catalog_digest(patterns, owners, manifest)
+        # Reordering the manifest frames changes the digest (file order is
+        # pinned by the artifact's sorted manifest).
+        assert (
+            compute_source_catalog_digest(patterns, owners, list(reversed(manifest)))
+            != digest
+        )
+        # Recomputing from the same inputs is stable.
+        assert compute_source_catalog_digest(patterns, owners, manifest) == digest
+
+    def _expect_source_mutation_rejected(
+        self, artifact, resolver, case_steps, owners, patterns, mutate
+    ):
+        mutated_patterns = copy.deepcopy(patterns)
+        mutate(mutated_patterns)
+        with pytest.raises(ValueError, match="source catalog digest mismatch"):
+            validate_catalog_lineage(
+                artifact,
+                patterns=mutated_patterns,
+                resolver=resolver,
+                case_steps=case_steps,
+                owners=owners,
+            )
+
+    def test_same_count_description_edit_rejected(
+        self, artifact, resolver, case_steps, owners, patterns
+    ):
+        def mutate(p):
+            p["AP-T1-01"]["description"] += "tampered"
+
+        self._expect_source_mutation_rejected(
+            artifact, resolver, case_steps, owners, patterns, mutate
+        )
+
+    def test_same_count_evidence_source_edit_rejected(
+        self, artifact, resolver, case_steps, owners, patterns
+    ):
+        def mutate(p):
+            p["AP-T1-01"]["evidence"][0]["source"] = "AML.CS0041"
+
+        self._expect_source_mutation_rejected(
+            artifact, resolver, case_steps, owners, patterns, mutate
+        )
+
+    def test_same_count_kill_chain_action_edit_rejected(
+        self, artifact, resolver, case_steps, owners, patterns
+    ):
+        def mutate(p):
+            p["AP-T1-01"]["kill_chain"][0]["abstract_action"] = "tampered action"
+
+        self._expect_source_mutation_rejected(
+            artifact, resolver, case_steps, owners, patterns, mutate
+        )
+
+    def test_same_count_kill_chain_techniques_edit_rejected(
+        self, artifact, resolver, case_steps, owners, patterns
+    ):
+        def mutate(p):
+            p["AP-T1-01"]["kill_chain"][0]["techniques"] = ["AML.T9999"]
+
+        self._expect_source_mutation_rejected(
+            artifact, resolver, case_steps, owners, patterns, mutate
+        )
+
+    def test_artifact_pin_tamper_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
+        for fn in (
+            lambda a: a["source_catalog_context"].__setitem__("digest", "0" * 64),
+            lambda a: a["source_catalog_context"].__setitem__("record_count", 70),
+            lambda a: a["source_catalog_context"]["file_manifest"].__setitem__(
+                0, "attack-patterns.yaml"
+            ),
+        ):
+            mutant = _mutate(artifact, fn)
+            mutant["release"]["semantic_digest"] = compute_catalog_lineage_digest(
+                mutant
+            )
+            with pytest.raises((ValueError, ValidationError)):
+                validate_catalog_lineage(
+                    mutant,
+                    patterns=patterns,
+                    resolver=resolver,
+                    case_steps=case_steps,
+                    owners=owners,
+                )
+
+    def test_owners_required(self, artifact, patterns, resolver, case_steps):
+        with pytest.raises(ValueError, match="requires source-file owners"):
+            validate_catalog_lineage(
+                artifact, patterns=patterns, resolver=resolver, case_steps=case_steps
+            )
+
+
+class TestCaseStepCitationGate:
+    """Unhedged ``AML.CSxxxx Snn`` citations in mapping evidence must match
+    the pinned ATLAS relationship (case/step existence plus employed
+    technique); deliberate divergences must be marked analogue/adapted/
+    retag."""
+
+    def _expect_citation_failure(
+        self, artifact, fn, patterns, resolver, case_steps, owners, match
+    ):
+        mutant = _mutate(artifact, fn)
+        mutant["release"]["semantic_digest"] = compute_catalog_lineage_digest(mutant)
+        with pytest.raises(ValueError, match=match):
+            validate_catalog_lineage(
+                mutant,
+                patterns=patterns,
+                resolver=resolver,
+                case_steps=case_steps,
+                owners=owners,
+            )
+
+    @staticmethod
+    def _t3_04_step_mapping(a):
+        entry = next(s for s in a["sources"] if s["source_pattern_id"] == "AP-T3-04")
+        record = next(
+            r for r in entry["resulting_patterns"] if r["pattern_id"] == "AP-T3-04"
+        )
+        return record["atlas_step_mappings"][0]
+
+    def test_production_citations_all_pass(self, artifact):
+        # The artifact fixture already ran the gate; assert the convention
+        # markers exist where divergences are deliberate.
+        marked = 0
+        for entry in artifact["sources"]:
+            for record in entry["resulting_patterns"]:
+                for mapping in (
+                    record["atlas_chain_mappings"] + record["atlas_step_mappings"]
+                ):
+                    if any(
+                        token in mapping["evidence"].lower()
+                        for token in ("analogue", "adapted", "retag")
+                    ):
+                        marked += 1
+        assert marked > 0
+
+    def test_unhedged_wrong_step_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
+        def mutate(a):
+            # AP-T3-04 chain mapping AML.T0049 is exact at CS0048 S01; citing
+            # S00 (which pins AML.T0000) unhedged must fail.
+            entry = next(
+                s for s in a["sources"] if s["source_pattern_id"] == "AP-T3-04"
+            )
+            record = next(
+                r for r in entry["resulting_patterns"] if r["pattern_id"] == "AP-T3-04"
+            )
+            record["atlas_chain_mappings"][0]["evidence"] = (
+                "AML.CS0048 S00; pinned technique definition AML.T0049."
+            )
+
+        self._expect_citation_failure(
+            artifact,
+            mutate,
+            patterns,
+            resolver,
+            case_steps,
+            owners,
+            "unhedged citation",
+        )
+
+    def test_stripping_hedge_from_retag_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
+        def mutate(a):
+            # The production AP-T3-04 reconnaissance mapping is a marked
+            # retag (CS0048 S00 pins AML.T0000); stripping the marker makes
+            # it an unhedged false assignment.
+            mapping = self._t3_04_step_mapping(a)
+            assert mapping["id"] == "AML.T0006"
+            mapping["evidence"] = (
+                "AML.CS0048 S00; pinned technique definition AML.T0006."
+            )
+
+        self._expect_citation_failure(
+            artifact,
+            mutate,
+            patterns,
+            resolver,
+            case_steps,
+            owners,
+            "unhedged citation",
+        )
+
+    def test_unknown_case_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
+        def mutate(a):
+            mapping = self._t3_04_step_mapping(a)
+            mapping["evidence"] = (
+                "AML.CS9999 S00; pinned technique definition AML.T0006."
+            )
+
+        self._expect_citation_failure(
+            artifact,
+            mutate,
+            patterns,
+            resolver,
+            case_steps,
+            owners,
+            "absent from the pinned ATLAS relationships",
+        )
+
+    def test_unknown_step_rejected(
+        self, artifact, patterns, resolver, case_steps, owners
+    ):
+        def mutate(a):
+            mapping = self._t3_04_step_mapping(a)
+            mapping["evidence"] = (
+                "AML.CS0048 S99; pinned technique definition AML.T0006."
+            )
+
+        self._expect_citation_failure(
+            artifact,
+            mutate,
+            patterns,
+            resolver,
+            case_steps,
+            owners,
+            "absent from",
+        )
 
 
 class TestArtifactFile:
     def test_artifact_is_the_only_added_taxonomy_file(self):
         """The lineage artifact must sit beside the unchanged attack-pattern
-        YAML/SSSOM files (whose own pin tests guard their bytes)."""
+        YAML/SSSOM files; the artifact's source-catalog pin covers the
+        canonicalized loader records, not source YAML bytes."""
         names = {p.name for p in AP_DIR.glob("*.yaml")} | {
             p.name for p in AP_DIR.glob("*.sssom.tsv")
         }

@@ -2,19 +2,32 @@
 # Closed schema: data/schemas/catalog-lineage.yaml. Semantics and
 # digest: scenario_forge.data.catalog_lineage. Provenance fields are
 # migration hints only; ATLAS is the sole v1 authority (LAAF absent).
+# source_catalog_context pins the canonicalized production loader
+# records the decisions were made against.
 schema_version: '1'
 release:
   version: 1.0.0
   description: 'Final authoritative catalog-lineage decisions for the 71 legacy attack-pattern source
     records: closed-vocabulary dispositions, overlap-group resolutions, and resulting authoritative pattern
     boundaries with proposed exact ATLAS mappings for the deterministic chain-authoring waves.'
-  semantic_digest: 2e54117e812935d401c76e0d2487c5ff5b8696ea61ff4bb68b3c0032ea4a59db
+  semantic_digest: be5e34dc5c798b16c193e5689531e43f1f3d375330c2a47373607e37fa244a3d
 taxonomy_context:
   atlas:
     release: '2026.05'
     digest: defd9014c6d5f5954460ef438faea583fcb1830ff81e85709628efb43037cc3a
   laaf: null
   mapping_set_digest: 7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3
+source_catalog_context:
+  canonicalization: scenario-forge:attack-pattern-records:v1
+  file_manifest:
+  - attack-patterns-agentic-only.yaml
+  - attack-patterns-atlas-derived.yaml
+  - attack-patterns-comms-human-supply.yaml
+  - attack-patterns-halluc-intent.yaml
+  - attack-patterns-memory-tool.yaml
+  - attack-patterns.yaml
+  record_count: 71
+  digest: 9e079b047aeaf13e1546fe6c1af2ec1e0922d7c406928989580f7302d1fbfa93
 disposition_vocabulary:
   retain: 'The source record is operationally sound as authored: one mechanism, defensible exact ATLAS
     chain and attacker-step mappings, and evidence honest enough to carry into the authoring wave with
@@ -465,7 +478,10 @@ sources:
     - id: AML.T0070
       operational_identity_rationale: Planting the disguised content in a RAG-indexed corpus so a future
         retrieval activates it is AML.T0070's exact defined operation.
-      evidence: AML.CS0024 S02-S03; AML.CS0029 S03-S04; pinned technique definition AML.T0070.
+      evidence: 'AML.CS0024 S02-S03 analogue: the pinned relationships there employ AML.T0053/AML.T0051.002
+        (worm delivery and activation), not AML.T0070; corpus planting is supported by analogy. AML.CS0029
+        S03-S04 analogue: the pinned relationships there employ AML.T0093/AML.T0051.001 (infiltration
+        via shared document and execution), not AML.T0070. Pinned technique definition AML.T0070.'
     - id: AML.T0077
       operational_identity_rationale: 'Encoding sensitive data into rendered output (markdown image URLs)
         that the client automatically fetches is AML.T0077''s exact defined operation: private information
@@ -1460,7 +1476,7 @@ sources:
     - id: AML.T0051.001
       operational_identity_rationale: 'The substitution instructions arrive through content the assistant
         ingests (CS0026''s poisoned retrieval): AML.T0051.001''s exact indirect-injection operation.'
-      evidence: AML.CS0026 S05-S09; pinned technique definition AML.T0051.001.
+      evidence: AML.CS0026 S10; pinned technique definition AML.T0051.001.
     atlas_step_mappings:
     - step: setup
       id: AML.T0066
@@ -1479,14 +1495,16 @@ sources:
   evidence_count: 0
   legacy_kill_chain_steps: 6
   disposition: narrow
-  rationale: 'Narrow. AI-mediated social engineering is retained with the corrected-audit provenance fix:
-    AML.CS0055 is directionally reversed for this record (agent-as-victim, not agent-as-social-engineer)
-    and is removed as grounding; the human-directed mechanism is not directly demonstrated in any ATLAS
-    case study (tactic-sequences correction). Exact chain-level identity instead comes from the pinned
-    technique definition AML.T0052.000 (turning an LLM into a targeted social engineer that extracts information
-    or drives user actions), which is directionally correct; provenance is honestly designed.'
+  rationale: 'Narrow. AI-mediated social engineering is retained with two provenance corrections held
+    together: AML.CS0055 is directionally reversed for this record (agent-as-victim, not agent-as-social-engineer)
+    and is removed as grounding, while AML.CS0020 directly demonstrates the human-directed mechanism:
+    an ingested indirect injection (S02, AML.T0051.001) turns Bing Chat into a social engineer (S03, AML.T0052.000)
+    that elicits PII and link clicks from the user (S04). Exact chain-level identity is AML.T0052.000''s
+    defined operation (turning an LLM into a targeted social engineer that extracts information or drives
+    user actions), directionally correct and now case-grounded.'
   provenance:
     case_studies:
+    - AML.CS0020
     - AML.CS0055
     sssom_atlas_candidates:
     - AML.T0051.001
@@ -1524,20 +1542,21 @@ sources:
     - slot_id: boundary
       kind: trust_boundary
       purpose: supporting
-    provenance_plan: 'Adapt the 6-step legacy chain with designed/inferred tiers throughout: preparation/delivery
-      may reference AML.CS0055''s preparation mechanism as adapted precedent only; execution/impact are
-      not grounded in any case study (tactic-sequences-t10-t15-t12-t13-t16.md adaptation rationale).'
+    provenance_plan: Adapt the 6-step legacy chain with explicit tiers for the human-directed line against
+      AML.CS0020 S02-S04 (ingested indirect injection causing Bing Chat to elicit PII and link clicks);
+      preparation may reference AML.CS0055's preparation mechanism as adapted precedent only, with the
+      CS0055 directionality correction (agent-as-victim) retained per tactic-sequences-t10-t15-t12-t13-t16.md.
     atlas_chain_mappings:
     - id: AML.T0052.000
       operational_identity_rationale: 'Directing the compromised assistant to socially engineer its user
         into revealing information or taking actions is turning an LLM into a targeted social engineer:
         AML.T0052.000''s exact defined operation, directionally correct for this record.'
-      evidence: Pinned technique definition AML.T0052.000 (verified against the 2026.05 source); directionality
-        correction per tactic-sequences-t10-t15-t12-t13-t16.md.
+      evidence: AML.CS0020 S03; pinned technique definition AML.T0052.000; CS0055 directionality correction
+        per tactic-sequences-t10-t15-t12-t13-t16.md.
     - id: AML.T0051.001
       operational_identity_rationale: 'The output-generation compromise arrives through ingested content:
         AML.T0051.001''s exact indirect-injection operation.'
-      evidence: Pinned technique definition AML.T0051.001; legacy ingest_malicious_content step.
+      evidence: AML.CS0020 S02; pinned technique definition AML.T0051.001.
     atlas_step_mappings:
     - step: craft_hijack_injection
       id: AML.T0065
@@ -2071,7 +2090,10 @@ sources:
     - id: AML.T0053
       operational_identity_rationale: 'The composite mechanism is the adversary using access to the agent
         to invoke its tools in an unanticipated sequence: AML.T0053''s exact defined operation.'
-      evidence: AML.CS0037 S11-S13; pinned technique definition AML.T0053.
+      evidence: 'AML.CS0037 S11-S13 retag: the pinned relationships there assign the granular AML.T0085.000/AML.T0085.001/AML.T0086
+        collection-and-exfiltration techniques; the chain-level mapping is retagged at definition level
+        to AML.T0053 because the pattern''s mechanism is the composite adversary-driven invocation of
+        the agent''s tools in a designer-unanticipated sequence. Pinned technique definition AML.T0053.'
     - id: AML.T0086
       operational_identity_rationale: 'The chain ends with a write-capable agent tool transmitting sensitive
         data to the attacker as part of a seemingly legitimate action: AML.T0086''s exact defined exfiltration
@@ -2362,7 +2384,10 @@ sources:
       id: AML.T0050
       operational_identity_rationale: Driving the agent's shell/Python interpreter to run the attacker's
         command is abuse of a command/scripting interpreter, AML.T0050's defined operation.
-      evidence: AML.CS0016 S05; pinned technique definition AML.T0050.
+      evidence: 'AML.CS0016 S05 retag: the pinned relationship assigns AML.T0053 (agent tool invocation)
+        to the interpreter execution; the step is retagged at definition level to AML.T0050 because the
+        operation is running the attacker''s command through the command/scripting interpreter itself.
+        Pinned technique definition AML.T0050.'
     - step: harvest_credentials
       id: AML.T0055
       operational_identity_rationale: Revealing environment-variable credentials through the hijacked
@@ -2541,9 +2566,9 @@ sources:
     chain: (1) discovery and access of internet-exposed, weakly authenticated agent control interfaces
     (the access primitive, AP-T3-04); (2) credential harvesting from exposed configuration/environment
     surfaces with connected-service pivot (AP-T3-05); (3) arbitrary prompting through the interface driving
-    tool and host compromise (AP-T3-06). All three stay in the T3 source file and are grounded in CS0048''s
-    procedure (S00-S09; the 11-step legacy chain inserts a lateral-movement abstraction between S07 and
-    S08, it is not an eleventh source step).'
+    privileged tool execution to container-root compromise (AP-T3-06). All three stay in the T3 source
+    file and are grounded in CS0048''s procedure (S00-S09; the 11-step legacy chain inserts a lateral-movement
+    abstraction between S07 and S08, it is not an eleventh source step).'
   provenance:
     case_studies:
     - AML.CS0048
@@ -2593,7 +2618,10 @@ sources:
       operational_identity_rationale: Scanning the internet for exposed AI agent services is active scanning
         for AI services, AML.T0006's exact defined operation (its definition explicitly covers scanning
         for public AI chat agents and AI DevOps tools).
-      evidence: AML.CS0048 S00; pinned technique definition AML.T0006.
+      evidence: 'AML.CS0048 S00 retag: the pinned relationship assigns AML.T0000 (search open technical
+        databases) to the Shodan search; the mapping is retagged at definition level to AML.T0006 because
+        sweeping the internet for live exposed AI agent services is active scanning, not a database lookup.
+        Pinned technique definition AML.T0006.'
   - pattern_id: AP-T3-05
     source_file: attack-patterns-atlas-derived.yaml
     mechanism_boundary: Through the exposed control interface, harvest plaintext credentials for connected
@@ -2630,7 +2658,11 @@ sources:
       id: AML.T0055
       operational_identity_rationale: Harvesting plaintext secrets from environment surfaces is obtaining
         insecurely stored credentials, AML.T0055's defined operation.
-      evidence: AML.CS0048 S05; pinned technique definition AML.T0055.
+      evidence: 'AML.CS0048 S05 retag: the pinned relationship assigns AML.T0098 (AI agent tool credential
+        harvesting) because the secrets arrived via the agent''s bash tool output; the pattern mechanism
+        is retagged at definition level to AML.T0055 because the harvested material is plaintext credentials
+        insecurely stored in the environment surface, independent of the retrieval channel. Pinned technique
+        definition AML.T0055.'
     - step: lateral_movement
       id: AML.T0091.000
       operational_identity_rationale: Reusing the harvested tokens to authenticate into connected services
@@ -2639,12 +2671,14 @@ sources:
   - pattern_id: AP-T3-06
     source_file: attack-patterns-atlas-derived.yaml
     mechanism_boundary: Through the exposed control interface, submit arbitrary prompts that exploit the
-      agent's instruction-following behavior to invoke privileged tools (bash as root) and escalate to
-      host-level compromise. Owns the prompt-driven tool/host compromise mechanism.
+      agent's instruction-following behavior to invoke privileged tools, achieving root execution inside
+      the agent's own container via its bash skill. Owns the prompt-driven privileged-tool compromise
+      mechanism; any impact beyond the container (host-level escape) is inferred, not demonstrated.
     start_semantics: Attacker submits the first arbitrary prompt through the exposed interface (CS0048
       S03).
-    terminal_semantics: 'The agent''s tools execute attacker-directed actions yielding host-level control
-      (root via the bash skill): the first observable system compromise.'
+    terminal_semantics: 'The agent''s bash skill executes attacker-directed commands as root inside the
+      ClawdBot container (CS0048 S06): the first observable demonstrated system compromise. Broader host-level
+      impact is inferred only.'
     resource_slot_plan:
     - slot_id: ingress
       kind: entry_point
@@ -2652,34 +2686,38 @@ sources:
     - slot_id: agent_tools
       kind: tool
       purpose: intermediate
-    - slot_id: host
+    - slot_id: container
       kind: integration
       purpose: target
     - slot_id: boundary
       kind: trust_boundary
       purpose: supporting
     provenance_plan: Adapt the prompt-to-compromise line of the legacy chain with explicit tiers against
-      AML.CS0048 S03-S04 and S06 (privilege escalation via the bash skill).
+      AML.CS0048 S03-S04 and S06 (privileged bash-skill execution as container-root); any host-level escape
+      impact is tiered inferred, not demonstrated.
     atlas_chain_mappings:
     - id: AML.T0051.000
       operational_identity_rationale: Submitting arbitrary prompts directly through the exposed interface
         is direct prompt injection, AML.T0051.000's exact defined operation.
-      evidence: AML.CS0048 S03; pinned technique definition AML.T0051.000.
+      evidence: 'AML.CS0048 S03 retag: the pinned relationship assigns AML.T0051.001 (indirect), but the
+        step description is the researcher prompting ClawdBot directly through the control interface;
+        the mapping is retagged at definition level to AML.T0051.000 (direct). Pinned technique definition
+        AML.T0051.000.'
     - id: AML.T0053
       operational_identity_rationale: Driving the agent's privileged tools (bash) through those prompts
         is adversary-driven agent tool invocation, AML.T0053's exact defined operation.
       evidence: AML.CS0048 S06; pinned technique definition AML.T0053.
     atlas_step_mappings:
-    - step: privilege_escalation
-      id: AML.T0105
-      operational_identity_rationale: Breaking out of the agent's constrained environment to host-level
-        execution (root via the bash skill) is AML.T0105's defined escape-to-host operation.
-      evidence: AML.CS0048 S06; pinned technique definition AML.T0105.
     - step: impact
       id: AML.T0112.000
-      operational_identity_rationale: Compromising the host by abusing the locally running AI agent's
-        capabilities and permissions is AML.T0112.000's exact defined operation.
-      evidence: AML.CS0048 S06-S09 analogue; pinned technique definition AML.T0112.000.
+      operational_identity_rationale: Abusing the locally running AI agent's tool access so the agent
+        itself executes attacker commands as container-root is AML.T0112.000's defined local-agent machine-compromise
+        operation; CS0048 demonstrates root only inside the agent's container, so any host-level compromise
+        is tiered inferred, not demonstrated.
+      evidence: 'AML.CS0048 S06-S09 analogue: the pinned relationships there employ AML.T0053/T0092/T0025/T0048.003
+        (tool invocation, chat-history manipulation, exfiltration, harm), not AML.T0112.000; whole-agent
+        compromise is supported by analogy with the demonstrated container-root execution. Pinned technique
+        definition AML.T0112.000.'
 - source_pattern_id: AP-T4-01
   source_file: attack-patterns-memory-tool.yaml
   threat_id: T4
@@ -2994,7 +3032,9 @@ sources:
     - id: AML.T0070
       operational_identity_rationale: Staging the fabricated-endpoint content where the agent's retrieval
         surfaces it is AML.T0070's exact RAG-poisoning operation.
-      evidence: AML.CS0021 S02-S03 analogue; AML.CS0029 S03-S04; pinned technique definition AML.T0070.
+      evidence: 'AML.CS0021 S02-S03 analogue; AML.CS0029 S03-S04 analogue: the pinned relationships there
+        employ AML.T0093/AML.T0051.001 (infiltration and execution), not AML.T0070; the staged-corpus
+        poisoning is supported by analogy. Pinned technique definition AML.T0070.'
     atlas_step_mappings:
     - step: develop_endpoint_injection
       id: AML.T0066
@@ -3005,7 +3045,10 @@ sources:
       id: AML.T0051.002
       operational_identity_rationale: Activation when the agent retrieves the staged content is a triggered
         prompt injection via an environmental event, AML.T0051.002's defined operation.
-      evidence: AML.CS0021 S03; AML.CS0029 S04; pinned technique definition AML.T0051.002.
+      evidence: 'AML.CS0021 S03 and AML.CS0029 S04 retag: both pinned relationships assign AML.T0051.001
+        (indirect); the step is retagged at definition level to AML.T0051.002 (triggered) because activation
+        occurs on the agent''s retrieval event, an environmental trigger. Pinned technique definition
+        AML.T0051.002.'
 - source_pattern_id: AP-T5-03
   source_file: attack-patterns-halluc-intent.yaml
   threat_id: T5
@@ -3235,7 +3278,10 @@ sources:
       id: AML.T0050
       operational_identity_rationale: Running the attacker's code through the agent's Python interpreter
         is abuse of a command/scripting interpreter, AML.T0050's defined operation.
-      evidence: AML.CS0016 S05; pinned technique definition AML.T0050.
+      evidence: 'AML.CS0016 S05 retag: the pinned relationship assigns AML.T0053 (agent tool invocation)
+        to the interpreter execution; the step is retagged at definition level to AML.T0050 because the
+        operation is running the attacker''s code through the command/scripting interpreter itself. Pinned
+        technique definition AML.T0050.'
     - step: exfiltrate_credentials
       id: AML.T0055
       operational_identity_rationale: Revealing environment-variable credentials and API keys in application
@@ -3305,7 +3351,10 @@ sources:
       id: AML.T0066
       operational_identity_rationale: Writing source content designed to be retrieved/consumed and to
         influence the system is AML.T0066's exact operation.
-      evidence: Pinned technique definition AML.T0066; AML.CS0020 S00.
+      evidence: 'Pinned technique definition AML.T0066; AML.CS0020 S00 retag: the pinned relationship
+        assigns AML.T0017 (develop capabilities) to building the prompt-laden website; the step is retagged
+        at definition level to AML.T0066 because the operation is crafting content designed to be retrieved
+        and to influence the system.'
     - step: conceal_injection
       id: AML.T0068
       operational_identity_rationale: Hiding the instructions inside otherwise legitimate source output
@@ -3428,12 +3477,18 @@ sources:
       id: AML.T0040
       operational_identity_rationale: Reaching the model through its legitimate interaction interface
         to stage the poisoning is AI model inference API access, AML.T0040's defined operation.
-      evidence: AML.CS0009 S00; pinned technique definition AML.T0040.
+      evidence: 'AML.CS0009 S00 retag: the pinned relationship assigns AML.T0047 (access to the AI-enabled
+        product) to interacting with Tay via Twitter messages; the step is retagged at definition level
+        to AML.T0040 because the operation is reaching the model through its public inference interface.
+        Pinned technique definition AML.T0040.'
     - step: deliver_adversarial_feedback
       id: AML.T0051.000
       operational_identity_rationale: The adversarial feedback items are crafted inputs submitted directly
         to the model to steer its adaptation.
-      evidence: AML.CS0009 S01; pinned technique definition AML.T0051.000.
+      evidence: 'AML.CS0009 S01 retag: the pinned relationship assigns AML.T0010.002 (poisoning training
+        data) to the interaction-as-training-data step; the step is retagged at definition level to AML.T0051.000
+        because the operation is submitting crafted inputs directly to the model to steer it. Pinned technique
+        definition AML.T0051.000.'
 - source_pattern_id: AP-T6-06
   source_file: attack-patterns-atlas-derived.yaml
   threat_id: T6
@@ -3495,11 +3550,11 @@ sources:
       operational_identity_rationale: 'Spoofing internal control sequences to make the model ignore its
         safety/alignment behavior and execute injected content is inducing the LLM to circumvent its guardrails:
         AML.T0054''s exact defined jailbreak operation, assigned by CS0051 to the spoofing step.'
-      evidence: AML.CS0051 S08; pinned technique definition AML.T0054.
+      evidence: AML.CS0051 S11; pinned technique definition AML.T0054.
     - id: AML.T0051.001
       operational_identity_rationale: 'The spoofing injection is delivered through fetched attacker-controlled
         web content the agent ingests: AML.T0051.001''s exact indirect-injection operation.'
-      evidence: AML.CS0051 S06-S07; pinned technique definition AML.T0051.001.
+      evidence: AML.CS0051 S10; pinned technique definition AML.T0051.001.
     atlas_step_mappings:
     - step: discover_control_sequences
       id: AML.T0069.000
@@ -3510,7 +3565,7 @@ sources:
       id: AML.T0065
       operational_identity_rationale: Developing the multi-stage injection that spoofs the discovered
         sequences is iterative prompt crafting, AML.T0065's operation.
-      evidence: AML.CS0051 S03; pinned technique definition AML.T0065.
+      evidence: AML.CS0051 S04-S05; pinned technique definition AML.T0065.
   - pattern_id: AP-T6-07
     source_file: attack-patterns-atlas-derived.yaml
     mechanism_boundary: 'Convert the achieved execution into a persistent implant: modify the agent''s
@@ -3553,7 +3608,10 @@ sources:
       id: AML.T0051.002
       operational_identity_rationale: The modified system prompt activating the injected instructions
         when new threads load is a triggered prompt injection via an environmental event.
-      evidence: AML.CS0051 S14; pinned technique definition AML.T0051.002.
+      evidence: 'AML.CS0051 S14 retag: the pinned relationship assigns AML.T0051.000 (direct) to the modified-prompt
+        execution; the mapping is retagged at definition level to AML.T0051.002 (triggered) because the
+        injection activates only when a future thread loads the poisoned configuration, an environmental
+        trigger rather than a direct prompt. Pinned technique definition AML.T0051.002.'
     - step: propagation
       id: AML.T0080.001
       operational_identity_rationale: All new threads inheriting the poisoned prompt is malicious instruction
@@ -3970,10 +4028,11 @@ sources:
       evidence: AML.CS0036 S03; pinned technique definition AML.T0091.000.
     atlas_step_mappings:
     - step: extract_tokens
-      id: AML.T0055
-      operational_identity_rationale: Pulling the agent's tokens from the compromised host's processes/stores
-        is obtaining insecurely stored credentials.
-      evidence: AML.CS0036 S01-S02; pinned technique definition AML.T0055.
+      id: AML.T0090
+      operational_identity_rationale: Attaching to the LLM desktop application's process and reading its
+        memory to extract the authentication token is OS credential dumping from application/process memory,
+        AML.T0090's exact defined operation.
+      evidence: AML.CS0036 S02; pinned technique definition AML.T0090.
     - step: poison_session_context
       id: AML.T0080.001
       operational_identity_rationale: Injecting instructions into the agent's active session so they persist
@@ -4005,12 +4064,15 @@ sources:
     - id: AML.T0101
       operational_identity_rationale: Invoking the agent's mutative capabilities to destroy its data (chat
         deletion) is AML.T0101's exact defined operation (data destruction via AI agent tool invocation).
-      evidence: AML.CS0036 impact behavior; pinned technique definition AML.T0101.
+      evidence: 'AML.CS0036 S11 retag: the pinned relationship assigns AML.T0029 (denial of AI service)
+        to the chat-deletion impact; the mapping is retagged at definition level to AML.T0101 because
+        the operation is the attacker invoking the agent''s own mutative capability to destroy its data,
+        not flooding the service. Pinned technique definition AML.T0101.'
     - id: AML.T0029
       operational_identity_rationale: 'Exhausting the agent service''s rate limits with floods of requests
         is targeting an AI-enabled system with a request flood to degrade it: AML.T0029''s exact defined
         operation.'
-      evidence: AML.CS0036 impact behavior; pinned technique definition AML.T0029.
+      evidence: AML.CS0036 S11-S12; pinned technique definition AML.T0029.
     atlas_step_mappings:
     - step: authenticate_as_agent
       id: AML.T0091.000
@@ -4136,13 +4198,16 @@ sources:
     - id: AML.T0088
       operational_identity_rationale: Generating the deepfake identity artifacts used against the proofing
         system is AML.T0088's exact defined operation.
-      evidence: AML.CS0004 S03; pinned technique definition AML.T0088.
+      evidence: 'AML.CS0004 S04 retag: the pinned relationship assigns AML.T0016.000 (obtaining the adversarial
+        implementation) to the step that turns static photos into realistic videos; the mapping is retagged
+        at definition level to AML.T0088 because the step''s operation is the generation of the deepfake
+        artifact itself. Pinned technique definition AML.T0088.'
     atlas_step_mappings:
     - step: acquire_spoofing_tools
       id: AML.T0016.001
       operational_identity_rationale: Obtaining the software tooling for document forgery and spoofing
         is acquiring software tools, AML.T0016.001's defined operation.
-      evidence: AML.CS0004 S02; pinned technique definition AML.T0016.001.
+      evidence: AML.CS0004 S03; pinned technique definition AML.T0016.001.
     - step: evade_biometric_auth
       id: AML.T0015
       operational_identity_rationale: Presenting the deepfake to pass biometric verification is the AI-model-evasion
@@ -4218,10 +4283,12 @@ sources:
       evidence: AML.CS0036 memory-persistence behavior; pinned technique definition AML.T0080.000.
     atlas_step_mappings:
     - step: extract_long_lived_tokens
-      id: AML.T0055
-      operational_identity_rationale: Harvesting long-lived tokens from the host's credential stores is
-        obtaining insecurely stored credentials.
-      evidence: AML.CS0036 S01-S02; pinned technique definition AML.T0055.
+      id: AML.T0090
+      operational_identity_rationale: Reading the LLM desktop application's process memory to extract
+        its long-lived authentication token is OS credential dumping from application/process memory,
+        AML.T0090's exact defined operation; the token's longevity is a property of the stolen credential,
+        not of the extraction mechanism.
+      evidence: AML.CS0036 S02; pinned technique definition AML.T0090.
     - step: poison_session_context
       id: AML.T0080.001
       operational_identity_rationale: Persisting malicious instructions into the active session thread

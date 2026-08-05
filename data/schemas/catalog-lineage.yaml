@@ -34,6 +34,7 @@ required:
   - schema_version
   - release
   - taxonomy_context
+  - source_catalog_context
   - disposition_vocabulary
   - overlap_groups
   - sources
@@ -82,6 +83,41 @@ properties:
         type: string
         pattern: '^[0-9a-f]{64}$'
         description: Production mapping-set digest from the taxonomy resolver.
+  source_catalog_context:
+    type: object
+    additionalProperties: false
+    required: [canonicalization, file_manifest, record_count, digest]
+    properties:
+      canonicalization:
+        const: "scenario-forge:attack-pattern-records:v1"
+        description: >-
+          Canonical profile version for record normalization (NFC strings,
+          sorted object keys, order-preserving arrays).
+      file_manifest:
+        type: array
+        minItems: 6
+        maxItems: 6
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/source_file'
+        description: Expected attack-pattern source files, sorted.
+      record_count:
+        type: integer
+        minimum: 1
+        description: Expected number of production loader records (71 for v1).
+      digest:
+        type: string
+        pattern: '^[0-9a-f]{64}$'
+        description: >-
+          SHA-256 content pin over the canonicalized production loader
+          records framed per declaring file; recomputed and compared during
+          validation so same-count source edits are detected.  Pins
+          loader-record content, not source YAML bytes.
+    description: >-
+      Deterministic content pin for the exact legacy source catalogs the
+      decisions were made against.  Recomputed from the supplied production
+      records and ownership during validation; included in the release
+      semantic digest.
   disposition_vocabulary:
     type: object
     additionalProperties: false

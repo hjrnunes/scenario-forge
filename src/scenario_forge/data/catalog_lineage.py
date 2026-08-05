@@ -11,10 +11,21 @@ semantic gates in :func:`validate_catalog_lineage`:
 - exactly the production catalog IDs appear as sources, once each;
 - source-entry facts (file, threat, evidence, kill-chain counts) match the
   production loader;
+- the source-catalog content pin (:func:`compute_source_catalog_digest`)
+  binds the exact canonicalized production loader records, so same-count
+  edits to descriptions, evidence sources, or kill-chain actions/techniques
+  are detected;
 - taxonomy pins match the production resolver (ATLAS-only; LAAF absent);
 - every proposed exact ATLAS id exists in the production resolver — with the
   schema requiring nonblank operational-identity rationale and evidence so
   membership alone is never semantic approval;
+- every ``AML.CSxxxx Snn`` case-step citation in a mapping's evidence is
+  checked against the pinned ATLAS case-study relationships: the cited case
+  and steps must exist, and an unhedged citation (no ``analogue`` /
+  ``adapted`` / ``retag`` marker in its evidence segment) must cite at least
+  one step whose pinned ``employs`` relationship assigns exactly the mapped
+  technique.  Deliberate definition-level divergences must be explicitly
+  marked and explained instead of asserting source assignment;
 - disposition/resulting invariants: retired and deferred sources carry no
   resulting record; resulting ids are unique and collision-free against the
   existing catalog unless they continue their own source id; split sources
@@ -26,13 +37,21 @@ deterministic semantic digest: every string is NFC-normalized, object keys
 are emitted in sorted order, and every array is framed as a sorted set, so
 the digest is insensitive to key order and array order but sensitive to any
 content change.  Only ``release.semantic_digest`` itself is excluded.
+
+The source-catalog pin is a separate deterministic digest over the
+canonicalized production attack-pattern loader records (NFC-normalized
+strings, sorted object keys, order-preserving arrays because kill-chain
+order is semantic), framed per declaring file under a versioned domain.  It
+pins loader-record content, not source YAML bytes.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unicodedata
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -49,11 +68,27 @@ _DEFAULT_LINEAGE_PATH = (
 _DEFAULT_SCHEMA_PATH = (
     Path(__file__).resolve().parents[3] / "data" / "schemas" / "catalog-lineage.yaml"
 )
+# Pinned ATLAS source; kept in sync with taxonomy_pins._DEFAULT_ATLAS_PATH.
+_DEFAULT_ATLAS_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "taxonomies"
+    / "atlas"
+    / "ATLAS-2026.05.yaml"
+)
 _LINEAGE_DOMAIN = "scenario-forge:catalog-lineage:v1"
+_SOURCE_CATALOG_DOMAIN = "scenario-forge:attack-pattern-catalog:v1"
+SOURCE_CATALOG_CANONICALIZATION = "scenario-forge:attack-pattern-records:v1"
 
 _FINAL_DISPOSITIONS = frozenset(
     {"retain", "narrow", "split", "supersede", "retire", "defer"}
 )
+
+# Markers that make a case-step citation hedged: the mapping deliberately
+# diverges from the pinned relationship and says so in the evidence segment.
+_HEDGE_TOKENS = ("analogue", "adapted", "retag")
+_CASE_STEP_RE = re.compile(r"AML\.(CS\d{4})\s+((?:S\d{2})(?:\s*[-/,]\s*S?\d{2})*)")
+_STEP_NUMBER_RE = re.compile(r"\d{2}")
 
 
 def load_catalog_lineage(path: str | Path | None = None) -> dict[str, Any]:
@@ -132,6 +167,176 @@ def compute_catalog_lineage_digest(artifact: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _normalize_record(value: Any) -> Any:
+    """Canonicalize a loader record for the source-catalog pin.
+
+    Unlike the lineage digest normalization, array order is preserved:
+    kill-chain step order is semantic.  Object key order is normalized away
+    by the canonical-JSON sort; strings are NFC-normalized; non-JSON scalar
+    values (for example YAML dates) are stringified deterministically.
+    """
+    if isinstance(value, dict):
+        return {str(k): _normalize_record(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_record(item) for item in value]
+    if isinstance(value, str):
+        return _nfc(value)
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    return str(value)
+
+
+def compute_source_catalog_digest(
+    patterns: Mapping[str, Mapping[str, Any]],
+    owners: Mapping[str, str],
+    manifest: list[str],
+) -> str:
+    """Deterministic content pin over the production source catalog records.
+
+    ``patterns`` is the production catalog from
+    :func:`scenario_forge.data.loaders.load_attack_patterns`; ``owners``
+    maps every catalog id to its declaring attack-patterns file;
+    ``manifest`` is the expected ordered file list.  Each record is framed
+    with its id under its declaring file so reassignment, deletion, or any
+    same-count content edit (description, evidence source, kill-chain
+    action or technique) changes the digest.
+    """
+    unowned = sorted(set(patterns) - set(owners))
+    if unowned:
+        raise ValueError(f"source catalog ids without a declaring file: {unowned}")
+    undeclared = sorted(set(owners.values()) - set(manifest))
+    if undeclared:
+        raise ValueError(f"owners reference files outside the manifest: {undeclared}")
+    files = []
+    for filename in manifest:
+        records = sorted(
+            (
+                pid,
+                _canonical_json(_normalize_record(patterns[pid])),
+            )
+            for pid, owner in owners.items()
+            if owner == filename
+        )
+        files.append(
+            {
+                "file": filename,
+                "records": [[pid, blob] for pid, blob in records],
+            }
+        )
+    framed = {
+        "canonicalization": SOURCE_CATALOG_CANONICALIZATION,
+        "files": files,
+    }
+    payload = (
+        _SOURCE_CATALOG_DOMAIN.encode()
+        + b"\0"
+        + _canonical_json(framed).encode("utf-8")
+    )
+    return hashlib.sha256(payload).hexdigest()
+
+
+def load_atlas_case_step_index(
+    path: str | Path | None = None,
+) -> dict[str, dict[str, frozenset[str]]]:
+    """Pinned ATLAS case-step index: case id -> step id -> employed techniques.
+
+    Drawn from the ``employs`` relationships of the pinned ATLAS source.
+    Case studies remain provenance, never mapping authority; this index
+    exists so citations of them can be checked for semantic consistency.
+    """
+    atlas_path = Path(path) if path is not None else _DEFAULT_ATLAS_PATH
+    with open(atlas_path) as f:
+        data = yaml.safe_load(f)
+    index: dict[str, dict[str, frozenset[str]]] = {}
+    for case_id, bundle in (data.get("relationships") or {}).items():
+        if not isinstance(case_id, str) or not case_id.startswith("AML.CS"):
+            continue
+        steps: dict[str, set[str]] = {}
+        for employs in (bundle or {}).get("employs") or []:
+            step_id = employs.get("step-id")
+            target = employs.get("target")
+            if isinstance(step_id, str) and isinstance(target, str):
+                steps.setdefault(step_id, set()).add(target)
+        if steps:
+            index[case_id] = {sid: frozenset(t) for sid, t in steps.items()}
+    return index
+
+
+def _parse_step_expr(expr: str) -> list[str]:
+    """Expand a citation step expression like ``S01``, ``S01/S04``, ``S05-S09``."""
+    steps: list[str] = []
+    for part in re.split(r"\s*[/,]\s*", expr):
+        lo, dash, hi = part.partition("-")
+        if dash:
+            bounds = _STEP_NUMBER_RE.findall(lo + hi)
+            if len(bounds) != 2:
+                raise ValueError(f"unparseable case-step range {part!r}")
+            start, end = int(bounds[0]), int(bounds[1])
+            steps.extend(f"S{n:02d}" for n in range(start, end + 1))
+        else:
+            (number,) = _STEP_NUMBER_RE.findall(part)
+            steps.append(f"S{int(number):02d}")
+    return steps
+
+
+def _mapping_citation_errors(
+    record_id: str,
+    mapping_id: str,
+    evidence: str,
+    case_steps: Mapping[str, Mapping[str, frozenset[str]]],
+) -> list[str]:
+    """Check every ``AML.CSxxxx Snn`` citation in one mapping's evidence.
+
+    The evidence string is split into ``;``-separated segments; a segment
+    carrying a hedge token (``analogue``/``adapted``/``retag``) declares a
+    deliberate definition-level divergence and is exempt from the
+    assignment check.  Every citation — hedged or not — must reference a
+    case and steps that exist in the pinned ATLAS relationships; an
+    unhedged citation must cite at least one step whose pinned ``employs``
+    relationship assigns exactly the mapped technique.
+    """
+    errors: list[str] = []
+    for segment in evidence.split(";"):
+        citations = list(_CASE_STEP_RE.finditer(segment))
+        if not citations:
+            continue
+        hedged = any(token in segment.lower() for token in _HEDGE_TOKENS)
+        for match in citations:
+            case_id, step_expr = f"AML.{match.group(1)}", match.group(2)
+            label = f"{case_id} {step_expr}"
+            if case_id not in case_steps:
+                errors.append(
+                    f"{record_id} mapping {mapping_id}: cited case {case_id} "
+                    "is absent from the pinned ATLAS relationships"
+                )
+                continue
+            try:
+                steps = _parse_step_expr(step_expr)
+            except ValueError as exc:
+                errors.append(f"{record_id} mapping {mapping_id}: {exc}")
+                continue
+            unknown = [s for s in steps if s not in case_steps[case_id]]
+            if unknown:
+                errors.append(
+                    f"{record_id} mapping {mapping_id}: citation {label} "
+                    f"references steps {unknown} absent from {case_id} in the "
+                    "pinned ATLAS relationships"
+                )
+                continue
+            if hedged:
+                continue
+            if not any(mapping_id in case_steps[case_id][s] for s in steps):
+                employed = sorted({t for s in steps for t in case_steps[case_id][s]})
+                errors.append(
+                    f"{record_id} mapping {mapping_id}: unhedged citation "
+                    f"{label} asserts source assignment, but the pinned "
+                    f"relationships there employ {employed}, not "
+                    f"{mapping_id}; correct the citation or explicitly mark "
+                    "the deliberate divergence as analogue/adapted/retag"
+                )
+    return errors
+
+
 def _split_pattern_id(pattern_id: str) -> tuple[str, int]:
     """Split ``AP-T<fam>-<NN>`` into its threat family and sequence number."""
     fam, _, nn = pattern_id.removeprefix("AP-T").partition("-")
@@ -149,6 +354,7 @@ def validate_catalog_lineage(
     *,
     patterns: dict[str, dict],
     resolver: Any,
+    case_steps: Mapping[str, Mapping[str, frozenset[str]]],
     schema: dict[str, Any] | None = None,
     owners: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -157,14 +363,22 @@ def validate_catalog_lineage(
     ``patterns`` is the production catalog from
     :func:`scenario_forge.data.loaders.load_attack_patterns`; ``resolver``
     implements the production ``TaxonomyResolver`` protocol
-    (``taxonomy_context`` + ``contains``).  ``owners`` maps every catalog id
-    to the attack-patterns file that declares it (per-file loader glob); when
-    given, source-file ownership of both source entries and resulting records
-    is enforced.  Returns the artifact on success; raises ``ValueError`` (or
-    ``jsonschema.ValidationError``) on any breach.
+    (``taxonomy_context`` + ``contains``).  ``case_steps`` is the pinned
+    ATLAS case-step index from :func:`load_atlas_case_step_index`, required
+    for the mapping-citation gate.  ``owners`` maps every catalog id to the
+    attack-patterns file that declares it (per-file loader glob); it is
+    required because the source-catalog content pin is verified against the
+    supplied production records and ownership.  Returns the artifact on
+    success; raises ``ValueError`` (or ``jsonschema.ValidationError``) on
+    any breach.
     """
     schema = schema if schema is not None else load_catalog_lineage_schema()
     Draft202012Validator(schema).validate(artifact)
+    if owners is None:
+        raise ValueError(
+            "catalog lineage validation requires source-file owners so the "
+            "source-catalog content pin can be verified"
+        )
 
     # Taxonomy pins must match the production resolver exactly.
     context = artifact["taxonomy_context"]
@@ -179,6 +393,33 @@ def validate_catalog_lineage(
     ):
         raise ValueError(
             "catalog lineage taxonomy pins do not match the production resolver"
+        )
+
+    # The source-catalog content pin binds the exact canonicalized loader
+    # records, not merely ids and counts.
+    pin = artifact["source_catalog_context"]
+    if pin["canonicalization"] != SOURCE_CATALOG_CANONICALIZATION:
+        raise ValueError(
+            "catalog lineage source catalog canonicalization "
+            f"{pin['canonicalization']!r} is not {SOURCE_CATALOG_CANONICALIZATION!r}"
+        )
+    manifest = pin["file_manifest"]
+    actual_files = sorted({owners[pid] for pid in patterns})
+    if sorted(manifest) != actual_files:
+        raise ValueError(
+            f"catalog lineage source catalog manifest {sorted(manifest)} does "
+            f"not match the production declaring files {actual_files}"
+        )
+    if pin["record_count"] != len(patterns):
+        raise ValueError(
+            f"catalog lineage source catalog record_count {pin['record_count']} "
+            f"does not match the production catalog size {len(patterns)}"
+        )
+    recomputed_pin = compute_source_catalog_digest(patterns, owners, manifest)
+    if pin["digest"] != recomputed_pin:
+        raise ValueError(
+            "catalog lineage source catalog digest mismatch: recorded "
+            f"{pin['digest']} != recomputed {recomputed_pin}"
         )
 
     # The disposition vocabulary keys are exactly the closed disposition enum.
@@ -271,9 +512,11 @@ def validate_catalog_lineage(
             )
 
     # Resulting records: uniqueness, collision-freedom, disposition rules,
-    # and resolver membership for every proposed exact ATLAS id.
+    # resolver membership for every proposed exact ATLAS id, and pinned
+    # case-step citation consistency for every mapping.
     catalog_ids = set(patterns)
     resulting_ids: list[str] = []
+    citation_errors: list[str] = []
     for entry in sources:
         pid = entry["source_pattern_id"]
         disposition = entry["disposition"]
@@ -312,9 +555,22 @@ def validate_catalog_lineage(
                     raise ValueError(
                         f"resulting id {rid} proposes unknown ATLAS id {atlas_id}"
                     )
+            for mapping in (
+                record["atlas_chain_mappings"] + record["atlas_step_mappings"]
+            ):
+                citation_errors.extend(
+                    _mapping_citation_errors(
+                        rid, mapping["id"], mapping["evidence"], case_steps
+                    )
+                )
             resulting_ids.append(rid)
     if len(set(resulting_ids)) != len(resulting_ids):
         raise ValueError("duplicate resulting pattern id across catalog lineage")
+    if citation_errors:
+        raise ValueError(
+            "catalog lineage case-step citation inconsistencies:\n  - "
+            + "\n  - ".join(citation_errors)
+        )
 
     # Split-derived ids must follow the deterministic naming strategy: split
     # sources are processed in ascending source id order; the first resulting
