@@ -17,7 +17,10 @@ claim is made here.
 
 from __future__ import annotations
 
+import copy
 from collections import Counter
+
+import pytest
 
 from scenario_forge.data.catalog_lineage import load_catalog_lineage
 from scenario_forge.data.loaders import load_attack_patterns
@@ -26,6 +29,15 @@ from scenario_forge.models.attack_pattern import (
     compute_chain_semantic_digest,
     validate_attack_pattern,
 )
+
+
+def _deep_copy_with_duplicate(artifact: dict, record: dict) -> dict:
+    """Return a deep copy of *artifact* with *record* appended as a duplicate
+    to the first source's ``resulting_patterns`` list."""
+    patched = copy.deepcopy(artifact)
+    patched["sources"][0]["resulting_patterns"].append(copy.deepcopy(record))
+    return patched
+
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -68,6 +80,18 @@ def test_live_ids_equal_lineage_resulting_ids() -> None:
     assert set(live.keys()) == set(resulting.keys())
 
 
+def _assert_resulting_count_and_uniqueness(raw: list[dict]) -> None:
+    """Assert that a raw resulting-record list has exactly 49 records with
+    49 unique pattern IDs.
+
+    Factored out so adversarial tests can call it against patched data
+    to prove duplicates are *rejected* by the actual validation path.
+    """
+    raw_ids = [r["pattern_id"] for r in raw]
+    assert len(raw_ids) == 49
+    assert len(set(raw_ids)) == 49
+
+
 def test_resulting_count_is_49_and_unique() -> None:
     """The lineage artifact produces exactly 49 raw resulting records with
     49 unique pattern IDs.
@@ -76,10 +100,7 @@ def test_resulting_count_is_49_and_unique() -> None:
     ``pattern_id`` would be caught as a count mismatch (raw count > unique
     count), not silently collapsed by dict construction.
     """
-    raw = _lineage_resulting_raw()
-    raw_ids = [r["pattern_id"] for r in raw]
-    assert len(raw_ids) == 49
-    assert len(set(raw_ids)) == 49
+    _assert_resulting_count_and_uniqueness(_lineage_resulting_raw())
 
 
 def test_live_count_is_49_and_unique() -> None:
@@ -404,20 +425,43 @@ class TestLineageStepMappingsPreservesAllRows:
 
 class TestLineageResultingRawDetectsDuplicates:
     """Prove that ``_lineage_resulting_raw`` returns a raw list (not a dict)
-    so that duplicate ``pattern_id`` values are detectable."""
+    so that duplicate ``pattern_id`` values are detectable, and that the
+    real validation helper rejects them."""
 
-    def test_raw_list_count_detects_duplicate(self) -> None:
-        """If the lineage artifact contained a duplicate resulting pattern_id,
-        the raw count would exceed the unique count."""
-        # Simulate: two records with the same pattern_id
-        raw = [
-            {"pattern_id": "AP-T1-01"},
-            {"pattern_id": "AP-T1-01"},
-        ]
-        raw_ids = [r["pattern_id"] for r in raw]
-        assert len(raw_ids) == 2
-        assert len(set(raw_ids)) == 1
-        # The count-==-unique assertion would fail here:
-        assert len(raw_ids) != len(set(raw_ids)), (
-            "duplicate must be detectable as raw count != unique count"
+    def test_raw_preserves_duplicate_pattern_ids(self, monkeypatch) -> None:
+        """``_lineage_resulting_raw`` must return a raw list that preserves
+        duplicate ``pattern_id`` values rather than silently collapsing them
+        into a dict."""
+        real_artifact = load_catalog_lineage()
+        real_raw = _lineage_resulting_raw()
+        # Sanity: the real artifact has 49 unique
+        assert len(real_raw) == 49
+
+        # Build a patched artifact with a duplicate resulting record
+        patched = _deep_copy_with_duplicate(real_artifact, real_raw[0])
+        monkeypatch.setattr(
+            "tests.test_catalog_lineage_integration.load_catalog_lineage",
+            lambda: patched,
         )
+
+        raw = _lineage_resulting_raw()
+        raw_ids = [r["pattern_id"] for r in raw]
+        # The duplicate survives — raw count > unique count
+        assert len(raw_ids) == 50
+        assert len(set(raw_ids)) == 49
+
+    def test_validation_rejects_duplicate_pattern_ids(self, monkeypatch) -> None:
+        """The real ``_assert_resulting_count_and_uniqueness`` helper must
+        reject a patched artifact with a duplicate ``pattern_id``."""
+        real_artifact = load_catalog_lineage()
+        real_raw = _lineage_resulting_raw()
+
+        patched = _deep_copy_with_duplicate(real_artifact, real_raw[0])
+        monkeypatch.setattr(
+            "tests.test_catalog_lineage_integration.load_catalog_lineage",
+            lambda: patched,
+        )
+
+        raw = _lineage_resulting_raw()
+        with pytest.raises(AssertionError):
+            _assert_resulting_count_and_uniqueness(raw)
