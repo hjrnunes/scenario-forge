@@ -1,0 +1,457 @@
+# Catalog Lineage Schema — v1
+#
+# Closed JSON Schema (Draft 2020-12, expressed as YAML) for the authoritative
+# catalog-lineage decision artifact at
+# data/taxonomies/attack-patterns/catalog-lineage.yaml.
+#
+# The artifact records, for every one of the 71 legacy attack-pattern source
+# records, exactly one final lineage decision: a closed-vocabulary disposition,
+# evidence-grounded rationale, overlap-group resolution, and zero or more
+# resulting authoritative pattern records that later chain-authoring waves must
+# implement.  Retired and deferred sources carry no resulting record and must
+# state their deficiency and re-entry conditions.
+#
+# Authority model:
+#   - ATLAS is the sole authoritative external taxonomy for v1.  Every
+#     proposed exact mapping is checked against the production resolver
+#     (membership) and must carry a nonblank operational-identity rationale
+#     plus an evidence citation (semantic gate).
+#   - LAAF is absent for v1: taxonomy_context.laaf must be null.  Legacy LAAF
+#     strings and every SSSOM skos:relatedMatch row are migration provenance
+#     only and live exclusively under provenance blocks, never in mapping
+#     fields.
+#
+# Digest: release.semantic_digest is the deterministic semantic digest over
+# the artifact's normalized content (NFC, order-insensitive, excluding only
+# the digest field itself); see
+# scenario_forge.data.catalog_lineage.compute_catalog_lineage_digest.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: CatalogLineage
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - release
+  - taxonomy_context
+  - source_catalog_context
+  - disposition_vocabulary
+  - overlap_groups
+  - sources
+properties:
+  schema_version:
+    const: "1"
+    description: Artifact contract version.  "1" is the initial closed contract.
+  release:
+    type: object
+    additionalProperties: false
+    required: [version, semantic_digest]
+    properties:
+      version:
+        type: string
+        pattern: '^\d+\.\d+\.\d+$'
+        description: Semantic version of this lineage release.
+      semantic_digest:
+        type: string
+        pattern: '^[0-9a-f]{64}$'
+        description: >-
+          SHA-256 over normalized artifact content (NFC, order-insensitive,
+          excluding only this field).  Recomputed and golden-asserted by tests.
+      description:
+        type: string
+        minLength: 1
+  taxonomy_context:
+    type: object
+    additionalProperties: false
+    required: [atlas, laaf, mapping_set_digest]
+    properties:
+      atlas:
+        type: object
+        additionalProperties: false
+        required: [release, digest]
+        properties:
+          release:
+            type: string
+            minLength: 1
+          digest:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      laaf:
+        type: 'null'
+        description: LAAF is absent (non-authoritative) for v1; must be null.
+      mapping_set_digest:
+        type: string
+        pattern: '^[0-9a-f]{64}$'
+        description: Production mapping-set digest from the taxonomy resolver.
+  source_catalog_context:
+    type: object
+    additionalProperties: false
+    required: [source_git_revision, canonicalization, file_manifest, record_count, digest]
+    properties:
+      source_git_revision:
+        type: string
+        pattern: '^[0-9a-f]{40}$'
+        description: >-
+          Authoritative git revision of the original attack-pattern catalog
+          the decisions were made against.  The content pin commits this
+          exact historical baseline; the live catalog is expected to
+          migrate in later authoring waves, and normal artifact validation
+          does not consult it.
+      canonicalization:
+        const: "scenario-forge:attack-pattern-records:v1"
+        description: >-
+          Canonical profile version for record normalization (NFC strings,
+          sorted object keys, order-preserving arrays).
+      file_manifest:
+        type: array
+        minItems: 6
+        maxItems: 6
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/source_file'
+        description: Expected attack-pattern source files, sorted.
+      record_count:
+        type: integer
+        minimum: 1
+        description: Expected number of production loader records (71 for v1).
+      digest:
+        type: string
+        pattern: '^[0-9a-f]{64}$'
+        description: >-
+          SHA-256 content pin over the canonicalized production loader
+          records framed per declaring file; recomputed and compared during
+          validation so same-count source edits are detected.  Pins
+          loader-record content, not source YAML bytes.
+    description: >-
+      Deterministic content pin for the exact legacy source catalogs the
+      decisions were made against.  Recomputed from the supplied production
+      records and ownership during validation; included in the release
+      semantic digest.
+  disposition_vocabulary:
+    type: object
+    additionalProperties: false
+    required: [retain, narrow, split, supersede, retire, defer]
+    properties:
+      retain:
+        type: string
+        minLength: 1
+      narrow:
+        type: string
+        minLength: 1
+      split:
+        type: string
+        minLength: 1
+      supersede:
+        type: string
+        minLength: 1
+      retire:
+        type: string
+        minLength: 1
+      defer:
+        type: string
+        minLength: 1
+    description: >-
+      Documents the closed disposition vocabulary.  The set of keys is exactly
+      the enum admitted by sources[].disposition.
+  overlap_groups:
+    type: array
+    items:
+      $ref: '#/$defs/overlap_group'
+  sources:
+    type: array
+    minItems: 71
+    maxItems: 71
+    items:
+      $ref: '#/$defs/source_entry'
+
+$defs:
+  atlas_id:
+    type: string
+    pattern: '^AML\.TA?\d+(\.\d+)?$'
+    description: ATLAS tactic (AML.TAnnnn) or technique (AML.Tnnnn[.nnn]) id.
+
+  pattern_id:
+    type: string
+    pattern: '^AP-T\d+-\d{2}$'
+    description: >-
+      Catalog pattern id.  Split-derived records take the lowest unused NN in
+      the source threat family across the merged catalog, allocated in
+      mechanism order, and stay owned by the source file; the strategy is
+      deterministic and collision-free against the 71 existing ids.
+
+  source_file:
+    type: string
+    enum:
+      - attack-patterns.yaml
+      - attack-patterns-agentic-only.yaml
+      - attack-patterns-atlas-derived.yaml
+      - attack-patterns-comms-human-supply.yaml
+      - attack-patterns-halluc-intent.yaml
+      - attack-patterns-memory-tool.yaml
+
+  mapping:
+    type: object
+    additionalProperties: false
+    required: [id, operational_identity_rationale, evidence]
+    properties:
+      id:
+        $ref: '#/$defs/atlas_id'
+      operational_identity_rationale:
+        type: string
+        minLength: 1
+        description: >-
+          Why the pinned ATLAS definition is operationally identical to the
+          mapped mechanism (not category overlap).  Nonblank so that resolver
+          membership alone is never treated as semantic approval.
+      evidence:
+        type: string
+        minLength: 1
+        description: >-
+          Evidence citation supporting the identity judgment (case-study
+          procedure step, pinned technique definition, and/or staging doc).
+
+  step_mapping:
+    type: object
+    additionalProperties: false
+    required: [step, id, operational_identity_rationale, evidence]
+    properties:
+      step:
+        type: string
+        minLength: 1
+        description: >-
+          Planned attacker-controlled step of the future canonical chain this
+          mapping applies to (legacy step name where one survives).
+      id:
+        $ref: '#/$defs/atlas_id'
+      operational_identity_rationale:
+        type: string
+        minLength: 1
+      evidence:
+        type: string
+        minLength: 1
+
+  resource_slot:
+    type: object
+    additionalProperties: false
+    required: [slot_id, kind, purpose]
+    properties:
+      slot_id:
+        type: string
+        minLength: 1
+      kind:
+        enum: [entry_point, tool, integration, trust_boundary]
+      purpose:
+        enum: [initial_ingress, intermediate, target, supporting]
+    description: >-
+      Planned resource slot using the canonical chain's kind/purpose
+      vocabulary (scenario_forge.models.attack_pattern.ResourceSlot).
+
+  resulting_pattern:
+    type: object
+    additionalProperties: false
+    required:
+      - pattern_id
+      - source_file
+      - mechanism_boundary
+      - start_semantics
+      - terminal_semantics
+      - resource_slot_plan
+      - provenance_plan
+      - atlas_chain_mappings
+      - atlas_step_mappings
+    properties:
+      pattern_id:
+        $ref: '#/$defs/pattern_id'
+      source_file:
+        $ref: '#/$defs/source_file'
+        description: Owning file for the later authoring wave.
+      mechanism_boundary:
+        type: string
+        minLength: 1
+        description: >-
+          The single operational mechanism this record owns, including the
+          boundary against overlapping records.  No alternatives/OR.
+      start_semantics:
+        type: string
+        minLength: 1
+        description: >-
+          Earliest causally necessary attacker-controlled action that starts
+          the branch-free total-order chain.
+      terminal_semantics:
+        type: string
+        minLength: 1
+        description: >-
+          First observable security-relevant outcome completing the mechanism.
+      resource_slot_plan:
+        type: array
+        minItems: 1
+        items:
+          $ref: '#/$defs/resource_slot'
+      provenance_plan:
+        type: string
+        minLength: 1
+        description: >-
+          Planned provenance tiers (observed/variant/inferred/designed) and
+          confidence honesty for the future chain, including corrections the
+          authoring wave must apply.
+      atlas_chain_mappings:
+        type: array
+        minItems: 1
+        items:
+          $ref: '#/$defs/mapping'
+        description: Proposed exact ATLAS chain-scope mappings (at least one).
+      atlas_step_mappings:
+        type: array
+        minItems: 1
+        items:
+          $ref: '#/$defs/step_mapping'
+        description: >-
+          Proposed exact ATLAS mappings for attacker-controlled steps
+          (at least one).
+
+  provenance:
+    type: object
+    additionalProperties: false
+    properties:
+      case_studies:
+        type: array
+        items:
+          type: string
+          pattern: '^AML\.CS\d{4}$'
+      sssom_atlas_candidates:
+        type: array
+        items:
+          $ref: '#/$defs/atlas_id'
+      sssom_laaf_hints:
+        type: array
+        items:
+          type: string
+          minLength: 1
+      staging:
+        type: array
+        items:
+          type: string
+          minLength: 1
+    description: >-
+      Migration provenance only: evidence records, SSSOM skos:relatedMatch
+      candidates, LAAF hint strings, and staging documents consulted.  Nothing
+      here confers mapping authority.
+
+  overlap_group:
+    type: object
+    additionalProperties: false
+    required: [group_id, members, resolution]
+    properties:
+      group_id:
+        type: string
+        pattern: '^OG-\d{2}$'
+      members:
+        type: array
+        minItems: 2
+        uniqueItems: true
+        items:
+          $ref: '#/$defs/pattern_id'
+      resolution:
+        type: string
+        minLength: 1
+        description: >-
+          One explicit resolution covering every member (ownership boundary,
+          merge, or re-entry boundary for deferred members).
+
+  source_entry:
+    type: object
+    additionalProperties: false
+    required:
+      - source_pattern_id
+      - source_file
+      - threat_id
+      - evidence_tier
+      - evidence_count
+      - legacy_kill_chain_steps
+      - disposition
+      - rationale
+      - provenance
+      - overlap_group
+      - resulting_patterns
+    properties:
+      source_pattern_id:
+        $ref: '#/$defs/pattern_id'
+      source_file:
+        $ref: '#/$defs/source_file'
+      threat_id:
+        type: string
+        pattern: '^T\d+$'
+      evidence_tier:
+        enum: [direct_demonstration, enrichment, kill_chain_only, none]
+        description: >-
+          Mutually exclusive evidence tier: direct_demonstration (A),
+          enrichment-only (B), legacy kill chain without evidence (C),
+          neither (D).
+      evidence_count:
+        type: integer
+        minimum: 0
+      legacy_kill_chain_steps:
+        type: integer
+        minimum: 0
+      disposition:
+        enum: [retain, narrow, split, supersede, retire, defer]
+      rationale:
+        type: string
+        minLength: 1
+        description: Final decision rationale with evidence/provenance citations.
+      provenance:
+        $ref: '#/$defs/provenance'
+      overlap_group:
+        type: [string, 'null']
+        pattern: '^OG-\d{2}$'
+      resulting_patterns:
+        type: array
+        items:
+          $ref: '#/$defs/resulting_pattern'
+      deficiency:
+        type: string
+        minLength: 1
+        description: >-
+          Required for retire/defer: the evidence/mapping deficiency that bars
+          a qualifying resulting record.
+      reentry_conditions:
+        type: string
+        minLength: 1
+        description: >-
+          Required for retire/defer: precise conditions under which a pattern
+          proposal may re-enter the catalog.
+    allOf:
+      - if:
+          properties:
+            disposition:
+              enum: [retire, defer]
+        then:
+          required: [deficiency, reentry_conditions]
+          properties:
+            resulting_patterns:
+              maxItems: 0
+      - if:
+          properties:
+            disposition:
+              enum: [retain, narrow]
+        then:
+          properties:
+            resulting_patterns:
+              minItems: 1
+              maxItems: 1
+      - if:
+          properties:
+            disposition:
+              const: split
+        then:
+          properties:
+            resulting_patterns:
+              minItems: 2
+      - if:
+          properties:
+            disposition:
+              const: supersede
+        then:
+          properties:
+            resulting_patterns:
+              minItems: 1
