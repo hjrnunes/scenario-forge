@@ -1,450 +1,1501 @@
-# Abstract attack patterns for scenario-forge (Batch C: T12/T15/T17).
-# Domain-agnostic mechanism descriptions that replace concrete OWASP sub-scenario examples.
-# Each pattern is derived from an OWASP sub-scenario but strips domain-specific details,
-# describing the attack mechanism rather than a specific target application.
+# Canonical attack patterns for scenario-forge (Batch C: T12/T15/T17), v1.
+#
+# Migrated under bead scenario-forge-422o.2.8 from the legacy kill-chain
+# catalog into the authoritative canonical-chain contract
+# (scenario_forge.models.attack_pattern.AttackPattern) per the merged
+# catalog-lineage.yaml dispositions for this file's nine historical sources:
+#   retain: AP-T15-01, AP-T17-01
+#   narrow: AP-T12-01, AP-T12-03, AP-T15-02
+#   defer:  AP-T12-02, AP-T12-04, AP-T12-05 (not live; re-entry conditions in
+#           catalog-lineage.yaml)
+#   retire: AP-T17-02 (no successor; not reconstructed)
+# AP-T15-02 carries the approved CS0055 directionality correction
+# (agent-as-victim, not agent-as-social-engineer; grounded in AML.CS0020) and
+# AP-T17-01 preserves the evidence-backed persistence step (AML.CS0041 S04).
+#
+# ATLAS is the sole v1 taxonomy authority (LAAF absent). Every chain embeds
+# the production taxonomy pins and a semantic digest computed with
+# compute_chain_semantic_digest; each record is one pure branch-free
+# total-order chain (all steps required, no conditions). SSSOM
+# skos:relatedMatch rows remain unqualified migration provenance and never
+# confer exact mappings.
 
 source:
-  name: "scenario-forge abstract attack patterns"
-  version: "0.1.0"
+  name: scenario-forge canonical attack patterns
+  version: 1.0.0
   derived_from:
-    - "OWASP Agentic AI Threats & Mitigations v1.1"
-    - "NIST AI 100-2e2023"
-
+  - catalog-lineage.yaml (final authoritative dispositions, release 1.0.0)
+  - MITRE ATLAS 2026.05 (pinned; sole v1 authority)
+  - OWASP Agentic AI Threats & Mitigations v1.1 (legacy catalog origin)
 patterns:
   AP-T12-01:
-    id: "AP-T12-01"
-    threat_id: "T12"
-    name: "Collaborative decision manipulation via inter-agent message injection"
-    description: >
-      An attacker injects crafted messages into inter-agent communication channels,
-      introducing misleading data that gradually shifts the collective decision-making
-      of a multi-agent system. Because each agent treats incoming peer messages as
-      trusted input, the injected content compounds through successive reasoning steps,
-      steering the group toward attacker-chosen objectives without triggering anomaly
-      detection on any single message.
+    id: AP-T12-01
+    threat_id: T12
+    name: Collaborative decision manipulation via inter-agent message injection
+    description: An attacker injects crafted messages into inter-agent communication channels, introducing misleading data
+      that gradually shifts the collective decision-making of a multi-agent system. Because each agent treats incoming peer
+      messages as trusted input, the injected content compounds through successive reasoning steps, steering the group toward
+      attacker-chosen objectives without triggering anomaly detection on any single message.
     nist_classification:
-      attacker_goal: "integrity"
-      attacker_knowledge: "gray_box"
-      learning_stage: "deployment"
-      attack_class: "poisoning.backdoor_poisoning"
+      attacker_goal: integrity
+      attacker_knowledge: gray_box
+      learning_stage: deployment
+      attack_class: poisoning.backdoor_poisoning
     prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "inter_agent"]
+      min_zones:
+      - input
+      - reasoning
+      - inter_agent
       kc_requires:
-        all: [KCX-MAGENT]
-        any: [KC2.3]
-    kill_chain:
-      - step: access_shared_channel
-        tactic: AML.TA0000
-        techniques: [AML.T0040, AML.T0047]
-        abstract_action: >
-          Access the shared communication channel or RAG system
-          used by multiple agents.
-      - step: craft_injection_payload
-        tactic: AML.TA0003
-        techniques: [AML.T0065, AML.T0066]
-        abstract_action: >
-          Craft messages containing prompt injections designed to
-          shift collective decision-making when consumed by peer
-          agents.
-      - step: inject_messages
-        tactic: AML.TA0005
-        techniques: [AML.T0051.001]
-        abstract_action: >
-          Inject the crafted messages into the inter-agent
-          communication channel (shared RAG, message bus, knowledge
-          store).
-      - step: persist_in_shared_store
-        tactic: AML.TA0006
-        techniques: [AML.T0070, AML.T0080.000]
-        abstract_action: >
-          The injected messages persist in the shared data
-          structure, affecting future agent queries and reasoning.
-      - step: activate_in_peer_agents
-        tactic: AML.TA0005
-        techniques: [AML.T0051.001, AML.T0051.002]
-        abstract_action: >
-          When other agents consume the poisoned messages, the
-          injections activate and influence their reasoning
-          processes.
-      - step: collective_decision_shift
-        tactic: AML.TA0011
-        techniques: [AML.T0031, AML.T0048]
-        abstract_action: >
-          The collective decision-making of the multi-agent system
-          gradually shifts toward attacker-chosen objectives.
-
-  AP-T12-02:
-    id: "AP-T12-02"
-    threat_id: "T12"
-    name: "Trust network exploitation via forged consensus"
-    description: >
-      An attacker forges consensus or validation messages within a multi-agent
-      trust network, exploiting weak authentication between agents to make
-      fabricated assertions appear as peer-validated facts. Downstream agents
-      that rely on peer endorsement accept the forged consensus without
-      independent verification, propagating attacker-controlled conclusions
-      through the trust chain.
-    nist_classification:
-      attacker_goal: "integrity"
-      attacker_knowledge: "gray_box"
-      learning_stage: "deployment"
-      attack_class: "poisoning.backdoor_poisoning"
-    prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "inter_agent"]
-      kc_requires:
-        all: [KCX-MAGENT]
-        any: [KC2.3]
-
+        all:
+        - KCX-MAGENT
+        any:
+        - KC2.3
+    canonical_chain:
+      schema_version: v1
+      pattern_id: AP-T12-01
+      chain_id: chain.ap-t12-01.1
+      semantic_revision: 1
+      taxonomy_context:
+        atlas:
+          release: '2026.05'
+          digest: defd9014c6d5f5954460ef438faea583fcb1830ff81e85709628efb43037cc3a
+        laaf: null
+        mapping_set_digest: 7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3
+      mappings:
+      - decision: exact
+        taxonomy: ATLAS
+        ids:
+        - AML.T0051.001
+      steps:
+      - step_id: access_shared_channel
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed: []
+        produced:
+        - kind: state
+          ref_id: state.channel_access
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.channel_accessible
+          description: The attacker can reach the shared inter-agent communication channel (shared RAG, message bus, knowledge
+            store) whose messages peer agents treat as trusted input.
+          security_relevant: true
+          terminal: false
+        order: 1
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S00
+          confidence: 70
+          adaptation_rationale: Adapted from AML.CS0024 S00 (researcher access to the GenAI model API behind a single-agent
+            RAG email system) to attacker access of a shared multi-agent channel; the multi-agent framing is an adaptation,
+            not a direct demonstration.
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: Legacy AML.T0040/AML.T0047 technique tags were SSSOM skos:relatedMatch candidates only; catalog-lineage.yaml
+            proposes no exact ATLAS identity for channel/store access, and relatedMatch never confers exact.
+      - step_id: craft_injection_payload
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed: []
+        produced:
+        - kind: artifact
+          ref_id: artifact.injection_payload
+          value_type: string
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.payload_ready
+          description: Messages carrying prompt injections designed to shift recipients' reasoning are ready for delivery
+            into the inter-agent channel.
+          security_relevant: true
+          terminal: false
+        order: 2
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S01
+          - reference_type: catalog
+            reference_id: AML.T0066
+          confidence: 75
+          adaptation_rationale: Writing messages designed to be consumed by peer agents and influence them is AML.T0066's
+            exact operation; AML.CS0024 S01 (testing prompts on public model APIs) is the adapted case analogue for the crafting
+            activity.
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0066
+      - step_id: inject_messages
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: crossing
+        action_kind: deliver
+        consumed:
+        - kind: state
+          ref_id: state.channel_access
+          value_type: object
+        - kind: artifact
+          ref_id: artifact.injection_payload
+          value_type: string
+        produced:
+        - kind: state
+          ref_id: state.poisoned_channel
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.messages_resident
+          description: The crafted messages reside in the shared inter-agent channel where peer agents consume channel content
+            as trusted input.
+          security_relevant: true
+          terminal: false
+        order: 3
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S02
+          confidence: 75
+          adaptation_rationale: AML.CS0024 S02 (the worm email sent to the target system and stored in its RAG database) is
+            the adapted analogue for injecting crafted messages into a shared channel consumed by multiple agents.
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: The indirect-injection identity of this delivery is asserted once at chain scope (AML.T0051.001) per
+            catalog-lineage.yaml; no separate step-level exact mapping is proposed.
+      - step_id: persist_in_shared_store
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: crossing
+        action_kind: persist
+        consumed:
+        - kind: state
+          ref_id: state.poisoned_channel
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.persisted_injection
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.injection_persistent
+          description: The injected prompts persist in the shared data structure and remain available to future peer-agent
+            queries and reasoning.
+          security_relevant: true
+          terminal: false
+        order: 4
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S02
+          - reference_type: catalog
+            reference_id: AML.T0093
+          confidence: 70
+          adaptation_rationale: Introducing the prompts into the shared store so they are ingested by agents later is AML.T0093's
+            defined prompt-infiltration operation; AML.CS0024 S02-S03 is the adapted analogue (a single-agent RAG store generalized
+            to a shared multi-agent store).
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0093
+      - step_id: activate_in_peer_agents
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: invoke
+        consumed:
+        - kind: state
+          ref_id: state.persisted_injection
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.peer_reasoning_influence
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.injection_active
+          description: Peer agents consume the persisted messages and the injected instructions influence their reasoning
+            processes.
+          security_relevant: true
+          terminal: false
+        order: 5
+        attacker_controlled: false
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S03
+          confidence: 70
+          adaptation_rationale: AML.CS0024 S03 (retrieval-triggered injection changing the assistant's behavior) is the adapted
+            analogue; consumption by many peer agents rather than one email assistant is an adaptation, not a direct demonstration.
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: collective_decision_shift
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: impact
+        consumed:
+        - kind: state
+          ref_id: state.peer_reasoning_influence
+          value_type: object
+        produced:
+        - kind: effect
+          ref_id: effect.steered_collective_decision
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.steered_decision
+          description: 'The collective decision-making of the multi-agent system observably shifts toward attacker-chosen
+            objectives: the first observable steered decision.'
+          security_relevant: true
+          terminal: true
+        order: 6
+        attacker_controlled: false
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S04
+          - reference_type: design_record
+            reference_id: review-t10-t15-t12-t13-t16.md
+          confidence: 55
+          adaptation_rationale: 'Multi-agent collective effects are adapted, not explicit, per catalog-lineage.yaml: AML.CS0024
+            S04 demonstrates compounding propagation in a single-agent system only; no exfiltration phase is claimed.'
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      earliest_attacker_controlled_step_id: access_shared_channel
+      resource_slots:
+      - slot_id: ingress
+        kind: entry_point
+        purpose: initial_ingress
+      - slot_id: message_channel
+        kind: integration
+        purpose: intermediate
+      - slot_id: peer_agents
+        kind: integration
+        purpose: target
+      - slot_id: boundary
+        kind: trust_boundary
+        purpose: supporting
+      initial_ingress_slot_id: ingress
+      semantic_digest: 7b967c9591d078e00ce6ce61d4bf9bd2d9776a1a16154b067a2c579433bcafc4
   AP-T12-03:
-    id: "AP-T12-03"
-    threat_id: "T12"
-    name: "Misinformation cascade via shared knowledge poisoning"
-    description: >
-      An attacker plants false data into a shared knowledge store or message
-      channel used by multiple agents. The poisoned data propagates as agents
-      consume, reason over, and re-emit it to peers, creating a cascade where
-      each retransmission reinforces the false information. The attack can be
-      tuned for either stealthy long-term degradation or rapid misinformation
+    id: AP-T12-03
+    threat_id: T12
+    name: Misinformation cascade via shared knowledge poisoning
+    description: An attacker plants false data into a shared knowledge store or message channel used by multiple agents. The
+      poisoned data propagates as agents consume, reason over, and re-emit it to peers, creating a cascade where each retransmission
+      reinforces the false information. The attack can be tuned for either stealthy long-term degradation or rapid misinformation
       spread depending on the injection rate.
     nist_classification:
-      attacker_goal: "integrity"
-      attacker_knowledge: "gray_box"
-      learning_stage: "deployment"
-      attack_class: "poisoning.backdoor_poisoning"
+      attacker_goal: integrity
+      attacker_knowledge: gray_box
+      learning_stage: deployment
+      attack_class: poisoning.backdoor_poisoning
     prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "inter_agent"]
+      min_zones:
+      - input
+      - reasoning
+      - inter_agent
       kc_requires:
-        all: [KCX-MAGENT]
-        any: [KC2.3]
-    kill_chain:
-      - step: access_knowledge_store
-        tactic: AML.TA0000
-        techniques: [AML.T0040, AML.T0047]
-        abstract_action: >
-          Access the shared knowledge store or retrieval system
-          consumed by multiple agents.
-      - step: craft_false_data
-        tactic: AML.TA0003
-        techniques: [AML.T0065, AML.T0066]
-        abstract_action: >
-          Craft false data designed to be consumed, reasoned over,
-          and re-emitted by agents.
-      - step: plant_poisoned_data
-        tactic: AML.TA0005
-        techniques: [AML.T0051.001]
-        abstract_action: >
-          Plant the poisoned data into the shared knowledge store
-          (RAG database, vector store, shared memory).
-      - step: persist_in_retrieval
-        tactic: AML.TA0006
-        techniques: [AML.T0070]
-        abstract_action: >
-          The false data persists in the retrieval system, activated
-          when agents query on relevant topics.
-      - step: trigger_false_incorporation
-        tactic: AML.TA0005
-        techniques: [AML.T0051.001, AML.T0051.002]
-        abstract_action: >
-          Each agent retrieval triggers the injection, causing the
-          agent to incorporate false information into its reasoning.
-      - step: cascade_propagation
-        tactic: AML.TA0006
-        techniques: [AML.T0061, AML.T0080.001]
-        abstract_action: >
-          Agents re-emit the poisoned information through normal
-          outputs, creating a self-reinforcing cascade.
-      - step: misinformation_impact
-        tactic: AML.TA0011
-        techniques: [AML.T0031, AML.T0048.002]
-        abstract_action: >
-          Misinformation spreads through the agent network,
-          degrading collective decision-making quality.
-
-  AP-T12-04:
-    id: "AP-T12-04"
-    threat_id: "T12"
-    name: "Communication channel manipulation via protocol-level interference"
-    description: >
-      An attacker exploits vulnerabilities in the transport or protocol layer
-      of inter-agent communication to intercept, delay, reorder, or inject
-      messages. By introducing artificial barriers or selectively dropping
-      messages, the attacker partitions the agent network or forces agents
-      to operate on stale or incomplete information, degrading coordination
-      and enabling secondary attacks.
-    nist_classification:
-      attacker_goal: "integrity"
-      attacker_knowledge: "gray_box"
-      learning_stage: "deployment"
-      attack_class: "poisoning.backdoor_poisoning"
-    prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "inter_agent"]
-      kc_requires:
-        all: [KCX-MAGENT]
-        any: [KC2.3]
-
-  AP-T12-05:
-    id: "AP-T12-05"
-    threat_id: "T12"
-    name: "Consensus mechanism exploitation via induced disagreement"
-    description: >
-      An attacker subtly perturbs inputs or intermediate results shared among
-      agents engaged in collective decision-making, introducing artificial
-      disagreements that prevent consensus. The induced conflicts erode the
-      system's ability to converge on correct decisions, causing deadlock,
-      fallback to weaker heuristics, or acceptance of attacker-preferred
-      outcomes when tie-breaking logic activates.
-    nist_classification:
-      attacker_goal: "integrity"
-      attacker_knowledge: "gray_box"
-      learning_stage: "deployment"
-      attack_class: "poisoning.backdoor_poisoning"
-    prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "inter_agent"]
-      kc_requires:
-        all: [KCX-MAGENT]
-        any: [KC2.3]
-
+        all:
+        - KCX-MAGENT
+        any:
+        - KC2.3
+    canonical_chain:
+      schema_version: v1
+      pattern_id: AP-T12-03
+      chain_id: chain.ap-t12-03.1
+      semantic_revision: 1
+      taxonomy_context:
+        atlas:
+          release: '2026.05'
+          digest: defd9014c6d5f5954460ef438faea583fcb1830ff81e85709628efb43037cc3a
+        laaf: null
+        mapping_set_digest: 7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3
+      mappings:
+      - decision: exact
+        taxonomy: ATLAS
+        ids:
+        - AML.T0070
+      steps:
+      - step_id: access_knowledge_store
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed: []
+        produced:
+        - kind: state
+          ref_id: state.store_access
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.store_accessible
+          description: The attacker can reach the shared knowledge store or retrieval system consumed by multiple agents.
+          security_relevant: true
+          terminal: false
+        order: 1
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S00
+          confidence: 70
+          adaptation_rationale: Adapted from AML.CS0024 S00 (researcher access to the GenAI model API behind a single-agent
+            RAG email system) to attacker access of a shared knowledge store consumed by many agents.
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: Legacy AML.T0040/AML.T0047 technique tags were SSSOM skos:relatedMatch candidates only; catalog-lineage.yaml
+            proposes no exact ATLAS identity for channel/store access, and relatedMatch never confers exact.
+      - step_id: craft_false_data
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed: []
+        produced:
+        - kind: artifact
+          ref_id: artifact.false_data
+          value_type: string
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.false_data_ready
+          description: False data designed to be consumed, reasoned over, and re-emitted by agents is ready for planting.
+          security_relevant: true
+          terminal: false
+        order: 2
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.T0066
+          - reference_type: catalog
+            reference_id: AML.CS0025 S02
+          confidence: 70
+          adaptation_rationale: Writing the false data as content designed to be retrieved and influence consumers is AML.T0066's
+            exact operation; AML.CS0025 S02 (creating poisoned replacement data) is a partial analogue for the crafting activity.
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0066
+      - step_id: plant_poisoned_data
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: crossing
+        action_kind: deliver
+        consumed:
+        - kind: state
+          ref_id: state.store_access
+          value_type: object
+        - kind: artifact
+          ref_id: artifact.false_data
+          value_type: string
+        produced:
+        - kind: state
+          ref_id: state.poisoned_store
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.data_planted
+          description: The false data is planted into the shared knowledge store (RAG database, vector store, shared memory)
+            indexed for agent retrieval.
+          security_relevant: true
+          terminal: false
+        order: 3
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S02
+          confidence: 75
+          adaptation_rationale: AML.CS0024 S02 (adversarial content delivered and stored in the RAG database) is the adapted
+            analogue for planting false data into a shared store consumed by many agents.
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: The RAG-poisoning identity of this planting is asserted once at chain scope (AML.T0070) per catalog-lineage.yaml;
+            no separate step-level exact mapping is proposed.
+      - step_id: persist_in_retrieval
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: persist
+        consumed:
+        - kind: state
+          ref_id: state.poisoned_store
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.retrievable_poison
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.poison_persistent
+          description: The false data persists in the retrieval system and surfaces when agents query relevant topics.
+          security_relevant: true
+          terminal: false
+        order: 4
+        attacker_controlled: false
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S02
+          confidence: 70
+          adaptation_rationale: Persistence of adversarial content in the retrieval store is demonstrated for a single-agent
+            system in AML.CS0024 S02-S03 and adapted here to a shared multi-agent store.
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: trigger_false_incorporation
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: inside
+        action_kind: invoke
+        consumed:
+        - kind: state
+          ref_id: state.retrievable_poison
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.false_incorporation
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.incorporation_triggered
+          description: An agent retrieval fires the planted injection and the agent incorporates the false information into
+            its reasoning.
+          security_relevant: true
+          terminal: false
+        order: 5
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S03
+          - reference_type: catalog
+            reference_id: AML.T0051.002
+          confidence: 70
+          adaptation_rationale: Incorporation of the poisoned content when agents retrieve it is a triggered prompt injection
+            via an environmental event, AML.T0051.002's operation; AML.CS0024 S03 (retrieval-triggered behavior change) is
+            the adapted analogue.
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0051.002
+      - step_id: cascade_propagation
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: persist
+        consumed:
+        - kind: state
+          ref_id: state.false_incorporation
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.amplified_cascade
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.cascade_active
+          description: Agents re-emit the poisoned content through normal outputs to peers, each retransmission reinforcing
+            the false information.
+          security_relevant: true
+          terminal: false
+        order: 6
+        attacker_controlled: false
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0024 S04
+          - reference_type: design_record
+            reference_id: review-t10-t15-t12-t13-t16.md
+          confidence: 55
+          adaptation_rationale: AML.CS0024 S04 demonstrates self-replication of a prompt, not a multi-agent content re-emission
+            cascade; the cascade is adapted per catalog-lineage.yaml (the OG-02 content cascade, distinct from AP-T13-04 executable
+            replication).
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: misinformation_impact
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: impact
+        consumed:
+        - kind: state
+          ref_id: state.amplified_cascade
+          value_type: object
+        produced:
+        - kind: effect
+          ref_id: effect.misinformation_degradation
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.cascade_observable
+          description: 'The false information observably propagates across the agent network, degrading collective decision-making
+            quality: the first observable cascade.'
+          security_relevant: true
+          terminal: true
+        order: 7
+        attacker_controlled: false
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0025 S05
+          confidence: 50
+          adaptation_rationale: Network-wide misinformation degradation is adapted, not explicit, per catalog-lineage.yaml;
+            AML.CS0025 S05 (integrity erosion from poisoned data at scale) is a partial analogue for degradation outcomes.
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      earliest_attacker_controlled_step_id: access_knowledge_store
+      resource_slots:
+      - slot_id: ingress
+        kind: entry_point
+        purpose: initial_ingress
+      - slot_id: knowledge_store
+        kind: integration
+        purpose: intermediate
+      - slot_id: peer_agents
+        kind: integration
+        purpose: target
+      - slot_id: boundary
+        kind: trust_boundary
+        purpose: supporting
+      initial_ingress_slot_id: ingress
+      semantic_digest: a95e96a16d970f73a24d041c46f5a5e9f170115ffd031f44ecf864465b19f939
   AP-T15-01:
-    id: "AP-T15-01"
-    threat_id: "T15"
-    name: "Trust-exploiting content substitution for fraudulent action"
-    description: >
-      An attacker uses indirect prompt injection to manipulate an AI assistant
-      into substituting legitimate operational data (such as payment details
-      or contact information) with attacker-controlled values. The human
-      operator, trusting the AI-presented information as verified, acts on
-      the substituted data without independent verification, completing a
-      fraudulent transaction on the attacker's behalf.
+    id: AP-T15-01
+    threat_id: T15
+    name: Trust-exploiting content substitution for fraudulent action
+    description: An attacker uses indirect prompt injection to manipulate an AI assistant into substituting legitimate operational
+      data (such as payment details or contact information) with attacker-controlled values. The human operator, trusting
+      the AI-presented information as verified, acts on the substituted data without independent verification, completing
+      a fraudulent transaction on the attacker's behalf.
     nist_classification:
-      attacker_goal: "abuse"
-      attacker_knowledge: "gray_box"
-      learning_stage: "deployment"
-      attack_class: "genai.indirect_prompt_injection.privacy_compromises"
+      attacker_goal: abuse
+      attacker_knowledge: gray_box
+      learning_stage: deployment
+      attack_class: genai.indirect_prompt_injection.privacy_compromises
     prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "tool_execution"]
+      min_zones:
+      - input
+      - reasoning
+      - tool_execution
       kc_requires:
-        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
-    kill_chain:
-      - step: setup
-        tactic: AML.TA0003
-        techniques: [AML.T0065, AML.T0066]
-        abstract_action: >
-          Craft content containing a hidden prompt injection designed
-          to cause the AI assistant to substitute legitimate
-          operational data with attacker-controlled values.
-      - step: delivery
-        tactic: AML.TA0004
-        techniques: [AML.T0093]
-        abstract_action: >
-          Deliver the poisoned content through a data channel the
-          AI assistant consumes, such as an email, document, or
-          knowledge base entry.
-      - step: execution
-        tactic: AML.TA0005
-        techniques: [AML.T0051.001]
-        abstract_action: >
-          The injection activates when the AI assistant processes
-          the ingested content, causing it to follow attacker
-          instructions to substitute operational data.
-      - step: evasion
-        tactic: AML.TA0007
-        techniques: [AML.T0067, AML.T0068]
-        abstract_action: >
-          The substituted data is presented within the AI's normal
-          response format, preserving the appearance of a verified,
-          trustworthy output that does not trigger human suspicion.
-      - step: impact
-        tactic: AML.TA0011
-        techniques: [AML.T0048.000]
-        abstract_action: >
-          The human operator acts on the substituted data without
-          independent verification, completing a fraudulent
-          transaction that benefits the attacker.
-
+        any:
+        - KC6.1.1
+        - KC6.1.2
+        - KC6.2.1
+        - KC6.2.2
+        - KC6.3.1
+        - KC6.3.2
+        - KC6.4
+        - KC6.5
+        - KC6.6
+        - KC6.7
+    canonical_chain:
+      schema_version: v1
+      pattern_id: AP-T15-01
+      chain_id: chain.ap-t15-01.1
+      semantic_revision: 1
+      taxonomy_context:
+        atlas:
+          release: '2026.05'
+          digest: defd9014c6d5f5954460ef438faea583fcb1830ff81e85709628efb43037cc3a
+        laaf: null
+        mapping_set_digest: 7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3
+      mappings:
+      - decision: exact
+        taxonomy: ATLAS
+        ids:
+        - AML.T0051.001
+      steps:
+      - step_id: setup
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed: []
+        produced:
+        - kind: artifact
+          ref_id: artifact.substitution_content
+          value_type: string
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.substitution_crafted
+          description: Content containing a hidden prompt injection that directs substitution of legitimate operational data
+            with attacker-controlled values is ready for delivery.
+          security_relevant: true
+          terminal: false
+        order: 1
+        attacker_controlled: true
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0026 S04
+          - reference_type: catalog
+            reference_id: AML.CS0026 S05
+          confidence: 90
+          adaptation_rationale: AML.CS0026 S04-S05 directly demonstrate preparing attacker-controlled values as retrievable
+            targeted content (S04, AML.T0066) and designing the bypass prompts (S05, AML.T0065).
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0066
+      - step_id: delivery
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: crossing
+        action_kind: deliver
+        consumed:
+        - kind: artifact
+          ref_id: artifact.substitution_content
+          value_type: string
+        produced:
+        - kind: state
+          ref_id: state.poisoned_channel
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.content_delivered
+          description: The poisoned content resides in a data channel the assistant ingests (email, document, knowledge base
+            entry) indexed for later retrieval.
+          security_relevant: true
+          terminal: false
+        order: 2
+        attacker_controlled: true
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0026 S06
+          confidence: 90
+          adaptation_rationale: AML.CS0026 S06 directly demonstrates delivering the poisoned content through a channel the
+            assistant ingests (an email indexed into the Copilot RAG database).
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: Delivery via prompt infiltration is explicit in AML.CS0026 S06 (AML.T0093), but catalog-lineage.yaml
+            proposes no step-level exact mapping for delivery; the indirect-injection identity is asserted at chain scope
+            (AML.T0051.001).
+      - step_id: execution
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: invoke
+        consumed:
+        - kind: state
+          ref_id: state.poisoned_channel
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.substituted_response
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.substitution_active
+          description: The injection activates when the assistant processes the ingested content and substitutes legitimate
+            operational data with attacker-controlled values.
+          security_relevant: true
+          terminal: false
+        order: 3
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0026 S10
+          confidence: 90
+          adaptation_rationale: AML.CS0026 S10 directly demonstrates the poisoned RAG entry's injection executing on retrieval
+            (AML.T0051.001), causing the assistant to follow the attacker instructions.
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: evasion
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: inside
+        action_kind: transform
+        consumed:
+        - kind: state
+          ref_id: state.substituted_response
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.trusted_presentation
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.trusted_format
+          description: The substituted values are presented within the assistant's normal response format, appearing verified
+            and trustworthy so the operator does not re-verify.
+          security_relevant: true
+          terminal: false
+        order: 4
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0026 S12
+          - reference_type: catalog
+            reference_id: AML.T0067
+          confidence: 80
+          adaptation_rationale: Presenting the substituted values in the assistant's trusted normal format is AML.T0067's
+            trusted-output manipulation; AML.CS0026 S10-S12 is the analogue (trusted-component manipulation via the injected
+            instructions, adapted from citation manipulation to value presentation).
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0067
+      - step_id: impact
+        requirement: required
+        condition: null
+        executor_role: operator
+        boundary_position: inside
+        action_kind: impact
+        consumed:
+        - kind: state
+          ref_id: state.trusted_presentation
+          value_type: object
+        produced:
+        - kind: effect
+          ref_id: effect.fraudulent_transaction
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.fraud_completed
+          description: 'The human operator acts on the substituted data without independent verification and completes the
+            fraudulent transaction: the first observable fraud outcome.'
+          security_relevant: true
+          terminal: true
+        order: 5
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0026 S13
+          confidence: 90
+          adaptation_rationale: 'AML.CS0026 S13 directly demonstrates the fraud outcome: the victim following through with
+            the wire transfer using the substituted bank details (AML.T0048.000 financial harm).'
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      earliest_attacker_controlled_step_id: setup
+      resource_slots:
+      - slot_id: ingress
+        kind: entry_point
+        purpose: initial_ingress
+      - slot_id: content_channel
+        kind: integration
+        purpose: intermediate
+      - slot_id: human_operator
+        kind: trust_boundary
+        purpose: target
+      - slot_id: boundary
+        kind: trust_boundary
+        purpose: supporting
+      initial_ingress_slot_id: ingress
+      semantic_digest: fa849b9b86b9c486ca260f5072022a674ed4bb32423557d926b0b825925dc6f2
   AP-T15-02:
-    id: "AP-T15-02"
-    threat_id: "T15"
-    name: "AI-mediated social engineering via deceptive instruction generation"
-    description: >
-      An attacker compromises an AI assistant's output generation through
-      indirect prompt injection, causing it to produce urgent, authoritative
-      messages that direct users toward malicious actions such as clicking
-      attacker-controlled links or disclosing credentials. The AI's
-      established trust relationship with the user bypasses normal skepticism,
-      making the social engineering significantly more effective than
-      traditional phishing.
+    id: AP-T15-02
+    threat_id: T15
+    name: AI-mediated social engineering via deceptive instruction generation
+    description: An attacker compromises an AI assistant's output generation through indirect prompt injection, causing it
+      to produce urgent, authoritative messages that direct users toward malicious actions such as clicking attacker-controlled
+      links or disclosing credentials. The AI's established trust relationship with the user bypasses normal skepticism, making
+      the social engineering significantly more effective than traditional phishing.
     nist_classification:
-      attacker_goal: "abuse"
-      attacker_knowledge: "black_box"
-      learning_stage: "deployment"
-      attack_class: "genai.indirect_prompt_injection.privacy_compromises"
+      attacker_goal: abuse
+      attacker_knowledge: black_box
+      learning_stage: deployment
+      attack_class: genai.indirect_prompt_injection.privacy_compromises
     prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "tool_execution"]
+      min_zones:
+      - input
+      - reasoning
+      - tool_execution
       kc_requires:
-        any: [KC6.1.1, KC6.1.2, KC6.2.1, KC6.2.2, KC6.3.1, KC6.3.2, KC6.4, KC6.5, KC6.6, KC6.7]
-    kill_chain:
-      - step: craft_hijack_injection
-        tactic: AML.TA0003
-        techniques: [AML.T0065]
-        abstract_action: >
-          Craft a prompt injection designed to hijack the AI
-          assistant's output generation, causing it to produce
-          urgent, authoritative messages directing users toward
-          attacker-controlled actions.
-      - step: stage_social_engineering_payload
-        tactic: AML.TA0003
-        techniques: [AML.T0079, AML.T0008.002]
-        abstract_action: >
-          Stage malicious content (website, script) that will
-          deliver the social engineering payload.
-      - step: ingest_malicious_content
-        tactic: AML.TA0004
-        techniques: [AML.T0078, AML.T0093]
-        abstract_action: >
-          The user's AI agent accesses the malicious website or
-          document, ingesting the injected prompt.
-      - step: generate_deceptive_messages
-        tactic: AML.TA0005
-        techniques: [AML.T0051.001]
-        abstract_action: >
-          The compromised AI assistant processes the injection and
-          generates deceptive messages leveraging its established
-          trust relationship with the user.
-      - step: escalate_to_active_instruction
-        tactic: AML.TA0012
-        techniques: [AML.T0053]
-        abstract_action: >
-          The injection causes the agent to escalate from passive
-          information display to active instruction that prompts
-          user actions (clicking buttons, running commands).
-      - step: user_executes_malicious_action
-        tactic: AML.TA0011
-        techniques: [AML.T0048.003]
-        abstract_action: >
-          Users follow the AI-generated deceptive instructions,
-          executing malicious actions on the attacker's behalf.
-
+        any:
+        - KC6.1.1
+        - KC6.1.2
+        - KC6.2.1
+        - KC6.2.2
+        - KC6.3.1
+        - KC6.3.2
+        - KC6.4
+        - KC6.5
+        - KC6.6
+        - KC6.7
+    canonical_chain:
+      schema_version: v1
+      pattern_id: AP-T15-02
+      chain_id: chain.ap-t15-02.1
+      semantic_revision: 1
+      taxonomy_context:
+        atlas:
+          release: '2026.05'
+          digest: defd9014c6d5f5954460ef438faea583fcb1830ff81e85709628efb43037cc3a
+        laaf: null
+        mapping_set_digest: 7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3
+      mappings:
+      - decision: exact
+        taxonomy: ATLAS
+        ids:
+        - AML.T0052.000
+        - AML.T0051.001
+      steps:
+      - step_id: craft_hijack_injection
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed: []
+        produced:
+        - kind: artifact
+          ref_id: artifact.hijack_injection
+          value_type: string
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.injection_crafted
+          description: A prompt injection designed to hijack the assistant's output generation is ready, tuned to the assistant's
+            trust relationship with the user.
+          security_relevant: true
+          terminal: false
+        order: 1
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.T0065
+          - reference_type: catalog
+            reference_id: AML.CS0055 S02
+          - reference_type: design_record
+            reference_id: tactic-sequences-t10-t15-t12-t13-t16.md
+          confidence: 70
+          adaptation_rationale: Designing the hijack injection against the assistant's trust relationship with the user is
+            iterative prompt crafting, AML.T0065's operation; preparation precedent is AML.CS0055 S01-S02 as adapted analogue
+            only, with the CS0055 directionality correction (agent-as-victim, not agent-as-social-engineer) retained per tactic-sequences-t10-t15-t12-t13-t16.md.
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0065
+      - step_id: stage_social_engineering_payload
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed:
+        - kind: artifact
+          ref_id: artifact.hijack_injection
+          value_type: string
+        produced:
+        - kind: state
+          ref_id: state.staged_payload
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.payload_staged
+          description: The content carrying the injection is staged where the user's assistant will ingest it (an attacker-controlled
+            website or document).
+          security_relevant: true
+          terminal: false
+        order: 2
+        attacker_controlled: true
+        provenance:
+          tier: variant
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0055 S02
+          - reference_type: catalog
+            reference_id: AML.CS0020 S00
+          confidence: 65
+          adaptation_rationale: Staging of injection-carrying content is demonstrated as preparation precedent in AML.CS0055
+            S02 (adapted analogue only, directionality corrected) and AML.CS0020 S00-S01 (malicious prompts placed on an attacker
+            website and obfuscated from human review).
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: catalog-lineage.yaml proposes no exact ATLAS identity for staging; the legacy AML.T0079/AML.T0008.002
+            tags were relatedMatch candidates only.
+      - step_id: ingest_malicious_content
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: crossing
+        action_kind: invoke
+        consumed:
+        - kind: state
+          ref_id: state.staged_payload
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.injection_ingested
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.content_ingested
+          description: The user's assistant accesses the staged content and the injected prompt enters its context.
+          security_relevant: true
+          terminal: false
+        order: 3
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0020 S02
+          confidence: 85
+          adaptation_rationale: 'AML.CS0020 S02 directly demonstrates the ingested indirect injection: when the user has the
+            attacker''s website open, Bing Chat ingests and executes the malicious prompt (AML.T0051.001).'
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: generate_deceptive_messages
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: transform
+        consumed:
+        - kind: state
+          ref_id: state.injection_ingested
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.deceptive_output
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.deceptive_messages
+          description: The compromised assistant generates urgent, authoritative deceptive messages that leverage its established
+            trust relationship with the user.
+          security_relevant: true
+          terminal: false
+        order: 4
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0020 S03
+          confidence: 85
+          adaptation_rationale: 'AML.CS0020 S03 directly demonstrates the human-directed mechanism: the prompt turns Bing
+            Chat into a social engineer (AML.T0052.000) that convinces the user to provide PII and click an attacker link.'
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: escalate_to_active_instruction
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: transform
+        consumed:
+        - kind: state
+          ref_id: state.deceptive_output
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.active_instructions
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.active_instruction
+          description: The assistant escalates from passive information display to active instruction, directing user actions
+            (clicking attacker links, running commands, disclosing credentials).
+          security_relevant: true
+          terminal: false
+        order: 5
+        attacker_controlled: false
+        provenance:
+          tier: inferred
+          references:
+          - reference_type: design_record
+            reference_id: tactic-sequences-t10-t15-t12-t13-t16.md
+          - reference_type: catalog
+            reference_id: AML.CS0055 S06
+          confidence: 40
+          adaptation_rationale: No case demonstrates agent-to-human escalation to active instruction; AML.CS0055 S06 escalation
+            is agent-to-host (directionally reversed for this record) and the step is retained as honestly inferred per the
+            staging adjudication.
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: user_executes_malicious_action
+        requirement: required
+        condition: null
+        executor_role: operator
+        boundary_position: inside
+        action_kind: impact
+        consumed:
+        - kind: state
+          ref_id: state.active_instructions
+          value_type: object
+        produced:
+        - kind: effect
+          ref_id: effect.user_action_completed
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.user_actioned
+          description: 'The user follows the assistant''s deceptive instructions and executes the attacker-beneficial action:
+            the first observable social-engineering outcome.'
+          security_relevant: true
+          terminal: true
+        order: 6
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0020 S04
+          confidence: 85
+          adaptation_rationale: 'AML.CS0020 S04 directly demonstrates the social-engineering outcome: the user provides PII
+            and clicks the engineered link, delivering user information to the attacker (AML.T0048.003 user harm).'
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      earliest_attacker_controlled_step_id: craft_hijack_injection
+      resource_slots:
+      - slot_id: ingress
+        kind: entry_point
+        purpose: initial_ingress
+      - slot_id: content_channel
+        kind: integration
+        purpose: intermediate
+      - slot_id: human_user
+        kind: trust_boundary
+        purpose: target
+      - slot_id: boundary
+        kind: trust_boundary
+        purpose: supporting
+      initial_ingress_slot_id: ingress
+      semantic_digest: 68a9c34478e97d529642e7211d9bf1e71e21594a9a120556d38d0f0386806387
   AP-T17-01:
-    id: "AP-T17-01"
-    threat_id: "T17"
-    name: "Upstream artifact poisoning via repository compromise"
-    description: >
-      An attacker injects malicious instructions or code into a public or
-      shared repository that serves as an upstream dependency for an AI
-      agent's prompt templates, tool definitions, or configuration. When the
-      agent's build or deployment pipeline pulls the compromised artifact,
-      the payload executes with the agent's full privileges, potentially
-      affecting all downstream users before the compromise is detected.
+    id: AP-T17-01
+    threat_id: T17
+    name: Upstream artifact poisoning via repository compromise
+    description: An attacker injects malicious instructions or code into a public or shared repository that serves as an upstream
+      dependency for an AI agent's prompt templates, tool definitions, or configuration. When the agent's build or deployment
+      pipeline pulls the compromised artifact, the payload executes with the agent's full privileges, potentially affecting
+      all downstream users before the compromise is detected.
     nist_classification:
-      attacker_goal: "integrity"
-      attacker_knowledge: "white_box"
-      learning_stage: "deployment"
-      attack_class: "genai.supply_chain"
+      attacker_goal: integrity
+      attacker_knowledge: white_box
+      learning_stage: deployment
+      attack_class: genai.supply_chain
     prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "tool_execution"]
+      min_zones:
+      - input
+      - reasoning
+      - tool_execution
       kc_requires:
-        any: [KC5.1, KC6.4]
-    kill_chain:
-      - step: stage_malicious_payload
-        tactic: AML.TA0003
-        techniques: [AML.T0079]
-        abstract_action: >
-          Stage malicious payload (e.g., JavaScript backdoor) on
-          publicly accessible infrastructure.
-      - step: craft_prompt_injection
-        tactic: AML.TA0003
-        techniques: [AML.T0065]
-        abstract_action: >
-          Craft prompt injection designed to cause agent to embed
-          malicious elements in generated code.
-      - step: obfuscate_in_config
-        tactic: AML.TA0007
-        techniques: [AML.T0068]
-        abstract_action: >
-          Hide prompt in configuration file using invisible Unicode
-          characters (zero-width joiners, bidirectional markers).
-      - step: distribute_poisoned_config
-        tactic: AML.TA0004
-        techniques: [AML.T0010.001]
-        abstract_action: >
-          Distribute poisoned configuration file through public
-          repository or package registry where AI agent configs
-          are shared.
-      - step: persist_via_adoption
-        tactic: AML.TA0006
-        techniques: [AML.T0081]
-        abstract_action: >
-          Users pull the poisoned rules file, replacing their
-          configuration and persisting the malicious content in
-          their development environment.
-      - step: execute_hidden_prompt
-        tactic: AML.TA0005
-        techniques: [AML.T0051.000]
-        abstract_action: >
-          When agent initializes, it reads configuration file and
-          hidden prompt executes.
-      - step: jailbreak_guardrails
-        tactic: AML.TA0007
-        techniques: [AML.T0054]
-        abstract_action: >
-          Use jailbreak techniques to convince agent to add
-          malicious elements to generated artifacts.
-      - step: suppress_output_mentions
-        tactic: AML.TA0007
-        techniques: [AML.T0067]
-        abstract_action: >
-          Prompt instructs agent to suppress mention of code
-          changes in responses to user.
-      - step: impact_backdoored_code
-        tactic: AML.TA0011
-        techniques: [AML.T0048.003]
-        abstract_action: >
-          Developers use agent-generated code containing hidden
-          backdoors, exfiltration logic, or vulnerable constructs.
-    evidence:
-      - source: "AML.CS0041"
-        type: "enrichment"
-
-  AP-T17-02:
-    id: "AP-T17-02"
-    threat_id: "T17"
-    name: "Autonomous agent self-sabotage via unvalidated execution"
-    description: >
-      An autonomous code-generating agent, operating without adequate
-      environment separation or output validation, hallucinates incorrect
-      resource references, destroys legitimate data, and then produces
-      falsified verification results to conceal the failure. The lack of
-      supply chain integrity controls between the agent's generation,
-      execution, and validation stages allows a single hallucination to
-      cascade into data loss and deceptive reporting.
-    nist_classification:
-      attacker_goal: "abuse"
-      attacker_knowledge: "white_box"
-      learning_stage: "deployment"
-      attack_class: "genai.supply_chain"
-    prerequisite_capabilities:
-      min_zones: ["input", "reasoning", "tool_execution"]
-      kc_requires:
-        any: [KC5.1, KC6.4]
-    kill_chain:
-      - step: hallucinated_generation
-        tactic: AML.TA0005
-        techniques: [AML.T0050, AML.T0053]
-        abstract_action: >
-          Agent generates infrastructure code or automation workflows
-          containing hallucinated resource references — wrong
-          endpoints, incorrect paths, fabricated dependencies.
-      - step: falsified_verification
-        tactic: AML.TA0007
-        techniques: [AML.T0067]
-        abstract_action: >
-          Agent produces falsified verification results, claiming
-          tests pass or reporting success despite errors in the
-          generated output.
-      - step: impact
-        tactic: AML.TA0011
-        techniques: [AML.T0048, AML.T0101]
-        abstract_action: >
-          Generated code executes with agent's privileges, destroying
-          legitimate data or corrupting infrastructure due to
-          hallucinated references.
+        any:
+        - KC5.1
+        - KC6.4
+    canonical_chain:
+      schema_version: v1
+      pattern_id: AP-T17-01
+      chain_id: chain.ap-t17-01.1
+      semantic_revision: 1
+      taxonomy_context:
+        atlas:
+          release: '2026.05'
+          digest: defd9014c6d5f5954460ef438faea583fcb1830ff81e85709628efb43037cc3a
+        laaf: null
+        mapping_set_digest: 7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3
+      mappings:
+      - decision: exact
+        taxonomy: ATLAS
+        ids:
+        - AML.T0010.001
+      steps:
+      - step_id: stage_malicious_payload
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed: []
+        produced:
+        - kind: artifact
+          ref_id: artifact.malicious_payload
+          value_type: string
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.payload_staged
+          description: A malicious payload (for example a JavaScript backdoor) is staged on publicly accessible infrastructure.
+          security_relevant: true
+          terminal: false
+        order: 1
+        attacker_controlled: true
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S00
+          confidence: 90
+          adaptation_rationale: AML.CS0041 S00 directly demonstrates staging the malicious JavaScript on a publicly available
+            website; setting up the payload and its delivery channel is AML.T0079's defined operation.
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0079
+      - step_id: craft_prompt_injection
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: prepare
+        consumed:
+        - kind: artifact
+          ref_id: artifact.malicious_payload
+          value_type: string
+        produced:
+        - kind: artifact
+          ref_id: artifact.hidden_prompt
+          value_type: string
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.prompt_crafted
+          description: A prompt injection that causes the agent to embed the staged malicious elements in generated artifacts
+            is ready.
+          security_relevant: true
+          terminal: false
+        order: 2
+        attacker_controlled: true
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S01
+          confidence: 90
+          adaptation_rationale: AML.CS0041 S01 directly demonstrates crafting the prompt that targets the coding assistant
+            to inject a call to the staged script in generated HTML.
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: catalog-lineage.yaml proposes no step-level exact mapping for prompt crafting; the legacy AML.T0065 tag
+            remains a relatedMatch candidate, never automatic exact.
+      - step_id: obfuscate_in_config
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: outside
+        action_kind: transform
+        consumed:
+        - kind: artifact
+          ref_id: artifact.hidden_prompt
+          value_type: string
+        produced:
+        - kind: artifact
+          ref_id: artifact.poisoned_config
+          value_type: string
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.prompt_hidden
+          description: The prompt is concealed inside the configuration artifact with invisible Unicode (zero-width joiners,
+            bidirectional markers), evading casual review.
+          security_relevant: true
+          terminal: false
+        order: 3
+        attacker_controlled: true
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S02
+          confidence: 90
+          adaptation_rationale: AML.CS0041 S02 directly demonstrates hiding the prompt in the rules file using invisible Unicode
+            characters that editors and repository UIs do not render.
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: catalog-lineage.yaml proposes no step-level exact mapping for obfuscation; the legacy AML.T0068 tag remains
+            a relatedMatch candidate.
+      - step_id: distribute_poisoned_config
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: crossing
+        action_kind: deliver
+        consumed:
+        - kind: artifact
+          ref_id: artifact.poisoned_config
+          value_type: string
+        produced:
+        - kind: state
+          ref_id: state.published_artifact
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.artifact_published
+          description: The poisoned configuration is distributed through a public repository or registry where AI agent configurations
+            are shared, reachable by downstream adopters.
+          security_relevant: true
+          terminal: false
+        order: 4
+        attacker_controlled: true
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S03
+          confidence: 90
+          adaptation_rationale: AML.CS0041 S03 directly demonstrates distribution of the poisoned rules file through open-source
+            communities where assistant configurations are shared with minimal security vetting.
+        mappings:
+        - decision: unmapped
+          taxonomy: ATLAS
+          rationale: The supply-chain identity of poisoning the shared configuration artifact is asserted once at chain scope
+            (AML.T0010.001, which explicitly includes configuration files) per catalog-lineage.yaml; no separate step-level
+            exact mapping is proposed.
+      - step_id: persist_via_adoption
+        requirement: required
+        condition: null
+        executor_role: operator
+        boundary_position: inside
+        action_kind: persist
+        consumed:
+        - kind: state
+          ref_id: state.published_artifact
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.persisted_config
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.config_persisted
+          description: Downstream adopters pull the poisoned artifact and replace their agent configuration, persisting the
+            malicious content in their development environment beyond a single agent session.
+          security_relevant: true
+          terminal: false
+        order: 5
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S04
+          confidence: 90
+          adaptation_rationale: 'AML.CS0041 S04 directly demonstrates the persistence step retained per the qa-audit-t11-t17.md
+            correction: adopters pulled the rules file and the assistant''s behavior was modified for all future code generation
+            (AML.T0081 semantics: configuration changes persisting beyond the life of a single agent).'
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: execute_hidden_prompt
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: invoke
+        consumed:
+        - kind: state
+          ref_id: state.persisted_config
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.injection_executed
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.prompt_executed
+          description: On initialization the adopter's agent reads the poisoned configuration and the hidden prompt executes
+            with the agent's privileges.
+          security_relevant: true
+          terminal: false
+        order: 6
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S05
+          confidence: 90
+          adaptation_rationale: AML.CS0041 S05 directly demonstrates the rules file being read at assistant initialization
+            and the malicious prompt executing.
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: jailbreak_guardrails
+        requirement: required
+        condition: null
+        executor_role: attacker
+        boundary_position: inside
+        action_kind: transform
+        consumed:
+        - kind: state
+          ref_id: state.injection_executed
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.guardrails_overridden
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.jailbroken
+          description: The hidden prompt overrides the adopter agent's guardrails and induces it to embed malicious elements
+            in generated artifacts.
+          security_relevant: true
+          terminal: false
+        order: 7
+        attacker_controlled: true
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S06
+          - reference_type: catalog
+            reference_id: AML.T0054
+          confidence: 85
+          adaptation_rationale: AML.CS0041 S06 directly demonstrates the prompt using jailbreak techniques to convince the
+            assistant to add the malicious script to generated HTML; this is AML.T0054's defined operation, delivered through
+            the attacker's planted prompt.
+        mappings:
+        - decision: exact
+          taxonomy: ATLAS
+          ids:
+          - AML.T0054
+      - step_id: suppress_output_mentions
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: transform
+        consumed:
+        - kind: state
+          ref_id: state.guardrails_overridden
+          value_type: object
+        produced:
+        - kind: state
+          ref_id: state.concealed_changes
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.changes_concealed
+          description: The agent suppresses mention of the embedded changes in its responses, so adopters see no signal of
+            the modification.
+          security_relevant: true
+          terminal: false
+        order: 8
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S07
+          confidence: 85
+          adaptation_rationale: AML.CS0041 S07 directly demonstrates the prompt instructing the assistant not to mention code
+            changes, keeping the modification out of responses and logs.
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      - step_id: impact_backdoored_code
+        requirement: required
+        condition: null
+        executor_role: system
+        boundary_position: inside
+        action_kind: impact
+        consumed:
+        - kind: state
+          ref_id: state.concealed_changes
+          value_type: object
+        produced:
+        - kind: effect
+          ref_id: effect.backdoored_artifacts
+          value_type: object
+        preconditions: []
+        observable_postconditions:
+        - postcondition_id: post.backdoored_output
+          description: 'Adopters use agent-generated artifacts containing hidden backdoors, exfiltration logic, or vulnerable
+            constructs: the first observable supply-chain impact.'
+          security_relevant: true
+          terminal: true
+        order: 9
+        attacker_controlled: false
+        provenance:
+          tier: observed
+          references:
+          - reference_type: catalog
+            reference_id: AML.CS0041 S08
+          confidence: 90
+          adaptation_rationale: 'AML.CS0041 S08 directly demonstrates the impact: victim developers unknowingly used the compromised
+            assistant''s output containing hidden malicious elements that could reach production.'
+        mappings:
+        - decision: not_applicable
+          taxonomy: ATLAS
+      earliest_attacker_controlled_step_id: stage_malicious_payload
+      resource_slots:
+      - slot_id: ingress
+        kind: entry_point
+        purpose: initial_ingress
+      - slot_id: upstream_artifact
+        kind: integration
+        purpose: intermediate
+      - slot_id: adopter_pipeline
+        kind: integration
+        purpose: target
+      - slot_id: boundary
+        kind: trust_boundary
+        purpose: supporting
+      initial_ingress_slot_id: ingress
+      semantic_digest: 8b2a182fb819ea21ef3b0b2607f349ad75c9d39badb3dfd761f0999773fa850c
