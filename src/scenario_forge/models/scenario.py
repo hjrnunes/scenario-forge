@@ -21,6 +21,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.capability_profile import ConfidenceLevel
+from scenario_forge.models.complexity import (
+    AttackComplexityAssessment,
+    CapabilityLevel,
+)
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -299,8 +303,14 @@ class ActorProfile(BaseModel):
     actor_type: ActorType = Field(
         description="Category of threat actor (e.g. cybercriminal, nation-state).",
     )
-    capability_level: Literal["novice", "intermediate", "advanced", "expert"] = Field(
-        description="Skill and sophistication level of the actor.",
+    capability_level: CapabilityLevel = Field(
+        frozen=True,
+        description=(
+            "Skill and sophistication level of the actor. Frozen at "
+            "construction (cmps.7): immutable after Call 0, so attack "
+            "complexity is assessed separately and never relabels the "
+            "actor. Post-construction assignment raises ValidationError."
+        ),
     )
     beliefs: list[str] = Field(
         description="Deployment-time, black-box observations about the target system.",
@@ -844,6 +854,19 @@ class ScenarioEnvelope(BaseModel):
             "resources only."
         ),
         pattern=r"^ep:v1:[0-9a-f]{32}$",
+    )
+
+    # --- Attack Complexity Assessment (cmps.7) ---
+
+    attack_complexity_assessment: AttackComplexityAssessment | None = Field(
+        default=None,
+        description=(
+            "Closed, versioned deterministic attack-complexity assessment: "
+            "candidate lower bound, final required capability level, rule "
+            "version, typed reasons, and evidence — persisted separately "
+            "from the immutable actor_profile.capability_level. Absent "
+            "until the candidate-v2 seam is activated by cmps.5."
+        ),
     )
 
     # --- Layer 1: Narrative ---
