@@ -44,14 +44,15 @@ patterns:
     threat_id: "T8"
     name: "Audit record manipulation via selective action-record alteration"
     description: >
-      An attacker obtains access to an AI agent's agent-visible
-      conversation/action record (authentication tokens or direct interface
-      access) and edits, deletes, or fabricates entries so that unauthorized
-      actions are absent from the record reviewers rely on. The attack
-      exploits the update/access gaps of that record, creating a divergence
-      between what the agent did and what the record reflects. Narrowed
-      scope per catalog-lineage OG-08: the agent-visible action record, not
-      general logging infrastructure.
+      An attacker obtains the victim's authentication tokens for an AI
+      agent's agent-visible conversation/action record and edits, deletes,
+      or fabricates entries so that unauthorized actions are absent from
+      the record reviewers rely on. The attack exploits the update/access
+      gaps of that record, creating a divergence between what the agent
+      did and what the record reflects. Narrowed scope per catalog-lineage
+      OG-08: the agent-visible action record, not general logging
+      infrastructure; record access is acquired through credential theft
+      only.
     nist_classification:
       attacker_goal: "integrity"
       attacker_knowledge: "gray_box"
@@ -66,7 +67,7 @@ patterns:
       pattern_id: "AP-T8-01"
       chain_id: "chain.AP-T8-01"
       semantic_revision: 1
-      semantic_digest: "54105768cbd8f6eedae82bcb331cbcd80b54430289ecb3c5f59a7c99a9913da8"
+      semantic_digest: "4e8aea52ba6b091f5f692ce8f6bb3ea17334058afb97991af6d131a9a8c66b0f"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -105,8 +106,9 @@ patterns:
           observable_postconditions:
             - postcondition_id: "post.obtain_record_access"
               description: >
-                The attacker holds tokens or interface access that permit
-                altering the agent's conversation/action record.
+                The attacker holds the victim's authentication tokens
+                permitting alteration of the agent's conversation/action
+                record.
               security_relevant: false
               terminal: false
           order: 1
@@ -125,11 +127,13 @@ patterns:
             confidence: 65
             adaptation_rationale: >
               Designed from the pinned AML.T0092 precondition (record
-              alteration is feasible with the victim's authentication tokens
-              or direct interface access) paired with AML.T0055's exact
-              credential-obtaining operation. AML.CS0036 is a partial
-              enabling analogy for credential access only, not evidence of
-              audit manipulation; no legacy chain existed for this record.
+              alteration requires the victim's authentication tokens)
+              paired with AML.T0055's exact credential-obtaining operation;
+              record access is acquired through credential acquisition
+              only — no direct-interface alternative is claimed for this
+              record. AML.CS0036 is a partial enabling analogy for
+              credential access only, not evidence of audit manipulation;
+              no legacy chain existed for this record.
           mappings:
             - decision: "exact"
               taxonomy: "ATLAS"
@@ -1032,7 +1036,7 @@ patterns:
       pattern_id: "AP-T9-05"
       chain_id: "chain.AP-T9-05"
       semantic_revision: 1
-      semantic_digest: "8abcd495d7d14d180bfe14c51a30132c04e9fea505fc391b0456a1664f6cbfc7"
+      semantic_digest: "bd2dd61545a091a10acb5c5d02a1afbac744e06be4cb81e30553ee059c3b17f1"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1306,6 +1310,52 @@ patterns:
             - decision: "exact"
               taxonomy: "ATLAS"
               ids: [AML.T0015]
+        - step_id: "perform_sensitive_action"
+          requirement: "required"
+          condition: null
+          executor_role: "attacker"
+          boundary_position: "inside"
+          action_kind: "invoke"
+          consumed:
+            - kind: "state"
+              ref_id: "auth.identity_granted"
+              value_type: "boolean"
+          produced:
+            - kind: "artifact"
+              ref_id: "action.sensitive_action_record"
+              value_type: "object"
+          preconditions: []
+          observable_postconditions:
+            - postcondition_id: "post.perform_sensitive_action"
+              description: >
+                The attacker performs a sensitive or prohibited action
+                (transaction, data access) under the victim's authenticated
+                context.
+              security_relevant: true
+              terminal: false
+          order: 7
+          attacker_controlled: true
+          provenance:
+            tier: "variant"
+            references:
+              - reference_type: "catalog"
+                reference_id: "AML.CS0004"
+              - reference_type: "design_record"
+                reference_id: "catalog-lineage.yaml:AP-T9-05"
+            confidence: 75
+            adaptation_rationale: >
+              Adapted from AML.CS0004 (S07: the attacker operated under the
+              spoofed identity after passing proofing): the specific
+              sensitive action is the pattern-level abstraction of the
+              lineage terminal semantics and is honestly tiered variant.
+          mappings:
+            - decision: "unmapped"
+              taxonomy: "ATLAS"
+              rationale: >
+                The sensitive action performed under the victim's identity
+                has no approved exact mapping for this record; the
+                identity-layer operations carry the exact identities
+                (AML.T0015 at evasion, AML.T0088/AML.T0016.001 upstream).
         - step_id: "false_attribution_recorded"
           requirement: "required"
           condition: null
@@ -1313,9 +1363,9 @@ patterns:
           boundary_position: "inside"
           action_kind: "impact"
           consumed:
-            - kind: "state"
-              ref_id: "auth.identity_granted"
-              value_type: "boolean"
+            - kind: "artifact"
+              ref_id: "action.sensitive_action_record"
+              value_type: "object"
           produced:
             - kind: "effect"
               ref_id: "impact.false_attribution"
@@ -1324,12 +1374,12 @@ patterns:
           observable_postconditions:
             - postcondition_id: "post.false_attribution_recorded"
               description: >
-                An action performed under the spoofed identity is recorded
-                against the victim: the first observable false-attribution
-                outcome.
+                The sensitive action performed under the spoofed identity is
+                recorded against the victim: the first observable
+                false-attribution outcome.
               security_relevant: true
               terminal: true
-          order: 7
+          order: 8
           attacker_controlled: false
           provenance:
             tier: "variant"
@@ -1375,7 +1425,7 @@ patterns:
       pattern_id: "AP-T9-06"
       chain_id: "chain.AP-T9-06"
       semantic_revision: 1
-      semantic_digest: "60dba0b9bd0cc274ed8690c16b531db4217d18b7aa092020c0a7a0c3a94ca6d2"
+      semantic_digest: "89c98b59d3205ad0f01b38a596f0136c6c0dc489aa89146ff267ccf2ef4a0686"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1497,14 +1547,14 @@ patterns:
               value_type: "object"
           produced:
             - kind: "artifact"
-              ref_id: "credential.long_lived_token"
+              ref_id: "credential.stolen_token"
               value_type: "string"
           preconditions: []
           observable_postconditions:
             - postcondition_id: "post.extract_long_lived_tokens"
               description: >
-                A long-lived authentication token surviving across sessions
-                is recovered from the agent application's process memory.
+                An authentication token is recovered from the agent
+                application's process memory.
               security_relevant: true
               terminal: false
           order: 3
@@ -1521,9 +1571,10 @@ patterns:
               Explicit in AML.CS0036 (S02: read the LLM desktop
               application's process memory to extract its authentication
               token): OS credential dumping from application memory,
-              AML.T0090's exact defined operation; the token's longevity is
-              a property of the stolen credential, not of the extraction
-              mechanism.
+              AML.T0090's exact defined operation. Only the extraction is
+              evidenced; the token's cross-session longevity is not
+              separately evidenced and is claimed only where honestly
+              tiered downstream.
           mappings:
             - decision: "exact"
               taxonomy: "ATLAS"
@@ -1536,7 +1587,7 @@ patterns:
           action_kind: "invoke"
           consumed:
             - kind: "artifact"
-              ref_id: "credential.long_lived_token"
+              ref_id: "credential.stolen_token"
               value_type: "string"
           produced:
             - kind: "state"
@@ -1547,7 +1598,7 @@ patterns:
             - postcondition_id: "post.authenticate_to_backend"
               description: >
                 The attacker is authenticated to the LLM backend with the
-                stolen long-lived token's persistent validity.
+                stolen token.
               security_relevant: true
               terminal: false
           order: 4
@@ -1589,29 +1640,33 @@ patterns:
             - postcondition_id: "post.establish_persistent_access"
               description: >
                 Backend access persists independently of the victim's active
-                sessions by virtue of the token's longevity.
+                sessions through the stolen credential's continued validity.
               security_relevant: true
               terminal: false
           order: 5
           attacker_controlled: true
           provenance:
-            tier: "observed"
+            tier: "variant"
             references:
               - reference_type: "catalog"
                 reference_id: "AML.CS0036"
-            confidence: 85
+              - reference_type: "design_record"
+                reference_id: "staging/qa-audit-t3-t9.md"
+            confidence: 75
             adaptation_rationale: >
-              Explicit in AML.CS0036 (S04: communicated with the LLM backend
-              as the desktop client identity); the persistence derives from
-              the long-lived credential property of the stolen token rather
-              than a separate technique operation.
+              Adapted from AML.CS0036 (S04: communicated with the LLM backend
+              as the desktop client identity — the backend operation is
+              explicit, but the durable, cross-session persistence claim is
+              inferred from the token's continued validity rather than a
+              separately evidenced token-lifetime property, so this step is
+              honestly tiered variant per qa-audit-t3-t9.md).
           mappings:
             - decision: "unmapped"
               taxonomy: "ATLAS"
               rationale: >
-                Durable backend access is a property of the stolen
-                credential's longevity, not a distinct technique operation;
-                no approved exact mapping exists for this step.
+                Durable backend access is an inferred property of the stolen
+                credential's continued validity, not a distinct technique
+                operation; no approved exact mapping exists for this step.
         - step_id: "inject_malicious_prompts"
           requirement: "required"
           condition: null
@@ -1631,7 +1686,7 @@ patterns:
             - postcondition_id: "post.inject_malicious_prompts"
               description: >
                 Attacker prompts are delivered into the agent's ongoing
-                conversations using the long-lived token.
+                conversations using the stolen token.
               security_relevant: true
               terminal: false
           order: 6
@@ -1783,6 +1838,58 @@ patterns:
                 mapping for this record; the AML.T0092 candidate pinned at
                 AML.CS0036 S08 remains provenance only (its approved exact
                 identity belongs to AP-T8-01).
+        - step_id: "operate_in_future_session"
+          requirement: "required"
+          condition: null
+          executor_role: "attacker"
+          boundary_position: "inside"
+          action_kind: "invoke"
+          consumed:
+            - kind: "state"
+              ref_id: "access.persistent_backend"
+              value_type: "boolean"
+            - kind: "state"
+              ref_id: "memory.poisoned_store"
+              value_type: "object"
+          produced:
+            - kind: "artifact"
+              ref_id: "ops.future_session_operations"
+              value_type: "object"
+          preconditions: []
+          observable_postconditions:
+            - postcondition_id: "post.operate_in_future_session"
+              description: >
+                In a later session, the persisted access is activated: the
+                attacker operates the backend as the agent while the poisoned
+                memory store steers the agent's behavior.
+              security_relevant: true
+              terminal: false
+          order: 10
+          attacker_controlled: true
+          provenance:
+            tier: "variant"
+            references:
+              - reference_type: "catalog"
+                reference_id: "AML.CS0036"
+              - reference_type: "design_record"
+                reference_id: "catalog-lineage.yaml:AP-T9-06"
+            confidence: 75
+            adaptation_rationale: >
+              Adapted from AML.CS0036 (S09-S10 analogue: continued operation
+              of the backend and the agent under the persisted compromise):
+              the future-session activation makes the durable takeover
+              operational before its sustained outcome; honestly tiered
+              variant because the cross-session timing is a
+              reinterpretation of the evidenced continued access.
+          mappings:
+            - decision: "unmapped"
+              taxonomy: "ATLAS"
+              rationale: >
+                Future-session operation reuses the stolen credential and
+                the poisoned memory whose exact identities (AML.T0091.000,
+                AML.T0080.000) are recorded at chain scope per
+                catalog-lineage AP-T9-06; no additional step-scope exact
+                mapping is approved.
         - step_id: "sustained_takeover_observed"
           requirement: "required"
           condition: null
@@ -1790,9 +1897,9 @@ patterns:
           boundary_position: "inside"
           action_kind: "impact"
           consumed:
-            - kind: "state"
-              ref_id: "access.persistent_backend"
-              value_type: "boolean"
+            - kind: "artifact"
+              ref_id: "ops.future_session_operations"
+              value_type: "object"
             - kind: "state"
               ref_id: "activity.concealed"
               value_type: "boolean"
@@ -1809,7 +1916,7 @@ patterns:
                 durable-takeover outcome.
               security_relevant: true
               terminal: true
-          order: 10
+          order: 11
           attacker_controlled: false
           provenance:
             tier: "inferred"
@@ -1833,15 +1940,17 @@ patterns:
   AP-T9-07:
     id: "AP-T9-07"
     threat_id: "T9"
-    name: "Agent service availability disruption via stolen identity"
+    name: "Agent data destruction via stolen identity"
     description: >
       An attacker, operating under an agent's stolen service identity,
-      disrupts availability as an independent post-compromise operation:
-      deleting the agent's data (chats) through its own mutative
-      capabilities and exhausting the agent service's rate limits with
-      request floods. Split from AP-T9-02 per catalog-lineage OG-07:
-      disruption is not a consequence of impersonation but a distinct
-      mechanism.
+      destroys the agent's data (chats) through its own mutative
+      capabilities as an independent post-compromise operation. Split
+      from AP-T9-02 per catalog-lineage OG-07: disruption is not a
+      consequence of impersonation but a distinct mechanism. Narrowed to
+      the single data-destruction mechanism (the first AML.CS0036
+      disruption event, AML.T0101's exact defined operation); the
+      request-flood/rate-limit exhaustion branch is an independent
+      mechanism (AML.T0029) and is out of scope for this record.
     nist_classification:
       attacker_goal: "availability"
       attacker_knowledge: "gray_box"
@@ -1856,7 +1965,7 @@ patterns:
       pattern_id: "AP-T9-07"
       chain_id: "chain.AP-T9-07"
       semantic_revision: 1
-      semantic_digest: "90521b2efa4c1f1ad704aafbade023e0e2c9f1abd472d345e724f54f9c3c7a02"
+      semantic_digest: "4065b09e689047ad41f50354018aa6fb165596b93a68070a62abc47edb16417f"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1866,7 +1975,7 @@ patterns:
       mappings:
         - decision: "exact"
           taxonomy: "ATLAS"
-          ids: [AML.T0029, AML.T0101]
+          ids: [AML.T0101]
       earliest_attacker_controlled_step_id: "authenticate_as_agent"
       initial_ingress_slot_id: "ingress"
       resource_slots:
@@ -1938,9 +2047,10 @@ patterns:
             - postcondition_id: "post.destroy_agent_data"
               description: >
                 The agent's data (chats) is destroyed through its own
-                mutative capabilities invoked by the attacker.
+                mutative capabilities invoked by the attacker under the
+                stolen identity: the first observable availability impact.
               security_relevant: true
-              terminal: false
+              terminal: true
           order: 2
           attacker_controlled: true
           provenance:
@@ -1961,7 +2071,9 @@ patterns:
               exact defined operation — the lineage retags the identity at
               definition level and records it at chain scope). The legacy
               consolidated impact rows are honestly tiered inferred per
-              qa-audit-t3-t9.md.
+              qa-audit-t3-t9.md. This step is the record's single terminal
+              mechanism; the S12 request-flood impact is a separate
+              AML.T0029 mechanism and is excluded from this record.
           mappings:
             - decision: "unmapped"
               taxonomy: "ATLAS"
@@ -1971,54 +2083,6 @@ patterns:
                 the AML.T0029 assignment pinned at AML.CS0036 S11) per
                 catalog-lineage AP-T9-07; the exact identity is recorded at
                 chain scope and not duplicated at step scope.
-        - step_id: "exhaust_service_rate_limits"
-          requirement: "required"
-          condition: null
-          executor_role: "attacker"
-          boundary_position: "inside"
-          action_kind: "invoke"
-          consumed:
-            - kind: "state"
-              ref_id: "session.agent_authenticated"
-              value_type: "boolean"
-          produced:
-            - kind: "effect"
-              ref_id: "impact.availability_disruption"
-              value_type: "boolean"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.exhaust_service_rate_limits"
-              description: >
-                The agent's data is destroyed or its service is rate-limit
-                exhausted by request floods under the stolen identity: the
-                first observable availability impact.
-              security_relevant: true
-              terminal: true
-          order: 3
-          attacker_controlled: true
-          provenance:
-            tier: "inferred"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0036"
-              - reference_type: "design_record"
-                reference_id: "staging/qa-audit-t3-t9.md"
-            confidence: 60
-            adaptation_rationale: >
-              Inferred from AML.CS0036's impact behavior (S11-S12: rate
-              limit abuse degrading the service): targeting an AI-enabled
-              system with a request flood to degrade it is AML.T0029's exact
-              defined operation, recorded at chain scope per the lineage.
-              The consolidated flooding outcome is honestly tiered inferred
-              per qa-audit-t3-t9.md.
-          mappings:
-            - decision: "unmapped"
-              taxonomy: "ATLAS"
-              rationale: >
-                Rate-limit exhaustion by request flood is the chain-level
-                AML.T0029 identity for this record per catalog-lineage
-                AP-T9-07; the exact identity is recorded at chain scope and
-                not duplicated at step scope.
 
   # ═══════════════════════════════════════════════════════════════════
   # T10 — Overwhelming Human in the Loop (1 of 3 sources survives;
@@ -2052,7 +2116,7 @@ patterns:
       pattern_id: "AP-T10-01"
       chain_id: "chain.AP-T10-01"
       semantic_revision: 1
-      semantic_digest: "d45a79aa420a4601e50b68bf2d690508e14782f2ee288e3695ef895fe0e342c0"
+      semantic_digest: "614823451c32dbba56088a04387b39b142432ee050665cd602aba86d0b983f25"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -2244,6 +2308,50 @@ patterns:
             - decision: "exact"
               taxonomy: "ATLAS"
               ids: [AML.T0066]
+        - step_id: "obfuscate_malicious_content"
+          requirement: "required"
+          condition: null
+          executor_role: "attacker"
+          boundary_position: "outside"
+          action_kind: "prepare"
+          consumed:
+            - kind: "artifact"
+              ref_id: "payload.misleading_context"
+              value_type: "object"
+          produced:
+            - kind: "artifact"
+              ref_id: "payload.obfuscated_context"
+              value_type: "object"
+          preconditions: []
+          observable_postconditions:
+            - postcondition_id: "post.obfuscate_malicious_content"
+              description: >
+                The malicious portion of the crafted content is presented so
+                the action will appear trustworthy to the reviewer.
+              security_relevant: false
+              terminal: false
+          order: 5
+          attacker_controlled: true
+          provenance:
+            tier: "observed"
+            references:
+              - reference_type: "catalog"
+                reference_id: "AML.CS0026"
+              - reference_type: "design_record"
+                reference_id: "catalog-lineage.yaml:AP-T10-01"
+            confidence: 85
+            adaptation_rationale: >
+              Evidenced in AML.CS0026 (S07 evasion of recipient notice; S12
+              citation manipulation) and the legacy step: manipulating the
+              presentation components (language, links, metadata) so the
+              action appears trustworthy to the reviewer is AML.T0067's
+              defined trusted-output-components manipulation, as approved at
+              step scope by the lineage. Performed on the crafted payload
+              before delivery.
+          mappings:
+            - decision: "exact"
+              taxonomy: "ATLAS"
+              ids: [AML.T0067]
         - step_id: "deliver_crafted_content"
           requirement: "required"
           condition: null
@@ -2252,7 +2360,7 @@ patterns:
           action_kind: "deliver"
           consumed:
             - kind: "artifact"
-              ref_id: "payload.misleading_context"
+              ref_id: "payload.obfuscated_context"
               value_type: "object"
           produced:
             - kind: "state"
@@ -2262,11 +2370,11 @@ patterns:
           observable_postconditions:
             - postcondition_id: "post.deliver_crafted_content"
               description: >
-                The crafted content reaches a data channel the agent
-                consumes (email, document).
+                The crafted, obfuscated content reaches a data channel the
+                agent consumes (email, document).
               security_relevant: false
               terminal: false
-          order: 5
+          order: 6
           attacker_controlled: true
           provenance:
             tier: "observed"
@@ -2284,98 +2392,6 @@ patterns:
                 Channel delivery has no approved exact mapping for this
                 record; the AML.T0093 candidate from the legacy chain
                 remains provenance only.
-        - step_id: "obfuscate_malicious_content"
-          requirement: "required"
-          condition: null
-          executor_role: "attacker"
-          boundary_position: "outside"
-          action_kind: "prepare"
-          consumed:
-            - kind: "state"
-              ref_id: "channel.delivered_content"
-              value_type: "boolean"
-          produced:
-            - kind: "state"
-              ref_id: "channel.obfuscated_content"
-              value_type: "boolean"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.obfuscate_malicious_content"
-              description: >
-                The malicious portion of the delivered content is presented
-                so the action appears trustworthy to the reviewer.
-              security_relevant: false
-              terminal: false
-          order: 6
-          attacker_controlled: true
-          provenance:
-            tier: "observed"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0026"
-              - reference_type: "design_record"
-                reference_id: "catalog-lineage.yaml:AP-T10-01"
-            confidence: 85
-            adaptation_rationale: >
-              Evidenced in AML.CS0026 (S07 evasion of recipient notice; S12
-              citation manipulation) and the legacy step: manipulating the
-              presentation components (language, links, metadata) so the
-              action appears trustworthy to the reviewer is AML.T0067's
-              defined trusted-output-components manipulation, as approved at
-              step scope by the lineage.
-          mappings:
-            - decision: "exact"
-              taxonomy: "ATLAS"
-              ids: [AML.T0067]
-        - step_id: "persist_in_content_store"
-          requirement: "conditional"
-          condition:
-            op: "equality"
-            schema_version: "1"
-            fact:
-              namespace: "profile"
-              fact_id: "has_persistent_memory"
-              value_type: "boolean"
-              property_path: []
-            value: true
-          executor_role: "system"
-          boundary_position: "inside"
-          action_kind: "persist"
-          consumed:
-            - kind: "state"
-              ref_id: "channel.obfuscated_content"
-              value_type: "boolean"
-          produced:
-            - kind: "state"
-              ref_id: "store.persisted_context"
-              value_type: "object"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.persist_in_content_store"
-              description: >
-                The manipulated context persists in the retrieval/content
-                store and is retrieved whenever relevant queries occur.
-              security_relevant: false
-              terminal: false
-          order: 7
-          attacker_controlled: false
-          provenance:
-            tier: "variant"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0026"
-              - reference_type: "design_record"
-                reference_id: "catalog-lineage.yaml:AP-T10-01"
-            confidence: 75
-            adaptation_rationale: >
-              Adapted from AML.CS0026 (S08: the poisoned content persisted
-              in the retrieval system). The lineage records RAG persistence
-              as an optional implementation detail, not a mandatory phase:
-              this step is conditional on the target profile exposing a
-              persistent memory/retrieval store.
-          mappings:
-            - decision: "not_applicable"
-              taxonomy: "ATLAS"
         - step_id: "activate_injection"
           requirement: "required"
           condition: null
@@ -2384,7 +2400,7 @@ patterns:
           action_kind: "transform"
           consumed:
             - kind: "state"
-              ref_id: "channel.obfuscated_content"
+              ref_id: "channel.delivered_content"
               value_type: "boolean"
           produced:
             - kind: "state"
@@ -2398,7 +2414,7 @@ patterns:
                 presents actions with the artificially constructed context.
               security_relevant: true
               terminal: false
-          order: 8
+          order: 7
           attacker_controlled: false
           provenance:
             tier: "observed"
@@ -2436,7 +2452,7 @@ patterns:
                 information, neutralizing the oversight function.
               security_relevant: true
               terminal: false
-          order: 9
+          order: 8
           attacker_controlled: false
           provenance:
             tier: "observed"
@@ -2477,22 +2493,27 @@ patterns:
                 failure, bypassing the human-in-the-loop security control.
               security_relevant: true
               terminal: true
-          order: 10
+          order: 9
           attacker_controlled: false
           provenance:
-            tier: "observed"
+            tier: "variant"
             references:
               - reference_type: "catalog"
                 reference_id: "AML.CS0026"
               - reference_type: "design_record"
                 reference_id: "catalog-lineage.yaml:AP-T10-01"
-            confidence: 90
+              - reference_type: "design_record"
+                reference_id: "staging/review-t10-t15-t12-t13-t16.md"
+            confidence: 75
             adaptation_rationale: >
-              Explicit in AML.CS0026 (S13: the human approved the fraudulent
-              action), generalized from financial fraud to the oversight
-              failure the lineage terminal semantics require. The AML.CS0055
-              secondary reference is removed per the lineage directionality
-              correction.
+              Conditional in AML.CS0026 (S13: the human approved the
+              fraudulent action — the evidenced but conditional payoff of
+              the manipulated presentation, not a guaranteed observed
+              step), generalized from financial fraud to the oversight
+              failure the lineage terminal semantics require; honestly
+              tiered variant per review-t10-t15-t12-t13-t16.md. The
+              AML.CS0055 secondary reference is removed per the lineage
+              directionality correction.
           mappings:
             - decision: "not_applicable"
               taxonomy: "ATLAS"
@@ -2508,15 +2529,16 @@ patterns:
     threat_id: "T16"
     name: "Context hijacking via crafted protocol response injection"
     description: >
-      An attacker crafts or intercepts a server-side response within an
-      inter-agent protocol implementation, injecting malicious context or
-      tool metadata into the response payload. A receiving agent interprets
-      the injected content as trusted protocol context and executes
-      unintended operations, because the protocol's trust model does not
-      validate the semantic integrity of response content beyond structural
-      conformance. Owns semantic response-payload injection; transport-level
-      interception is AP-T12-04's boundary and registry-metadata deception
-      is AP-T16-03 (catalog-lineage).
+      An attacker crafts a server-side response within an inter-agent
+      protocol implementation, injecting malicious context or tool metadata
+      into the response payload served to the receiving agent. The
+      receiving agent interprets the injected content as trusted protocol
+      context and executes unintended operations, because the protocol's
+      trust model does not validate the semantic integrity of response
+      content beyond structural conformance. Owns the crafted semantic
+      response-payload mechanism only; transport-level interception is an
+      alternative delivery path outside this record (AP-T12-04's boundary)
+      and registry-metadata deception is AP-T16-03 (catalog-lineage).
     nist_classification:
       attacker_goal: "integrity"
       attacker_knowledge: "gray_box"
@@ -2820,9 +2842,12 @@ patterns:
       When a consuming agent selects and invokes the tool based on its
       description, it operates under false assumptions about the tool's
       scope and behavior, inadvertently leaking sensitive data or triggering
-      privileged operations. Owns deceptive capability metadata; hidden
-      malicious code without deceptive metadata is supply-chain poisoning
-      (AP-T17-03 boundary, catalog-lineage).
+      privileged operations it would not have authorized with accurate
+      metadata. Owns deceptive capability metadata only: the mechanism is
+      the altered description changing selection and authorization — no
+      hidden code, tool installation, or prompt injection is modeled.
+      Hidden malicious code without deceptive metadata is supply-chain
+      poisoning (AP-T17-03 boundary, catalog-lineage).
     nist_classification:
       attacker_goal: "integrity"
       attacker_knowledge: "gray_box"
@@ -2837,7 +2862,7 @@ patterns:
       pattern_id: "AP-T16-03"
       chain_id: "chain.AP-T16-03"
       semantic_revision: 1
-      semantic_digest: "f0933903271740e841632e5d983ff4aec01f6755c8602eaeaa932e4b28fab5d9"
+      semantic_digest: "e84aaa027d88e4fc7f4efc4773a5f34647ef9bcbc63bfc629076416404d63c93"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -2848,7 +2873,7 @@ patterns:
         - decision: "exact"
           taxonomy: "ATLAS"
           ids: [AML.T0110]
-      earliest_attacker_controlled_step_id: "stage_infrastructure"
+      earliest_attacker_controlled_step_id: "craft_deceptive_descriptions"
       initial_ingress_slot_id: "ingress"
       resource_slots:
         - slot_id: "ingress"
@@ -2864,44 +2889,7 @@ patterns:
           kind: "trust_boundary"
           purpose: "supporting"
       steps:
-        - step_id: "stage_infrastructure"
-          requirement: "required"
-          condition: null
-          executor_role: "attacker"
-          boundary_position: "outside"
-          action_kind: "persist"
-          consumed: []
-          produced:
-            - kind: "state"
-              ref_id: "infra.staging"
-              value_type: "boolean"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.stage_infrastructure"
-              description: >
-                External infrastructure to host the poisoned tool or skill
-                is staged.
-              security_relevant: false
-              terminal: false
-          order: 1
-          attacker_controlled: true
-          provenance:
-            tier: "observed"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0049"
-            confidence: 90
-            adaptation_rationale: >
-              Explicit in AML.CS0049 (S00-S01: created the hosting server
-              and registered the look-alike skill domain).
-          mappings:
-            - decision: "unmapped"
-              taxonomy: "ATLAS"
-              rationale: >
-                Infrastructure staging has no approved exact mapping for
-                this record; the AML.T0017/AML.T0008.002 candidates pinned
-                at AML.CS0049 S00-S01 remain provenance only.
-        - step_id: "craft_tool_descriptions"
+        - step_id: "craft_deceptive_descriptions"
           requirement: "required"
           condition: null
           executor_role: "attacker"
@@ -2914,13 +2902,14 @@ patterns:
               value_type: "object"
           preconditions: []
           observable_postconditions:
-            - postcondition_id: "post.craft_tool_descriptions"
+            - postcondition_id: "post.craft_deceptive_descriptions"
               description: >
-                Misleading, overly broad, or adversarially crafted tool
-                descriptions for the registry metadata are prepared.
+                Misleading or adversarially crafted tool descriptions that
+                overstate or misrepresent the tool's scope and behavior are
+                prepared.
               security_relevant: false
               terminal: false
-          order: 2
+          order: 1
           attacker_controlled: true
           provenance:
             tier: "variant"
@@ -2934,211 +2923,40 @@ patterns:
               Adapted per the lineage narrowing: AML.CS0049 hid its
               injection in a rules file rather than misrepresenting scope in
               the registry description itself, so the description-deception
-              claim is honestly tiered variant. Altering tool
-              descriptions/metadata to manipulate agent behavior is the
-              chain-level AML.T0110 identity.
+              claim is honestly tiered variant. Crafting the deceptive text
+              is preparation for the alteration operation, not the
+              alteration itself.
           mappings:
             - decision: "unmapped"
               taxonomy: "ATLAS"
               rationale: >
-                Deceptive capability metadata is the chain-level AML.T0110
-                identity for this record per catalog-lineage AP-T16-03; the
-                exact identity is recorded at chain scope and not duplicated
-                at step scope.
-        - step_id: "develop_poisoned_tool"
+                Preparing deceptive description text has no approved exact
+                mapping for this record; the AML.T0110 identity attaches to
+                the metadata alteration step and is also recorded at chain
+                scope per catalog-lineage AP-T16-03.
+        - step_id: "alter_registry_metadata"
           requirement: "required"
           condition: null
           executor_role: "attacker"
-          boundary_position: "outside"
-          action_kind: "prepare"
+          boundary_position: "crossing"
+          action_kind: "persist"
           consumed:
-            - kind: "state"
-              ref_id: "infra.staging"
-              value_type: "boolean"
             - kind: "artifact"
               ref_id: "registry.deceptive_descriptions"
               value_type: "object"
           produced:
-            - kind: "artifact"
-              ref_id: "tool.poisoned_tool"
-              value_type: "object"
+            - kind: "state"
+              ref_id: "registry.deceptive_listing"
+              value_type: "boolean"
           preconditions: []
           observable_postconditions:
-            - postcondition_id: "post.develop_poisoned_tool"
+            - postcondition_id: "post.alter_registry_metadata"
               description: >
-                A poisoned tool/skill carrying malicious logic in its
-                metadata files is developed and published to the registry.
+                The shared tool registry or protocol metadata store now
+                serves the deceptive descriptions for the tool.
               security_relevant: true
               terminal: false
-          order: 3
-          attacker_controlled: true
-          provenance:
-            tier: "observed"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0049"
-              - reference_type: "design_record"
-                reference_id: "catalog-lineage.yaml:AP-T16-03"
-            confidence: 90
-            adaptation_rationale: >
-              Explicit in AML.CS0049 (S02-S03 analogue: crafted the prompt
-              injection and developed the poisoned skill): creating and
-              publishing a poisoned AI agent tool to a registry is
-              AML.T0104's exact defined operation, as approved at step scope
-              by the lineage.
-          mappings:
-            - decision: "exact"
-              taxonomy: "ATLAS"
-              ids: [AML.T0104]
-        - step_id: "inflate_registry_reputation"
-          requirement: "required"
-          condition: null
-          executor_role: "attacker"
-          boundary_position: "outside"
-          action_kind: "invoke"
-          consumed:
-            - kind: "artifact"
-              ref_id: "tool.poisoned_tool"
-              value_type: "object"
-          produced:
-            - kind: "state"
-              ref_id: "registry.inflated_reputation"
-              value_type: "boolean"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.inflate_registry_reputation"
-              description: >
-                Download counts or adoption metrics are inflated to raise
-                the poisoned tool's perceived trustworthiness in the
-                registry.
-              security_relevant: false
-              terminal: false
-          order: 4
-          attacker_controlled: true
-          provenance:
-            tier: "observed"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0049"
-              - reference_type: "design_record"
-                reference_id: "catalog-lineage.yaml:AP-T16-03"
-            confidence: 90
-            adaptation_rationale: >
-              Explicit in AML.CS0049 (S04: a script increased the download
-              count): building credible-looking trust signals to drive
-              adoption of the malicious tool is AML.T0111's exact defined
-              operation (AI supply chain reputation inflation), as approved
-              at step scope by the lineage.
-          mappings:
-            - decision: "exact"
-              taxonomy: "ATLAS"
-              ids: [AML.T0111]
-        - step_id: "supply_chain_delivery"
-          requirement: "required"
-          condition: null
-          executor_role: "operator"
-          boundary_position: "crossing"
-          action_kind: "deliver"
-          consumed:
-            - kind: "artifact"
-              ref_id: "tool.poisoned_tool"
-              value_type: "object"
-            - kind: "state"
-              ref_id: "registry.inflated_reputation"
-              value_type: "boolean"
-          produced:
-            - kind: "state"
-              ref_id: "env.tool_installed"
-              value_type: "boolean"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.supply_chain_delivery"
-              description: >
-                The poisoned tool is downloaded from the registry through
-                normal dependency management and installed in the agent's
-                environment.
-              security_relevant: true
-              terminal: false
-          order: 5
-          attacker_controlled: false
-          provenance:
-            tier: "observed"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0049"
-            confidence: 90
-            adaptation_rationale: >
-              Explicit in AML.CS0049 (S05: users downloaded the poisoned
-              skill through normal dependency management); the download is
-              the operator's unwitting delivery action, not an adversary
-              operation.
-          mappings:
-            - decision: "not_applicable"
-              taxonomy: "ATLAS"
-        - step_id: "execute_hidden_injection"
-          requirement: "required"
-          condition: null
-          executor_role: "system"
-          boundary_position: "inside"
-          action_kind: "invoke"
-          consumed:
-            - kind: "state"
-              ref_id: "env.tool_installed"
-              value_type: "boolean"
-          produced:
-            - kind: "state"
-              ref_id: "agent.injection_active"
-              value_type: "boolean"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.execute_hidden_injection"
-              description: >
-                On activation the agent reads the tool's files and the
-                hidden prompt injection executes.
-              security_relevant: true
-              terminal: false
-          order: 6
-          attacker_controlled: false
-          provenance:
-            tier: "observed"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0049"
-            confidence: 90
-            adaptation_rationale: >
-              Explicit in AML.CS0049 (S06-S07: the user invoked the skill
-              and the agent read all of its files, executing the hidden
-              injection).
-          mappings:
-            - decision: "not_applicable"
-              taxonomy: "ATLAS"
-        - step_id: "invoke_privileged_tools"
-          requirement: "required"
-          condition: null
-          executor_role: "attacker"
-          boundary_position: "inside"
-          action_kind: "invoke"
-          consumed:
-            - kind: "state"
-              ref_id: "agent.injection_active"
-              value_type: "boolean"
-          produced:
-            - kind: "artifact"
-              ref_id: "ops.invocation_record"
-              value_type: "object"
-            - kind: "effect"
-              ref_id: "ops.privileged_invoked"
-              value_type: "boolean"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.invoke_privileged_tools"
-              description: >
-                Under the false scope assumptions, the consuming agent
-                invokes the poisoned tool and its privileged capabilities
-                (e.g., command execution).
-              security_relevant: true
-              terminal: false
-          order: 7
+          order: 2
           attacker_controlled: true
           provenance:
             tier: "variant"
@@ -3149,18 +2967,100 @@ patterns:
                 reference_id: "catalog-lineage.yaml:AP-T16-03"
             confidence: 80
             adaptation_rationale: >
-              Adapted from AML.CS0049 (S06/S09 analogue: the victim's
-              invocation of the poisoned skill led to privileged command
-              execution): the victim agent invoking the poisoned tool under
-              false scope assumptions is AML.T0011.002's defined operation
-              (user invocation of a poisoned AI agent tool). Modeled as an
-              attacker-role step because ATLAS techniques describe adversary
-              operations; the invocation is the adversary-arranged execution
-              vector, honestly disclosed per the lineage rationale.
+              Adapted from AML.CS0049 (S02-S03 analogue: the misleading
+              skill presentation was published to the registry): modifying a
+              tool's descriptions/metadata to manipulate the agent's
+              behavior is AML.T0110's exact defined operation (AI agent tool
+              poisoning explicitly includes modifying parameters or
+              descriptions), verified against the pinned 2026.05 definition.
           mappings:
             - decision: "exact"
               taxonomy: "ATLAS"
-              ids: [AML.T0011.002]
+              ids: [AML.T0110]
+        - step_id: "select_tool_under_false_scope"
+          requirement: "required"
+          condition: null
+          executor_role: "system"
+          boundary_position: "inside"
+          action_kind: "transform"
+          consumed:
+            - kind: "state"
+              ref_id: "registry.deceptive_listing"
+              value_type: "boolean"
+          produced:
+            - kind: "state"
+              ref_id: "agent.tool_selected_false_scope"
+              value_type: "boolean"
+          preconditions: []
+          observable_postconditions:
+            - postcondition_id: "post.select_tool_under_false_scope"
+              description: >
+                The consuming agent reads the deceptive metadata and selects
+                the tool under false assumptions about its scope and
+                behavior.
+              security_relevant: true
+              terminal: false
+          order: 3
+          attacker_controlled: false
+          provenance:
+            tier: "variant"
+            references:
+              - reference_type: "catalog"
+                reference_id: "AML.CS0049"
+              - reference_type: "design_record"
+                reference_id: "staging/review-t10-t15-t12-t13-t16.md"
+            confidence: 75
+            adaptation_rationale: >
+              Adapted from AML.CS0049 (S04-S05 analogue: users discovered
+              and adopted the skill through the registry): restated as
+              selection driven by the deceptive description itself, without
+              the reputation-inflation amplifier, per the review narrowing.
+          mappings:
+            - decision: "not_applicable"
+              taxonomy: "ATLAS"
+        - step_id: "invoke_tool_under_false_scope"
+          requirement: "required"
+          condition: null
+          executor_role: "system"
+          boundary_position: "inside"
+          action_kind: "invoke"
+          consumed:
+            - kind: "state"
+              ref_id: "agent.tool_selected_false_scope"
+              value_type: "boolean"
+          produced:
+            - kind: "artifact"
+              ref_id: "ops.invocation_record"
+              value_type: "object"
+          preconditions: []
+          observable_postconditions:
+            - postcondition_id: "post.invoke_tool_under_false_scope"
+              description: >
+                The consuming agent invokes the tool under the false scope
+                assumptions, using capabilities it would not have authorized
+                with accurate metadata.
+              security_relevant: true
+              terminal: false
+          order: 4
+          attacker_controlled: false
+          provenance:
+            tier: "variant"
+            references:
+              - reference_type: "catalog"
+                reference_id: "AML.CS0049"
+              - reference_type: "design_record"
+                reference_id: "staging/review-t10-t15-t12-t13-t16.md"
+            confidence: 75
+            adaptation_rationale: >
+              Adapted from AML.CS0049 (S06/S09 analogue: the victim's
+              invocation of the skill): honestly roled as a system step —
+              the consuming agent's own invocation under false scope
+              assumptions, not an adversary operation. AML.T0011.002 (user
+              invocation of a poisoned AI agent tool) is not claimed: no
+              poisoned tool exists in this deceptive-metadata mechanism.
+          mappings:
+            - decision: "not_applicable"
+              taxonomy: "ATLAS"
         - step_id: "false_scope_impact"
           requirement: "required"
           condition: null
@@ -3185,20 +3085,24 @@ patterns:
                 metadata: the first observable misrepresentation outcome.
               security_relevant: true
               terminal: true
-          order: 8
+          order: 5
           attacker_controlled: false
           provenance:
             tier: "variant"
             references:
               - reference_type: "catalog"
                 reference_id: "AML.CS0049"
+              - reference_type: "design_record"
+                reference_id: "staging/review-t10-t15-t12-t13-t16.md"
             confidence: 75
             adaptation_rationale: >
-              Adapted from AML.CS0049 (S10: the executed command could have
-              delivered a malicious payload): restated as the lineage
-              terminal semantics — the first observable harm attributable to
-              the false scope assumptions. The secondary MCP case references
-              are unverified provenance context only.
+              Adapted from AML.CS0049's impact behavior, restated as the
+              lineage terminal semantics — the first observable harm
+              attributable to the false scope assumptions created by the
+              deceptive metadata. The hidden-payload impacts of CS0049's
+              poisoned skill belong to the supply-chain mechanism (AP-T17-03
+              boundary) and are not claimed; the secondary MCP case
+              references are unverified provenance context only.
           mappings:
             - decision: "not_applicable"
               taxonomy: "ATLAS"
