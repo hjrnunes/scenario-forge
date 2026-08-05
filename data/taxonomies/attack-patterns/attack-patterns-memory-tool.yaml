@@ -12,6 +12,21 @@
 # in per-step provenance. Deferred sources (AP-T3-01, AP-T4-02, AP-T4-04)
 # produce no live record and are removed from this file.
 #
+# Exact-head semantic revision: unconsumed side-branch steps removed
+# (persist_in_channel in AP-T1-01/AP-T2-04; persist_in_knowledge_store in
+# AP-T3-02); chains terminate at the first observable terminal per the
+# lineage terminal semantics (legacy synthetic impact steps folded into the
+# terminal operation); AP-T2-06 ends at command execution, narrowed to the
+# command/scripting interpreter for exact AML.T0050; AP-T1-04 exact
+# identities are narrowed to the pinned AML.T0070/AML.T0080.000 operations;
+# AP-T3-02 is resequenced craft->obfuscate->deliver->execute->grant with
+# CS0026 S06/S10 citations downgraded to variant (indirect RAG injection).
+# Two deliberate lineage deltas are carried and reported: AP-T3-02
+# deliver_request drops the lineage's exact AML.T0051.000 claim (false on
+# indirect evidence), and AP-T2-06 does not realize harvest_credentials
+# (post-terminal impact; lineage exact AML.T0055 mapping reported for
+# removal).
+#
 # Every chain's semantic_digest is recomputed with
 # scenario_forge.models.attack_pattern.compute_chain_semantic_digest over the
 # chain content; taxonomy_context pins the production resolver exactly.
@@ -55,8 +70,8 @@ patterns:
       pattern_id: AP-T1-01
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: c50aa79db8eb555504cd8c6b56235a37e3e941e22a0fa83958c1b5deaa03c9c9
-      taxonomy_context: &id002
+      semantic_digest: 8f364a70d063d6940f8cf2cff5fd5c159b141d3c9cf1d570b50db95e212640e6
+      taxonomy_context: &id001
         atlas:
           release: '2026.05'
           digest: defd9014c6d5f5954460ef438faea583fcb1830ff81e85709628efb43037cc3a
@@ -154,7 +169,7 @@ patterns:
         observable_postconditions:
         - postcondition_id: post.deliver.payload
           description: Poisoned content delivered through the connected channel the agent treats as a
-            trusted data source.
+            trusted data source; the content persists in the channel as a continuing infection vector.
           security_relevant: true
           terminal: false
         order: 3
@@ -166,7 +181,8 @@ patterns:
             reference_id: AML.CS0040
           confidence: 90
           adaptation_rationale: Explicit against AML.CS0040 S02 (delivery through a connected application
-            channel).
+            channel); the S05 channel-persistence observation is carried here after the side-branch persist_in_channel
+            step was removed (nothing consumed its output).
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
@@ -244,40 +260,6 @@ patterns:
           taxonomy: ATLAS
           ids:
           - AML.T0080.000
-      - step_id: persist_in_channel
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: persist
-        consumed:
-        - kind: state
-          ref_id: channel.poisoned.content
-          value_type: object
-        produced:
-        - kind: state
-          ref_id: channel.persistent.vector
-          value_type: object
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.persist.in.channel
-          description: Poisoned content persists in the shared channel as a continuing infection vector.
-          security_relevant: true
-          terminal: false
-        order: 6
-        attacker_controlled: false
-        provenance:
-          tier: observed
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0040
-          confidence: 90
-          adaptation_rationale: Explicit against AML.CS0040 S05; channel-side persistence is a system
-            state, distinct from the memory-write persistence of the injected rule.
-        mappings:
-        - &id001
-          decision: not_applicable
-          taxonomy: ATLAS
       - step_id: impact
         requirement: required
         condition: null
@@ -299,7 +281,7 @@ patterns:
             its real constraints: the first observable authorization-override outcome.'
           security_relevant: true
           terminal: true
-        order: 7
+        order: 6
         attacker_controlled: false
         provenance:
           tier: inferred
@@ -313,7 +295,9 @@ patterns:
             outcome; the override terminal follows from the entrenched-rule mechanism and is honestly
             tiered inferred per the lineage provenance plan.'
         mappings:
-        - *id001
+        - &id002
+          decision: not_applicable
+          taxonomy: ATLAS
       earliest_attacker_controlled_step_id: craft_payload
       resource_slots:
       - slot_id: ingress
@@ -354,8 +338,8 @@ patterns:
       pattern_id: AP-T1-02
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: cd1b056d4760e34aadfd810096e421b6fe2d43b14b98c4281c4a60fcbc032d82
-      taxonomy_context: *id002
+      semantic_digest: df2774f1cee84cbe213b636d5326c583afb6234e8bf3dd53548924e982362417
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -483,16 +467,16 @@ patterns:
           ref_id: context.saturated
           value_type: boolean
         produced:
-        - kind: state
-          ref_id: authorization.granted
+        - kind: effect
+          ref_id: outcome.escalated.access
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.escalate.privileges
-          description: The agent loses track of prior authorization state and grants access it should
-            deny.
+          description: 'The agent, its context saturated, grants the escalated access it should deny:
+            the first observable authorization failure.'
           security_relevant: true
-          terminal: false
+          terminal: true
         order: 4
         attacker_controlled: false
         provenance:
@@ -502,42 +486,11 @@ patterns:
             reference_id: review-t1-t5.md
           confidence: 50
           adaptation_rationale: 'Inferred: the AML.CS0040 scaffold does not demonstrate cumulative context
-            saturation; the authorization failure follows from the saturation mechanism per review-t1-t5.md.'
+            saturation; the authorization grant follows from the saturation mechanism per review-t1-t5.md
+            and is the lineage terminal, so the legacy separate impact step is folded into this step rather
+            than claimed after the first observable event.'
         mappings:
-        - *id001
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: authorization.granted
-          value_type: boolean
-        produced:
-        - kind: effect
-          ref_id: outcome.escalated.access
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'The agent, its context saturated, grants the escalated access: the first observable
-            authorization failure.'
-          security_relevant: true
-          terminal: true
-        order: 5
-        attacker_controlled: false
-        provenance:
-          tier: inferred
-          references:
-          - reference_type: design_record
-            reference_id: review-t1-t5.md
-          confidence: 50
-          adaptation_rationale: 'Inferred: the escalated-access outcome is the saturation mechanism''s
-            consequence, honestly tiered inferred because no case-study evidence is claimed.'
-        mappings:
-        - *id001
+        - *id002
       earliest_attacker_controlled_step_id: craft_fragments
       resource_slots:
       - slot_id: ingress
@@ -581,7 +534,7 @@ patterns:
       chain_id: chain.1
       semantic_revision: 1
       semantic_digest: 75757cd51aa82cadbbf08afbf4f288aefd032b3822a4422ef234af2e2ab59291
-      taxonomy_context: *id002
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -732,7 +685,7 @@ patterns:
             analogizes the drifted-classification outcome; stored threat-classification corruption is
             not directly demonstrated.'
         mappings:
-        - *id001
+        - *id002
       earliest_attacker_controlled_step_id: gain_access
       resource_slots:
       - slot_id: ingress
@@ -774,8 +727,8 @@ patterns:
       pattern_id: AP-T1-04
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 44a66371c0a3def36c954f6307c14b39089e6045a29f9a1192d99afe59f7a367
-      taxonomy_context: *id002
+      semantic_digest: 3f1eb939ac7d2aebdc97c7d075d5b96b20032ed498ab18d56ac7647a5754b3c4
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -796,8 +749,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.gain.access
-          description: Attacker gains write access to the shared memory/retrieval structure (RAG database,
-            vector store, or shared memory backend).
+          description: Attacker gains write access to the shared memory/retrieval structure, framed here
+            as the RAG-indexed store shared by the agent collective.
           security_relevant: true
           terminal: false
         order: 1
@@ -809,7 +762,9 @@ patterns:
             reference_id: AML.CS0024
           confidence: 85
           adaptation_rationale: Explicit against the AML.CS0024 S00-S01 analogue for reaching the shared
-            RAG substrate; AML.CS0025 is a partial pre-deployment analogue only.
+            RAG substrate; AML.CS0025 is a partial pre-deployment analogue only. Narrowed to the retrieval
+            substrate so the chain-level AML.T0070 identity rests on its pinned operation, not generic
+            shared memory.
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
@@ -867,8 +822,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.inject.payload
-          description: Crafted payload injected into the shared memory structure, activating the corruption
-            mechanism.
+          description: Crafted payload injected into the shared RAG-indexed store, where consuming agents
+            will later retrieve it as search results.
           security_relevant: true
           terminal: false
         order: 3
@@ -880,7 +835,8 @@ patterns:
             reference_id: AML.CS0024
           confidence: 85
           adaptation_rationale: 'Explicit against the AML.CS0024 S02-S03 analogue: insertion into the
-            shared store that consuming agents ingest.'
+            shared indexed store that consuming agents ingest; the chain-level AML.T0070 (RAG Poisoning)
+            identity is claimed only under this retrieval-substrate framing.'
         mappings:
         - decision: exact
           taxonomy: ATLAS
@@ -903,7 +859,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.poison.shared.memory
-          description: False operational data persists in the shared store consumed by multiple agents.
+          description: False operational data persists in the shared retrieval store, indexed for future
+            retrieval by multiple agents.
           security_relevant: true
           terminal: false
         order: 4
@@ -917,7 +874,8 @@ patterns:
             reference_id: review-t1-t5.md
           confidence: 70
           adaptation_rationale: 'Adapted per review-t1-t5.md (step 4): persistence in the shared substrate
-            is analogous to AML.CS0024''s RAG persistence.'
+            is analogous to AML.CS0024''s RAG persistence; the RAG-poisoning identity of the planting
+            is carried at chain level (AML.T0070).'
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
@@ -940,8 +898,9 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.propagate.corruption
-          description: Corruption persists in the shared memory so later sessions and consuming agents
-            inherit it.
+          description: 'The corruption persists in the shared store so every consuming agent''s future
+            sessions inherit it as retrieved context: persistence into future sessions, the pinned AML.T0080.000
+            operation.'
           security_relevant: true
           terminal: false
         order: 5
@@ -952,8 +911,10 @@ patterns:
           - reference_type: catalog
             reference_id: AML.CS0024
           confidence: 85
-          adaptation_rationale: Framed as cross-agent lateral influence through substrate inheritance,
-            not exfiltration, per review-t1-t5.md (no data leakage is evidenced).
+          adaptation_rationale: Explicit against AML.CS0024's demonstrated persistence-and-inheritance;
+            exact AML.T0080.000 is claimed only under the narrowed reading (memory persistence contaminating
+            future sessions), not as generic cross-agent propagation, which is the terminal outcome, not
+            this step's claimed identity.
         mappings:
         - decision: exact
           taxonomy: ATLAS
@@ -989,9 +950,10 @@ patterns:
             reference_id: AML.CS0024
           confidence: 85
           adaptation_rationale: 'Explicit against the AML.CS0024 S04 analogue: consuming agents incorporate
-            the poisoned content, the demonstrated cross-agent effect.'
+            the poisoned content, the demonstrated cross-agent effect; framed as cross-agent lateral influence,
+            not exfiltration, per review-t1-t5.md (no data leakage is evidenced).'
         mappings:
-        - *id001
+        - *id002
       earliest_attacker_controlled_step_id: gain_access
       resource_slots:
       - slot_id: ingress
@@ -1042,7 +1004,7 @@ patterns:
       chain_id: chain.1
       semantic_revision: 1
       semantic_digest: 185c68b8be5b7f948a81e6300e9f82a61dbacb9a802c4f2c0411ffa9b1e1a1c2
-      taxonomy_context: *id002
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -1261,7 +1223,7 @@ patterns:
           adaptation_rationale: 'Adapted per review-t2.md: the out-of-bounds outcome (amplified quantities,
             modified recipients) is the pattern''s specialized impact, not a demonstrated AML.CS0037 result.'
         mappings:
-        - *id001
+        - *id002
       earliest_attacker_controlled_step_id: reconnaissance
       resource_slots:
       - slot_id: ingress
@@ -1309,8 +1271,8 @@ patterns:
       pattern_id: AP-T2-02
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 6447d7eb2ce8219f6bc5e8c74a34f3785956756cdfc115e9791783ab30e14e4e
-      taxonomy_context: *id002
+      semantic_digest: 8ec67c83062e52585389022b84787386fa1f14c19a0fcb68a88705168a842e58
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -1534,15 +1496,16 @@ patterns:
           ref_id: data.collected
           value_type: object
         produced:
-        - kind: state
-          ref_id: data.transmitted
+        - kind: effect
+          ref_id: outcome.exfiltration
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.exfiltrate.data
-          description: The transmission tool sends the collected data to the attacker-chosen destination.
+          description: 'The transmission tool sends the collected data to the attacker-chosen destination:
+            the first observable exfiltration, completing the designer-unanticipated composite chain.'
           security_relevant: true
-          terminal: false
+          terminal: true
         order: 7
         attacker_controlled: true
         provenance:
@@ -1552,48 +1515,14 @@ patterns:
             reference_id: AML.CS0037
           confidence: 90
           adaptation_rationale: Explicit against AML.CS0037 S13 (exfiltration via the write-capable agent
-            tool).
+            tool); per the lineage terminal semantics the transmission itself is the first observable
+            exfiltration, so the legacy implied impact step (not separately observed) is folded into this
+            terminal step.
         mappings:
         - decision: exact
           taxonomy: ATLAS
           ids:
           - AML.T0086
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: data.transmitted
-          value_type: boolean
-        produced:
-        - kind: effect
-          ref_id: outcome.exfiltration
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'The transmission tool sends the collected data to the attacker-chosen destination:
-            the first observable exfiltration, completing the designer-unanticipated composite chain.'
-          security_relevant: true
-          terminal: true
-        order: 8
-        attacker_controlled: false
-        provenance:
-          tier: inferred
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0037
-          - reference_type: design_record
-            reference_id: review-t2.md
-          confidence: 60
-          adaptation_rationale: 'Implied (not separately observed): the breach consequence follows from
-            the demonstrated exfiltration; no independent AML.CS0037 procedure step observes the impact
-            itself.'
-        mappings:
-        - *id001
       earliest_attacker_controlled_step_id: reconnaissance
       resource_slots:
       - slot_id: ingress
@@ -1643,8 +1572,8 @@ patterns:
       pattern_id: AP-T2-03
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 979c913e2822d331e6da18aa105b66c571d754a6c39177c027244bbf9038b566
-      taxonomy_context: *id002
+      semantic_digest: aefb436756ea8d7fd46fc57e1ae90f39c6d65fdbe3f2a19f0058ba47928c7906
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -1766,15 +1695,17 @@ patterns:
           ref_id: mass.action.accepted
           value_type: boolean
         produced:
-        - kind: state
-          ref_id: mass.action.dispatched
+        - kind: effect
+          ref_id: outcome.mass.action
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.amplification
-          description: Batch tools amplify the single deceptive input into a high-volume operation.
+          description: 'Batch tools amplify the single deceptive input into a high-volume operation and
+            the amplified mass action completes (for example mass distribution is dispatched): the first
+            observable external effect.'
           security_relevant: true
-          terminal: false
+          terminal: true
         order: 4
         attacker_controlled: true
         provenance:
@@ -1785,46 +1716,15 @@ patterns:
           - reference_type: catalog
             reference_id: AML.CS0009
           confidence: 45
-          adaptation_rationale: Designed; AML.CS0009 is a partial contextual analogy for social amplification
-            only, labeled accordingly per the lineage provenance plan.
+          adaptation_rationale: Designed from the retained legacy chain shape; the dispatch completing
+            is the lineage terminal, so the legacy inferred impact step is folded into this step; AML.CS0009
+            is a partial contextual analogy for social amplification only, labeled accordingly per the
+            lineage provenance plan.
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
           rationale: The tool-invocation core is carried at chain level (AML.T0053); the amplification
             scale is the pattern's specialization, not a separately mapped operation.
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: mass.action.dispatched
-          value_type: boolean
-        produced:
-        - kind: effect
-          ref_id: outcome.mass.action
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'The amplified mass action completes (for example mass distribution is dispatched):
-            the first observable external effect.'
-          security_relevant: true
-          terminal: true
-        order: 5
-        attacker_controlled: false
-        provenance:
-          tier: inferred
-          references:
-          - reference_type: design_record
-            reference_id: owasp-atlas-matching.md
-          confidence: 40
-          adaptation_rationale: 'Inferred: the large-scale effect follows from the designed amplification
-            mechanism; no evidence is claimed.'
-        mappings:
-        - *id001
       earliest_attacker_controlled_step_id: discover_tools
       resource_slots:
       - slot_id: ingress
@@ -1868,8 +1768,8 @@ patterns:
       pattern_id: AP-T2-04
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: d1767a3cbbb983c58421bd9c5d3d176ef76ed99399161013246a31a95bc5fd50
-      taxonomy_context: *id002
+      semantic_digest: 1937711f593f7431f84d8c40642d7f67be87b3f4a9ae45fca3f108d7133ebbca
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -1960,7 +1860,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.deliver.payload
-          description: Poisoned content delivered through a channel the agent consumes as a trusted source.
+          description: Poisoned content delivered through a channel the agent consumes as a trusted source;
+            the content persists in the channel as a continuing infection vector.
           security_relevant: true
           terminal: false
         order: 3
@@ -1972,7 +1873,8 @@ patterns:
             reference_id: AML.CS0040
           confidence: 90
           adaptation_rationale: Explicit against AML.CS0040 S02 (delivery through the trusted connected
-            channel).
+            channel); the S05 channel-persistence observation is carried here after the side-branch persist_in_channel
+            step was removed (nothing consumed its output).
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
@@ -2047,38 +1949,6 @@ patterns:
           taxonomy: ATLAS
           ids:
           - AML.T0080.000
-      - step_id: persist_in_channel
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: persist
-        consumed:
-        - kind: state
-          ref_id: channel.poisoned.content
-          value_type: object
-        produced:
-        - kind: state
-          ref_id: channel.persistent.vector
-          value_type: object
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.persist.in.channel
-          description: Poisoned content persists in the delivery channel as a continuing infection vector.
-          security_relevant: true
-          terminal: false
-        order: 6
-        attacker_controlled: false
-        provenance:
-          tier: observed
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0040
-          confidence: 90
-          adaptation_rationale: Explicit against AML.CS0040 S05; channel-side persistence is a system
-            state, distinct from the memory-write persistence.
-        mappings:
-        - *id001
       - step_id: invoke_tool_from_memory
         requirement: required
         condition: null
@@ -2090,17 +1960,18 @@ patterns:
           ref_id: memory.poisoned.directives
           value_type: object
         produced:
-        - kind: state
-          ref_id: tool.invoked.poisoned
+        - kind: effect
+          ref_id: outcome.session.bypass
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.invoke.tool.from.memory
-          description: A later session retrieves the poisoned directives as legitimate operational context
-            and invokes a tool.
+          description: 'In a later session the agent invokes a tool under the poisoned directive - retrieved
+            as legitimate operational context - with unauthorized parameters or targets: the first observable
+            misuse, bypassing session-level checks.'
           security_relevant: true
-          terminal: false
-        order: 7
+          terminal: true
+        order: 6
         attacker_controlled: true
         provenance:
           tier: variant
@@ -2111,47 +1982,14 @@ patterns:
             reference_id: tactic-sequences-t2.md
           confidence: 65
           adaptation_rationale: 'Adapted: the tool-execution extension beyond AML.CS0040 (which ends in
-            misinformation, not demonstrated tool misuse) per tactic-sequences-t2.md.'
+            misinformation, not demonstrated tool misuse) per tactic-sequences-t2.md; per the lineage
+            terminal semantics the unauthorized invocation is the first observable misuse, so the legacy
+            separate impact step is folded into this terminal step.'
         mappings:
         - decision: exact
           taxonomy: ATLAS
           ids:
           - AML.T0051.002
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: tool.invoked.poisoned
-          value_type: boolean
-        produced:
-        - kind: effect
-          ref_id: outcome.session.bypass
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'In a later session the agent invokes a tool under the poisoned directive with
-            unauthorized parameters or targets: the first observable misuse, bypassing session-level checks.'
-          security_relevant: true
-          terminal: true
-        order: 8
-        attacker_controlled: false
-        provenance:
-          tier: variant
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0040
-          - reference_type: design_record
-            reference_id: tactic-sequences-t2.md
-          confidence: 65
-          adaptation_rationale: 'Adapted: the session-check bypass consequence extends beyond AML.CS0040''s
-            demonstrated misinformation outcome per the lineage provenance plan.'
-        mappings:
-        - *id001
       earliest_attacker_controlled_step_id: craft_payload
       resource_slots:
       - slot_id: ingress
@@ -2195,8 +2033,8 @@ patterns:
       pattern_id: AP-T2-05
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 11ca0ecfbc066d0170f22dbcb1bdf6cbf24aa6699c38fb6b2482a46a00f5520c
-      taxonomy_context: *id002
+      semantic_digest: a98b946d3fd8433c91f3f57477394b0e786c8ca8ecbbae668ff127b918a69205
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -2339,7 +2177,7 @@ patterns:
           adaptation_rationale: 'Explicit: indexing and persistence in the retrieval system per AML.CS0024;
             AML.CS0025 is a partial training-time variant only.'
         mappings:
-        - *id001
+        - *id002
       - step_id: trigger_tool_invocation
         requirement: required
         condition: null
@@ -2351,16 +2189,17 @@ patterns:
           ref_id: store.poison.persisted
           value_type: object
         produced:
-        - kind: state
-          ref_id: tool.invoked.by.retrieval
+        - kind: effect
+          ref_id: outcome.tool.misuse
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.trigger.tool.invocation
-          description: A query retrieves the poisoned content and the embedded directives drive a tool
-            call.
+          description: 'The agent invokes a tool under the retrieved content''s directives: a query retrieves
+            the poisoned content and the embedded directives drive the unsafe or unauthorized call, the
+            first observable tool misuse.'
           security_relevant: true
-          terminal: false
+          terminal: true
         order: 5
         attacker_controlled: true
         provenance:
@@ -2372,47 +2211,14 @@ patterns:
             reference_id: review-t2.md
           confidence: 65
           adaptation_rationale: 'Adapted: AML.CS0024 does not demonstrate tool misuse as the impact; the
-            tool-invocation consequence is adapted per review-t2.md.'
+            tool-invocation consequence is adapted per review-t2.md, and per the lineage terminal semantics
+            the directive-driven invocation is the first observable tool misuse, so the legacy separate
+            impact step is folded into this terminal step.'
         mappings:
         - decision: exact
           taxonomy: ATLAS
           ids:
           - AML.T0053
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: tool.invoked.by.retrieval
-          value_type: boolean
-        produced:
-        - kind: effect
-          ref_id: outcome.tool.misuse
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'The agent invokes a tool under the retrieved content''s directives: the first
-            observable tool misuse.'
-          security_relevant: true
-          terminal: true
-        order: 6
-        attacker_controlled: false
-        provenance:
-          tier: variant
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0024
-          - reference_type: design_record
-            reference_id: review-t2.md
-          confidence: 65
-          adaptation_rationale: 'Adapted: the unsafe or unauthorized tool-invocation outcome is adapted
-            beyond AML.CS0024''s demonstrated propagation impact per review-t2.md.'
-        mappings:
-        - *id001
       earliest_attacker_controlled_step_id: gain_access
       resource_slots:
       - slot_id: ingress
@@ -2463,8 +2269,8 @@ patterns:
       pattern_id: AP-T2-06
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 3a7bf7b8da2f2a850bbf37a3d47ae2e2baadbc5218e9dd350e74164412b80bc6
-      taxonomy_context: *id002
+      semantic_digest: a7a57884a792fe078f75c92576d1d78eb3a39f3851d8a823f51dd7e1ad20237f
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -2486,8 +2292,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.reconnaissance
-          description: Injection surface and execution-capable tool access mapped (shell, code interpreter,
-            API client).
+          description: Injection surface and command/scripting interpreter access mapped (shell or code
+            interpreter exposed as an agent tool).
           security_relevant: false
           terminal: false
         order: 1
@@ -2498,7 +2304,9 @@ patterns:
           - reference_type: catalog
             reference_id: AML.CS0016
           confidence: 90
-          adaptation_rationale: Explicit against AML.CS0016 S00 (research on the target).
+          adaptation_rationale: Explicit against AML.CS0016 S00 (research on the target); narrowed to
+            the interpreter surface because the chain claims exact AML.T0050 (Command and Scripting Interpreter)
+            downstream, not generic API-client execution.
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
@@ -2553,8 +2361,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.craft.payload
-          description: Tool-hijack injection crafted; any required external payloads or receiving infrastructure
-            staged.
+          description: Tool-hijack injection crafted against the interpreter tool; any required external
+            payloads or receiving infrastructure staged.
           security_relevant: false
           terminal: false
         order: 3
@@ -2669,7 +2477,7 @@ patterns:
         observable_postconditions:
         - postcondition_id: post.execute.injection
           description: The injected directive activates, steering the agent toward the attacker-chosen
-            tool invocation.
+            interpreter invocation.
           security_relevant: true
           terminal: false
         order: 6
@@ -2697,15 +2505,16 @@ patterns:
           ref_id: directive.active
           value_type: boolean
         produced:
-        - kind: state
-          ref_id: command.executed
+        - kind: effect
+          ref_id: outcome.unauthorized.execution
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.invoke.tool
-          description: The agent's execution-capable tool runs the attacker-chosen command.
+          description: 'The hijacked tool executes the attacker-chosen command through the command/scripting
+            interpreter: the first observable unauthorized execution.'
           security_relevant: true
-          terminal: false
+          terminal: true
         order: 7
         attacker_controlled: true
         provenance:
@@ -2716,84 +2525,16 @@ patterns:
           confidence: 90
           adaptation_rationale: Explicit against AML.CS0016 S05; retagged at definition level to AML.T0050
             per the catalog lineage because the operation is running the attacker's command through the
-            command/scripting interpreter itself.
+            command/scripting interpreter itself. Narrowed to interpreter execution - AML.T0050's pinned
+            operation - not generic API-client invocation. Per the lineage terminal semantics the command
+            execution is the first observable terminal and the subsequent credential harvest (CS0016 S06)
+            is post-terminal impact, so the legacy harvest/impact steps are removed from the live chain;
+            the lineage harvest_credentials->AML.T0055 step mapping is reported as a delta.
         mappings:
         - decision: exact
           taxonomy: ATLAS
           ids:
           - AML.T0050
-      - step_id: harvest_credentials
-        requirement: required
-        condition: null
-        executor_role: attacker
-        boundary_position: inside
-        action_kind: invoke
-        consumed:
-        - kind: state
-          ref_id: command.executed
-          value_type: boolean
-        produced:
-        - kind: artifact
-          ref_id: credentials.harvested
-          value_type: object
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.harvest.credentials
-          description: Environment-variable credentials revealed through the hijacked interpreter.
-          security_relevant: true
-          terminal: false
-        order: 8
-        attacker_controlled: true
-        provenance:
-          tier: observed
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0016
-          confidence: 90
-          adaptation_rationale: Explicit per AML.CS0016 S06 (qa-audit-t2.md); demonstrated credential
-            access, not an optional branch.
-        mappings:
-        - decision: exact
-          taxonomy: ATLAS
-          ids:
-          - AML.T0055
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: command.executed
-          value_type: boolean
-        - kind: artifact
-          ref_id: credentials.harvested
-          value_type: object
-        produced:
-        - kind: effect
-          ref_id: outcome.unauthorized.execution
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'The hijacked tool executes the attacker-chosen command: the first observable unauthorized
-            execution; subsequent credential harvest is impact.'
-          security_relevant: true
-          terminal: true
-        order: 9
-        attacker_controlled: false
-        provenance:
-          tier: observed
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0016
-          confidence: 90
-          adaptation_rationale: 'Explicit: AML.CS0016 S07 demonstrates the resulting harm; per the lineage
-            terminal semantics the first observable terminal is the unauthorized command execution, with
-            credential harvest as the realized impact.'
-        mappings:
-        - *id001
       earliest_attacker_controlled_step_id: reconnaissance
       resource_slots:
       - slot_id: ingress
@@ -2834,8 +2575,8 @@ patterns:
       pattern_id: AP-T3-02
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: acb24628cc96b9a4ddbaaf517cd55d35b22e521bb6aed7d6f07c352dc86dcdf3
-      taxonomy_context: *id002
+      semantic_digest: aac2e3e052bf1b67ed44505df0f12f23ad836399d7832b4870dd78a3ecf895b2
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -2867,8 +2608,7 @@ patterns:
           - reference_type: catalog
             reference_id: AML.CS0026
           confidence: 85
-          adaptation_rationale: 'Explicit against AML.CS0026 (14 procedures condensed to 10 steps): reconnaissance
-            of the connected surface.'
+          adaptation_rationale: 'Explicit against AML.CS0026: reconnaissance of the connected surface.'
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
@@ -2978,40 +2718,6 @@ patterns:
           taxonomy: ATLAS
           rationale: The lineage asserts no exact step-level identity for request crafting; AML.T0065
             is the AML.CS0026 S05 source assignment retained as provenance.
-      - step_id: deliver_request
-        requirement: required
-        condition: null
-        executor_role: attacker
-        boundary_position: crossing
-        action_kind: deliver
-        consumed:
-        - kind: artifact
-          ref_id: payload.cross.boundary
-          value_type: object
-        produced:
-        - kind: state
-          ref_id: request.submitted
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.deliver.request
-          description: Crafted cross-boundary request delivered to the agent as a direct prompt.
-          security_relevant: true
-          terminal: false
-        order: 5
-        attacker_controlled: true
-        provenance:
-          tier: observed
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0026
-          confidence: 85
-          adaptation_rationale: Explicit against AML.CS0026 S06 (delivery of the crafted request).
-        mappings:
-        - decision: exact
-          taxonomy: ATLAS
-          ids:
-          - AML.T0051.000
       - step_id: obfuscate_request
         requirement: required
         condition: null
@@ -3029,10 +2735,10 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.obfuscate.request
-          description: Cross-boundary request obfuscated to evade source-system detection.
+          description: Cross-boundary request obfuscated to evade source-system detection before delivery.
           security_relevant: false
           terminal: false
-        order: 6
+        order: 5
         attacker_controlled: true
         provenance:
           tier: observed
@@ -3040,47 +2746,52 @@ patterns:
           - reference_type: catalog
             reference_id: AML.CS0026
           confidence: 85
-          adaptation_rationale: Explicit against AML.CS0026 S07 (obfuscation).
+          adaptation_rationale: Explicit against AML.CS0026 S07 (obfuscation); reordered ahead of delivery
+            because concealment must precede submission to be causally effective.
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
           rationale: The lineage asserts no exact step-level identity for obfuscation; AML.T0068 is the
             AML.CS0026 S07 source assignment retained as provenance.
-      - step_id: persist_in_knowledge_store
+      - step_id: deliver_request
         requirement: required
         condition: null
         executor_role: attacker
-        boundary_position: inside
-        action_kind: persist
+        boundary_position: crossing
+        action_kind: deliver
         consumed:
         - kind: artifact
           ref_id: payload.obfuscated
           value_type: object
         produced:
         - kind: state
-          ref_id: knowledge.store.poisoned
-          value_type: object
+          ref_id: request.submitted
+          value_type: boolean
         preconditions: []
         observable_postconditions:
-        - postcondition_id: post.persist.in.knowledge.store
-          description: Poisoned content persists in the agent's knowledge store, able to re-trigger the
-            cross-boundary escalation.
+        - postcondition_id: post.deliver.request
+          description: Obfuscated cross-boundary request delivered to the agent as a direct prompt.
           security_relevant: true
           terminal: false
-        order: 7
+        order: 6
         attacker_controlled: true
         provenance:
-          tier: observed
+          tier: variant
           references:
           - reference_type: catalog
             reference_id: AML.CS0026
-          confidence: 85
-          adaptation_rationale: Explicit against AML.CS0026 S08 (persistence in the knowledge store).
+          - reference_type: design_record
+            reference_id: review-t3-t9.md
+          confidence: 65
+          adaptation_rationale: 'Adapted: AML.CS0026 S06 delivers through indirect RAG-backed injection,
+            not direct prompt injection, so the citation is downgraded to variant; the direct-delivery
+            framing is the pattern''s specialization.'
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
-          rationale: The lineage asserts no exact step-level identity for knowledge-store persistence;
-            AML.T0070 is the AML.CS0026 S08 source assignment retained as provenance.
+          rationale: The lineage maps this step to AML.T0051.000 (Direct) on AML.CS0026 S06, but S06 is
+            indirect RAG injection, so no exact step-level identity is asserted for the direct-delivery
+            framing; reported as a lineage delta (remove deliver_request->AML.T0051.000).
       - step_id: execute_request
         requirement: required
         condition: null
@@ -3091,9 +2802,6 @@ patterns:
         - kind: state
           ref_id: request.submitted
           value_type: boolean
-        - kind: state
-          ref_id: knowledge.store.poisoned
-          value_type: object
         produced:
         - kind: state
           ref_id: request.executed.inherited
@@ -3104,20 +2812,23 @@ patterns:
           description: The agent processes the request, inheriting authorization from the source system.
           security_relevant: true
           terminal: false
-        order: 8
+        order: 7
         attacker_controlled: true
         provenance:
-          tier: observed
+          tier: variant
           references:
           - reference_type: catalog
             reference_id: AML.CS0026
-          confidence: 85
-          adaptation_rationale: Explicit against AML.CS0026 S10 (triggered execution of the staged content).
+          - reference_type: design_record
+            reference_id: review-t3-t9.md
+          confidence: 65
+          adaptation_rationale: 'Adapted: AML.CS0026 S10 is triggered execution of RAG-staged content
+            (indirect), adapted to direct inherited-authorization execution per review-t3-t9.md.'
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
-          rationale: The lineage asserts no exact step-level identity for request execution; AML.T0051.001
-            is the AML.CS0026 S10 source assignment retained as provenance.
+          rationale: The lineage asserts no exact step-level identity for request execution; the AML.CS0026
+            S10 source assignment (AML.T0051.001, indirect) is retained as provenance.
       - step_id: escalate_privileges
         requirement: required
         condition: null
@@ -3129,17 +2840,17 @@ patterns:
           ref_id: request.executed.inherited
           value_type: boolean
         produced:
-        - kind: state
-          ref_id: privileges.escalated.cross.boundary
+        - kind: effect
+          ref_id: outcome.cross.boundary.access
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.escalate.privileges
-          description: The agent's credentials or trust relationships carry into the connected system
-            lacking independent scope enforcement.
+          description: 'The connected system honors the carried-over authorization and grants access beyond
+            the agent''s intended domain: the first observable cross-boundary escalation.'
           security_relevant: true
-          terminal: false
-        order: 9
+          terminal: true
+        order: 8
         attacker_controlled: true
         provenance:
           tier: variant
@@ -3149,49 +2860,17 @@ patterns:
           - reference_type: design_record
             reference_id: review-t3-t9.md
           confidence: 65
-          adaptation_rationale: 'Adapted abstraction over AML.CS0026 S10-S11 per review-t3-t9.md: the
-            source shows triggered RAG prompt execution and search_enterprise manipulation, not demonstrated
-            credential inheritance into a target system.'
+          adaptation_rationale: 'Adapted abstraction over AML.CS0026 S10-S11 per review-t3-t9.md (the
+            source shows triggered RAG execution and search_enterprise manipulation, not literal credential
+            inheritance); exact AML.T0012 holds under the valid-accounts reading: the agent''s legitimately
+            held credentials are used to reach the connected system, the pinned Valid Accounts operation.
+            Per the lineage terminal semantics the cross-boundary grant is the first observable terminal,
+            so the legacy separate impact step is folded into this step.'
         mappings:
         - decision: exact
           taxonomy: ATLAS
           ids:
           - AML.T0012
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: privileges.escalated.cross.boundary
-          value_type: boolean
-        produced:
-        - kind: effect
-          ref_id: outcome.cross.boundary.access
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'The connected system honors the carried-over authorization and grants access beyond
-            the agent''s intended domain: the first observable cross-boundary escalation.'
-          security_relevant: true
-          terminal: true
-        order: 10
-        attacker_controlled: false
-        provenance:
-          tier: variant
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0026
-          - reference_type: design_record
-            reference_id: review-t3-t9.md
-          confidence: 65
-          adaptation_rationale: 'Adapted abstraction per review-t3-t9.md: the cross-boundary grant is
-            the mechanism''s consequence, not literal AML.CS0026 evidence.'
-        mappings:
-        - *id001
       earliest_attacker_controlled_step_id: reconnaissance
       resource_slots:
       - slot_id: ingress
@@ -3246,8 +2925,8 @@ patterns:
       pattern_id: AP-T3-03
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 8024945f2bea78d78523ba98e067671e6eb7f38e02e560828f3f1f2199b1a2af
-      taxonomy_context: *id002
+      semantic_digest: 6c628e2d463fe3c561d335a26876de54ad0a2bf7f5afd0aa5e87a4eb9ef2d5d2
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -3369,16 +3048,16 @@ patterns:
           ref_id: credentials.inherited
           value_type: object
         produced:
-        - kind: state
-          ref_id: shadow.action.performed
+        - kind: effect
+          ref_id: outcome.unauthorized.agent.operation
           value_type: boolean
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.operate.shadow.agent
-          description: The shadow agent operates under inherited credentials alongside authorized agents,
-            evading detection through apparent legitimacy.
+          description: 'The shadow agent performs an action under inherited credentials that appears legitimate
+            alongside authorized agents: the first observable unauthorized-agent operation.'
           security_relevant: true
-          terminal: false
+          terminal: true
         order: 4
         attacker_controlled: true
         provenance:
@@ -3388,45 +3067,14 @@ patterns:
             reference_id: owasp-atlas-matching.md
           confidence: 50
           adaptation_rationale: 'Designed: operation through the shadow agent''s apparent legitimacy per
-            the designed chain.'
+            the designed chain; per the lineage terminal semantics the apparently legitimate action is
+            the first observable unauthorized operation, so the legacy inferred impact step is folded
+            into this terminal step; no case demonstrates the outcome.'
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
           rationale: No exact ATLAS step mapping is asserted for shadow-agent operation; the chain-level
             AML.T0103 identity covers the deployed-agent mechanism.
-      - step_id: impact
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: impact
-        consumed:
-        - kind: state
-          ref_id: shadow.action.performed
-          value_type: boolean
-        produced:
-        - kind: effect
-          ref_id: outcome.unauthorized.agent.operation
-          value_type: boolean
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.impact
-          description: 'The shadow agent performs an action under inherited credentials that appears legitimate:
-            the first observable unauthorized-agent operation.'
-          security_relevant: true
-          terminal: true
-        order: 5
-        attacker_controlled: false
-        provenance:
-          tier: inferred
-          references:
-          - reference_type: design_record
-            reference_id: owasp-atlas-matching.md
-          confidence: 45
-          adaptation_rationale: 'Inferred: no case demonstrates the apparent-legitimacy outcome; it follows
-            from the designed mechanism.'
-        mappings:
-        - *id001
       earliest_attacker_controlled_step_id: identify_provisioning_weakness
       resource_slots:
       - slot_id: ingress
@@ -3469,7 +3117,7 @@ patterns:
       chain_id: chain.1
       semantic_revision: 1
       semantic_digest: 1e617306afd8d4ef5d92d0d93f94bc7afe513e77667feca04186732ca4d5f65b
-      taxonomy_context: *id002
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -3609,7 +3257,7 @@ patterns:
           adaptation_rationale: 'Inferred: the throughput-degradation outcome follows from the designed
             single-input complexity mechanism; no case-study evidence is claimed.'
         mappings:
-        - *id001
+        - *id002
       earliest_attacker_controlled_step_id: analyze_processing_behavior
       resource_slots:
       - slot_id: ingress
@@ -3655,7 +3303,7 @@ patterns:
       chain_id: chain.1
       semantic_revision: 1
       semantic_digest: c3199260901f3c5101192dcc9e7ddfb1e9efc534a69a07fbba2f938d70008d6c
-      taxonomy_context: *id002
+      taxonomy_context: *id001
       mappings:
       - decision: exact
         taxonomy: ATLAS
@@ -3830,7 +3478,7 @@ patterns:
           adaptation_rationale: 'Inferred: the third-party denial condition follows from the designed
             quota-exhaustion mechanism; no case-study evidence is claimed.'
         mappings:
-        - *id001
+        - *id002
       earliest_attacker_controlled_step_id: identify_quota_bound_integrations
       resource_slots:
       - slot_id: ingress
