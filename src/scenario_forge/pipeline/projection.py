@@ -97,6 +97,26 @@ def _digest(domain: str, value: Any) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+#: Domain separator for execution-requirements digest computation.
+EXECUTION_REQUIREMENTS_DIGEST_DOMAIN = "scenario-forge:execution-requirements:v1"
+
+
+def compute_execution_requirements_digest(
+    requirements: Any,
+) -> str:
+    """Compute the canonical digest for a sequence of execution requirements.
+
+    Accepts model instances (with ``model_dump``) or pre-serialized dicts.
+    """
+    payloads: list[Any] = []
+    for item in requirements:
+        if hasattr(item, "model_dump"):
+            payloads.append(item.model_dump(mode="json"))
+        else:
+            payloads.append(item)
+    return _digest(EXECUTION_REQUIREMENTS_DIGEST_DOMAIN, payloads)
+
+
 def _fact_key(reference: AuthoritativeFactReference) -> str:
     return _canonical_json(reference.model_dump(mode="json"))
 
@@ -388,9 +408,8 @@ class ProjectedCandidate(ProjectionModel):
         )
         if ingress != self.canonical_ingress:
             raise ValueError("canonical_ingress does not match the projection binding")
-        expected_requirements_digest = _digest(
-            "scenario-forge:execution-requirements:v1",
-            [item.model_dump(mode="json") for item in self.execution_requirements],
+        expected_requirements_digest = compute_execution_requirements_digest(
+            self.execution_requirements
         )
         if self.execution_requirements_digest != expected_requirements_digest:
             raise ValueError(
@@ -1226,10 +1245,7 @@ def project_authoritative_candidates(
                 issues.append(issue)
                 continue
             assert requirements is not None
-            requirements_digest = _digest(
-                "scenario-forge:execution-requirements:v1",
-                [item.model_dump(mode="json") for item in requirements],
-            )
+            requirements_digest = compute_execution_requirements_digest(requirements)
             ingress_ref = next(
                 item.resource_ref
                 for item in bindings
