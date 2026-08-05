@@ -516,6 +516,36 @@ def test_t906_future_session_activation_precedes_sustained_terminal(validated) -
     assert by_id["establish_persistent_access"].provenance.tier == "variant"
 
 
+def test_t906_observed_steps_do_not_claim_token_lifetime(validated) -> None:
+    """Observed S00-S01 establish host/process access, not token lifetime."""
+    chain = validated["AP-T9-06"].canonical_chain
+    by_id = {s.step_id: s for s in chain.steps}
+    initial = by_id["initial_access"]
+    assert initial.provenance.tier == "observed"
+    initial_post = initial.observable_postconditions[0].description
+    assert "long-lived" not in initial_post
+    assert "agent credentials" in initial_post
+    enum = by_id["enumerate_credential_stores"]
+    assert enum.provenance.tier == "observed"
+    enum_post = enum.observable_postconditions[0].description
+    assert "long-lived" not in enum_post
+    assert "authentication-token sources" in enum_post
+
+
+def test_t906_cross_session_concealment_is_variant(validated) -> None:
+    """Cross-session concealment is inferred, not observed: honestly variant."""
+    chain = validated["AP-T9-06"].canonical_chain
+    step = {s.step_id: s for s in chain.steps}["conceal_cross_session_activity"]
+    assert step.provenance.tier == "variant"
+    assert step.provenance.confidence is not None
+    assert step.provenance.confidence < 90
+    assert any(r.reference_id == "AML.CS0036" for r in step.provenance.references)
+    rationale = step.provenance.adaptation_rationale
+    assert "inferred" in rationale
+    assert "across sessions" in rationale
+    assert "S08" in rationale
+
+
 def test_t801_start_is_credential_acquisition_only(validated) -> None:
     chain = validated["AP-T8-01"].canonical_chain
     start = chain.steps[0]

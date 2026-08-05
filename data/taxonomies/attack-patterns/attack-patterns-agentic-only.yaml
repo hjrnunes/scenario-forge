@@ -1425,7 +1425,7 @@ patterns:
       pattern_id: "AP-T9-06"
       chain_id: "chain.AP-T9-06"
       semantic_revision: 1
-      semantic_digest: "89c98b59d3205ad0f01b38a596f0136c6c0dc489aa89146ff267ccf2ef4a0686"
+      semantic_digest: "96645ff51bf33f88c9852f2f9efa0f3dd244ea2028f9b5fbbce76a2259b05a18"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1474,7 +1474,7 @@ patterns:
             - postcondition_id: "post.initial_access"
               description: >
                 The attacker has execution presence on the system hosting
-                the long-lived agent credentials.
+                the agent credentials.
               security_relevant: false
               terminal: false
           order: 1
@@ -1514,7 +1514,7 @@ patterns:
             - postcondition_id: "post.enumerate_credential_stores"
               description: >
                 Agent processes and credential storage locations holding
-                long-lived tokens are identified.
+                authentication-token sources are identified.
               security_relevant: false
               terminal: false
           order: 2
@@ -1821,15 +1821,20 @@ patterns:
           order: 9
           attacker_controlled: true
           provenance:
-            tier: "observed"
+            tier: "variant"
             references:
               - reference_type: "catalog"
                 reference_id: "AML.CS0036"
-            confidence: 90
+              - reference_type: "design_record"
+                reference_id: "staging/qa-audit-t3-t9.md"
+            confidence: 75
             adaptation_rationale: >
-              Explicit in AML.CS0036 (S08: manipulated the conversation
-              history), extended across sessions by the persisted session
-              context and memory store.
+              Adapted from AML.CS0036 (S08: manipulated the conversation
+              history — the single-session concealment operation is
+              explicit): the extension across sessions is inferred from the
+              persisted session context and memory store rather than
+              separately evidenced, so this step is honestly tiered variant
+              per qa-audit-t3-t9.md.
           mappings:
             - decision: "unmapped"
               taxonomy: "ATLAS"
