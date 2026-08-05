@@ -25,6 +25,10 @@ from scenario_forge.models.complexity import (
     AttackComplexityAssessment,
     CapabilityLevel,
 )
+from scenario_forge.models.projection_envelope import (
+    ProjectionEnvelopeBlock,
+    ProjectionTraceabilityResult,
+)
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -866,6 +870,28 @@ class ScenarioEnvelope(BaseModel):
             "version, typed reasons, and evidence — persisted separately "
             "from the immutable actor_profile.capability_level. Absent "
             "until the candidate-v2 seam is activated by cmps.5."
+        ),
+    )
+
+    # --- Canonical Projection (scenario-forge-422o.4) ---
+
+    projection: ProjectionEnvelopeBlock | None = Field(
+        default=None,
+        description=(
+            "Deeply immutable, standalone canonical projection snapshot "
+            "with execution requirements and artifact realization mappings. "
+            "Absent on legacy envelopes generated before the projection "
+            "migration; required for candidate-v2 generation.  Generated "
+            "content realizes but never selects, alters, omits, reorders, "
+            "or fabricates projection semantics."
+        ),
+    )
+    projection_traceability: ProjectionTraceabilityResult | None = Field(
+        default=None,
+        description=(
+            "Typed traceability validation result attributing violations "
+            "to the earliest responsible generated stage.  Consumed by "
+            "cmps.5 for bounded retry and quarantine routing."
         ),
     )
 

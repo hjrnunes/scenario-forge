@@ -36,7 +36,7 @@
 
 schema:
   name: scenario-envelope
-  version: "0.2.0"
+  version: "0.3.0"
   description: >
     Envelope schema wrapping the four output layers of a scenario-forge scenario
     into a single queryable document.
@@ -82,6 +82,33 @@ fields:
       system performs when not under attack. Populated from the use-case
       description provided to the pipeline.
     example: "Klarna's AI-powered customer service agent that handles refunds, account inquiries, and payment processing."
+
+  # ===================================================================
+  # Canonical Projection (scenario-forge-422o.4)
+  # ===================================================================
+
+  projection:
+    type: object
+    required: false
+    description: >-
+      Deeply immutable, standalone canonical projection snapshot with
+      execution requirements and artifact realization mappings.  Embeds the
+      full ProjectionSnapshot (catalog/chain/taxonomy/mapping pins and
+      digests, ordered selected typed steps, condition evaluations/omissions,
+      concrete canonical resource bindings), derived execution requirements,
+      projected taxonomy mappings, canonical ingress identity, and artifact
+      realization mappings.  Absent on legacy envelopes generated before the
+      projection migration; required for candidate-v2 generation.  Generated
+      content realizes but never selects, alters, omits, reorders, or
+      fabricates projection semantics.
+
+  projection_traceability:
+    type: object
+    required: false
+    description: >-
+      Typed traceability validation result attributing violations to the
+      earliest responsible generated stage.  Consumed by cmps.5 for bounded
+      retry and quarantine routing.
 
   # ===================================================================
   # Layer 1: Narrative
