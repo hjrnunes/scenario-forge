@@ -17,15 +17,23 @@
 # AP-T3-02); chains terminate at the first observable terminal per the
 # lineage terminal semantics (legacy synthetic impact steps folded into the
 # terminal operation); AP-T2-06 ends at command execution, narrowed to the
-# command/scripting interpreter for exact AML.T0050; AP-T1-04 exact
-# identities are narrowed to the pinned AML.T0070/AML.T0080.000 operations;
+# command/scripting interpreter for exact AML.T0050; AP-T1-04 is framed
+# on the shared RAG-indexed retrieval substrate (pinned AML.T0070);
 # AP-T3-02 is resequenced craft->obfuscate->deliver->execute->grant with
 # CS0026 S06/S10 citations downgraded to variant (indirect RAG injection).
-# Two deliberate lineage deltas are carried and reported: AP-T3-02
-# deliver_request drops the lineage's exact AML.T0051.000 claim (false on
-# indirect evidence), and AP-T2-06 does not realize harvest_credentials
-# (post-terminal impact; lineage exact AML.T0055 mapping reported for
-# removal).
+# Final re-review: AP-T1-04 propagate_corruption deleted (false exact
+# AML.T0080.000 on shared RAG persistence; terminal consumes
+# store.corrupted) and its envelope boundary narrowed to the shared
+# RAG-indexed retrieval store for exact AML.T0070; AP-T3-02
+# escalate_privileges retagged AML.T0012 -> AML.T0053 (confused-deputy
+# use of the agent's own service credentials is not Valid Accounts);
+# AP-T2-06 envelope boundary narrowed to the command/scripting
+# interpreter tool (API-client mode removed). Deliberate lineage deltas
+# carried and reported: AP-T3-02 deliver_request unmapped (lineage exact
+# AML.T0051.000 rests on indirect-injection evidence); AP-T3-02
+# escalate_privileges retagged; AP-T2-06 harvest_credentials and AP-T1-04
+# propagate_corruption step mappings not realized live; AP-T1-04 and
+# AP-T2-06 envelope boundaries narrowed from the lineage texts.
 #
 # Every chain's semantic_digest is recomputed with
 # scenario_forge.models.attack_pattern.compute_chain_semantic_digest over the
@@ -702,10 +710,11 @@ patterns:
     id: AP-T1-04
     threat_id: T1
     name: Shared memory corruption for cross-agent influence
-    description: Write false operational data into a memory/retrieval structure shared among multiple
-      agents so agents reading the store incorporate the corrupted data into their decision-making, propagating
-      incorrect behavior without direct attacker interaction with each agent. Owns the shared-substrate
-      corruption within OG-02.
+    description: Write false operational data into a RAG-indexed retrieval store shared among multiple
+      agents so agents retrieving from the store incorporate the corrupted data into their decision-making,
+      propagating incorrect behavior without direct attacker interaction with each agent. Narrowed to
+      the shared RAG-indexed retrieval substrate (AML.T0070's pinned operation); generic shared-memory
+      backends are out of scope. Owns the shared-substrate corruption within OG-02.
     nist_classification:
       attacker_goal: integrity
       attacker_knowledge: black_box
@@ -727,7 +736,7 @@ patterns:
       pattern_id: AP-T1-04
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 3f1eb939ac7d2aebdc97c7d075d5b96b20032ed498ab18d56ac7647a5754b3c4
+      semantic_digest: cc66d4ebae7dd749ba9fb80dff846d5b38c6b2d3d5430aee83d6fa4624740c4b
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -859,8 +868,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.poison.shared.memory
-          description: False operational data persists in the shared retrieval store, indexed for future
-            retrieval by multiple agents.
+          description: False operational data persists in the shared RAG-indexed retrieval store, indexed
+            for future retrieval by multiple agents.
           security_relevant: true
           terminal: false
         order: 4
@@ -874,52 +883,15 @@ patterns:
             reference_id: review-t1-t5.md
           confidence: 70
           adaptation_rationale: 'Adapted per review-t1-t5.md (step 4): persistence in the shared substrate
-            is analogous to AML.CS0024''s RAG persistence; the RAG-poisoning identity of the planting
-            is carried at chain level (AML.T0070).'
+            is analogous to AML.CS0024''s RAG persistence; persistence-for-retrieval is inherent to the
+            chain-level AML.T0070 operation, so no separate propagate step is claimed and the legacy propagate_corruption
+            step (with its false exact AML.T0080.000 on shared RAG persistence) is deleted - reported
+            lineage delta.'
         mappings:
         - decision: unmapped
           taxonomy: ATLAS
           rationale: The RAG-poisoning identity of this mechanism is carried at chain level (AML.T0070);
             the lineage asserts no separate step-level identity.
-      - step_id: propagate_corruption
-        requirement: required
-        condition: null
-        executor_role: attacker
-        boundary_position: inside
-        action_kind: persist
-        consumed:
-        - kind: state
-          ref_id: store.corrupted
-          value_type: object
-        produced:
-        - kind: state
-          ref_id: corruption.inherited
-          value_type: object
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.propagate.corruption
-          description: 'The corruption persists in the shared store so every consuming agent''s future
-            sessions inherit it as retrieved context: persistence into future sessions, the pinned AML.T0080.000
-            operation.'
-          security_relevant: true
-          terminal: false
-        order: 5
-        attacker_controlled: true
-        provenance:
-          tier: observed
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0024
-          confidence: 85
-          adaptation_rationale: Explicit against AML.CS0024's demonstrated persistence-and-inheritance;
-            exact AML.T0080.000 is claimed only under the narrowed reading (memory persistence contaminating
-            future sessions), not as generic cross-agent propagation, which is the terminal outcome, not
-            this step's claimed identity.
-        mappings:
-        - decision: exact
-          taxonomy: ATLAS
-          ids:
-          - AML.T0080.000
       - step_id: impact
         requirement: required
         condition: null
@@ -928,7 +900,7 @@ patterns:
         action_kind: impact
         consumed:
         - kind: state
-          ref_id: corruption.inherited
+          ref_id: store.corrupted
           value_type: object
         produced:
         - kind: effect
@@ -941,7 +913,7 @@ patterns:
             the first observable cross-agent influence.'
           security_relevant: true
           terminal: true
-        order: 6
+        order: 5
         attacker_controlled: false
         provenance:
           tier: observed
@@ -949,9 +921,10 @@ patterns:
           - reference_type: catalog
             reference_id: AML.CS0024
           confidence: 85
-          adaptation_rationale: 'Explicit against the AML.CS0024 S04 analogue: consuming agents incorporate
-            the poisoned content, the demonstrated cross-agent effect; framed as cross-agent lateral influence,
-            not exfiltration, per review-t1-t5.md (no data leakage is evidenced).'
+          adaptation_rationale: 'Explicit against the AML.CS0024 S04 analogue: consuming agents retrieve
+            and incorporate the poisoned content, the demonstrated cross-agent effect; framed as cross-agent
+            lateral influence, not exfiltration, per review-t1-t5.md (no data leakage is evidenced). Consumes
+            store.corrupted directly after the propagate_corruption deletion.'
         mappings:
         - *id002
       earliest_attacker_controlled_step_id: gain_access
@@ -2238,10 +2211,11 @@ patterns:
     id: AP-T2-06
     threat_id: T2
     name: Tool hijacking via prompt injection
-    description: Inject adversarial instructions directly so the agent invokes an execution-capable tool
-      (shell, API client, code interpreter) to run an attacker-chosen command. Owns the tool-execution
-      hijack within OG-04 and the direct-delivery vector; the goal-override mechanism is AP-T6-02 and
-      indirect delivery is AP-T6-03.
+    description: Inject adversarial instructions directly so the agent invokes its command/scripting interpreter
+      tool (shell or code interpreter exposed as an agent tool) to run an attacker-chosen command. Narrowed
+      to interpreter execution, AML.T0050's pinned operation; the generic API-client mode is out of scope.
+      Owns the tool-execution hijack within OG-04 and the direct-delivery vector; the goal-override mechanism
+      is AP-T6-02 and indirect delivery is AP-T6-03.
     nist_classification:
       attacker_goal: abuse
       attacker_knowledge: black_box
@@ -2575,7 +2549,7 @@ patterns:
       pattern_id: AP-T3-02
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: aac2e3e052bf1b67ed44505df0f12f23ad836399d7832b4870dd78a3ecf895b2
+      semantic_digest: 78bb4d023d5671fe1297c35364508a33ceb4a90dd0252e59818ab425c00e2607
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -2862,15 +2836,18 @@ patterns:
           confidence: 65
           adaptation_rationale: 'Adapted abstraction over AML.CS0026 S10-S11 per review-t3-t9.md (the
             source shows triggered RAG execution and search_enterprise manipulation, not literal credential
-            inheritance); exact AML.T0012 holds under the valid-accounts reading: the agent''s legitimately
-            held credentials are used to reach the connected system, the pinned Valid Accounts operation.
-            Per the lineage terminal semantics the cross-boundary grant is the first observable terminal,
-            so the legacy separate impact step is folded into this step.'
+            inheritance); exact AML.T0053 (AI Agent Tool Invocation) because the operation is using access
+            to the agent to invoke the connected service the agent can reach, which the pinned definition
+            notes may provide increased privileges. Not AML.T0012 (Valid Accounts): the confused-deputy
+            use of the agent''s own service credentials is not adversary-held valid accounts - reported
+            lineage delta (retag escalate_privileges AML.T0012 -> AML.T0053). Per the lineage terminal
+            semantics the cross-boundary grant is the first observable terminal, so the legacy separate
+            impact step is folded into this step.'
         mappings:
         - decision: exact
           taxonomy: ATLAS
           ids:
-          - AML.T0012
+          - AML.T0053
       earliest_attacker_controlled_step_id: reconnaissance
       resource_slots:
       - slot_id: ingress

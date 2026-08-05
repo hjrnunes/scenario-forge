@@ -75,7 +75,6 @@ EXPECTED_STEPS = {
         "craft_payload",
         "inject_payload",
         "poison_shared_memory",
-        "propagate_corruption",
         "impact",
     ],
     "AP-T2-01": [
@@ -187,7 +186,47 @@ DELTA_UNMAPPED_STEPS = {("AP-T3-02", "deliver_request"): "AML.T0051.000"}
 # terminal), so the step and its exact AML.T0055 mapping are intentionally not
 # realized in the live chain. Integration should remove the lineage step
 # mapping or re-scope the record.
-DELTA_UNREALIZED_STEPS = {("AP-T2-06", "harvest_credentials"): "AML.T0055"}
+DELTA_UNREALIZED_STEPS = {
+    ("AP-T2-06", "harvest_credentials"): "AML.T0055",
+    # AP-T1-04 propagate_corruption: false exact AML.T0080.000 on shared RAG
+    # persistence (final re-review); the step is deleted and the terminal
+    # consumes store.corrupted directly. Integration should remove the lineage
+    # step mapping or re-scope the record.
+    ("AP-T1-04", "propagate_corruption"): "AML.T0080.000",
+}
+
+# AP-T3-02 escalate_privileges: retagged from AML.T0012 (Valid Accounts -
+# confused-deputy use of the agent's own service credentials is not
+# adversary-held valid accounts) to AML.T0053 (AI Agent Tool Invocation, whose
+# pinned definition covers invocations providing increased privileges).
+# Maps (pattern_id, step_id) -> (lineage id, owned id).
+DELTA_RETAGGED_STEPS = {
+    ("AP-T3-02", "escalate_privileges"): ("AML.T0012", "AML.T0053"),
+}
+
+# Reported envelope deltas: the record mechanism boundary itself is narrowed
+# so chain-level exact identities rest on pinned operations. Only these two
+# records may deviate from the lineage mechanism_boundary text.
+DELTA_DESCRIPTIONS = {
+    "AP-T1-04": (
+        "Write false operational data into a RAG-indexed retrieval store shared "
+        "among multiple agents so agents retrieving from the store incorporate "
+        "the corrupted data into their decision-making, propagating incorrect "
+        "behavior without direct attacker interaction with each agent. Narrowed "
+        "to the shared RAG-indexed retrieval substrate (AML.T0070's pinned "
+        "operation); generic shared-memory backends are out of scope. Owns the "
+        "shared-substrate corruption within OG-02."
+    ),
+    "AP-T2-06": (
+        "Inject adversarial instructions directly so the agent invokes its "
+        "command/scripting interpreter tool (shell or code interpreter exposed "
+        "as an agent tool) to run an attacker-chosen command. Narrowed to "
+        "interpreter execution, AML.T0050's pinned operation; the generic "
+        "API-client mode is out of scope. Owns the tool-execution hijack within "
+        "OG-04 and the direct-delivery vector; the goal-override mechanism is "
+        "AP-T6-02 and indirect delivery is AP-T6-03."
+    ),
+}
 
 # Record-specific provenance tier pins for the review-mandated downgrades.
 EXPECTED_STEP_TIERS = {
@@ -201,11 +240,13 @@ EXPECTED_STEP_TIERS = {
 }
 
 # Record-specific exact-mapping pins for the review-mandated narrowing.
+# Note: the withdrawn AML.T0080.000 (AP-T1-04) and AML.T0012 (AP-T3-02)
+# mappings are intentionally NOT pinned here; their absence is asserted
+# separately in test_review_mandated_narrowing_rationales.
 EXPECTED_EXACT_STEP_MAPPINGS = {
     ("AP-T2-06", "invoke_tool"): ["AML.T0050"],
-    ("AP-T1-04", "propagate_corruption"): ["AML.T0080.000"],
     ("AP-T1-04", "inject_payload"): ["AML.T0051.001"],
-    ("AP-T3-02", "escalate_privileges"): ["AML.T0012"],
+    ("AP-T3-02", "escalate_privileges"): ["AML.T0053"],
     ("AP-T1-01", "persist_in_memory"): ["AML.T0080.000"],
     ("AP-T2-04", "invoke_tool_from_memory"): ["AML.T0051.002"],
     ("AP-T2-02", "exfiltrate_data"): ["AML.T0086"],
@@ -271,7 +312,17 @@ def test_envelope_and_threat_context_preserved(patterns, lineage) -> None:
 
 def test_description_is_lineage_mechanism_boundary(patterns, lineage) -> None:
     for pid, record in patterns.items():
-        assert record["description"] == resulting(lineage, pid)["mechanism_boundary"]
+        if pid in DELTA_DESCRIPTIONS:
+            # Reported envelope delta: the owned boundary is the narrowed text,
+            # not the lineage mechanism_boundary.
+            assert record["description"] == DELTA_DESCRIPTIONS[pid], pid
+            assert (
+                record["description"] != resulting(lineage, pid)["mechanism_boundary"]
+            )
+        else:
+            assert (
+                record["description"] == resulting(lineage, pid)["mechanism_boundary"]
+            ), pid
 
 
 def test_chain_mapping_is_exactly_lineage_chain_mapping(patterns, lineage) -> None:
@@ -322,6 +373,12 @@ def test_step_mapping_decisions_match_lineage(patterns, lineage) -> None:
                 )
                 assert decision["decision"] == "unmapped", (pid, step["step_id"])
                 assert decision["rationale"].strip(), (pid, step["step_id"])
+            elif (pid, step["step_id"]) in DELTA_RETAGGED_STEPS:
+                # Reported delta: the lineage id is deliberately retagged.
+                lineage_id, owned_id = DELTA_RETAGGED_STEPS[(pid, step["step_id"])]
+                assert lineage_step_mappings[step["step_id"]] == lineage_id
+                assert decision["decision"] == "exact", (pid, step["step_id"])
+                assert decision["ids"] == [owned_id], (pid, step["step_id"])
             elif step["step_id"] in lineage_step_mappings:
                 assert decision["decision"] == "exact", (pid, step["step_id"])
                 assert decision["ids"] == [lineage_step_mappings[step["step_id"]]]
@@ -337,8 +394,9 @@ def test_step_mapping_decisions_match_lineage(patterns, lineage) -> None:
 
 
 def test_reported_lineage_deltas_are_exactly_scoped(patterns, lineage) -> None:
-    """The unrealized AP-T2-06 harvest mapping is the only lineage step mapping
-    with no live step, and it carries the expected ATLAS id."""
+    """The unrealized lineage step mappings (AP-T2-06 harvest_credentials,
+    AP-T1-04 propagate_corruption) carry the expected ATLAS ids and have no
+    live step."""
     for (pid, step_id), atlas_id in DELTA_UNREALIZED_STEPS.items():
         res = resulting(lineage, pid)
         lineage_step_mappings = {
@@ -529,11 +587,51 @@ def test_review_mandated_narrowing_rationales(patterns) -> None:
     assert "interpreter" in t006["provenance"]["adaptation_rationale"].lower()
     assert "reported as a delta" in t006["provenance"]["adaptation_rationale"]
 
-    t104 = step_of("AP-T1-04", "propagate_corruption")
-    assert "pinned AML.T0080.000 operation" in (
-        t104["observable_postconditions"][0]["description"]
-        + t104["provenance"]["adaptation_rationale"]
+    # Final re-review: AP-T2-06 boundary narrowed to the interpreter tool and
+    # the withdrawn AML.T0080.000 (AP-T1-04) / AML.T0012 (AP-T3-02) exact
+    # mappings are absent from the records.
+    t206_record = patterns["AP-T2-06"]
+    assert "command/scripting interpreter tool" in t206_record["description"]
+    assert "API client" not in t206_record["description"]
+    assert "API-client mode is out of scope" in t206_record["description"]
+
+    t104_record = patterns["AP-T1-04"]
+    assert "RAG-indexed retrieval store" in t104_record["description"]
+    t104_exact_ids = {
+        atlas_id
+        for scope in (
+            t104_record["canonical_chain"]["mappings"],
+            *(s["mappings"] for s in t104_record["canonical_chain"]["steps"]),
+        )
+        for decision in scope
+        if decision["decision"] == "exact"
+        for atlas_id in decision["ids"]
+    }
+    assert "AML.T0080.000" not in t104_exact_ids
+    assert t104_exact_ids == {"AML.T0070", "AML.T0051.001"}
+    t104_steps = [s["step_id"] for s in t104_record["canonical_chain"]["steps"]]
+    assert "propagate_corruption" not in t104_steps
+    # The terminal consumes store.corrupted directly.
+    assert any(
+        r["ref_id"] == "store.corrupted"
+        for r in t104_record["canonical_chain"]["steps"][-1]["consumed"]
     )
+
+    t302_record = patterns["AP-T3-02"]
+    t302_exact_ids = {
+        atlas_id
+        for scope in (
+            t302_record["canonical_chain"]["mappings"],
+            *(s["mappings"] for s in t302_record["canonical_chain"]["steps"]),
+        )
+        for decision in scope
+        if decision["decision"] == "exact"
+        for atlas_id in decision["ids"]
+    }
+    assert "AML.T0012" not in t302_exact_ids
+    assert t302_exact_ids == {"AML.T0053"}
+    escalate = step_of("AP-T3-02", "escalate_privileges")
+    assert "confused-deputy" in escalate["provenance"]["adaptation_rationale"]
 
     t302 = step_of("AP-T3-02", "deliver_request")
     (decision,) = t302["mappings"]
