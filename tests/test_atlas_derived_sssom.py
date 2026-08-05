@@ -21,9 +21,7 @@ from scenario_forge.data.loaders import (
 from scenario_forge.data.sssom import SSSOMMapping, load_sssom
 
 # Path to the new SSSOM file
-_SSSOM_PATH = (
-    "data/taxonomies/attack-patterns/attack-patterns-atlas-derived.sssom.tsv"
-)
+_SSSOM_PATH = "data/taxonomies/attack-patterns/attack-patterns-atlas-derived.sssom.tsv"
 
 # The 5 ATLAS-derived pattern IDs
 ATLAS_DERIVED_IDS = ["AP-T6-06", "AP-T11-05", "AP-T17-03", "AP-T1-06", "AP-T3-04"]
@@ -70,9 +68,7 @@ class TestAtlasDerivedSSSOMParsing:
         """File contains exactly 18 entries (4+3+4+4+3)."""
         assert len(sssom_mappings) == 18
 
-    def test_all_entries_are_sssom_mappings(
-        self, sssom_mappings: list[SSSOMMapping]
-    ):
+    def test_all_entries_are_sssom_mappings(self, sssom_mappings: list[SSSOMMapping]):
         """Every parsed entry is a valid SSSOMMapping instance."""
         for m in sssom_mappings:
             assert isinstance(m, SSSOMMapping)
@@ -140,9 +136,7 @@ class TestAtlasDerivedSSSOMCoverage:
         self, sssom_mappings: list[SSSOMMapping], pid: str
     ):
         """Each pattern maps to the expected distinctive techniques."""
-        mapped_techniques = {
-            m.object_id for m in sssom_mappings if m.subject_id == pid
-        }
+        mapped_techniques = {m.object_id for m in sssom_mappings if m.subject_id == pid}
         expected = set(EXPECTED_TECHNIQUES[pid])
         assert mapped_techniques == expected, (
             f"{pid}: expected techniques {expected}, got {mapped_techniques}"
@@ -191,51 +185,118 @@ class TestNoDuplicateEntries:
         )
 
 
-class TestTechniquesFromKillChain:
-    """All mapped techniques exist in the corresponding pattern's kill chain."""
+class TestTechniquesFromCanonicalChain:
+    """Canonical chain exact mappings are valid and overlap with SSSOM provenance.
+
+    The SSSOM file carries historical ``relatedMatch`` provenance hints; the
+    canonical chain carries authoritative ``exact`` mappings.  These tests
+    verify that each pattern has a canonical chain with exact ATLAS mappings,
+    that every exact mapping is a valid pinned ATLAS identifier (via the
+    production resolver), and that at least one exact mapping is supported
+    by (or is a parent/sub-technique of) an SSSOM ``relatedMatch`` entry,
+    confirming historical continuity.
+    """
+
+    @pytest.fixture(scope="module")
+    def resolver(self):
+        from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+
+        return load_taxonomy_resolver()
 
     @pytest.mark.parametrize("pid", ATLAS_DERIVED_IDS)
-    def test_techniques_in_kill_chain(
+    def test_canonical_chain_has_exact_mappings(
+        self,
+        all_patterns: dict[str, dict],
+        pid: str,
+    ) -> None:
+        """Each pattern's canonical chain has at least one exact ATLAS mapping."""
+        pattern = all_patterns[pid]
+        cc = pattern.get("canonical_chain")
+        assert cc is not None, f"{pid} missing canonical_chain"
+
+        exact_techniques: set[str] = set()
+        for mapping in cc.get("mappings", []):
+            if mapping.get("decision") == "exact":
+                exact_techniques.update(mapping.get("ids", []))
+        for step in cc.get("steps", []):
+            for mapping in step.get("mappings", []):
+                if mapping.get("decision") == "exact":
+                    exact_techniques.update(mapping.get("ids", []))
+
+        assert exact_techniques, f"{pid}: canonical chain has no exact ATLAS mappings"
+
+    @pytest.mark.parametrize("pid", ATLAS_DERIVED_IDS)
+    def test_exact_mappings_are_valid_atlas_ids(
+        self,
+        all_patterns: dict[str, dict],
+        resolver,
+        pid: str,
+    ) -> None:
+        """All exact canonical chain mappings are valid pinned ATLAS identifiers."""
+        pattern = all_patterns[pid]
+        cc = pattern["canonical_chain"]
+        all_exact: set[str] = set()
+        for mapping in cc.get("mappings", []):
+            if mapping.get("decision") == "exact":
+                all_exact.update(mapping.get("ids", []))
+        for step in cc.get("steps", []):
+            for mapping in step.get("mappings", []):
+                if mapping.get("decision") == "exact":
+                    all_exact.update(mapping.get("ids", []))
+        for tech in all_exact:
+            assert resolver.contains("ATLAS", tech), (
+                f"{pid}: exact mapping {tech} is not a valid pinned ATLAS identifier"
+            )
+
+    @pytest.mark.parametrize("pid", ATLAS_DERIVED_IDS)
+    def test_historical_continuity_with_sssom(
         self,
         sssom_mappings: list[SSSOMMapping],
         all_patterns: dict[str, dict],
         pid: str,
-    ):
-        """Each SSSOM technique for a pattern appears in that pattern's kill chain."""
-        pattern = all_patterns[pid]
-        # Collect all techniques from the kill chain
-        kill_chain_techniques: set[str] = set()
-        for step in pattern.get("kill_chain", []):
-            kill_chain_techniques.update(step.get("techniques", []))
+    ) -> None:
+        """At least one exact canonical mapping overlaps (exact or parent/sub-technique)
+        with an SSSOM ``relatedMatch`` entry for the same pattern.
 
-        # Check each SSSOM technique is in the kill chain.
-        # A sub-technique in the kill chain (e.g. T0069.000) satisfies a
-        # parent technique in the SSSOM (e.g. T0069).
-        sssom_techniques = {
-            m.object_id for m in sssom_mappings if m.subject_id == pid
-        }
-        missing = set()
-        for tech in sssom_techniques:
-            if tech in kill_chain_techniques:
-                continue
-            if any(t.startswith(tech + ".") for t in kill_chain_techniques):
-                continue
-            missing.add(tech)
-        assert not missing, (
-            f"{pid}: SSSOM techniques {missing} not found in kill chain "
-            f"(available: {kill_chain_techniques})"
+        This confirms historical continuity between the original SSSOM provenance
+        hints and the authoritative canonical-chain exact mappings.
+        """
+        pattern = all_patterns[pid]
+        cc = pattern["canonical_chain"]
+        exact_ids: set[str] = set()
+        for mapping in cc.get("mappings", []):
+            if mapping.get("decision") == "exact":
+                exact_ids.update(mapping.get("ids", []))
+        for step in cc.get("steps", []):
+            for mapping in step.get("mappings", []):
+                if mapping.get("decision") == "exact":
+                    exact_ids.update(mapping.get("ids", []))
+
+        sssom_ids = {m.object_id for m in sssom_mappings if m.subject_id == pid}
+
+        def _is_related(exact_id: str, sssom_id: str) -> bool:
+            if exact_id == sssom_id:
+                return True
+            # exact is a sub-technique of sssom (e.g. AML.T0069.000 vs AML.T0069)
+            if exact_id.startswith(sssom_id + "."):
+                return True
+            # sssom is a sub-technique of exact
+            return bool(sssom_id.startswith(exact_id + "."))
+
+        overlapping = [
+            e for e in exact_ids if any(_is_related(e, s) for s in sssom_ids)
+        ]
+        assert overlapping, (
+            f"{pid}: no canonical exact mapping overlaps with SSSOM provenance. "
+            f"exact={sorted(exact_ids)}, sssom={sorted(sssom_ids)}"
         )
 
 
 class TestGlobLoaderIncludesNewFile:
     """The glob-based loader picks up the new SSSOM file."""
 
-    def test_new_patterns_in_glob_results(
-        self, all_provenance: list[SSSOMMapping]
-    ):
+    def test_new_patterns_in_glob_results(self, all_provenance: list[SSSOMMapping]):
         """All 5 ATLAS-derived pattern IDs appear in the glob-loaded provenance."""
         subject_ids = {m.subject_id for m in all_provenance}
         for pid in ATLAS_DERIVED_IDS:
-            assert pid in subject_ids, (
-                f"{pid} not found in glob-loaded provenance"
-            )
+            assert pid in subject_ids, f"{pid} not found in glob-loaded provenance"

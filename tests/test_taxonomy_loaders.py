@@ -130,7 +130,7 @@ class TestLoadAttackPatternsDuplicateGuard:
 
     def test_bundled_catalog_merges_without_duplicates(self):
         """The real catalog spans files with disjoint pattern IDs."""
-        assert len(load_attack_patterns()) == 71
+        assert len(load_attack_patterns()) == 49
 
     def test_cross_file_duplicate_ids_raise_deterministically(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

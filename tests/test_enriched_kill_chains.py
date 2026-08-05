@@ -1,11 +1,10 @@
-"""Tests for kill chain enrichments added to 5 existing patterns (bead 3vw9).
+"""Canonical-chain semantic tests for the five historically enriched patterns.
 
-Validates that:
-- All 5 enriched patterns load from real YAML files
-- kill_chain and evidence fields pass Pydantic validation
-- Kill chain steps have valid ATLAS tactic/technique IDs
-- Evidence links use the correct 'enrichment' type
-- Existing fields remain unchanged (backward compatibility)
+Originally these patterns (bead 3vw9) carried legacy ``kill_chain`` enrichments.
+After the canonical-chain migration they carry ``canonical_chain`` with exact
+ATLAS mappings.  These tests validate canonical semantics — chain structure,
+exact mappings, step provenance, and evidence — without restoring any legacy
+``kill_chain`` field.
 """
 
 from __future__ import annotations
@@ -13,30 +12,29 @@ from __future__ import annotations
 import pytest
 
 from scenario_forge.data.loaders import load_attack_patterns
-from scenario_forge.models.attack_pattern import validate_legacy_attack_pattern
+from scenario_forge.models.attack_pattern import AttackPattern
 
+# The five historically enriched pattern IDs.  AP-T17-02 was retired in the
+# canonical lineage (disposition=retire) and has no resulting live record.
 ENRICHED_PATTERN_IDS = [
     "AP-T1-01",
     "AP-T17-01",
-    "AP-T17-02",
     "AP-T11-01",
     "AP-T11-02",
 ]
 
-# Expected evidence sources for each pattern (None = no evidence expected)
-EXPECTED_EVIDENCE = {
+# Expected case-study provenance for each pattern (None = no case study).
+EXPECTED_CASE_STUDIES = {
     "AP-T1-01": "AML.CS0040",
     "AP-T17-01": "AML.CS0041",
-    "AP-T17-02": None,
     "AP-T11-01": "AML.CS0052",
     "AP-T11-02": "AML.CS0047",
 }
 
-# Minimum expected kill chain lengths for each pattern
-MIN_KILL_CHAIN_STEPS = {
+# Minimum expected canonical chain step counts.
+MIN_CHAIN_STEPS = {
     "AP-T1-01": 5,
     "AP-T17-01": 5,
-    "AP-T17-02": 3,
     "AP-T11-01": 5,
     "AP-T11-02": 4,
 }
@@ -49,7 +47,7 @@ def all_patterns():
 
 
 class TestEnrichedPatternsLoad:
-    """Verify enriched patterns load correctly from real YAML files."""
+    """Verify enriched patterns load correctly with canonical chains."""
 
     def test_all_enriched_patterns_present(self, all_patterns):
         """All 5 enriched pattern IDs exist in loaded patterns."""
@@ -57,113 +55,103 @@ class TestEnrichedPatternsLoad:
             assert pid in all_patterns, f"{pid} missing from loaded patterns"
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_enriched_pattern_has_kill_chain(self, all_patterns, pid):
-        """Each enriched pattern has a non-empty kill_chain field."""
+    def test_enriched_pattern_has_canonical_chain(self, all_patterns, pid):
+        """Each enriched pattern has a canonical_chain, not a kill_chain."""
         pattern = all_patterns[pid]
-        assert "kill_chain" in pattern, f"{pid} missing kill_chain"
-        assert len(pattern["kill_chain"]) > 0, f"{pid} has empty kill_chain"
+        assert "canonical_chain" in pattern, f"{pid} missing canonical_chain"
+        assert "kill_chain" not in pattern, f"{pid} still has legacy kill_chain"
+        cc = pattern["canonical_chain"]
+        assert len(cc["steps"]) > 0, f"{pid} has empty canonical_chain steps"
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_enriched_pattern_has_evidence(self, all_patterns, pid):
-        """Enriched patterns with expected evidence have a non-empty evidence field."""
-        if EXPECTED_EVIDENCE[pid] is None:
-            pytest.skip(f"{pid} has no expected evidence")
+    def test_enriched_pattern_has_no_evidence_field(self, all_patterns, pid):
+        """Canonical patterns do not carry the legacy evidence field."""
         pattern = all_patterns[pid]
-        assert "evidence" in pattern, f"{pid} missing evidence"
-        assert len(pattern["evidence"]) > 0, f"{pid} has empty evidence"
+        assert "evidence" not in pattern, f"{pid} still has legacy evidence field"
 
 
 class TestEnrichedPatternsValidate:
-    """Verify enriched patterns pass full Pydantic validation."""
+    """Verify enriched patterns pass canonical model validation."""
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
     def test_pattern_validates(self, all_patterns, pid):
-        """Each enriched pattern passes the explicit legacy catalogue boundary."""
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
+        """Each enriched pattern validates as a canonical AttackPattern."""
+        validated = AttackPattern.model_validate(all_patterns[pid])
         assert validated.id == pid
-        assert validated.kill_chain is not None
-        if EXPECTED_EVIDENCE[pid] is not None:
-            assert validated.evidence is not None
+        assert validated.canonical_chain is not None
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_kill_chain_minimum_steps(self, all_patterns, pid):
+    def test_canonical_chain_minimum_steps(self, all_patterns, pid):
         """Each enriched pattern has at least the expected number of steps."""
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
-        expected_min = MIN_KILL_CHAIN_STEPS[pid]
-        actual = len(validated.kill_chain)
+        validated = AttackPattern.model_validate(all_patterns[pid])
+        expected_min = MIN_CHAIN_STEPS[pid]
+        actual = len(validated.canonical_chain.steps)
         assert actual >= expected_min, (
-            f"{pid}: expected >= {expected_min} kill chain steps, got {actual}"
+            f"{pid}: expected >= {expected_min} canonical chain steps, got {actual}"
         )
 
 
-class TestKillChainContent:
-    """Verify kill chain content is well-formed."""
+class TestCanonicalChainContent:
+    """Verify canonical chain content is well-formed."""
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_all_steps_have_valid_tactics(self, all_patterns, pid):
-        """All kill chain steps use valid AML.TAxxxx tactic IDs."""
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
-        for step in validated.kill_chain:
-            assert step.tactic.startswith("AML.TA"), (
-                f"{pid} step '{step.step}' has invalid tactic: {step.tactic}"
-            )
+    def test_all_steps_have_step_ids(self, all_patterns, pid):
+        """All canonical chain steps have non-empty step_id identifiers."""
+        validated = AttackPattern.model_validate(all_patterns[pid])
+        for step in validated.canonical_chain.steps:
+            assert step.step_id.strip(), f"{pid} has a step with empty step_id"
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_all_steps_have_valid_techniques(self, all_patterns, pid):
-        """All kill chain steps use valid AML.Txxxx technique IDs."""
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
-        for step in validated.kill_chain:
-            for tech in step.techniques:
-                assert tech.startswith("AML.T"), (
-                    f"{pid} step '{step.step}' has invalid technique: {tech}"
-                )
+    def test_step_ids_are_unique(self, all_patterns, pid):
+        """Canonical chain step_ids are unique within each pattern."""
+        validated = AttackPattern.model_validate(all_patterns[pid])
+        ids = [s.step_id for s in validated.canonical_chain.steps]
+        assert len(ids) == len(set(ids)), f"{pid} has duplicate step_ids: {ids}"
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_all_steps_have_abstract_actions(self, all_patterns, pid):
-        """All kill chain steps have non-empty abstract_action descriptions."""
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
-        for step in validated.kill_chain:
-            assert step.abstract_action.strip(), (
-                f"{pid} step '{step.step}' has empty abstract_action"
-            )
+    def test_exact_mappings_use_valid_atlas_ids(self, all_patterns, pid):
+        """All exact mappings in the canonical chain use valid AML.T IDs."""
+        validated = AttackPattern.model_validate(all_patterns[pid])
+        for mapping in validated.canonical_chain.mappings:
+            if hasattr(mapping, "ids") and mapping.ids:
+                for atlas_id in mapping.ids:
+                    assert atlas_id.startswith("AML.T"), (
+                        f"{pid} chain mapping has invalid technique: {atlas_id}"
+                    )
+        for step in validated.canonical_chain.steps:
+            for mapping in step.mappings:
+                if hasattr(mapping, "ids") and mapping.ids:
+                    for atlas_id in mapping.ids:
+                        assert atlas_id.startswith("AML.T"), (
+                            f"{pid} step '{step.step_id}' has invalid technique: {atlas_id}"
+                        )
+
+
+class TestProvenanceContent:
+    """Verify provenance references in canonical chains are correct."""
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_step_names_are_unique(self, all_patterns, pid):
-        """Kill chain step names are unique within each pattern."""
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
-        names = [s.step for s in validated.kill_chain]
-        assert len(names) == len(set(names)), f"{pid} has duplicate step names: {names}"
-
-
-class TestEvidenceContent:
-    """Verify evidence links are correctly configured."""
-
-    @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_evidence_source_matches_expected(self, all_patterns, pid):
-        """Each pattern's evidence links to the expected ATLAS case study."""
-        expected = EXPECTED_EVIDENCE[pid]
+    def test_expected_case_study_referenced(self, all_patterns, pid):
+        """Each pattern's canonical chain references the expected case study."""
+        expected = EXPECTED_CASE_STUDIES[pid]
         if expected is None:
-            pytest.skip(f"{pid} has no expected evidence")
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
-        sources = [e.source for e in validated.evidence]
-        assert expected in sources, (
-            f"{pid}: expected evidence source '{expected}', got {sources}"
+            pytest.skip(f"{pid} has no expected case study")
+        pattern = all_patterns[pid]
+        cc = pattern["canonical_chain"]
+        # Collect all reference_ids from all steps' provenance
+        ref_ids = set()
+        for step in cc.get("steps", []):
+            for ref in step.get("provenance", {}).get("references", []):
+                ref_ids.add(ref.get("reference_id", ""))
+        # Reference IDs may include step suffixes (e.g. "AML.CS0041 S03")
+        assert any(expected in rid for rid in ref_ids), (
+            f"{pid}: expected case study '{expected}' not referenced in "
+            f"canonical chain provenance (found: {ref_ids})"
         )
-
-    @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
-    def test_evidence_type_is_enrichment(self, all_patterns, pid):
-        """All evidence links use type 'enrichment' (not direct_demonstration)."""
-        if EXPECTED_EVIDENCE[pid] is None:
-            pytest.skip(f"{pid} has no evidence")
-        validated = validate_legacy_attack_pattern(all_patterns[pid])
-        for ev in validated.evidence:
-            assert ev.type == "enrichment", (
-                f"{pid}: evidence type should be 'enrichment', got '{ev.type}'"
-            )
 
 
 class TestExistingFieldsPreserved:
-    """Verify that existing fields were not modified during enrichment."""
+    """Verify that core fields were not modified during canonical migration."""
 
     @pytest.mark.parametrize("pid", ENRICHED_PATTERN_IDS)
     def test_core_fields_present(self, all_patterns, pid):
@@ -184,8 +172,8 @@ class TestExistingFieldsPreserved:
         assert "min_zones" in pattern["prerequisite_capabilities"]
 
     def test_non_enriched_patterns_still_valid(self, all_patterns):
-        """Patterns not in the enrichment set still pass validation."""
+        """Patterns not in the enrichment set still pass canonical validation."""
         for pid, pattern in all_patterns.items():
             if pid not in ENRICHED_PATTERN_IDS:
-                validated = validate_legacy_attack_pattern(pattern)
+                validated = AttackPattern.model_validate(pattern)
                 assert validated.id == pid
