@@ -1194,3 +1194,175 @@ def test_ap_t6_07_catalog_projection_yields_typed_no_activation_infeasibility() 
     assert "no activation mechanism" in issue.detail, (
         f"Expected 'no activation mechanism' in detail, got: {issue.detail}"
     )
+
+
+# ---------------------------------------------------------------------------
+# New vocabulary projection tests: output_surface, agent_internal
+# ---------------------------------------------------------------------------
+
+
+def test_output_surface_slot_enumerates_only_output_direction_entry_points() -> None:
+    """An output_surface slot kind must enumerate only entry points whose
+    direction is 'output', not input or bidirectional."""
+    from scenario_forge.models.attack_pattern import OutputSurfaceResourceReference
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+    from scenario_forge.pipeline.projection import _references_for_kind
+
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        entry_points=[
+            {"name": "chat-in", "direction": "input", "controllability": "direct"},
+            {"name": "chat-out", "direction": "output", "controllability": "direct"},
+            {
+                "name": "chat-bi",
+                "direction": "bidirectional",
+                "controllability": "direct",
+            },
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    refs = _references_for_kind(
+        "output_surface",
+        snapshot,
+        initial_ingress=False,
+        attacker_influence_required=False,
+    )
+    # Only the output-direction entry point should be enumerated.
+    assert len(refs) == 1
+    assert isinstance(refs[0], OutputSurfaceResourceReference)
+    ep = profile.resolve_output_surface(refs[0].entry_point_id)
+    assert ep is not None
+    assert ep.direction == "output"
+
+
+def test_output_surface_slot_with_no_output_entry_points_yields_no_options() -> None:
+    """If the profile has no output-direction entry points, an output_surface
+    slot yields zero options — the pattern should fail closed."""
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+    from scenario_forge.pipeline.projection import _references_for_kind
+
+    profile = CapabilityProfile(
+        zones_active=["input"],
+        entry_points=[
+            {"name": "chat-in", "direction": "input", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    refs = _references_for_kind(
+        "output_surface",
+        snapshot,
+        initial_ingress=False,
+        attacker_influence_required=False,
+    )
+    assert refs == ()
+
+
+def test_agent_internal_slot_yields_no_resource_options() -> None:
+    """An agent_internal slot kind must always yield zero resource options
+    because capability profiles carry no authoritative agent-internal-state
+    inventory.  Patterns requiring this slot are typed-infeasible."""
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+    from scenario_forge.pipeline.projection import _references_for_kind
+
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    refs = _references_for_kind(
+        "agent_internal",
+        snapshot,
+        initial_ingress=False,
+        attacker_influence_required=False,
+    )
+    assert refs == ()
+
+
+def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
+    """End-to-end: projecting the actual AP-T1-06 catalog record with
+    otherwise satisfying profile facts/resources must yield a typed
+    missing_compatible_resource issue for the agent_internal slot, not a
+    candidate.  AP-T1-06 is typed-infeasible because agent-internal state
+    has no authoritative profile inventory."""
+    from scenario_forge.data.loaders import load_attack_patterns
+    from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+
+    patterns = load_attack_patterns()
+    raw = patterns["AP-T1-06"]
+    resolver = load_taxonomy_resolver()
+
+    # Build a profile that satisfies AP-T1-06's prerequisites and all
+    # resource slots except agent_internal (which has no profile inventory).
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "memory"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+            {"name": "rendered", "direction": "output", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KCX-VSTORE", "KC4.3"],
+        tool_inventory=[],
+        tool_types=[],
+        external_integrations=[
+            {
+                "name": "rag_corpus",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+            {
+                "name": "exfil_endpoint",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+        ],
+        trust_boundaries=[
+            {
+                "name": "boundary",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    batch = project_authoritative_candidates(
+        [raw],
+        resolver,
+        snapshot,
+        budget=ProjectionBudget(max_candidates=10),
+    )
+
+    t1_06_candidates = [c for c in batch.candidates if c.pattern_id == "AP-T1-06"]
+    assert len(t1_06_candidates) == 0, (
+        "AP-T1-06 must not produce a candidate (agent_internal slot unresolvable)"
+    )
+    t1_06_issues = [i for i in batch.infeasibilities if i.pattern_id == "AP-T1-06"]
+    assert len(t1_06_issues) >= 1, "AP-T1-06 must produce a typed infeasibility issue"
+    issue = t1_06_issues[0]
+    assert issue.code == "missing_compatible_resource"
+    assert issue.slot_id == "agent_internal_state", (
+        f"Expected issue for agent_internal_state slot, got: {issue.slot_id}"
+    )

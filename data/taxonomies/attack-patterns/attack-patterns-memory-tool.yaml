@@ -1375,7 +1375,7 @@ patterns:
       pattern_id: AP-T2-02
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 0e215dd29b1a8ebdc030e6baebdb2a0e6ddc9df4bfab41cecc31004d9590897e
+      semantic_digest: 92ac7b314c4a987340b540c497a87d671a2f27bed83532675b70858d0be7cf2f
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -1603,14 +1603,14 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links:
-        - slot_id: delivery_tool
+        - slot_id: retrieval_tool
           role: tool_fixture
           trust_boundary_slot_id: null
           target_ingress_slot_id: null
         observable_outcome_links:
         - postcondition_id: post.collect.data
           observation: tool_invocation
-          binding_slot_id: delivery_tool
+          binding_slot_id: retrieval_tool
         order: 6
         attacker_controlled: true
         provenance:

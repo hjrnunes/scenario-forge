@@ -477,7 +477,7 @@ patterns:
       pattern_id: AP-T5-02
       chain_id: AP-T5-02.chain.1
       semantic_revision: 1
-      semantic_digest: 9e84f1e19a0905754da188eac60d5ae1b8364c40d49ce881c1efdf333ead068f
+      semantic_digest: 47851528042d7f62fbfc41ff18a25ef0a5a15282befd0281d451a2e34b5620f2
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -708,7 +708,7 @@ patterns:
         resource_links: []
         observable_outcome_links:
         - postcondition_id: post.exfiltrate_via_endpoints
-          observation: persistent_state
+          observation: endpoint_receipt
           binding_slot_id: attacker_endpoint
         order: 5
         attacker_controlled: false

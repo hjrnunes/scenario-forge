@@ -237,8 +237,8 @@ GOLDEN_LINKAGE: dict[str, dict] = {
         "observable_outcome_links": [
             {
                 "postcondition_id": "post.data_collection.assembled",
-                "observation": "persistent_state",
-                "binding_slot_id": "exfil_endpoint",
+                "observation": "agent_state",
+                "binding_slot_id": "agent_internal_state",
             },
         ],
     },
@@ -266,7 +266,7 @@ GOLDEN_LINKAGE: dict[str, dict] = {
         "observable_outcome_links": [
             {
                 "postcondition_id": "post.impact.exfiltration_complete",
-                "observation": "persistent_state",
+                "observation": "endpoint_receipt",
                 "binding_slot_id": "exfil_endpoint",
             },
         ],
@@ -288,8 +288,8 @@ GOLDEN_LINKAGE: dict[str, dict] = {
         "observable_outcome_links": [
             {
                 "postcondition_id": "post.rendered_output_exfiltration.encoded",
-                "observation": "model_context",
-                "binding_slot_id": "ingress",
+                "observation": "rendered_output",
+                "binding_slot_id": "rendered_output",
             },
         ],
     },
@@ -991,8 +991,8 @@ GOLDEN_LINKAGE: dict[str, dict] = {
         "observable_outcome_links": [
             {
                 "postcondition_id": "post.context_hijacking_impact",
-                "observation": "persistent_state",
-                "binding_slot_id": "protocol_endpoint",
+                "observation": "tool_invocation",
+                "binding_slot_id": "receiving_agent",
             },
         ],
     },
@@ -1456,7 +1456,7 @@ GOLDEN_LINKAGE: dict[str, dict] = {
         "boundary": "inside",
         "resource_links": [
             {
-                "slot_id": "delivery_tool",
+                "slot_id": "retrieval_tool",
                 "role": "tool_fixture",
                 "trust_boundary_slot_id": None,
                 "target_ingress_slot_id": None,
@@ -1466,7 +1466,7 @@ GOLDEN_LINKAGE: dict[str, dict] = {
             {
                 "postcondition_id": "post.collect.data",
                 "observation": "tool_invocation",
-                "binding_slot_id": "delivery_tool",
+                "binding_slot_id": "retrieval_tool",
             },
         ],
     },
@@ -2240,7 +2240,7 @@ GOLDEN_LINKAGE: dict[str, dict] = {
         "observable_outcome_links": [
             {
                 "postcondition_id": "post.exfiltrate_via_endpoints",
-                "observation": "persistent_state",
+                "observation": "endpoint_receipt",
                 "binding_slot_id": "attacker_endpoint",
             },
         ],

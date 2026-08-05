@@ -448,7 +448,14 @@ class ObservableOutcomeLink(ContractModel):
     """
 
     postcondition_id: Identifier
-    observation: Literal["model_context", "tool_invocation", "persistent_state"]
+    observation: Literal[
+        "model_context",
+        "tool_invocation",
+        "persistent_state",
+        "rendered_output",
+        "endpoint_receipt",
+        "agent_state",
+    ]
     binding_slot_id: Identifier
 
 
@@ -480,7 +487,14 @@ class ObservationRequirement(ContractModel):
     schema_version: Literal["1"]
     requirement_id: Identifier
     kind: Literal["observation"]
-    observation: Literal["model_context", "tool_invocation", "persistent_state"]
+    observation: Literal[
+        "model_context",
+        "tool_invocation",
+        "persistent_state",
+        "rendered_output",
+        "endpoint_receipt",
+        "agent_state",
+    ]
     binding_slot_id: Identifier
 
 
@@ -681,7 +695,14 @@ class CanonicalChainStep(ContractModel):
 
 class ResourceSlot(ContractModel):
     slot_id: Identifier
-    kind: Literal["entry_point", "tool", "integration", "trust_boundary"]
+    kind: Literal[
+        "entry_point",
+        "tool",
+        "integration",
+        "trust_boundary",
+        "output_surface",
+        "agent_internal",
+    ]
     purpose: Literal["initial_ingress", "intermediate", "target", "supporting"]
 
 
@@ -838,6 +859,9 @@ class CanonicalAttackChain(ContractModel):
                     "model_context": "entry_point",
                     "tool_invocation": "tool",
                     "persistent_state": "integration",
+                    "rendered_output": "output_surface",
+                    "endpoint_receipt": "integration",
+                    "agent_state": "agent_internal",
                 }[link.observation]
                 if slot.kind != expected_kind:
                     raise ValueError(
@@ -925,11 +949,44 @@ class TrustBoundaryResourceReference(ContractModel):
     trust_boundary_id: str = Field(pattern=r"^tb:v1:[0-9a-f]{32}$")
 
 
+class OutputSurfaceResourceReference(ContractModel):
+    """Canonical reference to an output-direction entry point.
+
+    An output surface is the agent's rendered-response surface — the
+    model's output that a client renders or fetches.  It is distinct from
+    an input entry point (``EntryPointResourceReference``) even though
+    both resolve to an :class:`EntryPoint` in the capability profile:
+    only entry points with ``direction == "output"`` qualify as output
+    surfaces.
+    """
+
+    kind: Literal["output_surface"]
+    entry_point_id: str = Field(pattern=r"^ep:v1:[0-9a-f]{32}$")
+
+
+class AgentInternalResourceReference(ContractModel):
+    """Canonical reference to agent-internal state.
+
+    Agent-internal state is data assembled or transformed within the
+    agent's own working context — neither an external entry point, tool,
+    integration, nor trust boundary.  Capability profiles do not carry
+    an authoritative agent-internal-state inventory, so this reference
+    type is **unresolvable** by design: ``contains_resource`` always
+    returns ``False`` and ``_references_for_kind`` always returns an
+    empty tuple.  Patterns that require an ``agent_internal`` resource
+    slot are therefore typed-infeasible for candidate-v2 projection.
+    """
+
+    kind: Literal["agent_internal"]
+
+
 CanonicalResourceReference: TypeAlias = Annotated[
     EntryPointResourceReference
     | ToolResourceReference
     | IntegrationResourceReference
-    | TrustBoundaryResourceReference,
+    | TrustBoundaryResourceReference
+    | OutputSurfaceResourceReference
+    | AgentInternalResourceReference,
     Field(discriminator="kind"),
 ]
 

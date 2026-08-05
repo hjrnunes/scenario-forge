@@ -1585,6 +1585,19 @@ class CapabilityProfile(BaseModel):
         """Resolve a canonical trust_boundary_id to a TrustBoundary, or None."""
         return self.trust_boundary_lookup().get(trust_boundary_id)
 
+    def resolve_output_surface(self, entry_point_id: str) -> EntryPoint | None:
+        """Resolve a canonical entry_point_id to an output-direction EntryPoint.
+
+        Output surfaces are entry points whose ``direction`` is
+        ``"output"`` — the agent's rendered-response surface.  Entry
+        points with other directions (input, bidirectional) do not
+        qualify and resolve to ``None``.
+        """
+        ep = self.entry_point_lookup().get(entry_point_id)
+        if ep is not None and ep.direction != "output":
+            return None
+        return ep
+
     @property
     def is_entry_point_inventory_complete(self) -> bool:
         """True when entry-point inventory is operator-confirmed complete with evidence."""

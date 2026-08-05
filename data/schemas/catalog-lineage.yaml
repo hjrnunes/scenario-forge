@@ -239,7 +239,7 @@ $defs:
         type: string
         minLength: 1
       kind:
-        enum: [entry_point, tool, integration, trust_boundary]
+        enum: [entry_point, tool, integration, trust_boundary, output_surface, agent_internal]
       purpose:
         enum: [initial_ingress, intermediate, target, supporting]
     description: >-

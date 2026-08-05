@@ -85,7 +85,7 @@ patterns:
       pattern_id: "AP-T1-06"
       chain_id: "chain.ap-t1-06"
       semantic_revision: 1
-      semantic_digest: "d16105fc9eae9c4dac66663173adb93e93300024da276dc733262780724c043a"
+      semantic_digest: "85bd734a738c8fd37fef7ea28b95c1906aaaa196048fdeb18cc31a3beb699799"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -318,8 +318,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.data_collection.assembled
-            observation: persistent_state
-            binding_slot_id: exfil_endpoint
+            observation: agent_state
+            binding_slot_id: agent_internal_state
           order: 5
           attacker_controlled: false
           provenance:
@@ -365,8 +365,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.rendered_output_exfiltration.encoded
-            observation: model_context
-            binding_slot_id: ingress
+            observation: rendered_output
+            binding_slot_id: rendered_output
           order: 6
           attacker_controlled: true
           provenance:
@@ -412,7 +412,7 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.impact.exfiltration_complete
-            observation: persistent_state
+            observation: endpoint_receipt
             binding_slot_id: exfil_endpoint
           order: 7
           attacker_controlled: false
@@ -444,6 +444,12 @@ patterns:
         - slot_id: "exfil_endpoint"
           kind: "integration"
           purpose: "target"
+        - slot_id: "rendered_output"
+          kind: "output_surface"
+          purpose: "intermediate"
+        - slot_id: "agent_internal_state"
+          kind: "agent_internal"
+          purpose: "intermediate"
         - slot_id: "boundary"
           kind: "trust_boundary"
           purpose: "supporting"

@@ -211,9 +211,12 @@ def test_observation_kind_counts() -> None:
             for ol in s.get("observable_outcome_links", []):
                 kinds[ol["observation"]] += 1
     assert dict(kinds) == {
-        "persistent_state": 145,
-        "model_context": 42,
-        "tool_invocation": 28,
+        "persistent_state": 141,
+        "model_context": 41,
+        "tool_invocation": 29,
+        "rendered_output": 1,
+        "endpoint_receipt": 2,
+        "agent_state": 1,
     }
 
 
@@ -377,3 +380,122 @@ def test_ap_t2_02_exfiltrate_data_is_tool_invocation_delivery_tool() -> None:
     assert len(ol) == 1
     assert ol[0]["observation"] == "tool_invocation"
     assert ol[0]["binding_slot_id"] == "delivery_tool"
+
+
+# ---------------------------------------------------------------------------
+# Independent semantic audit (422o.3.2) regression tests — six confirmed
+# defects.  Each test pins the corrected linkage for a specific finding.
+# ---------------------------------------------------------------------------
+
+
+def test_f1_ap_t2_02_collect_data_binds_retrieval_tool() -> None:
+    """F1: AP-T2-02/collect_data postcondition says 'the retrieval tool
+    returns the sensitive records' — both tool_fixture and tool_invocation
+    must bind retrieval_tool, not delivery_tool."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T2-02"]["canonical_chain"]["steps"]
+        if s["step_id"] == "collect_data"
+    )
+    # Resource link (tool_fixture) must reference retrieval_tool.
+    rl = step["resource_links"]
+    assert len(rl) == 1
+    assert rl[0]["slot_id"] == "retrieval_tool"
+    assert rl[0]["role"] == "tool_fixture"
+    # Outcome link (tool_invocation) must reference retrieval_tool.
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "tool_invocation"
+    assert ol[0]["binding_slot_id"] == "retrieval_tool"
+
+
+def test_f2_ap_t1_06_rendered_output_is_rendered_output_surface() -> None:
+    """F2: AP-T1-06/rendered_output_exfiltration postcondition says sensitive
+    data is encoded in a rendered output element — the outcome is visible on
+    the agent's output surface, not through the ingress entry point."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T1-06"]["canonical_chain"]["steps"]
+        if s["step_id"] == "rendered_output_exfiltration"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "rendered_output"
+    assert ol[0]["binding_slot_id"] == "rendered_output"
+    # The slot must be output_surface kind.
+    slots = {
+        s["slot_id"]: s for s in raw["AP-T1-06"]["canonical_chain"]["resource_slots"]
+    }
+    assert slots["rendered_output"]["kind"] == "output_surface"
+
+
+def test_f3_ap_t1_06_impact_is_endpoint_receipt() -> None:
+    """F3: AP-T1-06/impact postcondition says the client's fetch delivers data
+    to the attacker endpoint — this is delivery/receipt, not persisted state."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T1-06"]["canonical_chain"]["steps"]
+        if s["step_id"] == "impact"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "endpoint_receipt"
+    assert ol[0]["binding_slot_id"] == "exfil_endpoint"
+
+
+def test_f4_ap_t1_06_data_collection_is_agent_state() -> None:
+    """F4: AP-T1-06/data_collection postcondition says the assistant has
+    gathered sensitive data — this is agent-internal assembled state, not
+    persistent state at the exfil_endpoint."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T1-06"]["canonical_chain"]["steps"]
+        if s["step_id"] == "data_collection"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "agent_state"
+    assert ol[0]["binding_slot_id"] == "agent_internal_state"
+
+
+def test_f5_ap_t5_02_exfiltrate_via_endpoints_is_endpoint_receipt() -> None:
+    """F5: AP-T5-02/exfiltrate_via_endpoints postcondition says the agent
+    emits a call to the attacker endpoint — this is endpoint receipt/
+    transmission, not persisted state.  The produced reference is an effect,
+    not a state."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T5-02"]["canonical_chain"]["steps"]
+        if s["step_id"] == "exfiltrate_via_endpoints"
+    )
+    # Produced reference must be an effect, not a state.
+    produced = step.get("produced", [])
+    assert any(p["kind"] == "effect" for p in produced), (
+        "exfiltrate_via_endpoints must produce an effect, not state"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "endpoint_receipt"
+    assert ol[0]["binding_slot_id"] == "attacker_endpoint"
+
+
+def test_f6_ap_t16_02_context_hijacking_impact_is_tool_invocation() -> None:
+    """F6: AP-T16-02/context_hijacking_impact postcondition says the
+    receiving agent executes an unintended operation — the outcome is
+    exposed through the receiving_agent tool, not the protocol_endpoint
+    integration (which is the poisoned-content source)."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T16-02"]["canonical_chain"]["steps"]
+        if s["step_id"] == "context_hijacking_impact"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "tool_invocation"
+    assert ol[0]["binding_slot_id"] == "receiving_agent"

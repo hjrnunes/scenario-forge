@@ -2802,7 +2802,7 @@ patterns:
       pattern_id: "AP-T16-02"
       chain_id: "chain.AP-T16-02"
       semantic_revision: 1
-      semantic_digest: "793b76f85ad3574a9d9fca2283acd522c31d9031715743c5f51b7b53eb259e62"
+      semantic_digest: "5d60fb39de666f3de3a23800583c23fd7c7460f5c72dad9992454ce873ff012a"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -3091,8 +3091,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.context_hijacking_impact
-            observation: persistent_state
-            binding_slot_id: protocol_endpoint
+            observation: tool_invocation
+            binding_slot_id: receiving_agent
           order: 6
           attacker_controlled: false
           provenance:

@@ -80,6 +80,8 @@ EXPECTED: dict[str, dict[str, Any]] = {
             ("ingress", "entry_point", "initial_ingress"),
             ("rag_corpus", "integration", "intermediate"),
             ("exfil_endpoint", "integration", "target"),
+            ("rendered_output", "output_surface", "intermediate"),
+            ("agent_internal_state", "agent_internal", "intermediate"),
             ("boundary", "trust_boundary", "supporting"),
         ],
         "forbidden_exact": {"AML.T0093", "AML.T0085", "AML.T0057", "AML.T0048"},
@@ -280,7 +282,7 @@ EXPECTED: dict[str, dict[str, Any]] = {
 # Golden semantic digests of the authored chains: any semantic content edit
 # must recompute these deliberately, not silently.
 GOLDEN_DIGESTS = {
-    "AP-T1-06": "d16105fc9eae9c4dac66663173adb93e93300024da276dc733262780724c043a",
+    "AP-T1-06": "85bd734a738c8fd37fef7ea28b95c1906aaaa196048fdeb18cc31a3beb699799",
     "AP-T3-04": "f53892856c154ca84223e03e85443db8b0b77f6d66fe653e59bf1494e8b16702",
     "AP-T3-05": "66be208503910d209fb74240ff27ba55ddd9e280159bd656c404ce4f750d4d1d",
     "AP-T3-06": "440a715d5eae939377bf09bbb1445d5f3a9118822d3533e05679131e8a613fd2",

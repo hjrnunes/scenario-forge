@@ -1269,3 +1269,130 @@ def test_direct_plus_source_influence_fail_closed() -> None:
         ValidationError, match="exactly one activation mechanism is permitted"
     ):
         AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+# ---------------------------------------------------------------------------
+# New observation/slot vocabulary: rendered_output, endpoint_receipt,
+# agent_state / agent_internal — positive and negative compatibility tests.
+# ---------------------------------------------------------------------------
+
+
+def test_rendered_output_observation_requires_output_surface_slot() -> None:
+    """rendered_output observation kind requires an output_surface slot."""
+    raw = _link_chain()
+    # Add an output_surface slot.
+    raw["resource_slots"].append(
+        {"slot_id": "output", "kind": "output_surface", "purpose": "intermediate"}
+    )
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "rendered_output",
+            "binding_slot_id": "output",
+        }
+    ]
+    resign_chain(raw)
+    AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_rendered_output_observation_rejects_entry_point_slot() -> None:
+    """rendered_output observation kind must not bind to an entry_point slot."""
+    raw = _link_chain()
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "rendered_output",
+            "binding_slot_id": "ingress",
+        }
+    ]
+    resign_chain(raw)
+    with pytest.raises(
+        ValidationError, match="rendered_output requires a output_surface slot"
+    ):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_endpoint_receipt_observation_requires_integration_slot() -> None:
+    """endpoint_receipt observation kind requires an integration slot."""
+    raw = _link_chain()
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "endpoint_receipt",
+            "binding_slot_id": "source",
+        }
+    ]
+    resign_chain(raw)
+    AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_endpoint_receipt_observation_rejects_entry_point_slot() -> None:
+    """endpoint_receipt observation kind must not bind to an entry_point slot."""
+    raw = _link_chain()
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "endpoint_receipt",
+            "binding_slot_id": "ingress",
+        }
+    ]
+    resign_chain(raw)
+    with pytest.raises(
+        ValidationError, match="endpoint_receipt requires a integration slot"
+    ):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_agent_state_observation_requires_agent_internal_slot() -> None:
+    """agent_state observation kind requires an agent_internal slot."""
+    raw = _link_chain()
+    raw["resource_slots"].append(
+        {"slot_id": "internal", "kind": "agent_internal", "purpose": "intermediate"}
+    )
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "agent_state",
+            "binding_slot_id": "internal",
+        }
+    ]
+    resign_chain(raw)
+    AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_agent_state_observation_rejects_entry_point_slot() -> None:
+    """agent_state observation kind must not bind to an entry_point slot.
+
+    This prevents the nearest-fit error of binding agent-internal state
+    to an input ingress.
+    """
+    raw = _link_chain()
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "agent_state",
+            "binding_slot_id": "ingress",
+        }
+    ]
+    resign_chain(raw)
+    with pytest.raises(
+        ValidationError, match="agent_state requires a agent_internal slot"
+    ):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_agent_state_observation_rejects_integration_slot() -> None:
+    """agent_state observation kind must not bind to an integration slot."""
+    raw = _link_chain()
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "agent_state",
+            "binding_slot_id": "source",
+        }
+    ]
+    resign_chain(raw)
+    with pytest.raises(
+        ValidationError, match="agent_state requires a agent_internal slot"
+    ):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})

@@ -19,6 +19,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scenario_forge.models.attack_pattern import (
+    AgentInternalResourceReference,
     AllCondition,
     AnyCondition,
     AttackPattern,
@@ -35,6 +36,7 @@ from scenario_forge.models.attack_pattern import (
     MappingDecision,
     NotCondition,
     ObservationRequirement,
+    OutputSurfaceResourceReference,
     ProjectionSnapshot,
     ResourceBinding,
     SecurityOutcomeAssertionRequirement,
@@ -115,6 +117,11 @@ def _requirement_id(prefix: str, *components: str) -> str:
     This makes the mapping ``(prefix, *components) → ID`` injective: the
     component list can be recovered by splitting on ``:`` and hex-decoding
     each segment, so distinct inputs always produce distinct IDs.
+
+    IDs are **unbounded in length**: hex encoding doubles each component's
+    byte length, so long step IDs or slot IDs produce long requirement IDs.
+    Downstream persistence must use unbounded text columns or establish a
+    future explicit bound.  No bounded consumer exists in candidate-v2.
     """
     encoded = ":".join(c.encode("utf-8").hex() for c in components)
     return f"{prefix}.{encoded}"
@@ -198,6 +205,16 @@ class CapabilityFactSnapshot(ProjectionModel):
                 self.profile.resolve_trust_boundary(reference.trust_boundary_id)
                 is not None
             )
+        if isinstance(reference, OutputSurfaceResourceReference):
+            return (
+                self.profile.resolve_output_surface(reference.entry_point_id)
+                is not None
+            )
+        if isinstance(reference, AgentInternalResourceReference):
+            # Agent-internal state has no authoritative profile inventory;
+            # it is always unresolvable, making patterns that require it
+            # typed-infeasible for candidate-v2.
+            return False
         return False
 
     @model_validator(mode="after")
@@ -537,6 +554,18 @@ def _references_for_kind(
             )
             for item in profile.external_integrations or ()
         ]
+    elif kind == "output_surface":
+        refs = [
+            OutputSurfaceResourceReference(
+                kind="output_surface", entry_point_id=item.entry_point_id
+            )
+            for item in profile.entry_points
+            if item.direction == "output"
+        ]
+    elif kind == "agent_internal":
+        # No authoritative profile inventory for agent-internal state;
+        # patterns requiring this slot kind are typed-infeasible.
+        refs = []
     else:
         refs = [
             TrustBoundaryResourceReference(
