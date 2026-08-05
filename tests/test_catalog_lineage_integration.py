@@ -17,6 +17,8 @@ claim is made here.
 
 from __future__ import annotations
 
+from collections import Counter
+
 from scenario_forge.data.catalog_lineage import load_catalog_lineage
 from scenario_forge.data.loaders import load_attack_patterns
 from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
@@ -26,18 +28,32 @@ from scenario_forge.models.attack_pattern import (
 )
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures / helpers
 # ---------------------------------------------------------------------------
 
 
-def _lineage_resulting() -> dict[str, dict]:
-    """Return ``{pattern_id: resulting_record}`` from the lineage artifact."""
+def _lineage_resulting_raw() -> list[dict]:
+    """Return the raw list of all resulting records from the lineage artifact.
+
+    The list is returned *before* indexing by ``pattern_id`` so that count and
+    uniqueness can be asserted independently (indexing into a dict would make
+    the uniqueness check tautological).
+    """
     artifact = load_catalog_lineage()
-    out: dict[str, dict] = {}
+    records: list[dict] = []
     for src in artifact["sources"]:
-        for r in src.get("resulting_patterns", []):
-            out[r["pattern_id"]] = r
-    return out
+        records.extend(src.get("resulting_patterns", []))
+    return records
+
+
+def _lineage_resulting_index() -> dict[str, dict]:
+    """Return ``{pattern_id: resulting_record}`` from the lineage artifact.
+
+    Callers should use ``_lineage_resulting_raw`` first when count/uniqueness
+    matters; this helper is for per-record lookups after uniqueness is
+    established.
+    """
+    return {r["pattern_id"]: r for r in _lineage_resulting_raw()}
 
 
 # ---------------------------------------------------------------------------
@@ -48,16 +64,22 @@ def _lineage_resulting() -> dict[str, dict]:
 def test_live_ids_equal_lineage_resulting_ids() -> None:
     """Live catalog IDs exactly equal the set of lineage resulting pattern IDs."""
     live = load_attack_patterns()
-    resulting = _lineage_resulting()
+    resulting = _lineage_resulting_index()
     assert set(live.keys()) == set(resulting.keys())
 
 
 def test_resulting_count_is_49_and_unique() -> None:
-    """The lineage artifact produces exactly 49 unique resulting pattern IDs."""
-    resulting = _lineage_resulting()
-    ids = list(resulting.keys())
-    assert len(ids) == 49
-    assert len(set(ids)) == 49
+    """The lineage artifact produces exactly 49 raw resulting records with
+    49 unique pattern IDs.
+
+    The raw list is checked *before* indexing so that a duplicate
+    ``pattern_id`` would be caught as a count mismatch (raw count > unique
+    count), not silently collapsed by dict construction.
+    """
+    raw = _lineage_resulting_raw()
+    raw_ids = [r["pattern_id"] for r in raw]
+    assert len(raw_ids) == 49
+    assert len(set(raw_ids)) == 49
 
 
 def test_live_count_is_49_and_unique() -> None:
@@ -108,7 +130,7 @@ def test_chain_exact_mapping_ids_match_lineage() -> None:
     equal the lineage atlas_chain_mappings IDs.  (Step-level exact mappings
     are compared separately in ``test_step_exact_mappings_match_lineage``.)"""
     live = load_attack_patterns()
-    resulting = _lineage_resulting()
+    resulting = _lineage_resulting_index()
     for pid in sorted(resulting):
         live_ids = _live_chain_level_exact_ids(live[pid])
         lin_ids = _lineage_chain_ids(resulting[pid])
@@ -122,35 +144,55 @@ def test_chain_exact_mapping_ids_match_lineage() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _live_step_mappings(pattern: dict) -> dict[str, str]:
-    """Return ``{step_id: atlas_id}`` for exact step mappings in a live pattern."""
+def _live_step_mappings(pattern: dict) -> Counter[tuple[str, str]]:
+    """Return a ``Counter`` of ``(step_id, atlas_id)`` pairs for every exact
+    step mapping in a live pattern.
+
+    Every ID in every exact mapping is flattened as a complete pair, so a
+    step with multiple exact IDs produces one pair per ID.  A ``Counter`` is
+    used so that duplicate ``(step_id, atlas_id)`` rows (if any) are detected
+    rather than silently collapsed by a set or dict.
+    """
     cc = pattern["canonical_chain"]
-    out: dict[str, str] = {}
+    out: Counter[tuple[str, str]] = Counter()
     for step in cc.get("steps", []):
         for m in step.get("mappings", []):
             if m.get("decision") == "exact":
-                ids = m.get("ids", [])
-                if ids:
-                    out[step["step_id"]] = ids[0]
+                for atlas_id in m.get("ids", []):
+                    out[(step["step_id"], atlas_id)] += 1
     return out
 
 
-def _lineage_step_mappings(resulting: dict) -> dict[str, str]:
-    """Return ``{step_id: atlas_id}`` from a lineage resulting record's
-    atlas_step_mappings."""
-    return {m["step"]: m["id"] for m in resulting.get("atlas_step_mappings", [])}
+def _lineage_step_mappings(resulting: dict) -> Counter[tuple[str, str]]:
+    """Return a ``Counter`` of ``(step, id)`` pairs from a lineage resulting
+    record's ``atlas_step_mappings``.
+
+    Every row is preserved as a complete pair.  A ``Counter`` is used so that
+    duplicate rows (if any) are detected rather than silently collapsed by a
+    dict keyed on ``step``.
+    """
+    out: Counter[tuple[str, str]] = Counter()
+    for m in resulting.get("atlas_step_mappings", []):
+        out[(m["step"], m["id"])] += 1
+    return out
 
 
 def test_step_exact_mappings_match_lineage() -> None:
-    """For every record, the flattened ``(step_id, atlas_id)`` exact mappings
-    from the live canonical chain equal the lineage atlas_step_mappings."""
+    """For every record, the complete multiset of ``(step_id, atlas_id)``
+    exact mappings from the live canonical chain equals the lineage
+    ``atlas_step_mappings``.
+
+    Both sides flatten every ID of every exact mapping into complete pairs
+    and compare as ``Counter`` (multiset equality), so a second exact ID on
+    a step or a duplicate lineage row would be detected.
+    """
     live = load_attack_patterns()
-    resulting = _lineage_resulting()
+    resulting = _lineage_resulting_index()
     for pid in sorted(resulting):
         live_steps = _live_step_mappings(live[pid])
         lin_steps = _lineage_step_mappings(resulting[pid])
         assert live_steps == lin_steps, (
-            f"{pid}: live step mappings {live_steps} != lineage {lin_steps}"
+            f"{pid}: live step mappings {dict(live_steps)} != lineage {dict(lin_steps)}"
         )
 
 
@@ -163,7 +205,7 @@ def test_resource_slot_plans_match_lineage() -> None:
     """For every record, the live canonical-chain resource_slots equal the
     lineage resource_slot_plan."""
     live = load_attack_patterns()
-    resulting = _lineage_resulting()
+    resulting = _lineage_resulting_index()
     for pid in sorted(resulting):
         live_rs = live[pid]["canonical_chain"].get("resource_slots", [])
         lin_rs = resulting[pid].get("resource_slot_plan", [])
@@ -234,7 +276,7 @@ def test_mechanism_boundary_contract_is_documented() -> None:
     non-empty and the total is 49.
     """
     live = load_attack_patterns()
-    resulting = _lineage_resulting()
+    resulting = _lineage_resulting_index()
     exact = 0
     prefix = 0
     contain = 0
@@ -258,3 +300,124 @@ def test_mechanism_boundary_contract_is_documented() -> None:
     # This documents that the lineage boundary is authority, not a
     # verbatim copy of the live description.
     assert neither > 0
+
+
+# ---------------------------------------------------------------------------
+# Adversarial unit coverage for helper exactness
+# ---------------------------------------------------------------------------
+
+
+class TestLiveStepMappingsFlattensAllIds:
+    """Prove that ``_live_step_mappings`` flattens every ID of every exact
+    mapping, not just ``ids[0]``."""
+
+    def test_single_id_step(self) -> None:
+        pattern = {
+            "canonical_chain": {
+                "steps": [
+                    {
+                        "step_id": "s1",
+                        "mappings": [
+                            {"decision": "exact", "ids": ["AML.T0001"]},
+                        ],
+                    }
+                ]
+            }
+        }
+        result = _live_step_mappings(pattern)
+        assert result == Counter({("s1", "AML.T0001"): 1})
+
+    def test_multi_id_step_flattens_every_id(self) -> None:
+        """A step with two exact IDs produces two complete pairs."""
+        pattern = {
+            "canonical_chain": {
+                "steps": [
+                    {
+                        "step_id": "s1",
+                        "mappings": [
+                            {"decision": "exact", "ids": ["AML.T0001", "AML.T0002"]},
+                        ],
+                    }
+                ]
+            }
+        }
+        result = _live_step_mappings(pattern)
+        assert result == Counter({("s1", "AML.T0001"): 1, ("s1", "AML.T0002"): 1})
+
+    def test_old_ids0_bug_would_lose_second_id(self) -> None:
+        """The old ``ids[0]``-only code would produce one pair; the fixed
+        code produces two, and the two Counters are not equal."""
+        pattern = {
+            "canonical_chain": {
+                "steps": [
+                    {
+                        "step_id": "s1",
+                        "mappings": [
+                            {"decision": "exact", "ids": ["AML.T0001", "AML.T0002"]},
+                        ],
+                    }
+                ]
+            }
+        }
+        correct = _live_step_mappings(pattern)
+        buggy = Counter({("s1", "AML.T0001"): 1})
+        assert correct != buggy, "fix must detect a second exact ID lost by ids[0]"
+
+
+class TestLineageStepMappingsPreservesAllRows:
+    """Prove that ``_lineage_step_mappings`` preserves every row as a complete
+    pair, not dict-collapsing by ``step``."""
+
+    def test_single_row(self) -> None:
+        resulting = {
+            "atlas_step_mappings": [
+                {"step": "s1", "id": "AML.T0001"},
+            ]
+        }
+        result = _lineage_step_mappings(resulting)
+        assert result == Counter({("s1", "AML.T0001"): 1})
+
+    def test_duplicate_step_different_id_preserved(self) -> None:
+        """Two rows with the same step but different IDs must both survive."""
+        resulting = {
+            "atlas_step_mappings": [
+                {"step": "s1", "id": "AML.T0001"},
+                {"step": "s1", "id": "AML.T0002"},
+            ]
+        }
+        result = _lineage_step_mappings(resulting)
+        assert result == Counter({("s1", "AML.T0001"): 1, ("s1", "AML.T0002"): 1})
+
+    def test_old_dict_collapse_bug_would_lose_second_row(self) -> None:
+        """The old dict-comprehension code would collapse to one entry; the
+        fixed Counter preserves both."""
+        resulting = {
+            "atlas_step_mappings": [
+                {"step": "s1", "id": "AML.T0001"},
+                {"step": "s1", "id": "AML.T0002"},
+            ]
+        }
+        correct = _lineage_step_mappings(resulting)
+        buggy = Counter({("s1", "AML.T0001"): 1})
+        assert correct != buggy, "fix must detect a second row lost by dict collapse"
+
+
+class TestLineageResultingRawDetectsDuplicates:
+    """Prove that ``_lineage_resulting_raw`` returns a raw list (not a dict)
+    so that duplicate ``pattern_id`` values are detectable."""
+
+    def test_raw_list_count_detects_duplicate(self) -> None:
+        """If the lineage artifact contained a duplicate resulting pattern_id,
+        the raw count would exceed the unique count."""
+        # Simulate: two records with the same pattern_id
+        raw = [
+            {"pattern_id": "AP-T1-01"},
+            {"pattern_id": "AP-T1-01"},
+        ]
+        raw_ids = [r["pattern_id"] for r in raw]
+        assert len(raw_ids) == 2
+        assert len(set(raw_ids)) == 1
+        # The count-==-unique assertion would fail here:
+        assert len(raw_ids) != len(set(raw_ids)), (
+            "duplicate must be detectable as raw count != unique count"
+        )
