@@ -1586,15 +1586,16 @@ class CapabilityProfile(BaseModel):
         return self.trust_boundary_lookup().get(trust_boundary_id)
 
     def resolve_output_surface(self, entry_point_id: str) -> EntryPoint | None:
-        """Resolve a canonical entry_point_id to an output-direction EntryPoint.
+        """Resolve a canonical entry_point_id to an output-capable EntryPoint.
 
         Output surfaces are entry points whose ``direction`` is
-        ``"output"`` — the agent's rendered-response surface.  Entry
-        points with other directions (input, bidirectional) do not
-        qualify and resolve to ``None``.
+        ``"output"`` or ``"bidirectional"`` — the agent's rendered-response
+        surface.  A bidirectional entry point supports both input and
+        output, so it qualifies as an output surface.  Entry points with
+        ``direction == "input"`` do not qualify and resolve to ``None``.
         """
         ep = self.entry_point_lookup().get(entry_point_id)
-        if ep is not None and ep.direction != "output":
+        if ep is not None and ep.direction not in ("output", "bidirectional"):
             return None
         return ep
 

@@ -1201,9 +1201,11 @@ def test_ap_t6_07_catalog_projection_yields_typed_no_activation_infeasibility() 
 # ---------------------------------------------------------------------------
 
 
-def test_output_surface_slot_enumerates_only_output_direction_entry_points() -> None:
-    """An output_surface slot kind must enumerate only entry points whose
-    direction is 'output', not input or bidirectional."""
+def test_output_surface_slot_enumerates_output_and_bidirectional_entry_points() -> None:
+    """An output_surface slot kind must enumerate entry points whose
+    direction is 'output' or 'bidirectional', but not 'input'.
+    A bidirectional entry point supports both input and output, so it
+    qualifies as an output surface."""
     from scenario_forge.models.attack_pattern import OutputSurfaceResourceReference
     from scenario_forge.models.capability_profile import (
         CapabilityProfile,
@@ -1232,17 +1234,19 @@ def test_output_surface_slot_enumerates_only_output_direction_entry_points() -> 
         initial_ingress=False,
         attacker_influence_required=False,
     )
-    # Only the output-direction entry point should be enumerated.
-    assert len(refs) == 1
-    assert isinstance(refs[0], OutputSurfaceResourceReference)
-    ep = profile.resolve_output_surface(refs[0].entry_point_id)
-    assert ep is not None
-    assert ep.direction == "output"
+    # Both output and bidirectional entry points should be enumerated.
+    assert len(refs) == 2
+    assert all(isinstance(r, OutputSurfaceResourceReference) for r in refs)
+    for r in refs:
+        ep = profile.resolve_output_surface(r.entry_point_id)
+        assert ep is not None
+        assert ep.direction in ("output", "bidirectional")
 
 
 def test_output_surface_slot_with_no_output_entry_points_yields_no_options() -> None:
-    """If the profile has no output-direction entry points, an output_surface
-    slot yields zero options — the pattern should fail closed."""
+    """If the profile has no output or bidirectional entry points, an
+    output_surface slot yields zero options — the pattern should fail
+    closed."""
     from scenario_forge.models.capability_profile import (
         CapabilityProfile,
         ConfidenceLevel,
@@ -1300,7 +1304,11 @@ def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
     otherwise satisfying profile facts/resources must yield a typed
     missing_compatible_resource issue for the agent_internal slot, not a
     candidate.  AP-T1-06 is typed-infeasible because agent-internal state
-    has no authoritative profile inventory."""
+    has no authoritative profile inventory.
+
+    Uses a single bidirectional chat entry point: bidirectional supports
+    output, so the rendered_output slot is satisfied.  The only missing
+    slot must be agent_internal_state."""
     from scenario_forge.data.loaders import load_attack_patterns
     from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
     from scenario_forge.models.capability_profile import (
@@ -1314,11 +1322,12 @@ def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
 
     # Build a profile that satisfies AP-T1-06's prerequisites and all
     # resource slots except agent_internal (which has no profile inventory).
+    # A single bidirectional chat entry point serves as both the ingress
+    # and the output surface (rendered_output slot).
     profile = CapabilityProfile(
         zones_active=["input", "reasoning", "memory"],
         entry_points=[
-            {"name": "chat", "direction": "input", "controllability": "direct"},
-            {"name": "rendered", "direction": "output", "controllability": "direct"},
+            {"name": "chat", "direction": "bidirectional", "controllability": "direct"},
         ],
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KCX-VSTORE", "KC4.3"],
@@ -1361,8 +1370,10 @@ def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
     )
     t1_06_issues = [i for i in batch.infeasibilities if i.pattern_id == "AP-T1-06"]
     assert len(t1_06_issues) >= 1, "AP-T1-06 must produce a typed infeasibility issue"
-    issue = t1_06_issues[0]
-    assert issue.code == "missing_compatible_resource"
-    assert issue.slot_id == "agent_internal_state", (
-        f"Expected issue for agent_internal_state slot, got: {issue.slot_id}"
+    # The sole missing slot must be agent_internal_state — not rendered_output.
+    missing_slots = {
+        i.slot_id for i in t1_06_issues if i.code == "missing_compatible_resource"
+    }
+    assert missing_slots == {"agent_internal_state"}, (
+        f"Expected only agent_internal_state missing, got: {missing_slots}"
     )

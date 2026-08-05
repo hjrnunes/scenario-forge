@@ -560,7 +560,7 @@ def _references_for_kind(
                 kind="output_surface", entry_point_id=item.entry_point_id
             )
             for item in profile.entry_points
-            if item.direction == "output"
+            if item.direction in ("output", "bidirectional")
         ]
     elif kind == "agent_internal":
         # No authoritative profile inventory for agent-internal state;
