@@ -78,6 +78,31 @@ def _step(step_id: str, order: int, *, conditional: bool = False) -> dict[str, A
                 "terminal": final,
             }
         ],
+        "resource_links": (
+            [
+                {
+                    "slot_id": "ingress",
+                    "role": "ingress",
+                    "trust_boundary_slot_id": None,
+                }
+            ]
+            if attacker
+            else []
+        ),
+        "observable_outcome_links": (
+            # The terminal step is security-relevant; it must carry an
+            # explicit outcome link so the security assertion is derived
+            # from the link, not from the security_relevant flag alone.
+            [
+                {
+                    "postcondition_id": f"post.{order}",
+                    "observation": "model_context",
+                    "binding_slot_id": "ingress",
+                }
+            ]
+            if final
+            else []
+        ),
         "order": order,
         "attacker_controlled": attacker,
         "provenance": {
@@ -326,6 +351,7 @@ def test_bindings_exactly_cover_slots_and_indirect_ingress_fails_closed() -> Non
             requirement.kind for requirement in candidate.execution_requirements
         } == {
             "direct_input_control",
+            "observation",
             "security_outcome_assertion",
         }
 
@@ -370,6 +396,7 @@ def test_explicit_execution_requirements_are_versioned_and_digest_verified() -> 
     direct = _project().candidates[0]
     assert {r.kind for r in direct.execution_requirements} == {
         "direct_input_control",
+        "observation",
         "security_outcome_assertion",
     }
     assert direct.requirement_derivation_version == "1"
@@ -400,17 +427,29 @@ def test_explicit_execution_requirements_are_versioned_and_digest_verified() -> 
 def test_unlinked_action_resources_and_observations_are_never_inferred(
     action_kind: str,
 ) -> None:
+    """Action kind alone never produces requirements; only explicit links do."""
     raw = _pattern(conditional=False)
     raw["canonical_chain"]["steps"][1]["action_kind"] = action_kind
     raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
         raw["canonical_chain"]
     )
     result = _project(pattern=raw)
-    assert result.candidates == ()
-    assert {issue.code for issue in result.infeasibilities} == {
-        "unsupported_requirement_derivation"
+    # The candidate succeeds because the first step has an explicit ingress
+    # link and the terminal step has an explicit outcome link on its
+    # security-relevant postcondition.  Action kind is irrelevant to
+    # requirement derivation.
+    assert len(result.candidates) == 1
+    candidate = result.candidates[0]
+    assert {requirement.kind for requirement in candidate.execution_requirements} == {
+        "direct_input_control",
+        "observation",
+        "security_outcome_assertion",
     }
-    assert any(action_kind in issue.detail for issue in result.infeasibilities)
+    # No tool-fixture requirements are inferred from action kind.
+    assert not any(
+        requirement.kind == "state_changing_tool_fixture"
+        for requirement in candidate.execution_requirements
+    )
 
 
 def test_candidate_v2_identity_is_stable_and_sensitive_to_every_identity_axis() -> None:
@@ -581,3 +620,760 @@ def test_catalog_pin_and_candidate_identity_ignore_record_order_and_duplicates()
     )
     with pytest.raises(ValueError, match="share one pattern id"):
         project_authoritative_candidates([first, divergent], resolver, snapshot)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial projection tests for explicit canonical linkage (422o.3.1)
+# ---------------------------------------------------------------------------
+
+
+def test_absent_linkage_fails_closed() -> None:
+    """Indirect ingress without source_influence linkage fails closed.
+
+    The projection must not produce a candidate when the ingress entry point
+    is indirect and no explicit source_influence link provides an alternative
+    requirement derivation path.  This is the typed fail-closed behavior for
+    unsupported linkage.
+    """
+    raw = _pattern(conditional=False)
+    # The fixture has a direct-ingress entry point.  Replace it with an
+    # indirect one to trigger the fail-closed path.
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "indirect"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1", "KC5.1"],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            }
+        ],
+        trust_boundaries=[
+            {
+                "name": "user-to-agent",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    result = _project(profile=profile, pattern=raw)
+    assert result.candidates == ()
+    assert {issue.code for issue in result.infeasibilities} == {
+        "unsupported_requirement_derivation"
+    }
+
+
+def test_no_explicit_links_produces_no_observations() -> None:
+    """With explicit linkage, only linked postconditions produce observations
+    and security assertions.  A security-relevant postcondition without an
+    explicit outcome link fails closed at model validation — the security
+    assertion cannot be derived from the ``security_relevant`` flag alone.
+    """
+    raw = _pattern(conditional=False)
+    # Remove the terminal step's outcome link while keeping
+    # security_relevant=True.  Model validation must reject this: the
+    # security-relevant postcondition lacks an observable outcome link.
+    raw["canonical_chain"]["steps"][2]["observable_outcome_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    with pytest.raises(ValidationError, match="lacks an observable outcome link"):
+        __import__(
+            "scenario_forge.models.attack_pattern", fromlist=["AttackPattern"]
+        ).AttackPattern.model_validate(raw)
+
+
+def test_explicit_observable_outcome_link_produces_observation() -> None:
+    """An explicit observable_outcome_link produces an ObservationRequirement."""
+    raw = _pattern(conditional=False)
+    # Add an observable_outcome_link to step 2 (inside, system step).
+    raw["canonical_chain"]["steps"][1]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.2",
+            "observation": "model_context",
+            "binding_slot_id": "ingress",
+        }
+    ]
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "observation" in kinds
+    assert "direct_input_control" in kinds
+    assert "security_outcome_assertion" in kinds
+
+
+def test_tool_fixture_link_produces_tool_fixture_requirement() -> None:
+    """A tool_fixture resource link produces a StateChangingToolFixtureRequirement."""
+    raw = _pattern(conditional=False)
+    # Add a tool_fixture link to step 2 (inside, system step).
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "tool",
+            "role": "tool_fixture",
+            "trust_boundary_slot_id": None,
+        }
+    ]
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "state_changing_tool_fixture" in kinds
+    assert "direct_input_control" in kinds
+    assert "security_outcome_assertion" in kinds
+
+
+def test_source_influence_link_produces_upstream_requirement() -> None:
+    """A source_influence resource link produces an UpstreamSourceInfluenceRequirement."""
+    raw = _pattern(conditional=False)
+    # Add a source_influence link to step 2 (inside, system step).
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "source",
+            "role": "source_influence",
+            "trust_boundary_slot_id": "boundary",
+            "target_ingress_slot_id": "ingress",
+        }
+    ]
+    # A source_influence chain must not also carry a direct ingress link.
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "upstream_source_influence" in kinds
+    assert "direct_input_control" not in kinds
+    assert "security_outcome_assertion" in kinds
+
+
+def test_source_influence_activates_indirect_ingress() -> None:
+    """A source_influence link activates a candidate even when the bound
+    ingress entry point is indirect.  This is the explicit source-boundary
+    to canonical-ingress activation path: no inference from ingress
+    controllability, and no direct-input requirement is derived.
+    """
+    raw = _pattern(conditional=False)
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "source",
+            "role": "source_influence",
+            "trust_boundary_slot_id": "boundary",
+            "target_ingress_slot_id": "ingress",
+        }
+    ]
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "indirect"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1", "KC5.1"],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            }
+        ],
+        trust_boundaries=[
+            {
+                "name": "user-to-agent",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    result = _project(profile=profile, pattern=raw)
+    assert len(result.candidates) == 1
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "upstream_source_influence" in kinds
+    assert "direct_input_control" not in kinds
+    assert not any(
+        issue.code == "unsupported_requirement_derivation"
+        for issue in result.infeasibilities
+    )
+
+
+# ---------------------------------------------------------------------------
+# Adversarial tests: activation over selected steps, typed infeasibility
+# ---------------------------------------------------------------------------
+
+
+def test_conditional_activation_omitted_fails_closed() -> None:
+    """When the only activation link is on a conditional step that is omitted
+    by condition evaluation, the projection must fail closed with a typed
+    unsupported-activation issue — not admit indirect ingress."""
+    raw = _pattern(conditional=True)
+    # The model forbids activation links on conditional steps (no branch
+    # semantics), so we test the adjacent failure: remove the ingress link
+    # from the required step.1, leaving no activation among selected steps.
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    # step.1 has no ingress link and step.2 has no activation link.
+    # No activation among selected steps → typed infeasibility.
+    result = _project(pattern=raw)
+    assert len(result.candidates) == 0
+    assert any(
+        issue.code == "unsupported_requirement_derivation"
+        and "no activation mechanism" in issue.detail
+        for issue in result.infeasibilities
+    )
+
+
+def test_no_selected_activation_produces_typed_infeasibility() -> None:
+    """A chain with no activation mechanism among selected steps produces a
+    typed unsupported_requirement_derivation issue, not a candidate."""
+    raw = _pattern(conditional=False)
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    assert len(result.candidates) == 0
+    assert any(
+        issue.code == "unsupported_requirement_derivation"
+        and "no activation mechanism" in issue.detail
+        for issue in result.infeasibilities
+    )
+
+
+def test_security_assertion_only_from_explicit_outcome_link() -> None:
+    """A security-relevant postcondition with an explicit outcome link
+    produces a SecurityOutcomeAssertionRequirement.  The assertion is
+    traced to the link, not to the security_relevant flag alone."""
+    raw = _pattern(conditional=False)
+    # The terminal step already has an outcome link from the fixture.
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    sec_reqs = [
+        r
+        for r in candidate.execution_requirements
+        if r.kind == "security_outcome_assertion"
+    ]
+    assert len(sec_reqs) == 1
+    # The observation requirement for the same link should also exist.
+    obs_reqs = [r for r in candidate.execution_requirements if r.kind == "observation"]
+    assert len(obs_reqs) == 1
+
+
+# ---------------------------------------------------------------------------
+# Requirement ID injectivity and uniqueness (second Mayor review)
+# ---------------------------------------------------------------------------
+
+
+def test_requirement_id_injective_for_dotted_components() -> None:
+    """Requirement IDs must be injective: step 'a' + slot 'b.c' must produce
+    a different ID than step 'a.b' + slot 'c'."""
+    from scenario_forge.pipeline.projection import _requirement_id
+
+    id1 = _requirement_id("req.test", "a", "b.c")
+    id2 = _requirement_id("req.test", "a.b", "c")
+    assert id1 != id2, f"requirement IDs collide: {id1} == {id2} for dotted components"
+
+
+def test_requirement_id_stable_and_reversible() -> None:
+    """Same components must always produce the same requirement ID, and
+    the encoding must be reversible (proving injectivity)."""
+    from scenario_forge.pipeline.projection import _requirement_id
+
+    id1 = _requirement_id("req.observation", "step1", "post.result")
+    id2 = _requirement_id("req.observation", "step1", "post.result")
+    assert id1 == id2
+    # Verify the encoding is reversible: the suffix is the last dot-segment
+    # and contains only hex + colons; split on ':' and hex-decode each part.
+    suffix = id1.rsplit(".", 1)[1]
+    parts = suffix.split(":")
+    decoded = [bytes.fromhex(p).decode("utf-8") for p in parts]
+    assert decoded == ["step1", "post.result"]
+
+
+def test_requirement_id_valid_identifier_syntax() -> None:
+    """Generated requirement IDs must match the Identifier regex."""
+    import re
+
+    from scenario_forge.pipeline.projection import _requirement_id
+
+    pattern = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    rid = _requirement_id("req.direct-input", "ingress")
+    assert re.match(pattern, rid), f"{rid} does not match Identifier regex"
+    rid2 = _requirement_id(
+        "req.source-influence", "step.a.b", "slot.c.d", "None", "None"
+    )
+    assert re.match(pattern, rid2), f"{rid2} does not match Identifier regex"
+
+
+def test_derived_id_collision_fails_closed_typed() -> None:
+    """If derived requirement IDs somehow collide (e.g. an encoding edge
+    case), the projection must fail closed with a typed
+    unsupported_requirement_derivation issue, not an uncaught ValueError."""
+    raw = _pattern(conditional=False)
+    # Monkeypatch _requirement_id to force a collision: make it return
+    # the same ID for every call regardless of prefix or components.
+    import scenario_forge.pipeline.projection as proj_mod
+
+    original = proj_mod._requirement_id
+    proj_mod._requirement_id = lambda prefix, *components: "req.collision.forced"
+    try:
+        result = _project(pattern=raw)
+    finally:
+        proj_mod._requirement_id = original
+    assert len(result.candidates) == 0
+    assert any(
+        issue.code == "unsupported_requirement_derivation" and "collide" in issue.detail
+        for issue in result.infeasibilities
+    )
+
+
+def test_dotted_component_partition_collision_fails_closed() -> None:
+    """If two requirement IDs would collide due to dotted component
+    ambiguity, the projection must fail closed with a typed issue.
+
+    We simulate this by having two steps whose step_id/slot_id
+    combinations would produce the same dot-concatenated ID under the
+    old scheme but distinct IDs under the injective encoding.
+    """
+    raw = _pattern(conditional=False)
+    # Add a second tool slot and give step 2 a tool_fixture link to it,
+    # using a slot_id that would collide with step 1's under dot concat.
+    raw["canonical_chain"]["resource_slots"].append(
+        {"slot_id": "tool.b", "kind": "tool", "purpose": "supporting"}
+    )
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {"slot_id": "tool.b", "role": "tool_fixture", "trust_boundary_slot_id": None}
+    ]
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    # With injective encoding, the IDs should NOT collide, so we should
+    # get a candidate.  This proves the encoding prevents the collision.
+    assert len(result.candidates) > 0
+    candidate = result.candidates[0]
+    req_ids = [r.requirement_id for r in candidate.execution_requirements]
+    assert len(req_ids) == len(set(req_ids)), "requirement IDs must be unique"
+
+
+def test_projected_candidate_validator_rejects_duplicate_requirement_ids() -> None:
+    """ProjectedCandidate model validator must reject execution_requirements
+    with duplicate requirement_ids."""
+    from pydantic import ValidationError
+
+    from scenario_forge.pipeline.projection import ProjectedCandidate
+
+    # Build a minimal candidate with duplicate requirement IDs by
+    # constructing two identical requirements and injecting them.
+    raw = _pattern(conditional=False)
+    result = _project(pattern=raw)
+    assert len(result.candidates) > 0
+    candidate = result.candidates[0]
+    # Duplicate the first requirement to create a collision.
+    reqs = list(candidate.execution_requirements)
+    reqs.append(reqs[0])
+    bad_data = candidate.model_dump(mode="json")
+    bad_data["execution_requirements"] = [r.model_dump(mode="json") for r in reqs]
+    with pytest.raises(ValidationError, match="unique"):
+        ProjectedCandidate.model_validate(bad_data)
+
+
+def test_all_live_projected_candidate_requirement_ids_unique() -> None:
+    """Every requirement ID across all live projected candidates must be
+    unique within each candidate."""
+    from scenario_forge.data.loaders import load_attack_patterns
+    from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+
+    patterns = load_attack_patterns()
+    resolver = load_taxonomy_resolver()
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution", "memory", "inter_agent"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+            {
+                "name": "RAG documents",
+                "direction": "input",
+                "controllability": "indirect",
+            },
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=[
+            "KC1.1",
+            "KC5.1",
+            "KCX-PMEM",
+            "KC6.1.1",
+            "KC6.1.2",
+            "KC6.4",
+            "KC6.5",
+        ],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+            {
+                "name": "Queue",
+                "integration_type": "message_queue",
+                "auth_method": "service_account",
+                "data_sensitivity": "medium",
+            },
+        ],
+        trust_boundaries=[
+            {
+                "name": "user-to-agent",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    batch = project_authoritative_candidates(
+        list(patterns.values()),
+        resolver,
+        snapshot,
+        budget=ProjectionBudget(max_candidates=512),
+    )
+    for candidate in batch.candidates:
+        req_ids = [r.requirement_id for r in candidate.execution_requirements]
+        assert len(req_ids) == len(set(req_ids)), (
+            f"{candidate.pattern_id}: duplicate requirement IDs {req_ids}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# End-to-end AP-T6-07 infeasibility projection (second Mayor review)
+# ---------------------------------------------------------------------------
+
+
+def test_ap_t6_07_catalog_projection_yields_typed_no_activation_infeasibility() -> None:
+    """End-to-end: projecting the actual AP-T6-07 catalog record with
+    otherwise satisfying profile facts/resources must yield a typed
+    unsupported_requirement_derivation issue for absence of activation,
+    not a candidate or a missing-resource/profile-mismatch issue."""
+    from scenario_forge.data.loaders import load_attack_patterns
+    from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+
+    patterns = load_attack_patterns()
+    raw = patterns["AP-T6-07"]
+    resolver = load_taxonomy_resolver()
+
+    # Build a profile that satisfies all of AP-T6-07's prerequisites:
+    # zones, KC codes, and compatible resources for every declared slot.
+    # AP-T6-07 has: ingress (entry_point), agent_config + c2_channel
+    # (integrations), boundary (trust_boundary).
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution", "memory"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KCX-PMEM", "KC6.1.1", "KC4.3"],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "agent_config",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+            {
+                "name": "c2_channel",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+        ],
+        trust_boundaries=[
+            {
+                "name": "boundary",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    # AP-T6-07 has a precondition requiring attacker_code_execution_on_agent_host
+    # to be True; provide that evidence so the projection reaches the activation
+    # check rather than failing on an unresolved condition.
+    runtime_evidence = EvaluatedFactEvidence(
+        fact=AuthoritativeFactReference.model_validate(
+            {
+                "namespace": "runtime_state",
+                "fact_id": "attacker_code_execution_on_agent_host",
+                "value_type": "boolean",
+                "property_path": [],
+            }
+        ),
+        status="present",
+        value=True,
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence(), runtime_evidence])
+    batch = project_authoritative_candidates(
+        [raw],
+        resolver,
+        snapshot,
+        budget=ProjectionBudget(max_candidates=10),
+    )
+
+    t6_07_candidates = [c for c in batch.candidates if c.pattern_id == "AP-T6-07"]
+    assert len(t6_07_candidates) == 0, (
+        "AP-T6-07 must not produce a candidate (no activation mechanism)"
+    )
+    t6_07_issues = [i for i in batch.infeasibilities if i.pattern_id == "AP-T6-07"]
+    assert len(t6_07_issues) >= 1, "AP-T6-07 must produce a typed infeasibility issue"
+    issue = t6_07_issues[0]
+    assert issue.code == "unsupported_requirement_derivation"
+    assert "no activation mechanism" in issue.detail, (
+        f"Expected 'no activation mechanism' in detail, got: {issue.detail}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# New vocabulary projection tests: output_surface, agent_internal
+# ---------------------------------------------------------------------------
+
+
+def test_output_surface_slot_enumerates_output_and_bidirectional_entry_points() -> None:
+    """An output_surface slot kind must enumerate entry points whose
+    direction is 'output' or 'bidirectional', but not 'input'.
+    A bidirectional entry point supports both input and output, so it
+    qualifies as an output surface."""
+    from scenario_forge.models.attack_pattern import OutputSurfaceResourceReference
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+    from scenario_forge.pipeline.projection import _references_for_kind
+
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        entry_points=[
+            {"name": "chat-in", "direction": "input", "controllability": "direct"},
+            {"name": "chat-out", "direction": "output", "controllability": "direct"},
+            {
+                "name": "chat-bi",
+                "direction": "bidirectional",
+                "controllability": "direct",
+            },
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    refs = _references_for_kind(
+        "output_surface",
+        snapshot,
+        initial_ingress=False,
+        attacker_influence_required=False,
+    )
+    # Both output and bidirectional entry points should be enumerated.
+    assert len(refs) == 2
+    assert all(isinstance(r, OutputSurfaceResourceReference) for r in refs)
+    for r in refs:
+        ep = profile.resolve_output_surface(r.entry_point_id)
+        assert ep is not None
+        assert ep.direction in ("output", "bidirectional")
+
+
+def test_output_surface_slot_with_no_output_entry_points_yields_no_options() -> None:
+    """If the profile has no output or bidirectional entry points, an
+    output_surface slot yields zero options — the pattern should fail
+    closed."""
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+    from scenario_forge.pipeline.projection import _references_for_kind
+
+    profile = CapabilityProfile(
+        zones_active=["input"],
+        entry_points=[
+            {"name": "chat-in", "direction": "input", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    refs = _references_for_kind(
+        "output_surface",
+        snapshot,
+        initial_ingress=False,
+        attacker_influence_required=False,
+    )
+    assert refs == ()
+
+
+def test_agent_internal_slot_yields_no_resource_options() -> None:
+    """An agent_internal slot kind must always yield zero resource options
+    because capability profiles carry no authoritative agent-internal-state
+    inventory.  Patterns requiring this slot are typed-infeasible."""
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+    from scenario_forge.pipeline.projection import _references_for_kind
+
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1"],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    refs = _references_for_kind(
+        "agent_internal",
+        snapshot,
+        initial_ingress=False,
+        attacker_influence_required=False,
+    )
+    assert refs == ()
+
+
+def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
+    """End-to-end: projecting the actual AP-T1-06 catalog record with
+    otherwise satisfying profile facts/resources must yield a typed
+    missing_compatible_resource issue for the agent_internal slot, not a
+    candidate.  AP-T1-06 is typed-infeasible because agent-internal state
+    has no authoritative profile inventory.
+
+    Uses a single bidirectional chat entry point: bidirectional supports
+    output, so the rendered_output slot is satisfied.  The only missing
+    slot must be agent_internal_state."""
+    from scenario_forge.data.loaders import load_attack_patterns
+    from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+
+    patterns = load_attack_patterns()
+    raw = patterns["AP-T1-06"]
+    resolver = load_taxonomy_resolver()
+
+    # Build a profile that satisfies AP-T1-06's prerequisites and all
+    # resource slots except agent_internal (which has no profile inventory).
+    # A single bidirectional chat entry point serves as both the ingress
+    # and the output surface (rendered_output slot).
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "memory"],
+        entry_points=[
+            {"name": "chat", "direction": "bidirectional", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KCX-VSTORE", "KC4.3"],
+        tool_inventory=[],
+        tool_types=[],
+        external_integrations=[
+            {
+                "name": "rag_corpus",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+            {
+                "name": "exfil_endpoint",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+        ],
+        trust_boundaries=[
+            {
+                "name": "boundary",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    batch = project_authoritative_candidates(
+        [raw],
+        resolver,
+        snapshot,
+        budget=ProjectionBudget(max_candidates=10),
+    )
+
+    t1_06_candidates = [c for c in batch.candidates if c.pattern_id == "AP-T1-06"]
+    assert len(t1_06_candidates) == 0, (
+        "AP-T1-06 must not produce a candidate (agent_internal slot unresolvable)"
+    )
+    t1_06_issues = [i for i in batch.infeasibilities if i.pattern_id == "AP-T1-06"]
+    assert len(t1_06_issues) >= 1, "AP-T1-06 must produce a typed infeasibility issue"
+    # The sole missing slot must be agent_internal_state — not rendered_output.
+    missing_slots = {
+        i.slot_id for i in t1_06_issues if i.code == "missing_compatible_resource"
+    }
+    assert missing_slots == {"agent_internal_state"}, (
+        f"Expected only agent_internal_state missing, got: {missing_slots}"
+    )

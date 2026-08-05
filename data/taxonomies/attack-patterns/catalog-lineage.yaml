@@ -11,7 +11,7 @@ release:
     source records: closed-vocabulary dispositions, overlap-group resolutions, and resulting
     authoritative pattern boundaries with exact ATLAS mappings for the deterministic chain-authoring
     waves. Revised per Mayor canonical-chain semantic review.'
-  semantic_digest: 50800477294a9bc4723a18cb153e79adc5af0b1a85b55950efe57b6f0ab80888
+  semantic_digest: 271fb7ab8b92fbd2cf17e6382bfff28e667537965eb9869b408aad2f3c83e606
 taxonomy_context:
   atlas:
     release: '2026.05'
@@ -485,6 +485,12 @@ sources:
     - slot_id: exfil_endpoint
       kind: integration
       purpose: target
+    - slot_id: rendered_output
+      kind: output_surface
+      purpose: intermediate
+    - slot_id: agent_internal_state
+      kind: agent_internal
+      purpose: intermediate
     - slot_id: boundary
       kind: trust_boundary
       purpose: supporting

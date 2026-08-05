@@ -465,3 +465,208 @@ class TestLineageResultingRawDetectsDuplicates:
         raw = _lineage_resulting_raw()
         with pytest.raises(AssertionError):
             _assert_resulting_count_and_uniqueness(raw)
+
+
+# ---------------------------------------------------------------------------
+# Catalog-wide canonical-linkage integration checks (422o.3.1)
+# ---------------------------------------------------------------------------
+
+
+def test_all_49_patterns_have_explicit_activation_linkage() -> None:
+    """Every live pattern must have at most one activation mechanism: either
+    an ingress resource_link to the initial_ingress_slot_id, or a
+    source_influence resource_link whose target_ingress_slot_id is the
+    initial ingress.  Both is forbidden; neither is permitted for
+    candidate-v2 but is structurally valid (typed infeasible at projection).
+    """
+    patterns = load_attack_patterns()
+    assert len(patterns) == 49
+    infeasible: list[str] = []
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        ingress_slot = chain["initial_ingress_slot_id"]
+        has_ingress = any(
+            link.get("role") == "ingress" and link.get("slot_id") == ingress_slot
+            for step in chain["steps"]
+            for link in step.get("resource_links", [])
+        )
+        has_source = any(
+            link.get("role") == "source_influence"
+            and link.get("target_ingress_slot_id") == ingress_slot
+            for step in chain["steps"]
+            for link in step.get("resource_links", [])
+        )
+        assert not (has_ingress and has_source), (
+            f"{pid} must not have both activation mechanisms "
+            f"(ingress={has_ingress}, source_influence={has_source})"
+        )
+        if not has_ingress and not has_source:
+            infeasible.append(pid)
+    # AP-T6-07 is intentionally typed-infeasible for candidate-v2:
+    # prerequisite-based inside persistence with no supported activation.
+    assert infeasible == ["AP-T6-07"]
+
+
+def test_activation_mechanism_counts() -> None:
+    """45 direct-ingress, 3 source-influence, 1 typed-infeasible (AP-T6-07)."""
+    patterns = load_attack_patterns()
+    ingress_count = 0
+    source_count = 0
+    none_count = 0
+    for raw in patterns.values():
+        chain = raw["canonical_chain"]
+        ingress_slot = chain["initial_ingress_slot_id"]
+        has_ingress = any(
+            link.get("role") == "ingress" and link.get("slot_id") == ingress_slot
+            for step in chain["steps"]
+            for link in step.get("resource_links", [])
+        )
+        has_source = any(
+            link.get("role") == "source_influence"
+            and link.get("target_ingress_slot_id") == ingress_slot
+            for step in chain["steps"]
+            for link in step.get("resource_links", [])
+        )
+        if has_ingress:
+            ingress_count += 1
+        if has_source:
+            source_count += 1
+        if not has_ingress and not has_source:
+            none_count += 1
+    assert ingress_count == 45
+    assert source_count == 3
+    assert none_count == 1
+    assert ingress_count + source_count + none_count == 49
+
+
+def test_source_influence_links_target_canonical_ingress() -> None:
+    """Every source_influence link must explicitly target the initial ingress."""
+    patterns = load_attack_patterns()
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        ingress_slot = chain["initial_ingress_slot_id"]
+        for step in chain["steps"]:
+            for link in step.get("resource_links", []):
+                if link.get("role") == "source_influence":
+                    assert link["target_ingress_slot_id"] == ingress_slot, (
+                        f"{pid} source_influence link does not target canonical ingress"
+                    )
+
+
+def test_all_49_patterns_have_observable_outcome_links() -> None:
+    """Every live pattern must have observable_outcome_links on at least one
+    step, ensuring postconditions are explicitly linked to observable outcomes.
+    """
+    patterns = load_attack_patterns()
+    assert len(patterns) == 49
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        has_outcome_links = any(
+            step.get("observable_outcome_links") for step in chain["steps"]
+        )
+        assert has_outcome_links, f"{pid} has no observable_outcome_links"
+
+
+def test_all_resource_links_reference_valid_slots() -> None:
+    """Every resource_link slot_id must reference a declared resource slot.
+    This operates on raw records before indexing to catch dangling references
+    that could collapse during canonical normalization.
+    """
+    patterns = load_attack_patterns()
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        slot_ids = {s["slot_id"] for s in chain["resource_slots"]}
+        for step in chain["steps"]:
+            for link in step.get("resource_links", []):
+                assert link["slot_id"] in slot_ids, (
+                    f"{pid} step {step['step_id']} resource_link "
+                    f"references absent slot {link['slot_id']}"
+                )
+                if link.get("trust_boundary_slot_id") is not None:
+                    assert link["trust_boundary_slot_id"] in slot_ids, (
+                        f"{pid} step {step['step_id']} trust_boundary_slot_id "
+                        f"references absent slot {link['trust_boundary_slot_id']}"
+                    )
+                if link.get("target_ingress_slot_id") is not None:
+                    assert link["target_ingress_slot_id"] in slot_ids, (
+                        f"{pid} step {step['step_id']} target_ingress_slot_id "
+                        f"references absent slot {link['target_ingress_slot_id']}"
+                    )
+
+
+def test_all_observable_outcome_links_reference_valid_slots_and_postconditions() -> (
+    None
+):
+    """Every observable_outcome_link binding_slot_id must reference a declared
+    resource slot, and every postcondition_id must reference a declared
+    postcondition.  This operates on raw records before indexing.
+    """
+    patterns = load_attack_patterns()
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        slot_ids = {s["slot_id"] for s in chain["resource_slots"]}
+        for step in chain["steps"]:
+            pc_ids = {
+                pc["postcondition_id"] for pc in step["observable_postconditions"]
+            }
+            for link in step.get("observable_outcome_links", []):
+                assert link["binding_slot_id"] in slot_ids, (
+                    f"{pid} step {step['step_id']} observable_outcome_link "
+                    f"references absent slot {link['binding_slot_id']}"
+                )
+                assert link["postcondition_id"] in pc_ids, (
+                    f"{pid} step {step['step_id']} observable_outcome_link "
+                    f"references absent postcondition {link['postcondition_id']}"
+                )
+
+
+def test_no_duplicate_resource_links_within_any_step() -> None:
+    """No step may have duplicate resource_link slot_ids.  This operates on
+    raw records to catch duplicates that could collapse during indexing.
+    """
+    patterns = load_attack_patterns()
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        for step in chain["steps"]:
+            slot_ids = [link["slot_id"] for link in step.get("resource_links", [])]
+            assert len(slot_ids) == len(set(slot_ids)), (
+                f"{pid} step {step['step_id']} has duplicate resource_link slot_ids"
+            )
+
+
+def test_no_duplicate_observable_outcome_links_within_any_step() -> None:
+    """No step may have duplicate observable_outcome_links.  This operates on
+    raw records to catch duplicates that could collapse during indexing.
+    """
+    patterns = load_attack_patterns()
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        for step in chain["steps"]:
+            keys = [
+                (link["postcondition_id"], link["observation"], link["binding_slot_id"])
+                for link in step.get("observable_outcome_links", [])
+            ]
+            assert len(keys) == len(set(keys)), (
+                f"{pid} step {step['step_id']} has duplicate observable_outcome_links"
+            )
+
+
+def test_all_49_patterns_validate_with_explicit_linkage() -> None:
+    """All 49 patterns must pass full model validation with explicit linkage."""
+    resolver = load_taxonomy_resolver()
+    patterns = load_attack_patterns()
+    assert len(patterns) == 49
+    for raw in patterns.values():
+        validate_attack_pattern(raw, resolver)
+
+
+def test_all_49_chain_digests_recompute_correctly() -> None:
+    """Every chain's semantic_digest must recompute from its content."""
+    patterns = load_attack_patterns()
+    assert len(patterns) == 49
+    for pid, raw in patterns.items():
+        chain = raw["canonical_chain"]
+        recomputed = compute_chain_semantic_digest(chain)
+        assert chain["semantic_digest"] == recomputed, (
+            f"{pid} semantic_digest does not match recomputed value"
+        )

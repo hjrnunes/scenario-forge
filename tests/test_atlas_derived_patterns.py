@@ -80,6 +80,8 @@ EXPECTED: dict[str, dict[str, Any]] = {
             ("ingress", "entry_point", "initial_ingress"),
             ("rag_corpus", "integration", "intermediate"),
             ("exfil_endpoint", "integration", "target"),
+            ("rendered_output", "output_surface", "intermediate"),
+            ("agent_internal_state", "agent_internal", "intermediate"),
             ("boundary", "trust_boundary", "supporting"),
         ],
         "forbidden_exact": {"AML.T0093", "AML.T0085", "AML.T0057", "AML.T0048"},
@@ -280,15 +282,15 @@ EXPECTED: dict[str, dict[str, Any]] = {
 # Golden semantic digests of the authored chains: any semantic content edit
 # must recompute these deliberately, not silently.
 GOLDEN_DIGESTS = {
-    "AP-T1-06": "b909c88cc2faf210e6a5e92e8a54480eacdd864886ff355e5682d36a2b543726",
-    "AP-T3-04": "2117b6a9c4c163bd740a52cbc28d81eb64e8fcc4d30d909d87e0c260cbec1fd0",
-    "AP-T3-05": "574fd682c74cfde97c826f3b8fe91bc3dec46e05e0f35c7c86e73059dc881322",
-    "AP-T3-06": "bd0b98bc8ff97fac83c6ae11f91d5a2804d08aa24728d765a0e38b8e80ea2536",
-    "AP-T6-06": "328202dc227dacbc60f756e117c438815552e698d694bda4e3e668f9e791cc9d",
-    "AP-T6-07": "deba39f5df81d3e2a6ea2c6a2c344cc9cf6302b666e99eac78cdd3270afce600",
-    "AP-T11-05": "03f79532b0dd0873d66561b9ac8288a524b897f0b31e1087dbcee1b7a42f8d59",
-    "AP-T17-03": "7e08dbf14269a0cf97697dcfb518f17b5270c55425a56d8c1bbe03d2d83fba87",
-    "AP-T17-04": "82be435cc29b946ddb1d2c6445ee3e6639be46c8e58f853918b0949e2377a74d",
+    "AP-T1-06": "85bd734a738c8fd37fef7ea28b95c1906aaaa196048fdeb18cc31a3beb699799",
+    "AP-T3-04": "f53892856c154ca84223e03e85443db8b0b77f6d66fe653e59bf1494e8b16702",
+    "AP-T3-05": "66be208503910d209fb74240ff27ba55ddd9e280159bd656c404ce4f750d4d1d",
+    "AP-T3-06": "440a715d5eae939377bf09bbb1445d5f3a9118822d3533e05679131e8a613fd2",
+    "AP-T6-06": "fccf892ba7f5c462c175175e9e63b5afe706cecbeec32be2c765a00efad4fff1",
+    "AP-T6-07": "d7fec69b76dd6e7c684b390aaaaabacff914ded4d65fb651cbfd8b568553b35e",
+    "AP-T11-05": "58a60fa294495d6db91179842e8cbe1e367343ecef62ad4f3f759b6beb1d67f5",
+    "AP-T17-03": "f7bbe4c0cc65453e64cfcc4e1055de15801e074039911f857b2e1d62cd9940cd",
+    "AP-T17-04": "bd4a58fdeeec7fcbcc9fa5867d71e4e1085c1b94f6818f5bfbd1f18226b0698d",
 }
 
 # Split-derived first steps presuppose a sibling pattern's outcome; the

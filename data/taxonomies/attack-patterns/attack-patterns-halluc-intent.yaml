@@ -56,7 +56,7 @@ patterns:
       pattern_id: AP-T5-01
       chain_id: AP-T5-01.chain.1
       semantic_revision: 1
-      semantic_digest: c64db036b414620add51840fdedd5aca5f34a226eeb88c3eb30557ebc5886eb5
+      semantic_digest: 16a2d26cdb160d48b755535d3d752f3569f9b942e507101981de5b343f3d8795
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -86,6 +86,8 @@ patterns:
           description: Subtly false factual content crafted for storage as the agent's authoritative memory.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -127,6 +129,8 @@ patterns:
           description: Fabricated data concealed within legitimate-appearing content.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -164,6 +168,15 @@ patterns:
           description: Content containing the false information delivered via a trusted channel the agent ingests.
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.deliver_via_trusted_channel
+          observation: persistent_state
+          binding_slot_id: memory_store
         order: 3
         attacker_controlled: true
         provenance:
@@ -203,6 +216,11 @@ patterns:
           description: Agent ingests the content and the false information is processed.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.execute_injection
+          observation: persistent_state
+          binding_slot_id: memory_store
         order: 4
         attacker_controlled: false
         provenance:
@@ -249,6 +267,11 @@ patterns:
             sessions.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.establish_memory_persistence
+          observation: persistent_state
+          binding_slot_id: memory_store
         order: 5
         attacker_controlled: false
         provenance:
@@ -288,6 +311,11 @@ patterns:
             source material, and produces a distorted response.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.reuse_stored_fabrication
+          observation: persistent_state
+          binding_slot_id: memory_store
         order: 6
         attacker_controlled: false
         provenance:
@@ -340,6 +368,11 @@ patterns:
             fabrication available to future interactions.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.feedback_reinforces_memory
+          observation: persistent_state
+          binding_slot_id: memory_store
         order: 7
         attacker_controlled: false
         provenance:
@@ -379,6 +412,11 @@ patterns:
             produces observably compounding distorted outputs: the first observable compounding outcome.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.compound_distortion
+          observation: persistent_state
+          binding_slot_id: memory_store
         order: 8
         attacker_controlled: false
         provenance:
@@ -439,7 +477,7 @@ patterns:
       pattern_id: AP-T5-02
       chain_id: AP-T5-02.chain.1
       semantic_revision: 1
-      semantic_digest: d4a71ff2c04249da93eb8279488fdb75f7e9c3b44fdddd93b77af676dac51e79
+      semantic_digest: 47851528042d7f62fbfc41ff18a25ef0a5a15282befd0281d451a2e34b5620f2
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -470,6 +508,8 @@ patterns:
             references.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -510,6 +550,15 @@ patterns:
           description: Injection staged in content accessible to the agent's retrieval (webpage, document, knowledge base).
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.stage_injection_content
+          observation: persistent_state
+          binding_slot_id: retrieval_corpus
         order: 2
         attacker_controlled: true
         provenance:
@@ -564,6 +613,11 @@ patterns:
           description: A user query causes the agent to retrieve the content containing the injection.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.trigger_retrieval
+          observation: persistent_state
+          binding_slot_id: retrieval_corpus
         order: 3
         attacker_controlled: false
         provenance:
@@ -602,6 +656,11 @@ patterns:
             API endpoints or webhook URLs.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.activate_injection
+          observation: persistent_state
+          binding_slot_id: retrieval_corpus
         order: 4
         attacker_controlled: true
         provenance:
@@ -646,6 +705,11 @@ patterns:
             data in URL parameters or request body: the first observable exfiltration.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.exfiltrate_via_endpoints
+          observation: endpoint_receipt
+          binding_slot_id: attacker_endpoint
         order: 5
         attacker_controlled: false
         provenance:
@@ -710,7 +774,7 @@ patterns:
       pattern_id: AP-T5-04
       chain_id: AP-T5-04.chain.1
       semantic_revision: 1
-      semantic_digest: 8a34aba8140aa36f90fcfdba557fd0e352f5b874ea42e60df5be8bba7d19f899
+      semantic_digest: a59205b296b1d93df5ff953fd5be9a57626bdf8bf5d300f60eb47ed55fb1dcf2
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -740,6 +804,8 @@ patterns:
           description: Agent's data corpus and query patterns identified for value-dependent decision targeting.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -779,6 +845,15 @@ patterns:
           description: Retrieval mechanisms and response format discovered through interaction with the agent.
           security_relevant: false
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.probe_retrieval_mechanisms
+          observation: model_context
+          binding_slot_id: ingress
         order: 2
         attacker_controlled: true
         provenance:
@@ -816,6 +891,11 @@ patterns:
           description: Agent's handling of quantitative reference data and value lookups identified.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.discover_value_handling
+          observation: model_context
+          binding_slot_id: ingress
         order: 3
         attacker_controlled: true
         provenance:
@@ -854,6 +934,8 @@ patterns:
           description: False quantitative reference data crafted, targeting the agent's value-dependent decision processes.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 4
         attacker_controlled: true
         provenance:
@@ -894,6 +976,8 @@ patterns:
             legitimate entries.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 5
         attacker_controlled: true
         provenance:
@@ -935,6 +1019,11 @@ patterns:
             data corpus.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.deliver_fabricated_values
+          observation: persistent_state
+          binding_slot_id: reference_corpus
         order: 6
         attacker_controlled: true
         provenance:
@@ -982,6 +1071,11 @@ patterns:
           description: False reference data indexed into the RAG database, persisting across sessions.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.persist_in_rag
+          observation: persistent_state
+          binding_slot_id: reference_corpus
         order: 7
         attacker_controlled: false
         provenance:
@@ -1020,6 +1114,11 @@ patterns:
           description: A user query triggers retrieval and the prompt injection activates.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.activate_via_retrieval
+          observation: persistent_state
+          binding_slot_id: decision_surface
         order: 8
         attacker_controlled: true
         provenance:
@@ -1059,6 +1158,11 @@ patterns:
             values.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.manipulate_tool_invocations
+          observation: persistent_state
+          binding_slot_id: decision_surface
         order: 9
         attacker_controlled: true
         provenance:
@@ -1100,6 +1204,11 @@ patterns:
             value-biased outcome.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.value_biased_decisions
+          observation: persistent_state
+          binding_slot_id: decision_surface
         order: 10
         attacker_controlled: false
         provenance:
@@ -1157,7 +1266,7 @@ patterns:
       pattern_id: AP-T6-01
       chain_id: AP-T6-01.chain.1
       semantic_revision: 1
-      semantic_digest: 46950cfd2efda60a9ff2d583b205136f3e57b03f1de85220816db9c384257d2d
+      semantic_digest: d57f819667e8ca9e30dc370765a4365ebe2a7a780814b141717734215a4bbfd4
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -1197,6 +1306,15 @@ patterns:
           description: The agent's sub-goal decomposition and goal-setting surfaces exposed to input are mapped.
           security_relevant: false
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.discover_planning
+          observation: model_context
+          binding_slot_id: ingress
         order: 1
         attacker_controlled: true
         provenance:
@@ -1235,6 +1353,8 @@ patterns:
             objective.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -1274,6 +1394,11 @@ patterns:
             the attacker's outcome.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.delivery
+          observation: persistent_state
+          binding_slot_id: planning_framework
         order: 3
         attacker_controlled: true
         provenance:
@@ -1314,6 +1439,11 @@ patterns:
             plan as logically sound.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.evasion
+          observation: persistent_state
+          binding_slot_id: planning_framework
         order: 4
         attacker_controlled: true
         provenance:
@@ -1352,6 +1482,11 @@ patterns:
             the first observable drift outcome.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.impact
+          observation: persistent_state
+          binding_slot_id: planning_framework
         order: 5
         attacker_controlled: false
         provenance:
@@ -1405,7 +1540,7 @@ patterns:
       pattern_id: AP-T6-02
       chain_id: AP-T6-02.chain.1
       semantic_revision: 1
-      semantic_digest: 6addec070d195c784b52d039a5c8d2f9f04f957c3c787dd1721dacf8f2c176eb
+      semantic_digest: 306f1e0b19561ae0372fc3a4a1e60285587e2eb16d003aa49edce2d8c0e6dbe4
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -1435,6 +1570,8 @@ patterns:
           description: Prompt-injection patterns and the agent's code execution pathway understood.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -1472,6 +1609,15 @@ patterns:
           description: Access to the agent's public interface obtained to test prompt-injection feasibility.
           security_relevant: false
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.access_agent_interface
+          observation: model_context
+          binding_slot_id: ingress
         order: 2
         attacker_controlled: true
         provenance:
@@ -1510,6 +1656,11 @@ patterns:
             requests.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.test_prompt_injections
+          observation: model_context
+          binding_slot_id: ingress
         order: 3
         attacker_controlled: true
         provenance:
@@ -1548,6 +1699,11 @@ patterns:
           description: Malicious prompts validated to reliably produce unauthorized code execution using benign test payloads.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.validate_exploit_reliability
+          observation: model_context
+          binding_slot_id: ingress
         order: 4
         attacker_controlled: true
         provenance:
@@ -1586,6 +1742,11 @@ patterns:
             it to discard its original directives.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.deliver_refined_injection
+          observation: model_context
+          binding_slot_id: ingress
         order: 5
         attacker_controlled: true
         provenance:
@@ -1637,6 +1798,15 @@ patterns:
             the first observable unauthorized command execution.'
           security_relevant: true
           terminal: true
+        resource_links:
+        - slot_id: tool_chain
+          role: tool_fixture
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.execute_code_via_interpreter
+          observation: tool_invocation
+          binding_slot_id: tool_chain
         order: 6
         attacker_controlled: true
         provenance:
@@ -1702,7 +1872,7 @@ patterns:
       pattern_id: AP-T6-03
       chain_id: AP-T6-03.chain.1
       semantic_revision: 1
-      semantic_digest: 9b8070730f8ff6bc338fb0e199bf1bd92410d2b1fda0b62fd435cf297436c182
+      semantic_digest: 752df6a59cdcefa6b042fdb368232f265dd97474fb319a43f492371172fca980
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -1732,6 +1902,8 @@ patterns:
           description: Malicious source content containing hidden prompt-injection instructions crafted for later retrieval.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -1772,6 +1944,8 @@ patterns:
           description: Injection concealed within seemingly legitimate content that evades initial scrutiny.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -1821,6 +1995,15 @@ patterns:
             execute in context.
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: poisoned_source
+          role: source_influence
+          trust_boundary_slot_id: boundary
+          target_ingress_slot_id: ingress
+        observable_outcome_links:
+        - postcondition_id: post.fetch_poisoned_content
+          observation: model_context
+          binding_slot_id: ingress
         order: 3
         attacker_controlled: false
         provenance:
@@ -1858,6 +2041,11 @@ patterns:
           description: 'The injection redirects the agent''s goal: attacker instructions are treated as operational objectives.'
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.redirect_agent_goal
+          observation: persistent_state
+          binding_slot_id: agent_goal
         order: 4
         attacker_controlled: false
         provenance:
@@ -1893,6 +2081,11 @@ patterns:
           description: 'The agent adopts the injected objective and acts on it: the first observable goal-redirected behavior.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.execute_unintended_actions
+          observation: persistent_state
+          binding_slot_id: agent_goal
         order: 5
         attacker_controlled: false
         provenance:
@@ -1950,7 +2143,7 @@ patterns:
       pattern_id: AP-T6-04
       chain_id: AP-T6-04.chain.1
       semantic_revision: 1
-      semantic_digest: ff2c34fdfc5f28917d4b688c471cf1f1f1a5a3acb5b5367bfe84236228850cda
+      semantic_digest: b8ddd227a7e2e0324a20b6d0458075a958b33e548b8d3c8200a3f0ada3700638
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -1981,6 +2174,15 @@ patterns:
             responses, is discovered.
           security_relevant: false
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.reconnaissance
+          observation: model_context
+          binding_slot_id: ingress
         order: 1
         attacker_controlled: true
         provenance:
@@ -2019,6 +2221,8 @@ patterns:
             that prevent convergence).
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -2066,6 +2270,11 @@ patterns:
             that prevent loop termination.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.delivery
+          observation: persistent_state
+          binding_slot_id: reflection_mechanism
         order: 3
         attacker_controlled: true
         provenance:
@@ -2104,6 +2313,11 @@ patterns:
             observable denial condition.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.impact
+          observation: persistent_state
+          binding_slot_id: reflection_mechanism
         order: 4
         attacker_controlled: false
         provenance:
@@ -2159,7 +2373,7 @@ patterns:
       pattern_id: AP-T6-05
       chain_id: AP-T6-05.chain.1
       semantic_revision: 1
-      semantic_digest: af8d8409ada5649362e5956d42e5561123270264d7a559cb43224d849db6f627
+      semantic_digest: 887fb29c7a4f565ec61b97ae481f443176a4347a2271279dbb006071a34f04cd
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -2200,6 +2414,15 @@ patterns:
             mechanism) obtained.
           security_relevant: false
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.access_learning_interface
+          observation: persistent_state
+          binding_slot_id: feedback_loop
         order: 1
         attacker_controlled: true
         provenance:
@@ -2241,6 +2464,11 @@ patterns:
           description: Adversarial feedback patterns delivered, designed to corrupt the agent's learning process.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.deliver_adversarial_feedback
+          observation: persistent_state
+          binding_slot_id: feedback_loop
         order: 2
         attacker_controlled: true
         provenance:
@@ -2281,6 +2509,11 @@ patterns:
           description: Malicious patterns are incorporated into the agent's learned behavior, persisting across interactions.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.corrupt_learned_behavior
+          observation: persistent_state
+          binding_slot_id: feedback_loop
         order: 3
         attacker_controlled: false
         provenance:
@@ -2319,6 +2552,11 @@ patterns:
             corruption outcome.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.degrade_decision_integrity
+          observation: persistent_state
+          binding_slot_id: feedback_loop
         order: 4
         attacker_controlled: false
         provenance:
@@ -2372,7 +2610,7 @@ patterns:
       pattern_id: AP-T11-01
       chain_id: AP-T11-01.chain.1
       semantic_revision: 1
-      semantic_digest: a48eb5d88eb0f77c8583dcd3453981d0511a316941396122494a0953b59c4391
+      semantic_digest: b85bb45053e8231ab0a8d0e3a1c115ba6818bc8910aec36988f1ec10a3e77685
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -2403,6 +2641,8 @@ patterns:
           description: Framework APIs statically analyzed and code execution sinks (eval, exec) identified.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -2443,6 +2683,8 @@ patterns:
           description: Deployment targets using vulnerable frameworks scanned and inventoried.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -2483,6 +2725,8 @@ patterns:
           description: Call chains leading to code execution extracted from target application source.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 3
         attacker_controlled: true
         provenance:
@@ -2524,6 +2768,8 @@ patterns:
             concealed as legitimate configuration directives.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 4
         attacker_controlled: true
         provenance:
@@ -2564,6 +2810,15 @@ patterns:
           description: Public-facing agent application accessed through its user interface or API.
           security_relevant: false
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.access_public_application
+          observation: model_context
+          binding_slot_id: ingress
         order: 5
         attacker_controlled: true
         provenance:
@@ -2608,6 +2863,11 @@ patterns:
             infrastructure configuration.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.submit_crafted_prompt
+          observation: model_context
+          binding_slot_id: ingress
         order: 6
         attacker_controlled: true
         provenance:
@@ -2649,6 +2909,11 @@ patterns:
           description: Lightweight jailbreaking applied where the agent's guardrails refuse the malicious request.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.bypass_guardrails
+          observation: model_context
+          binding_slot_id: ingress
         order: 7
         attacker_controlled: true
         provenance:
@@ -2690,6 +2955,15 @@ patterns:
             call chain.
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: code_generator
+          role: tool_fixture
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.invoke_tools_with_attacker_args
+          observation: tool_invocation
+          binding_slot_id: code_generator
         order: 8
         attacker_controlled: true
         provenance:
@@ -2741,6 +3015,11 @@ patterns:
             embedded within legitimate-looking directives.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.generate_backdoored_configuration
+          observation: persistent_state
+          binding_slot_id: deployment_target
         order: 9
         attacker_controlled: false
         provenance:
@@ -2790,6 +3069,11 @@ patterns:
             commands for execution on deployment.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.deploy_configuration
+          observation: persistent_state
+          binding_slot_id: deployment_target
         order: 10
         attacker_controlled: false
         provenance:
@@ -2829,6 +3113,11 @@ patterns:
             extraction or security-control disablement: the first observable compromise completing the mechanism.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.execute_embedded_payload
+          observation: persistent_state
+          binding_slot_id: deployment_target
         order: 11
         attacker_controlled: true
         provenance:
@@ -2893,7 +3182,7 @@ patterns:
       pattern_id: AP-T11-02
       chain_id: AP-T11-02.chain.1
       semantic_revision: 1
-      semantic_digest: 12051d3c8975407c8c32b654baebbf3a2b588d598880a37f48089712862205e8
+      semantic_digest: 72f685df62673eca5bf4870d59dfb9963e575455c9ba4dd4c541b573264685bb
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -2923,6 +3212,8 @@ patterns:
           description: Prompt developed instructing the agent to embed backdoor logic in generated workflow scripts.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -2966,6 +3257,15 @@ patterns:
             user interface or API; no publishing credentials or repository access required.
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.deliver_backdoor_prompt
+          observation: model_context
+          binding_slot_id: ingress
         order: 2
         attacker_controlled: true
         provenance:
@@ -3020,6 +3320,15 @@ patterns:
             review of the declared structure does not reveal.
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: workflow_agent
+          role: tool_fixture
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.generate_backdoored_workflow
+          observation: tool_invocation
+          binding_slot_id: workflow_agent
         order: 3
         attacker_controlled: true
         provenance:
@@ -3072,6 +3381,11 @@ patterns:
             review inspects only the declared workflow structure.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.persist_backdoored_workflow
+          observation: persistent_state
+          binding_slot_id: generated_workflow
         order: 4
         attacker_controlled: false
         provenance:
@@ -3112,6 +3426,11 @@ patterns:
             observable unauthorized action completing the mechanism.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.execute_hidden_logic
+          observation: persistent_state
+          binding_slot_id: generated_workflow
         order: 5
         attacker_controlled: true
         provenance:
@@ -3176,7 +3495,7 @@ patterns:
       pattern_id: AP-T11-03
       chain_id: AP-T11-03.chain.1
       semantic_revision: 1
-      semantic_digest: d36e511d60897af34254063f4e14a0eecea7a273809aa8637b3f62c2cda13608
+      semantic_digest: 34401634550706e44a0a5dc741de78dbc864be62d87eb9b7ad5b2273eca621c5
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -3207,6 +3526,8 @@ patterns:
             identified.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -3251,6 +3572,8 @@ patterns:
             commands.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -3294,6 +3617,15 @@ patterns:
           description: Ambiguous natural-language input submitted through the agent's public interface.
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.submit_ambiguous_input
+          observation: model_context
+          binding_slot_id: ingress
         order: 3
         attacker_controlled: true
         provenance:
@@ -3348,6 +3680,11 @@ patterns:
             as legitimate.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.resolve_ambiguity_to_commands
+          observation: persistent_state
+          binding_slot_id: execution_environment
         order: 4
         attacker_controlled: false
         provenance:
@@ -3390,6 +3727,11 @@ patterns:
             code execution.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.invoke_tools_with_derived_params
+          observation: persistent_state
+          binding_slot_id: execution_environment
         order: 5
         attacker_controlled: false
         provenance:
@@ -3431,6 +3773,11 @@ patterns:
           description: The execution environment parses the agent's output as code, bridging the NL-to-command semantic gap.
           security_relevant: true
           terminal: false
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.parse_output_as_code
+          observation: persistent_state
+          binding_slot_id: execution_environment
         order: 6
         attacker_controlled: false
         provenance:
@@ -3472,6 +3819,11 @@ patterns:
             observable command-injection outcome.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.execute_unintended_command
+          observation: persistent_state
+          binding_slot_id: execution_environment
         order: 7
         attacker_controlled: true
         provenance:
@@ -3536,7 +3888,7 @@ patterns:
       pattern_id: AP-T13-04
       chain_id: AP-T13-04.chain.1
       semantic_revision: 1
-      semantic_digest: 7ab798b166ee36a169fb8023b94992099809c985aebcba7ec6fb2e6100c4d290
+      semantic_digest: 9ca4a83af36e3c4bee617c379fe8318dab920bcebf6a028b59ffde5eb9f903a7
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -3567,6 +3919,8 @@ patterns:
             outputs.
           security_relevant: false
           terminal: false
+        resource_links: []
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -3607,6 +3961,15 @@ patterns:
             compromise precondition is attacker-established).
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: ingress
+          role: ingress
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.inject_initial_payload
+          observation: model_context
+          binding_slot_id: ingress
         order: 2
         attacker_controlled: true
         provenance:
@@ -3648,6 +4011,15 @@ patterns:
             peer agents.
           security_relevant: true
           terminal: false
+        resource_links:
+        - slot_id: initial_agent
+          role: tool_fixture
+          trust_boundary_slot_id: null
+          target_ingress_slot_id: null
+        observable_outcome_links:
+        - postcondition_id: post.replicate_in_agent_outputs
+          observation: tool_invocation
+          binding_slot_id: initial_agent
         order: 3
         attacker_controlled: true
         provenance:
@@ -3698,6 +4070,11 @@ patterns:
             the first observable propagation completing the mechanism.'
           security_relevant: true
           terminal: true
+        resource_links: []
+        observable_outcome_links:
+        - postcondition_id: post.propagate_to_peer_agents
+          observation: persistent_state
+          binding_slot_id: peer_agents
         order: 4
         attacker_controlled: false
         provenance:

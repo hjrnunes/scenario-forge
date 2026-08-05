@@ -570,6 +570,28 @@ def _production_step(step_id: str, order: int, *, attacker: bool) -> dict[str, A
                 "terminal": final,
             }
         ],
+        "resource_links": (
+            [
+                {
+                    "slot_id": "ingress",
+                    "role": "ingress",
+                    "trust_boundary_slot_id": None,
+                }
+            ]
+            if attacker
+            else []
+        ),
+        "observable_outcome_links": (
+            [
+                {
+                    "postcondition_id": f"post.{order}",
+                    "observation": "model_context",
+                    "binding_slot_id": "ingress",
+                }
+            ]
+            if final
+            else []
+        ),
         "order": order,
         "attacker_controlled": attacker,
         "provenance": {
