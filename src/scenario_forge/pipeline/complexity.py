@@ -1,0 +1,455 @@
+"""Deterministic reviewed attack-complexity rule table (cmps.7).
+
+One closed, versioned rule table with two phases:
+
+- **Candidate lower bound** (:func:`assess_candidate_complexity`) — runs
+  before Call 0 and consumes only typed candidate-v2 inputs:
+  :class:`~scenario_forge.pipeline.projection.ProjectedCandidate`
+  ``complexity_inputs``, the immutable projection's selected steps, and
+  the derived adapter-neutral execution requirements.
+- **Final assessment** (:func:`assess_final_complexity`) — runs after
+  typed realized actions exist and *adds only* structured typed
+  action/access evidence: the discriminated attack-tree leaf actions
+  (cmps.9) and the typed actor access provenance (cmps.6).
+
+Technique tuples, generated prose, free-text keyword matching, labels,
+and zone counts are never inputs.  Concepts without a typed,
+unambiguous representation are documented as unsupported/deferred in
+``scenario_forge.models.complexity`` — no heuristic is invented for
+them.  Candidate-v2 fails closed where explicit step/resource linkage
+is missing; this policy does not infer those semantics either.
+
+Admission invariant (:func:`evaluate_capability_admission`): actor
+capability >= attack required level.  The check is fail-closed and
+returns typed routing data for the earliest responsible stage.  Wiring
+the candidate lower bound into Call 0 actor generation and the final
+mismatch into the existing bounded retry/quarantine mechanisms is
+deferred to cmps.5 (lifecycle ownership); cmps.7 exposes only the
+contract.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+
+from scenario_forge.models.attack_pattern import (
+    StateChangingToolFixtureRequirement,
+    UpstreamSourceInfluenceRequirement,
+)
+from scenario_forge.models.attack_tree import AttackTreeNode, ExternalPreconditionAction
+from scenario_forge.models.complexity import (
+    COMPLEXITY_RULE_VERSION,
+    AssessmentPhase,
+    AttackComplexityAssessment,
+    CapabilityAdmissionDecision,
+    CapabilityAdmissionViolation,
+    CapabilityLevel,
+    ComplexityAdmissionRouting,
+    ComplexityEvidenceReference,
+    ComplexityPhaseAssessment,
+    ComplexityReason,
+    capability_level_rank,
+)
+from scenario_forge.models.scenario import ActorAccessProvenance
+from scenario_forge.pipeline.projection import ProjectedCandidate
+
+# ---------------------------------------------------------------------------
+# Rule table v1 thresholds
+# ---------------------------------------------------------------------------
+
+_MULTI_STEP_ATTACKER_THRESHOLD = 3
+_DEEP_CHAIN_ATTACKER_THRESHOLD = 5
+
+
+# ---------------------------------------------------------------------------
+# Reason assembly helpers
+# ---------------------------------------------------------------------------
+
+
+def _assemble_phase(
+    phase: AssessmentPhase, reasons: list[ComplexityReason]
+) -> ComplexityPhaseAssessment:
+    """Dedup by rule_id and order deterministically (level desc, rule_id)."""
+    by_rule: dict[str, ComplexityReason] = {}
+    for reason in reasons:
+        previous = by_rule.get(reason.rule_id)
+        if previous is not None and previous != reason:
+            raise ValueError(f"conflicting complexity reasons for {reason.rule_id}")
+        by_rule[reason.rule_id] = reason
+    ordered = sorted(
+        by_rule.values(),
+        key=lambda r: (-capability_level_rank(r.required_level), r.rule_id),
+    )
+    required: CapabilityLevel = (
+        ordered[0].required_level if ordered else "novice"  # type: ignore[assignment]
+    )
+    return ComplexityPhaseAssessment(
+        phase=phase, required_level=required, reasons=tuple(ordered)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Candidate-phase rules (typed ProjectedCandidate inputs only)
+# ---------------------------------------------------------------------------
+
+
+def _attacker_controlled_step_ids(candidate: ProjectedCandidate) -> tuple[str, ...]:
+    chain = candidate.projection.source_chain
+    selected = set(candidate.projection.selected_step_ids)
+    return tuple(
+        step.step_id
+        for step in chain.steps
+        if step.step_id in selected and step.attacker_controlled
+    )
+
+
+def _rule_chain_multi_step(candidate: ProjectedCandidate) -> ComplexityReason | None:
+    count = candidate.complexity_inputs.attacker_controlled_step_count
+    if count < _MULTI_STEP_ATTACKER_THRESHOLD:
+        return None
+    return ComplexityReason(
+        rule_id="chain.multi_step_attacker_control",
+        required_level="intermediate",
+        detail=(
+            f"Projected chain carries {count} attacker-controlled selected "
+            f"steps (>= {_MULTI_STEP_ATTACKER_THRESHOLD}): coordinated "
+            f"multi-step execution beyond a single-shot action."
+        ),
+        evidence=tuple(
+            ComplexityEvidenceReference(kind="chain_step", ref_id=step_id)
+            for step_id in _attacker_controlled_step_ids(candidate)
+        ),
+    )
+
+
+def _rule_chain_deep(candidate: ProjectedCandidate) -> ComplexityReason | None:
+    count = candidate.complexity_inputs.attacker_controlled_step_count
+    if count < _DEEP_CHAIN_ATTACKER_THRESHOLD:
+        return None
+    return ComplexityReason(
+        rule_id="chain.deep_attacker_control",
+        required_level="advanced",
+        detail=(
+            f"Projected chain carries {count} attacker-controlled selected "
+            f"steps (>= {_DEEP_CHAIN_ATTACKER_THRESHOLD}): deep campaign-level "
+            f"chaining."
+        ),
+        evidence=tuple(
+            ComplexityEvidenceReference(kind="chain_step", ref_id=step_id)
+            for step_id in _attacker_controlled_step_ids(candidate)
+        ),
+    )
+
+
+def _rule_upstream_source_influence(
+    candidate: ProjectedCandidate,
+) -> ComplexityReason | None:
+    requirements = tuple(
+        requirement
+        for requirement in candidate.execution_requirements
+        if isinstance(requirement, UpstreamSourceInfluenceRequirement)
+    )
+    if not requirements:
+        return None
+    return ComplexityReason(
+        rule_id="access.upstream_source_influence",
+        required_level="intermediate",
+        detail=(
+            "Candidate derives an upstream-source-influence execution "
+            "requirement: indirect ingress through an actor-influenced "
+            "upstream source across a trust boundary."
+        ),
+        evidence=tuple(
+            ComplexityEvidenceReference(
+                kind="execution_requirement", ref_id=requirement.requirement_id
+            )
+            for requirement in requirements
+        ),
+    )
+
+
+def _rule_state_changing_fixture(
+    candidate: ProjectedCandidate,
+) -> ComplexityReason | None:
+    requirements = tuple(
+        requirement
+        for requirement in candidate.execution_requirements
+        if isinstance(requirement, StateChangingToolFixtureRequirement)
+    )
+    if not requirements:
+        return None
+    return ComplexityReason(
+        rule_id="tool.state_changing_fixture",
+        required_level="intermediate",
+        detail=(
+            "Candidate derives a state-changing tool fixture execution "
+            "requirement: the attack path depends on mutating persisted "
+            "tool state before the terminal outcome."
+        ),
+        evidence=tuple(
+            ComplexityEvidenceReference(
+                kind="execution_requirement", ref_id=requirement.requirement_id
+            )
+            for requirement in requirements
+        ),
+    )
+
+
+_CANDIDATE_RULES: tuple[
+    Callable[[ProjectedCandidate], ComplexityReason | None], ...
+] = (
+    _rule_chain_multi_step,
+    _rule_chain_deep,
+    _rule_upstream_source_influence,
+    _rule_state_changing_fixture,
+)
+
+
+# ---------------------------------------------------------------------------
+# Final-phase rules (typed realized actions and access provenance only)
+# ---------------------------------------------------------------------------
+
+
+def _rule_external_precondition_action(
+    leaves: tuple[AttackTreeNode, ...], access: ActorAccessProvenance | None
+) -> ComplexityReason | None:
+    del access  # this rule consumes typed actions only
+    nodes = tuple(
+        leaf
+        for leaf in leaves
+        if leaf.action is not None
+        and isinstance(leaf.action, ExternalPreconditionAction)
+    )
+    if not nodes:
+        return None
+    return ComplexityReason(
+        rule_id="action.external_precondition",
+        required_level="intermediate",
+        detail=(
+            "Realized attack tree stages attacker preparation outside the "
+            "assessed system boundary (typed external_precondition action: "
+            "attacker-hosted infrastructure, staging, or pre-positioning)."
+        ),
+        evidence=tuple(
+            ComplexityEvidenceReference(kind="leaf_action", ref_id=node.id)
+            for node in nodes
+        ),
+    )
+
+
+def _rule_indirect_influence_path(
+    leaves: tuple[AttackTreeNode, ...], access: ActorAccessProvenance | None
+) -> ComplexityReason | None:
+    del leaves  # this rule consumes typed access provenance only
+    if access is None or access.ingress_mode != "indirect":
+        return None
+    return ComplexityReason(
+        rule_id="access.indirect_influence_path",
+        required_level="intermediate",
+        detail=(
+            "Realized access provenance is indirect: the actor influences "
+            "an upstream data source across a trust boundary rather than "
+            "controlling input directly."
+        ),
+        evidence=(
+            ComplexityEvidenceReference(
+                kind="actor_access_provenance",
+                ref_id=access.initial_entry_point_id,
+            ),
+        ),
+    )
+
+
+def _rule_privileged_prerequisite(
+    leaves: tuple[AttackTreeNode, ...], access: ActorAccessProvenance | None
+) -> ComplexityReason | None:
+    del leaves  # this rule consumes typed access provenance only
+    if access is None or access.access_class != "privileged":
+        return None
+    return ComplexityReason(
+        rule_id="access.privileged_prerequisite",
+        required_level="intermediate",
+        detail=(
+            "Realized access provenance declares a privileged access class: "
+            "pre-existing elevated or internal access is a prerequisite of "
+            "the attack path."
+        ),
+        evidence=(
+            ComplexityEvidenceReference(
+                kind="actor_access_provenance",
+                ref_id=access.initial_entry_point_id,
+            ),
+        ),
+    )
+
+
+def _rule_supply_chain_targeting(
+    leaves: tuple[AttackTreeNode, ...], access: ActorAccessProvenance | None
+) -> ComplexityReason | None:
+    del leaves  # this rule consumes typed access provenance only
+    if access is None or access.access_class != "supply_chain":
+        return None
+    return ComplexityReason(
+        rule_id="access.supply_chain_targeting",
+        required_level="advanced",
+        detail=(
+            "Realized access provenance declares a supply-chain access "
+            "class: the attack path targets the system through an upstream "
+            "supply-chain or training-data position."
+        ),
+        evidence=(
+            ComplexityEvidenceReference(
+                kind="actor_access_provenance",
+                ref_id=access.initial_entry_point_id,
+            ),
+        ),
+    )
+
+
+_FINAL_RULES: tuple[
+    Callable[
+        [tuple[AttackTreeNode, ...], ActorAccessProvenance | None],
+        ComplexityReason | None,
+    ],
+    ...,
+] = (
+    _rule_external_precondition_action,
+    _rule_indirect_influence_path,
+    _rule_privileged_prerequisite,
+    _rule_supply_chain_targeting,
+)
+
+
+# ---------------------------------------------------------------------------
+# Public assessment API
+# ---------------------------------------------------------------------------
+
+
+def assess_candidate_complexity(
+    candidate: ProjectedCandidate,
+) -> AttackComplexityAssessment:
+    """Compute the candidate lower bound before Call 0.
+
+    Consumes only typed candidate-v2 inputs.  Pure and deterministic:
+    the same candidate always yields the identical assessment.
+    """
+    reasons = [
+        reason for rule in _CANDIDATE_RULES if (reason := rule(candidate)) is not None
+    ]
+    return AttackComplexityAssessment(
+        rule_version=COMPLEXITY_RULE_VERSION,
+        candidate_lower_bound=_assemble_phase("candidate_lower_bound", reasons),
+    )
+
+
+def assess_final_complexity(
+    assessment: AttackComplexityAssessment,
+    realized_leaves: Iterable[AttackTreeNode],
+    access: ActorAccessProvenance | None,
+) -> AttackComplexityAssessment:
+    """Compute the final required level once typed realized actions exist.
+
+    Starts from the candidate lower bound and adds only structured typed
+    action/access evidence, so the final level can never fall below the
+    candidate lower bound for the same realized scenario.  Actor
+    capability is never an input and never mutated.
+    """
+    leaves = tuple(realized_leaves)
+    reasons = list(assessment.candidate_lower_bound.reasons)
+    reasons.extend(
+        reason for rule in _FINAL_RULES if (reason := rule(leaves, access)) is not None
+    )
+    return assessment.model_copy(update={"final": _assemble_phase("final", reasons)})
+
+
+def evaluate_capability_admission(
+    actor_capability_level: CapabilityLevel,
+    assessment: AttackComplexityAssessment,
+    *,
+    phase: AssessmentPhase,
+) -> CapabilityAdmissionDecision:
+    """Fail-closed check of the admission invariant.
+
+    The invariant is: actor capability >= attack required level.  A
+    mismatch returns a typed violation routed to the earliest
+    responsible stage (Call 0 bounded actor regeneration for the
+    candidate lower bound; post-realization quarantine for the final
+    assessment).  The actor profile is never mutated.  Requesting a
+    phase whose assessment has not been computed is itself a violation
+    (fail-closed).
+    """
+    phase_assessment = (
+        assessment.candidate_lower_bound
+        if phase == "candidate_lower_bound"
+        else assessment.final
+    )
+    if phase_assessment is None:
+        return CapabilityAdmissionDecision(
+            admitted=False,
+            violation=CapabilityAdmissionViolation(
+                rule_id="complexity_assessment_phase_unavailable",
+                phase=phase,
+                rule_version=assessment.rule_version,
+                actor_capability_level=actor_capability_level,
+                required_level=None,
+                triggering_reasons=(),
+                routing=ComplexityAdmissionRouting(
+                    stage="post_realization_validation",
+                    action="quarantine_scenario",
+                    feedback=(
+                        f"No '{phase}' attack-complexity assessment exists "
+                        f"(rule v{assessment.rule_version}); admission cannot "
+                        "be established — fail closed to quarantine."
+                    ),
+                ),
+            ),
+        )
+
+    required = phase_assessment.required_level
+    if capability_level_rank(actor_capability_level) >= capability_level_rank(required):
+        return CapabilityAdmissionDecision(admitted=True)
+
+    triggering = tuple(
+        reason
+        for reason in phase_assessment.reasons
+        if reason.required_level == required
+    )
+    rule_ids = ", ".join(reason.rule_id for reason in triggering)
+    if phase == "candidate_lower_bound":
+        routing = ComplexityAdmissionRouting(
+            stage="call0_actor_generation",
+            action="regenerate_actor_with_higher_capability",
+            feedback=(
+                f"Actor capability '{actor_capability_level}' is below the "
+                f"candidate lower bound '{required}' (complexity rule "
+                f"v{assessment.rule_version}; triggered by: {rule_ids}). "
+                f"Regenerate the actor with capability_level >= '{required}' "
+                "through the bounded Call 0 retry loop, or reject the "
+                "candidate."
+            ),
+        )
+    else:
+        routing = ComplexityAdmissionRouting(
+            stage="post_realization_validation",
+            action="quarantine_scenario",
+            feedback=(
+                f"Actor capability '{actor_capability_level}' is below the "
+                f"final required level '{required}' (complexity rule "
+                f"v{assessment.rule_version}; triggered by: {rule_ids}). "
+                "Route to semantic-validation quarantine; downstream "
+                "regeneration must produce a more capable actor or a "
+                "simpler realization — never relabel the actor."
+            ),
+        )
+    return CapabilityAdmissionDecision(
+        admitted=False,
+        violation=CapabilityAdmissionViolation(
+            rule_id="actor_capability_below_attack_complexity",
+            phase=phase,
+            rule_version=assessment.rule_version,
+            actor_capability_level=actor_capability_level,
+            required_level=required,
+            triggering_reasons=triggering,
+            routing=routing,
+        ),
+    )

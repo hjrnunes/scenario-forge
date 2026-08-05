@@ -4622,7 +4622,85 @@ def _build_actor_profile_block(scenario: dict[str, Any]) -> str:
                 <ul {list_style}>{resources_items}</ul>
               </div>
               {access_html}
-            </div>"""
+              </div>"""
+
+
+def _build_complexity_assessment_block(scenario: dict[str, Any]) -> str:
+    """Build the deterministic attack-complexity assessment block (cmps.7).
+
+    Shows the versioned assessment — candidate lower bound, final
+    required level, rule version, and typed reasons — distinctly from
+    the actor's own capability level.  Returns an empty string when the
+    scenario carries no ``attack_complexity_assessment``.
+    """
+    assessment = scenario.get("attack_complexity_assessment") or {}
+    lower = assessment.get("candidate_lower_bound") or {}
+    if not lower:
+        return ""
+    final = assessment.get("final") or {}
+    rule_version = _esc(str(assessment.get("rule_version", "")))
+
+    def _level_badge(level: str) -> str:
+        color = _CAPABILITY_COLORS.get(level, "#6b7280")
+        return (
+            '<span style="display:inline-block;padding:3px 10px;border-radius:4px;'
+            f"font-size:12px;font-weight:600;background:rgba({_hex_to_rgb_css(color)},0.15);"
+            f'color:{color};">{_esc(level.title() if level else "")}</span>'
+        )
+
+    final_level = final.get("required_level", "")
+    summary_lines = [
+        f"<li>Candidate lower bound: {_level_badge(lower.get('required_level', ''))}</li>",
+    ]
+    if final_level:
+        summary_lines.append(
+            f"<li>Final required level: {_level_badge(final_level)}</li>"
+        )
+    else:
+        summary_lines.append(
+            "<li>Final required level: "
+            '<span style="color:var(--text-muted);font-style:italic;">'
+            "not yet assessed</span></li>"
+        )
+
+    reason_items = ""
+    for reason in final.get("reasons") or lower.get("reasons") or []:
+        refs = ", ".join(
+            _esc(ref.get("ref_id", "")) for ref in reason.get("evidence", [])
+        )
+        reason_items += (
+            "<li>"
+            f"<code>{_esc(reason.get('rule_id', ''))}</code> "
+            f"&rarr; <strong>{_esc(reason.get('required_level', ''))}</strong>: "
+            f"{_esc(reason.get('detail', ''))}"
+            f' <span style="color:var(--text-muted);">[{refs}]</span>'
+            "</li>"
+        )
+    reasons_html = ""
+    if reason_items:
+        reasons_html = (
+            '<div style="margin-bottom:8px;">'
+            '<strong style="color:var(--text-muted);font-size:11px;">REASONS:</strong>'
+            f'<ul style="margin:4px 0 0 16px;padding:0;font-size:13px;'
+            f'color:var(--text-secondary);line-height:1.6;">{reason_items}</ul>'
+            "</div>"
+        )
+
+    return (
+        '<div style="margin-top:12px;border-top:1px solid var(--border);'
+        'padding-top:10px;">'
+        '<strong style="color:var(--text-muted);font-size:11px;" '
+        'data-tooltip="Deterministic, versioned attack-complexity assessment '
+        "(cmps.7). Distinct from the actor's immutable capability level: it "
+        "is the capability the attack path requires, derived only from typed "
+        'projection and realized-action evidence.">'
+        f"ATTACK COMPLEXITY (RULE V{rule_version}):</strong>"
+        '<ul style="margin:4px 0 0 16px;padding:0;font-size:13px;'
+        'color:var(--text-secondary);line-height:1.9;list-style:none;">'
+        f"{''.join(summary_lines)}</ul>"
+        f"{reasons_html}"
+        "</div>"
+    )
 
 
 def _build_provenance_block(scenario: dict[str, Any]) -> str:
@@ -5807,6 +5885,7 @@ def _build_scenario_card(
           </div>
           <div class="tab-panel">
             {_build_actor_profile_block(scenario)}
+            {_build_complexity_assessment_block(scenario)}
           </div>
           <div class="tab-panel">
             {atlas_techniques_html}

@@ -810,19 +810,15 @@ def generate_scenario(
         # (e.g. in tests using MagicMock objects).
         pass
 
-    # --- Post-Call-1: novice complexity guard ---
-    if (
-        actor_profile
-        and actor_profile.capability_level == "novice"
-        and len(set(narrative.zone_sequence)) >= 3
-    ):
-        logger.info(
-            "Novice complexity guard for %s: %d zones traversed, "
-            "bumping capability_level to 'intermediate'",
-            partial_scenario_id,
-            len(set(narrative.zone_sequence)),
-        )
-        actor_profile.capability_level = "intermediate"
+    # cmps.7: actor capability is immutable after Call 0.  The legacy
+    # novice multi-zone guard (a zone-count-driven capability relabel)
+    # was removed here: zone count alone is never a complexity signal.
+    # Attack complexity is assessed separately by the closed, versioned
+    # rule table in scenario_forge.pipeline.complexity, persisted on the
+    # envelope as attack_complexity_assessment, and enforced through the
+    # typed admission contract.  Wiring the candidate lower bound into
+    # Call 0 and the final mismatch into bounded retry/quarantine is
+    # deferred to cmps.5 (lifecycle ownership).
 
     # --- Post-Call-1: pin narrative entry_point by construction ---
     if pinned_entry_point and narrative.entry_point != pinned_entry_point:

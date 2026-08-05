@@ -72,6 +72,17 @@
         }
       ]
     },
+    "attack_complexity_assessment": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AttackComplexityAssessment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Closed, versioned deterministic attack-complexity assessment (cmps.7): candidate lower bound, final required capability level, rule version, typed reasons, and evidence - persisted separately from the immutable actor_profile.capability_level."
+    },
     "narrative": {
       "$ref": "#/$defs/NarrativeLayer"
     },
@@ -223,6 +234,147 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "AttackComplexityAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_version",
+        "candidate_lower_bound"
+      ],
+      "properties": {
+        "rule_version": {
+          "type": "string",
+          "enum": [
+            "1"
+          ],
+          "description": "Closed version of the deterministic rule table used."
+        },
+        "candidate_lower_bound": {
+          "$ref": "#/$defs/ComplexityPhaseAssessment",
+          "description": "Lower bound on actor capability computed from typed candidate-v2 projection inputs before Call 0."
+        },
+        "final": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ComplexityPhaseAssessment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Final required level computed after typed realized actions exist; inherits the candidate lower bound and may only raise it."
+        }
+      },
+      "description": "Closed, versioned attack-complexity assessment record (cmps.7): candidate lower bound and final required capability level with typed reasons, persisted separately from the immutable actor capability."
+    },
+    "ComplexityEvidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref_id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "chain_step",
+            "execution_requirement",
+            "leaf_action",
+            "actor_access_provenance"
+          ],
+          "description": "Which typed input surface the reference points at."
+        },
+        "ref_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier of the referenced input: canonical chain step_id, execution requirement_id, attack-tree node id, or the access-provenance initial_entry_point_id."
+        }
+      }
+    },
+    "ComplexityPhaseAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "required_level",
+        "reasons"
+      ],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": [
+            "candidate_lower_bound",
+            "final"
+          ]
+        },
+        "required_level": {
+          "type": "string",
+          "enum": [
+            "novice",
+            "intermediate",
+            "advanced",
+            "expert"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ComplexityReason"
+          },
+          "description": "Reasons that fired in this phase, ordered deterministically by descending required level then ascending rule_id, deduplicated by rule_id. Empty when the phase assesses as novice."
+        }
+      }
+    },
+    "ComplexityReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "required_level",
+        "detail",
+        "evidence"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "enum": [
+            "chain.multi_step_attacker_control",
+            "chain.deep_attacker_control",
+            "access.upstream_source_influence",
+            "tool.state_changing_fixture",
+            "action.external_precondition",
+            "access.indirect_influence_path",
+            "access.privileged_prerequisite",
+            "access.supply_chain_targeting"
+          ],
+          "description": "Stable rule identifier."
+        },
+        "required_level": {
+          "type": "string",
+          "enum": [
+            "novice",
+            "intermediate",
+            "advanced",
+            "expert"
+          ],
+          "description": "Capability level this rule requires when it fires."
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Structured explanation of the trigger, including observed values (e.g. step counts) so the reason stands alone."
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ComplexityEvidenceReference"
+          },
+          "minItems": 1,
+          "description": "Typed references to the exact inputs that fired the rule."
         }
       }
     },

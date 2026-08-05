@@ -89,6 +89,21 @@ from scenario_forge.models.capability_profile import (
     ZONE_NAMES,
     derive_zones_from_kc,
 )
+from scenario_forge.models.complexity import (
+    CAPABILITY_LEVEL_ORDER,
+    COMPLEXITY_RULE_VERSION,
+    AssessmentPhase,
+    AttackComplexityAssessment,
+    CapabilityAdmissionDecision,
+    CapabilityAdmissionViolation,
+    CapabilityLevel,
+    ComplexityAdmissionRouting,
+    ComplexityEvidenceReference,
+    ComplexityPhaseAssessment,
+    ComplexityReason,
+    ComplexityRuleId,
+    capability_level_rank,
+)
 from scenario_forge.models.risk_card import (
     EvidenceSpan,
     MitigationRef,
@@ -202,6 +217,20 @@ __all__ = [
     "VALID_KC_SUBCODES",
     "ZONE_DISPLAY_NAMES",
     "ZONE_NAMES",
+    # complexity
+    "CAPABILITY_LEVEL_ORDER",
+    "COMPLEXITY_RULE_VERSION",
+    "AssessmentPhase",
+    "AttackComplexityAssessment",
+    "CapabilityAdmissionDecision",
+    "CapabilityAdmissionViolation",
+    "CapabilityLevel",
+    "ComplexityAdmissionRouting",
+    "ComplexityEvidenceReference",
+    "ComplexityPhaseAssessment",
+    "ComplexityReason",
+    "ComplexityRuleId",
+    "capability_level_rank",
     # risk_card
     "EvidenceSpan",
     "MitigationRef",
