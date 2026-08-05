@@ -608,12 +608,17 @@ class CanonicalChainStep(ContractModel):
             ids = [getattr(item, attribute) for item in collection]
             if len(ids) != len(set(ids)):
                 raise ValueError(f"duplicate ids in {label}")
-        outcome_keys = [
-            (link.postcondition_id, link.observation, link.binding_slot_id)
-            for link in self.observable_outcome_links
+        # One outcome link per postcondition: each postcondition may have
+        # at most one observable outcome link.  Multiple observations of the
+        # same postcondition would collide on requirement IDs and introduce
+        # ambiguous observability semantics.
+        outcome_pc_ids = [
+            link.postcondition_id for link in self.observable_outcome_links
         ]
-        if len(outcome_keys) != len(set(outcome_keys)):
-            raise ValueError("duplicate observable outcome links")
+        if len(outcome_pc_ids) != len(set(outcome_pc_ids)):
+            raise ValueError(
+                "duplicate observable outcome links for the same postcondition"
+            )
         postcondition_ids = {
             pc.postcondition_id for pc in self.observable_postconditions
         }
@@ -623,6 +628,42 @@ class CanonicalChainStep(ContractModel):
                     f"observable outcome link references absent postcondition "
                     f"{link.postcondition_id}"
                 )
+        # Outside steps are not system-observable: their postconditions are
+        # attacker-side artifacts, not observable outcomes.  Outcome links on
+        # outside steps are semantically invalid.
+        if self.boundary_position == "outside" and self.observable_outcome_links:
+            raise ValueError(
+                f"step {self.step_id} at boundary_position 'outside' must not "
+                "have observable outcome links; outside-step postconditions "
+                "are not system-observable"
+            )
+        # Every security-relevant postcondition on a non-outside step must
+        # have exactly one outcome link.  This ensures security assertions
+        # are always traced to an explicit observable outcome, not inferred
+        # from the security_relevant flag alone.
+        if self.boundary_position != "outside":
+            linked_pc_ids = {
+                link.postcondition_id for link in self.observable_outcome_links
+            }
+            for pc in self.observable_postconditions:
+                if pc.security_relevant and pc.postcondition_id not in linked_pc_ids:
+                    raise ValueError(
+                        f"step {self.step_id} security-relevant postcondition "
+                        f"{pc.postcondition_id} lacks an observable outcome link"
+                    )
+        # Activation links (ingress / source_influence) on conditional steps
+        # are forbidden: a conditional step may be omitted by condition
+        # evaluation, and activation must be deterministic.  The canonical
+        # chain model has no branch semantics, so a conditional activation
+        # would admit non-deterministic candidate-v2 activation.
+        if self.requirement == "conditional":
+            for link in self.resource_links:
+                if link.role in ("ingress", "source_influence"):
+                    raise ValueError(
+                        f"step {self.step_id} is conditional and must not "
+                        f"carry an activation link (role={link.role}); "
+                        "activation must be on a required step"
+                    )
         taxonomies = [mapping.taxonomy for mapping in self.mappings]
         if len(set(taxonomies)) != len(taxonomies):
             raise ValueError("duplicate taxonomy decisions in step scope")
@@ -821,11 +862,10 @@ class CanonicalAttackChain(ContractModel):
                 "link to the initial ingress; exactly one activation mechanism "
                 "is permitted"
             )
-        if not has_ingress_link and not has_source_influence_link:
-            raise ValueError(
-                "no step links to the initial ingress slot with role ingress "
-                "or source_influence"
-            )
+        # Absence of both activation mechanisms is not a model validation
+        # error: a chain may be structurally valid but not activatable for
+        # candidate-v2 (e.g. prerequisite-based activation).  The projection
+        # fails closed for such chains.
         if self.semantic_digest != compute_chain_semantic_digest(self):
             raise ValueError("semantic_digest does not match chain semantics")
         return self
@@ -1059,9 +1099,11 @@ def compute_chain_semantic_digest(chain: CanonicalAttackChain | dict[str, Any]) 
         payload["taxonomy_context"] = {**context, "laaf": None}
     # Canonicalize optional linkage fields: a raw dict may omit
     # ``trust_boundary_slot_id`` / ``target_ingress_slot_id`` on a
-    # resource link where model validation materializes ``None``.  Frame
-    # omitted and explicit-None identically so callers can sign raw dicts
-    # that omit the defaults.  Never mutates ``chain``.
+    # resource link where model validation materializes ``None``, and may
+    # omit ``resource_links`` / ``observable_outcome_links`` arrays where
+    # model validation materializes empty tuples.  Frame omitted and
+    # explicit-None/[] identically so callers can sign raw dicts that omit
+    # the defaults.  Never mutates ``chain``.
     steps = payload.get("steps")
     if isinstance(steps, list):
         normalized_steps = []
@@ -1069,7 +1111,14 @@ def compute_chain_semantic_digest(chain: CanonicalAttackChain | dict[str, Any]) 
             if not isinstance(step, dict):
                 normalized_steps.append(step)
                 continue
-            links = step.get("resource_links")
+            # Ensure both link arrays are present; omitted → [].
+            step = {
+                **step,
+                "resource_links": step.get("resource_links", []),
+                "observable_outcome_links": step.get("observable_outcome_links", []),
+            }
+            # Canonicalize optional None fields within resource links.
+            links = step["resource_links"]
             if isinstance(links, list):
                 step = {
                     **step,

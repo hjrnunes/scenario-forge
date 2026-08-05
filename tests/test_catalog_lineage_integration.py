@@ -473,13 +473,15 @@ class TestLineageResultingRawDetectsDuplicates:
 
 
 def test_all_49_patterns_have_explicit_activation_linkage() -> None:
-    """Every live pattern must have exactly one activation mechanism: either
+    """Every live pattern must have at most one activation mechanism: either
     an ingress resource_link to the initial_ingress_slot_id, or a
     source_influence resource_link whose target_ingress_slot_id is the
-    initial ingress.  Both is forbidden; neither is forbidden.
+    initial ingress.  Both is forbidden; neither is permitted for
+    candidate-v2 but is structurally valid (typed infeasible at projection).
     """
     patterns = load_attack_patterns()
     assert len(patterns) == 49
+    infeasible: list[str] = []
     for pid, raw in patterns.items():
         chain = raw["canonical_chain"]
         ingress_slot = chain["initial_ingress_slot_id"]
@@ -494,17 +496,23 @@ def test_all_49_patterns_have_explicit_activation_linkage() -> None:
             for step in chain["steps"]
             for link in step.get("resource_links", [])
         )
-        assert has_ingress ^ has_source, (
-            f"{pid} must have exactly one activation mechanism "
+        assert not (has_ingress and has_source), (
+            f"{pid} must not have both activation mechanisms "
             f"(ingress={has_ingress}, source_influence={has_source})"
         )
+        if not has_ingress and not has_source:
+            infeasible.append(pid)
+    # AP-T6-07 is intentionally typed-infeasible for candidate-v2:
+    # prerequisite-based inside persistence with no supported activation.
+    assert infeasible == ["AP-T6-07"]
 
 
 def test_activation_mechanism_counts() -> None:
-    """46 direct-ingress patterns and 3 source-influence patterns."""
+    """45 direct-ingress, 3 source-influence, 1 typed-infeasible (AP-T6-07)."""
     patterns = load_attack_patterns()
     ingress_count = 0
     source_count = 0
+    none_count = 0
     for raw in patterns.values():
         chain = raw["canonical_chain"]
         ingress_slot = chain["initial_ingress_slot_id"]
@@ -523,9 +531,12 @@ def test_activation_mechanism_counts() -> None:
             ingress_count += 1
         if has_source:
             source_count += 1
-    assert ingress_count == 46
+        if not has_ingress and not has_source:
+            none_count += 1
+    assert ingress_count == 45
     assert source_count == 3
-    assert ingress_count + source_count == 49
+    assert none_count == 1
+    assert ingress_count + source_count + none_count == 49
 
 
 def test_source_influence_links_target_canonical_ingress() -> None:

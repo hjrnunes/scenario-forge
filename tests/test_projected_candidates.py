@@ -89,7 +89,20 @@ def _step(step_id: str, order: int, *, conditional: bool = False) -> dict[str, A
             if attacker
             else []
         ),
-        "observable_outcome_links": [],
+        "observable_outcome_links": (
+            # The terminal step is security-relevant; it must carry an
+            # explicit outcome link so the security assertion is derived
+            # from the link, not from the security_relevant flag alone.
+            [
+                {
+                    "postcondition_id": f"post.{order}",
+                    "observation": "model_context",
+                    "binding_slot_id": "ingress",
+                }
+            ]
+            if final
+            else []
+        ),
         "order": order,
         "attacker_controlled": attacker,
         "provenance": {
@@ -338,6 +351,7 @@ def test_bindings_exactly_cover_slots_and_indirect_ingress_fails_closed() -> Non
             requirement.kind for requirement in candidate.execution_requirements
         } == {
             "direct_input_control",
+            "observation",
             "security_outcome_assertion",
         }
 
@@ -382,6 +396,7 @@ def test_explicit_execution_requirements_are_versioned_and_digest_verified() -> 
     direct = _project().candidates[0]
     assert {r.kind for r in direct.execution_requirements} == {
         "direct_input_control",
+        "observation",
         "security_outcome_assertion",
     }
     assert direct.requirement_derivation_version == "1"
@@ -420,19 +435,17 @@ def test_unlinked_action_resources_and_observations_are_never_inferred(
     )
     result = _project(pattern=raw)
     # The candidate succeeds because the first step has an explicit ingress
-    # link and the terminal step has a security-relevant postcondition.
-    # Action kind is irrelevant to requirement derivation.
+    # link and the terminal step has an explicit outcome link on its
+    # security-relevant postcondition.  Action kind is irrelevant to
+    # requirement derivation.
     assert len(result.candidates) == 1
     candidate = result.candidates[0]
     assert {requirement.kind for requirement in candidate.execution_requirements} == {
         "direct_input_control",
+        "observation",
         "security_outcome_assertion",
     }
-    # No observation or tool-fixture requirements are inferred from action kind.
-    assert not any(
-        requirement.kind == "observation"
-        for requirement in candidate.execution_requirements
-    )
+    # No tool-fixture requirements are inferred from action kind.
     assert not any(
         requirement.kind == "state_changing_tool_fixture"
         for requirement in candidate.execution_requirements
@@ -667,21 +680,23 @@ def test_absent_linkage_fails_closed() -> None:
 
 
 def test_no_explicit_links_produces_no_observations() -> None:
-    """With explicit linkage, only linked postconditions produce observations."""
+    """With explicit linkage, only linked postconditions produce observations
+    and security assertions.  A security-relevant postcondition without an
+    explicit outcome link fails closed at model validation — the security
+    assertion cannot be derived from the ``security_relevant`` flag alone.
+    """
     raw = _pattern(conditional=False)
-    # The fixture has an ingress link on step 1 and no observable_outcome_links.
-    # The terminal step has security_relevant=True → SecurityOutcomeAssertion.
-    result = _project(pattern=raw)
-    candidate = result.candidates[0]
-    assert {requirement.kind for requirement in candidate.execution_requirements} == {
-        "direct_input_control",
-        "security_outcome_assertion",
-    }
-    # No observation requirements because no observable_outcome_links.
-    assert not any(
-        requirement.kind == "observation"
-        for requirement in candidate.execution_requirements
+    # Remove the terminal step's outcome link while keeping
+    # security_relevant=True.  Model validation must reject this: the
+    # security-relevant postcondition lacks an observable outcome link.
+    raw["canonical_chain"]["steps"][2]["observable_outcome_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
     )
+    with pytest.raises(ValidationError, match="lacks an observable outcome link"):
+        __import__(
+            "scenario_forge.models.attack_pattern", fromlist=["AttackPattern"]
+        ).AttackPattern.model_validate(raw)
 
 
 def test_explicit_observable_outcome_link_produces_observation() -> None:
@@ -816,3 +831,67 @@ def test_source_influence_activates_indirect_ingress() -> None:
         issue.code == "unsupported_requirement_derivation"
         for issue in result.infeasibilities
     )
+
+
+# ---------------------------------------------------------------------------
+# Adversarial tests: activation over selected steps, typed infeasibility
+# ---------------------------------------------------------------------------
+
+
+def test_conditional_activation_omitted_fails_closed() -> None:
+    """When the only activation link is on a conditional step that is omitted
+    by condition evaluation, the projection must fail closed with a typed
+    unsupported-activation issue — not admit indirect ingress."""
+    raw = _pattern(conditional=True)
+    # The model forbids activation links on conditional steps (no branch
+    # semantics), so we test the adjacent failure: remove the ingress link
+    # from the required step.1, leaving no activation among selected steps.
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    # step.1 has no ingress link and step.2 has no activation link.
+    # No activation among selected steps → typed infeasibility.
+    result = _project(pattern=raw)
+    assert len(result.candidates) == 0
+    assert any(
+        issue.code == "unsupported_requirement_derivation"
+        and "no activation mechanism" in issue.detail
+        for issue in result.infeasibilities
+    )
+
+
+def test_no_selected_activation_produces_typed_infeasibility() -> None:
+    """A chain with no activation mechanism among selected steps produces a
+    typed unsupported_requirement_derivation issue, not a candidate."""
+    raw = _pattern(conditional=False)
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    assert len(result.candidates) == 0
+    assert any(
+        issue.code == "unsupported_requirement_derivation"
+        and "no activation mechanism" in issue.detail
+        for issue in result.infeasibilities
+    )
+
+
+def test_security_assertion_only_from_explicit_outcome_link() -> None:
+    """A security-relevant postcondition with an explicit outcome link
+    produces a SecurityOutcomeAssertionRequirement.  The assertion is
+    traced to the link, not to the security_relevant flag alone."""
+    raw = _pattern(conditional=False)
+    # The terminal step already has an outcome link from the fixture.
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    sec_reqs = [
+        r
+        for r in candidate.execution_requirements
+        if r.kind == "security_outcome_assertion"
+    ]
+    assert len(sec_reqs) == 1
+    # The observation requirement for the same link should also exist.
+    obs_reqs = [r for r in candidate.execution_requirements if r.kind == "observation"]
+    assert len(obs_reqs) == 1

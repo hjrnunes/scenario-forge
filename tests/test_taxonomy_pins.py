@@ -581,7 +581,17 @@ def _production_step(step_id: str, order: int, *, attacker: bool) -> dict[str, A
             if attacker
             else []
         ),
-        "observable_outcome_links": [],
+        "observable_outcome_links": (
+            [
+                {
+                    "postcondition_id": f"post.{order}",
+                    "observation": "model_context",
+                    "binding_slot_id": "ingress",
+                }
+            ]
+            if final
+            else []
+        ),
         "order": order,
         "attacker_controlled": attacker,
         "provenance": {

@@ -873,8 +873,11 @@ def test_backward_ingress_link_on_outside_step_fails_closed() -> None:
     """An ingress link on a step at 'outside' boundary fails validation."""
     raw = _link_chain()
     # Step 1 is attacker=True → boundary_position='crossing'.
-    # Change it to 'outside' to make the ingress link backward.
+    # Change it to 'outside' to make the ingress link backward.  Clear
+    # outcome links first so the chain-level ingress-on-outside check fires
+    # rather than the step-level outside-step outcome link prohibition.
     raw["steps"][0]["boundary_position"] = "outside"
+    raw["steps"][0]["observable_outcome_links"] = []
     resign_chain(raw)
     with pytest.raises(ValidationError, match="crossing or inside boundary"):
         AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
@@ -957,13 +960,18 @@ def test_observable_outcome_wrong_slot_kind_fails_closed() -> None:
         AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
 
 
-def test_absent_ingress_link_fails_closed() -> None:
-    """A chain with no ingress link to the initial ingress slot fails."""
+def test_absent_ingress_link_validates_but_unsupported() -> None:
+    """A chain with no ingress link validates at model level (structurally
+    valid) but is candidate-v2-infeasible: the projection fails closed with
+    a typed unsupported-activation issue rather than a model ValidationError.
+    """
     raw = _link_chain()
     raw["steps"][0]["resource_links"] = []
     resign_chain(raw)
-    with pytest.raises(ValidationError, match="no step links to the initial ingress"):
-        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+    # Model validation succeeds: absence of activation is not a structural
+    # defect, only a candidate-v2 feasibility defect.
+    pattern = AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+    assert pattern.canonical_chain.steps[0].resource_links == ()
 
 
 def test_unsupported_observation_kind_fails_closed() -> None:
@@ -1004,6 +1012,10 @@ def test_source_influence_target_ingress_not_initial_ingress_fails_closed() -> N
     """A source_influence link whose target is not the initial ingress fails."""
     raw = _link_chain()
     raw["steps"][0]["resource_links"] = []
+    # Step 2 is conditional in the fixture; activation links require a
+    # required step, so make it required before adding the link.
+    raw["steps"][1]["requirement"] = "required"
+    raw["steps"][1]["condition"] = None
     # 'tool' is a declared slot but not the initial ingress entry point.
     raw["steps"][1]["resource_links"] = [
         {
@@ -1024,9 +1036,15 @@ def test_source_influence_on_outside_step_fails_closed() -> None:
     """A source_influence link on an outside (no-crossing) step fails."""
     raw = _link_chain()
     raw["steps"][0]["resource_links"] = []
-    # Step 2 is system/inside; force it to 'outside' to break the boundary
-    # compatibility of the source-influence crossing.
+    # Step 2 is conditional in the fixture; activation links require a
+    # required step, so make it required before adding the link.
+    raw["steps"][1]["requirement"] = "required"
+    raw["steps"][1]["condition"] = None
+    # Force it to 'outside' to break the boundary compatibility of the
+    # source-influence crossing.  Clear outcome links so the outside-step
+    # outcome link prohibition doesn't fire first.
     raw["steps"][1]["boundary_position"] = "outside"
+    raw["steps"][1]["observable_outcome_links"] = []
     raw["steps"][1]["resource_links"] = [
         {
             "slot_id": "source",
@@ -1046,6 +1064,10 @@ def test_both_ingress_and_source_influence_fails_closed() -> None:
     """A chain carrying both a direct ingress link and a source_influence
     link to the initial ingress violates the one-mechanism rule."""
     raw = _link_chain()
+    # Step 2 is conditional in the fixture; activation links require a
+    # required step, so make it required before adding the link.
+    raw["steps"][1]["requirement"] = "required"
+    raw["steps"][1]["condition"] = None
     raw["steps"][1]["resource_links"] = [
         {
             "slot_id": "source",
@@ -1063,9 +1085,109 @@ def test_both_ingress_and_source_influence_fails_closed() -> None:
 
 def test_no_activation_link_fails_closed() -> None:
     """A chain with neither an ingress nor a source_influence link to the
-    initial ingress fails closed."""
+    initial ingress is structurally valid but candidate-v2-infeasible:
+    the projection fails closed with a typed unsupported-activation issue."""
     raw = _link_chain()
     raw["steps"][0]["resource_links"] = []
     resign_chain(raw)
-    with pytest.raises(ValidationError, match="no step links to the initial ingress"):
+    # Model validation succeeds: absence of activation is not a structural
+    # defect, only a candidate-v2 feasibility defect.
+    pattern = AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+    assert pattern.canonical_chain.steps[0].resource_links == ()
+
+
+# ---------------------------------------------------------------------------
+# Adversarial tests: omitted vs explicit-empty link arrays and immutability
+# ---------------------------------------------------------------------------
+
+
+def test_omitted_link_arrays_sign_like_explicit_empty() -> None:
+    """A raw dict that omits ``resource_links`` and ``observable_outcome_links``
+    must produce the same digest as one with explicit empty lists.  The digest
+    helper canonicalizes omitted arrays to ``[]`` without mutating the caller's
+    dict.  Both forms must validate when the chain is otherwise valid."""
+    base = _link_chain()
+    # Test on step 1 (which has links) and step 2 (no links): omit the arrays
+    # on step 2 and compare against explicit empty.
+    explicit_empty = deepcopy(base)
+    explicit_empty["steps"][1]["resource_links"] = []
+    explicit_empty["steps"][1]["observable_outcome_links"] = []
+    explicit_empty["semantic_digest"] = compute_chain_semantic_digest(explicit_empty)
+
+    omitted = deepcopy(base)
+    omitted["steps"][1].pop("resource_links", None)
+    omitted["steps"][1].pop("observable_outcome_links", None)
+    omitted["semantic_digest"] = compute_chain_semantic_digest(omitted)
+
+    # Both must produce the same digest.
+    assert omitted["semantic_digest"] == explicit_empty["semantic_digest"]
+
+    # The omitted-arrays dict must not have been mutated.
+    assert "resource_links" not in omitted["steps"][1]
+    assert "observable_outcome_links" not in omitted["steps"][1]
+
+    # Both must validate (step 1 retains its links, terminal step retains its
+    # outcome link; only step 2's omitted/empty arrays differ).
+    pattern_omitted = AttackPattern.model_validate(
+        {**pattern_data(), "canonical_chain": omitted}
+    )
+    pattern_explicit = AttackPattern.model_validate(
+        {**pattern_data(), "canonical_chain": explicit_empty}
+    )
+    assert (
+        pattern_omitted.canonical_chain.semantic_digest
+        == pattern_explicit.canonical_chain.semantic_digest
+    )
+
+
+def test_digest_helper_does_not_mutate_input() -> None:
+    """compute_chain_semantic_digest must never mutate the caller's dict,
+    even when it canonicalizes omitted link arrays."""
+    raw = _link_chain()
+    # Remove link arrays from step 2 only (step 1 and 3 retain theirs).
+    raw["steps"][1].pop("resource_links", None)
+    raw["steps"][1].pop("observable_outcome_links", None)
+    snapshot = deepcopy(raw)
+    _ = compute_chain_semantic_digest(raw)
+    # The input must be unchanged.
+    assert raw == snapshot
+    assert "resource_links" not in raw["steps"][1]
+    assert "observable_outcome_links" not in raw["steps"][1]
+
+
+def test_conditional_step_with_activation_link_fails_closed() -> None:
+    """An activation link (ingress or source_influence) on a conditional step
+    fails validation: activation must be deterministic, and conditional steps
+    may be omitted by condition evaluation."""
+    raw = _link_chain()
+    # Step 2 is conditional; add an ingress link to it.
+    raw["steps"][1]["resource_links"] = [
+        {"slot_id": "ingress", "role": "ingress", "trust_boundary_slot_id": None}
+    ]
+    resign_chain(raw)
+    with pytest.raises(ValidationError, match="conditional and must not"):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_same_postcondition_two_outcome_links_fails_closed() -> None:
+    """Two outcome links for the same postcondition on a step fail validation,
+    even if the observation or binding differs — the requirement IDs would
+    collide."""
+    raw = _link_chain()
+    raw["steps"][0]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.1",
+            "observation": "model_context",
+            "binding_slot_id": "ingress",
+        },
+        {
+            "postcondition_id": "post.1",
+            "observation": "persistent_state",
+            "binding_slot_id": "source",
+        },
+    ]
+    resign_chain(raw)
+    with pytest.raises(
+        ValidationError, match="duplicate observable outcome links for the same"
+    ):
         AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})

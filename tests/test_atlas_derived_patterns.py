@@ -280,15 +280,15 @@ EXPECTED: dict[str, dict[str, Any]] = {
 # Golden semantic digests of the authored chains: any semantic content edit
 # must recompute these deliberately, not silently.
 GOLDEN_DIGESTS = {
-    "AP-T1-06": "2a33f4196aa7aa19da10e037abd4dc692b2f2b61d3b156349ff24909bf1d1d48",
-    "AP-T3-04": "b10626d502d50563bd8250f534cbedf2e09665d8834fc723cee86ba8a3951320",
-    "AP-T3-05": "e7b19140143fb5b60209e18e2843574a8b57be730d33d4d579010de92c4bcbfa",
+    "AP-T1-06": "d16105fc9eae9c4dac66663173adb93e93300024da276dc733262780724c043a",
+    "AP-T3-04": "f53892856c154ca84223e03e85443db8b0b77f6d66fe653e59bf1494e8b16702",
+    "AP-T3-05": "66be208503910d209fb74240ff27ba55ddd9e280159bd656c404ce4f750d4d1d",
     "AP-T3-06": "440a715d5eae939377bf09bbb1445d5f3a9118822d3533e05679131e8a613fd2",
-    "AP-T6-06": "17e1a6dcbf4f6976337c1fd09f77f119ca6489d8eb4f11f7bd04be78b973c7a8",
-    "AP-T6-07": "06d215508c5cd2775cde1c610f7616126a19bdfc96c6301a36e561cd9f5f17ad",
-    "AP-T11-05": "1be93282b3d46e3e94e9384a1ef28f699daed22f5fc0a83a2bd9ab0c35edf788",
-    "AP-T17-03": "e7994529ba2ac957885467dbd6b8c33f32d0a70645392f1e5a05fe8dd7584763",
-    "AP-T17-04": "a6a6da80dbb6fb108033ccf1d844343177f4470317e23b80a659ab1289c37e8f",
+    "AP-T6-06": "fccf892ba7f5c462c175175e9e63b5afe706cecbeec32be2c765a00efad4fff1",
+    "AP-T6-07": "d7fec69b76dd6e7c684b390aaaaabacff914ded4d65fb651cbfd8b568553b35e",
+    "AP-T11-05": "58a60fa294495d6db91179842e8cbe1e367343ecef62ad4f3f759b6beb1d67f5",
+    "AP-T17-03": "cdf96d112303773d0c9bd39d9ef8fb0c59ea93205333ab7503e58efa01e8d7f4",
+    "AP-T17-04": "7d8b2d16eebedc4d0a8ec45559530a342720ca5c3d56d058b955943b7989a027",
 }
 
 # Split-derived first steps presuppose a sibling pattern's outcome; the

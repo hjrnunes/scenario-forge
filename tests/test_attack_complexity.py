@@ -119,7 +119,19 @@ def _mk_step(step_id: str, order: int, *, attacker: bool, final: bool = False) -
             if attacker and order == 1
             else []
         ),
-        "observable_outcome_links": [],
+        "observable_outcome_links": (
+            # Security-relevant terminal steps require an explicit outcome
+            # link for model validation.
+            [
+                {
+                    "postcondition_id": f"post.{order}",
+                    "observation": "model_context",
+                    "binding_slot_id": "ingress",
+                }
+            ]
+            if final
+            else []
+        ),
         "order": order,
         "attacker_controlled": attacker,
         "provenance": {

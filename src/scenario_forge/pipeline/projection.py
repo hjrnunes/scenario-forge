@@ -567,7 +567,9 @@ def _derive_execution_requirements(
     No inference from action kind, name, prose, cardinality, taxonomy mapping,
     or catalog partition.  Every requirement is traced to an explicit
     ``resource_links`` or ``observable_outcome_links`` entry on a selected
-    step, or to a security-relevant observable postcondition.
+    step.  Security-outcome assertions are derived only from postconditions
+    that have an explicit observable outcome link, not from the
+    ``security_relevant`` flag alone.
     """
     bindings = {item.slot_id: item.resource_ref for item in projection.bindings}
     slots_by_id = {slot.slot_id: slot for slot in chain.resource_slots}
@@ -637,6 +639,8 @@ def _derive_execution_requirements(
                     )
                 )
 
+        # Build a set of postcondition IDs that have explicit outcome links.
+        linked_pc_ids = {ol.postcondition_id for ol in step.observable_outcome_links}
         for outcome_link in step.observable_outcome_links:
             requirements.append(
                 ObservationRequirement(
@@ -651,8 +655,16 @@ def _derive_execution_requirements(
                 )
             )
 
+        # Security-outcome assertions are derived ONLY from security-relevant
+        # postconditions that have an explicit observable outcome link.
+        # A security-relevant postcondition without an outcome link does not
+        # produce a requirement: the security outcome cannot be asserted
+        # without an explicit observation binding.
         for postcondition in step.observable_postconditions:
-            if postcondition.security_relevant:
+            if (
+                postcondition.security_relevant
+                and postcondition.postcondition_id in linked_pc_ids
+            ):
                 requirements.append(
                     SecurityOutcomeAssertionRequirement(
                         schema_version="1",
@@ -1045,12 +1057,48 @@ def project_authoritative_candidates(
         # control, so indirect ingress entry points are admissible.  A
         # direct-ingress chain still requires a directly controllable
         # ingress; indirect ingress there fails closed.
+        # Activation is checked only over SELECTED steps: a conditional
+        # activation step may be omitted, and the chain must still have
+        # an activatable mechanism among the remaining selected steps.
+        selected_set = set(selected)
         has_source_influence_activation = any(
             link.role == "source_influence"
             and link.target_ingress_slot_id == chain.initial_ingress_slot_id
             for step in chain.steps
+            if step.step_id in selected_set
             for link in step.resource_links
         )
+        has_direct_ingress_activation = any(
+            link.role == "ingress" and link.slot_id == chain.initial_ingress_slot_id
+            for step in chain.steps
+            if step.step_id in selected_set
+            for link in step.resource_links
+        )
+        if not has_source_influence_activation and not has_direct_ingress_activation:
+            issues.append(
+                ProjectionIssue(
+                    code="unsupported_requirement_derivation",
+                    pattern_id=pattern.id,
+                    detail=(
+                        "no activation mechanism (ingress or source_influence) "
+                        "among selected steps"
+                    ),
+                )
+            )
+            continue
+        if has_source_influence_activation and has_direct_ingress_activation:
+            issues.append(
+                ProjectionIssue(
+                    code="unsupported_requirement_derivation",
+                    pattern_id=pattern.id,
+                    detail=(
+                        "contradictory activation: selected steps contain both "
+                        "direct ingress and source_influence links to the "
+                        "initial ingress"
+                    ),
+                )
+            )
+            continue
         if has_source_influence_activation:
             if not option_sets[ingress_index]:
                 continue

@@ -67,7 +67,7 @@ patterns:
       pattern_id: "AP-T8-01"
       chain_id: "chain.AP-T8-01"
       semantic_revision: 1
-      semantic_digest: "0dbddcda75fb00f91203725ae6506bf0da19ca200533f1af45586e8c8944ea0c"
+      semantic_digest: "befe3ecf2f7a76cc2bdb491072bb392c01acc7a976ab1fd2ea1a62e70fea4e1a"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -118,8 +118,8 @@ patterns:
             target_ingress_slot_id: null
           observable_outcome_links:
           - postcondition_id: post.obtain_record_access
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: action_record
           order: 1
           attacker_controlled: true
           provenance:
@@ -328,7 +328,7 @@ patterns:
       pattern_id: "AP-T9-01"
       chain_id: "chain.AP-T9-01"
       semantic_revision: 1
-      semantic_digest: "444b7eb91fee6f819bba3396f8a7380082b703b9c81a163050bf3a9e898acace"
+      semantic_digest: "f35df04f5bd30657392913c80b080358fb74adf41b15c378889da0a7b92d736d"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -373,10 +373,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.discover_capabilities
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 1
           attacker_controlled: true
           provenance:
@@ -423,10 +420,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.craft_attribution_hijack
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 2
           attacker_controlled: true
           provenance:
@@ -674,7 +668,7 @@ patterns:
       pattern_id: "AP-T9-02"
       chain_id: "chain.AP-T9-02"
       semantic_revision: 1
-      semantic_digest: "f8598c8fcdbc0e620b2289b52ca1f51dffc848417c1c78ba7b6aada83ff8d9f1"
+      semantic_digest: "9ca413c88e4bf7717bbd81b5ba0aab06b1356f426fef79d7eab0c54163e7bf32"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -730,8 +724,8 @@ patterns:
             target_ingress_slot_id: null
           observable_outcome_links:
           - postcondition_id: post.initial_access
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: agent_backend
           order: 1
           attacker_controlled: true
           provenance:
@@ -776,7 +770,7 @@ patterns:
           observable_outcome_links:
           - postcondition_id: post.enumerate_processes
             observation: persistent_state
-            binding_slot_id: agent_backend
+            binding_slot_id: credential_store
           order: 2
           attacker_controlled: true
           provenance:
@@ -821,7 +815,7 @@ patterns:
           observable_outcome_links:
           - postcondition_id: post.extract_tokens
             observation: persistent_state
-            binding_slot_id: agent_backend
+            binding_slot_id: credential_store
           order: 3
           attacker_controlled: true
           provenance:
@@ -866,8 +860,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.authenticate_as_agent
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: agent_backend
           order: 4
           attacker_controlled: true
           provenance:
@@ -1147,7 +1141,7 @@ patterns:
       pattern_id: "AP-T9-05"
       chain_id: "chain.AP-T9-05"
       semantic_revision: 1
-      semantic_digest: "599ee1ef691d8343459c2ec232b488479b946382e60bbd09a428964d6cdce881"
+      semantic_digest: "b535d88ad80911d7ce0f81acaa50767cfee2c321c00c8d650bac1e6b1589d9a8"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1191,10 +1185,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.gather_victim_identity
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 1
           attacker_controlled: true
           provenance:
@@ -1236,10 +1227,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.forge_identity_documents
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 2
           attacker_controlled: true
           provenance:
@@ -1281,10 +1269,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.acquire_spoofing_tools
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 3
           attacker_controlled: true
           provenance:
@@ -1326,10 +1311,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.generate_deepfake
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 4
           attacker_controlled: true
           provenance:
@@ -1388,8 +1370,8 @@ patterns:
             target_ingress_slot_id: null
           observable_outcome_links:
           - postcondition_id: post.present_spoofed_identity
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: proofing_surface
           order: 5
           attacker_controlled: true
           provenance:
@@ -1434,8 +1416,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.evade_biometric_auth
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: proofing_surface
           order: 6
           attacker_controlled: true
           provenance:
@@ -1580,7 +1562,7 @@ patterns:
       pattern_id: "AP-T9-06"
       chain_id: "chain.AP-T9-06"
       semantic_revision: 1
-      semantic_digest: "79112703c2751ec491bafe3deed198d70443ac6f17164110fe7d28b62f729495"
+      semantic_digest: "04c4d5cdb8ef1f74b5b81613f8350cf19a9dd35cb1df1854c9d6e63d9ee50efc"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1639,8 +1621,8 @@ patterns:
             target_ingress_slot_id: null
           observable_outcome_links:
           - postcondition_id: post.initial_access
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: agent_backend
           order: 1
           attacker_controlled: true
           provenance:
@@ -1685,7 +1667,7 @@ patterns:
           observable_outcome_links:
           - postcondition_id: post.enumerate_credential_stores
             observation: persistent_state
-            binding_slot_id: agent_backend
+            binding_slot_id: credential_store
           order: 2
           attacker_controlled: true
           provenance:
@@ -1730,7 +1712,7 @@ patterns:
           observable_outcome_links:
           - postcondition_id: post.extract_long_lived_tokens
             observation: persistent_state
-            binding_slot_id: agent_backend
+            binding_slot_id: credential_store
           order: 3
           attacker_controlled: true
           provenance:
@@ -1778,8 +1760,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.authenticate_to_backend
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: agent_backend
           order: 4
           attacker_controlled: true
           provenance:
@@ -1968,7 +1950,7 @@ patterns:
           observable_outcome_links:
           - postcondition_id: post.poison_memory_store
             observation: persistent_state
-            binding_slot_id: agent_backend
+            binding_slot_id: memory_store
           order: 8
           attacker_controlled: true
           provenance:
@@ -2184,7 +2166,7 @@ patterns:
       pattern_id: "AP-T9-07"
       chain_id: "chain.AP-T9-07"
       semantic_revision: 1
-      semantic_digest: "21d89ab0576eefef1be1ffce6933deda6e4dd9879b9822f29018f02efb0526f7"
+      semantic_digest: "950e106e8ace2fa94c2d615fce40d7b97fb262722625a225111dbc2cca5d828c"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -2234,8 +2216,8 @@ patterns:
             target_ingress_slot_id: null
           observable_outcome_links:
           - postcondition_id: post.authenticate_as_agent
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: agent_backend
           order: 1
           attacker_controlled: true
           provenance:
@@ -2349,7 +2331,7 @@ patterns:
       pattern_id: "AP-T10-01"
       chain_id: "chain.AP-T10-01"
       semantic_revision: 1
-      semantic_digest: "8e0a325386a0761c04e75b14032d2a07eebacd68562881ffa4db057f0790dd35"
+      semantic_digest: "29ebf5c95f3894b22ed6113b738e496d1d65b7e3c427cac21489d8a694b1a7b4"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -2397,10 +2379,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.discover_oversight_structure
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 1
           attacker_controlled: true
           provenance:
@@ -2444,10 +2423,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.probe_agent_mechanisms
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 2
           attacker_controlled: true
           provenance:
@@ -2492,10 +2468,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.identify_presentation_patterns
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 3
           attacker_controlled: true
           provenance:
@@ -2537,10 +2510,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.craft_misleading_context
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 4
           attacker_controlled: true
           provenance:
@@ -2584,10 +2554,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.obfuscate_malicious_content
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 5
           attacker_controlled: true
           provenance:
@@ -2639,8 +2606,8 @@ patterns:
             target_ingress_slot_id: null
           observable_outcome_links:
           - postcondition_id: post.deliver_crafted_content
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: content_store
           order: 6
           attacker_controlled: true
           provenance:
@@ -2835,7 +2802,7 @@ patterns:
       pattern_id: "AP-T16-02"
       chain_id: "chain.AP-T16-02"
       semantic_revision: 1
-      semantic_digest: "c9d866f8c374dcc9b877d42c21e22c9d69a5f98454f90e68af794fb9cb5285a9"
+      semantic_digest: "793b76f85ad3574a9d9fca2283acd522c31d9031715743c5f51b7b53eb259e62"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -2882,10 +2849,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.craft_malicious_context
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 1
           attacker_controlled: true
           provenance:
@@ -2928,10 +2892,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.obfuscate_payload
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 2
           attacker_controlled: true
           provenance:
@@ -2974,10 +2935,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.stage_on_infrastructure
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 3
           attacker_controlled: true
           provenance:
@@ -3182,7 +3140,7 @@ patterns:
       pattern_id: "AP-T16-03"
       chain_id: "chain.AP-T16-03"
       semantic_revision: 1
-      semantic_digest: "92292b65f0aea65bd9fe33b2deb2b587a8553637099db55121d50b17d5f3d7c0"
+      semantic_digest: "2fbcf42091333a30a9b72c312daf0c7ef870d67158962275dd24fe1ef7eb0f32"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -3230,10 +3188,7 @@ patterns:
               security_relevant: false
               terminal: false
           resource_links: []
-          observable_outcome_links:
-          - postcondition_id: post.craft_deceptive_descriptions
-            observation: model_context
-            binding_slot_id: ingress
+          observable_outcome_links: []
           order: 1
           attacker_controlled: true
           provenance:
@@ -3288,8 +3243,8 @@ patterns:
             target_ingress_slot_id: null
           observable_outcome_links:
           - postcondition_id: post.alter_registry_metadata
-            observation: model_context
-            binding_slot_id: ingress
+            observation: persistent_state
+            binding_slot_id: tool_registry
           order: 2
           attacker_controlled: true
           provenance:

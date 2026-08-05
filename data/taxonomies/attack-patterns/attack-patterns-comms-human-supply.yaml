@@ -94,10 +94,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.channel_accessible
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -133,10 +130,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.payload_ready
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -186,8 +180,8 @@ patterns:
           target_ingress_slot_id: null
         observable_outcome_links:
         - postcondition_id: post.messages_resident
-          observation: model_context
-          binding_slot_id: ingress
+          observation: persistent_state
+          binding_slot_id: message_channel
         order: 3
         attacker_controlled: true
         provenance:
@@ -227,8 +221,8 @@ patterns:
         resource_links: []
         observable_outcome_links:
         - postcondition_id: post.injection_persistent
-          observation: model_context
-          binding_slot_id: ingress
+          observation: persistent_state
+          binding_slot_id: message_channel
         order: 4
         attacker_controlled: true
         provenance:
@@ -342,7 +336,7 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: 378345314576e3f95979f276a9d18b7ac47479b815b1e8c0737c628e27e94bfb
+      semantic_digest: 9f68be694a6794251b59a7c89ee1b7d933331a1238514a0e6383178461643122
   AP-T12-03:
     id: AP-T12-03
     threat_id: T12
@@ -401,10 +395,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.store_accessible
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -438,10 +429,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.false_data_ready
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -490,8 +478,8 @@ patterns:
           target_ingress_slot_id: null
         observable_outcome_links:
         - postcondition_id: post.data_planted
-          observation: model_context
-          binding_slot_id: ingress
+          observation: persistent_state
+          binding_slot_id: knowledge_store
         order: 3
         attacker_controlled: true
         provenance:
@@ -531,7 +519,7 @@ patterns:
         observable_outcome_links:
         - postcondition_id: post.poison_persistent
           observation: persistent_state
-          binding_slot_id: peer_agents
+          binding_slot_id: knowledge_store
         order: 4
         attacker_controlled: false
         provenance:
@@ -687,7 +675,7 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: 23ace0adc71ead97da1c8394293dfd0074980f42527a9bdb7c45ae76e0fd1d91
+      semantic_digest: 0a086381db6814b88d9435a0ec43857780e0baab0250475c2539d884d6b6f7c2
   AP-T15-01:
     id: AP-T15-01
     threat_id: T15
@@ -754,10 +742,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.substitution_crafted
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -803,8 +788,8 @@ patterns:
           target_ingress_slot_id: null
         observable_outcome_links:
         - postcondition_id: post.content_delivered
-          observation: model_context
-          binding_slot_id: ingress
+          observation: persistent_state
+          binding_slot_id: content_channel
         order: 2
         attacker_controlled: true
         provenance:
@@ -960,7 +945,7 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: 5bc09e325f8f479a9ed91c9430c939f1e262924565e1b5264470da53905f3992
+      semantic_digest: 908cda333cb56e9f8d399f0f57489e26f5ecc99d612c0f824e44297e6b51b37c
   AP-T15-02:
     id: AP-T15-02
     threat_id: T15
@@ -1028,10 +1013,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.injection_crafted
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -1074,10 +1056,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.payload_staged
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -1232,7 +1211,7 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: 308ace612a52356faa63b2ba66621496975bb43af35e19248b9f7be43fc2e5aa
+      semantic_digest: 08f4c13f4557baacd0180395563038be9073db961ff775066a44f914dad727d6
   AP-T17-01:
     id: AP-T17-01
     threat_id: T17
@@ -1290,10 +1269,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.payload_staged
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 1
         attacker_controlled: true
         provenance:
@@ -1331,10 +1307,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.prompt_crafted
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 2
         attacker_controlled: true
         provenance:
@@ -1372,10 +1345,7 @@ patterns:
           security_relevant: true
           terminal: false
         resource_links: []
-        observable_outcome_links:
-        - postcondition_id: post.prompt_hidden
-          observation: model_context
-          binding_slot_id: ingress
+        observable_outcome_links: []
         order: 3
         attacker_controlled: true
         provenance:
@@ -1419,8 +1389,8 @@ patterns:
           target_ingress_slot_id: null
         observable_outcome_links:
         - postcondition_id: post.artifact_published
-          observation: model_context
-          binding_slot_id: ingress
+          observation: persistent_state
+          binding_slot_id: upstream_artifact
         order: 4
         attacker_controlled: true
         provenance:
@@ -1656,4 +1626,4 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: 983ea5d8677a03894ed3bec8b78ee9e55caadecf609046e10d7130adf0604f24
+      semantic_digest: 59f3418538472fe124811a28d4c631039e454f40ee78166d407899d8152a8629
