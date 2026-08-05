@@ -85,7 +85,7 @@ patterns:
       pattern_id: "AP-T1-06"
       chain_id: "chain.ap-t1-06"
       semantic_revision: 1
-      semantic_digest: "fe445af904cde56022f4ad2e69c00adab9b2407a47ec23761047cbed9a843a1a"
+      semantic_digest: "b909c88cc2faf210e6a5e92e8a54480eacdd864886ff355e5682d36a2b543726"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -242,6 +242,9 @@ patterns:
             - kind: "effect"
               ref_id: "effect.injection_activated"
               value_type: "boolean"
+            - kind: "state"
+              ref_id: "state.injected_directive_active"
+              value_type: "boolean"
           preconditions: []
           observable_postconditions:
             - postcondition_id: "post.zero_click_activation.fired"
@@ -279,8 +282,8 @@ patterns:
           action_kind: "observe"
           consumed:
             - kind: "state"
-              ref_id: "state.poisoned_corpus_entry"
-              value_type: "object"
+              ref_id: "state.injected_directive_active"
+              value_type: "boolean"
           produced:
             - kind: "state"
               ref_id: "state.sensitive_data_assembled"
@@ -320,6 +323,9 @@ patterns:
             - kind: "state"
               ref_id: "state.sensitive_data_assembled"
               value_type: "object"
+            - kind: "state"
+              ref_id: "state.exfil_endpoint_staged"
+              value_type: "boolean"
           produced:
             - kind: "state"
               ref_id: "state.trojanized_rendered_output"
@@ -592,7 +598,7 @@ patterns:
       pattern_id: "AP-T3-05"
       chain_id: "chain.ap-t3-05"
       semantic_revision: 1
-      semantic_digest: "155d72ec8b178e1521cc7040275c8065824a66ec076fbeaf8a1f1b1ce81c52c4"
+      semantic_digest: "574fd682c74cfde97c826f3b8fe91bc3dec46e05e0f35c7c86e73059dc881322"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -621,14 +627,14 @@ patterns:
           preconditions:
             - condition_id: "pre.exposed_control_interface"
               condition:
-                op: "existence"
+                op: "equality"
                 schema_version: "1"
                 fact:
                   namespace: "runtime_state"
                   fact_id: "control_interface_accessible"
                   value_type: "boolean"
                   property_path: []
-                exists: true
+                value: true
           observable_postconditions:
             - postcondition_id: "post.config_credential_harvest.plaintext"
               description: "Plaintext credentials for connected services, read from the agent's configuration file, are in the attacker's hands."
@@ -763,8 +769,9 @@ patterns:
   # AP-T3-06 — split-derived (lineage), resulting record 3 of 3 from
   # AP-T3-04: arbitrary prompting through the exposed interface driving
   # privileged tool execution to container-root compromise. Explicit
-  # against AML.CS0048 S03-S04 and S06; host-level escape inferred.
-  # 4-step chain.
+  # against AML.CS0048 S03 and S06; the S04 system-prompt disclosure is
+  # observed incidental reconnaissance, not a causal step; host-level
+  # escape inferred. 3-step chain.
   # ═══════════════════════════════════════════════════════════════════
 
   AP-T3-06:
@@ -777,8 +784,10 @@ patterns:
       behavior to invoke privileged tools, achieving root execution inside
       the agent's own container via its bash skill. This record owns the
       prompt-driven privileged-tool compromise mechanism; any impact beyond
-      the container (host-level escape) is inferred, not demonstrated.
-      Exact ATLAS chain identity: AML.T0051.000 — submitting arbitrary
+      the container (host-level escape) is inferred, not demonstrated. The
+      system-prompt disclosure observed at AML.CS0048 S04 is incidental
+      reconnaissance, not a causal step of this mechanism. Exact ATLAS
+      chain identity: AML.T0051.000 — submitting arbitrary
       prompts directly through the exposed interface is direct prompt
       injection, AML.T0051.000's exact defined operation; evidence
       AML.CS0048 S03 retag (the pinned relationship assigns AML.T0051.001
@@ -804,7 +813,7 @@ patterns:
       pattern_id: "AP-T3-06"
       chain_id: "chain.ap-t3-06"
       semantic_revision: 1
-      semantic_digest: "b0516b957229509392a9b7af78caec95ddc85b58c8f1109b0853f3c8d491e1e9"
+      semantic_digest: "bd0b98bc8ff97fac83c6ae11f91d5a2804d08aa24728d765a0e38b8e80ea2536"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -830,14 +839,14 @@ patterns:
           preconditions:
             - condition_id: "pre.exposed_control_interface"
               condition:
-                op: "existence"
+                op: "equality"
                 schema_version: "1"
                 fact:
                   namespace: "runtime_state"
                   fact_id: "control_interface_accessible"
                   value_type: "boolean"
                   property_path: []
-                exists: true
+                value: true
           observable_postconditions:
             - postcondition_id: "post.arbitrary_prompting.channel"
               description: "The attacker can submit arbitrary prompts through the exposed interface that the agent will act on."
@@ -867,48 +876,7 @@ patterns:
             - decision: "exact"
               taxonomy: "ATLAS"
               ids: ["AML.T0051.000"]
-        - step_id: "system_discovery"
-          requirement: "required"
-          condition: null
-          executor_role: "attacker"
-          boundary_position: "inside"
-          action_kind: "observe"
-          consumed:
-            - kind: "state"
-              ref_id: "state.prompt_channel_established"
-              value_type: "boolean"
-          produced:
-            - kind: "state"
-              ref_id: "state.internals_disclosed"
-              value_type: "object"
-          preconditions: []
-          observable_postconditions:
-            - postcondition_id: "post.system_discovery.disclosed"
-              description: "The agent reveals internal configuration (system prompt, environment details) on request."
-              security_relevant: false
-              terminal: false
-          order: 2
-          attacker_controlled: true
-          provenance:
-            tier: "observed"
-            references:
-              - reference_type: "catalog"
-                reference_id: "AML.CS0048 S04"
-              - reference_type: "design_record"
-                reference_id: "catalog-lineage:AP-T3-06"
-            confidence: 90
-            adaptation_rationale: >
-              Explicit against AML.CS0048 S04 (the agent disclosing its
-              system prompt file contents on request).
-          mappings:
-            - decision: "unmapped"
-              taxonomy: "ATLAS"
-              rationale: >
-                Discovery procedure lineage (AML.CS0048 S04 pins
-                AML.T0069.002) is not promoted: the pattern's exact
-                identities are the direct injection (AML.T0051.000) and the
-                privileged invocation (AML.T0053), per the lineage.
-        - step_id: "privileged_tool_execution"
+        - step_id: "privileged_tool_invocation"
           requirement: "required"
           condition: null
           executor_role: "attacker"
@@ -920,15 +888,15 @@ patterns:
               value_type: "boolean"
           produced:
             - kind: "state"
-              ref_id: "state.container_root_execution"
+              ref_id: "state.privileged_invocation_initiated"
               value_type: "boolean"
           preconditions: []
           observable_postconditions:
-            - postcondition_id: "post.privileged_tool_execution.root"
-              description: "The agent's bash skill executes attacker-directed commands as root inside the agent's own container."
+            - postcondition_id: "post.privileged_tool_invocation.initiated"
+              description: "The agent accepts the attacker-directed privileged invocation and initiates its bash skill under its container-root privileges; successful command execution is reserved for the terminal impact."
               security_relevant: true
               terminal: false
-          order: 3
+          order: 2
           attacker_controlled: true
           provenance:
             tier: "observed"
@@ -941,9 +909,15 @@ patterns:
             adaptation_rationale: >
               Explicit against AML.CS0048 S06 (the agent invoking its bash
               skill logged in as the root user on the attacker's prompt).
+              This step owns the invocation and authorization only; the
+              demonstrated successful root execution is the terminal impact.
               Driving the agent's privileged tools through the prompts is
               adversary-driven agent tool invocation, AML.T0053's exact
-              defined operation (pinned technique definition).
+              defined operation (pinned technique definition). The
+              system-prompt disclosure at AML.CS0048 S04 was observed but
+              is incidental reconnaissance, not a causal antecedent of the
+              privileged invocation, so it is intentionally not a chain
+              step (catalog-lineage:AP-T3-06 mechanism boundary).
           mappings:
             - decision: "exact"
               taxonomy: "ATLAS"
@@ -956,7 +930,7 @@ patterns:
           action_kind: "impact"
           consumed:
             - kind: "state"
-              ref_id: "state.container_root_execution"
+              ref_id: "state.privileged_invocation_initiated"
               value_type: "boolean"
           produced:
             - kind: "effect"
@@ -965,10 +939,10 @@ patterns:
           preconditions: []
           observable_postconditions:
             - postcondition_id: "post.impact.container_compromise"
-              description: "The agent itself executes attacker commands as root inside its own container: the first observable demonstrated system compromise; any impact beyond the container is inferred only."
+              description: "The initiated invocation completes: the agent's bash skill executes attacker-directed commands as root inside its own container — the first observable demonstrated system compromise; any impact beyond the container is inferred only."
               security_relevant: true
               terminal: true
-          order: 4
+          order: 3
           attacker_controlled: true
           provenance:
             tier: "variant"
@@ -1057,7 +1031,7 @@ patterns:
       pattern_id: "AP-T6-06"
       chain_id: "chain.ap-t6-06"
       semantic_revision: 1
-      semantic_digest: "99cf3d3bd01b4e97798926b777a1e47abbf2b22204b352c1493fa15979b03d63"
+      semantic_digest: "328202dc227dacbc60f756e117c438815552e698d694bda4e3e668f9e791cc9d"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1336,6 +1310,9 @@ patterns:
             - kind: "effect"
               ref_id: "effect.injection_activated"
               value_type: "boolean"
+            - kind: "state"
+              ref_id: "state.injection_active"
+              value_type: "boolean"
           preconditions: []
           observable_postconditions:
             - postcondition_id: "post.injection_activation.fired"
@@ -1370,7 +1347,7 @@ patterns:
           action_kind: "transform"
           consumed:
             - kind: "state"
-              ref_id: "state.injection_in_context"
+              ref_id: "state.injection_active"
               value_type: "boolean"
           produced:
             - kind: "state"
@@ -1514,7 +1491,7 @@ patterns:
       pattern_id: "AP-T6-07"
       chain_id: "chain.ap-t6-07"
       semantic_revision: 1
-      semantic_digest: "a4398b01f9fa9529fdcbfa1ebafb1d9399a2ba764918885dd628b9b2eae6d8b5"
+      semantic_digest: "deba39f5df81d3e2a6ea2c6a2c344cc9cf6302b666e99eac78cdd3270afce600"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1540,14 +1517,14 @@ patterns:
           preconditions:
             - condition_id: "pre.attacker_execution"
               condition:
-                op: "existence"
+                op: "equality"
                 schema_version: "1"
                 fact:
                   namespace: "runtime_state"
                   fact_id: "attacker_code_execution_on_agent_host"
                   value_type: "boolean"
                   property_path: []
-                exists: true
+                value: true
           observable_postconditions:
             - postcondition_id: "post.config_modification.prepended"
               description: "The agent's configuration prepends the attacker's C2 polling instructions to every future system prompt."
@@ -1589,6 +1566,9 @@ patterns:
             - kind: "effect"
               ref_id: "effect.poisoned_prompt_active"
               value_type: "boolean"
+            - kind: "state"
+              ref_id: "state.poisoned_directive_active"
+              value_type: "boolean"
           preconditions: []
           observable_postconditions:
             - postcondition_id: "post.poisoned_prompt_activation.loaded"
@@ -1618,7 +1598,7 @@ patterns:
             - decision: "exact"
               taxonomy: "ATLAS"
               ids: ["AML.T0051.002"]
-        - step_id: "propagation"
+        - step_id: "thread_context_persistence"
           requirement: "required"
           condition: null
           executor_role: "attacker"
@@ -1626,16 +1606,16 @@ patterns:
           action_kind: "persist"
           consumed:
             - kind: "state"
-              ref_id: "state.config_poisoned"
+              ref_id: "state.poisoned_directive_active"
               value_type: "boolean"
           produced:
             - kind: "state"
-              ref_id: "state.all_threads_poisoned"
+              ref_id: "state.thread_context_persistently_poisoned"
               value_type: "boolean"
           preconditions: []
           observable_postconditions:
-            - postcondition_id: "post.propagation.all_threads"
-              description: "Every new thread inherits the poisoned system prompt; the compromise spans all future interactions."
+            - postcondition_id: "post.thread_context_persistence.remainder"
+              description: "In every thread that loads the poisoned configuration, the injected instructions persist in the thread's context for the remainder of that thread, ready to trigger on the victim's greeting; the configuration modification re-establishes them in each new thread."
               security_relevant: true
               terminal: false
           order: 3
@@ -1647,14 +1627,19 @@ patterns:
                 reference_id: "AML.CS0051 S15"
               - reference_type: "design_record"
                 reference_id: "catalog-lineage:AP-T6-07"
-            confidence: 90
+            confidence: 85
             adaptation_rationale: >
               Explicit against AML.CS0051 S15 (the context of all new
-              threads poisoned with the malicious prompt; pins
-              AML.T0080.001). All new threads inheriting the poisoned
-              prompt is malicious-instruction persistence across chat
-              threads, AML.T0080.001's defined operation (pinned technique
-              definition).
+              threads poisoned with the malicious prompt and the trigger
+              set on the victim's greeting; pins AML.T0080.001). Scope
+              narrowed to the pinned technique's defined operation:
+              AML.T0080.001 covers malicious instructions persisting for
+              the remainder of a chat thread, not persistence into every
+              new thread (pinned technique definition AML.T0080.001). The
+              re-establishment of the poisoned context in every new
+              thread observed at S15 is delivered by the configuration
+              modification owned by step 1 (AML.T0081), so the exact
+              mapping is retained only for the within-thread semantics.
           mappings:
             - decision: "exact"
               taxonomy: "ATLAS"
@@ -1667,7 +1652,7 @@ patterns:
           action_kind: "invoke"
           consumed:
             - kind: "state"
-              ref_id: "state.all_threads_poisoned"
+              ref_id: "state.thread_context_persistently_poisoned"
               value_type: "boolean"
           produced:
             - kind: "effect"
@@ -1797,7 +1782,7 @@ patterns:
       pattern_id: "AP-T11-05"
       chain_id: "chain.ap-t11-05"
       semantic_revision: 1
-      semantic_digest: "e595dc888cb7bc345cfdcec9ffe3f8c9a91a27e0a273dcdf8b6819c6e0874194"
+      semantic_digest: "03f79532b0dd0873d66561b9ac8288a524b897f0b31e1087dbcee1b7a42f8d59"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1983,6 +1968,9 @@ patterns:
             - kind: "effect"
               ref_id: "effect.gui_sequence_directed"
               value_type: "boolean"
+            - kind: "state"
+              ref_id: "state.gui_direction_active"
+              value_type: "boolean"
           preconditions: []
           observable_postconditions:
             - postcondition_id: "post.gui_action_injection.directed"
@@ -2018,7 +2006,7 @@ patterns:
           action_kind: "impact"
           consumed:
             - kind: "state"
-              ref_id: "state.clipboard_loaded"
+              ref_id: "state.gui_direction_active"
               value_type: "boolean"
           produced:
             - kind: "effect"
@@ -2121,7 +2109,7 @@ patterns:
       pattern_id: "AP-T17-03"
       chain_id: "chain.ap-t17-03"
       semantic_revision: 1
-      semantic_digest: "ad2e1a30ee1caa142eb4f8c1b7a9039693527e0dc08dce0257ab24884af66a69"
+      semantic_digest: "7e08dbf14269a0cf97697dcfb518f17b5270c55425a56d8c1bbe03d2d83fba87"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -2190,19 +2178,23 @@ patterns:
           order: 2
           attacker_controlled: true
           provenance:
-            tier: "observed"
+            tier: "variant"
             references:
               - reference_type: "catalog"
                 reference_id: "AML.CS0053 S01"
               - reference_type: "design_record"
                 reference_id: "catalog-lineage:AP-T17-03"
-            confidence: 90
+            confidence: 75
             adaptation_rationale: >
-              Explicit against AML.CS0053 S01 (modifying the legitimate
-              server implementation to include the covert BCC side-channel).
-              In this pattern the capability is embedded from initial
-              publication; the clean-release-then-update timing is
-              AP-T17-04's boundary per the lineage.
+              The covert BCC side-channel modification is explicit against
+              AML.CS0053 S01, but CS0053 observed it applied to an
+              already-adopted legitimate package (S00 published legitimate
+              versions first; S03 waited for adoption), not developed for
+              initial malicious publication. Embedding the capability from
+              initial publication is the lineage-assigned timing variant
+              for this pattern (catalog-lineage:AP-T17-03); the
+              clean-release-then-update timing is AP-T17-04's boundary.
+              Tiered variant for the temporal recomposition.
           mappings:
             - decision: "unmapped"
               taxonomy: "ATLAS"
@@ -2237,18 +2229,25 @@ patterns:
           order: 3
           attacker_controlled: true
           provenance:
-            tier: "observed"
+            tier: "variant"
             references:
               - reference_type: "catalog"
                 reference_id: "AML.CS0053 S02"
               - reference_type: "design_record"
                 reference_id: "catalog-lineage:AP-T17-03"
-            confidence: 95
+            confidence: 80
             adaptation_rationale: >
-              Explicit against AML.CS0053 S02 (publishing the
-              functional-but-poisoned package to the registry; pins
-              AML.T0104), which is AML.T0104's exact defined operation
-              (pinned technique definition).
+              Publishing the functional-but-poisoned package is explicit
+              against AML.CS0053 S02 (pins AML.T0104) and is AML.T0104's
+              exact defined operation (pinned technique definition).
+              However, CS0053 observed the poisoned publication as a
+              malicious update following legitimate releases (S00) and a
+              wait-for-adoption period (S03); initial malicious
+              publication under the namesquatted name is the
+              lineage-assigned timing variant for this pattern
+              (catalog-lineage:AP-T17-03), while the observed
+              update-after-adoption timing is AP-T17-04's boundary.
+              Tiered variant for the temporal recomposition.
           mappings:
             - decision: "exact"
               taxonomy: "ATLAS"

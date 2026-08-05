@@ -18,8 +18,19 @@ Wave contract for ``data/taxonomies/attack-patterns/attack-patterns-atlas-derive
   step-scope in provenance; AML.CS case-step citations are checked against
   the pinned ATLAS case-step index, with ``retag``/``analogue`` hedges
   required to name the pinned technique they diverge from;
-- cross-step linkage is explicit: every consumed reference is produced by
-  an earlier step of the same chain.
+- cross-step linkage is explicit and causal: an exact expected-edge table
+  pins every step's consumed/produced references, every consumed reference
+  is produced by an earlier step of the same chain, and no produced
+  state/artifact dead-ends before the final step (required operations such
+  as activations must be consumed downstream, not bypassed);
+- split-derived first steps declare ``equality``-true preconditions on
+  runtime_state boolean facts (a present-but-false fact must fail, which
+  ``existence(true)`` could not express), with true/false/unknown
+  evaluation pinned;
+- provenance tiers mark temporally recomposed steps (AP-T17-03's
+  development/publication timing) as variant with rationale, and
+  AP-T6-07's AML.T0080.001 step stays within the pinned technique's
+  within-thread semantics.
 """
 
 from __future__ import annotations
@@ -36,8 +47,10 @@ from scenario_forge.data.loaders import load_attack_patterns
 from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
 from scenario_forge.models.attack_pattern import (
     AttackPattern,
+    EvaluatedFactEvidence,
     ExactMapping,
     compute_chain_semantic_digest,
+    evaluate_condition,
     validate_attack_pattern,
     validate_legacy_attack_pattern,
 )
@@ -112,13 +125,12 @@ EXPECTED: dict[str, dict[str, Any]] = {
         "chain_exact": {"AML.T0051.000", "AML.T0053"},
         "step_exact": {
             "arbitrary_prompting": {"AML.T0051.000"},
-            "privileged_tool_execution": {"AML.T0053"},
+            "privileged_tool_invocation": {"AML.T0053"},
             "impact": {"AML.T0112.000"},
         },
         "steps": [
             "arbitrary_prompting",
-            "system_discovery",
-            "privileged_tool_execution",
+            "privileged_tool_invocation",
             "impact",
         ],
         "slots": [
@@ -168,13 +180,13 @@ EXPECTED: dict[str, dict[str, Any]] = {
         "step_exact": {
             "config_modification": {"AML.T0081"},
             "poisoned_prompt_activation": {"AML.T0051.002"},
-            "propagation": {"AML.T0080.001"},
+            "thread_context_persistence": {"AML.T0080.001"},
             "c2_activation": {"AML.T0108"},
         },
         "steps": [
             "config_modification",
             "poisoned_prompt_activation",
-            "propagation",
+            "thread_context_persistence",
             "c2_activation",
             "impact",
         ],
@@ -268,23 +280,285 @@ EXPECTED: dict[str, dict[str, Any]] = {
 # Golden semantic digests of the authored chains: any semantic content edit
 # must recompute these deliberately, not silently.
 GOLDEN_DIGESTS = {
-    "AP-T1-06": "fe445af904cde56022f4ad2e69c00adab9b2407a47ec23761047cbed9a843a1a",
+    "AP-T1-06": "b909c88cc2faf210e6a5e92e8a54480eacdd864886ff355e5682d36a2b543726",
     "AP-T3-04": "2117b6a9c4c163bd740a52cbc28d81eb64e8fcc4d30d909d87e0c260cbec1fd0",
-    "AP-T3-05": "155d72ec8b178e1521cc7040275c8065824a66ec076fbeaf8a1f1b1ce81c52c4",
-    "AP-T3-06": "b0516b957229509392a9b7af78caec95ddc85b58c8f1109b0853f3c8d491e1e9",
-    "AP-T6-06": "99cf3d3bd01b4e97798926b777a1e47abbf2b22204b352c1493fa15979b03d63",
-    "AP-T6-07": "a4398b01f9fa9529fdcbfa1ebafb1d9399a2ba764918885dd628b9b2eae6d8b5",
-    "AP-T11-05": "e595dc888cb7bc345cfdcec9ffe3f8c9a91a27e0a273dcdf8b6819c6e0874194",
-    "AP-T17-03": "ad2e1a30ee1caa142eb4f8c1b7a9039693527e0dc08dce0257ab24884af66a69",
+    "AP-T3-05": "574fd682c74cfde97c826f3b8fe91bc3dec46e05e0f35c7c86e73059dc881322",
+    "AP-T3-06": "bd0b98bc8ff97fac83c6ae11f91d5a2804d08aa24728d765a0e38b8e80ea2536",
+    "AP-T6-06": "328202dc227dacbc60f756e117c438815552e698d694bda4e3e668f9e791cc9d",
+    "AP-T6-07": "deba39f5df81d3e2a6ea2c6a2c344cc9cf6302b666e99eac78cdd3270afce600",
+    "AP-T11-05": "03f79532b0dd0873d66561b9ac8288a524b897f0b31e1087dbcee1b7a42f8d59",
+    "AP-T17-03": "7e08dbf14269a0cf97697dcfb518f17b5270c55425a56d8c1bbe03d2d83fba87",
     "AP-T17-04": "82be435cc29b946ddb1d2c6445ee3e6639be46c8e58f853918b0949e2377a74d",
 }
 
 # Split-derived first steps presuppose a sibling pattern's outcome; the
-# precondition must be declared explicitly as a runtime_state existence fact.
+# precondition must be declared as an equality-true condition on a
+# runtime_state boolean fact (existence(true) would pass a present-but-false
+# fact, so equality on the boolean value is required).
 EXPECTED_PRECONDITIONS = {
     ("AP-T3-05", "config_credential_harvest"): "control_interface_accessible",
     ("AP-T3-06", "arbitrary_prompting"): "control_interface_accessible",
     ("AP-T6-07", "config_modification"): "attacker_code_execution_on_agent_host",
+}
+
+# Exact expected edges: step_id -> (consumed, produced) as (kind, ref_id)
+# sets. This is the causal total-order contract: activation and staging
+# operations must be consumed by the steps they enable, never bypassed.
+EXPECTED_EDGES: dict[str, dict[str, tuple[set, set]]] = {
+    "AP-T1-06": {
+        "craft_payload": (
+            set(),
+            {
+                ("artifact", "artifact.disguised_payload"),
+                ("state", "state.exfil_endpoint_staged"),
+            },
+        ),
+        "deliver_content": (
+            {("artifact", "artifact.disguised_payload")},
+            {("state", "state.content_delivered")},
+        ),
+        "rag_ingestion": (
+            {("state", "state.content_delivered")},
+            {("state", "state.poisoned_corpus_entry")},
+        ),
+        "zero_click_activation": (
+            {("state", "state.poisoned_corpus_entry")},
+            {
+                ("effect", "effect.injection_activated"),
+                ("state", "state.injected_directive_active"),
+            },
+        ),
+        "data_collection": (
+            {("state", "state.injected_directive_active")},
+            {("state", "state.sensitive_data_assembled")},
+        ),
+        "rendered_output_exfiltration": (
+            {
+                ("state", "state.sensitive_data_assembled"),
+                ("state", "state.exfil_endpoint_staged"),
+            },
+            {("state", "state.trojanized_rendered_output")},
+        ),
+        "impact": (
+            {("state", "state.trojanized_rendered_output")},
+            {("effect", "effect.sensitive_data_exfiltrated")},
+        ),
+    },
+    "AP-T3-04": {
+        "reconnaissance": (set(), {("state", "state.exposed_interface_identified")}),
+        "initial_access": (
+            {("state", "state.exposed_interface_identified")},
+            {("effect", "effect.unauthorized_interface_access")},
+        ),
+    },
+    "AP-T3-05": {
+        "config_credential_harvest": (
+            set(),
+            {
+                ("state", "state.config_credentials_harvested"),
+                ("state", "state.control_interface_channel"),
+            },
+        ),
+        "env_credential_harvest": (
+            {("state", "state.control_interface_channel")},
+            {("state", "state.env_credentials_harvested")},
+        ),
+        "lateral_movement": (
+            {
+                ("state", "state.config_credentials_harvested"),
+                ("state", "state.env_credentials_harvested"),
+            },
+            {("effect", "effect.connected_service_access")},
+        ),
+    },
+    "AP-T3-06": {
+        "arbitrary_prompting": (
+            set(),
+            {("state", "state.prompt_channel_established")},
+        ),
+        "privileged_tool_invocation": (
+            {("state", "state.prompt_channel_established")},
+            {("state", "state.privileged_invocation_initiated")},
+        ),
+        "impact": (
+            {("state", "state.privileged_invocation_initiated")},
+            {("effect", "effect.agent_machine_compromise")},
+        ),
+    },
+    "AP-T6-06": {
+        "reconnaissance": (set(), {("state", "state.agent_architecture_known")}),
+        "discover_control_sequences": (
+            {("state", "state.agent_architecture_known")},
+            {("state", "state.control_sequences_discovered")},
+        ),
+        "craft_injection": (
+            {("state", "state.control_sequences_discovered")},
+            {("artifact", "artifact.spoofing_injection")},
+        ),
+        "stage_infrastructure": (
+            {("artifact", "artifact.spoofing_injection")},
+            {("state", "state.injection_staged")},
+        ),
+        "social_engineering_lure": (
+            {("state", "state.injection_staged")},
+            {("state", "state.victim_lured")},
+        ),
+        "initial_access": (
+            {("state", "state.victim_lured")},
+            {("state", "state.injection_in_context")},
+        ),
+        "injection_activation": (
+            {("state", "state.injection_in_context")},
+            {
+                ("effect", "effect.injection_activated"),
+                ("state", "state.injection_active"),
+            },
+        ),
+        "control_sequence_spoofing": (
+            {("state", "state.injection_active")},
+            {("state", "state.authorization_spoofed")},
+        ),
+        "script_execution": (
+            {("state", "state.authorization_spoofed")},
+            {
+                ("effect", "effect.injected_command_executed"),
+                ("state", "state.attacker_script_executed"),
+            },
+        ),
+    },
+    "AP-T6-07": {
+        "config_modification": (set(), {("state", "state.config_poisoned")}),
+        "poisoned_prompt_activation": (
+            {("state", "state.config_poisoned")},
+            {
+                ("effect", "effect.poisoned_prompt_active"),
+                ("state", "state.poisoned_directive_active"),
+            },
+        ),
+        "thread_context_persistence": (
+            {("state", "state.poisoned_directive_active")},
+            {("state", "state.thread_context_persistently_poisoned")},
+        ),
+        "c2_activation": (
+            {("state", "state.thread_context_persistently_poisoned")},
+            {
+                ("effect", "effect.c2_commands_executed"),
+                ("state", "state.c2_channel_active"),
+            },
+        ),
+        "impact": (
+            {("state", "state.c2_channel_active")},
+            {("effect", "effect.persistent_agent_compromise")},
+        ),
+    },
+    "AP-T11-05": {
+        "generate_adversarial_content": (
+            set(),
+            {("artifact", "artifact.adversarial_web_content")},
+        ),
+        "stage_infrastructure": (
+            {("artifact", "artifact.adversarial_web_content")},
+            {("state", "state.malicious_site_staged")},
+        ),
+        "delivery": (
+            {("state", "state.malicious_site_staged")},
+            {("state", "state.content_in_agent_context")},
+        ),
+        "engagement": (
+            {("state", "state.content_in_agent_context")},
+            {("state", "state.clipboard_loaded")},
+        ),
+        "gui_action_injection": (
+            {("state", "state.clipboard_loaded")},
+            {
+                ("effect", "effect.gui_sequence_directed"),
+                ("state", "state.gui_direction_active"),
+            },
+        ),
+        "host_execution": (
+            {("state", "state.gui_direction_active")},
+            {("effect", "effect.host_code_executed")},
+        ),
+    },
+    "AP-T17-03": {
+        "namesquatting": (set(), {("state", "state.registry_name_claimed")}),
+        "develop_poisoned_tool": (set(), {("artifact", "artifact.poisoned_tool")}),
+        "publish_poisoned_tool": (
+            {
+                ("state", "state.registry_name_claimed"),
+                ("artifact", "artifact.poisoned_tool"),
+            },
+            {("state", "state.poisoned_tool_published")},
+        ),
+        "supply_chain_distribution": (
+            {("state", "state.poisoned_tool_published")},
+            {("state", "state.tool_installed")},
+        ),
+        "persistence": (
+            {("state", "state.tool_installed")},
+            {("state", "state.tool_persisted")},
+        ),
+        "tool_invocation": (
+            {("state", "state.tool_persisted")},
+            {
+                ("effect", "effect.poisoned_tool_executed"),
+                ("state", "state.invocation_channel_active"),
+            },
+        ),
+        "exfiltration": (
+            {("state", "state.invocation_channel_active")},
+            {("state", "state.data_transmitted_to_attacker")},
+        ),
+        "impact": (
+            {("state", "state.data_transmitted_to_attacker")},
+            {("effect", "effect.sensitive_data_compromised")},
+        ),
+    },
+    "AP-T17-04": {
+        "publish_clean_tool": (set(), {("state", "state.clean_tool_published")}),
+        "rug_pull_timing": (
+            {("state", "state.clean_tool_published")},
+            {("state", "state.adoption_accumulated")},
+        ),
+        "push_malicious_update": (
+            {("state", "state.adoption_accumulated")},
+            {("state", "state.malicious_update_published")},
+        ),
+        "upgrade_distribution": (
+            {("state", "state.malicious_update_published")},
+            {("state", "state.poisoned_version_installed")},
+        ),
+        "persistence": (
+            {("state", "state.poisoned_version_installed")},
+            {("state", "state.tool_persisted")},
+        ),
+        "tool_invocation": (
+            {("state", "state.tool_persisted")},
+            {
+                ("effect", "effect.poisoned_tool_executed"),
+                ("state", "state.invocation_channel_active"),
+            },
+        ),
+        "exfiltration": (
+            {("state", "state.invocation_channel_active")},
+            {("state", "state.data_transmitted_to_attacker")},
+        ),
+        "impact": (
+            {("state", "state.data_transmitted_to_attacker")},
+            {("effect", "effect.sensitive_data_compromised")},
+        ),
+    },
+}
+
+# Steps whose exact (tier, confidence) is pinned beyond the generic tier
+# bands: AP-T17-03's development/publication steps are temporally
+# recomposed (CS0053 published legitimate versions before the malicious
+# update), so they must be tiered variant; AP-T6-07's persistence step is
+# pinned after its narrowing to within-thread semantics.
+EXPECTED_STEP_TIERS = {
+    ("AP-T17-03", "develop_poisoned_tool"): ("variant", 75),
+    ("AP-T17-03", "publish_poisoned_tool"): ("variant", 80),
+    ("AP-T6-07", "thread_context_persistence"): ("observed", 85),
 }
 
 _TIER_CONFIDENCE = {"observed": (85, 100), "variant": (60, 85), "inferred": (0, 60)}
@@ -489,11 +763,124 @@ class TestChainSemantics:
     def test_split_preconditions_declared(self, patterns, pid, step_id):
         step = _step_by_id(patterns[pid].canonical_chain, step_id)
         (pre,) = step.preconditions
-        assert pre.condition.op == "existence"
-        assert pre.condition.exists is True
+        assert pre.condition.op == "equality"
+        assert pre.condition.value is True
         fact = pre.condition.fact
         assert fact.namespace == "runtime_state"
+        assert fact.value_type == "boolean"
         assert fact.fact_id == EXPECTED_PRECONDITIONS[(pid, step_id)]
+
+    @pytest.mark.parametrize(
+        "pid,step_id",
+        [(pid, sid) for pid, sid in EXPECTED_PRECONDITIONS],
+    )
+    def test_split_preconditions_require_true_not_mere_presence(
+        self, patterns, pid, step_id
+    ):
+        """A present-but-false boolean fact must fail the precondition.
+
+        This is the regression guard for the ``existence(true)`` ->
+        ``equality(true)`` correction: existence only checks presence, so a
+        control interface that is present but not accessible would have
+        qualified.
+        """
+        step = _step_by_id(patterns[pid].canonical_chain, step_id)
+        (pre,) = step.preconditions
+        fact = pre.condition.fact
+
+        def evidence(status, value):
+            return (EvaluatedFactEvidence(fact=fact, status=status, value=value),)
+
+        assert evaluate_condition(pre.condition, evidence("present", True)) == "true"
+        assert evaluate_condition(pre.condition, evidence("present", False)) == "false"
+        assert evaluate_condition(pre.condition, evidence("absent", None)) == "false"
+        assert evaluate_condition(pre.condition, evidence("unknown", None)) == "unknown"
+
+    @pytest.mark.parametrize("pid", list(EXPECTED))
+    def test_exact_expected_edges(self, patterns, pid):
+        """Every step's consumed/produced references match the pinned edges."""
+        chain = patterns[pid].canonical_chain
+        expected = EXPECTED_EDGES[pid]
+        assert {s.step_id for s in chain.steps} == set(expected)
+        for step in chain.steps:
+            consumed_expected, produced_expected = expected[step.step_id]
+            consumed = {(ref.kind, ref.ref_id) for ref in step.consumed}
+            produced = {(ref.kind, ref.ref_id) for ref in step.produced}
+            assert consumed == consumed_expected, f"{pid}:{step.step_id} consumed"
+            assert produced == produced_expected, f"{pid}:{step.step_id} produced"
+
+    @pytest.mark.parametrize("pid", list(EXPECTED))
+    def test_no_produced_state_or_artifact_dead_ends(self, patterns, pid):
+        """Non-final produced states/artifacts must be consumed downstream.
+
+        Effects are terminal events and the final step's outputs close the
+        chain; everything else unconsumed is a bypassed operation.
+        """
+        chain = patterns[pid].canonical_chain
+        consumed_later: set[str] = set()
+        for step in chain.steps[1:]:
+            consumed_later |= {ref.ref_id for ref in step.consumed}
+        for step in chain.steps[:-1]:
+            for ref in step.produced:
+                if ref.kind == "effect":
+                    continue
+                assert ref.ref_id in consumed_later, (
+                    f"{pid}:{step.step_id} produces {ref.ref_id} "
+                    "which no later step consumes (bypassed operation)"
+                )
+
+    @pytest.mark.parametrize(
+        "pid,step_id",
+        [(pid, sid) for pid, sid in EXPECTED_STEP_TIERS],
+    )
+    def test_pinned_step_tiers(self, patterns, pid, step_id):
+        step = _step_by_id(patterns[pid].canonical_chain, step_id)
+        tier, confidence = EXPECTED_STEP_TIERS[(pid, step_id)]
+        assert step.provenance.tier == tier
+        assert step.provenance.confidence == confidence
+
+    @pytest.mark.parametrize(
+        "pid,step_id",
+        [
+            ("AP-T17-03", "develop_poisoned_tool"),
+            ("AP-T17-03", "publish_poisoned_tool"),
+        ],
+    )
+    def test_recomposed_timing_steps_rationalize_variant(self, patterns, pid, step_id):
+        """Variant-tiered timing steps must state the observed-vs-recomposed
+        split explicitly: CS0053 published legitimate versions first."""
+        step = _step_by_id(patterns[pid].canonical_chain, step_id)
+        rationale = step.provenance.adaptation_rationale
+        assert "legitimate" in rationale
+        assert "recomposition" in rationale
+        assert "AP-T17-04" in rationale
+
+    def test_t3_06_privileged_step_is_invocation_only_impact_owns_execution(
+        self, patterns
+    ):
+        """Successful root execution lives only at the terminal impact."""
+        chain = patterns["AP-T3-06"].canonical_chain
+        invocation = _step_by_id(chain, "privileged_tool_invocation")
+        (post,) = invocation.observable_postconditions
+        assert "initiates" in post.description
+        assert "executes attacker-directed commands as root" not in post.description
+        assert not post.terminal
+        impact = _step_by_id(chain, "impact")
+        (terminal,) = impact.observable_postconditions
+        assert terminal.terminal and terminal.security_relevant
+        assert "executes attacker-directed commands as root" in terminal.description
+
+    def test_t6_07_t0080_001_stays_within_thread_semantics(self, patterns):
+        """AML.T0080.001 is remainder-of-a-thread persistence; the claim that
+        every new thread is poisoned must be attributed to AML.T0081."""
+        chain = patterns["AP-T6-07"].canonical_chain
+        step = _step_by_id(chain, "thread_context_persistence")
+        (post,) = step.observable_postconditions
+        assert "remainder of that thread" in post.description
+        assert "spans all future interactions" not in post.description
+        rationale = step.provenance.adaptation_rationale
+        assert "pinned technique definition AML.T0080.001" in rationale
+        assert "AML.T0081" in rationale
 
 
 class TestEvidenceAndRationale:
