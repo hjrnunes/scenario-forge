@@ -205,28 +205,11 @@ DELTA_RETAGGED_STEPS = {
 }
 
 # Reported envelope deltas: the record mechanism boundary itself is narrowed
-# so chain-level exact identities rest on pinned operations. Only these two
-# records may deviate from the lineage mechanism_boundary text.
-DELTA_DESCRIPTIONS = {
-    "AP-T1-04": (
-        "Write false operational data into a RAG-indexed retrieval store shared "
-        "among multiple agents so agents retrieving from the store incorporate "
-        "the corrupted data into their decision-making, propagating incorrect "
-        "behavior without direct attacker interaction with each agent. Narrowed "
-        "to the shared RAG-indexed retrieval substrate (AML.T0070's pinned "
-        "operation); generic shared-memory backends are out of scope. Owns the "
-        "shared-substrate corruption within OG-02."
-    ),
-    "AP-T2-06": (
-        "Inject adversarial instructions directly so the agent invokes its "
-        "command/scripting interpreter tool (shell or code interpreter exposed "
-        "as an agent tool) to run an attacker-chosen command. Narrowed to "
-        "interpreter execution, AML.T0050's pinned operation; the generic "
-        "API-client mode is out of scope. Owns the tool-execution hijack within "
-        "OG-04 and the direct-delivery vector; the goal-override mechanism is "
-        "AP-T6-02 and indirect delivery is AP-T6-03."
-    ),
-}
+# so chain-level exact identities rest on pinned operations.
+# Note: the memory-tool live descriptions happen to equal the lineage
+# mechanism_boundary text for all 14 records; this is a domain-specific
+# property, not a universal contract. The catalog-wide integration test
+# (test_catalog_lineage_integration.py) documents the general case.
 
 # Record-specific provenance tier pins for the review-mandated downgrades.
 EXPECTED_STEP_TIERS = {
@@ -310,7 +293,13 @@ def test_envelope_and_threat_context_preserved(patterns, lineage) -> None:
         assert record["prerequisite_capabilities"]["min_zones"]
 
 
-def test_description_is_lineage_mechanism_boundary(patterns, lineage) -> None:
+def test_memory_tool_descriptions_equal_lineage_boundary(patterns, lineage) -> None:
+    """Memory-tool live descriptions equal the lineage mechanism_boundary.
+
+    This is a domain-specific property of the memory-tool patterns; the
+    catalog-wide integration test documents that no universal relation
+    holds across all 49 records.
+    """
     for pid, record in patterns.items():
         assert record["description"] == resulting(lineage, pid)["mechanism_boundary"], (
             pid

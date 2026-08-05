@@ -190,15 +190,22 @@ class TestTechniquesFromCanonicalChain:
 
     The SSSOM file carries historical ``relatedMatch`` provenance hints; the
     canonical chain carries authoritative ``exact`` mappings.  These tests
-    verify that each pattern has a canonical chain with exact ATLAS mappings
-    and that at least one exact mapping is supported by (or is a sub-technique
-    of) an SSSOM ``relatedMatch`` entry, confirming historical continuity.
+    verify that each pattern has a canonical chain with exact ATLAS mappings,
+    that every exact mapping is a valid pinned ATLAS identifier (via the
+    production resolver), and that at least one exact mapping is supported
+    by (or is a parent/sub-technique of) an SSSOM ``relatedMatch`` entry,
+    confirming historical continuity.
     """
+
+    @pytest.fixture(scope="module")
+    def resolver(self):
+        from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+
+        return load_taxonomy_resolver()
 
     @pytest.mark.parametrize("pid", ATLAS_DERIVED_IDS)
     def test_canonical_chain_has_exact_mappings(
         self,
-        sssom_mappings: list[SSSOMMapping],
         all_patterns: dict[str, dict],
         pid: str,
     ) -> None:
@@ -221,11 +228,11 @@ class TestTechniquesFromCanonicalChain:
     @pytest.mark.parametrize("pid", ATLAS_DERIVED_IDS)
     def test_exact_mappings_are_valid_atlas_ids(
         self,
-        sssom_mappings: list[SSSOMMapping],
         all_patterns: dict[str, dict],
+        resolver,
         pid: str,
     ) -> None:
-        """All exact canonical chain mappings use valid AML.T technique IDs."""
+        """All exact canonical chain mappings are valid pinned ATLAS identifiers."""
         pattern = all_patterns[pid]
         cc = pattern["canonical_chain"]
         all_exact: set[str] = set()
@@ -237,9 +244,52 @@ class TestTechniquesFromCanonicalChain:
                 if mapping.get("decision") == "exact":
                     all_exact.update(mapping.get("ids", []))
         for tech in all_exact:
-            assert tech.startswith("AML.T"), (
-                f"{pid}: invalid ATLAS technique in canonical chain: {tech}"
+            assert resolver.contains("ATLAS", tech), (
+                f"{pid}: exact mapping {tech} is not a valid pinned ATLAS identifier"
             )
+
+    @pytest.mark.parametrize("pid", ATLAS_DERIVED_IDS)
+    def test_historical_continuity_with_sssom(
+        self,
+        sssom_mappings: list[SSSOMMapping],
+        all_patterns: dict[str, dict],
+        pid: str,
+    ) -> None:
+        """At least one exact canonical mapping overlaps (exact or parent/sub-technique)
+        with an SSSOM ``relatedMatch`` entry for the same pattern.
+
+        This confirms historical continuity between the original SSSOM provenance
+        hints and the authoritative canonical-chain exact mappings.
+        """
+        pattern = all_patterns[pid]
+        cc = pattern["canonical_chain"]
+        exact_ids: set[str] = set()
+        for mapping in cc.get("mappings", []):
+            if mapping.get("decision") == "exact":
+                exact_ids.update(mapping.get("ids", []))
+        for step in cc.get("steps", []):
+            for mapping in step.get("mappings", []):
+                if mapping.get("decision") == "exact":
+                    exact_ids.update(mapping.get("ids", []))
+
+        sssom_ids = {m.object_id for m in sssom_mappings if m.subject_id == pid}
+
+        def _is_related(exact_id: str, sssom_id: str) -> bool:
+            if exact_id == sssom_id:
+                return True
+            # exact is a sub-technique of sssom (e.g. AML.T0069.000 vs AML.T0069)
+            if exact_id.startswith(sssom_id + "."):
+                return True
+            # sssom is a sub-technique of exact
+            return bool(sssom_id.startswith(exact_id + "."))
+
+        overlapping = [
+            e for e in exact_ids if any(_is_related(e, s) for s in sssom_ids)
+        ]
+        assert overlapping, (
+            f"{pid}: no canonical exact mapping overlaps with SSSOM provenance. "
+            f"exact={sorted(exact_ids)}, sssom={sorted(sssom_ids)}"
+        )
 
 
 class TestGlobLoaderIncludesNewFile:
