@@ -30,9 +30,11 @@ matching, and labels are never authoritative inputs.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Capability level scale (shared with ActorProfile.capability_level)
@@ -187,7 +189,7 @@ def _spec(
     )
 
 
-COMPLEXITY_RULE_TABLE: dict[ComplexityRuleId, ComplexityRuleSpec] = {
+_COMPLEXITY_RULE_TABLE: dict[ComplexityRuleId, ComplexityRuleSpec] = {
     # Candidate phase — typed ProjectedCandidate inputs, all known before
     # Call 0, so remediation is Call 0 bounded actor regeneration.
     "chain.multi_step_attacker_control": _spec(
@@ -253,7 +255,15 @@ COMPLEXITY_RULE_TABLE: dict[ComplexityRuleId, ComplexityRuleSpec] = {
         "attack_tree_realization",
     ),
 }
-"""The one authoritative, closed v1 rule table (metadata per rule)."""
+
+COMPLEXITY_RULE_TABLE: Mapping[ComplexityRuleId, ComplexityRuleSpec] = MappingProxyType(
+    _COMPLEXITY_RULE_TABLE
+)
+"""The one authoritative, closed v1 rule table (metadata per rule).
+
+Runtime-immutable: the v1 table is closed by definition, so mutation
+raises ``TypeError``.  Changing a rule requires a rule-version bump.
+"""
 
 
 class ComplexityReason(ComplexityModel):
@@ -272,8 +282,24 @@ class ComplexityReason(ComplexityModel):
     )
     evidence: tuple[ComplexityEvidenceReference, ...] = Field(
         min_length=1,
-        description="Typed references to the exact inputs that fired the rule.",
+        description=(
+            "Typed references to the exact inputs that fired the rule. "
+            "Canonicalized by ascending (kind, ref_id) at construction and "
+            "on load, so the same evidence set always serializes "
+            "byte-identically regardless of producer iteration order; "
+            "duplicates are rejected."
+        ),
     )
+
+    @field_validator("evidence", mode="after")
+    @classmethod
+    def canonicalize_evidence(
+        cls, value: tuple[ComplexityEvidenceReference, ...]
+    ) -> tuple[ComplexityEvidenceReference, ...]:
+        keys = [(ref.kind, ref.ref_id) for ref in value]
+        if len(set(keys)) != len(keys):
+            raise ValueError("evidence references must be unique by (kind, ref_id)")
+        return tuple(sorted(value, key=lambda ref: (ref.kind, ref.ref_id)))
 
     @model_validator(mode="after")
     def coherent_with_rule_table(self) -> ComplexityReason:
@@ -388,6 +414,22 @@ class AttackComplexityAssessment(ComplexityModel):
 # ---------------------------------------------------------------------------
 # Admission contract (fail-closed, typed routing)
 # ---------------------------------------------------------------------------
+
+
+def earliest_responsible_stage(reasons: tuple[ComplexityReason, ...]) -> AdmissionStage:
+    """Earliest lifecycle stage responsible for a set of triggering reasons.
+
+    Deterministic: minimum over the fixed ``ADMISSION_STAGE_ORDER`` of each
+    rule's ``responsible_stage`` from the authoritative rule table.  This is
+    the single source of truth used both by the admission helper and by the
+    violation model's routing-coherence validation.
+    """
+    if not reasons:
+        raise ValueError("at least one triggering reason is required")
+    return min(
+        (COMPLEXITY_RULE_TABLE[reason.rule_id].responsible_stage for reason in reasons),
+        key=ADMISSION_STAGE_ORDER.index,
+    )
 
 
 class _AdmissionRoutingBase(ComplexityModel):
@@ -539,6 +581,27 @@ class CapabilityAdmissionViolation(ComplexityModel):
         if not below and self.triggering_reasons:
             raise ValueError(
                 "phase-unavailable violations must not carry triggering reasons"
+            )
+        if below:
+            top = max(
+                capability_level_rank(reason.required_level)
+                for reason in self.triggering_reasons
+            )
+            if capability_level_rank(self.required_level) != top:  # type: ignore[arg-type]
+                raise ValueError(
+                    "required_level must equal the top level of the triggering reasons"
+                )
+            expected_stage = earliest_responsible_stage(self.triggering_reasons)
+            if self.routing.stage != expected_stage:
+                raise ValueError(
+                    f"routing stage '{self.routing.stage}' does not match the "
+                    f"deterministic earliest responsible stage "
+                    f"'{expected_stage}' implied by the triggering reasons"
+                )
+        elif not isinstance(self.routing, QuarantineRouting):
+            raise ValueError(
+                "phase-unavailable violations must carry quarantine routing "
+                "(the fail-closed fallback owned by cmps.5)"
             )
         return self
 

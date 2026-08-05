@@ -916,20 +916,37 @@ class TestRoutingDiscriminatedContract:
         data["routing"] = routing
         return data
 
-    def test_variants_serialize_and_round_trip(self) -> None:
-        reason = _reason("action.external_precondition", "intermediate", "leaf_action")
-        for routing in (
-            Call0RegenerationRouting(feedback="call0"),
-            RealizationRetryRouting(feedback="realization"),
-            QuarantineRouting(feedback="quarantine"),
-        ):
+    def test_each_variant_round_trips_with_a_matching_reason(self) -> None:
+        call0_reason = _reason(
+            "access.supply_chain_targeting",
+            "advanced",
+            "actor_access_provenance",
+            "ep:v1:" + "ab" * 16,
+        )
+        realization_reason = _reason(
+            "action.external_precondition", "intermediate", "leaf_action"
+        )
+        combos = (
+            ((call0_reason,), "advanced", Call0RegenerationRouting(feedback="a")),
+            (
+                (realization_reason,),
+                "intermediate",
+                RealizationRetryRouting(feedback="b"),
+            ),
+            (
+                (call0_reason, realization_reason),
+                "advanced",
+                Call0RegenerationRouting(feedback="c"),
+            ),
+        )
+        for reasons, top_level, routing in combos:
             violation = CapabilityAdmissionViolation(
                 rule_id="actor_capability_below_attack_complexity",
                 phase="final",
                 rule_version="1",
                 actor_capability_level="novice",
-                required_level="intermediate",
-                triggering_reasons=(reason,),
+                required_level=top_level,  # type: ignore[arg-type]
+                triggering_reasons=reasons,
                 routing=routing,
             )
             restored = CapabilityAdmissionViolation.model_validate(
@@ -937,6 +954,86 @@ class TestRoutingDiscriminatedContract:
             )
             assert restored.routing == routing
             assert type(restored.routing) is type(routing)
+
+    def test_mismatched_reason_routing_variants_rejected(self) -> None:
+        """Routing stage must equal the deterministic earliest responsible
+        stage implied by the triggering reasons — the typed contract is
+        authoritative, not only the helper producer."""
+        realization_reason = _reason(
+            "action.external_precondition", "intermediate", "leaf_action"
+        )
+        call0_reason = _reason(
+            "access.supply_chain_targeting",
+            "advanced",
+            "actor_access_provenance",
+            "ep:v1:" + "ab" * 16,
+        )
+
+        def _violation(reasons, level, routing) -> None:
+            CapabilityAdmissionViolation(
+                rule_id="actor_capability_below_attack_complexity",
+                phase="final",
+                rule_version="1",
+                actor_capability_level="novice",
+                required_level=level,
+                triggering_reasons=reasons,
+                routing=routing,
+            )
+
+        # Realization-owned reason cannot route to Call 0 or quarantine.
+        with pytest.raises(ValidationError, match="earliest responsible stage"):
+            _violation(
+                (realization_reason,),
+                "intermediate",
+                Call0RegenerationRouting(feedback="x"),
+            )
+        with pytest.raises(ValidationError, match="earliest responsible stage"):
+            _violation(
+                (realization_reason,), "intermediate", QuarantineRouting(feedback="x")
+            )
+        # Call-0-owned reason cannot route to realization retry.
+        with pytest.raises(ValidationError, match="earliest responsible stage"):
+            _violation(
+                (call0_reason,), "advanced", RealizationRetryRouting(feedback="x")
+            )
+        # Mixed top-level reasons: earliest stage (Call 0) is required.
+        with pytest.raises(ValidationError, match="earliest responsible stage"):
+            _violation(
+                (call0_reason, realization_reason),
+                "advanced",
+                RealizationRetryRouting(feedback="x"),
+            )
+
+    def test_required_level_must_equal_top_of_triggering_reasons(self) -> None:
+        realization_reason = _reason(
+            "action.external_precondition", "intermediate", "leaf_action"
+        )
+        with pytest.raises(ValidationError, match="top level"):
+            CapabilityAdmissionViolation(
+                rule_id="actor_capability_below_attack_complexity",
+                phase="final",
+                rule_version="1",
+                actor_capability_level="novice",
+                required_level="advanced",
+                triggering_reasons=(realization_reason,),
+                routing=RealizationRetryRouting(feedback="x"),
+            )
+
+    def test_phase_unavailable_must_carry_quarantine_routing(self) -> None:
+        for bad_routing in (
+            Call0RegenerationRouting(feedback="x"),
+            RealizationRetryRouting(feedback="x"),
+        ):
+            with pytest.raises(ValidationError, match="quarantine routing"):
+                CapabilityAdmissionViolation(
+                    rule_id="complexity_assessment_phase_unavailable",
+                    phase="final",
+                    rule_version="1",
+                    actor_capability_level="expert",
+                    required_level=None,
+                    triggering_reasons=(),
+                    routing=bad_routing,
+                )
 
     @pytest.mark.parametrize(
         ("stage", "action"),
@@ -980,6 +1077,137 @@ class TestRoutingDiscriminatedContract:
                 routing.model_dump(mode="json")
             )
             assert type(parsed) is type(routing)
+
+
+# ---------------------------------------------------------------------------
+# Evidence determinism (canonical ordering, no caller-order leakage)
+# ---------------------------------------------------------------------------
+
+_FIXTURE_REQ = {
+    "schema_version": "1",
+    "requirement_id": "req.fixture.tool",
+    "kind": "state_changing_tool_fixture",
+    "tool_slot_id": "tool",
+}
+_UPSTREAM_REQ = {
+    "schema_version": "1",
+    "requirement_id": "req.upstream.source",
+    "kind": "upstream_source_influence",
+    "source_slot_id": "source",
+    "source_identity_kind": "integration",
+    "trust_boundary_slot_id": "boundary",
+}
+
+
+def _canonical_json(model: Any) -> bytes:
+    return json.dumps(model.model_dump(mode="json"), sort_keys=True).encode("utf-8")
+
+
+class TestEvidenceDeterminism:
+    """The same typed evidence set must serialize byte-identically
+    regardless of producer iteration order; duplicates are invalid."""
+
+    def test_reversed_realized_leaves_byte_identical(self) -> None:
+        leaf_a = _leaf("n1.1", None, ExternalPreconditionAction())
+        leaf_b = _leaf("n1.2", None, ExternalPreconditionAction())
+        forward = assess_final_complexity(
+            assess_candidate_complexity(_candidate(n_attacker=1)),
+            [leaf_a, leaf_b],
+            None,
+        )
+        reversed_ = assess_final_complexity(
+            assess_candidate_complexity(_candidate(n_attacker=1)),
+            [leaf_b, leaf_a],
+            None,
+        )
+        assert forward == reversed_
+        assert _canonical_json(forward) == _canonical_json(reversed_)
+
+    def test_reversed_requirements_byte_identical(self) -> None:
+        forward = assess_candidate_complexity(
+            _candidate_with_requirements(_FIXTURE_REQ, _UPSTREAM_REQ)
+        )
+        reversed_ = assess_candidate_complexity(
+            _candidate_with_requirements(_UPSTREAM_REQ, _FIXTURE_REQ)
+        )
+        assert forward == reversed_
+        assert _canonical_json(forward) == _canonical_json(reversed_)
+
+    def test_unsorted_evidence_normalized_at_construction(self) -> None:
+        reason = ComplexityReason(
+            rule_id="action.external_precondition",
+            required_level="intermediate",
+            detail="fixture",
+            evidence=(
+                ComplexityEvidenceReference(kind="leaf_action", ref_id="n1.2"),
+                ComplexityEvidenceReference(kind="leaf_action", ref_id="n1.1"),
+            ),
+        )
+        assert [ref.ref_id for ref in reason.evidence] == ["n1.1", "n1.2"]
+
+    def test_duplicate_evidence_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="unique by"):
+            ComplexityReason(
+                rule_id="action.external_precondition",
+                required_level="intermediate",
+                detail="fixture",
+                evidence=(
+                    ComplexityEvidenceReference(kind="leaf_action", ref_id="n1.1"),
+                    ComplexityEvidenceReference(kind="leaf_action", ref_id="n1.1"),
+                ),
+            )
+
+    def test_tampered_evidence_reload_normalized_or_invalid(self) -> None:
+        """Reordered persisted evidence reloads to the identical canonical
+        model; duplicated persisted evidence is invalid on reload."""
+        final = assess_final_complexity(
+            assess_candidate_complexity(_candidate(n_attacker=1)),
+            [
+                _leaf("n1.1", None, ExternalPreconditionAction()),
+                _leaf("n1.2", None, ExternalPreconditionAction()),
+            ],
+            None,
+        )
+        data = final.model_dump(mode="json")
+        reasons = data["final"]["reasons"]
+        (ext_reason,) = [
+            r for r in reasons if r["rule_id"] == "action.external_precondition"
+        ]
+        ext_reason["evidence"] = list(reversed(ext_reason["evidence"]))
+        reloaded = AttackComplexityAssessment.model_validate(data)
+        assert reloaded == final
+        assert _canonical_json(reloaded) == _canonical_json(final)
+        # Duplicate persisted evidence is rejected.
+        data2 = final.model_dump(mode="json")
+        reasons2 = data2["final"]["reasons"]
+        (ext2,) = [
+            r for r in reasons2 if r["rule_id"] == "action.external_precondition"
+        ]
+        ext2["evidence"].append(dict(ext2["evidence"][0]))
+        with pytest.raises(ValidationError, match="unique by"):
+            AttackComplexityAssessment.model_validate(data2)
+
+
+# ---------------------------------------------------------------------------
+# Closed rule table runtime immutability
+# ---------------------------------------------------------------------------
+
+
+class TestRuleTableImmutable:
+    def test_mutation_rejected(self) -> None:
+        with pytest.raises(TypeError):
+            COMPLEXITY_RULE_TABLE["chain.new_rule"] = None  # type: ignore[index]
+        with pytest.raises(TypeError):
+            del COMPLEXITY_RULE_TABLE["chain.multi_step_attacker_control"]  # type: ignore[attr-defined]
+        with pytest.raises(TypeError):
+            COMPLEXITY_RULE_TABLE["chain.deep_attacker_control"] = (  # type: ignore[index]
+                COMPLEXITY_RULE_TABLE["chain.deep_attacker_control"]
+            )
+
+    def test_specs_themselves_frozen(self) -> None:
+        spec = COMPLEXITY_RULE_TABLE["chain.deep_attacker_control"]
+        with pytest.raises(ValidationError):
+            spec.required_level = "novice"  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------

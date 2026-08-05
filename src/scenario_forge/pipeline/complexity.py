@@ -42,7 +42,6 @@ from scenario_forge.models.attack_pattern import (
 )
 from scenario_forge.models.attack_tree import AttackTreeNode, ExternalPreconditionAction
 from scenario_forge.models.complexity import (
-    ADMISSION_STAGE_ORDER,
     COMPLEXITY_RULE_TABLE,
     COMPLEXITY_RULE_VERSION,
     AssessmentPhase,
@@ -59,6 +58,7 @@ from scenario_forge.models.complexity import (
     QuarantineRouting,
     RealizationRetryRouting,
     capability_level_rank,
+    earliest_responsible_stage,
 )
 from scenario_forge.models.scenario import ActorAccessProvenance
 from scenario_forge.pipeline.projection import ProjectedCandidate
@@ -377,18 +377,6 @@ def assess_final_complexity(
     return assessment.model_copy(update={"final": _assemble_phase("final", reasons)})
 
 
-def _earliest_responsible_stage(reasons: tuple[ComplexityReason, ...]) -> str:
-    """Earliest lifecycle stage responsible for the triggering reasons.
-
-    Deterministic: minimum over the fixed ``ADMISSION_STAGE_ORDER`` of
-    each rule's ``responsible_stage`` from the authoritative rule table.
-    """
-    return min(
-        (COMPLEXITY_RULE_TABLE[reason.rule_id].responsible_stage for reason in reasons),
-        key=ADMISSION_STAGE_ORDER.index,
-    )
-
-
 def evaluate_capability_admission(
     actor_capability_level: CapabilityLevel,
     assessment: AttackComplexityAssessment,
@@ -444,7 +432,7 @@ def evaluate_capability_admission(
         if reason.required_level == required
     )
     rule_ids = ", ".join(reason.rule_id for reason in triggering)
-    stage = _earliest_responsible_stage(triggering)
+    stage = earliest_responsible_stage(triggering)
     routing: ComplexityAdmissionRouting
     if stage == "call0_actor_generation":
         if phase == "candidate_lower_bound":
@@ -483,15 +471,12 @@ def evaluate_capability_admission(
                 "falls back to quarantine owned by cmps.5."
             )
         )
-    else:  # defensive fail-closed; no v1 rule is quarantine-owned
-        routing = QuarantineRouting(
-            feedback=(
-                f"Actor capability '{actor_capability_level}' is below the "
-                f"required level '{required}' (complexity rule "
-                f"v{assessment.rule_version}; triggered by: {rule_ids}); "
-                "no bounded retry stage accepts responsibility — fail "
-                "closed to the quarantine fallback owned by cmps.5."
-            )
+    else:
+        # Unreachable in rule table v1: no rule is quarantine-owned, and the
+        # violation model rejects below-complexity routing whose stage does
+        # not match the earliest responsible stage implied by the reasons.
+        raise ValueError(
+            f"no bounded retry stage owns the triggering rules: {rule_ids}"
         )
     return CapabilityAdmissionDecision(
         admitted=False,

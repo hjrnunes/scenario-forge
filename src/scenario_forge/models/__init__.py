@@ -111,6 +111,7 @@ from scenario_forge.models.complexity import (
     QuarantineRouting,
     RealizationRetryRouting,
     capability_level_rank,
+    earliest_responsible_stage,
 )
 from scenario_forge.models.risk_card import (
     EvidenceSpan,
@@ -247,6 +248,7 @@ __all__ = [
     "QuarantineRouting",
     "RealizationRetryRouting",
     "capability_level_rank",
+    "earliest_responsible_stage",
     # risk_card
     "EvidenceSpan",
     "MitigationRef",
