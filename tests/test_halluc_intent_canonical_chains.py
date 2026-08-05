@@ -89,7 +89,7 @@ EXPECTED_DIGESTS = {
     "AP-T6-04": "ff2c34fdfc5f28917d4b688c471cf1f1f1a5a3acb5b5367bfe84236228850cda",
     "AP-T6-05": "af8d8409ada5649362e5956d42e5561123270264d7a559cb43224d849db6f627",
     "AP-T11-01": "a48eb5d88eb0f77c8583dcd3453981d0511a316941396122494a0953b59c4391",
-    "AP-T11-02": "5708110e064e68edc14791240dc5f1b8d52711c2d9b90031b16495ee6e9da438",
+    "AP-T11-02": "12051d3c8975407c8c32b654baebbf3a2b588d598880a37f48089712862205e8",
     "AP-T11-03": "d36e511d60897af34254063f4e14a0eecea7a273809aa8637b3f62c2cda13608",
     "AP-T13-04": "7ab798b166ee36a169fb8023b94992099809c985aebcba7ec6fb2e6100c4d290",
 }
@@ -113,41 +113,41 @@ EXPECTED_CHAIN_MAPPINGS = {
 
 EXPECTED_STEP_MAPPINGS = {
     "AP-T5-01": {
-        "conceal_payload": "AML.T0068",
-        "deliver_via_trusted_channel": "AML.T0051.001",
+        ("conceal_payload", "AML.T0068"),
+        ("deliver_via_trusted_channel", "AML.T0051.001"),
     },
     "AP-T5-02": {
-        "develop_endpoint_injection": "AML.T0066",
-        "activate_injection": "AML.T0051.002",
+        ("develop_endpoint_injection", "AML.T0066"),
+        ("activate_injection", "AML.T0051.002"),
     },
     "AP-T5-04": {
-        "craft_false_reference_data": "AML.T0066",
-        "manipulate_tool_invocations": "AML.T0053",
+        ("craft_false_reference_data", "AML.T0066"),
+        ("manipulate_tool_invocations", "AML.T0053"),
     },
-    "AP-T6-01": {"setup": "AML.T0065"},
-    "AP-T6-02": {"execute_code_via_interpreter": "AML.T0050"},
+    "AP-T6-01": {("setup", "AML.T0065")},
+    "AP-T6-02": {("execute_code_via_interpreter", "AML.T0050")},
     "AP-T6-03": {
-        "craft_poisoned_content": "AML.T0066",
-        "conceal_injection": "AML.T0068",
+        ("craft_poisoned_content", "AML.T0066"),
+        ("conceal_injection", "AML.T0068"),
     },
-    "AP-T6-04": {"delivery": "AML.T0051.000"},
+    "AP-T6-04": {("delivery", "AML.T0051.000")},
     "AP-T6-05": {
-        "access_learning_interface": "AML.T0040",
-        "deliver_adversarial_feedback": "AML.T0051.000",
+        ("access_learning_interface", "AML.T0040"),
+        ("deliver_adversarial_feedback", "AML.T0051.000"),
     },
-    "AP-T11-01": {"execute_embedded_payload": "AML.T0050"},
+    "AP-T11-01": {("execute_embedded_payload", "AML.T0050")},
     "AP-T11-02": {
-        "deliver_backdoor_prompt": "AML.T0051.000",
-        "generate_backdoored_workflow": "AML.T0053",
-        "execute_hidden_logic": "AML.T0050",
+        ("deliver_backdoor_prompt", "AML.T0051.000"),
+        ("generate_backdoored_workflow", "AML.T0053"),
+        ("execute_hidden_logic", "AML.T0050"),
     },
     "AP-T11-03": {
-        "craft_ambiguous_input": "AML.T0065",
-        "execute_unintended_command": "AML.T0050",
+        ("craft_ambiguous_input", "AML.T0065"),
+        ("execute_unintended_command", "AML.T0050"),
     },
     "AP-T13-04": {
-        "inject_initial_payload": "AML.T0051.001",
-        "replicate_in_agent_outputs": "AML.T0061",
+        ("inject_initial_payload", "AML.T0051.001"),
+        ("replicate_in_agent_outputs", "AML.T0061"),
     },
 }
 
@@ -172,24 +172,94 @@ LINEAGE_MAPPING_DELTAS = {
     "AP-T11-01": {
         "lineage_chain": {"AML.T0051.000", "AML.T0053"},
         "lineage_steps": {
-            "execute_code_in_interpreter": "AML.T0050",
-            "escape_sandbox": "AML.T0105",
+            ("execute_code_in_interpreter", "AML.T0050"),
+            ("escape_sandbox", "AML.T0105"),
         },
     },
     "AP-T11-02": {
         "lineage_chain": {"AML.T0081", "AML.T0051.000"},
         "lineage_steps": {
-            "generate_backdoor_scripts": "AML.T0053",
-            "execute_unauthorized_actions": "AML.T0050",
+            ("generate_backdoor_scripts", "AML.T0053"),
+            ("execute_unauthorized_actions", "AML.T0050"),
         },
     },
     "AP-T6-02": {
         "lineage_chain": {"AML.T0051.000"},
         "lineage_steps": {
-            "execute_code_via_interpreter": "AML.T0050",
-            "exfiltrate_credentials": "AML.T0055",
+            ("execute_code_via_interpreter", "AML.T0050"),
+            ("exfiltrate_credentials", "AML.T0055"),
         },
     },
+}
+
+# Provenance/mechanism lineage deltas reported for integration (final
+# re-review): the lineage artifact's per-resulting ``provenance_plan`` strings
+# still describe the pre-correction chains.  The tripwire pins the artifact's
+# current exact text plus the live step count, so integration must update the
+# provenance plans (never the historical legacy_kill_chain_steps counts) in
+# lockstep with this file.
+#
+# Required updates:
+# - AP-T5-01: live chain is 8 steps; the recursive compounding is structurally
+#   unrolled (reuse_stored_fabrication -> feedback_reinforces_memory) before
+#   the compounded terminal.
+# - AP-T5-02: live chain is 5 steps; the duplicate downstream impact step is
+#   folded into the terminal endpoint-exfiltration step.
+# - AP-T5-04: adapted steps are 4, 6, 9, 10 (obfuscation reordered before
+#   delivery at step 5, explicit at tactic level).
+# - AP-T6-02: live chain is 6 steps against CS0016 S00-S05; the credential
+#   (S06) and broader-impact (S07) steps are outside the first-terminal
+#   boundary.
+# - AP-T11-01: live chain is 11 steps; steps 1-8 explicit against CS0052
+#   S00-S07, IaC steps (generation/deployment/on-deployment execution) tiered
+#   variant, never observed IaC timing.
+# - AP-T11-02: live chain is 5 steps; direct prompt delivery through the
+#   agent's ordinary user interface (access folded into the delivery ingress);
+#   no configuration poisoning.
+# - AP-T13-04: live chain is 4 steps terminating at first peer replication;
+#   the network-wide persistence step is removed.
+LINEAGE_PROVENANCE_DELTAS = {
+    "AP-T5-01": {
+        "current": "Adapt the 6-step legacy chain: memory-persistence steps explicit against AML.CS0040, the compounding/feedback steps adapted (review-t1-t5.md: CS0040 does not demonstrate accumulation); AML.CS0009 secondary analogue for gradual degradation.",
+        "live_steps": 8,
+    },
+    "AP-T5-02": {
+        "current": "Adapt the 6-step legacy chain against AML.CS0021 (primary) and AML.CS0029 (secondary): steps 1-3 explicit at tactic level, steps 4-5 adapted (endpoint invocation is an adaptation of client-side rendering), impact adapted; remove AML.CS0020 per review-t1-t5.md.",
+        "live_steps": 5,
+    },
+    "AP-T5-04": {
+        "current": "Adapt the 10-step legacy chain against AML.CS0026's 14-procedure source: reconnaissance and persistence explicit at tactic level; steps 4, 5, 9, 10 adapted per tactic-sequences-t1-t5.md; the generalization from bank details to generic quantitative values is honestly adapted.",
+        "live_steps": 10,
+    },
+    "AP-T6-02": {
+        "current": "Adapt the 8-step legacy chain with explicit tiers against AML.CS0016 S00-S07; keep both execution phases per review-t6-t7.md; credential step wording reflects revelation in application output.",
+        "live_steps": 6,
+    },
+    "AP-T11-01": {
+        "current": "Adapt the 12-step legacy chain with explicit tiers against AML.CS0052 S00-S11; record-level lineage stays enrichment and the IaC specialization is labeled an abstraction over the source's generic prompt-to-RCE mechanism.",
+        "live_steps": 11,
+    },
+    "AP-T11-02": {
+        "current": "Adapt the 6-step legacy chain with all steps adapted against AML.CS0047 S00-S06 (agent-as-payload correction per review-t11-t17.md); remove AML.CS0062; do not represent the techniques as direct CS0047 fidelity.",
+        "live_steps": 5,
+    },
+    "AP-T13-04": {
+        "current": "Adapt the 5-step legacy chain against AML.CS0024 with adapted resource-development and execution tiers; propagation is treated as a pattern-level lateral-movement adaptation, not an explicit CS0024 mapping.",
+        "live_steps": 4,
+    },
+}
+
+# Historical source chain lengths in the lineage artifact.  These describe the
+# *legacy* records and must never be altered by integration, even though the
+# live canonical chains now have different step counts.
+LEGACY_KILL_CHAIN_STEPS_HISTORICAL = {
+    "AP-T5-01": 6,
+    "AP-T5-02": 6,
+    "AP-T5-04": 10,
+    "AP-T6-02": 8,
+    "AP-T11-01": 12,
+    "AP-T11-02": 6,
+    "AP-T13-04": 5,
 }
 
 # Per-record terminal expectations: final step id and required keywords in the
@@ -262,7 +332,6 @@ EXPECTED_STEP_SEQUENCES = {
     ],
     "AP-T11-02": [
         "develop_backdoor_prompt",
-        "access_workflow_agent_interface",
         "deliver_backdoor_prompt",
         "generate_backdoored_workflow",
         "persist_backdoored_workflow",
@@ -348,12 +417,18 @@ def _chain_exact_ids(chain: dict) -> set[str]:
     }
 
 
-def _step_exact_ids(chain: dict) -> dict[str, str]:
+def _step_exact_ids(chain: dict) -> set[tuple[str, str]]:
+    """Flatten every id of every exact mapping as (step_id, id) pairs.
+
+    Never inspect only ``ids[0]`` and never key by step alone (which would
+    silently overwrite a step carrying multiple exact ids).
+    """
     return {
-        step["step_id"]: mapping["ids"][0]
+        (step["step_id"], identifier)
         for step in chain["steps"]
         for mapping in step["mappings"]
         if mapping["decision"] == "exact"
+        for identifier in mapping["ids"]
     }
 
 
@@ -473,7 +548,7 @@ def test_lineage_mappings_agree_or_match_reported_delta(
     assert set(LINEAGE_MAPPING_DELTAS) == {"AP-T11-01", "AP-T11-02", "AP-T6-02"}
     for pid, entry in lineage_resulting.items():
         lineage_chain = {m["id"] for m in entry["atlas_chain_mappings"]}
-        lineage_steps = {m["step"]: m["id"] for m in entry["atlas_step_mappings"]}
+        lineage_steps = {(m["step"], m["id"]) for m in entry["atlas_step_mappings"]}
         delta = LINEAGE_MAPPING_DELTAS.get(pid)
         if delta is None:
             assert lineage_chain == EXPECTED_CHAIN_MAPPINGS[pid], pid
@@ -481,6 +556,50 @@ def test_lineage_mappings_agree_or_match_reported_delta(
         else:
             assert lineage_chain == delta["lineage_chain"], pid
             assert lineage_steps == delta["lineage_steps"], pid
+
+
+def test_lineage_provenance_plans_match_reported_deltas(
+    lineage_resulting: dict, patterns: dict
+) -> None:
+    """Mechanism/provenance handoff: the lineage artifact's provenance plans
+    still describe the pre-correction chains.  Pin the artifact's exact
+    current text and the live step count so integration updates both sides in
+    lockstep (and never the historical legacy step counts)."""
+    assert set(LINEAGE_PROVENANCE_DELTAS) == {
+        "AP-T5-01",
+        "AP-T5-02",
+        "AP-T5-04",
+        "AP-T6-02",
+        "AP-T11-01",
+        "AP-T11-02",
+        "AP-T13-04",
+    }
+    for pid, delta in LINEAGE_PROVENANCE_DELTAS.items():
+        entry = lineage_resulting[pid]
+        assert entry["provenance_plan"] == delta["current"], pid
+        live_steps = len(patterns[pid]["canonical_chain"]["steps"])
+        assert live_steps == delta["live_steps"], pid
+        # Every pinned plan begins "Adapt the N-step legacy chain"; the plan's
+        # stated count must differ from the live count (except AP-T5-04, whose
+        # reorder keeps the count — staleness there is the adapted-step list).
+        plan = entry["provenance_plan"]
+        assert plan.startswith("Adapt the "), pid
+        plan_steps = int(plan.split("Adapt the ", 1)[1].split("-step", 1)[0])
+        if pid == "AP-T5-04":
+            assert plan_steps == live_steps, pid
+        else:
+            assert plan_steps != live_steps, pid
+
+
+def test_lineage_historical_kill_chain_step_counts_unchanged(lineage: dict) -> None:
+    """Historical legacy_kill_chain_steps describe the legacy source records;
+    integration must not alter them even though live chains differ."""
+    for source in lineage["sources"]:
+        expected = LEGACY_KILL_CHAIN_STEPS_HISTORICAL.get(source["source_pattern_id"])
+        if expected is not None:
+            assert source["legacy_kill_chain_steps"] == expected, source[
+                "source_pattern_id"
+            ]
 
 
 # ---------------------------------------------------------------------------
@@ -782,7 +901,7 @@ def test_t11_01_iac_sequence_and_honest_tiers(patterns: dict) -> None:
     assert execute["action_kind"] == "impact"
     assert [ref["ref_id"] for ref in execute["consumed"]] == ["deployed_configuration"]
     assert _step_exact_ids(record["canonical_chain"]) == {
-        "execute_embedded_payload": "AML.T0050"
+        ("execute_embedded_payload", "AML.T0050")
     }
     terminal = _terminal_postconditions(execute)
     assert len(terminal) == 1
@@ -794,14 +913,19 @@ def test_t11_01_iac_sequence_and_honest_tiers(patterns: dict) -> None:
 def test_t11_02_direct_delivery_and_strict_variant_provenance(patterns: dict) -> None:
     """Direct AML.T0051.000 prompt delivery to the workflow agent; no
     credential/repository configuration poisoning and no AML.T0081 anywhere;
-    every step stays variant-tier CS0047 adaptation."""
+    every step stays variant-tier CS0047 adaptation with the agent-as-payload
+    mismatch stated. Ordinary interface access is folded into the delivery
+    ingress, so the crafted prompt is consumed exactly once."""
     record = patterns["AP-T11-02"]
     chain = record["canonical_chain"]
     steps = chain["steps"]
+    assert len(steps) == 5
 
     strings = set(_walk_strings(record))
     for removed in (
         "obtain_credentials",
+        "access_workflow_agent_interface",
+        "workflow_agent_session",
         "inject_malicious_configuration",
         "initialize_poisoned_agent",
         "publishing_credentials",
@@ -810,6 +934,14 @@ def test_t11_02_direct_delivery_and_strict_variant_provenance(patterns: dict) ->
         "AML.T0081",
     ):
         assert removed not in strings, removed
+
+    # The crafted prompt has exactly one consumer: the delivery step.
+    prompt_consumers = [
+        step["step_id"]
+        for step in steps
+        if any(ref["ref_id"] == "backdoor_prompt" for ref in step["consumed"])
+    ]
+    assert prompt_consumers == ["deliver_backdoor_prompt"]
 
     for step in steps:
         provenance = step["provenance"]
@@ -821,14 +953,23 @@ def test_t11_02_direct_delivery_and_strict_variant_provenance(patterns: dict) ->
         assert "AML.CS0047" in reference_ids, step["step_id"]
         rationale = provenance["adaptation_rationale"].lower()
         assert "adapt" in rationale or "analog" in rationale, step["step_id"]
+        # The agent-as-payload mismatch must be stated on every step: in
+        # CS0047 the agent is the destructive payload, not the target.
+        assert "agent-as-payload" in rationale or (
+            "destructive payload" in rationale and "manipulation target" in rationale
+        ), f"AP-T11-02.{step['step_id']}: agent-as-payload mismatch not stated"
 
-    deliver = steps[2]
+    deliver = steps[1]
     assert deliver["step_id"] == "deliver_backdoor_prompt"
     assert deliver["action_kind"] == "deliver"
+    assert deliver["boundary_position"] == "crossing"
+    assert "ordinary user interface" in (
+        deliver["observable_postconditions"][0]["description"].lower()
+    )
     exact = _step_exact_ids(chain)
-    assert exact["deliver_backdoor_prompt"] == "AML.T0051.000"
-    assert exact["generate_backdoored_workflow"] == "AML.T0053"
-    assert exact["execute_hidden_logic"] == "AML.T0050"
+    assert ("deliver_backdoor_prompt", "AML.T0051.000") in exact
+    assert ("generate_backdoored_workflow", "AML.T0053") in exact
+    assert ("execute_hidden_logic", "AML.T0050") in exact
     assert _chain_exact_ids(chain) == {"AML.T0051.000"}
     assert record["nist_classification"]["attack_class"] == (
         "genai.direct_prompt_injection.abuse_violations"

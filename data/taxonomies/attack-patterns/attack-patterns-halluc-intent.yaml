@@ -2870,11 +2870,11 @@ patterns:
     id: AP-T11-02
     threat_id: T11
     name: Workflow automation backdoor insertion
-    description: Deliver a backdoor-inducing prompt directly to an agent that generates or modifies automation workflows,
-      steering it into embedding backdoor logic in the generated scripts, persisting across executions while surface review
-      inspects only the declared workflow structure. Owns the workflow-generation manipulation mechanism; independent credential
-      or repository configuration poisoning (AML.T0081 territory) and deploying a pre-poisoned agent are excluded (AP-T17-01
-      boundary).
+    description: Deliver a backdoor-inducing prompt directly to an agent that generates or modifies automation workflows through
+      its ordinary user interface, steering it into embedding backdoor logic in the generated scripts, persisting across executions
+      while surface review inspects only the declared workflow structure. Owns the workflow-generation manipulation mechanism;
+      independent credential or repository configuration poisoning (AML.T0081 territory) and deploying a pre-poisoned agent
+      are excluded (AP-T17-01 boundary).
     nist_classification:
       attacker_goal: abuse
       attacker_knowledge: gray_box
@@ -2893,7 +2893,7 @@ patterns:
       pattern_id: AP-T11-02
       chain_id: AP-T11-02.chain.1
       semantic_revision: 1
-      semantic_digest: 5708110e064e68edc14791240dc5f1b8d52711c2d9b90031b16495ee6e9da438
+      semantic_digest: 12051d3c8975407c8c32b654baebbf3a2b588d598880a37f48089712862205e8
       taxonomy_context:
         atlas:
           release: '2026.05'
@@ -2945,26 +2945,26 @@ patterns:
           taxonomy: ATLAS
           rationale: 'No exact ATLAS identity asserted: AML.T0065 is CS0047 S00 procedure lineage for prompt crafting; the
             step is adapted (agent-as-payload correction), so no exact identity is claimed.'
-      - step_id: access_workflow_agent_interface
+      - step_id: deliver_backdoor_prompt
         requirement: required
         condition: null
         executor_role: attacker
         boundary_position: crossing
-        action_kind: invoke
+        action_kind: deliver
         consumed:
         - kind: artifact
           ref_id: backdoor_prompt
           value_type: string
         produced:
         - kind: state
-          ref_id: workflow_agent_session
+          ref_id: injected_directive
           value_type: object
         preconditions: []
         observable_postconditions:
-        - postcondition_id: post.access_workflow_agent_interface
-          description: Ordinary user access to the workflow-generating agent's interface or API obtained; no publishing credentials
-            or repository access required.
-          security_relevant: false
+        - postcondition_id: post.deliver_backdoor_prompt
+          description: The backdoor-inducing prompt delivered directly to the workflow-generating agent through its ordinary
+            user interface or API; no publishing credentials or repository access required.
+          security_relevant: true
           terminal: false
         order: 2
         attacker_controlled: true
@@ -2977,56 +2977,13 @@ patterns:
             reference_id: review-t11-t17.md
           - reference_type: design_record
             reference_id: qa-audit-t11-t17.md
-          confidence: 65
-          adaptation_rationale: 'Adapted from AML.CS0047 S01 analogue: in CS0047 the agent is the destructive payload deployed
-            through supply-chain compromise, not the manipulation target (review-t11-t17.md controlling finding); this pattern
-            manipulates a workflow-generating agent (the source obtains an inappropriately scoped token; this pattern needs
-            only ordinary user access to the agent). Techniques are not represented as direct CS0047 fidelity; the nonexistent
-            AML.CS0062 reference is removed (it does not exist in ATLAS-2026.05).'
-        mappings:
-        - decision: unmapped
-          taxonomy: ATLAS
-          rationale: 'No exact ATLAS identity asserted: AML.T0047/AML.T0083 are legacy procedure lineage for access; the adapted
-            interface-access step claims no exact identity.'
-      - step_id: deliver_backdoor_prompt
-        requirement: required
-        condition: null
-        executor_role: attacker
-        boundary_position: crossing
-        action_kind: deliver
-        consumed:
-        - kind: artifact
-          ref_id: backdoor_prompt
-          value_type: string
-        - kind: state
-          ref_id: workflow_agent_session
-          value_type: object
-        produced:
-        - kind: state
-          ref_id: injected_directive
-          value_type: object
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.deliver_backdoor_prompt
-          description: The backdoor-inducing prompt delivered directly to the workflow-generating agent as a user instruction.
-          security_relevant: true
-          terminal: false
-        order: 3
-        attacker_controlled: true
-        provenance:
-          tier: variant
-          references:
-          - reference_type: catalog
-            reference_id: AML.CS0047
-          - reference_type: design_record
-            reference_id: review-t11-t17.md
-          - reference_type: design_record
-            reference_id: qa-audit-t11-t17.md
           confidence: 70
-          adaptation_rationale: 'Adapted from AML.CS0047 S02-S03 analogue (adapted): the source commits a malicious configuration
-            with the scoped token; this pattern delivers the prompt directly to the workflow-generating agent (agent-as-payload
-            correction per review-t11-t17.md). Injecting the prompt directly as a user of the LLM is AML.T0051.000''s exact
-            defined operation. Evidence: pinned technique definition AML.T0051.000; AML.CS0047 S02-S03 analogue (adapted).'
+          adaptation_rationale: 'Adapted from AML.CS0047 S01-S03 analogue (adapted): the source obtains an inappropriately
+            scoped token and commits a malicious configuration; this pattern reaches the workflow-generating agent through
+            its ordinary user interface (the ingress, no credential or repository access) and delivers the prompt directly
+            (agent-as-payload correction per review-t11-t17.md: in CS0047 the agent is the destructive payload, not the manipulation
+            target). Injecting the prompt directly as a user of the LLM is AML.T0051.000''s exact defined operation. Evidence:
+            pinned technique definition AML.T0051.000; AML.CS0047 S01-S03 analogue (adapted).'
         mappings:
         - decision: exact
           taxonomy: ATLAS
@@ -3063,7 +3020,7 @@ patterns:
             review of the declared structure does not reveal.
           security_relevant: true
           terminal: false
-        order: 4
+        order: 3
         attacker_controlled: true
         provenance:
           tier: variant
@@ -3115,7 +3072,7 @@ patterns:
             review inspects only the declared workflow structure.
           security_relevant: true
           terminal: false
-        order: 5
+        order: 4
         attacker_controlled: false
         provenance:
           tier: variant
@@ -3127,8 +3084,10 @@ patterns:
           - reference_type: design_record
             reference_id: qa-audit-t11-t17.md
           confidence: 60
-          adaptation_rationale: 'Adapted from AML.CS0047 S05 analogue (adapted): workflow registration and persistence mechanics
-            are not source-demonstrated detail; the step realizes the lineage''s persist-across-executions semantics (review-t11-t17.md).'
+          adaptation_rationale: 'Adapted from AML.CS0047 S05 analogue (adapted; agent-as-payload correction per review-t11-t17.md:
+            the source''s payload agent persists through supply-chain deployment, while this pattern''s manipulated workflow
+            agent persists its own backdoored output): workflow registration and persistence mechanics are not source-demonstrated
+            detail; the step realizes the lineage''s persist-across-executions semantics (review-t11-t17.md).'
         mappings:
         - decision: not_applicable
           taxonomy: ATLAS
@@ -3153,7 +3112,7 @@ patterns:
             observable unauthorized action completing the mechanism.'
           security_relevant: true
           terminal: true
-        order: 6
+        order: 5
         attacker_controlled: true
         provenance:
           tier: variant
@@ -3165,10 +3124,12 @@ patterns:
           - reference_type: design_record
             reference_id: qa-audit-t11-t17.md
           confidence: 65
-          adaptation_rationale: 'Adapted from AML.CS0047 S05-S06 analogue (adapted): the hidden logic executing within the
-            workflow runtime is abuse of a command/scripting interpreter, AML.T0050''s operation; execution through scheduled
-            or triggered workflow runs is adapted, not direct CS0047 fidelity. Evidence: AML.CS0047 S05-S06 analogue (adapted);
-            pinned technique definition AML.T0050.'
+          adaptation_rationale: 'Adapted from AML.CS0047 S05-S06 analogue (adapted; agent-as-payload correction per review-t11-t17.md:
+            the source''s destructive agent executes supply-chain-planted logic, while this pattern''s manipulated agent''s
+            backdoored workflow executes the injected hidden logic): the hidden logic executing within the workflow runtime
+            is abuse of a command/scripting interpreter, AML.T0050''s operation; execution through scheduled or triggered
+            workflow runs is adapted, not direct CS0047 fidelity. Evidence: AML.CS0047 S05-S06 analogue (adapted); pinned
+            technique definition AML.T0050.'
         mappings:
         - decision: exact
           taxonomy: ATLAS
