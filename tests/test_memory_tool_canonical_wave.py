@@ -312,17 +312,9 @@ def test_envelope_and_threat_context_preserved(patterns, lineage) -> None:
 
 def test_description_is_lineage_mechanism_boundary(patterns, lineage) -> None:
     for pid, record in patterns.items():
-        if pid in DELTA_DESCRIPTIONS:
-            # Reported envelope delta: the owned boundary is the narrowed text,
-            # not the lineage mechanism_boundary.
-            assert record["description"] == DELTA_DESCRIPTIONS[pid], pid
-            assert (
-                record["description"] != resulting(lineage, pid)["mechanism_boundary"]
-            )
-        else:
-            assert (
-                record["description"] == resulting(lineage, pid)["mechanism_boundary"]
-            ), pid
+        assert record["description"] == resulting(lineage, pid)["mechanism_boundary"], (
+            pid
+        )
 
 
 def test_chain_mapping_is_exactly_lineage_chain_mapping(patterns, lineage) -> None:
@@ -364,19 +356,11 @@ def test_step_mapping_decisions_match_lineage(patterns, lineage) -> None:
         for step in record["canonical_chain"]["steps"]:
             (decision,) = step["mappings"]
             seen.add(step["step_id"])
-            if (pid, step["step_id"]) in DELTA_UNMAPPED_STEPS:
-                # Reported delta: the lineage exact claim is deliberately not
-                # preserved because it rests on indirect-injection evidence.
-                assert (
-                    lineage_step_mappings[step["step_id"]]
-                    == DELTA_UNMAPPED_STEPS[(pid, step["step_id"])]
-                )
-                assert decision["decision"] == "unmapped", (pid, step["step_id"])
-                assert decision["rationale"].strip(), (pid, step["step_id"])
-            elif (pid, step["step_id"]) in DELTA_RETAGGED_STEPS:
-                # Reported delta: the lineage id is deliberately retagged.
-                lineage_id, owned_id = DELTA_RETAGGED_STEPS[(pid, step["step_id"])]
-                assert lineage_step_mappings[step["step_id"]] == lineage_id
+            if (pid, step["step_id"]) in DELTA_RETAGGED_STEPS:
+                # The lineage has been amended: the retagged id now matches
+                # the live chain's owned id.
+                _, owned_id = DELTA_RETAGGED_STEPS[(pid, step["step_id"])]
+                assert lineage_step_mappings[step["step_id"]] == owned_id
                 assert decision["decision"] == "exact", (pid, step["step_id"])
                 assert decision["ids"] == [owned_id], (pid, step["step_id"])
             elif step["step_id"] in lineage_step_mappings:
@@ -387,22 +371,24 @@ def test_step_mapping_decisions_match_lineage(patterns, lineage) -> None:
                 assert decision["rationale"].strip(), (pid, step["step_id"])
             else:
                 assert decision["decision"] == "not_applicable", (pid, step["step_id"])
-        expected_lineage = set(lineage_step_mappings) - {
-            step for (p, step) in DELTA_UNREALIZED_STEPS if p == pid
-        }
-        assert expected_lineage <= seen, (pid, expected_lineage - seen)
+        # The lineage now matches the live chain: every lineage step mapping
+        # must correspond to a seen live step (no unrealized entries remain).
+        assert set(lineage_step_mappings) <= seen, (
+            pid,
+            set(lineage_step_mappings) - seen,
+        )
 
 
 def test_reported_lineage_deltas_are_exactly_scoped(patterns, lineage) -> None:
-    """The unrealized lineage step mappings (AP-T2-06 harvest_credentials,
-    AP-T1-04 propagate_corruption) carry the expected ATLAS ids and have no
-    live step."""
-    for (pid, step_id), atlas_id in DELTA_UNREALIZED_STEPS.items():
+    """The previously unrealized lineage step mappings (AP-T2-06
+    harvest_credentials, AP-T1-04 propagate_corruption) have been removed
+    from the revised lineage and have no live step."""
+    for pid, step_id in DELTA_UNREALIZED_STEPS:
         res = resulting(lineage, pid)
         lineage_step_mappings = {
             m["step"]: m["id"] for m in res.get("atlas_step_mappings", [])
         }
-        assert lineage_step_mappings[step_id] == atlas_id
+        assert step_id not in lineage_step_mappings, (pid, step_id)
         live = {s["step_id"] for s in patterns[pid]["canonical_chain"]["steps"]}
         assert step_id not in live
 

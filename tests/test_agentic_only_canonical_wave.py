@@ -232,20 +232,18 @@ def test_corrected_records_match_review_and_document_lineage_delta(
     for pid, expected_chain in CORRECTED_CHAIN_EXACT.items():
         assert _chain_exact(validated[pid]) == expected_chain, pid
         assert _step_exact(validated[pid]) == CORRECTED_STEP_EXACT[pid], pid
-    # The deltas are explicit: the lineage still carries the superseded
-    # proposals, so the divergence is deliberate and reviewable.
+    # The lineage has been amended: the superseded proposals are removed and
+    # the lineage now matches the live canonical chains exactly.
     t907_lineage_chain = {
         m["id"] for m in lineage_resulting["AP-T9-07"]["atlas_chain_mappings"]
     }
-    assert t907_lineage_chain == {"AML.T0101", "AML.T0029"}
+    assert t907_lineage_chain == {"AML.T0101"}
     t1603_lineage_steps = {
         m["step"]: m["id"]
         for m in lineage_resulting["AP-T16-03"]["atlas_step_mappings"]
     }
     assert t1603_lineage_steps == {
-        "develop_poisoned_tool": "AML.T0104",
-        "inflate_registry_reputation": "AML.T0111",
-        "invoke_privileged_tools": "AML.T0011.002",
+        "alter_registry_metadata": "AML.T0110",
     }
 
 

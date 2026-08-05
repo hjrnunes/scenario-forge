@@ -357,7 +357,7 @@ class TestProvenanceHonesty:
                         )
 
     def test_provenance_tiers_and_confidence_bounds(self, qualified):
-        for pid, pattern in qualified.items():
+        for pattern in qualified.values():
             for step in pattern.canonical_chain.steps:
                 provenance = step.provenance
                 assert provenance.references
@@ -388,7 +388,7 @@ class TestLegacyTransportRemoved:
             assert "evidence" not in record, pid
 
     def test_records_no_longer_parse_as_legacy(self, records):
-        for pid, record in records.items():
+        for record in records.values():
             with pytest.raises(ValidationError):
                 validate_legacy_attack_pattern(record)
 
@@ -486,12 +486,13 @@ class TestAPTT1203Corrections:
         assert "catalog-lineage" in mapping.rationale
         assert "AML.T0051.002" in mapping.rationale
         assert "amendment" in mapping.rationale
-        # The lineage still carries the stale false-exact entry; if the
-        # lineage is amended this guard fails and the exception in
-        # test_step_exact_mappings_match_lineage_exactly must be retired.
+        # The lineage has been amended: the stale false-exact entry is
+        # removed; the lineage step mappings now match the live chain exactly.
         (resulting,) = lineage_entries["AP-T12-03"]["resulting_patterns"]
-        stale = {m["step"]: m["id"] for m in resulting["atlas_step_mappings"]}
-        assert stale.get("trigger_false_incorporation") == "AML.T0051.002"
+        lineage_step_mappings = {
+            m["step"]: m["id"] for m in resulting["atlas_step_mappings"]
+        }
+        assert "trigger_false_incorporation" not in lineage_step_mappings
 
     def test_first_reemission_then_first_multi_peer_cascade(self, qualified):
         steps = _steps(qualified["AP-T12-03"])

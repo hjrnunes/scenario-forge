@@ -44,7 +44,7 @@ from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
 
 AP_DIR = _DEFAULT_LINEAGE_PATH.parent
 
-GOLDEN_DIGEST = "8b78fb5561c54a44124e4e77552f17ff831cd2fd2ebdac8c468737702d3c6110"
+GOLDEN_DIGEST = "78c50e96c65bb63e9a6b60850ec12bda871fbe7730eeb082c86a9b24db22f83a"
 # The historical source snapshot: the authoritative original catalog
 # revision the decisions were made against, and the content digest of its
 # 71 canonicalized loader records.  Golden so the durable pin can never

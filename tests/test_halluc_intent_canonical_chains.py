@@ -172,22 +172,21 @@ LINEAGE_MAPPING_DELTAS = {
     "AP-T11-01": {
         "lineage_chain": {"AML.T0051.000", "AML.T0053"},
         "lineage_steps": {
-            ("execute_code_in_interpreter", "AML.T0050"),
-            ("escape_sandbox", "AML.T0105"),
+            ("execute_embedded_payload", "AML.T0050"),
         },
     },
     "AP-T11-02": {
-        "lineage_chain": {"AML.T0081", "AML.T0051.000"},
+        "lineage_chain": {"AML.T0051.000"},
         "lineage_steps": {
-            ("generate_backdoor_scripts", "AML.T0053"),
-            ("execute_unauthorized_actions", "AML.T0050"),
+            ("deliver_backdoor_prompt", "AML.T0051.000"),
+            ("generate_backdoored_workflow", "AML.T0053"),
+            ("execute_hidden_logic", "AML.T0050"),
         },
     },
     "AP-T6-02": {
         "lineage_chain": {"AML.T0051.000"},
         "lineage_steps": {
             ("execute_code_via_interpreter", "AML.T0050"),
-            ("exfiltrate_credentials", "AML.T0055"),
         },
     },
 }
@@ -220,31 +219,31 @@ LINEAGE_MAPPING_DELTAS = {
 #   the network-wide persistence step is removed.
 LINEAGE_PROVENANCE_DELTAS = {
     "AP-T5-01": {
-        "current": "Adapt the 6-step legacy chain: memory-persistence steps explicit against AML.CS0040, the compounding/feedback steps adapted (review-t1-t5.md: CS0040 does not demonstrate accumulation); AML.CS0009 secondary analogue for gradual degradation.",
+        "current": "Adapt the 8-step unrolled chain: memory-persistence steps explicit against AML.CS0040, the reuse and feedback steps unrolled as one iteration (review-t1-t5.md: CS0040 does not demonstrate accumulation); AML.CS0009 secondary analogue for gradual degradation.",
         "live_steps": 8,
     },
     "AP-T5-02": {
-        "current": "Adapt the 6-step legacy chain against AML.CS0021 (primary) and AML.CS0029 (secondary): steps 1-3 explicit at tactic level, steps 4-5 adapted (endpoint invocation is an adaptation of client-side rendering), impact adapted; remove AML.CS0020 per review-t1-t5.md.",
+        "current": "Adapt the 5-step terminal exfil chain against AML.CS0021 (primary) and AML.CS0029 (secondary): steps 1-3 explicit at tactic level, steps 4-5 adapted (endpoint invocation is an adaptation of client-side rendering), impact adapted; remove AML.CS0020 per review-t1-t5.md.",
         "live_steps": 5,
     },
     "AP-T5-04": {
-        "current": "Adapt the 10-step legacy chain against AML.CS0026's 14-procedure source: reconnaissance and persistence explicit at tactic level; steps 4, 5, 9, 10 adapted per tactic-sequences-t1-t5.md; the generalization from bank details to generic quantitative values is honestly adapted.",
+        "current": "Adapt the 10-step chain against AML.CS0026's 14-procedure source with corrected ordinal order (craft to obfuscate to deliver to persist): reconnaissance and persistence explicit at tactic level; steps 4, 5, 9, 10 adapted per tactic-sequences-t1-t5.md; the generalization from bank details to generic quantitative values is honestly adapted.",
         "live_steps": 10,
     },
     "AP-T6-02": {
-        "current": "Adapt the 8-step legacy chain with explicit tiers against AML.CS0016 S00-S07; keep both execution phases per review-t6-t7.md; credential step wording reflects revelation in application output.",
+        "current": "Adapt the 6-step chain with explicit tiers against AML.CS0016 S00-S05: six steps ending at first unauthorized interpreter execution, no credential or broader compromise; keep both execution phases per review-t6-t7.md.",
         "live_steps": 6,
     },
     "AP-T11-01": {
-        "current": "Adapt the 12-step legacy chain with explicit tiers against AML.CS0052 S00-S11; record-level lineage stays enrichment and the IaC specialization is labeled an abstraction over the source's generic prompt-to-RCE mechanism.",
+        "current": "Adapt the 11-step chain with explicit tiers: S00-S07 explicit against AML.CS0052, and IaC generation/deployment/execution (steps 9-11) adapted as an abstraction over the source's generic prompt-to-RCE mechanism, not observed from CS0052; record-level lineage stays enrichment.",
         "live_steps": 11,
     },
     "AP-T11-02": {
-        "current": "Adapt the 6-step legacy chain with all steps adapted against AML.CS0047 S00-S06 (agent-as-payload correction per review-t11-t17.md); remove AML.CS0062; do not represent the techniques as direct CS0047 fidelity.",
+        "current": "Adapt the 5-step canonical chain with all steps adapted against AML.CS0047 S00-S06 (agent-as-payload correction per review-t11-t17.md); direct ordinary-interface delivery to a live workflow agent, excluding repository/config poisoning; the all-step variant preserves CS0047's agent-as-payload adaptation; canonical length 5.",
         "live_steps": 5,
     },
     "AP-T13-04": {
-        "current": "Adapt the 5-step legacy chain against AML.CS0024 with adapted resource-development and execution tiers; propagation is treated as a pattern-level lateral-movement adaptation, not an explicit CS0024 mapping.",
+        "current": "Adapt the 4-step terminal chain against AML.CS0024 with adapted resource-development and execution tiers; propagation is treated as a pattern-level lateral-movement adaptation ending at first-peer replication, not an explicit CS0024 mapping.",
         "live_steps": 4,
     },
 }
@@ -541,9 +540,10 @@ def test_exact_mapping_sets_equal_expected(patterns: dict) -> None:
 def test_lineage_mappings_agree_or_match_reported_delta(
     lineage_resulting: dict,
 ) -> None:
-    """No-delta records: lineage mapping tables equal the live sets exactly.
-    Delta records: the lineage artifact still holds exactly the pre-correction
-    values reported for integration (tripwire against silent drift)."""
+    """All records: lineage mapping tables equal the live sets exactly.
+
+    The lineage artifact has been amended to match the live canonical chains;
+    the former delta tripwires are replaced by exact equality assertions."""
     assert set(lineage_resulting) == EXPECTED_IDS
     assert set(LINEAGE_MAPPING_DELTAS) == {"AP-T11-01", "AP-T11-02", "AP-T6-02"}
     for pid, entry in lineage_resulting.items():
@@ -562,9 +562,9 @@ def test_lineage_provenance_plans_match_reported_deltas(
     lineage_resulting: dict, patterns: dict
 ) -> None:
     """Mechanism/provenance handoff: the lineage artifact's provenance plans
-    still describe the pre-correction chains.  Pin the artifact's exact
-    current text and the live step count so integration updates both sides in
-    lockstep (and never the historical legacy step counts)."""
+    now match the corrected live chains.  Pin the artifact's exact text and
+    the live step count so both sides stay in lockstep (and never the
+    historical legacy step counts)."""
     assert set(LINEAGE_PROVENANCE_DELTAS) == {
         "AP-T5-01",
         "AP-T5-02",
@@ -579,16 +579,12 @@ def test_lineage_provenance_plans_match_reported_deltas(
         assert entry["provenance_plan"] == delta["current"], pid
         live_steps = len(patterns[pid]["canonical_chain"]["steps"])
         assert live_steps == delta["live_steps"], pid
-        # Every pinned plan begins "Adapt the N-step legacy chain"; the plan's
-        # stated count must differ from the live count (except AP-T5-04, whose
-        # reorder keeps the count — staleness there is the adapted-step list).
+        # Every pinned plan begins "Adapt the N-step"; the plan's stated
+        # count must match the live count (lineage is now corrected).
         plan = entry["provenance_plan"]
         assert plan.startswith("Adapt the "), pid
         plan_steps = int(plan.split("Adapt the ", 1)[1].split("-step", 1)[0])
-        if pid == "AP-T5-04":
-            assert plan_steps == live_steps, pid
-        else:
-            assert plan_steps != live_steps, pid
+        assert plan_steps == live_steps, pid
 
 
 def test_lineage_historical_kill_chain_step_counts_unchanged(lineage: dict) -> None:

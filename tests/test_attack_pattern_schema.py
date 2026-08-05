@@ -23,7 +23,6 @@ from scenario_forge.models.attack_pattern import (
     compute_projection_digest,
     evaluate_condition,
     validate_attack_pattern,
-    validate_legacy_attack_pattern,
     validate_projection_snapshot,
 )
 
@@ -246,16 +245,22 @@ def test_chain_digest_normalization_and_semantic_sensitivity() -> None:
 
 
 def test_legacy_catalog_stays_isolated() -> None:
+    """The live catalog is now canonical (49 records with canonical_chain).
+
+    Legacy kill_chain fields are gone from every live record; each record
+    validates as the canonical AttackPattern model and does NOT validate as
+    a LegacyAttackPatternRecord (which requires kill_chain/evidence).
+    """
     records = load_attack_patterns()
-    assert len(records) == 71
+    assert len(records) == 49
+    assert all("kill_chain" not in r for r in records.values())
+    assert all("canonical_chain" in r for r in records.values())
     assert all(
-        isinstance(validate_legacy_attack_pattern(r), LegacyAttackPatternRecord)
+        isinstance(AttackPattern.model_validate(r), AttackPattern)
         for r in records.values()
     )
-    assert all(
-        not Draft202012Validator(AttackPattern.model_json_schema()).is_valid(r)
-        for r in records.values()
-    )
+    with pytest.raises(ValidationError):
+        LegacyAttackPatternRecord.model_validate(next(iter(records.values())))
 
 
 @pytest.mark.parametrize(
