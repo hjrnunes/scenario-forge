@@ -895,3 +895,302 @@ def test_security_assertion_only_from_explicit_outcome_link() -> None:
     # The observation requirement for the same link should also exist.
     obs_reqs = [r for r in candidate.execution_requirements if r.kind == "observation"]
     assert len(obs_reqs) == 1
+
+
+# ---------------------------------------------------------------------------
+# Requirement ID injectivity and uniqueness (second Mayor review)
+# ---------------------------------------------------------------------------
+
+
+def test_requirement_id_injective_for_dotted_components() -> None:
+    """Requirement IDs must be injective: step 'a' + slot 'b.c' must produce
+    a different ID than step 'a.b' + slot 'c'."""
+    from scenario_forge.pipeline.projection import _requirement_id
+
+    id1 = _requirement_id("req.test", "a", "b.c")
+    id2 = _requirement_id("req.test", "a.b", "c")
+    assert id1 != id2, f"requirement IDs collide: {id1} == {id2} for dotted components"
+
+
+def test_requirement_id_stable_and_reversible() -> None:
+    """Same components must always produce the same requirement ID, and
+    the encoding must be reversible (proving injectivity)."""
+    from scenario_forge.pipeline.projection import _requirement_id
+
+    id1 = _requirement_id("req.observation", "step1", "post.result")
+    id2 = _requirement_id("req.observation", "step1", "post.result")
+    assert id1 == id2
+    # Verify the encoding is reversible: the suffix is the last dot-segment
+    # and contains only hex + colons; split on ':' and hex-decode each part.
+    suffix = id1.rsplit(".", 1)[1]
+    parts = suffix.split(":")
+    decoded = [bytes.fromhex(p).decode("utf-8") for p in parts]
+    assert decoded == ["step1", "post.result"]
+
+
+def test_requirement_id_valid_identifier_syntax() -> None:
+    """Generated requirement IDs must match the Identifier regex."""
+    import re
+
+    from scenario_forge.pipeline.projection import _requirement_id
+
+    pattern = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    rid = _requirement_id("req.direct-input", "ingress")
+    assert re.match(pattern, rid), f"{rid} does not match Identifier regex"
+    rid2 = _requirement_id(
+        "req.source-influence", "step.a.b", "slot.c.d", "None", "None"
+    )
+    assert re.match(pattern, rid2), f"{rid2} does not match Identifier regex"
+
+
+def test_derived_id_collision_fails_closed_typed() -> None:
+    """If derived requirement IDs somehow collide (e.g. an encoding edge
+    case), the projection must fail closed with a typed
+    unsupported_requirement_derivation issue, not an uncaught ValueError."""
+    raw = _pattern(conditional=False)
+    # Monkeypatch _requirement_id to force a collision: make it return
+    # the same ID for every call regardless of prefix or components.
+    import scenario_forge.pipeline.projection as proj_mod
+
+    original = proj_mod._requirement_id
+    proj_mod._requirement_id = lambda prefix, *components: "req.collision.forced"
+    try:
+        result = _project(pattern=raw)
+    finally:
+        proj_mod._requirement_id = original
+    assert len(result.candidates) == 0
+    assert any(
+        issue.code == "unsupported_requirement_derivation" and "collide" in issue.detail
+        for issue in result.infeasibilities
+    )
+
+
+def test_dotted_component_partition_collision_fails_closed() -> None:
+    """If two requirement IDs would collide due to dotted component
+    ambiguity, the projection must fail closed with a typed issue.
+
+    We simulate this by having two steps whose step_id/slot_id
+    combinations would produce the same dot-concatenated ID under the
+    old scheme but distinct IDs under the injective encoding.
+    """
+    raw = _pattern(conditional=False)
+    # Add a second tool slot and give step 2 a tool_fixture link to it,
+    # using a slot_id that would collide with step 1's under dot concat.
+    raw["canonical_chain"]["resource_slots"].append(
+        {"slot_id": "tool.b", "kind": "tool", "purpose": "supporting"}
+    )
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {"slot_id": "tool.b", "role": "tool_fixture", "trust_boundary_slot_id": None}
+    ]
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    # With injective encoding, the IDs should NOT collide, so we should
+    # get a candidate.  This proves the encoding prevents the collision.
+    assert len(result.candidates) > 0
+    candidate = result.candidates[0]
+    req_ids = [r.requirement_id for r in candidate.execution_requirements]
+    assert len(req_ids) == len(set(req_ids)), "requirement IDs must be unique"
+
+
+def test_projected_candidate_validator_rejects_duplicate_requirement_ids() -> None:
+    """ProjectedCandidate model validator must reject execution_requirements
+    with duplicate requirement_ids."""
+    from pydantic import ValidationError
+
+    from scenario_forge.pipeline.projection import ProjectedCandidate
+
+    # Build a minimal candidate with duplicate requirement IDs by
+    # constructing two identical requirements and injecting them.
+    raw = _pattern(conditional=False)
+    result = _project(pattern=raw)
+    assert len(result.candidates) > 0
+    candidate = result.candidates[0]
+    # Duplicate the first requirement to create a collision.
+    reqs = list(candidate.execution_requirements)
+    reqs.append(reqs[0])
+    bad_data = candidate.model_dump(mode="json")
+    bad_data["execution_requirements"] = [r.model_dump(mode="json") for r in reqs]
+    with pytest.raises(ValidationError, match="unique"):
+        ProjectedCandidate.model_validate(bad_data)
+
+
+def test_all_live_projected_candidate_requirement_ids_unique() -> None:
+    """Every requirement ID across all live projected candidates must be
+    unique within each candidate."""
+    from scenario_forge.data.loaders import load_attack_patterns
+    from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+
+    patterns = load_attack_patterns()
+    resolver = load_taxonomy_resolver()
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution", "memory", "inter_agent"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+            {
+                "name": "RAG documents",
+                "direction": "input",
+                "controllability": "indirect",
+            },
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=[
+            "KC1.1",
+            "KC5.1",
+            "KCX-PMEM",
+            "KC6.1.1",
+            "KC6.1.2",
+            "KC6.4",
+            "KC6.5",
+        ],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+            {
+                "name": "Queue",
+                "integration_type": "message_queue",
+                "auth_method": "service_account",
+                "data_sensitivity": "medium",
+            },
+        ],
+        trust_boundaries=[
+            {
+                "name": "user-to-agent",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence()])
+    batch = project_authoritative_candidates(
+        list(patterns.values()),
+        resolver,
+        snapshot,
+        budget=ProjectionBudget(max_candidates=512),
+    )
+    for candidate in batch.candidates:
+        req_ids = [r.requirement_id for r in candidate.execution_requirements]
+        assert len(req_ids) == len(set(req_ids)), (
+            f"{candidate.pattern_id}: duplicate requirement IDs {req_ids}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# End-to-end AP-T6-07 infeasibility projection (second Mayor review)
+# ---------------------------------------------------------------------------
+
+
+def test_ap_t6_07_catalog_projection_yields_typed_no_activation_infeasibility() -> None:
+    """End-to-end: projecting the actual AP-T6-07 catalog record with
+    otherwise satisfying profile facts/resources must yield a typed
+    unsupported_requirement_derivation issue for absence of activation,
+    not a candidate or a missing-resource/profile-mismatch issue."""
+    from scenario_forge.data.loaders import load_attack_patterns
+    from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+
+    patterns = load_attack_patterns()
+    raw = patterns["AP-T6-07"]
+    resolver = load_taxonomy_resolver()
+
+    # Build a profile that satisfies all of AP-T6-07's prerequisites:
+    # zones, KC codes, and compatible resources for every declared slot.
+    # AP-T6-07 has: ingress (entry_point), agent_config + c2_channel
+    # (integrations), boundary (trust_boundary).
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution", "memory"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KCX-PMEM", "KC6.1.1", "KC4.3"],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "agent_config",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+            {
+                "name": "c2_channel",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            },
+        ],
+        trust_boundaries=[
+            {
+                "name": "boundary",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    # AP-T6-07 has a precondition requiring attacker_code_execution_on_agent_host
+    # to be True; provide that evidence so the projection reaches the activation
+    # check rather than failing on an unresolved condition.
+    runtime_evidence = EvaluatedFactEvidence(
+        fact=AuthoritativeFactReference.model_validate(
+            {
+                "namespace": "runtime_state",
+                "fact_id": "attacker_code_execution_on_agent_host",
+                "value_type": "boolean",
+                "property_path": [],
+            }
+        ),
+        status="present",
+        value=True,
+    )
+    snapshot = capture_capability_snapshot(profile, [_evidence(), runtime_evidence])
+    batch = project_authoritative_candidates(
+        [raw],
+        resolver,
+        snapshot,
+        budget=ProjectionBudget(max_candidates=10),
+    )
+
+    t6_07_candidates = [c for c in batch.candidates if c.pattern_id == "AP-T6-07"]
+    assert len(t6_07_candidates) == 0, (
+        "AP-T6-07 must not produce a candidate (no activation mechanism)"
+    )
+    t6_07_issues = [i for i in batch.infeasibilities if i.pattern_id == "AP-T6-07"]
+    assert len(t6_07_issues) >= 1, "AP-T6-07 must produce a typed infeasibility issue"
+    issue = t6_07_issues[0]
+    assert issue.code == "unsupported_requirement_derivation"
+    assert "no activation mechanism" in issue.detail, (
+        f"Expected 'no activation mechanism' in detail, got: {issue.detail}"
+    )

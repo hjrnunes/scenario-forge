@@ -328,7 +328,7 @@ patterns:
       pattern_id: "AP-T9-01"
       chain_id: "chain.AP-T9-01"
       semantic_revision: 1
-      semantic_digest: "f35df04f5bd30657392913c80b080358fb74adf41b15c378889da0a7b92d736d"
+      semantic_digest: "6e099140289850b2234c3f4e93efbea865424448888b526ba94ba6e2f8e5ba3c"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -618,8 +618,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.attribution_recorded_for_user
-            observation: model_context
-            binding_slot_id: ingress
+            observation: tool_invocation
+            binding_slot_id: delegated_capability
           order: 6
           attacker_controlled: false
           provenance:

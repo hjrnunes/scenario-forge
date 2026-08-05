@@ -103,6 +103,23 @@ def _resource_key(reference: CanonicalResourceReference) -> str:
     return _canonical_json(reference.model_dump(mode="json"))
 
 
+def _requirement_id(prefix: str, *components: str) -> str:
+    """Generate an injective, stable requirement ID from components.
+
+    Composite requirement IDs must be collision-free even when individual
+    components contain dots (e.g. step ``a`` + slot ``b.c`` vs step ``a.b``
+    + slot ``c``).  Dot concatenation is ambiguous; hashing is not
+    guaranteed injective.  Instead, each component is encoded as its full
+    UTF-8 hexadecimal representation, and the encoded components are joined
+    with ``:`` — a character that never appears in hexadecimal output.
+    This makes the mapping ``(prefix, *components) → ID`` injective: the
+    component list can be recovered by splitting on ``:`` and hex-decoding
+    each segment, so distinct inputs always produce distinct IDs.
+    """
+    encoded = ":".join(c.encode("utf-8").hex() for c in components)
+    return f"{prefix}.{encoded}"
+
+
 _SEMANTICALLY_UNORDERED_FIELDS = {
     "bindings",
     "condition_results",
@@ -337,6 +354,9 @@ class ProjectedCandidate(ProjectionModel):
     @model_validator(mode="after")
     def verifiable_identity_and_derivation(self) -> ProjectedCandidate:
         chain = self.projection.source_chain
+        req_ids = [item.requirement_id for item in self.execution_requirements]
+        if len(req_ids) != len(set(req_ids)):
+            raise ValueError("execution requirement IDs must be unique")
         if (
             self.pattern_id != chain.pattern_id
             or self.chain_id != chain.chain_id
@@ -606,7 +626,9 @@ def _derive_execution_requirements(
                 requirements.append(
                     DirectInputControlRequirement(
                         schema_version="1",
-                        requirement_id=f"req.direct-input.{link.slot_id}",
+                        requirement_id=_requirement_id(
+                            "req.direct-input", link.slot_id
+                        ),
                         kind="direct_input_control",
                         entry_point_slot_id=link.slot_id,
                     )
@@ -615,7 +637,9 @@ def _derive_execution_requirements(
                 requirements.append(
                     StateChangingToolFixtureRequirement(
                         schema_version="1",
-                        requirement_id=f"req.tool-fixture.{step.step_id}.{link.slot_id}",
+                        requirement_id=_requirement_id(
+                            "req.tool-fixture", step.step_id, link.slot_id
+                        ),
                         kind="state_changing_tool_fixture",
                         tool_slot_id=link.slot_id,
                     )
@@ -627,9 +651,12 @@ def _derive_execution_requirements(
                 requirements.append(
                     UpstreamSourceInfluenceRequirement(
                         schema_version="1",
-                        requirement_id=(
-                            f"req.source-influence.{step.step_id}."
-                            f"{link.slot_id}.{link.trust_boundary_slot_id}"
+                        requirement_id=_requirement_id(
+                            "req.source-influence",
+                            step.step_id,
+                            link.slot_id,
+                            str(link.trust_boundary_slot_id),
+                            str(link.target_ingress_slot_id),
                         ),
                         kind="upstream_source_influence",
                         source_slot_id=link.slot_id,
@@ -645,9 +672,10 @@ def _derive_execution_requirements(
             requirements.append(
                 ObservationRequirement(
                     schema_version="1",
-                    requirement_id=(
-                        f"req.observation.{step.step_id}."
-                        f"{outcome_link.postcondition_id}"
+                    requirement_id=_requirement_id(
+                        "req.observation",
+                        step.step_id,
+                        outcome_link.postcondition_id,
                     ),
                     kind="observation",
                     observation=outcome_link.observation,
@@ -668,9 +696,10 @@ def _derive_execution_requirements(
                 requirements.append(
                     SecurityOutcomeAssertionRequirement(
                         schema_version="1",
-                        requirement_id=(
-                            f"req.security-outcome.{step.step_id}."
-                            f"{postcondition.postcondition_id}"
+                        requirement_id=_requirement_id(
+                            "req.security-outcome",
+                            step.step_id,
+                            postcondition.postcondition_id,
                         ),
                         kind="security_outcome_assertion",
                         source_step_id=step.step_id,
@@ -678,7 +707,19 @@ def _derive_execution_requirements(
                     )
                 )
 
-    return tuple(sorted(requirements, key=lambda item: item.requirement_id)), None
+    sorted_reqs = tuple(sorted(requirements, key=lambda item: item.requirement_id))
+    req_ids = [item.requirement_id for item in sorted_reqs]
+    if len(req_ids) != len(set(req_ids)):
+        duplicates = sorted({rid for rid in req_ids if req_ids.count(rid) > 1})
+        return None, ProjectionIssue(
+            code="unsupported_requirement_derivation",
+            pattern_id=pattern_id,
+            detail=(
+                f"derived requirement IDs collide: {duplicates}; "
+                "requirement IDs must be unique"
+            ),
+        )
+    return sorted_reqs, None
 
 
 def _fail_closed_if_no_requirements(

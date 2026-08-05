@@ -1,11 +1,14 @@
-"""Golden linkage authority tests for all 49 canonical attack patterns.
+"""Characterization snapshot and reviewed decision tests for canonical linkage.
 
-These tests pin every pattern/step's exact ``resource_links`` and
-``observable_outcome_links`` against a reviewed static fixture.  The
-fixture (``tests/fixtures/golden_linkage.py``) is a non-self-derived
-authority: it was generated once from the corrected canonical YAML and
-pinned as static values, not derived from production or migration
-heuristics at test time.
+Tests pin every pattern/step's exact ``resource_links`` and
+``observable_outcome_links`` against a characterization snapshot
+(``tests/fixtures/golden_linkage.py``).  The snapshot was generated once
+from the corrected canonical YAML and pinned as static values; it is
+not independent semantic authority.
+
+A separate ``reviewed_linkage_decisions`` table provides reviewed
+semantic rationale for non-obvious linkage decisions and is validated
+alongside the snapshot.
 
 Tests operate on raw YAML records before indexing so that uniqueness
 collapses in the catalog index cannot mask divergent linkage.
@@ -208,9 +211,9 @@ def test_observation_kind_counts() -> None:
             for ol in s.get("observable_outcome_links", []):
                 kinds[ol["observation"]] += 1
     assert dict(kinds) == {
-        "persistent_state": 148,
-        "model_context": 46,
-        "tool_invocation": 21,
+        "persistent_state": 145,
+        "model_context": 42,
+        "tool_invocation": 28,
     }
 
 
@@ -269,3 +272,108 @@ def test_71_source_facts_and_49_live_ids_preserved() -> None:
     resulting_ids = [r["pattern_id"] for r in resulting]
     assert len(resulting_ids) == 49
     assert len(set(resulting_ids)) == 49
+
+
+# ---------------------------------------------------------------------------
+# Reviewed semantic decision table validation
+# ---------------------------------------------------------------------------
+
+
+def test_reviewed_decisions_match_yaml() -> None:
+    """Every reviewed semantic decision must match the actual YAML linkage.
+
+    The reviewed decisions table is a separate compact authority with
+    independent rationale for non-obvious linkage decisions.  It must
+    agree with the canonical YAML on observation kind and binding slot.
+    """
+    from tests.fixtures.reviewed_linkage_decisions import REVIEWED_DECISIONS
+
+    raw = _load_raw_patterns()
+    for decision in REVIEWED_DECISIONS:
+        if decision["step_id"] == "_chain":
+            continue  # chain-level decision (infeasibility)
+
+        pid = decision["pattern_id"]
+        sid = decision["step_id"]
+        pcid = decision["postcondition_id"]
+        p = raw[pid]
+        step = next(s for s in p["canonical_chain"]["steps"] if s["step_id"] == sid)
+        ol = next(
+            o
+            for o in step.get("observable_outcome_links", [])
+            if o["postcondition_id"] == pcid
+        )
+        assert ol["observation"] == decision["observation"], (
+            f"{pid}/{sid}/{pcid}: observation {ol['observation']} != "
+            f"reviewed {decision['observation']}"
+        )
+        assert ol["binding_slot_id"] == decision["binding_slot_id"], (
+            f"{pid}/{sid}/{pcid}: slot {ol['binding_slot_id']} != "
+            f"reviewed {decision['binding_slot_id']}"
+        )
+
+
+def test_reviewed_decisions_have_rationale() -> None:
+    """Every reviewed decision must have non-empty rationale citing the
+    postcondition description and causal mechanism."""
+    from tests.fixtures.reviewed_linkage_decisions import REVIEWED_DECISIONS
+
+    for d in REVIEWED_DECISIONS:
+        assert d["rationale"], f"{d['pattern_id']}/{d['step_id']} lacks rationale"
+        assert len(d["rationale"]) > 30, (
+            f"{d['pattern_id']}/{d['step_id']} rationale too short"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Focused regressions for Mayor-identified false bindings (second review)
+# ---------------------------------------------------------------------------
+
+
+def test_ap_t3_02_deliver_request_is_model_context_ingress() -> None:
+    """Regression: AP-T3-02/deliver_request postcondition says 'request
+    delivered to the agent as a direct prompt' — this is ingress/context
+    admission, not persistent_state in connected_service."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T3-02"]["canonical_chain"]["steps"]
+        if s["step_id"] == "deliver_request"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "model_context"
+    assert ol[0]["binding_slot_id"] == "ingress"
+
+
+def test_ap_t4_03_deliver_request_is_model_context_ingress() -> None:
+    """Regression: AP-T4-03/deliver_request postcondition says 'request
+    submitted to the agent' and carries the ingress activation link —
+    this is ingress/context admission, not persistent_state in external_api."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T4-03"]["canonical_chain"]["steps"]
+        if s["step_id"] == "deliver_request"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "model_context"
+    assert ol[0]["binding_slot_id"] == "ingress"
+
+
+def test_ap_t2_02_exfiltrate_data_is_tool_invocation_delivery_tool() -> None:
+    """Regression: AP-T2-02/exfiltrate_data postcondition says 'the
+    transmission tool sends the collected data to the attacker-chosen
+    destination' — the delivery_tool performs the transmission, not the
+    ingress entry point."""
+    raw = _load_raw_patterns()
+    step = next(
+        s
+        for s in raw["AP-T2-02"]["canonical_chain"]["steps"]
+        if s["step_id"] == "exfiltrate_data"
+    )
+    ol = step["observable_outcome_links"]
+    assert len(ol) == 1
+    assert ol[0]["observation"] == "tool_invocation"
+    assert ol[0]["binding_slot_id"] == "delivery_tool"

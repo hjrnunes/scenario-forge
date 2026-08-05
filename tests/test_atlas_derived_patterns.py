@@ -287,8 +287,8 @@ GOLDEN_DIGESTS = {
     "AP-T6-06": "fccf892ba7f5c462c175175e9e63b5afe706cecbeec32be2c765a00efad4fff1",
     "AP-T6-07": "d7fec69b76dd6e7c684b390aaaaabacff914ded4d65fb651cbfd8b568553b35e",
     "AP-T11-05": "58a60fa294495d6db91179842e8cbe1e367343ecef62ad4f3f759b6beb1d67f5",
-    "AP-T17-03": "cdf96d112303773d0c9bd39d9ef8fb0c59ea93205333ab7503e58efa01e8d7f4",
-    "AP-T17-04": "7d8b2d16eebedc4d0a8ec45559530a342720ca5c3d56d058b955943b7989a027",
+    "AP-T17-03": "f7bbe4c0cc65453e64cfcc4e1055de15801e074039911f857b2e1d62cd9940cd",
+    "AP-T17-04": "bd4a58fdeeec7fcbcc9fa5867d71e4e1085c1b94f6818f5bfbd1f18226b0698d",
 }
 
 # Split-derived first steps presuppose a sibling pattern's outcome; the

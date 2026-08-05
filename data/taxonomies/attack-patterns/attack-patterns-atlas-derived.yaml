@@ -2296,7 +2296,7 @@ patterns:
       pattern_id: "AP-T17-03"
       chain_id: "chain.ap-t17-03"
       semantic_revision: 1
-      semantic_digest: "cdf96d112303773d0c9bd39d9ef8fb0c59ea93205333ab7503e58efa01e8d7f4"
+      semantic_digest: "f7bbe4c0cc65453e64cfcc4e1055de15801e074039911f857b2e1d62cd9940cd"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -2614,8 +2614,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.exfiltration.transmitted
-            observation: model_context
-            binding_slot_id: ingress
+            observation: tool_invocation
+            binding_slot_id: adopter_agent
           order: 7
           attacker_controlled: true
           provenance:
@@ -2659,8 +2659,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.impact.continuous_leak
-            observation: model_context
-            binding_slot_id: ingress
+            observation: tool_invocation
+            binding_slot_id: adopter_agent
           order: 8
           attacker_controlled: false
           provenance:
@@ -2736,7 +2736,7 @@ patterns:
       pattern_id: "AP-T17-04"
       chain_id: "chain.ap-t17-04"
       semantic_revision: 1
-      semantic_digest: "7d8b2d16eebedc4d0a8ec45559530a342720ca5c3d56d058b955943b7989a027"
+      semantic_digest: "bd4a58fdeeec7fcbcc9fa5867d71e4e1085c1b94f6818f5bfbd1f18226b0698d"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -3055,8 +3055,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.exfiltration.transmitted
-            observation: model_context
-            binding_slot_id: ingress
+            observation: tool_invocation
+            binding_slot_id: adopter_agent
           order: 7
           attacker_controlled: true
           provenance:
@@ -3099,8 +3099,8 @@ patterns:
           resource_links: []
           observable_outcome_links:
           - postcondition_id: post.impact.rug_pull_complete
-            observation: model_context
-            binding_slot_id: ingress
+            observation: tool_invocation
+            binding_slot_id: adopter_agent
           order: 8
           attacker_controlled: false
           provenance:

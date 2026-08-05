@@ -1075,7 +1075,7 @@ patterns:
       pattern_id: AP-T2-01
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: bbfadbb692c7419f16374aef099e9a0f545a60b83b5bfd234dd8849a3b83040d
+      semantic_digest: 5ec5bb4142866df4da12f1d83e6fb20c27e3907df6ebd58cb2de77d770856fa9
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -1312,8 +1312,8 @@ patterns:
         resource_links: []
         observable_outcome_links:
         - postcondition_id: post.impact
-          observation: model_context
-          binding_slot_id: ingress
+          observation: tool_invocation
+          binding_slot_id: target_tool
         order: 6
         attacker_controlled: false
         provenance:
@@ -1375,7 +1375,7 @@ patterns:
       pattern_id: AP-T2-02
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: c69098e2d81ef71ce1d3e08ba59f717a5be3f5f8e321d659209fab850bf7266c
+      semantic_digest: 0e215dd29b1a8ebdc030e6baebdb2a0e6ddc9df4bfab41cecc31004d9590897e
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -1649,8 +1649,8 @@ patterns:
         resource_links: []
         observable_outcome_links:
         - postcondition_id: post.exfiltrate.data
-          observation: model_context
-          binding_slot_id: ingress
+          observation: tool_invocation
+          binding_slot_id: delivery_tool
         order: 7
         attacker_controlled: true
         provenance:
@@ -2845,7 +2845,7 @@ patterns:
       pattern_id: AP-T3-02
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 656cc4434532f0f67d52e2975f67dc48c50c27daf91040af0f2b672a88d8ec46
+      semantic_digest: fda30e958de4c7f98560279192f152f556811963eb273e30a73a6ccf02f418b3
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -3066,8 +3066,8 @@ patterns:
         resource_links: []
         observable_outcome_links:
         - postcondition_id: post.deliver.request
-          observation: persistent_state
-          binding_slot_id: connected_service
+          observation: model_context
+          binding_slot_id: ingress
         order: 6
         attacker_controlled: true
         provenance:
@@ -3449,7 +3449,7 @@ patterns:
       pattern_id: AP-T4-01
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: 9c0e4a52bdb2b2c2368411060c2bee97e1193956e3aa043e6057bea655753415
+      semantic_digest: d19da41ba72c72520052e271252764bc39da82f5b03bffc744d30cf942557513
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -3554,8 +3554,8 @@ patterns:
           target_ingress_slot_id: null
         observable_outcome_links:
         - postcondition_id: post.submit.expensive.input
-          observation: persistent_state
-          binding_slot_id: compute_surface
+          observation: model_context
+          binding_slot_id: ingress
         order: 3
         attacker_controlled: true
         provenance:
@@ -3653,7 +3653,7 @@ patterns:
       pattern_id: AP-T4-03
       chain_id: chain.1
       semantic_revision: 1
-      semantic_digest: b0bb7cdec7cd9e4ea41f6160d7feca6b963c0c5dbbdeb0d642ce1b7e0518ab25
+      semantic_digest: 5412d60e8c2965ff13cf810f0807061a23b9ef4d11275c7a2ca493d345c2101a
       taxonomy_context: *id001
       mappings:
       - decision: exact
@@ -3758,8 +3758,8 @@ patterns:
           target_ingress_slot_id: null
         observable_outcome_links:
         - postcondition_id: post.deliver.request
-          observation: persistent_state
-          binding_slot_id: external_api
+          observation: model_context
+          binding_slot_id: ingress
         order: 3
         attacker_controlled: true
         provenance:

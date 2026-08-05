@@ -1191,3 +1191,81 @@ def test_same_postcondition_two_outcome_links_fails_closed() -> None:
         ValidationError, match="duplicate observable outcome links for the same"
     ):
         AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+# ---------------------------------------------------------------------------
+# Chain-wide activation uniqueness (second Mayor review)
+# ---------------------------------------------------------------------------
+
+
+def test_two_direct_ingress_links_fail_closed() -> None:
+    """Two required steps each carrying an ingress link to the initial
+    ingress slot must fail validation: at most one chain-wide activation
+    link is permitted."""
+    raw = _link_chain()
+    # Step 2 is conditional in the fixture; make it required and add
+    # a second ingress link.
+    raw["steps"][1]["requirement"] = "required"
+    raw["steps"][1]["condition"] = None
+    raw["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "ingress",
+            "role": "ingress",
+            "trust_boundary_slot_id": None,
+            "target_ingress_slot_id": None,
+        }
+    ]
+    resign_chain(raw)
+    with pytest.raises(ValidationError, match="at most one"):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_two_source_influence_links_fail_closed() -> None:
+    """Two required steps each carrying a source_influence link to the
+    initial ingress slot must fail validation: at most one chain-wide
+    activation link is permitted."""
+    raw = _link_chain()
+    # Remove the ingress link from step 1; add source_influence to step 1 and step 2.
+    raw["steps"][0]["resource_links"] = [
+        {
+            "slot_id": "source",
+            "role": "source_influence",
+            "trust_boundary_slot_id": "boundary",
+            "target_ingress_slot_id": "ingress",
+        }
+    ]
+    raw["steps"][1]["requirement"] = "required"
+    raw["steps"][1]["condition"] = None
+    raw["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "source",
+            "role": "source_influence",
+            "trust_boundary_slot_id": "boundary",
+            "target_ingress_slot_id": "ingress",
+        }
+    ]
+    resign_chain(raw)
+    with pytest.raises(ValidationError, match="at most one"):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})
+
+
+def test_direct_plus_source_influence_fail_closed() -> None:
+    """A chain with both a direct ingress link and a source_influence link
+    must fail validation: exactly one activation mechanism is permitted."""
+    raw = _link_chain()
+    # Step 1 already has the ingress link; add source_influence to step 2.
+    raw["steps"][1]["requirement"] = "required"
+    raw["steps"][1]["condition"] = None
+    raw["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "source",
+            "role": "source_influence",
+            "trust_boundary_slot_id": "boundary",
+            "target_ingress_slot_id": "ingress",
+        }
+    ]
+    resign_chain(raw)
+    with pytest.raises(
+        ValidationError, match="exactly one activation mechanism is permitted"
+    ):
+        AttackPattern.model_validate({**pattern_data(), "canonical_chain": raw})

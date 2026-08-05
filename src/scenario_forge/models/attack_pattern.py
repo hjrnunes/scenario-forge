@@ -845,18 +845,34 @@ class CanonicalAttackChain(ContractModel):
                         f"observation {link.observation} requires a "
                         f"{expected_kind} slot, got {slot.kind}"
                     )
-        has_ingress_link = any(
-            link.role == "ingress" and link.slot_id == self.initial_ingress_slot_id
+        ingress_links = [
+            (step.step_id, link)
             for step in self.steps
             for link in step.resource_links
-        )
-        has_source_influence_link = any(
-            link.role == "source_influence"
+            if link.role == "ingress" and link.slot_id == self.initial_ingress_slot_id
+        ]
+        source_influence_links = [
+            (step.step_id, link)
+            for step in self.steps
+            for link in step.resource_links
+            if link.role == "source_influence"
             and link.target_ingress_slot_id == self.initial_ingress_slot_id
-            for step in self.steps
-            for link in step.resource_links
-        )
-        if has_ingress_link and has_source_influence_link:
+        ]
+        if len(ingress_links) > 1:
+            step_ids = ", ".join(sid for sid, _ in ingress_links)
+            raise ValueError(
+                f"chain has {len(ingress_links)} direct-ingress activation "
+                f"links (steps: {step_ids}); at most one chain-wide "
+                "activation link is permitted"
+            )
+        if len(source_influence_links) > 1:
+            step_ids = ", ".join(sid for sid, _ in source_influence_links)
+            raise ValueError(
+                f"chain has {len(source_influence_links)} source-influence "
+                f"activation links (steps: {step_ids}); at most one "
+                "chain-wide activation link is permitted"
+            )
+        if ingress_links and source_influence_links:
             raise ValueError(
                 "chain has both a direct ingress link and a source_influence "
                 "link to the initial ingress; exactly one activation mechanism "
