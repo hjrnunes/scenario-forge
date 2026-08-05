@@ -10,7 +10,7 @@ release:
   description: 'Final authoritative catalog-lineage decisions for the 71 legacy attack-pattern source
     records: closed-vocabulary dispositions, overlap-group resolutions, and resulting authoritative pattern
     boundaries with proposed exact ATLAS mappings for the deterministic chain-authoring waves.'
-  semantic_digest: be5e34dc5c798b16c193e5689531e43f1f3d375330c2a47373607e37fa244a3d
+  semantic_digest: 8b78fb5561c54a44124e4e77552f17ff831cd2fd2ebdac8c468737702d3c6110
 taxonomy_context:
   atlas:
     release: '2026.05'
@@ -18,6 +18,7 @@ taxonomy_context:
   laaf: null
   mapping_set_digest: 7c0f49feafa5c1ff15388aef58e45d30600a07b161e1ffa2c07200d6b6cb96f3
 source_catalog_context:
+  source_git_revision: 3af41929698c40f06ad4a286668167ef5bf084f0
   canonicalization: scenario-forge:attack-pattern-records:v1
   file_manifest:
   - attack-patterns-agentic-only.yaml

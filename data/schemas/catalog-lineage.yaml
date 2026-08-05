@@ -86,8 +86,17 @@ properties:
   source_catalog_context:
     type: object
     additionalProperties: false
-    required: [canonicalization, file_manifest, record_count, digest]
+    required: [source_git_revision, canonicalization, file_manifest, record_count, digest]
     properties:
+      source_git_revision:
+        type: string
+        pattern: '^[0-9a-f]{40}$'
+        description: >-
+          Authoritative git revision of the original attack-pattern catalog
+          the decisions were made against.  The content pin commits this
+          exact historical baseline; the live catalog is expected to
+          migrate in later authoring waves, and normal artifact validation
+          does not consult it.
       canonicalization:
         const: "scenario-forge:attack-pattern-records:v1"
         description: >-

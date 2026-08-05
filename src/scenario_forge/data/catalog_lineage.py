@@ -8,13 +8,15 @@ the canonical chain-authoring waves.  It is validated against the closed
 Draft 2020-12 schema at ``data/schemas/catalog-lineage.yaml`` plus the
 semantic gates in :func:`validate_catalog_lineage`:
 
-- exactly the production catalog IDs appear as sources, once each;
-- source-entry facts (file, threat, evidence, kill-chain counts) match the
-  production loader;
+- exactly 71 unique historical source entries, each with internally
+  coherent source facts (file, threat, evidence tier/count, kill-chain
+  count) drawn from artifact data alone;
 - the source-catalog content pin (:func:`compute_source_catalog_digest`)
-  binds the exact canonicalized production loader records, so same-count
-  edits to descriptions, evidence sources, or kill-chain actions/techniques
-  are detected;
+  commits the exact canonicalized historical loader records at the recorded
+  ``source_git_revision``; the artifact carries the pin durably while the
+  recompute-and-compare audit lives in the explicit
+  :func:`verify_catalog_lineage_source_snapshot`, so normal validation
+  stays green after the live catalog migrates through the authoring waves;
 - taxonomy pins match the production resolver (ATLAS-only; LAAF absent);
 - every proposed exact ATLAS id exists in the production resolver — with the
   schema requiring nonblank operational-identity rationale and evidence so
@@ -39,10 +41,17 @@ the digest is insensitive to key order and array order but sensitive to any
 content change.  Only ``release.semantic_digest`` itself is excluded.
 
 The source-catalog pin is a separate deterministic digest over the
-canonicalized production attack-pattern loader records (NFC-normalized
-strings, sorted object keys, order-preserving arrays because kill-chain
-order is semantic), framed per declaring file under a versioned domain.  It
-pins loader-record content, not source YAML bytes.
+canonicalized attack-pattern loader records (NFC-normalized strings, sorted
+object keys, order-preserving arrays because kill-chain order is semantic),
+framed per declaring file under a versioned domain.  It pins loader-record
+content, not source YAML bytes, and it commits the historical baseline the
+decisions were made against: ``source_catalog_context.source_git_revision``
+records the authoritative original catalog revision.  Later authoring waves
+change the live catalog (converted kill chains removed, split-derived ids
+added); :func:`validate_catalog_lineage` therefore never consults the live
+catalog, and creation-time/source-audit verification is the explicit
+:func:`verify_catalog_lineage_source_snapshot` against a catalog supplied
+from that pinned revision.
 """
 
 from __future__ import annotations
@@ -349,36 +358,65 @@ def _mapping_ids(resulting: dict[str, Any]) -> list[str]:
     return ids
 
 
+def _evidence_tier(pattern: Mapping[str, Any]) -> str:
+    """Mutually exclusive evidence tier for a loader record."""
+    evidence = pattern.get("evidence") or []
+    if any(e.get("type") == "direct_demonstration" for e in evidence):
+        return "direct_demonstration"
+    if evidence:
+        return "enrichment"
+    if pattern.get("kill_chain"):
+        return "kill_chain_only"
+    return "none"
+
+
+def _check_source_entry_coherence(entry: Mapping[str, Any]) -> None:
+    """Artifact-internal coherence of one source entry's recorded facts.
+
+    Replaces any live-catalog comparison: the tier must be consistent with
+    the recorded evidence/kill-chain counts, so the entry is self-attesting.
+    """
+    pid = entry["source_pattern_id"]
+    tier = entry["evidence_tier"]
+    evidence_count = entry["evidence_count"]
+    legacy_steps = entry["legacy_kill_chain_steps"]
+    coherent = {
+        "direct_demonstration": evidence_count >= 1,
+        "enrichment": evidence_count >= 1,
+        "kill_chain_only": evidence_count == 0 and legacy_steps >= 1,
+        "none": evidence_count == 0 and legacy_steps == 0,
+    }[tier]
+    if not coherent:
+        raise ValueError(
+            f"catalog lineage entry {pid} is internally incoherent: "
+            f"evidence_tier={tier!r} with evidence_count={evidence_count} "
+            f"and legacy_kill_chain_steps={legacy_steps}"
+        )
+
+
 def validate_catalog_lineage(
     artifact: dict[str, Any],
     *,
-    patterns: dict[str, dict],
     resolver: Any,
     case_steps: Mapping[str, Mapping[str, frozenset[str]]],
     schema: dict[str, Any] | None = None,
-    owners: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Schema-validate and semantically qualify the lineage artifact.
+    """Schema-validate and semantically qualify the immutable lineage artifact.
 
-    ``patterns`` is the production catalog from
-    :func:`scenario_forge.data.loaders.load_attack_patterns`; ``resolver``
-    implements the production ``TaxonomyResolver`` protocol
-    (``taxonomy_context`` + ``contains``).  ``case_steps`` is the pinned
-    ATLAS case-step index from :func:`load_atlas_case_step_index`, required
-    for the mapping-citation gate.  ``owners`` maps every catalog id to the
-    attack-patterns file that declares it (per-file loader glob); it is
-    required because the source-catalog content pin is verified against the
-    supplied production records and ownership.  Returns the artifact on
-    success; raises ``ValueError`` (or ``jsonschema.ValidationError``) on
-    any breach.
+    Validation is durable: it draws on artifact data, the taxonomy resolver,
+    and the pinned ATLAS case-step index only — never the mutable live
+    attack-pattern catalog, so it stays green after later authoring waves
+    migrate that catalog.  ``resolver`` implements the production
+    ``TaxonomyResolver`` protocol (``taxonomy_context`` + ``contains``);
+    ``case_steps`` is the pinned ATLAS case-step index from
+    :func:`load_atlas_case_step_index`, required for the mapping-citation
+    gate.  Creation-time/source-audit comparison against the historical
+    catalog is the explicit :func:`verify_catalog_lineage_source_snapshot`.
+    Returns the artifact on success; raises ``ValueError`` (or
+    ``jsonschema.ValidationError``) on any breach.
     """
     schema = schema if schema is not None else load_catalog_lineage_schema()
     Draft202012Validator(schema).validate(artifact)
-    if owners is None:
-        raise ValueError(
-            "catalog lineage validation requires source-file owners so the "
-            "source-catalog content pin can be verified"
-        )
 
     # Taxonomy pins must match the production resolver exactly.
     context = artifact["taxonomy_context"]
@@ -395,32 +433,32 @@ def validate_catalog_lineage(
             "catalog lineage taxonomy pins do not match the production resolver"
         )
 
-    # The source-catalog content pin binds the exact canonicalized loader
-    # records, not merely ids and counts.
+    # The source-catalog pin is checked for internal coherence only; the
+    # recompute-and-compare audit against the historical catalog is the
+    # explicit snapshot verifier (creation-time/source-audit use).
     pin = artifact["source_catalog_context"]
     if pin["canonicalization"] != SOURCE_CATALOG_CANONICALIZATION:
         raise ValueError(
             "catalog lineage source catalog canonicalization "
             f"{pin['canonicalization']!r} is not {SOURCE_CATALOG_CANONICALIZATION!r}"
         )
-    manifest = pin["file_manifest"]
-    actual_files = sorted({owners[pid] for pid in patterns})
-    if sorted(manifest) != actual_files:
-        raise ValueError(
-            f"catalog lineage source catalog manifest {sorted(manifest)} does "
-            f"not match the production declaring files {actual_files}"
-        )
-    if pin["record_count"] != len(patterns):
+    sources = artifact["sources"]
+    if pin["record_count"] != len(sources):
         raise ValueError(
             f"catalog lineage source catalog record_count {pin['record_count']} "
-            f"does not match the production catalog size {len(patterns)}"
+            f"does not match the {len(sources)} source entries"
         )
-    recomputed_pin = compute_source_catalog_digest(patterns, owners, manifest)
-    if pin["digest"] != recomputed_pin:
-        raise ValueError(
-            "catalog lineage source catalog digest mismatch: recorded "
-            f"{pin['digest']} != recomputed {recomputed_pin}"
-        )
+    manifest = pin["file_manifest"]
+    if manifest != sorted(manifest):
+        raise ValueError("catalog lineage source catalog manifest is not sorted")
+    declared_files = set(manifest)
+    for entry in sources:
+        if entry["source_file"] not in declared_files:
+            raise ValueError(
+                f"catalog lineage entry {entry['source_pattern_id']} "
+                f"source_file={entry['source_file']!r} is not in the source "
+                "catalog manifest"
+            )
 
     # The disposition vocabulary keys are exactly the closed disposition enum.
     if set(artifact["disposition_vocabulary"]) != _FINAL_DISPOSITIONS:
@@ -428,50 +466,14 @@ def validate_catalog_lineage(
             "disposition_vocabulary keys diverge from the closed vocabulary"
         )
 
-    sources = artifact["sources"]
     source_ids = [entry["source_pattern_id"] for entry in sources]
     if len(set(source_ids)) != len(source_ids):
         raise ValueError("duplicate source_pattern_id in catalog lineage sources")
-    if set(source_ids) != set(patterns):
-        missing = sorted(set(patterns) - set(source_ids))
-        extra = sorted(set(source_ids) - set(patterns))
-        raise ValueError(
-            f"catalog lineage sources diverge from the production catalog; "
-            f"missing={missing} extra={extra}"
-        )
 
-    # Source-entry facts must match the production loader records.
+    # Source-entry facts must be internally coherent (self-attesting).
     by_id = {entry["source_pattern_id"]: entry for entry in sources}
-    for pid, pattern in patterns.items():
-        entry = by_id[pid]
-        legacy_steps = len(pattern.get("kill_chain") or [])
-        evidence = pattern.get("evidence") or []
-        tier = (
-            "direct_demonstration"
-            if any(e.get("type") == "direct_demonstration" for e in evidence)
-            else "enrichment"
-            if evidence
-            else "kill_chain_only"
-            if legacy_steps
-            else "none"
-        )
-        mismatches = {
-            "threat_id": (entry["threat_id"], pattern["threat_id"]),
-            "evidence_tier": (entry["evidence_tier"], tier),
-            "evidence_count": (entry["evidence_count"], len(evidence)),
-            "legacy_kill_chain_steps": (entry["legacy_kill_chain_steps"], legacy_steps),
-        }
-        for field, (claimed, actual) in mismatches.items():
-            if claimed != actual:
-                raise ValueError(
-                    f"catalog lineage entry {pid} {field}={claimed!r} "
-                    f"does not match the production catalog value {actual!r}"
-                )
-        if owners is not None and entry["source_file"] != owners[pid]:
-            raise ValueError(
-                f"catalog lineage entry {pid} source_file={entry['source_file']!r} "
-                f"does not match the declaring file {owners[pid]!r}"
-            )
+    for entry in sources:
+        _check_source_entry_coherence(entry)
 
     # Overlap groups: unique ids, one resolution, members are sources, and
     # membership is consistent with the per-entry overlap_group references.
@@ -511,10 +513,11 @@ def validate_catalog_lineage(
                 "not listed as a member"
             )
 
-    # Resulting records: uniqueness, collision-freedom, disposition rules,
-    # resolver membership for every proposed exact ATLAS id, and pinned
-    # case-step citation consistency for every mapping.
-    catalog_ids = set(patterns)
+    # Resulting records: uniqueness, collision-freedom against the 71
+    # historical source ids, disposition rules, resolver membership for
+    # every proposed exact ATLAS id, and pinned case-step citation
+    # consistency for every mapping.
+    catalog_ids = set(source_ids)
     resulting_ids: list[str] = []
     citation_errors: list[str] = []
     for entry in sources:
@@ -545,10 +548,11 @@ def validate_catalog_lineage(
                 )
             if record["source_file"] not in _SOURCE_FILES:
                 raise ValueError(f"resulting id {rid} has an unknown source_file")
-            if owners is not None and record["source_file"] != owners[pid]:
+            if record["source_file"] != entry["source_file"]:
                 raise ValueError(
                     f"resulting id {rid} from source {pid} is owned by "
-                    f"{record['source_file']!r}, not the source file {owners[pid]!r}"
+                    f"{record['source_file']!r}, not the source file "
+                    f"{entry['source_file']!r}"
                 )
             for atlas_id in _mapping_ids(record):
                 if not resolver.contains("ATLAS", atlas_id):
@@ -613,6 +617,105 @@ def validate_catalog_lineage(
         raise ValueError(
             f"catalog lineage digest mismatch: recorded {recorded} != recomputed {recomputed}"
         )
+    return artifact
+
+
+def verify_catalog_lineage_source_snapshot(
+    artifact: dict[str, Any],
+    *,
+    patterns: Mapping[str, Mapping[str, Any]],
+    owners: Mapping[str, str],
+    schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Creation-time/source-audit verification against the historical catalog.
+
+    Explicit opt-in counterpart to :func:`validate_catalog_lineage`: the
+    caller supplies the attack-pattern catalog (``patterns`` from
+    :func:`scenario_forge.data.loaders.load_attack_patterns`) and per-file
+    ownership loaded from the artifact's pinned
+    ``source_catalog_context.source_git_revision`` — the authoritative
+    original catalog baseline the decisions were made against.  Verifies:
+
+    - the source-catalog content pin recomputes from the supplied records
+      (so any same-count content edit is detected);
+    - the pinned manifest, record count, and canonicalization match the
+      supplied catalog;
+    - exactly the supplied catalog ids appear as sources, once each;
+    - every source entry's recorded facts (source file, threat, evidence
+      tier/count, legacy kill-chain count) match the supplied records.
+
+    Returns the artifact on success; raises ``ValueError`` (or
+    ``jsonschema.ValidationError``) on any breach.
+    """
+    schema = schema if schema is not None else load_catalog_lineage_schema()
+    Draft202012Validator(schema).validate(artifact)
+
+    pin = artifact["source_catalog_context"]
+    if pin["canonicalization"] != SOURCE_CATALOG_CANONICALIZATION:
+        raise ValueError(
+            "catalog lineage source catalog canonicalization "
+            f"{pin['canonicalization']!r} is not {SOURCE_CATALOG_CANONICALIZATION!r}"
+        )
+    manifest = pin["file_manifest"]
+    actual_files = sorted({owners[pid] for pid in patterns})
+    if sorted(manifest) != actual_files:
+        raise ValueError(
+            f"catalog lineage source catalog manifest {sorted(manifest)} does "
+            f"not match the supplied declaring files {actual_files}"
+        )
+    if pin["record_count"] != len(patterns):
+        raise ValueError(
+            f"catalog lineage source catalog record_count {pin['record_count']} "
+            f"does not match the supplied catalog size {len(patterns)}"
+        )
+    recomputed_pin = compute_source_catalog_digest(patterns, owners, manifest)
+    if pin["digest"] != recomputed_pin:
+        raise ValueError(
+            "catalog lineage source catalog digest mismatch: recorded "
+            f"{pin['digest']} != recomputed {recomputed_pin} (supplied records "
+            "must come from the pinned source_git_revision "
+            f"{pin['source_git_revision']})"
+        )
+
+    sources = artifact["sources"]
+    source_ids = [entry["source_pattern_id"] for entry in sources]
+    if len(set(source_ids)) != len(source_ids):
+        raise ValueError("duplicate source_pattern_id in catalog lineage sources")
+    if set(source_ids) != set(patterns):
+        missing = sorted(set(patterns) - set(source_ids))
+        extra = sorted(set(source_ids) - set(patterns))
+        raise ValueError(
+            f"catalog lineage sources diverge from the supplied catalog; "
+            f"missing={missing} extra={extra}"
+        )
+
+    # Source-entry facts must match the supplied historical loader records.
+    by_id = {entry["source_pattern_id"]: entry for entry in sources}
+    for pid, pattern in patterns.items():
+        entry = by_id[pid]
+        mismatches = {
+            "threat_id": (entry["threat_id"], pattern["threat_id"]),
+            "evidence_tier": (entry["evidence_tier"], _evidence_tier(pattern)),
+            "evidence_count": (
+                entry["evidence_count"],
+                len(pattern.get("evidence") or []),
+            ),
+            "legacy_kill_chain_steps": (
+                entry["legacy_kill_chain_steps"],
+                len(pattern.get("kill_chain") or []),
+            ),
+        }
+        for field, (claimed, actual) in mismatches.items():
+            if claimed != actual:
+                raise ValueError(
+                    f"catalog lineage entry {pid} {field}={claimed!r} "
+                    f"does not match the supplied catalog value {actual!r}"
+                )
+        if entry["source_file"] != owners[pid]:
+            raise ValueError(
+                f"catalog lineage entry {pid} source_file={entry['source_file']!r} "
+                f"does not match the declaring file {owners[pid]!r}"
+            )
     return artifact
 
 
