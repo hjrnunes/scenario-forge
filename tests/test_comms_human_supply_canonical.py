@@ -12,7 +12,11 @@ contract under the merged ``catalog-lineage.yaml`` dispositions:
   taxonomy resolver, and its embedded semantic digest recomputes from
   on-disk content;
 - chain/step exact ATLAS mappings match catalog-lineage.yaml exactly —
-  no more, no less — and unmapped attacker steps carry rationale;
+  no more, no less — with one documented fail-closed exception: the
+  AP-T12-03 trigger_false_incorporation -> AML.T0051.002 lineage entry is
+  a false exact identity (retrieval of false data is not a triggered
+  prompt injection) and is dropped pending a lineage amendment; unmapped
+  attacker steps carry rationale;
 - every chain is one pure branch-free total-order chain (all steps
   required, no conditions or preconditions) with supported explicit
   consumed/produced links;
@@ -193,6 +197,14 @@ class TestLineageMappingFidelity:
                     "atlas_step_mappings"
                 ]
             }
+            # Deliberate fail-closed departure (Mayor semantic review of PR
+            # #272): the lineage entry proposing exact AML.T0051.002 for
+            # AP-T12-03 trigger_false_incorporation is a false exact identity
+            # (retrieval of false data is not a triggered prompt injection).
+            # The record drops it and the lineage requires amendment; see
+            # TestAPTT1203Corrections.
+            if pid == "AP-T12-03":
+                expected.pop("trigger_false_incorporation", None)
             actual = {}
             for step in pattern.canonical_chain.steps:
                 for mapping in step.mappings:
@@ -379,3 +391,205 @@ class TestLegacyTransportRemoved:
         for pid, record in records.items():
             with pytest.raises(ValidationError):
                 validate_legacy_attack_pattern(record)
+
+
+def _steps(pattern: AttackPattern):
+    return {step.step_id: step for step in pattern.canonical_chain.steps}
+
+
+def _ordered_refs(pattern: AttackPattern) -> list[list[str]]:
+    return [
+        [r.reference_id for r in step.provenance.references]
+        for step in pattern.canonical_chain.steps
+    ]
+
+
+class TestAPTT1502Directionality:
+    """Mayor correction 1: no duplicate escalation; the user action consumes
+    the deceptive output directly; CS0020 S02 -> S03 -> S04 is asserted; no
+    CS0055 evidence occurs after preparation."""
+
+    def test_escalation_step_removed_and_user_consumes_deceptive_output(
+        self, qualified
+    ):
+        steps = _steps(qualified["AP-T15-02"])
+        assert "escalate_to_active_instruction" not in steps
+        assert [s.step_id for s in qualified["AP-T15-02"].canonical_chain.steps] == [
+            "craft_hijack_injection",
+            "stage_social_engineering_payload",
+            "ingest_malicious_content",
+            "generate_deceptive_messages",
+            "user_executes_malicious_action",
+        ]
+        user_action = steps["user_executes_malicious_action"]
+        assert [(r.kind, r.ref_id) for r in user_action.consumed] == [
+            ("state", "state.deceptive_output")
+        ]
+        producer = steps["generate_deceptive_messages"]
+        assert (producer.produced[0].kind, producer.produced[0].ref_id) == (
+            "state",
+            "state.deceptive_output",
+        )
+
+    def test_cs0020_s02_s03_s04_causal_sequence(self, qualified):
+        refs = _ordered_refs(qualified["AP-T15-02"])
+        positions = {}
+        for order, step_refs in enumerate(refs, start=1):
+            for ref in step_refs:
+                positions.setdefault(ref, order)
+        s02 = positions["AML.CS0020 S02"]
+        s03 = positions["AML.CS0020 S03"]
+        s04 = positions["AML.CS0020 S04"]
+        assert s02 < s03 < s04
+        steps = qualified["AP-T15-02"].canonical_chain.steps
+        assert steps[s03 - 1].step_id == "generate_deceptive_messages"
+        assert steps[s04 - 1].step_id == "user_executes_malicious_action"
+        assert steps[s04 - 1].executor_role == "operator"
+
+    def test_no_cs0055_evidence_after_preparation(self, qualified):
+        for step in qualified["AP-T15-02"].canonical_chain.steps:
+            refs = [r.reference_id for r in step.provenance.references]
+            if step.action_kind == "prepare":
+                continue  # CS0055 may remain only as adapted preparation precedent
+            assert not any(ref.startswith("AML.CS0055") for ref in refs), (
+                step.step_id,
+                refs,
+            )
+
+
+class TestAPTT1203Corrections:
+    """Mayor correction 2: false exact AML.T0051.002 removed from the
+    false-data retrieval step (lineage amendment required and documented);
+    AML.T0070 chain identity retained; propagation is the first peer
+    re-emission and the terminal is the first multi-peer cascade."""
+
+    def test_no_exact_t0051_002_anywhere(self, qualified):
+        pattern = qualified["AP-T12-03"]
+        chain_exact = [
+            identifier
+            for mapping in pattern.canonical_chain.mappings
+            if isinstance(mapping, ExactMapping)
+            for identifier in mapping.ids
+        ]
+        assert chain_exact == ["AML.T0070"]
+        for step in pattern.canonical_chain.steps:
+            for mapping in step.mappings:
+                if isinstance(mapping, ExactMapping):
+                    assert "AML.T0051.002" not in mapping.ids, step.step_id
+
+    def test_trigger_step_unmapped_with_lineage_amendment_rationale(
+        self, qualified, lineage_entries
+    ):
+        step = _steps(qualified["AP-T12-03"])["trigger_false_incorporation"]
+        (mapping,) = step.mappings
+        assert isinstance(mapping, UnmappedMapping)
+        assert "catalog-lineage" in mapping.rationale
+        assert "AML.T0051.002" in mapping.rationale
+        assert "amendment" in mapping.rationale
+        # The lineage still carries the stale false-exact entry; if the
+        # lineage is amended this guard fails and the exception in
+        # test_step_exact_mappings_match_lineage_exactly must be retired.
+        (resulting,) = lineage_entries["AP-T12-03"]["resulting_patterns"]
+        stale = {m["step"]: m["id"] for m in resulting["atlas_step_mappings"]}
+        assert stale.get("trigger_false_incorporation") == "AML.T0051.002"
+
+    def test_first_reemission_then_first_multi_peer_cascade(self, qualified):
+        steps = _steps(qualified["AP-T12-03"])
+        propagation = steps["cascade_propagation"]
+        assert [(r.kind, r.ref_id) for r in propagation.produced] == [
+            ("state", "state.first_peer_reemission")
+        ]
+        propagation_text = " ".join(
+            o.description for o in propagation.observable_postconditions
+        )
+        assert "first re-emission" in propagation_text
+        assert not any(o.terminal for o in propagation.observable_postconditions)
+        terminal = steps["misinformation_impact"]
+        assert [(r.kind, r.ref_id) for r in terminal.consumed] == [
+            ("state", "state.first_peer_reemission")
+        ]
+        terminal_text = " ".join(
+            o.description for o in terminal.observable_postconditions
+        )
+        assert "first observable multi-peer cascade" in terminal_text
+        assert any(o.terminal for o in terminal.observable_postconditions)
+        assert (
+            terminal.step_id == qualified["AP-T12-03"].canonical_chain.steps[-1].step_id
+        )
+
+
+class TestAPTT1701CausalArtifactPath:
+    """Mayor correction 3: jailbreak produces the enabled malicious-generation
+    state, concealment preserves it, and the terminal system step is the first
+    emission of the backdoored artifact — with no adopter-use claim."""
+
+    def test_enabled_state_produced_preserved_and_consumed(self, qualified):
+        steps = _steps(qualified["AP-T17-01"])
+        jailbreak = steps["jailbreak_guardrails"]
+        assert [(r.kind, r.ref_id) for r in jailbreak.produced] == [
+            ("state", "state.malicious_generation_enabled")
+        ]
+        conceal = steps["suppress_output_mentions"]
+        assert [(r.kind, r.ref_id) for r in conceal.consumed] == [
+            ("state", "state.malicious_generation_enabled")
+        ]
+        assert [(r.kind, r.ref_id) for r in conceal.produced] == [
+            ("state", "state.concealed_malicious_generation")
+        ]
+        conceal_text = " ".join(
+            o.description for o in conceal.observable_postconditions
+        )
+        assert "preserves the enabled malicious-generation state" in conceal_text
+        terminal = steps["impact_backdoored_code"]
+        assert [(r.kind, r.ref_id) for r in terminal.consumed] == [
+            ("state", "state.concealed_malicious_generation")
+        ]
+
+    def test_terminal_is_first_backdoored_artifact_emission(self, qualified):
+        chain = qualified["AP-T17-01"].canonical_chain
+        terminal = chain.steps[-1]
+        assert terminal.step_id == "impact_backdoored_code"
+        assert terminal.executor_role == "system"
+        assert [(r.kind, r.ref_id) for r in terminal.produced] == [
+            ("effect", "effect.backdoored_artifacts")
+        ]
+        # No earlier step emits a backdoored artifact or effect.
+        for step in chain.steps[:-1]:
+            for ref in step.produced:
+                assert "backdoor" not in ref.ref_id, (step.step_id, ref.ref_id)
+                assert ref.kind != "effect", (step.step_id, ref.ref_id)
+        # The adopter pipeline remains an explicit operator action/artifact
+        # path, but the record claims no adopter use of generated artifacts.
+        persist = _steps(qualified["AP-T17-01"])["persist_via_adoption"]
+        assert persist.executor_role == "operator"
+        assert persist.action_kind == "persist"
+        dumped = yaml.safe_dump(
+            qualified["AP-T17-01"].model_dump(mode="json"), sort_keys=True
+        )
+        assert "Adopters use" not in dumped
+        terminal_text = " ".join(
+            o.description for o in terminal.observable_postconditions
+        )
+        assert "first observable supply-chain impact" in terminal_text
+        assert "not claimed" in terminal_text
+
+
+class TestAPTT1501TerminalProvenance:
+    """Mayor correction 4: CS0026 S13 is conditional ('If'/'could'), not an
+    observed completed transfer; the terminal stays but with non-observed
+    tier, lowered confidence, and explicit conditional evidence."""
+
+    def test_terminal_tier_confidence_and_conditional_evidence(self, qualified):
+        terminal = qualified["AP-T15-01"].canonical_chain.steps[-1]
+        assert terminal.step_id == "impact"
+        assert any(o.terminal for o in terminal.observable_postconditions)
+        provenance = terminal.provenance
+        assert provenance.tier in {"inferred", "variant"}
+        assert provenance.tier != "observed"
+        assert provenance.confidence <= 60
+        assert any(r.reference_id == "AML.CS0026 S13" for r in provenance.references)
+        rationale = provenance.adaptation_rationale
+        assert "conditionally" in rationale
+        assert "If the victim follows through" in rationale
+        assert "could be" in rationale
+        assert "not an observed event" in rationale

@@ -10,8 +10,15 @@
 #           catalog-lineage.yaml)
 #   retire: AP-T17-02 (no successor; not reconstructed)
 # AP-T15-02 carries the approved CS0055 directionality correction
-# (agent-as-victim, not agent-as-social-engineer; grounded in AML.CS0020) and
-# AP-T17-01 preserves the evidence-backed persistence step (AML.CS0041 S04).
+# (agent-as-victim, not agent-as-social-engineer; grounded in AML.CS0020
+# S02-S03-S04; no CS0055 evidence after preparation) and AP-T17-01 preserves
+# the evidence-backed persistence step (AML.CS0041 S04), with its terminal as
+# the first emission of the backdoored artifact (no adopter-use claim).
+# AP-T12-03 deliberately departs from catalog-lineage.yaml in one place,
+# fail-closed: the lineage atlas_step_mappings entry proposing exact
+# AML.T0051.002 for trigger_false_incorporation is a false exact identity
+# (retrieval of false data is not a triggered prompt injection) and requires
+# a lineage amendment; the chain-scope AML.T0070 identity is retained.
 #
 # ATLAS is the sole v1 taxonomy authority (LAAF absent). Every chain embeds
 # the production taxonomy pins and a semantic digest computed with
@@ -497,8 +504,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.incorporation_triggered
-          description: An agent retrieval fires the planted injection and the agent incorporates the false information into
-            its reasoning.
+          description: An agent retrieval surfaces the planted false data and the agent incorporates the false information
+            into its reasoning as trusted knowledge.
           security_relevant: true
           terminal: false
         order: 5
@@ -508,17 +515,18 @@ patterns:
           references:
           - reference_type: catalog
             reference_id: AML.CS0024 S03
-          - reference_type: catalog
-            reference_id: AML.T0051.002
-          confidence: 70
-          adaptation_rationale: Incorporation of the poisoned content when agents retrieve it is a triggered prompt injection
-            via an environmental event, AML.T0051.002's operation; AML.CS0024 S03 (retrieval-triggered behavior change) is
-            the adapted analogue.
+          confidence: 60
+          adaptation_rationale: AML.CS0024 S03 demonstrates retrieval-triggered incorporation, but there the retrieved content
+            is an injected instruction (AML.T0051.002); in this record the planted content is false data, not an instruction,
+            so retrieval-triggered incorporation is not AML.T0051.002's triggered prompt-injection operation and the analogue
+            is partial only.
         mappings:
-        - decision: exact
+        - decision: unmapped
           taxonomy: ATLAS
-          ids:
-          - AML.T0051.002
+          rationale: 'catalog-lineage.yaml''s atlas_step_mappings entry proposing AML.T0051.002 for this step is a false exact
+            identity: retrieval of false data is not a triggered prompt injection (no injected instruction fires), so exact
+            is removed fail-closed rather than retained for lineage equality; the lineage entry requires amendment (remove/downgrade
+            trigger_false_incorporation -> AML.T0051.002). The chain-scope AML.T0070 identity is unaffected.'
       - step_id: cascade_propagation
         requirement: required
         condition: null
@@ -531,13 +539,13 @@ patterns:
           value_type: object
         produced:
         - kind: state
-          ref_id: state.amplified_cascade
+          ref_id: state.first_peer_reemission
           value_type: object
         preconditions: []
         observable_postconditions:
-        - postcondition_id: post.cascade_active
-          description: Agents re-emit the poisoned content through normal outputs to peers, each retransmission reinforcing
-            the false information.
+        - postcondition_id: post.first_reemission
+          description: 'An agent that incorporated the false data re-emits it to a first peer through normal outputs: the
+            first re-emission event, not yet a multi-peer cascade.'
           security_relevant: true
           terminal: false
         order: 6
@@ -564,7 +572,7 @@ patterns:
         action_kind: impact
         consumed:
         - kind: state
-          ref_id: state.amplified_cascade
+          ref_id: state.first_peer_reemission
           value_type: object
         produced:
         - kind: effect
@@ -573,8 +581,9 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.cascade_observable
-          description: 'The false information observably propagates across the agent network, degrading collective decision-making
-            quality: the first observable cascade.'
+          description: 'The re-emitted false information is taken up by additional peers, each retransmission reinforcing
+            it, and observably propagates across the agent network, degrading collective decision-making quality: the first
+            observable multi-peer cascade.'
           security_relevant: true
           terminal: true
         order: 7
@@ -585,7 +594,7 @@ patterns:
           - reference_type: catalog
             reference_id: AML.CS0025 S05
           confidence: 50
-          adaptation_rationale: Network-wide misinformation degradation is adapted, not explicit, per catalog-lineage.yaml;
+          adaptation_rationale: Network-wide multi-peer misinformation degradation is adapted, not explicit, per catalog-lineage.yaml;
             AML.CS0025 S05 (integrity erosion from poisoned data at scale) is a partial analogue for degradation outcomes.
         mappings:
         - decision: not_applicable
@@ -605,7 +614,7 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: a95e96a16d970f73a24d041c46f5a5e9f170115ffd031f44ecf864465b19f939
+      semantic_digest: cb750f7711228fe65d75152144b2acc124241e762917b38e67f786d4be45c40f
   AP-T15-01:
     id: AP-T15-01
     threat_id: T15
@@ -822,13 +831,15 @@ patterns:
         order: 5
         attacker_controlled: false
         provenance:
-          tier: observed
+          tier: inferred
           references:
           - reference_type: catalog
             reference_id: AML.CS0026 S13
-          confidence: 90
-          adaptation_rationale: 'AML.CS0026 S13 directly demonstrates the fraud outcome: the victim following through with
-            the wire transfer using the substituted bank details (AML.T0048.000 financial harm).'
+          confidence: 50
+          adaptation_rationale: 'AML.CS0026 S13 states the fraud outcome only conditionally (''If the victim follows through
+            with the wire transfer ... the end impact could be ... financial harm''): the completed transfer is a stated possibility,
+            not an observed event. The terminal is therefore inferred from the demonstrated substitution and trusted presentation
+            (AML.CS0026 S10-S12) with S13 as conditional evidence.'
         mappings:
         - decision: not_applicable
           taxonomy: ATLAS
@@ -847,7 +858,7 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: fa849b9b86b9c486ca260f5072022a674ed4bb32423557d926b0b825925dc6f2
+      semantic_digest: ebf14b72fd945ccd169048b886ee5f4ddb6bf598b268d582021effe021bce430
   AP-T15-02:
     id: AP-T15-02
     threat_id: T15
@@ -1024,7 +1035,8 @@ patterns:
         observable_postconditions:
         - postcondition_id: post.deceptive_messages
           description: The compromised assistant generates urgent, authoritative deceptive messages that leverage its established
-            trust relationship with the user.
+            trust relationship with the user and direct the user toward the attacker-beneficial action (clicking attacker
+            links, disclosing credentials).
           security_relevant: true
           terminal: false
         order: 4
@@ -1040,43 +1052,6 @@ patterns:
         mappings:
         - decision: not_applicable
           taxonomy: ATLAS
-      - step_id: escalate_to_active_instruction
-        requirement: required
-        condition: null
-        executor_role: system
-        boundary_position: inside
-        action_kind: transform
-        consumed:
-        - kind: state
-          ref_id: state.deceptive_output
-          value_type: object
-        produced:
-        - kind: state
-          ref_id: state.active_instructions
-          value_type: object
-        preconditions: []
-        observable_postconditions:
-        - postcondition_id: post.active_instruction
-          description: The assistant escalates from passive information display to active instruction, directing user actions
-            (clicking attacker links, running commands, disclosing credentials).
-          security_relevant: true
-          terminal: false
-        order: 5
-        attacker_controlled: false
-        provenance:
-          tier: inferred
-          references:
-          - reference_type: design_record
-            reference_id: tactic-sequences-t10-t15-t12-t13-t16.md
-          - reference_type: catalog
-            reference_id: AML.CS0055 S06
-          confidence: 40
-          adaptation_rationale: No case demonstrates agent-to-human escalation to active instruction; AML.CS0055 S06 escalation
-            is agent-to-host (directionally reversed for this record) and the step is retained as honestly inferred per the
-            staging adjudication.
-        mappings:
-        - decision: not_applicable
-          taxonomy: ATLAS
       - step_id: user_executes_malicious_action
         requirement: required
         condition: null
@@ -1085,7 +1060,7 @@ patterns:
         action_kind: impact
         consumed:
         - kind: state
-          ref_id: state.active_instructions
+          ref_id: state.deceptive_output
           value_type: object
         produced:
         - kind: effect
@@ -1098,7 +1073,7 @@ patterns:
             the first observable social-engineering outcome.'
           security_relevant: true
           terminal: true
-        order: 6
+        order: 5
         attacker_controlled: false
         provenance:
           tier: observed
@@ -1126,7 +1101,7 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: 68a9c34478e97d529642e7211d9bf1e71e21594a9a120556d38d0f0386806387
+      semantic_digest: d839b4406ae4a650dce68d6903bde8f4a1a3a9495f0fe454343140b172e97a1c
   AP-T17-01:
     id: AP-T17-01
     threat_id: T17
@@ -1388,13 +1363,13 @@ patterns:
           value_type: object
         produced:
         - kind: state
-          ref_id: state.guardrails_overridden
+          ref_id: state.malicious_generation_enabled
           value_type: object
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.jailbroken
-          description: The hidden prompt overrides the adopter agent's guardrails and induces it to embed malicious elements
-            in generated artifacts.
+          description: 'The hidden prompt overrides the adopter agent''s guardrails, enabling the agent to generate artifacts
+            that embed the staged malicious elements: malicious generation is now enabled.'
           security_relevant: true
           terminal: false
         order: 7
@@ -1423,17 +1398,17 @@ patterns:
         action_kind: transform
         consumed:
         - kind: state
-          ref_id: state.guardrails_overridden
+          ref_id: state.malicious_generation_enabled
           value_type: object
         produced:
         - kind: state
-          ref_id: state.concealed_changes
+          ref_id: state.concealed_malicious_generation
           value_type: object
         preconditions: []
         observable_postconditions:
-        - postcondition_id: post.changes_concealed
-          description: The agent suppresses mention of the embedded changes in its responses, so adopters see no signal of
-            the modification.
+        - postcondition_id: post.generation_concealed
+          description: The agent preserves the enabled malicious-generation state while suppressing any mention of the embedded
+            changes in its responses, so the adopter sees no signal of the modification.
           security_relevant: true
           terminal: false
         order: 8
@@ -1457,7 +1432,7 @@ patterns:
         action_kind: impact
         consumed:
         - kind: state
-          ref_id: state.concealed_changes
+          ref_id: state.concealed_malicious_generation
           value_type: object
         produced:
         - kind: effect
@@ -1466,8 +1441,8 @@ patterns:
         preconditions: []
         observable_postconditions:
         - postcondition_id: post.backdoored_output
-          description: 'Adopters use agent-generated artifacts containing hidden backdoors, exfiltration logic, or vulnerable
-            constructs: the first observable supply-chain impact.'
+          description: 'The agent emits a generated artifact containing the hidden backdoor, exfiltration logic, or vulnerable
+            construct: the first observable supply-chain impact. Adopter use of the artifact is not claimed by this record.'
           security_relevant: true
           terminal: true
         order: 9
@@ -1476,10 +1451,13 @@ patterns:
           tier: observed
           references:
           - reference_type: catalog
+            reference_id: AML.CS0041 S06
+          - reference_type: catalog
             reference_id: AML.CS0041 S08
-          confidence: 90
-          adaptation_rationale: 'AML.CS0041 S08 directly demonstrates the impact: victim developers unknowingly used the compromised
-            assistant''s output containing hidden malicious elements that could reach production.'
+          confidence: 85
+          adaptation_rationale: First emission of the backdoored artifact is directly demonstrated by AML.CS0041 S06 (the
+            assistant adds the staged malicious script to generated HTML) and presupposed by AML.CS0041 S08 (victim developers
+            unknowingly used the output); this record's terminal is that first emission, not the adopter use shown in S08.
         mappings:
         - decision: not_applicable
           taxonomy: ATLAS
@@ -1498,4 +1476,4 @@ patterns:
         kind: trust_boundary
         purpose: supporting
       initial_ingress_slot_id: ingress
-      semantic_digest: 8b2a182fb819ea21ef3b0b2607f349ad75c9d39badb3dfd761f0999773fa850c
+      semantic_digest: f20e5de9128de4c054ef7725eef49eb9cadf22a9ae2c1703b696b53b17c890c1
