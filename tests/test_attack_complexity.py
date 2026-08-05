@@ -108,6 +108,18 @@ def _mk_step(step_id: str, order: int, *, attacker: bool, final: bool = False) -
                 "terminal": final,
             }
         ],
+        "resource_links": (
+            [
+                {
+                    "slot_id": "ingress",
+                    "role": "ingress",
+                    "trust_boundary_slot_id": None,
+                }
+            ]
+            if attacker and order == 1
+            else []
+        ),
+        "observable_outcome_links": [],
         "order": order,
         "attacker_controlled": attacker,
         "provenance": {
@@ -346,6 +358,7 @@ class TestCandidateLowerBound:
                 "source_slot_id": "source",
                 "source_identity_kind": "integration",
                 "trust_boundary_slot_id": "boundary",
+                "target_ingress_slot_id": "ingress",
             }
         )
         assessment = assess_candidate_complexity(candidate)
@@ -1096,6 +1109,7 @@ _UPSTREAM_REQ = {
     "source_slot_id": "source",
     "source_identity_kind": "integration",
     "trust_boundary_slot_id": "boundary",
+    "target_ingress_slot_id": "ingress",
 }
 
 

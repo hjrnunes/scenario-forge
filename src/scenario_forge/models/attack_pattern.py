@@ -394,6 +394,64 @@ class ObservablePostcondition(ContractModel):
     terminal: StrictBool
 
 
+class StepResourceLink(ContractModel):
+    """Explicit link from a step to a required resource slot.
+
+    The ``role`` declares how the slot is used by the step, determining the
+    execution-requirement derivation.  No inference from action kind, name,
+    or cardinality is performed by the projection — the link is the sole
+    authority for requirement derivation.
+
+    For ``source_influence`` links the ``slot_id`` is the upstream source
+    slot (an entry point or integration the attacker influences outside the
+    trust boundary), ``trust_boundary_slot_id`` is the boundary the source
+    content crosses, and ``target_ingress_slot_id`` is the canonical ingress
+    entry point the influenced content flows into.  The target-ingress edge
+    is explicit: the projection never assumes the chain's initial ingress
+    implicitly supplies this relation.
+    """
+
+    slot_id: Identifier
+    role: Literal["ingress", "tool_fixture", "source_influence"]
+    trust_boundary_slot_id: Identifier | None = None
+    target_ingress_slot_id: Identifier | None = None
+
+    @model_validator(mode="after")
+    def source_influence_fields_are_exclusive(self) -> StepResourceLink:
+        if self.role == "source_influence":
+            if self.trust_boundary_slot_id is None:
+                raise ValueError(
+                    "source_influence resource link requires a trust_boundary_slot_id"
+                )
+            if self.target_ingress_slot_id is None:
+                raise ValueError(
+                    "source_influence resource link requires a target_ingress_slot_id"
+                )
+        else:
+            if self.trust_boundary_slot_id is not None:
+                raise ValueError(
+                    "trust_boundary_slot_id is only valid for source_influence links"
+                )
+            if self.target_ingress_slot_id is not None:
+                raise ValueError(
+                    "target_ingress_slot_id is only valid for source_influence links"
+                )
+        return self
+
+
+class ObservableOutcomeLink(ContractModel):
+    """Explicit link from a step's postcondition to an observable outcome.
+
+    Declares that a postcondition is observable through a specific resource
+    slot as a specific observation kind.  The derivation consumes this link
+    to produce an :class:`ObservationRequirement`.
+    """
+
+    postcondition_id: Identifier
+    observation: Literal["model_context", "tool_invocation", "persistent_state"]
+    binding_slot_id: Identifier
+
+
 class DirectInputControlRequirement(ContractModel):
     schema_version: Literal["1"]
     requirement_id: Identifier
@@ -408,6 +466,7 @@ class UpstreamSourceInfluenceRequirement(ContractModel):
     source_slot_id: Identifier
     source_identity_kind: Literal["entry_point", "integration"]
     trust_boundary_slot_id: Identifier
+    target_ingress_slot_id: Identifier
 
 
 class StateChangingToolFixtureRequirement(ContractModel):
@@ -520,6 +579,8 @@ class CanonicalChainStep(ContractModel):
     produced: tuple[OutputReference, ...] = Field(min_length=1)
     preconditions: tuple[StepPrecondition, ...]
     observable_postconditions: tuple[ObservablePostcondition, ...] = Field(min_length=1)
+    resource_links: tuple[StepResourceLink, ...] = ()
+    observable_outcome_links: tuple[ObservableOutcomeLink, ...] = ()
     order: StrictInt = Field(gt=0)
     attacker_controlled: StrictBool
     provenance: StepProvenance
@@ -542,10 +603,26 @@ class CanonicalChainStep(ContractModel):
                 "observable postconditions",
                 "postcondition_id",
             ),
+            (self.resource_links, "resource links", "slot_id"),
         ):
             ids = [getattr(item, attribute) for item in collection]
             if len(ids) != len(set(ids)):
                 raise ValueError(f"duplicate ids in {label}")
+        outcome_keys = [
+            (link.postcondition_id, link.observation, link.binding_slot_id)
+            for link in self.observable_outcome_links
+        ]
+        if len(outcome_keys) != len(set(outcome_keys)):
+            raise ValueError("duplicate observable outcome links")
+        postcondition_ids = {
+            pc.postcondition_id for pc in self.observable_postconditions
+        }
+        for link in self.observable_outcome_links:
+            if link.postcondition_id not in postcondition_ids:
+                raise ValueError(
+                    f"observable outcome link references absent postcondition "
+                    f"{link.postcondition_id}"
+                )
         taxonomies = [mapping.taxonomy for mapping in self.mappings]
         if len(set(taxonomies)) != len(taxonomies):
             raise ValueError("duplicate taxonomy decisions in step scope")
@@ -636,6 +713,119 @@ class CanonicalAttackChain(ContractModel):
             raise ValueError("exactly one referenced initial ingress slot is required")
         if ingress[0].kind != "entry_point":
             raise ValueError("initial ingress slot must be an entry_point")
+        slot_ids = {slot.slot_id for slot in self.resource_slots}
+        slots_by_id = {slot.slot_id: slot for slot in self.resource_slots}
+        for step in self.steps:
+            for link in step.resource_links:
+                if link.slot_id not in slot_ids:
+                    raise ValueError(
+                        f"step {step.step_id} resource link references absent "
+                        f"slot {link.slot_id}"
+                    )
+                slot = slots_by_id[link.slot_id]
+                if link.role == "ingress":
+                    if link.slot_id != self.initial_ingress_slot_id:
+                        raise ValueError(
+                            f"step {step.step_id} ingress link must reference "
+                            "the initial ingress slot"
+                        )
+                    if step.boundary_position == "outside":
+                        raise ValueError(
+                            f"step {step.step_id} ingress link requires a "
+                            "crossing or inside boundary position"
+                        )
+                    if slot.kind != "entry_point":
+                        raise ValueError(
+                            f"step {step.step_id} ingress link must reference "
+                            "an entry_point slot"
+                        )
+                elif link.role == "tool_fixture":
+                    if slot.kind != "tool":
+                        raise ValueError(
+                            f"step {step.step_id} tool_fixture link must "
+                            "reference a tool slot"
+                        )
+                elif link.role == "source_influence":
+                    if slot.kind not in ("entry_point", "integration"):
+                        raise ValueError(
+                            f"step {step.step_id} source_influence link must "
+                            "reference an entry_point or integration slot"
+                        )
+                    if step.boundary_position == "outside":
+                        raise ValueError(
+                            f"step {step.step_id} source_influence link requires "
+                            "a crossing or inside boundary position"
+                        )
+                    tb = link.trust_boundary_slot_id
+                    if tb is None or tb not in slot_ids:
+                        raise ValueError(
+                            f"step {step.step_id} source_influence link "
+                            "references an absent trust_boundary slot"
+                        )
+                    if slots_by_id[tb].kind != "trust_boundary":
+                        raise ValueError(
+                            f"step {step.step_id} source_influence link "
+                            "trust_boundary_slot_id must reference a "
+                            "trust_boundary slot"
+                        )
+                    tg = link.target_ingress_slot_id
+                    if tg not in slot_ids:
+                        raise ValueError(
+                            f"step {step.step_id} source_influence link "
+                            f"references an absent target_ingress slot {tg}"
+                        )
+                    if tg != self.initial_ingress_slot_id:
+                        raise ValueError(
+                            f"step {step.step_id} source_influence link "
+                            "target_ingress_slot_id must reference the "
+                            "initial ingress slot"
+                        )
+                    if slots_by_id[tg].kind != "entry_point":
+                        raise ValueError(
+                            f"step {step.step_id} source_influence link "
+                            "target_ingress_slot_id must reference an "
+                            "entry_point slot"
+                        )
+            for link in step.observable_outcome_links:
+                if link.binding_slot_id not in slot_ids:
+                    raise ValueError(
+                        f"step {step.step_id} observable outcome link "
+                        f"references absent slot {link.binding_slot_id}"
+                    )
+                slot = slots_by_id[link.binding_slot_id]
+                expected_kind = {
+                    "model_context": "entry_point",
+                    "tool_invocation": "tool",
+                    "persistent_state": "integration",
+                }[link.observation]
+                if slot.kind != expected_kind:
+                    raise ValueError(
+                        f"step {step.step_id} observable outcome link "
+                        f"observation {link.observation} requires a "
+                        f"{expected_kind} slot, got {slot.kind}"
+                    )
+        has_ingress_link = any(
+            link.role == "ingress" and link.slot_id == self.initial_ingress_slot_id
+            for step in self.steps
+            for link in step.resource_links
+        )
+        has_source_influence_link = any(
+            link.role == "source_influence"
+            and link.target_ingress_slot_id == self.initial_ingress_slot_id
+            for step in self.steps
+            for link in step.resource_links
+        )
+        if has_ingress_link and has_source_influence_link:
+            raise ValueError(
+                "chain has both a direct ingress link and a source_influence "
+                "link to the initial ingress; exactly one activation mechanism "
+                "is permitted"
+            )
+        if not has_ingress_link and not has_source_influence_link:
+            raise ValueError(
+                "no step links to the initial ingress slot with role ingress "
+                "or source_influence"
+            )
         if self.semantic_digest != compute_chain_semantic_digest(self):
             raise ValueError("semantic_digest does not match chain semantics")
         return self
@@ -814,6 +1004,8 @@ _UNORDERED_FIELDS = {
     "contributing_step_ids",
     "operands",
     "min_zones",
+    "resource_links",
+    "observable_outcome_links",
 }
 
 
@@ -865,6 +1057,39 @@ def compute_chain_semantic_digest(chain: CanonicalAttackChain | dict[str, Any]) 
     context = payload.get("taxonomy_context")
     if isinstance(context, dict) and "laaf" not in context:
         payload["taxonomy_context"] = {**context, "laaf": None}
+    # Canonicalize optional linkage fields: a raw dict may omit
+    # ``trust_boundary_slot_id`` / ``target_ingress_slot_id`` on a
+    # resource link where model validation materializes ``None``.  Frame
+    # omitted and explicit-None identically so callers can sign raw dicts
+    # that omit the defaults.  Never mutates ``chain``.
+    steps = payload.get("steps")
+    if isinstance(steps, list):
+        normalized_steps = []
+        for step in steps:
+            if not isinstance(step, dict):
+                normalized_steps.append(step)
+                continue
+            links = step.get("resource_links")
+            if isinstance(links, list):
+                step = {
+                    **step,
+                    "resource_links": [
+                        {
+                            **link,
+                            "trust_boundary_slot_id": link.get(
+                                "trust_boundary_slot_id"
+                            ),
+                            "target_ingress_slot_id": link.get(
+                                "target_ingress_slot_id"
+                            ),
+                        }
+                        if isinstance(link, dict)
+                        else link
+                        for link in links
+                    ],
+                }
+            normalized_steps.append(step)
+        payload["steps"] = normalized_steps
     return _semantic_digest(
         payload, "semantic_digest", "scenario-forge:canonical-chain:v1"
     )

@@ -34,13 +34,16 @@ from scenario_forge.models.attack_pattern import (
     IntegrationResourceReference,
     MappingDecision,
     NotCondition,
+    ObservationRequirement,
     ProjectionSnapshot,
     ResourceBinding,
     SecurityOutcomeAssertionRequirement,
+    StateChangingToolFixtureRequirement,
     StepOmission,
     TaxonomyResolver,
     ToolResourceReference,
     TrustBoundaryResourceReference,
+    UpstreamSourceInfluenceRequirement,
     compute_projection_digest,
     evaluate_condition,
     validate_attack_pattern,
@@ -109,11 +112,13 @@ _SEMANTICALLY_UNORDERED_FIELDS = {
     "mappings",
     "min_zones",
     "observable_postconditions",
+    "observable_outcome_links",
     "omissions",
     "operands",
     "preconditions",
     "produced",
     "references",
+    "resource_links",
     "resource_slots",
     "values",
 }
@@ -557,50 +562,95 @@ def _derive_execution_requirements(
     projection: ProjectionSnapshot,
     snapshot: CapabilityFactSnapshot,
 ) -> tuple[tuple[ExecutionRequirement, ...] | None, ProjectionIssue | None]:
-    bindings = {item.slot_id: item.resource_ref for item in projection.bindings}
-    ingress_ref = bindings[chain.initial_ingress_slot_id]
-    if not isinstance(ingress_ref, EntryPointResourceReference):  # contract guard
-        raise TypeError("canonical ingress binding is not an entry point")
-    ingress = snapshot.profile.resolve_entry_point(ingress_ref.entry_point_id)
-    if ingress is None:  # qualification guard
-        raise ValueError("canonical ingress is absent from snapshot")
+    """Derive execution requirements from explicit canonical linkage only.
 
+    No inference from action kind, name, prose, cardinality, taxonomy mapping,
+    or catalog partition.  Every requirement is traced to an explicit
+    ``resource_links`` or ``observable_outcome_links`` entry on a selected
+    step, or to a security-relevant observable postcondition.
+    """
+    bindings = {item.slot_id: item.resource_ref for item in projection.bindings}
+    slots_by_id = {slot.slot_id: slot for slot in chain.resource_slots}
     selected_steps = [
         step
         for step in chain.steps
         if step.step_id in set(projection.selected_step_ids)
     ]
-    action_kinds = {step.action_kind for step in selected_steps}
-    unsupported_actions = action_kinds & {"deliver", "transform", "invoke", "persist"}
-    if ingress.effective_controllability != "direct":
-        return None, ProjectionIssue(
-            code="unsupported_requirement_derivation",
-            pattern_id=pattern_id,
-            detail=(
-                "indirect ingress requires explicit upstream-source and "
-                "trust-boundary linkage"
-            ),
-        )
-    if unsupported_actions:
-        return None, ProjectionIssue(
-            code="unsupported_requirement_derivation",
-            pattern_id=pattern_id,
-            detail=(
-                "selected action semantics require explicit step-to-resource and "
-                "observation linkage: " + ", ".join(sorted(unsupported_actions))
-            ),
-        )
-
-    requirements: list[ExecutionRequirement] = [
-        DirectInputControlRequirement(
-            schema_version="1",
-            requirement_id="req.direct-input.ingress",
-            kind="direct_input_control",
-            entry_point_slot_id=chain.initial_ingress_slot_id,
-        )
-    ]
+    requirements: list[ExecutionRequirement] = []
 
     for step in selected_steps:
+        for link in step.resource_links:
+            slot = slots_by_id[link.slot_id]
+            if link.role == "ingress":
+                ingress_ref = bindings[link.slot_id]
+                if not isinstance(ingress_ref, EntryPointResourceReference):
+                    raise TypeError(  # pragma: no cover - contract guard
+                        "ingress binding is not an entry point"
+                    )
+                ingress = snapshot.profile.resolve_entry_point(
+                    ingress_ref.entry_point_id
+                )
+                if ingress is None:
+                    raise ValueError("canonical ingress is absent from snapshot")
+                if ingress.effective_controllability != "direct":
+                    return None, ProjectionIssue(
+                        code="unsupported_requirement_derivation",
+                        pattern_id=pattern_id,
+                        detail=(
+                            "indirect ingress requires explicit upstream-source "
+                            "and trust-boundary linkage"
+                        ),
+                    )
+                requirements.append(
+                    DirectInputControlRequirement(
+                        schema_version="1",
+                        requirement_id=f"req.direct-input.{link.slot_id}",
+                        kind="direct_input_control",
+                        entry_point_slot_id=link.slot_id,
+                    )
+                )
+            elif link.role == "tool_fixture":
+                requirements.append(
+                    StateChangingToolFixtureRequirement(
+                        schema_version="1",
+                        requirement_id=f"req.tool-fixture.{step.step_id}.{link.slot_id}",
+                        kind="state_changing_tool_fixture",
+                        tool_slot_id=link.slot_id,
+                    )
+                )
+            elif link.role == "source_influence":
+                source_identity_kind = (
+                    "entry_point" if slot.kind == "entry_point" else "integration"
+                )
+                requirements.append(
+                    UpstreamSourceInfluenceRequirement(
+                        schema_version="1",
+                        requirement_id=(
+                            f"req.source-influence.{step.step_id}."
+                            f"{link.slot_id}.{link.trust_boundary_slot_id}"
+                        ),
+                        kind="upstream_source_influence",
+                        source_slot_id=link.slot_id,
+                        source_identity_kind=source_identity_kind,
+                        trust_boundary_slot_id=link.trust_boundary_slot_id,
+                        target_ingress_slot_id=link.target_ingress_slot_id,
+                    )
+                )
+
+        for outcome_link in step.observable_outcome_links:
+            requirements.append(
+                ObservationRequirement(
+                    schema_version="1",
+                    requirement_id=(
+                        f"req.observation.{step.step_id}."
+                        f"{outcome_link.postcondition_id}"
+                    ),
+                    kind="observation",
+                    observation=outcome_link.observation,
+                    binding_slot_id=outcome_link.binding_slot_id,
+                )
+            )
+
         for postcondition in step.observable_postconditions:
             if postcondition.security_relevant:
                 requirements.append(
@@ -615,7 +665,28 @@ def _derive_execution_requirements(
                         postcondition_id=postcondition.postcondition_id,
                     )
                 )
+
     return tuple(sorted(requirements, key=lambda item: item.requirement_id)), None
+
+
+def _fail_closed_if_no_requirements(
+    pattern_id: str,
+    requirements: tuple[ExecutionRequirement, ...] | None,
+    issue: ProjectionIssue | None,
+) -> tuple[tuple[ExecutionRequirement, ...] | None, ProjectionIssue | None]:
+    """Absent explicit linkage must fail closed, not produce an empty candidate."""
+    if issue is not None:
+        return requirements, issue
+    if requirements is None or len(requirements) == 0:
+        return None, ProjectionIssue(
+            code="unsupported_requirement_derivation",
+            pattern_id=pattern_id,
+            detail=(
+                "no explicit resource links or observable outcome links on any "
+                "selected step; absent linkage fails closed"
+            ),
+        )
+    return requirements, issue
 
 
 def _projected_mappings(
@@ -735,6 +806,9 @@ def validate_projected_candidate(
         candidate.projection.source_chain,
         candidate.projection,
         snapshot,
+    )
+    requirements, issue = _fail_closed_if_no_requirements(
+        candidate.pattern_id, requirements, issue
     )
     if issue is not None or requirements != candidate.execution_requirements:
         raise ValueError("candidate execution requirements do not match derivation")
@@ -966,20 +1040,35 @@ def project_authoritative_candidates(
             ).effective_controllability
             == "direct"
         )
-        if len(direct_ingress_options) != len(option_sets[ingress_index]):
-            issues.append(
-                ProjectionIssue(
-                    code="unsupported_requirement_derivation",
-                    pattern_id=pattern.id,
-                    detail=(
-                        "indirect ingress requires explicit upstream-source and "
-                        "trust-boundary linkage"
-                    ),
+        # A source-influence chain activates through an explicit
+        # source-boundary → canonical-ingress edge, not direct ingress
+        # control, so indirect ingress entry points are admissible.  A
+        # direct-ingress chain still requires a directly controllable
+        # ingress; indirect ingress there fails closed.
+        has_source_influence_activation = any(
+            link.role == "source_influence"
+            and link.target_ingress_slot_id == chain.initial_ingress_slot_id
+            for step in chain.steps
+            for link in step.resource_links
+        )
+        if has_source_influence_activation:
+            if not option_sets[ingress_index]:
+                continue
+        else:
+            if len(direct_ingress_options) != len(option_sets[ingress_index]):
+                issues.append(
+                    ProjectionIssue(
+                        code="unsupported_requirement_derivation",
+                        pattern_id=pattern.id,
+                        detail=(
+                            "indirect ingress requires explicit upstream-source and "
+                            "trust-boundary linkage"
+                        ),
+                    )
                 )
-            )
-        if not direct_ingress_options:
-            continue
-        option_sets[ingress_index] = direct_ingress_options
+            if not direct_ingress_options:
+                continue
+            option_sets[ingress_index] = direct_ingress_options
 
         total_bindings = prod(len(options) for options in option_sets)
         generated_for_pattern: list[ProjectedCandidate] = []
@@ -1011,6 +1100,9 @@ def project_authoritative_candidates(
             projection = validate_projection_snapshot(projection_data, snapshot)
             requirements, issue = _derive_execution_requirements(
                 pattern.id, chain, projection, snapshot
+            )
+            requirements, issue = _fail_closed_if_no_requirements(
+                pattern.id, requirements, issue
             )
             if issue is not None:
                 issues.append(issue)

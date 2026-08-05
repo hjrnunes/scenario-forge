@@ -78,6 +78,18 @@ def _step(step_id: str, order: int, *, conditional: bool = False) -> dict[str, A
                 "terminal": final,
             }
         ],
+        "resource_links": (
+            [
+                {
+                    "slot_id": "ingress",
+                    "role": "ingress",
+                    "trust_boundary_slot_id": None,
+                }
+            ]
+            if attacker
+            else []
+        ),
+        "observable_outcome_links": [],
         "order": order,
         "attacker_controlled": attacker,
         "provenance": {
@@ -400,17 +412,31 @@ def test_explicit_execution_requirements_are_versioned_and_digest_verified() -> 
 def test_unlinked_action_resources_and_observations_are_never_inferred(
     action_kind: str,
 ) -> None:
+    """Action kind alone never produces requirements; only explicit links do."""
     raw = _pattern(conditional=False)
     raw["canonical_chain"]["steps"][1]["action_kind"] = action_kind
     raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
         raw["canonical_chain"]
     )
     result = _project(pattern=raw)
-    assert result.candidates == ()
-    assert {issue.code for issue in result.infeasibilities} == {
-        "unsupported_requirement_derivation"
+    # The candidate succeeds because the first step has an explicit ingress
+    # link and the terminal step has a security-relevant postcondition.
+    # Action kind is irrelevant to requirement derivation.
+    assert len(result.candidates) == 1
+    candidate = result.candidates[0]
+    assert {requirement.kind for requirement in candidate.execution_requirements} == {
+        "direct_input_control",
+        "security_outcome_assertion",
     }
-    assert any(action_kind in issue.detail for issue in result.infeasibilities)
+    # No observation or tool-fixture requirements are inferred from action kind.
+    assert not any(
+        requirement.kind == "observation"
+        for requirement in candidate.execution_requirements
+    )
+    assert not any(
+        requirement.kind == "state_changing_tool_fixture"
+        for requirement in candidate.execution_requirements
+    )
 
 
 def test_candidate_v2_identity_is_stable_and_sensitive_to_every_identity_axis() -> None:
@@ -581,3 +607,212 @@ def test_catalog_pin_and_candidate_identity_ignore_record_order_and_duplicates()
     )
     with pytest.raises(ValueError, match="share one pattern id"):
         project_authoritative_candidates([first, divergent], resolver, snapshot)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial projection tests for explicit canonical linkage (422o.3.1)
+# ---------------------------------------------------------------------------
+
+
+def test_absent_linkage_fails_closed() -> None:
+    """Indirect ingress without source_influence linkage fails closed.
+
+    The projection must not produce a candidate when the ingress entry point
+    is indirect and no explicit source_influence link provides an alternative
+    requirement derivation path.  This is the typed fail-closed behavior for
+    unsupported linkage.
+    """
+    raw = _pattern(conditional=False)
+    # The fixture has a direct-ingress entry point.  Replace it with an
+    # indirect one to trigger the fail-closed path.
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "indirect"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1", "KC5.1"],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            }
+        ],
+        trust_boundaries=[
+            {
+                "name": "user-to-agent",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    result = _project(profile=profile, pattern=raw)
+    assert result.candidates == ()
+    assert {issue.code for issue in result.infeasibilities} == {
+        "unsupported_requirement_derivation"
+    }
+
+
+def test_no_explicit_links_produces_no_observations() -> None:
+    """With explicit linkage, only linked postconditions produce observations."""
+    raw = _pattern(conditional=False)
+    # The fixture has an ingress link on step 1 and no observable_outcome_links.
+    # The terminal step has security_relevant=True → SecurityOutcomeAssertion.
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    assert {requirement.kind for requirement in candidate.execution_requirements} == {
+        "direct_input_control",
+        "security_outcome_assertion",
+    }
+    # No observation requirements because no observable_outcome_links.
+    assert not any(
+        requirement.kind == "observation"
+        for requirement in candidate.execution_requirements
+    )
+
+
+def test_explicit_observable_outcome_link_produces_observation() -> None:
+    """An explicit observable_outcome_link produces an ObservationRequirement."""
+    raw = _pattern(conditional=False)
+    # Add an observable_outcome_link to step 2 (inside, system step).
+    raw["canonical_chain"]["steps"][1]["observable_outcome_links"] = [
+        {
+            "postcondition_id": "post.2",
+            "observation": "model_context",
+            "binding_slot_id": "ingress",
+        }
+    ]
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "observation" in kinds
+    assert "direct_input_control" in kinds
+    assert "security_outcome_assertion" in kinds
+
+
+def test_tool_fixture_link_produces_tool_fixture_requirement() -> None:
+    """A tool_fixture resource link produces a StateChangingToolFixtureRequirement."""
+    raw = _pattern(conditional=False)
+    # Add a tool_fixture link to step 2 (inside, system step).
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "tool",
+            "role": "tool_fixture",
+            "trust_boundary_slot_id": None,
+        }
+    ]
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "state_changing_tool_fixture" in kinds
+    assert "direct_input_control" in kinds
+    assert "security_outcome_assertion" in kinds
+
+
+def test_source_influence_link_produces_upstream_requirement() -> None:
+    """A source_influence resource link produces an UpstreamSourceInfluenceRequirement."""
+    raw = _pattern(conditional=False)
+    # Add a source_influence link to step 2 (inside, system step).
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "source",
+            "role": "source_influence",
+            "trust_boundary_slot_id": "boundary",
+            "target_ingress_slot_id": "ingress",
+        }
+    ]
+    # A source_influence chain must not also carry a direct ingress link.
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    result = _project(pattern=raw)
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "upstream_source_influence" in kinds
+    assert "direct_input_control" not in kinds
+    assert "security_outcome_assertion" in kinds
+
+
+def test_source_influence_activates_indirect_ingress() -> None:
+    """A source_influence link activates a candidate even when the bound
+    ingress entry point is indirect.  This is the explicit source-boundary
+    to canonical-ingress activation path: no inference from ingress
+    controllability, and no direct-input requirement is derived.
+    """
+    raw = _pattern(conditional=False)
+    raw["canonical_chain"]["steps"][1]["resource_links"] = [
+        {
+            "slot_id": "source",
+            "role": "source_influence",
+            "trust_boundary_slot_id": "boundary",
+            "target_ingress_slot_id": "ingress",
+        }
+    ]
+    raw["canonical_chain"]["steps"][0]["resource_links"] = []
+    raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+        raw["canonical_chain"]
+    )
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "indirect"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1", "KC5.1"],
+        tool_inventory=[{"name": "writer", "description": "changes state"}],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            }
+        ],
+        external_integrations=[
+            {
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            }
+        ],
+        trust_boundaries=[
+            {
+                "name": "user-to-agent",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    result = _project(profile=profile, pattern=raw)
+    assert len(result.candidates) == 1
+    candidate = result.candidates[0]
+    kinds = {requirement.kind for requirement in candidate.execution_requirements}
+    assert "upstream_source_influence" in kinds
+    assert "direct_input_control" not in kinds
+    assert not any(
+        issue.code == "unsupported_requirement_derivation"
+        for issue in result.infeasibilities
+    )
