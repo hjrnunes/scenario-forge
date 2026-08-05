@@ -304,10 +304,12 @@ class ActorProfile(BaseModel):
         description="Category of threat actor (e.g. cybercriminal, nation-state).",
     )
     capability_level: CapabilityLevel = Field(
+        frozen=True,
         description=(
-            "Skill and sophistication level of the actor. Immutable after "
-            "Call 0 (cmps.7): attack complexity is assessed separately and "
-            "never relabels the actor."
+            "Skill and sophistication level of the actor. Frozen at "
+            "construction (cmps.7): immutable after Call 0, so attack "
+            "complexity is assessed separately and never relabels the "
+            "actor. Post-construction assignment raises ValidationError."
         ),
     )
     beliefs: list[str] = Field(

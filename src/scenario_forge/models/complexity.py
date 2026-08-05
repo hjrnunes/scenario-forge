@@ -30,7 +30,7 @@ matching, and labels are never authoritative inputs.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -71,15 +71,21 @@ class ComplexityModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+ComplexityEvidenceKind = Literal[
+    "chain_step",
+    "execution_requirement",
+    "leaf_action",
+    "actor_access_provenance",
+]
+"""Closed set of typed input surfaces an evidence reference may point at."""
+
+
 class ComplexityEvidenceReference(ComplexityModel):
     """Typed pointer to the exact structured input that fired a rule."""
 
-    kind: Literal[
-        "chain_step",
-        "execution_requirement",
-        "leaf_action",
-        "actor_access_provenance",
-    ] = Field(description="Which typed input surface the reference points at.")
+    kind: ComplexityEvidenceKind = Field(
+        description="Which typed input surface the reference points at."
+    )
     ref_id: str = Field(
         min_length=1,
         description=(
@@ -105,6 +111,151 @@ ComplexityRuleId = Literal[
 """Closed set of stable rule identifiers in rule-table version ``1``."""
 
 
+AdmissionStage = Literal[
+    "call0_actor_generation",
+    "attack_tree_realization",
+    "post_realization_validation",
+]
+"""Lifecycle stage responsible for remediating an admission mismatch."""
+
+ADMISSION_STAGE_ORDER: tuple[AdmissionStage, ...] = (
+    "call0_actor_generation",
+    "attack_tree_realization",
+    "post_realization_validation",
+)
+"""Canonical earliest-to-latest ordering of admission remediation stages."""
+
+
+class ComplexityRuleSpec(ComplexityModel):
+    """Authoritative metadata for one closed rule-table entry (version ``1``).
+
+    Every persisted :class:`ComplexityReason` is validated against this
+    table, so an impossible claim — wrong required level, wrong evidence
+    kind, or a final-only rule in a candidate assessment — is
+    unrepresentable.
+    """
+
+    rule_id: ComplexityRuleId = Field(description="Stable rule identifier.")
+    required_level: CapabilityLevel = Field(
+        description="Fixed capability level this rule requires when it fires."
+    )
+    origin_phase: AssessmentPhase = Field(
+        description=(
+            "Phase whose typed inputs fire this rule.  Candidate-origin "
+            "reasons may be inherited unchanged into final assessments; "
+            "final-origin reasons must never appear in candidate assessments."
+        )
+    )
+    evidence_kinds: tuple[ComplexityEvidenceKind, ...] = Field(
+        min_length=1,
+        description=(
+            "Closed set of evidence kinds this rule may reference, sorted "
+            "ascending for determinism."
+        ),
+    )
+    responsible_stage: AdmissionStage = Field(
+        description=(
+            "Earliest lifecycle stage whose bounded retry can remediate a "
+            "mismatch this rule triggers: Call 0 actor generation when the "
+            "evidence is known at actor generation (projection inputs and "
+            "access provenance), attack-tree realization when the evidence "
+            "is introduced by typed realized actions after Call 0."
+        )
+    )
+
+    @model_validator(mode="after")
+    def sorted_unique_evidence_kinds(self) -> ComplexityRuleSpec:
+        kinds = list(self.evidence_kinds)
+        if kinds != sorted(set(kinds)):
+            raise ValueError("evidence_kinds must be sorted and unique")
+        return self
+
+
+def _spec(
+    rule_id: ComplexityRuleId,
+    required_level: CapabilityLevel,
+    origin_phase: AssessmentPhase,
+    evidence_kinds: tuple[ComplexityEvidenceKind, ...],
+    responsible_stage: AdmissionStage,
+) -> ComplexityRuleSpec:
+    return ComplexityRuleSpec(
+        rule_id=rule_id,
+        required_level=required_level,
+        origin_phase=origin_phase,
+        evidence_kinds=evidence_kinds,
+        responsible_stage=responsible_stage,
+    )
+
+
+COMPLEXITY_RULE_TABLE: dict[ComplexityRuleId, ComplexityRuleSpec] = {
+    # Candidate phase — typed ProjectedCandidate inputs, all known before
+    # Call 0, so remediation is Call 0 bounded actor regeneration.
+    "chain.multi_step_attacker_control": _spec(
+        "chain.multi_step_attacker_control",
+        "intermediate",
+        "candidate_lower_bound",
+        ("chain_step",),
+        "call0_actor_generation",
+    ),
+    "chain.deep_attacker_control": _spec(
+        "chain.deep_attacker_control",
+        "advanced",
+        "candidate_lower_bound",
+        ("chain_step",),
+        "call0_actor_generation",
+    ),
+    "access.upstream_source_influence": _spec(
+        "access.upstream_source_influence",
+        "intermediate",
+        "candidate_lower_bound",
+        ("execution_requirement",),
+        "call0_actor_generation",
+    ),
+    "tool.state_changing_fixture": _spec(
+        "tool.state_changing_fixture",
+        "intermediate",
+        "candidate_lower_bound",
+        ("execution_requirement",),
+        "call0_actor_generation",
+    ),
+    # Final phase — typed access provenance is established at Call 0 actor
+    # generation (cmps.6), so these remediate at Call 0 even though they
+    # only fire once realized provenance exists.
+    "access.indirect_influence_path": _spec(
+        "access.indirect_influence_path",
+        "intermediate",
+        "final",
+        ("actor_access_provenance",),
+        "call0_actor_generation",
+    ),
+    "access.privileged_prerequisite": _spec(
+        "access.privileged_prerequisite",
+        "intermediate",
+        "final",
+        ("actor_access_provenance",),
+        "call0_actor_generation",
+    ),
+    "access.supply_chain_targeting": _spec(
+        "access.supply_chain_targeting",
+        "advanced",
+        "final",
+        ("actor_access_provenance",),
+        "call0_actor_generation",
+    ),
+    # Final phase — typed realized actions are introduced by attack-tree
+    # realization after Call 0, so remediation retries realization for a
+    # simpler attack; the actor is immutable by then.
+    "action.external_precondition": _spec(
+        "action.external_precondition",
+        "intermediate",
+        "final",
+        ("leaf_action",),
+        "attack_tree_realization",
+    ),
+}
+"""The one authoritative, closed v1 rule table (metadata per rule)."""
+
+
 class ComplexityReason(ComplexityModel):
     """One typed reason record explaining a required-level trigger."""
 
@@ -123,6 +274,24 @@ class ComplexityReason(ComplexityModel):
         min_length=1,
         description="Typed references to the exact inputs that fired the rule.",
     )
+
+    @model_validator(mode="after")
+    def coherent_with_rule_table(self) -> ComplexityReason:
+        spec = COMPLEXITY_RULE_TABLE[self.rule_id]
+        if self.required_level != spec.required_level:
+            raise ValueError(
+                f"rule {self.rule_id} requires level "
+                f"'{spec.required_level}' in rule table v1, not "
+                f"'{self.required_level}'"
+            )
+        allowed = set(spec.evidence_kinds)
+        for ref in self.evidence:
+            if ref.kind not in allowed:
+                raise ValueError(
+                    f"rule {self.rule_id} may only reference evidence kinds "
+                    f"{sorted(allowed)}, not '{ref.kind}'"
+                )
+        return self
 
 
 class ComplexityPhaseAssessment(ComplexityModel):
@@ -143,6 +312,13 @@ class ComplexityPhaseAssessment(ComplexityModel):
         rule_ids = [reason.rule_id for reason in self.reasons]
         if len(set(rule_ids)) != len(rule_ids):
             raise ValueError("complexity reasons must be unique by rule_id")
+        for reason in self.reasons:
+            spec = COMPLEXITY_RULE_TABLE[reason.rule_id]
+            if spec.origin_phase == "final" and self.phase == "candidate_lower_bound":
+                raise ValueError(
+                    f"rule {reason.rule_id} originates in the final phase "
+                    "and cannot appear in a candidate_lower_bound assessment"
+                )
         ordered = sorted(
             self.reasons,
             key=lambda r: (-capability_level_rank(r.required_level), r.rule_id),
@@ -214,27 +390,9 @@ class AttackComplexityAssessment(ComplexityModel):
 # ---------------------------------------------------------------------------
 
 
-class ComplexityAdmissionRouting(ComplexityModel):
-    """Typed routing data for a capability/attack-complexity mismatch.
+class _AdmissionRoutingBase(ComplexityModel):
+    """Shared payload for admission routing variants."""
 
-    Identifies the earliest responsible stage and the action that stage
-    must take through its existing bounded mechanism.  cmps.7 exposes
-    this contract only; wiring into the Call 0 retry loop and the
-    post-realization quarantine partition is owned by cmps.5.
-    """
-
-    stage: Literal["call0_actor_generation", "post_realization_validation"] = Field(
-        description="Earliest lifecycle stage responsible for handling."
-    )
-    action: Literal[
-        "regenerate_actor_with_higher_capability", "quarantine_scenario"
-    ] = Field(
-        description=(
-            "Bounded action the owning stage must take: regenerate the "
-            "actor through the existing Call 0 retry loop, or quarantine "
-            "the scenario through semantic validation."
-        ),
-    )
     feedback: str = Field(
         min_length=1,
         description=(
@@ -242,6 +400,89 @@ class ComplexityAdmissionRouting(ComplexityModel):
             "feedback or quarantine evidence, including the required level."
         ),
     )
+
+
+class Call0RegenerationRouting(_AdmissionRoutingBase):
+    """Remediate at Call 0 actor generation.
+
+    Used when the triggering evidence — candidate projection inputs or
+    typed access provenance (cmps.6) — is established at actor generation
+    time.  The bounded Call 0 retry loop constructs a *new* actor with a
+    compatible capability level (or compatible access provenance); an
+    already-constructed actor is never relabelled.
+    """
+
+    stage: Literal["call0_actor_generation"] = Field(
+        default="call0_actor_generation",
+        description="Earliest lifecycle stage responsible for handling.",
+    )
+    action: Literal["regenerate_actor_with_higher_capability"] = Field(
+        default="regenerate_actor_with_higher_capability",
+        description=(
+            "Bounded action the owning stage must take: regenerate the "
+            "actor through the existing Call 0 retry loop."
+        ),
+    )
+
+
+class RealizationRetryRouting(_AdmissionRoutingBase):
+    """Remediate at attack-tree realization.
+
+    Used when the triggering evidence — typed realized leaf actions
+    (cmps.9) — is introduced after Call 0.  The realization stage retries
+    to produce a simpler attack path; the actor is immutable by then and
+    is never relabelled or upgraded.
+    """
+
+    stage: Literal["attack_tree_realization"] = Field(
+        default="attack_tree_realization",
+        description="Earliest lifecycle stage responsible for handling.",
+    )
+    action: Literal["retry_realization_for_simpler_attack"] = Field(
+        default="retry_realization_for_simpler_attack",
+        description=(
+            "Bounded action the owning stage must take: retry attack-tree "
+            "realization for a simpler attack that does not trigger the "
+            "raising rule."
+        ),
+    )
+
+
+class QuarantineRouting(_AdmissionRoutingBase):
+    """Fail-closed / retry-exhaustion fallback owned by cmps.5.
+
+    cmps.7 emits this only when admission cannot be established at all
+    (the requested assessment phase was never computed).  Routing an
+    exhausted bounded retry to quarantine is a cmps.5 lifecycle decision;
+    cmps.7 does not implement that state machine.
+    """
+
+    stage: Literal["post_realization_validation"] = Field(
+        default="post_realization_validation",
+        description="Earliest lifecycle stage responsible for handling.",
+    )
+    action: Literal["quarantine_scenario"] = Field(
+        default="quarantine_scenario",
+        description=(
+            "Bounded action the owning stage must take: quarantine the "
+            "scenario through semantic validation."
+        ),
+    )
+
+
+ComplexityAdmissionRouting = Annotated[
+    Call0RegenerationRouting | RealizationRetryRouting | QuarantineRouting,
+    Field(discriminator="stage"),
+]
+"""Typed routing data for a capability/attack-complexity mismatch.
+
+A discriminated union over the responsible lifecycle stage, so invalid
+stage/action pairs are unrepresentable.  Identifies the earliest
+responsible stage and the bounded action that stage must take through
+its existing mechanism.  cmps.7 exposes this contract only; wiring into
+the Call 0 retry loop, realization retry, and quarantine partition is
+owned by cmps.5.
+"""
 
 
 class CapabilityAdmissionViolation(ComplexityModel):

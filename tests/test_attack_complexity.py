@@ -21,7 +21,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from scenario_forge.llm.client import LLMResult
 from scenario_forge.models.attack_pattern import (
@@ -40,10 +40,16 @@ from scenario_forge.models.capability_profile import (
     ConfidenceLevel,
 )
 from scenario_forge.models.complexity import (
+    COMPLEXITY_RULE_TABLE,
     AttackComplexityAssessment,
+    Call0RegenerationRouting,
+    CapabilityAdmissionViolation,
+    ComplexityAdmissionRouting,
     ComplexityEvidenceReference,
     ComplexityPhaseAssessment,
     ComplexityReason,
+    QuarantineRouting,
+    RealizationRetryRouting,
 )
 from scenario_forge.models.scenario import (
     ActorAccessProvenance,
@@ -579,9 +585,13 @@ class TestAdmissionInvariant:
         assert violation.routing.action == "regenerate_actor_with_higher_capability"
         assert "advanced" in violation.routing.feedback
 
-    def test_final_mismatch_routes_to_quarantine_without_actor_mutation(self) -> None:
-        """Final structured action raises final complexity; the mismatch
-        returns typed quarantine routing data and the actor is untouched."""
+    def test_final_mismatch_from_typed_action_routes_to_realization_retry(
+        self,
+    ) -> None:
+        """A typed leaf action introduced after Call 0 raises final
+        complexity; the mismatch routes to attack-tree/realization retry
+        (the earliest responsible bounded stage) and the actor is
+        untouched — feedback never asks for a more capable actor."""
         actor = _actor(capability_level="novice")
         before = actor.model_dump(mode="json")
         assessment = assess_candidate_complexity(_candidate(n_attacker=1))
@@ -597,10 +607,75 @@ class TestAdmissionInvariant:
         violation = decision.violation
         assert violation is not None
         assert violation.required_level == "intermediate"
-        assert violation.routing.stage == "post_realization_validation"
-        assert violation.routing.action == "quarantine_scenario"
-        assert "never relabel the actor" in violation.routing.feedback
+        assert isinstance(violation.routing, RealizationRetryRouting)
+        assert violation.routing.stage == "attack_tree_realization"
+        assert violation.routing.action == "retry_realization_for_simpler_attack"
+        assert "simpler" in violation.routing.feedback
+        assert "never relabel" in violation.routing.feedback
+        assert "more capable actor" not in violation.routing.feedback
         assert actor.model_dump(mode="json") == before
+
+    def test_final_mismatch_from_access_provenance_routes_to_call0(self) -> None:
+        """Access provenance is established at Call 0 actor generation
+        (cmps.6), so a supply-chain-raised final mismatch routes back to
+        bounded Call 0 regeneration — constructing a new actor, never
+        relabelling the realized one."""
+        actor = _actor(capability_level="novice")
+        before = actor.model_dump(mode="json")
+        assessment = assess_candidate_complexity(_candidate(n_attacker=1))
+        final = assess_final_complexity(
+            assessment,
+            [_leaf("n1.1", "input", AiSystemAction())],
+            _access(ingress_mode="indirect", access_class="supply_chain"),
+        )
+        decision = evaluate_capability_admission(
+            actor.capability_level, final, phase="final"
+        )
+        assert not decision.admitted
+        violation = decision.violation
+        assert violation is not None
+        assert violation.required_level == "advanced"
+        assert [r.rule_id for r in violation.triggering_reasons] == [
+            "access.supply_chain_targeting"
+        ]
+        assert isinstance(violation.routing, Call0RegenerationRouting)
+        assert violation.routing.stage == "call0_actor_generation"
+        assert violation.routing.action == "regenerate_actor_with_higher_capability"
+        assert "never relabel" in violation.routing.feedback
+        assert actor.model_dump(mode="json") == before
+
+    def test_multiple_top_level_reasons_pick_earliest_stage_deterministically(
+        self,
+    ) -> None:
+        """When several top-level triggering reasons exist, routing picks
+        the earliest responsible stage (Call 0 < realization < quarantine)
+        and preserves every triggering reason."""
+        assessment = assess_candidate_complexity(_candidate(n_attacker=1))
+        final = assess_final_complexity(
+            assessment,
+            [_leaf("n1.1", None, ExternalPreconditionAction())],
+            _access(ingress_mode="direct", access_class="privileged"),
+        )
+        assert final.final is not None
+        assert final.final.required_level == "intermediate"
+        top = {r.rule_id for r in final.final.reasons}
+        assert top == {
+            "action.external_precondition",
+            "access.privileged_prerequisite",
+        }
+        decision = evaluate_capability_admission("novice", final, phase="final")
+        assert not decision.admitted
+        violation = decision.violation
+        assert violation is not None
+        # Both top-level reasons are preserved, deterministically ordered.
+        assert [r.rule_id for r in violation.triggering_reasons] == [
+            "access.privileged_prerequisite",
+            "action.external_precondition",
+        ]
+        # Earliest stage wins: access provenance is known at Call 0, which
+        # precedes attack-tree realization.
+        assert isinstance(violation.routing, Call0RegenerationRouting)
+        assert violation.routing.stage == "call0_actor_generation"
 
     def test_capable_actor_may_execute_simpler_attack(self) -> None:
         assessment = assess_candidate_complexity(_candidate(n_attacker=1))
@@ -628,6 +703,9 @@ class TestAdmissionInvariant:
         assert violation.rule_id == "complexity_assessment_phase_unavailable"
         assert violation.required_level is None
         assert violation.triggering_reasons == ()
+        # Quarantine is the fail-closed/exhaustion fallback owned by cmps.5.
+        assert isinstance(violation.routing, QuarantineRouting)
+        assert violation.routing.stage == "post_realization_validation"
         assert violation.routing.action == "quarantine_scenario"
 
     def test_actor_capability_unchanged_byte_for_byte(self) -> None:
@@ -651,6 +729,257 @@ class TestAdmissionInvariant:
             actor.model_dump(mode="json"), sort_keys=True
         ).encode("utf-8")
         assert serialized_before == serialized_after
+
+
+# ---------------------------------------------------------------------------
+# Field-level capability immutability
+# ---------------------------------------------------------------------------
+
+
+class TestCapabilityFieldFrozen:
+    """``ActorProfile.capability_level`` is frozen at construction: a
+    post-Call-0 relabel is a ValidationError, not just a convention."""
+
+    def test_construction_and_validation_still_work(self) -> None:
+        actor = _actor(capability_level="novice")
+        assert actor.capability_level == "novice"
+        # Round-trip construction/validation is unchanged.
+        restored = ActorProfile.model_validate(actor.model_dump(mode="json"))
+        assert restored == actor
+
+    def test_post_construction_assignment_fails(self) -> None:
+        actor = _actor(capability_level="novice")
+        with pytest.raises(ValidationError, match="frozen"):
+            actor.capability_level = "intermediate"  # type: ignore[misc]
+        assert actor.capability_level == "novice"
+
+    def test_unrelated_actor_state_remains_mutable(self) -> None:
+        """Only capability is frozen; Call-0 assembly may still attach
+        access provenance and goal metadata to the profile."""
+        actor = _actor(capability_level="novice")
+        actor.beliefs = ["updated belief"]
+        assert actor.beliefs == ["updated belief"]
+
+
+# ---------------------------------------------------------------------------
+# Closed v1 rule table enforcement in persisted models
+# ---------------------------------------------------------------------------
+
+
+def _reason(
+    rule_id: str,
+    required_level: str,
+    evidence_kind: str,
+    ref_id: str = "ref.1",
+) -> ComplexityReason:
+    return ComplexityReason(
+        rule_id=rule_id,  # type: ignore[arg-type]
+        required_level=required_level,  # type: ignore[arg-type]
+        detail="adversarial fixture",
+        evidence=(
+            ComplexityEvidenceReference(
+                kind=evidence_kind,  # type: ignore[arg-type]
+                ref_id=ref_id,
+            ),
+        ),
+    )
+
+
+class TestClosedRuleTable:
+    """Persisted reasons are validated against the one authoritative
+    ``COMPLEXITY_RULE_TABLE``: impossible claims are unrepresentable."""
+
+    def test_rule_table_is_closed_and_complete(self) -> None:
+        assert set(COMPLEXITY_RULE_TABLE) == {
+            "chain.multi_step_attacker_control",
+            "chain.deep_attacker_control",
+            "access.upstream_source_influence",
+            "tool.state_changing_fixture",
+            "action.external_precondition",
+            "access.indirect_influence_path",
+            "access.privileged_prerequisite",
+            "access.supply_chain_targeting",
+        }
+        for spec in COMPLEXITY_RULE_TABLE.values():
+            assert spec.rule_id is not None
+            assert spec.responsible_stage in (
+                "call0_actor_generation",
+                "attack_tree_realization",
+            )
+
+    def test_wrong_required_level_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="requires level"):
+            _reason("chain.deep_attacker_control", "novice", "chain_step")
+
+    def test_wrong_evidence_kind_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="evidence kinds"):
+            _reason("chain.deep_attacker_control", "advanced", "leaf_action")
+
+    def test_wrong_level_and_kind_rejected_after_json_round_trip(self) -> None:
+        good = _reason(
+            "access.supply_chain_targeting",
+            "advanced",
+            "actor_access_provenance",
+            "ep:v1:" + "ab" * 16,
+        )
+        data = good.model_dump(mode="json")
+        data["required_level"] = "expert"
+        with pytest.raises(ValidationError):
+            ComplexityReason.model_validate(data)
+        data2 = good.model_dump(mode="json")
+        data2["evidence"][0]["kind"] = "execution_requirement"
+        with pytest.raises(ValidationError):
+            ComplexityReason.model_validate(data2)
+
+    def test_final_only_rule_rejected_in_candidate_phase(self) -> None:
+        with pytest.raises(ValidationError, match="final phase"):
+            ComplexityPhaseAssessment(
+                phase="candidate_lower_bound",
+                required_level="intermediate",
+                reasons=(
+                    _reason(
+                        "action.external_precondition",
+                        "intermediate",
+                        "leaf_action",
+                    ),
+                ),
+            )
+
+    def test_final_only_rule_rejected_in_candidate_phase_after_round_trip(
+        self,
+    ) -> None:
+        assessment = assess_candidate_complexity(_candidate(n_attacker=1))
+        final = assess_final_complexity(
+            assessment,
+            [_leaf("n1.1", None, ExternalPreconditionAction())],
+            None,
+        )
+        assert final.final is not None
+        # Forge a candidate phase carrying a final-only reason via JSON.
+        data = final.candidate_lower_bound.model_dump(mode="json")
+        data["reasons"] = [
+            r.model_dump(mode="json")
+            for r in final.final.reasons
+            if r.rule_id == "action.external_precondition"
+        ]
+        data["required_level"] = "intermediate"
+        with pytest.raises(ValidationError, match="final phase"):
+            ComplexityPhaseAssessment.model_validate(data)
+
+    def test_candidate_reasons_inherited_unchanged_into_final(self) -> None:
+        assessment = assess_candidate_complexity(_candidate(n_attacker=5))
+        final = assess_final_complexity(
+            assessment,
+            [_leaf("n1.1", None, ExternalPreconditionAction())],
+            None,
+        )
+        assert final.final is not None
+        candidate_ids = {r.rule_id for r in assessment.candidate_lower_bound.reasons}
+        final_ids = {r.rule_id for r in final.final.reasons}
+        assert candidate_ids < final_ids
+        for reason in assessment.candidate_lower_bound.reasons:
+            assert reason in final.final.reasons
+
+    def test_adversarial_assessment_round_trip(self) -> None:
+        """A tampered persisted assessment fails validation on reload."""
+        assessment = assess_candidate_complexity(_candidate(n_attacker=5))
+        data = assessment.model_dump(mode="json")
+        # Tamper: deep-chain reason downgraded to novice.
+        data["candidate_lower_bound"]["required_level"] = "novice"
+        for reason in data["candidate_lower_bound"]["reasons"]:
+            reason["required_level"] = "novice"
+        with pytest.raises(ValidationError):
+            AttackComplexityAssessment.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# Discriminated routing contract
+# ---------------------------------------------------------------------------
+
+
+class TestRoutingDiscriminatedContract:
+    """Routing is a discriminated union on ``stage``; invalid stage/action
+    pairs are unrepresentable in both directions."""
+
+    def _violation_payload(self, routing: dict[str, Any]) -> dict[str, Any]:
+        reason = _reason("action.external_precondition", "intermediate", "leaf_action")
+        violation = CapabilityAdmissionViolation(
+            rule_id="actor_capability_below_attack_complexity",
+            phase="final",
+            rule_version="1",
+            actor_capability_level="novice",
+            required_level="intermediate",
+            triggering_reasons=(reason,),
+            routing=RealizationRetryRouting(feedback="fixture"),
+        )
+        data = violation.model_dump(mode="json")
+        data["routing"] = routing
+        return data
+
+    def test_variants_serialize_and_round_trip(self) -> None:
+        reason = _reason("action.external_precondition", "intermediate", "leaf_action")
+        for routing in (
+            Call0RegenerationRouting(feedback="call0"),
+            RealizationRetryRouting(feedback="realization"),
+            QuarantineRouting(feedback="quarantine"),
+        ):
+            violation = CapabilityAdmissionViolation(
+                rule_id="actor_capability_below_attack_complexity",
+                phase="final",
+                rule_version="1",
+                actor_capability_level="novice",
+                required_level="intermediate",
+                triggering_reasons=(reason,),
+                routing=routing,
+            )
+            restored = CapabilityAdmissionViolation.model_validate(
+                violation.model_dump(mode="json")
+            )
+            assert restored.routing == routing
+            assert type(restored.routing) is type(routing)
+
+    @pytest.mark.parametrize(
+        ("stage", "action"),
+        [
+            ("call0_actor_generation", "quarantine_scenario"),
+            ("call0_actor_generation", "retry_realization_for_simpler_attack"),
+            ("attack_tree_realization", "regenerate_actor_with_higher_capability"),
+            ("attack_tree_realization", "quarantine_scenario"),
+            ("post_realization_validation", "regenerate_actor_with_higher_capability"),
+            ("post_realization_validation", "retry_realization_for_simpler_attack"),
+        ],
+    )
+    def test_mismatched_stage_action_pairs_unrepresentable(
+        self, stage: str, action: str
+    ) -> None:
+        payload = self._violation_payload(
+            {"stage": stage, "action": action, "feedback": "forged"}
+        )
+        with pytest.raises(ValidationError):
+            CapabilityAdmissionViolation.model_validate(payload)
+
+    def test_wrong_action_on_variant_class_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            QuarantineRouting(
+                action="regenerate_actor_with_higher_capability",  # type: ignore[arg-type]
+                feedback="forged",
+            )
+        with pytest.raises(ValidationError):
+            Call0RegenerationRouting(
+                stage="attack_tree_realization",  # type: ignore[arg-type]
+                feedback="forged",
+            )
+
+    def test_union_alias_accepts_each_variant(self) -> None:
+        for routing in (
+            Call0RegenerationRouting(feedback="a"),
+            RealizationRetryRouting(feedback="b"),
+            QuarantineRouting(feedback="c"),
+        ):
+            parsed = TypeAdapter(ComplexityAdmissionRouting).validate_python(
+                routing.model_dump(mode="json")
+            )
+            assert type(parsed) is type(routing)
 
 
 # ---------------------------------------------------------------------------
@@ -957,5 +1286,8 @@ class TestPersistenceAndReporting:
         assert "Final required level" in html
         assert "Advanced" in html
         assert "chain.deep_attacker_control" in html
+        # Evidence references render as kind:ref_id.
+        assert "chain_step:step.1" in html
+        assert "leaf_action:n1.1" in html
         # Absent assessment renders nothing (legacy outputs unchanged).
         assert _build_complexity_assessment_block({"scenario_id": "x"}) == ""

@@ -21,9 +21,13 @@ is missing; this policy does not infer those semantics either.
 
 Admission invariant (:func:`evaluate_capability_admission`): actor
 capability >= attack required level.  The check is fail-closed and
-returns typed routing data for the earliest responsible stage.  Wiring
-the candidate lower bound into Call 0 actor generation and the final
-mismatch into the existing bounded retry/quarantine mechanisms is
+returns typed routing data for the earliest responsible stage,
+determined per triggering rule by the authoritative rule table
+(``COMPLEXITY_RULE_TABLE``): Call 0 bounded actor regeneration for
+evidence known at actor generation (projection inputs, access
+provenance), attack-tree/realization retry for evidence introduced by
+typed realized actions after Call 0, and quarantine only as the
+fail-closed fallback owned by cmps.5.  Wiring those mechanisms is
 deferred to cmps.5 (lifecycle ownership); cmps.7 exposes only the
 contract.
 """
@@ -38,9 +42,12 @@ from scenario_forge.models.attack_pattern import (
 )
 from scenario_forge.models.attack_tree import AttackTreeNode, ExternalPreconditionAction
 from scenario_forge.models.complexity import (
+    ADMISSION_STAGE_ORDER,
+    COMPLEXITY_RULE_TABLE,
     COMPLEXITY_RULE_VERSION,
     AssessmentPhase,
     AttackComplexityAssessment,
+    Call0RegenerationRouting,
     CapabilityAdmissionDecision,
     CapabilityAdmissionViolation,
     CapabilityLevel,
@@ -48,6 +55,9 @@ from scenario_forge.models.complexity import (
     ComplexityEvidenceReference,
     ComplexityPhaseAssessment,
     ComplexityReason,
+    ComplexityRuleId,
+    QuarantineRouting,
+    RealizationRetryRouting,
     capability_level_rank,
 )
 from scenario_forge.models.scenario import ActorAccessProvenance
@@ -59,6 +69,11 @@ from scenario_forge.pipeline.projection import ProjectedCandidate
 
 _MULTI_STEP_ATTACKER_THRESHOLD = 3
 _DEEP_CHAIN_ATTACKER_THRESHOLD = 5
+
+
+def _level(rule_id: ComplexityRuleId) -> CapabilityLevel:
+    """Fixed required level from the one authoritative rule table."""
+    return COMPLEXITY_RULE_TABLE[rule_id].required_level
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +124,7 @@ def _rule_chain_multi_step(candidate: ProjectedCandidate) -> ComplexityReason | 
         return None
     return ComplexityReason(
         rule_id="chain.multi_step_attacker_control",
-        required_level="intermediate",
+        required_level=_level("chain.multi_step_attacker_control"),
         detail=(
             f"Projected chain carries {count} attacker-controlled selected "
             f"steps (>= {_MULTI_STEP_ATTACKER_THRESHOLD}): coordinated "
@@ -128,7 +143,7 @@ def _rule_chain_deep(candidate: ProjectedCandidate) -> ComplexityReason | None:
         return None
     return ComplexityReason(
         rule_id="chain.deep_attacker_control",
-        required_level="advanced",
+        required_level=_level("chain.deep_attacker_control"),
         detail=(
             f"Projected chain carries {count} attacker-controlled selected "
             f"steps (>= {_DEEP_CHAIN_ATTACKER_THRESHOLD}): deep campaign-level "
@@ -153,7 +168,7 @@ def _rule_upstream_source_influence(
         return None
     return ComplexityReason(
         rule_id="access.upstream_source_influence",
-        required_level="intermediate",
+        required_level=_level("access.upstream_source_influence"),
         detail=(
             "Candidate derives an upstream-source-influence execution "
             "requirement: indirect ingress through an actor-influenced "
@@ -180,7 +195,7 @@ def _rule_state_changing_fixture(
         return None
     return ComplexityReason(
         rule_id="tool.state_changing_fixture",
-        required_level="intermediate",
+        required_level=_level("tool.state_changing_fixture"),
         detail=(
             "Candidate derives a state-changing tool fixture execution "
             "requirement: the attack path depends on mutating persisted "
@@ -224,7 +239,7 @@ def _rule_external_precondition_action(
         return None
     return ComplexityReason(
         rule_id="action.external_precondition",
-        required_level="intermediate",
+        required_level=_level("action.external_precondition"),
         detail=(
             "Realized attack tree stages attacker preparation outside the "
             "assessed system boundary (typed external_precondition action: "
@@ -245,7 +260,7 @@ def _rule_indirect_influence_path(
         return None
     return ComplexityReason(
         rule_id="access.indirect_influence_path",
-        required_level="intermediate",
+        required_level=_level("access.indirect_influence_path"),
         detail=(
             "Realized access provenance is indirect: the actor influences "
             "an upstream data source across a trust boundary rather than "
@@ -268,7 +283,7 @@ def _rule_privileged_prerequisite(
         return None
     return ComplexityReason(
         rule_id="access.privileged_prerequisite",
-        required_level="intermediate",
+        required_level=_level("access.privileged_prerequisite"),
         detail=(
             "Realized access provenance declares a privileged access class: "
             "pre-existing elevated or internal access is a prerequisite of "
@@ -291,7 +306,7 @@ def _rule_supply_chain_targeting(
         return None
     return ComplexityReason(
         rule_id="access.supply_chain_targeting",
-        required_level="advanced",
+        required_level=_level("access.supply_chain_targeting"),
         detail=(
             "Realized access provenance declares a supply-chain access "
             "class: the attack path targets the system through an upstream "
@@ -362,6 +377,18 @@ def assess_final_complexity(
     return assessment.model_copy(update={"final": _assemble_phase("final", reasons)})
 
 
+def _earliest_responsible_stage(reasons: tuple[ComplexityReason, ...]) -> str:
+    """Earliest lifecycle stage responsible for the triggering reasons.
+
+    Deterministic: minimum over the fixed ``ADMISSION_STAGE_ORDER`` of
+    each rule's ``responsible_stage`` from the authoritative rule table.
+    """
+    return min(
+        (COMPLEXITY_RULE_TABLE[reason.rule_id].responsible_stage for reason in reasons),
+        key=ADMISSION_STAGE_ORDER.index,
+    )
+
+
 def evaluate_capability_admission(
     actor_capability_level: CapabilityLevel,
     assessment: AttackComplexityAssessment,
@@ -372,11 +399,14 @@ def evaluate_capability_admission(
 
     The invariant is: actor capability >= attack required level.  A
     mismatch returns a typed violation routed to the earliest
-    responsible stage (Call 0 bounded actor regeneration for the
-    candidate lower bound; post-realization quarantine for the final
-    assessment).  The actor profile is never mutated.  Requesting a
-    phase whose assessment has not been computed is itself a violation
-    (fail-closed).
+    responsible stage, chosen deterministically across all triggering
+    reasons via the authoritative rule table: Call 0 bounded actor
+    regeneration when the raising evidence is known at actor generation
+    (projection inputs, access provenance), attack-tree/realization
+    retry when the raising evidence is introduced by typed realized
+    actions after Call 0.  The actor profile is never mutated or
+    relabelled.  Requesting a phase whose assessment has not been
+    computed fails closed to the quarantine fallback owned by cmps.5.
     """
     phase_assessment = (
         assessment.candidate_lower_bound
@@ -393,13 +423,12 @@ def evaluate_capability_admission(
                 actor_capability_level=actor_capability_level,
                 required_level=None,
                 triggering_reasons=(),
-                routing=ComplexityAdmissionRouting(
-                    stage="post_realization_validation",
-                    action="quarantine_scenario",
+                routing=QuarantineRouting(
                     feedback=(
                         f"No '{phase}' attack-complexity assessment exists "
                         f"(rule v{assessment.rule_version}); admission cannot "
-                        "be established — fail closed to quarantine."
+                        "be established — fail closed to the quarantine "
+                        "fallback owned by cmps.5."
                     ),
                 ),
             ),
@@ -415,31 +444,54 @@ def evaluate_capability_admission(
         if reason.required_level == required
     )
     rule_ids = ", ".join(reason.rule_id for reason in triggering)
-    if phase == "candidate_lower_bound":
-        routing = ComplexityAdmissionRouting(
-            stage="call0_actor_generation",
-            action="regenerate_actor_with_higher_capability",
-            feedback=(
+    stage = _earliest_responsible_stage(triggering)
+    routing: ComplexityAdmissionRouting
+    if stage == "call0_actor_generation":
+        if phase == "candidate_lower_bound":
+            feedback = (
                 f"Actor capability '{actor_capability_level}' is below the "
                 f"candidate lower bound '{required}' (complexity rule "
                 f"v{assessment.rule_version}; triggered by: {rule_ids}). "
                 f"Regenerate the actor with capability_level >= '{required}' "
                 "through the bounded Call 0 retry loop, or reject the "
-                "candidate."
-            ),
-        )
-    else:
-        routing = ComplexityAdmissionRouting(
-            stage="post_realization_validation",
-            action="quarantine_scenario",
+                "candidate. Capability is fixed at construction; never "
+                "relabel an existing actor."
+            )
+        else:
+            feedback = (
+                f"Actor capability '{actor_capability_level}' is below the "
+                f"final required level '{required}' (complexity rule "
+                f"v{assessment.rule_version}; triggered by: {rule_ids}). "
+                "The triggering evidence is established at Call 0 actor "
+                "generation: rerun the bounded Call 0 retry loop to "
+                f"construct an actor with capability_level >= '{required}' "
+                "(or compatible access provenance). The realized actor is "
+                "immutable; never relabel it. Retry exhaustion falls back "
+                "to quarantine owned by cmps.5."
+            )
+        routing = Call0RegenerationRouting(feedback=feedback)
+    elif stage == "attack_tree_realization":
+        routing = RealizationRetryRouting(
             feedback=(
                 f"Actor capability '{actor_capability_level}' is below the "
                 f"final required level '{required}' (complexity rule "
                 f"v{assessment.rule_version}; triggered by: {rule_ids}). "
-                "Route to semantic-validation quarantine; downstream "
-                "regeneration must produce a more capable actor or a "
-                "simpler realization — never relabel the actor."
-            ),
+                "The complexity was introduced by typed realized actions "
+                "after Call 0: retry attack-tree realization for a simpler "
+                "attack that does not trigger these rules. The actor is "
+                "immutable; never relabel or upgrade it. Retry exhaustion "
+                "falls back to quarantine owned by cmps.5."
+            )
+        )
+    else:  # defensive fail-closed; no v1 rule is quarantine-owned
+        routing = QuarantineRouting(
+            feedback=(
+                f"Actor capability '{actor_capability_level}' is below the "
+                f"required level '{required}' (complexity rule "
+                f"v{assessment.rule_version}; triggered by: {rule_ids}); "
+                "no bounded retry stage accepts responsibility — fail "
+                "closed to the quarantine fallback owned by cmps.5."
+            )
         )
     return CapabilityAdmissionDecision(
         admitted=False,

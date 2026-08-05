@@ -4666,7 +4666,8 @@ def _build_complexity_assessment_block(scenario: dict[str, Any]) -> str:
     reason_items = ""
     for reason in final.get("reasons") or lower.get("reasons") or []:
         refs = ", ".join(
-            _esc(ref.get("ref_id", "")) for ref in reason.get("evidence", [])
+            f"{_esc(ref.get('kind', ''))}:{_esc(ref.get('ref_id', ''))}"
+            for ref in reason.get("evidence", [])
         )
         reason_items += (
             "<li>"
