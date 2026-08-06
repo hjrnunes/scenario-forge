@@ -40,6 +40,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import Any
 
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
@@ -274,7 +275,7 @@ class AcceptedFilterRecord:
     seed: FilteredSeed | None = None
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "filter_candidate_id": self.filter_candidate_id,
             "rationale": self.rationale,
             "origins": [o.model_dump(mode="json") for o in self.origins],
@@ -285,6 +286,34 @@ class AcceptedFilterRecord:
             "pinned_technique_ids": list(self.pinned_technique_ids),
             "pinned_technique_names": list(self.pinned_technique_names),
         }
+        if self.seed is not None:
+            result["seed"] = self.seed.model_dump(mode="json")
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> AcceptedFilterRecord:
+        """Reconstruct an AcceptedFilterRecord from a serialized dict.
+
+        The embedded ``seed`` (FilteredSeed) is model_validated so the
+        complete generation seed survives round-trip deserialization.
+        """
+        seed_data = data.get("seed")
+        seed = FilteredSeed.model_validate(seed_data) if seed_data else None
+        return cls(
+            filter_candidate_id=data["filter_candidate_id"],
+            rationale=data["rationale"],
+            origins=tuple(
+                CandidateOrigin.model_validate(o) for o in data.get("origins", [])
+            ),
+            rejection_rationales=tuple(
+                RejectionRecord.model_validate(r)
+                for r in data.get("rejection_rationales", [])
+            ),
+            pinned_entry_point=data.get("pinned_entry_point", ""),
+            pinned_technique_ids=tuple(data.get("pinned_technique_ids", [])),
+            pinned_technique_names=tuple(data.get("pinned_technique_names", [])),
+            seed=seed,
+        )
 
     @classmethod
     def from_seed(cls, fseed: FilteredSeed) -> AcceptedFilterRecord:
@@ -752,26 +781,176 @@ class SelectionResult:
     selection_limitation_target_ids: list[str] = field(default_factory=list)
 
 
+def _solve_min_cost_assignment(
+    target_ids: list[str],
+    target_choices_map: dict[str, list[QualifiedCandidate]],
+    max_per_pattern: int | None,
+) -> dict[str, QualifiedCandidate]:
+    """Solve global primary assignment via min-cost flow (successive shortest paths).
+
+    Builds a bipartite flow network: source → targets → patterns → sink.
+    Pattern→sink edges have convex costs so that the k-th unit (0-indexed)
+    to a pattern costs ``k * CONCENTRATION_SCALE``, plus
+    ``CAP_OVERFLOW_PENALTY * CONCENTRATION_SCALE`` if ``k >= max_per_pattern``.
+    This minimizes concentration (spreads assignments across patterns) and
+    cap overflow.
+
+    Target→pattern edges have cost = candidate rank (0-indexed position in
+    the sorted-by-candidate_id list of patterns for that target), providing
+    canonical candidate-ID tie-breaking at lower priority than concentration.
+
+    Complexity: O(N² · (N+M) · E) where N = targets, M = patterns,
+    E = edges.  Polynomial and feasible for ~49 targets.
+
+    Returns mapping from target_id to the assigned QualifiedCandidate.
+    """
+    from collections import deque
+
+    N = len(target_ids)
+    if N == 0:
+        return {}
+
+    # Collect unique patterns, sorted for determinism.
+    all_patterns = sorted(
+        {qc.pattern_id for choices in target_choices_map.values() for qc in choices}
+    )
+    M = len(all_patterns)
+    pattern_idx = {p: i for i, p in enumerate(all_patterns)}
+
+    # For each (target, pattern), pick the lowest candidate_id candidate.
+    best_per_tp: dict[tuple[str, str], QualifiedCandidate] = {}
+    for t_id in target_ids:
+        for qc in target_choices_map[t_id]:
+            key = (t_id, qc.pattern_id)
+            if (
+                key not in best_per_tp
+                or qc.candidate_id < best_per_tp[key].candidate_id
+            ):
+                best_per_tp[key] = qc
+
+    # Cost scaling: ensure lexicographic priority
+    #   cap overflow > concentration > candidate tie-break
+    CONCENTRATION_SCALE = 2 * N + 1  # > max total candidate tie-break (2*N)
+    CAP_OVERFLOW_PENALTY = N * N + 1  # > max total concentration (N*(N-1)/2)
+
+    # Build flow network.
+    # Nodes: 0=source, 1..N=targets, N+1..N+M=patterns, N+M+1=sink
+    source = 0
+    sink = N + M + 1
+    num_nodes = N + M + 2
+
+    # Edge: [to, capacity, cost, rev_index]
+    graph: list[list[list[int]]] = [[] for _ in range(num_nodes)]
+
+    def add_edge(u: int, v: int, cap: int, cost: int) -> None:
+        graph[u].append([v, cap, cost, len(graph[v])])
+        graph[v].append([u, 0, -cost, len(graph[u]) - 1])
+
+    # Source → targets (cap=1, cost=0).
+    for i in range(N):
+        add_edge(source, 1 + i, 1, 0)
+
+    # Targets → patterns (cap=1, cost=rank for candidate-ID tie-break).
+    for i, t_id in enumerate(target_ids):
+        # Sort this target's patterns by the best candidate's candidate_id.
+        target_patterns = sorted(
+            {qc.pattern_id for qc in target_choices_map[t_id]},
+            key=lambda p: best_per_tp[(t_id, p)].candidate_id,
+        )
+        for rank, p_id in enumerate(target_patterns):
+            pi = pattern_idx[p_id]
+            add_edge(1 + i, 1 + N + pi, 1, rank)
+
+    # Patterns → sink with convex costs (cap=N per pattern, increasing cost).
+    for pi in range(M):
+        for k in range(N):
+            base_cost = k * CONCENTRATION_SCALE
+            if max_per_pattern is not None and k >= max_per_pattern:
+                base_cost += CAP_OVERFLOW_PENALTY * CONCENTRATION_SCALE
+            add_edge(1 + N + pi, sink, 1, base_cost)
+
+    # Min-cost max-flow via successive shortest paths (SPFA / Bellman-Ford).
+    total_flow = 0
+    while total_flow < N:
+        dist = [float("inf")] * num_nodes
+        dist[source] = 0
+        in_queue = [False] * num_nodes
+        in_queue[source] = True
+        queue: deque[int] = deque([source])
+        parent_node = [-1] * num_nodes
+        parent_edge_idx = [-1] * num_nodes
+
+        while queue:
+            u = queue.popleft()
+            in_queue[u] = False
+            for ei, edge in enumerate(graph[u]):
+                v, cap, cost, _ = edge
+                if cap > 0 and dist[u] + cost < dist[v]:
+                    dist[v] = dist[u] + cost
+                    parent_node[v] = u
+                    parent_edge_idx[v] = ei
+                    if not in_queue[v]:
+                        queue.append(v)
+                        in_queue[v] = True
+
+        if dist[sink] == float("inf"):
+            break  # No more augmenting paths.
+
+        # Augment 1 unit of flow along the shortest path.
+        v = sink
+        while v != source:
+            u = parent_node[v]
+            ei = parent_edge_idx[v]
+            graph[u][ei][1] -= 1  # reduce forward capacity
+            rev_i = graph[u][ei][3]
+            graph[v][rev_i][1] += 1  # increase reverse capacity
+            v = u
+        total_flow += 1
+
+    # Extract assignment: check which target→pattern forward edges have flow.
+    assignment: dict[str, QualifiedCandidate] = {}
+    for i, t_id in enumerate(target_ids):
+        for edge in graph[1 + i]:
+            v = edge[0]
+            # Pattern node range: [1+N, N+M]
+            if 1 + N <= v <= N + M and edge[1] == 0:
+                pi = v - 1 - N
+                p_id = all_patterns[pi]
+                assignment[t_id] = best_per_tp[(t_id, p_id)]
+                break
+
+    return assignment
+
+
 def select_with_coverage_priority(
     qualified: list[QualifiedCandidate],
     fallback_queues: dict[str, TargetFallbackQueue],
     universe: CoverageUniverse,
     max_per_pattern: int | None = None,
 ) -> SelectionResult:
-    """Select candidates with coverage-first priority.
+    """Select candidates with coverage-first priority via min-cost flow.
 
-    **Phase 1 (hard):** Ensure exactly one unattempted primary candidate
+    **Hard objective:** Ensure exactly one unattempted primary candidate
     for every feasible coverage target that has candidates in its fallback
-    queue.  A global coverage-preserving assignment minimizes per-pattern
-    overage and maximizes existing diversity:
+    queue.  A deterministic min-cost flow (successive shortest paths on a
+    bipartite b-matching network) finds the globally optimal assignment in
+    polynomial time — feasible for ~49 targets.
 
-    * Sole-choice targets (one candidate in queue) are always selected --
-      cap-immune.
-    * Multi-choice targets are assigned to the choice whose pattern
-      currently has the lowest count, preferring patterns under cap.
-      When ``max_per_pattern`` is set and all choices' patterns are at
-      cap, the target is still covered (coverage is never sacrificed) but
-      an explicit ``selection_limitation`` is emitted.
+    Objective order (lexicographic):
+    1. **Cover every feasible target** — maximize the number of targets
+       with a primary assignment.
+    2. **Minimize cap overflow** — the total number of assignments
+       exceeding ``max_per_pattern`` (when set).
+    3. **Maximize pattern diversity / minimize concentration** — convex
+       per-pattern costs spread assignments across patterns.
+    4. **Canonical candidate-ID tie-break** — lowest candidate_id per
+       (target, pattern) pair, with deterministic SPFA node ordering.
+
+    Cap-immune overflow is assigned only after maximizing feasible in-cap
+    assignment.  Over-cap targets — including sole-choice overflows —
+    receive an explicit ``selection_limitation``.  The first
+    ``max_per_pattern`` targets (sorted by target ID) assigned to a pattern
+    are in-cap; the rest are overflow.
 
     Only Phase-1 primaries are selected and attempted through the ordinary
     lifecycle.  All remaining choices stay as ``fallback_available`` in
@@ -789,81 +968,80 @@ def select_with_coverage_priority(
         :class:`SelectionResult` with the final selected list,
         primary/attempted candidate tracking, and selection limitations.
     """
-    selected: list[QualifiedCandidate] = []
-    selected_ids: set[str] = set()
-    primary_ids: dict[str, str] = {}
-    pattern_counts: dict[str, int] = {}
-    limitations: list[str] = []
-
-    # Process targets in sorted entry_point_id order for determinism.
     sorted_targets = sorted(universe.feasible_targets, key=lambda t: t.entry_point_id)
 
-    # Phase 1a: Select sole-choice targets (cap-immune).
-    multi_targets: list[CoverageTarget] = []
+    # Collect the choice lists for targets that have candidates.
+    target_choice_lists: list[tuple[str, list[QualifiedCandidate]]] = []
     for target in sorted_targets:
         ep_id = target.entry_point_id
         queue = fallback_queues.get(ep_id)
         if queue is None or queue.is_empty:
-            continue  # uncovered -- no candidates at all
-        if len(queue.choices) == 1:
-            qc = queue.choices[0]
-            if qc.candidate_id not in selected_ids:
-                selected.append(qc)
-                selected_ids.add(qc.candidate_id)
-                primary_ids[ep_id] = qc.candidate_id
-                pattern_counts[qc.pattern_id] = pattern_counts.get(qc.pattern_id, 0) + 1
-        else:
-            multi_targets.append(target)
+            continue
+        target_choice_lists.append((ep_id, list(queue.choices)))
 
-    # Phase 1b: Multi-choice targets -- global assignment minimizing overage.
-    for target in multi_targets:
-        ep_id = target.entry_point_id
-        choices = fallback_queues[ep_id].choices
+    if not target_choice_lists:
+        # No targets have candidates.
+        uncovered = [t.entry_point_id for t in sorted_targets]
+        return SelectionResult(
+            selected=[],
+            capped_count=0,
+            uncovered_target_ids=uncovered,
+            per_pattern_counts={},
+            primary_candidate_ids={},
+            attempted_candidate_ids=set(),
+            selection_limitation_target_ids=[],
+        )
 
-        if max_per_pattern is not None:
-            under_cap = [
-                qc
-                for qc in choices
-                if pattern_counts.get(qc.pattern_id, 0) < max_per_pattern
-            ]
-            if under_cap:
-                primary = min(
-                    under_cap,
-                    key=lambda qc: (
-                        pattern_counts.get(qc.pattern_id, 0),
-                        qc.candidate_id,
-                    ),
-                )
-            else:
-                # All choices' patterns at cap -- coverage is still preserved
-                # (never sacrifice coverage for a cap), but emit an explicit
-                # selection_limitation.
-                primary = min(
-                    choices,
-                    key=lambda qc: (
-                        pattern_counts.get(qc.pattern_id, 0),
-                        qc.candidate_id,
-                    ),
-                )
-                limitations.append(ep_id)
-        else:
-            # No cap: pick the choice whose pattern has the lowest count
-            # to maximize diversity, with candidate_id tie-break.
-            primary = min(
-                choices,
-                key=lambda qc: (
-                    pattern_counts.get(qc.pattern_id, 0),
-                    qc.candidate_id,
-                ),
-            )
+    # Build the choices map for the min-cost flow solver.
+    coverable_target_ids = [ep_id for ep_id, _ in target_choice_lists]
+    target_choices_map: dict[str, list[QualifiedCandidate]] = {
+        ep_id: choices for ep_id, choices in target_choice_lists
+    }
 
-        if primary.candidate_id not in selected_ids:
-            selected.append(primary)
-            selected_ids.add(primary.candidate_id)
-            primary_ids[ep_id] = primary.candidate_id
-            pattern_counts[primary.pattern_id] = (
-                pattern_counts.get(primary.pattern_id, 0) + 1
-            )
+    # Solve the global assignment via min-cost flow (polynomial, O(N²·(N+M)·E)).
+    best_assignment = _solve_min_cost_assignment(
+        coverable_target_ids,
+        target_choices_map,
+        max_per_pattern,
+    )
+
+    # Build the final selected list from the best assignment.
+    # Deduplicate by candidate_id — one candidate may serve multiple targets.
+    selected: list[QualifiedCandidate] = []
+    selected_ids: set[str] = set()
+    primary_ids: dict[str, str] = {}
+    pattern_counts_final: dict[str, int] = {}
+    limitations: list[str] = []
+
+    # Process targets in sorted order for deterministic selected list.
+    for ep_id, qc in sorted(best_assignment.items()):
+        if qc.candidate_id not in selected_ids:
+            rank = len(selected)
+            selected.append(replace(qc, rank=rank))
+            selected_ids.add(qc.candidate_id)
+        primary_ids[ep_id] = qc.candidate_id
+        pattern_counts_final[qc.pattern_id] = (
+            pattern_counts_final.get(qc.pattern_id, 0) + 1
+        )
+
+    # Derive structured selection limitations for over-cap targets.
+    # For each pattern, the first max_per_pattern targets (sorted by
+    # target ID) are in-cap; the rest are overflow with explicit limitations.
+    # This includes sole-choice overflows.
+    if max_per_pattern is not None:
+        # Group targets by their assigned pattern.
+        targets_by_pattern: dict[str, list[str]] = {}
+        for ep_id in sorted(best_assignment):
+            qc = best_assignment[ep_id]
+            targets_by_pattern.setdefault(qc.pattern_id, []).append(ep_id)
+
+        for ep_ids in targets_by_pattern.values():
+            count = len(ep_ids)
+            if count > max_per_pattern:
+                # First max_per_pattern targets (sorted) are in-cap;
+                # the rest are overflow.
+                overflow_ids = ep_ids[max_per_pattern:]
+                limitations.extend(overflow_ids)
 
     uncovered = [
         t.entry_point_id for t in sorted_targets if t.entry_point_id not in primary_ids
@@ -1034,6 +1212,234 @@ def deserialize_plan_ref(ref: dict) -> ProjectedCandidate:
     if pc_data is None:
         raise ValueError("plan ref missing 'projected_candidate' — cannot reconstruct")
     return ProjectedCandidate.model_validate(pc_data)
+
+
+@dataclass(frozen=True)
+class DeserializedPlanRef:
+    """Typed result of deserializing a persisted plan reference.
+
+    Carries the fully validated :class:`ProjectedCandidate`, the
+    deterministically ordered accepted filter records, and the
+    :class:`FilteredSeed` usable by ordinary generation.  The outer
+    candidate/pattern/entry-point IDs are verified against the embedded
+    data during deserialization — tampering is rejected.
+    """
+
+    projected: ProjectedCandidate
+    accepted_filters: tuple[AcceptedFilterRecord, ...]
+    rank: int
+
+    @property
+    def candidate_id(self) -> str:
+        return self.projected.candidate_id
+
+    @property
+    def pattern_id(self) -> str:
+        return self.projected.pattern_id
+
+    @property
+    def entry_point_id(self) -> str:
+        return self.projected.canonical_ingress.entry_point_id
+
+    @property
+    def generation_seed(self) -> FilteredSeed:
+        """Deterministic FilteredSeed for ordinary generation.
+
+        The seed with the lowest ``filter_candidate_id`` is chosen —
+        identical to :attr:`QualifiedCandidate.generation_seed`.
+        """
+        for record in self.accepted_filters:
+            if record.seed is not None:
+                return record.seed
+        raise ValueError(
+            "deserialized plan ref has no seed-bearing accepted filter record"
+        )
+
+
+def deserialize_qualified_candidate(ref: dict) -> DeserializedPlanRef:
+    """Deserialize a persisted plan ref into a typed, verified contract.
+
+    Reconstructs the complete :class:`ProjectedCandidate` and the
+    deterministically ordered accepted filter records (each carrying its
+    complete :class:`FilteredSeed`).  The following integrity checks are
+    enforced:
+
+    * The outer ``candidate_id``, ``pattern_id``, and ``entry_point_id``
+      must agree with the embedded ``ProjectedCandidate`` data.
+    * Accepted filter records must be in canonical (sorted by
+      ``filter_candidate_id``) order with no duplicates.
+    * Every accepted filter record's embedded seed must have an
+      ``entry_point_id`` matching the projected candidate's ingress.
+
+    Args:
+        ref: A serialized plan reference from
+            :meth:`QualifiedCandidate.to_plan_ref`.
+
+    Returns:
+        A :class:`DeserializedPlanRef` with the validated projected
+        candidate, ordered filter records, and deterministic generation
+        seed.
+
+    Raises:
+        ValueError: If any integrity check fails or embedded data is
+            invalid.
+    """
+    # Validate the projected candidate through model_validate.
+    pc = deserialize_plan_ref(ref)
+
+    # Verify outer IDs agree with embedded projected candidate.
+    outer_candidate_id = ref.get("candidate_id", "")
+    if outer_candidate_id != pc.candidate_id:
+        raise ValueError(
+            f"plan ref outer candidate_id '{outer_candidate_id}' disagrees "
+            f"with embedded projected candidate_id '{pc.candidate_id}'"
+        )
+    outer_pattern_id = ref.get("pattern_id", "")
+    if outer_pattern_id != pc.pattern_id:
+        raise ValueError(
+            f"plan ref outer pattern_id '{outer_pattern_id}' disagrees "
+            f"with embedded projected pattern_id '{pc.pattern_id}'"
+        )
+    outer_entry_point_id = ref.get("entry_point_id", "")
+    if outer_entry_point_id != pc.canonical_ingress.entry_point_id:
+        raise ValueError(
+            f"plan ref outer entry_point_id '{outer_entry_point_id}' disagrees "
+            f"with embedded projected ingress entry_point_id "
+            f"'{pc.canonical_ingress.entry_point_id}'"
+        )
+
+    # Deserialize accepted filter records.
+    raw_filters = ref.get("accepted_filters", [])
+    if not raw_filters:
+        raise ValueError("plan ref has no accepted filter records")
+
+    records: list[AcceptedFilterRecord] = []
+    for raw in raw_filters:
+        records.append(AcceptedFilterRecord.from_dict(raw))
+
+    # Reject duplicate filter_candidate_ids.
+    filter_ids = [r.filter_candidate_id for r in records]
+    if len(set(filter_ids)) != len(filter_ids):
+        from collections import Counter
+
+        dupes = sorted(cid for cid, count in Counter(filter_ids).items() if count > 1)
+        raise ValueError(f"plan ref has duplicate filter_candidate_ids: {dupes}")
+
+    # Reject noncanonical filter order — must be sorted by filter_candidate_id.
+    expected_order = sorted(filter_ids)
+    if filter_ids != expected_order:
+        raise ValueError(
+            f"plan ref accepted_filters are not in canonical order "
+            f"(sorted by filter_candidate_id): got {filter_ids}, "
+            f"expected {expected_order}"
+        )
+
+    # Verify each seed's entry_point_id matches the projected ingress.
+    for record in records:
+        if record.seed is not None and (
+            record.seed.entry_point_id != pc.canonical_ingress.entry_point_id
+        ):
+            raise ValueError(
+                f"accepted filter record '{record.filter_candidate_id}' "
+                f"seed entry_point_id '{record.seed.entry_point_id}' "
+                f"disagrees with projected ingress "
+                f"'{pc.canonical_ingress.entry_point_id}'"
+            )
+
+    rank = ref.get("rank", 0)
+
+    return DeserializedPlanRef(
+        projected=pc,
+        accepted_filters=tuple(records),
+        rank=rank,
+    )
+
+
+def revalidate_qualified_candidate(
+    ref: dict,
+    taxonomy_resolver: Any,
+    snapshot: Any,
+) -> DeserializedPlanRef:
+    """Deserialize AND authoritatively revalidate a plan ref.
+
+    Combines :func:`deserialize_qualified_candidate` with authoritative
+    requalification of the embedded :class:`ProjectedCandidate` against a
+    trusted catalog and :class:`CapabilityFactSnapshot`.  The self-contained
+    JSON is never trusted alone — the candidate is re-derived from the
+    trusted catalog and compared to the deserialized projection.
+
+    Args:
+        ref: A serialized plan reference.
+        taxonomy_resolver: Trusted taxonomy resolver for attack pattern
+            validation.
+        snapshot: Trusted :class:`CapabilityFactSnapshot` for projection
+            requalification.
+
+    Returns:
+        A :class:`DeserializedPlanRef` if both deserialization and
+        authoritative revalidation succeed.
+
+    Raises:
+        ValueError: If deserialization fails or the authoritative
+            requalification drifts from the embedded projection.
+    """
+    from scenario_forge.pipeline.projection import (
+        ProjectionBudget,
+        project_authoritative_candidates,
+    )
+
+    deserialized = deserialize_qualified_candidate(ref)
+
+    # Re-derive the projected candidate from trusted catalog + snapshot.
+    # We use the pattern_id from the deserialized candidate to locate the
+    # trusted record, then project with a budget sufficient to include it.
+    trusted_pattern_id = deserialized.pattern_id
+
+    # Load the trusted catalog and find the matching pattern record.
+    from scenario_forge.data.loaders import load_attack_patterns
+
+    trusted_records = load_attack_patterns()
+    trusted_record = trusted_records.get(trusted_pattern_id)
+    if trusted_record is None:
+        raise ValueError(
+            f"authoritative drift: pattern '{trusted_pattern_id}' not found "
+            f"in trusted catalog"
+        )
+
+    # Project with the trusted snapshot, requesting the specific ingress.
+    trusted_batch = project_authoritative_candidates(
+        [trusted_record],
+        taxonomy_resolver,
+        snapshot,
+        budget=ProjectionBudget(max_candidates=256),
+        coverage_target_ids={deserialized.entry_point_id},
+    )
+
+    # Find the trusted candidate matching the deserialized candidate_id.
+    trusted_match = None
+    for candidate in trusted_batch.candidates:
+        if candidate.candidate_id == deserialized.candidate_id:
+            trusted_match = candidate
+            break
+
+    if trusted_match is None:
+        raise ValueError(
+            f"authoritative drift: candidate '{deserialized.candidate_id}' "
+            f"could not be re-derived from trusted catalog + snapshot "
+            f"(emitted {len(trusted_batch.candidates)} candidate(s), "
+            f"none matching)"
+        )
+
+    # Verify the trusted projection matches the embedded projection exactly.
+    if trusted_match.model_dump(mode="json") != deserialized.projected.model_dump(
+        mode="json"
+    ):
+        raise ValueError(
+            f"authoritative drift: trusted projection for candidate "
+            f"'{deserialized.candidate_id}' does not match embedded projection"
+        )
+
+    return deserialized
 
 
 # ---------------------------------------------------------------------------

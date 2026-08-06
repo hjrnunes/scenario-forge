@@ -12,6 +12,7 @@ import hashlib
 import json
 import unicodedata
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from itertools import product
 from math import prod
 from typing import Annotated, Any, Literal
@@ -655,6 +656,49 @@ def _coverage_first_combinations(
     return tuple(ordered)
 
 
+def _iter_coverage_first_combinations(
+    options: tuple[tuple[CanonicalResourceReference, ...], ...],
+) -> Iterable[tuple[CanonicalResourceReference, ...]]:
+    """Lazily yield coverage-first combinations without materializing the product.
+
+    Identical ordering to :func:`_coverage_first_combinations` but yields
+    one combination at a time so the caller can stop early when the budget
+    is reached.  The full Cartesian product is never materialized.
+
+    Ordering:
+    1. The baseline (slot[0] for every slot).
+    2. Per-slot variant offsets (cover each slot's alternatives).
+    3. Remaining Cartesian fill in ``product`` order.
+    """
+    seen: set[tuple[str, ...]] = set()
+
+    def _key(items: tuple[CanonicalResourceReference, ...]) -> tuple[str, ...]:
+        return tuple(_resource_key(item) for item in items)
+
+    baseline = tuple(slot[0] for slot in options)
+    seen.add(_key(baseline))
+    yield baseline
+
+    max_len = max(len(slot) for slot in options) if options else 1
+    for offset in range(1, max_len):
+        for slot_index, slot in enumerate(options):
+            if offset < len(slot):
+                variant = list(baseline)
+                variant[slot_index] = slot[offset]
+                variant_t = tuple(variant)
+                key = _key(variant_t)
+                if key not in seen:
+                    seen.add(key)
+                    yield variant_t
+
+    # Remaining Cartesian fill — lazy, one at a time.
+    for combination in product(*options):
+        key = _key(combination)
+        if key not in seen:
+            seen.add(key)
+            yield combination
+
+
 def _derive_execution_requirements_core(
     pattern_id: str,
     chain: CanonicalAttackChain,
@@ -1000,6 +1044,181 @@ def _pattern_pin(pattern: AttackPattern) -> str:
     )
 
 
+@dataclass
+class _PatternProjectionState:
+    """Lazy per-pattern projection state for bounded candidate generation.
+
+    Stores the pattern metadata and a lazy combination iterator so that
+    candidates are built on demand during reservation and fill — never
+    eagerly materializing the full Cartesian product.
+
+    Attributes:
+        pattern_id: The attack pattern ID.
+        chain: The canonical attack chain.
+        selected: Tuple of selected step IDs.
+        condition_results: Projection condition evaluation results.
+        omissions: Step omissions for conditional-false steps.
+        option_sets: Tuple of per-slot resource options.
+        total_bindings: Total Cartesian product size (for limitation
+            accounting — never materialized).
+        catalog_pin: Catalog content pin.
+        pattern_pin: Pattern content pin.
+        precondition_results: Precondition evaluation results.
+        combination_iter: Lazy iterator over coverage-first combinations.
+        snapshot: The capability fact snapshot.
+        generated: List of candidates built so far (in iterator order).
+        iterator_exhausted: True when the lazy iterator has been fully
+            consumed (no more feasible combinations).
+    """
+
+    pattern_id: str
+    chain: CanonicalAttackChain
+    selected: tuple[str, ...]
+    condition_results: tuple[ConditionEvaluationResult, ...]
+    omissions: tuple[StepOmission, ...]
+    option_sets: tuple[tuple[CanonicalResourceReference, ...], ...]
+    total_bindings: int
+    catalog_pin: str
+    pattern_pin: str
+    precondition_results: tuple[PreconditionEvaluationResult, ...]
+    combination_iter: Iterable[tuple[CanonicalResourceReference, ...]]
+    snapshot: CapabilityFactSnapshot
+    generated: list[ProjectedCandidate] = field(default_factory=list)
+    iterator_exhausted: bool = False
+    _iter: Any = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self._iter is None:
+            object.__setattr__(self, "_iter", iter(self.combination_iter))
+
+    def next_candidate(self) -> ProjectedCandidate | None:
+        """Lazily build the next feasible candidate from the iterator.
+
+        Returns None when the iterator is exhausted.  Combinations that
+        fail execution requirements derivation are skipped (the issue is
+        recorded by the caller).  The full Cartesian product is never
+        materialized — only one combination is consumed per call.
+        """
+        if self.iterator_exhausted:
+            return None
+        for resources in self._iter:
+            candidate = _build_candidate_from_combination(
+                self.pattern_id,
+                self.chain,
+                self.selected,
+                self.condition_results,
+                self.omissions,
+                resources,
+                self.catalog_pin,
+                self.pattern_pin,
+                self.precondition_results,
+                self.snapshot,
+            )
+            if candidate is not None:
+                self.generated.append(candidate)
+                return candidate
+            # issue — skip this combination, continue iterating.
+        # Iterator exhausted.
+        self.iterator_exhausted = True
+        return None
+
+    @property
+    def emitted(self) -> int:
+        """Number of candidates built so far."""
+        return len(self.generated)
+
+    @property
+    def feasible_remaining(self) -> bool:
+        """True if the iterator may still yield more feasible candidates."""
+        return not self.iterator_exhausted
+
+
+def _build_candidate_from_combination(
+    pattern_id: str,
+    chain: CanonicalAttackChain,
+    selected: tuple[str, ...],
+    condition_results: tuple[ConditionEvaluationResult, ...],
+    omissions: tuple[StepOmission, ...],
+    resources: tuple[CanonicalResourceReference, ...],
+    catalog_pin: str,
+    pattern_pin: str,
+    precondition_results: tuple[PreconditionEvaluationResult, ...],
+    snapshot: CapabilityFactSnapshot,
+) -> ProjectedCandidate | None:
+    """Build a single ProjectedCandidate from one resource combination.
+
+    Returns the candidate, or None if the combination fails execution
+    requirements derivation (a structural rejection, not a budget limit).
+    """
+    bindings = tuple(
+        ResourceBinding(slot_id=slot.slot_id, resource_ref=resource)
+        for slot, resource in zip(chain.resource_slots, resources, strict=True)
+    )
+    projection_data = {
+        "schema_version": "1",
+        "source_chain": chain.model_dump(mode="json"),
+        "selected_step_ids": selected,
+        "condition_results": [
+            item.model_dump(mode="json") for item in condition_results
+        ],
+        "omissions": [item.model_dump(mode="json") for item in omissions],
+        "bindings": [item.model_dump(mode="json") for item in bindings],
+        "catalog_pin": catalog_pin,
+        "pattern_pin": pattern_pin,
+        "capability_fact_snapshot_digest": snapshot.snapshot_digest,
+        "projection_digest": "0" * 64,
+    }
+    projection_data["projection_digest"] = compute_projection_digest(projection_data)
+    projection = validate_projection_snapshot(projection_data, snapshot)
+    requirements, issue = _derive_execution_requirements(
+        pattern_id, chain, projection, snapshot
+    )
+    requirements, issue = _fail_closed_if_no_requirements(
+        pattern_id, requirements, issue
+    )
+    if issue is not None:
+        return None
+    requirements_digest = compute_execution_requirements_digest(requirements)
+    ingress_ref = next(
+        item.resource_ref
+        for item in bindings
+        if item.slot_id == chain.initial_ingress_slot_id
+    )
+    assert isinstance(ingress_ref, EntryPointResourceReference)
+    ingress = snapshot.profile.resolve_entry_point(ingress_ref.entry_point_id)
+    assert ingress is not None
+    selected_steps = [step for step in chain.steps if step.step_id in set(selected)]
+    return ProjectedCandidate(
+        candidate_id=_candidate_v2_id(pattern_id, projection),
+        pattern_id=pattern_id,
+        chain_id=chain.chain_id,
+        chain_semantic_revision=chain.semantic_revision,
+        chain_semantic_digest=chain.semantic_digest,
+        projection=projection,
+        canonical_ingress=ingress_ref,
+        ingress_controllability=ingress.effective_controllability,
+        projected_mappings=_projected_mappings(chain, selected),
+        precondition_results=precondition_results,
+        execution_requirements=requirements,
+        requirement_derivation_version="1",
+        execution_requirements_digest=requirements_digest,
+        complexity_inputs=CandidateComplexityInputs(
+            selected_step_count=len(selected_steps),
+            attacker_controlled_step_count=sum(
+                step.attacker_controlled for step in selected_steps
+            ),
+            boundary_crossing_step_count=sum(
+                step.boundary_position == "crossing" for step in selected_steps
+            ),
+            selected_conditional_step_count=sum(
+                step.requirement == "conditional" for step in selected_steps
+            ),
+            concrete_binding_count=len(bindings),
+            execution_requirement_count=len(requirements),
+        ),
+    )
+
+
 def project_authoritative_candidates(
     records: Sequence[dict[str, Any]],
     taxonomy_resolver: TaxonomyResolver,
@@ -1275,122 +1494,89 @@ def project_authoritative_candidates(
             option_sets[ingress_index] = direct_ingress_options
 
         total_bindings = prod(len(options) for options in option_sets)
-        generated_for_pattern: list[ProjectedCandidate] = []
-        # cmps.4 blocker 3: generate ALL combinations (not truncated by
-        # budget) so that coverage-aware reservation can find a compatible
-        # candidate for every ingress target before variant/per-pattern/global
-        # truncation.  The budget is applied during reservation + fill.
-        combinations = _coverage_first_combinations(tuple(option_sets), total_bindings)
-        for resources in combinations:
-            bindings = tuple(
-                ResourceBinding(slot_id=slot.slot_id, resource_ref=resource)
-                for slot, resource in zip(chain.resource_slots, resources, strict=True)
-            )
-            projection_data = {
-                "schema_version": "1",
-                "source_chain": chain.model_dump(mode="json"),
-                "selected_step_ids": selected,
-                "condition_results": [
-                    item.model_dump(mode="json") for item in condition_results
-                ],
-                "omissions": [item.model_dump(mode="json") for item in omissions],
-                "bindings": [item.model_dump(mode="json") for item in bindings],
-                "catalog_pin": catalog_pin,
-                "pattern_pin": pattern_pin,
-                "capability_fact_snapshot_digest": snapshot.snapshot_digest,
-                "projection_digest": "0" * 64,
-            }
-            projection_data["projection_digest"] = compute_projection_digest(
-                projection_data
-            )
-            projection = validate_projection_snapshot(projection_data, snapshot)
-            requirements, issue = _derive_execution_requirements(
-                pattern.id, chain, projection, snapshot
-            )
-            requirements, issue = _fail_closed_if_no_requirements(
-                pattern.id, requirements, issue
-            )
-            if issue is not None:
-                issues.append(issue)
-                continue
-            assert requirements is not None
-            requirements_digest = compute_execution_requirements_digest(requirements)
-            ingress_ref = next(
-                item.resource_ref
-                for item in bindings
-                if item.slot_id == chain.initial_ingress_slot_id
-            )
-            assert isinstance(ingress_ref, EntryPointResourceReference)
-            ingress = snapshot.profile.resolve_entry_point(ingress_ref.entry_point_id)
-            assert ingress is not None
-            selected_steps = [
-                step for step in chain.steps if step.step_id in set(selected)
-            ]
-            generated_for_pattern.append(
-                ProjectedCandidate(
-                    candidate_id=_candidate_v2_id(pattern.id, projection),
-                    pattern_id=pattern.id,
-                    chain_id=chain.chain_id,
-                    chain_semantic_revision=chain.semantic_revision,
-                    chain_semantic_digest=chain.semantic_digest,
-                    projection=projection,
-                    canonical_ingress=ingress_ref,
-                    ingress_controllability=ingress.effective_controllability,
-                    projected_mappings=_projected_mappings(chain, selected),
-                    precondition_results=precondition_results,
-                    execution_requirements=requirements,
-                    requirement_derivation_version="1",
-                    execution_requirements_digest=requirements_digest,
-                    complexity_inputs=CandidateComplexityInputs(
-                        selected_step_count=len(selected_steps),
-                        attacker_controlled_step_count=sum(
-                            step.attacker_controlled for step in selected_steps
-                        ),
-                        boundary_crossing_step_count=sum(
-                            step.boundary_position == "crossing"
-                            for step in selected_steps
-                        ),
-                        selected_conditional_step_count=sum(
-                            step.requirement == "conditional" for step in selected_steps
-                        ),
-                        concrete_binding_count=len(bindings),
-                        execution_requirement_count=len(requirements),
-                    ),
-                )
-            )
-        candidate_groups.append((pattern.id, total_bindings, generated_for_pattern))
+
+        # cmps.4 blocker 3 (corrected): Do NOT eagerly materialize all
+        # Cartesian combinations.  Store the lazy iterator and pattern
+        # metadata so candidates are built on demand during reservation
+        # and bounded variant fill.  The full product is never materialized.
+        combination_iter = _iter_coverage_first_combinations(tuple(option_sets))
+        pattern_state = _PatternProjectionState(
+            pattern_id=pattern.id,
+            chain=chain,
+            selected=selected,
+            condition_results=condition_results,
+            omissions=omissions,
+            option_sets=tuple(option_sets),
+            total_bindings=total_bindings,
+            catalog_pin=catalog_pin,
+            pattern_pin=pattern_pin,
+            precondition_results=precondition_results,
+            combination_iter=combination_iter,
+            snapshot=snapshot,
+        )
+        candidate_groups.append(pattern_state)
 
     # Allocate the global budget only across feasible candidates.
     #
-    # Coverage-aware reservation (cmps.4 blocker 3): when coverage_target_ids
-    # is provided, derive a deterministic first compatible candidate for
-    # every coverage target BEFORE variant/per-pattern/global truncation.
-    # Reserve in sorted target-ID order.  Distinguish:
+    # Coverage-aware reservation (cmps.4 blocker 3 corrected): when
+    # coverage_target_ids is provided, lazily derive one deterministic
+    # compatible ingress baseline per sorted coverage target BEFORE any
+    # per-pattern/global variant truncation.  Then lazily perform bounded
+    # variant expansion with explicit work bound.  The full Cartesian
+    # product is never materialized.
+    #
+    # Distinguish:
     #   * no compatible projection (infeasible_coverage_targets)
     #   * compatible-but-budget-omitted (unreserved_coverage_targets)
     #   * variant truncation (ProjectionLimitation)
-    # Compute omitted IDs from final emitted candidates (after fill).
-    candidate_to_group: dict[str, int] = {}
-    for _gi, (_, _, group) in enumerate(candidate_groups):
-        for candidate in group:
-            candidate_to_group[candidate.candidate_id] = _gi
-
+    # ``candidate_budget_exhausted`` only if a feasible iterator was
+    # actually truncated, never because combinations failed structural
+    # derivation.
     by_identity: dict[str, ProjectedCandidate] = {}
 
     if coverage_target_ids:
-        # Find deterministic first compatible candidate for every target.
-        # Iterate groups in sorted pattern order (candidate_groups is already
-        # sorted), then candidates in coverage-first order.  The first
-        # candidate whose ingress matches a target is its reserved candidate.
+        # Lazily find deterministic first compatible candidate for every
+        # target.  Iterate pattern states in sorted pattern order
+        # (candidate_groups is already sorted), pulling from lazy iterators
+        # until we find a candidate whose ingress matches each target.
+        # This does NOT materialize all candidates — only enough to find
+        # the first compatible one per target.
         target_to_first_candidate: dict[str, ProjectedCandidate] = {}
-        for _, _, group in candidate_groups:
-            for candidate in group:
+        remaining_targets = set(coverage_target_ids)
+
+        # First, pull the first candidate from each pattern state (baseline).
+        # This covers the common case where the baseline ingress matches a
+        # target without needing to iterate further.
+        for state in candidate_groups:
+            if not remaining_targets:
+                break
+            # Pull candidates lazily until we find one matching a remaining
+            # target or the iterator is exhausted.
+            while state.feasible_remaining and remaining_targets:
+                candidate = state.next_candidate()
+                if candidate is None:
+                    break
                 ep_id = candidate.canonical_ingress.entry_point_id
-                if (
-                    ep_id in coverage_target_ids
-                    and ep_id not in target_to_first_candidate
-                ):
+                if ep_id in remaining_targets:
                     target_to_first_candidate[ep_id] = candidate
+                    remaining_targets.discard(ep_id)
+                    break  # move to next pattern state
+
+        # If some targets are still unmatched, continue iterating all
+        # pattern states more aggressively (pulling more candidates).
+        if remaining_targets:
+            for state in candidate_groups:
+                if not remaining_targets:
+                    break
+                while state.feasible_remaining:
+                    candidate = state.next_candidate()
+                    if candidate is None:
+                        break
+                    ep_id = candidate.canonical_ingress.entry_point_id
+                    if ep_id in remaining_targets:
+                        target_to_first_candidate[ep_id] = candidate
+                        remaining_targets.discard(ep_id)
+                        break
 
         # Targets with no compatible projection at all (structural).
         infeasible_coverage_targets = tuple(
@@ -1409,34 +1595,37 @@ def project_authoritative_candidates(
     else:
         infeasible_coverage_targets = ()
 
-    # Round-robin admission gives every feasible pattern a stable baseline
-    # before taking a second variation, and identity collisions never consume
-    # capacity.
-    offset = 0
+    # Bounded variant expansion: round-robin across pattern states,
+    # lazily pulling next candidates up to the budget.  This gives every
+    # feasible pattern a stable baseline before taking a second variation.
+    # Identity collisions never consume capacity.
     while len(by_identity) < budget.max_candidates:
         made_progress = False
-        for group_index, (_, _, group) in enumerate(candidate_groups):
-            if offset >= len(group):
+        for state in candidate_groups:
+            if len(by_identity) >= budget.max_candidates:
+                break
+            if not state.feasible_remaining:
+                continue
+            candidate = state.next_candidate()
+            if candidate is None:
                 continue
             made_progress = True
-            candidate = group[offset]
             previous = by_identity.get(candidate.candidate_id)
             if previous is not None and previous != candidate:
                 raise ValueError("candidate-v2 identity collision")
             if previous is None:
                 by_identity[candidate.candidate_id] = candidate
-                if len(by_identity) == budget.max_candidates:
-                    break
         if not made_progress:
             break
-        offset += 1
 
     # Compute emitted_by_group from final by_identity (after all admission).
     emitted_by_group = [0] * len(candidate_groups)
     for cid in by_identity:
-        gi = candidate_to_group.get(cid)
-        if gi is not None:
-            emitted_by_group[gi] += 1
+        # Find which pattern state generated this candidate.
+        for gi, state in enumerate(candidate_groups):
+            if any(c.candidate_id == cid for c in state.generated):
+                emitted_by_group[gi] += 1
+                break
 
     # Compute unreserved targets from final emitted candidates — not from
     # a pre-fill snapshot.  A target is budget-omitted if it has a
@@ -1451,16 +1640,26 @@ def project_authoritative_candidates(
     else:
         unreserved_targets = ()
 
-    for group_index, (pattern_id, total_bindings_grp, group) in enumerate(
-        candidate_groups
-    ):
+    # Emit candidate_budget_exhausted ONLY if a feasible iterator was
+    # actually truncated by the budget — never because combinations failed
+    # structural derivation.  A pattern has a budget limitation when:
+    #   - its iterator was NOT exhausted (more feasible combinations exist)
+    #   - AND some of its generated candidates were not admitted
+    # OR
+    #   - its iterator was truncated but some feasible candidates exist
+    #     that were not admitted.
+    # Patterns whose iterator was naturally exhausted (all feasible
+    # combinations admitted) do NOT get a limitation.
+    for group_index, state in enumerate(candidate_groups):
         emitted = emitted_by_group[group_index]
-        if group and (emitted < len(group) or len(group) < total_bindings_grp):
+        # Budget limitation only if the iterator was truncated (not
+        # exhausted) OR if there are generated candidates not admitted.
+        if state.feasible_remaining or (state.emitted > emitted):
             limitations.append(
                 ProjectionLimitation(
                     code="candidate_budget_exhausted",
-                    pattern_id=pattern_id,
-                    total_compatible_bindings=total_bindings_grp,
+                    pattern_id=state.pattern_id,
+                    total_compatible_bindings=state.total_bindings,
                     emitted_bindings=emitted,
                 )
             )

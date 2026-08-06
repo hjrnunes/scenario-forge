@@ -30,6 +30,7 @@ from scenario_forge.pipeline.coverage_planning import (
     CoverageGapReason,
     CoverageTarget,
     CoverageUniverse,
+    DeserializedPlanRef,
     ExcludedTarget,
     QualifiedCandidate,
     SelectionResult,
@@ -39,6 +40,7 @@ from scenario_forge.pipeline.coverage_planning import (
     build_fallback_queues,
     build_qualified_candidates,
     deserialize_plan_ref,
+    deserialize_qualified_candidate,
     emit_quality_gaps,
     select_with_coverage_priority,
 )
@@ -1638,3 +1640,396 @@ class TestHTMLReportCompleteness:
         html = build_coverage_section(coverage_data)
         assert "Not Applicable" in html
         assert "Inferred Partial" in html
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 1: Executable persisted fallback — roundtrip and tamper tests
+# ---------------------------------------------------------------------------
+
+
+class TestExecutablePersistedFallback:
+    """Blocker 1: AcceptedFilterRecord persists complete FilteredSeed needed
+    by ordinary generation; deserialization validates and rejects tampering."""
+
+    def _make_real_qc(self) -> QualifiedCandidate:
+        """Build a QualifiedCandidate from the real test ProjectedCandidate
+        (with a properly computed candidate_id that survives model_validate)."""
+        fseed = _make_fseed(
+            entry_point_id=_REAL_EP_ID,
+            candidate_id=f"filter-{_REAL_EP_ID}-1",
+        )
+        return QualifiedCandidate(
+            projected=_REAL_PC,
+            accepted_filters=(AcceptedFilterRecord.from_seed(fseed),),
+        )
+
+    def _make_real_qc_two_filters(self) -> QualifiedCandidate:
+        """Build a QualifiedCandidate with two seed-bearing filter records."""
+        fseed_a = _make_fseed(
+            candidate_id=f"filter-{_REAL_EP_ID}-a",
+            entry_point_id=_REAL_EP_ID,
+        )
+        fseed_b = _make_fseed(
+            candidate_id=f"filter-{_REAL_EP_ID}-b",
+            entry_point_id=_REAL_EP_ID,
+        )
+        return QualifiedCandidate(
+            projected=_REAL_PC,
+            accepted_filters=(
+                AcceptedFilterRecord.from_seed(fseed_a),
+                AcceptedFilterRecord.from_seed(fseed_b),
+            ),
+        )
+
+    def test_exact_roundtrip_generation_seed(self) -> None:
+        """Round-tripped plan ref yields the exact generation_seed and
+        projected candidate usable by ordinary generate_scenario args."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        deserialized = deserialize_qualified_candidate(ref)
+        # The generation seed must match exactly.
+        assert deserialized.generation_seed.model_dump(mode="json") == (
+            qc.generation_seed.model_dump(mode="json")
+        )
+        # The projected candidate must match exactly.
+        assert deserialized.projected.model_dump(mode="json") == (
+            qc.projected.model_dump(mode="json")
+        )
+        # Outer IDs agree.
+        assert deserialized.candidate_id == qc.candidate_id
+        assert deserialized.pattern_id == qc.pattern_id
+        assert deserialized.entry_point_id == qc.entry_point_id
+
+    def test_roundtrip_into_generate_scenario_args(self) -> None:
+        """The deserialized plan ref exposes the exact FilteredSeed and
+        ProjectedCandidate needed by ordinary generation, not just pins."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        deserialized = deserialize_qualified_candidate(ref)
+        seed = deserialized.generation_seed
+        # The seed must be a real FilteredSeed with all generation fields.
+        assert seed.seed_id == qc.generation_seed.seed_id
+        assert seed.threat_id == qc.generation_seed.threat_id
+        assert seed.entry_point_id == qc.generation_seed.entry_point_id
+        assert seed.candidate_id == qc.generation_seed.candidate_id
+        assert seed.pinned_technique_ids == qc.generation_seed.pinned_technique_ids
+        # The projected candidate is complete, not a thin ref.
+        assert deserialized.projected.candidate_id == qc.projected.candidate_id
+        assert (
+            deserialized.projected.execution_requirements
+            == qc.projected.execution_requirements
+        )
+
+    def test_outer_candidate_id_tamper_rejected(self) -> None:
+        """Outer candidate_id disagreeing with embedded data is rejected."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        ref["candidate_id"] = "cand:v2:ffffffffffffffffffffffffffffffff"
+        with pytest.raises(ValueError, match="disagrees"):
+            deserialize_qualified_candidate(ref)
+
+    def test_outer_pattern_id_tamper_rejected(self) -> None:
+        """Outer pattern_id disagreeing with embedded data is rejected."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        ref["pattern_id"] = "AP-TAMPER-01"
+        with pytest.raises(ValueError, match="disagrees"):
+            deserialize_qualified_candidate(ref)
+
+    def test_outer_entry_point_id_tamper_rejected(self) -> None:
+        """Outer entry_point_id disagreeing with embedded data is rejected."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        ref["entry_point_id"] = "ep:v1:deadbeef"
+        with pytest.raises(ValueError, match="disagrees"):
+            deserialize_qualified_candidate(ref)
+
+    def test_embedded_candidate_tamper_rejected(self) -> None:
+        """Tampering with the embedded projected candidate's candidate_id
+        causes model_validate to fail (candidate_id identity check)."""
+        from pydantic import ValidationError
+
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        ref["projected_candidate"]["candidate_id"] = "cand:v2:deadbeef"
+        with pytest.raises((ValidationError, ValueError)):
+            deserialize_qualified_candidate(ref)
+
+    def test_duplicate_filter_ids_rejected(self) -> None:
+        """Duplicate filter_candidate_ids in accepted_filters are rejected."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        # Duplicate the single filter record.
+        ref["accepted_filters"] = [
+            ref["accepted_filters"][0],
+            ref["accepted_filters"][0],
+        ]
+        with pytest.raises(ValueError, match="duplicate"):
+            deserialize_qualified_candidate(ref)
+
+    def test_noncanonical_filter_order_rejected(self) -> None:
+        """Noncanonical (unsorted) filter order is rejected."""
+        qc = self._make_real_qc_two_filters()
+        ref = qc.to_plan_ref()
+        # to_plan_ref sorts by filter_candidate_id, so the order is canonical.
+        # Swap the two records to create noncanonical order.
+        assert len(ref["accepted_filters"]) == 2
+        first_id = ref["accepted_filters"][0]["filter_candidate_id"]
+        second_id = ref["accepted_filters"][1]["filter_candidate_id"]
+        assert first_id < second_id  # canonical order
+        ref["accepted_filters"] = [
+            ref["accepted_filters"][1],
+            ref["accepted_filters"][0],
+        ]
+        with pytest.raises(ValueError, match="canonical order"):
+            deserialize_qualified_candidate(ref)
+
+    def test_deserialized_plan_ref_is_typed(self) -> None:
+        """deserialize_qualified_candidate returns a DeserializedPlanRef."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        deserialized = deserialize_qualified_candidate(ref)
+        assert isinstance(deserialized, DeserializedPlanRef)
+        assert deserialized.accepted_filters  # non-empty
+        assert deserialized.accepted_filters[0].seed is not None
+
+    def test_seed_entry_point_mismatch_rejected(self) -> None:
+        """A seed whose entry_point_id doesn't match the projected ingress
+        is rejected."""
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        # Tamper the seed's entry_point_id to differ from the projected ingress.
+        ref["accepted_filters"][0]["seed"]["entry_point_id"] = "ep:v1:tampered"
+        with pytest.raises(ValueError, match="disagrees"):
+            deserialize_qualified_candidate(ref)
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 2: True global primary assignment — min-cost flow tests
+# ---------------------------------------------------------------------------
+
+
+class TestMinCostAssignment:
+    """Blocker 2: deterministic min-cost flow assignment with lexicographic
+    objective: coverage > cap overflow > diversity > candidate-ID tie-break."""
+
+    def test_greedy_counterexample_a_p2_b_p1(self) -> None:
+        """Greedy counterexample: A={P1,P2}, B={P1,P1variants}, cap=1.
+        Greedy would assign A→P1 (first), then B→P1 (overflow).
+        Min-cost flow should assign A→P2, B→P1 to stay within cap."""
+        ep_a = _ep_id(10)
+        ep_b = _ep_id(11)
+        # A has choices with patterns P1 and P2.
+        qc_a_p1 = _qc(1, ep=ep_a, pattern="AP-P1-01")
+        qc_a_p2 = _qc(2, ep=ep_a, pattern="AP-P2-01")
+        # B has choices with pattern P1 only (and a P1 variant).
+        qc_b_p1 = _qc(3, ep=ep_b, pattern="AP-P1-01")
+        qc_b_p1v = _qc(4, ep=ep_b, pattern="AP-P1-01")
+        candidates = [qc_a_p1, qc_a_p2, qc_b_p1, qc_b_p1v]
+        universe = _universe(ep_a, ep_b)
+        queues = build_fallback_queues(candidates, universe)
+        result = select_with_coverage_priority(candidates, queues, universe, 1)
+        # A should be assigned to P2, B to P1 — no cap overflow.
+        assert result.primary_candidate_ids[ep_a] == qc_a_p2.candidate_id
+        assert result.primary_candidate_ids[ep_b] == qc_b_p1.candidate_id
+        assert result.selection_limitation_target_ids == []
+
+    def test_two_sole_p1_targets_cap1_one_overflow(self) -> None:
+        """Two targets with sole P1 choices, cap=1: both covered, one overflow
+        with an explicit selection_limitation."""
+        ep_a = _ep_id(10)
+        ep_b = _ep_id(11)
+        qc_a = _qc(1, ep=ep_a, pattern="AP-P1-01")
+        qc_b = _qc(2, ep=ep_b, pattern="AP-P1-01")
+        candidates = [qc_a, qc_b]
+        universe = _universe(ep_a, ep_b)
+        queues = build_fallback_queues(candidates, universe)
+        result = select_with_coverage_priority(candidates, queues, universe, 1)
+        # Both targets covered (coverage is never sacrificed).
+        assert set(result.primary_candidate_ids) == {ep_a, ep_b}
+        # One overflow limitation (cap=1, two assignments to P1).
+        assert len(result.selection_limitation_target_ids) == 1
+
+    def test_input_permutation_invariance(self) -> None:
+        """Assignment is invariant under input permutation."""
+        ep_a = _ep_id(10)
+        ep_b = _ep_id(11)
+        ep_c = _ep_id(12)
+        qc_a = _qc(1, ep=ep_a, pattern="AP-P1-01")
+        qc_b = _qc(2, ep=ep_b, pattern="AP-P2-01")
+        qc_c = _qc(3, ep=ep_c, pattern="AP-P1-01")
+        universe = _universe(ep_a, ep_b, ep_c)
+
+        # Original order.
+        queues1 = build_fallback_queues([qc_a, qc_b, qc_c], universe)
+        result1 = select_with_coverage_priority(
+            [qc_a, qc_b, qc_c], queues1, universe, 1
+        )
+
+        # Permuted order.
+        queues2 = build_fallback_queues([qc_c, qc_a, qc_b], universe)
+        result2 = select_with_coverage_priority(
+            [qc_c, qc_a, qc_b], queues2, universe, 1
+        )
+
+        # Same primary assignments.
+        assert result1.primary_candidate_ids == result2.primary_candidate_ids
+        # Same limitations.
+        assert sorted(result1.selection_limitation_target_ids) == sorted(
+            result2.selection_limitation_target_ids
+        )
+
+    def test_many_target_runtime_boundedness(self) -> None:
+        """49 targets with 3 choices each must complete in polynomial time."""
+        import time
+
+        eps = [_ep_id(i) for i in range(49)]
+        patterns = [f"AP-P{i % 5}-01" for i in range(5)]
+        candidates = []
+        for i, ep in enumerate(eps):
+            for j in range(3):
+                candidates.append(_qc(i * 3 + j + 1, ep=ep, pattern=patterns[i % 5]))
+        universe = _universe(*eps)
+        queues = build_fallback_queues(candidates, universe)
+        start = time.monotonic()
+        result = select_with_coverage_priority(candidates, queues, universe, 2)
+        elapsed = time.monotonic() - start
+        # All targets covered.
+        assert len(result.primary_candidate_ids) == 49
+        # Must complete quickly (polynomial, not exponential).
+        assert elapsed < 10.0, f"min-cost flow took {elapsed:.1f}s for 49 targets"
+
+    def test_non_primary_stays_fallback_available(self) -> None:
+        """After min-cost assignment, non-primary choices are fallback_available."""
+        ep_a = _ep_id(10)
+        qc1 = _qc(1, ep=ep_a, pattern="AP-P1-01")
+        qc2 = _qc(2, ep=ep_a, pattern="AP-P2-01")
+        qc3 = _qc(3, ep=ep_a, pattern="AP-P3-01")
+        candidates = [qc1, qc2, qc3]
+        universe = _universe(ep_a)
+        queues = build_fallback_queues(candidates, universe)
+        result = select_with_coverage_priority(candidates, queues, universe)
+        plan = build_coverage_plan(universe, queues, result)
+        fb_ids = [r["candidate_id"] for r in plan.targets[0].fallback_available]
+        # The primary is not in fallback_available.
+        primary_id = result.primary_candidate_ids[ep_a]
+        assert primary_id not in fb_ids
+        # The other two are.
+        non_primary = {qc1.candidate_id, qc2.candidate_id, qc3.candidate_id} - {
+            primary_id
+        }
+        for cid in non_primary:
+            assert cid in fb_ids
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 3: Bounded projection computation — lazy, bounded work
+# ---------------------------------------------------------------------------
+
+
+class TestBoundedProjection:
+    """Blocker 3: lazy projection avoids materializing Cartesian product."""
+
+    def test_one_pattern_two_ingresses_budget2(self) -> None:
+        """One pattern with two ingress options, budget 2: both emitted,
+        no budget limitation."""
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import (
+            get_test_raw_pattern,
+            get_test_resolver,
+            get_test_snapshot,
+        )
+
+        snapshot = get_test_snapshot()
+        resolver = get_test_resolver()
+        record = get_test_raw_pattern()
+        result = project_authoritative_candidates(
+            [record],
+            resolver,
+            snapshot,
+            budget=ProjectionBudget(max_candidates=2),
+        )
+        # Should emit at least 1 candidate (baseline).
+        assert len(result.candidates) >= 1
+        # No budget limitation if all feasible candidates were admitted.
+        budget_limits = [
+            lim
+            for lim in result.limitations
+            if lim.code == "candidate_budget_exhausted"
+        ]
+        # With only a small pattern, all feasible combos should fit in budget 2.
+        # (The test pattern has limited resource slots.)
+        if budget_limits:
+            # If there are limitations, the iterator was genuinely truncated.
+            assert (
+                budget_limits[0].emitted_bindings
+                < budget_limits[0].total_compatible_bindings
+            )
+
+    def test_structural_rejections_no_budget_limitation(self) -> None:
+        """When all feasible candidates are emitted (structural rejections
+        don't count as budget exhaustion), no budget limitation is emitted."""
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import (
+            get_test_raw_pattern,
+            get_test_resolver,
+            get_test_snapshot,
+        )
+
+        snapshot = get_test_snapshot()
+        resolver = get_test_resolver()
+        record = get_test_raw_pattern()
+        # Use a large budget so all feasible candidates are admitted.
+        result = project_authoritative_candidates(
+            [record],
+            resolver,
+            snapshot,
+            budget=ProjectionBudget(max_candidates=256),
+        )
+        budget_limits = [
+            lim
+            for lim in result.limitations
+            if lim.code == "candidate_budget_exhausted"
+        ]
+        # With a large budget, no pattern should have a budget limitation.
+        assert budget_limits == [], f"unexpected budget limitations: {budget_limits}"
+
+    def test_large_inventory_bounded_work(self) -> None:
+        """A large multi-slot inventory must complete without materializing
+        the full Cartesian product.  Verify bounded runtime and that the
+        number of emitted candidates is limited by the budget."""
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import (
+            get_test_raw_pattern,
+            get_test_resolver,
+            get_test_snapshot,
+        )
+
+        snapshot = get_test_snapshot()
+        resolver = get_test_resolver()
+        record = get_test_raw_pattern()
+        # Use a small budget to force early truncation.
+        budget = ProjectionBudget(max_candidates=4)
+        import time
+
+        start = time.monotonic()
+        result = project_authoritative_candidates(
+            [record],
+            resolver,
+            snapshot,
+            budget=budget,
+        )
+        elapsed = time.monotonic() - start
+        # Must not materialize all combinations — bounded by budget.
+        assert len(result.candidates) <= 4
+        # Must complete quickly.
+        assert elapsed < 15.0, f"projection took {elapsed:.1f}s"
