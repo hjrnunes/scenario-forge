@@ -48,7 +48,9 @@ from typing import TYPE_CHECKING, Any
 from scenario_forge.models.attack_pattern import (
     AttackPattern,
     EntryPointResourceReference,
+    IntegrationResourceReference,
     TaxonomyResolver,
+    ToolResourceReference,
     validate_attack_pattern,
 )
 from scenario_forge.models.attack_tree import (
@@ -1091,6 +1093,23 @@ def _check_tree_resource_bindings(
         step_to_slots[step.step_id] = {link.slot_id for link in step.resource_links}
         step_to_links[step.step_id] = step.resource_links
 
+    def integration_requirements(
+        mapped_step_ids: tuple[str, ...],
+    ) -> dict[str, set[str]]:
+        required: dict[str, set[str]] = {}
+        for mapped_step_id in mapped_step_ids:
+            integration_ids = {
+                ref.integration_id
+                for link in step_to_links.get(mapped_step_id, ())
+                if isinstance(
+                    (ref := bindings_by_slot.get(link.slot_id)),
+                    IntegrationResourceReference,
+                )
+            }
+            if integration_ids:
+                required[mapped_step_id] = integration_ids
+        return required
+
     # Build a map: leaf_id → projected_step_ids from actual tree fields.
     leaf_to_steps: dict[str, tuple[str, ...]] = {}
     for leaf in _iter_leaves(tree.root):
@@ -1146,11 +1165,6 @@ def _check_tree_resource_bindings(
                     )
                 )
         elif isinstance(action, ToolInvocationAction):
-            from scenario_forge.models.attack_pattern import (
-                IntegrationResourceReference,
-                ToolResourceReference,
-            )
-
             # The tool must match a tool slot binding linked to a mapped step.
             found = False
             for slot_id in all_step_slots:
@@ -1176,13 +1190,8 @@ def _check_tree_resource_bindings(
                     )
                 )
 
-            expected_integrations: set[str] = set()
-            for mapped_step_id in mapped_step_ids:
-                for link in step_to_links.get(mapped_step_id, ()):
-                    ref = bindings_by_slot.get(link.slot_id)
-                    if isinstance(ref, IntegrationResourceReference):
-                        expected_integrations.add(ref.integration_id)
-            if action.integration_id is None and expected_integrations:
+            required_integrations = integration_requirements(mapped_step_ids)
+            if action.integration_id is None and required_integrations:
                 violations.append(
                     ProjectionTraceabilityViolation(
                         code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
@@ -1190,15 +1199,18 @@ def _check_tree_resource_bindings(
                         detail=(
                             f"tree leaf '{leaf.id}' omits integration_id required "
                             f"by mapped projected steps {list(mapped_step_ids)} "
-                            f"(expected one of {sorted(expected_integrations)})"
+                            f"(per-step requirements {required_integrations})"
                         ),
                         element_id=leaf.id,
                         projected_step_id=mapped_step_ids[0],
                     )
                 )
-            elif (
-                action.integration_id is not None
-                and action.integration_id not in expected_integrations
+            elif action.integration_id is not None and (
+                not required_integrations
+                or any(
+                    action.integration_id not in required
+                    for required in required_integrations.values()
+                )
             ):
                 violations.append(
                     ProjectionTraceabilityViolation(
@@ -1207,37 +1219,28 @@ def _check_tree_resource_bindings(
                         detail=(
                             f"tree leaf '{leaf.id}' integration_id "
                             f"'{action.integration_id}' is not an integration "
-                            "binding linked to its mapped projected steps "
-                            f"(expected {sorted(expected_integrations)})"
+                            "binding linked to every mapped projected step "
+                            f"(per-step requirements {required_integrations})"
                         ),
                         element_id=leaf.id,
                         projected_step_id=mapped_step_ids[0],
                     )
                 )
         elif isinstance(action, IntegrationInteractionAction):
-            from scenario_forge.models.attack_pattern import (
-                IntegrationResourceReference,
-            )
-
-            # The integration must match a binding linked to a mapped step.
-            found = False
-            for slot_id in all_step_slots:
-                ref = bindings_by_slot.get(slot_id)
-                if (
-                    isinstance(ref, IntegrationResourceReference)
-                    and ref.integration_id == action.integration_id
-                ):
-                    found = True
-                    break
-            if not found:
+            required_integrations = integration_requirements(mapped_step_ids)
+            if not required_integrations or any(
+                action.integration_id not in required
+                for required in required_integrations.values()
+            ):
                 violations.append(
                     ProjectionTraceabilityViolation(
                         code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
                         stage=ProjectionTraceabilityStage.attack_tree,
                         detail=(
-                            f"tree leaf '{leaf.id}' integration_id does not "
-                            f"match any integration binding linked to "
-                            f"mapped steps {list(mapped_step_ids)}"
+                            f"tree leaf '{leaf.id}' integration_id is not an "
+                            "integration binding linked to every mapped "
+                            "projected step "
+                            f"(per-step requirements {required_integrations})"
                         ),
                         element_id=leaf.id,
                         projected_step_id=mapped_step_ids[0],

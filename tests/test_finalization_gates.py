@@ -15,6 +15,7 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     ExternalPreconditionAction,
     GateType,
+    IntegrationInteractionAction,
     ToolInvocationAction,
 )
 from scenario_forge.pipeline import finalization_gates
@@ -531,6 +532,100 @@ def test_required_projected_integration_cannot_be_omitted() -> None:
     violations = _check_tree_resource_bindings(changed, changed_block)
 
     assert any("omits integration_id required" in item.detail for item in violations)
+
+
+def _many_to_many_integration_violations(second_integration_id: str, action_type):
+    _, _, narrative, tree = _valid_parts()
+    tool_id, first_integration_id = _tool_and_integration_ids()
+    block = _block(narrative, tree)
+    chain = block.projection.source_chain
+    steps = list(chain.steps)
+    source_link = StepResourceLink(
+        slot_id="source",
+        role="source_influence",
+        trust_boundary_slot_id="boundary",
+        target_ingress_slot_id="ingress",
+    )
+    steps[0] = steps[0].model_copy(
+        update={"resource_links": (*steps[0].resource_links, source_link)}
+    )
+    bindings = list(block.projection.bindings)
+    resource_slots = list(chain.resource_slots)
+    second_slot_id = "source"
+    if second_integration_id != first_integration_id:
+        source_binding = next(
+            binding
+            for binding in bindings
+            if hasattr(binding.resource_ref, "integration_id")
+        )
+        second_slot_id = "source2"
+        source_slot = next(slot for slot in resource_slots if slot.slot_id == "source")
+        resource_slots.append(
+            source_slot.model_copy(update={"slot_id": second_slot_id})
+        )
+        bindings.append(
+            source_binding.model_copy(
+                update={
+                    "slot_id": second_slot_id,
+                    "resource_ref": source_binding.resource_ref.model_copy(
+                        update={"integration_id": second_integration_id}
+                    ),
+                }
+            )
+        )
+    steps[1] = steps[1].model_copy(
+        update={
+            "resource_links": (
+                *steps[1].resource_links,
+                source_link.model_copy(update={"slot_id": second_slot_id}),
+            )
+        }
+    )
+    projection = block.projection.model_copy(
+        update={
+            "source_chain": chain.model_copy(
+                update={
+                    "steps": tuple(steps),
+                    "resource_slots": tuple(resource_slots),
+                }
+            ),
+            "bindings": tuple(bindings),
+        }
+    )
+    changed_block = block.model_copy(update={"projection": projection})
+    leaf = tree.root.children[1].model_copy(
+        update={
+            "projected_step_ids": ("step.1", "step.2"),
+            "action": (
+                ToolInvocationAction(
+                    tool_id=tool_id, integration_id=first_integration_id
+                )
+                if action_type is ToolInvocationAction
+                else IntegrationInteractionAction(integration_id=first_integration_id)
+            ),
+        }
+    )
+    changed_tree = _replace_leaf(tree, leaf.id, leaf)
+    return _check_tree_resource_bindings(changed_tree, changed_block)
+
+
+@pytest.mark.parametrize(
+    "action_type", [ToolInvocationAction, IntegrationInteractionAction]
+)
+def test_many_to_many_action_rejects_distinct_step_integrations(action_type) -> None:
+    violations = _many_to_many_integration_violations("int:v1:" + "e" * 32, action_type)
+
+    assert len(violations) == 1
+    assert "linked to every mapped projected step" in violations[0].detail
+
+
+@pytest.mark.parametrize(
+    "action_type", [ToolInvocationAction, IntegrationInteractionAction]
+)
+def test_many_to_many_action_accepts_same_step_integration(action_type) -> None:
+    _, integration_id = _tool_and_integration_ids()
+
+    assert not _many_to_many_integration_violations(integration_id, action_type)
 
 
 def test_unprojected_connector_technique_is_rejected() -> None:
