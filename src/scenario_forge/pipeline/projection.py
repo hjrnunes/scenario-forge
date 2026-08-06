@@ -1555,21 +1555,27 @@ def project_authoritative_candidates(
     by_identity: dict[str, ProjectedCandidate] = {}
     pending: list[tuple[int, ProjectedCandidate]] = []
     emitted_by_group = [0] * len(candidate_groups)
+    derived_candidate_ids: list[set[str]] = [set() for _ in candidate_groups]
     work_used = 0
     work_exhausted = False
 
     def derive_one(
         group_index: int, iterator: Any
-    ) -> tuple[ProjectedCandidate | None, bool]:
-        """Derive at most one combination; return (candidate, exhausted)."""
+    ) -> tuple[ProjectedCandidate | None, bool, bool]:
+        """Derive at most one combination.
+
+        Returns ``(candidate, is_unique, exhausted)``.  A candidate reached
+        through both a target-pinned iterator and the generic iterator is
+        one derived candidate, not two budget-truncated candidates.
+        """
         nonlocal work_used, work_exhausted
         if work_used >= budget.max_derivation_work:
             work_exhausted = True
-            return None, True
+            return None, False, True
         try:
             resources = next(iterator)
         except StopIteration:
-            return None, True
+            return None, False, True
         work_used += 1
         state = candidate_groups[group_index]
         candidate, issue = _build_candidate_from_combination(
@@ -1587,9 +1593,12 @@ def project_authoritative_candidates(
         if issue is not None:
             issues.append(issue)
         if candidate is not None:
-            state.generated.append(candidate)
-            pending.append((group_index, candidate))
-        return candidate, False
+            is_unique = candidate.candidate_id not in derived_candidate_ids[group_index]
+            if is_unique:
+                derived_candidate_ids[group_index].add(candidate.candidate_id)
+                state.generated.append(candidate)
+            return candidate, is_unique, False
+        return None, False, False
 
     def emit(group_index: int, candidate: ProjectedCandidate) -> None:
         previous = by_identity.get(candidate.candidate_id)
@@ -1631,10 +1640,14 @@ def project_authoritative_candidates(
                     _iter_coverage_first_combinations(tuple(target_options))
                 )
                 while True:
-                    candidate, exhausted = derive_one(group_index, target_iter)
+                    candidate, is_unique, exhausted = derive_one(
+                        group_index, target_iter
+                    )
                     if work_exhausted:
                         break
                     if candidate is not None:
+                        if is_unique:
+                            pending.append((group_index, candidate))
                         target_to_first_candidate[target_id] = (group_index, candidate)
                         target_found = True
                         break
@@ -1671,7 +1684,7 @@ def project_authoritative_candidates(
     while len(by_identity) < budget.max_candidates and not work_exhausted:
         progressed = False
         for group_index, state in enumerate(candidate_groups):
-            candidate, exhausted = derive_one(group_index, state._iter)
+            candidate, _, exhausted = derive_one(group_index, state._iter)
             if candidate is not None:
                 emit(group_index, candidate)
                 progressed = True
@@ -1686,8 +1699,8 @@ def project_authoritative_candidates(
     # it never scans the remaining Cartesian product.
     if len(by_identity) >= budget.max_candidates and not pending[pending_index:]:
         for group_index, state in enumerate(candidate_groups):
-            candidate, _ = derive_one(group_index, state._iter)
-            if candidate is not None or work_exhausted:
+            candidate, is_unique, _ = derive_one(group_index, state._iter)
+            if (candidate is not None and is_unique) or work_exhausted:
                 break
 
     if coverage_target_ids:

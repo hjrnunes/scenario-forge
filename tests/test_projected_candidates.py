@@ -377,10 +377,7 @@ def test_expansion_is_bounded_coverage_aware_stable_and_deduplicated() -> None:
     second = _project(profile=_profile(duplicate_resources=True), budget=3)
     assert first.candidates == second.candidates
     assert len(first.candidates) == len({c.candidate_id for c in first.candidates}) == 3
-    # The bounded one-unit probe did not establish another feasible
-    # candidate, so do not claim candidate-budget exhaustion merely from
-    # unexamined Cartesian combinations.
-    assert not any(
+    assert any(
         limitation.code == "candidate_budget_exhausted"
         for limitation in first.limitations
     )

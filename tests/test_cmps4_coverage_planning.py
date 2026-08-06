@@ -2018,6 +2018,35 @@ class TestMinCostAssignment:
 class TestBoundedProjection:
     """Blocker 3: lazy projection avoids materializing Cartesian product."""
 
+    def test_target_reservation_duplicate_probe_is_not_budget_truncation(self) -> None:
+        """The generic probe can rediscover a target-reserved candidate.  That
+        duplicate must not inflate per-pattern derived counts or claim a
+        candidate budget limitation when max_candidates=1."""
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import (
+            get_test_raw_pattern,
+            get_test_resolver,
+            get_test_snapshot,
+        )
+
+        snapshot = get_test_snapshot()
+        target_id = get_projected_candidate().canonical_ingress.entry_point_id
+        result = project_authoritative_candidates(
+            [get_test_raw_pattern()],
+            get_test_resolver(),
+            snapshot,
+            budget=ProjectionBudget(max_candidates=1),
+            coverage_target_ids={target_id},
+        )
+        assert len(result.candidates) == 1
+        assert not any(
+            limitation.code == "candidate_budget_exhausted"
+            for limitation in result.limitations
+        )
+
     def test_one_pattern_two_ingresses_budget2(self) -> None:
         """One pattern with two ingress options, budget 2: both emitted,
         no budget limitation."""
