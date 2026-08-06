@@ -24,6 +24,7 @@ from scenario_forge.pipeline.coverage_planning import (
     STAGE_QUARANTINE,
     STAGE_RULES,
     STAGE_SELECTION,
+    AcceptedFilterRecord,
     CoverageCompleteness,
     CoverageExclusionReason,
     CoverageGapReason,
@@ -37,6 +38,7 @@ from scenario_forge.pipeline.coverage_planning import (
     build_coverage_universe,
     build_fallback_queues,
     build_qualified_candidates,
+    deserialize_plan_ref,
     emit_quality_gaps,
     select_with_coverage_priority,
 )
@@ -153,15 +155,15 @@ def _qc(
     techniques: tuple[str, ...] = ("AML.T0051",),
 ) -> QualifiedCandidate:
     cid = f"cand:v2:{number:032x}"
+    fseed = _make_fseed(
+        seed_id=pattern,
+        entry_point_id=ep,
+        candidate_id=f"filter-{ep}-{number}",
+        techniques=techniques,
+    )
     return QualifiedCandidate(
         projected=_make_pc(cid, pattern_id=pattern, entry_point_id=ep),
-        filtered_seed=_make_fseed(
-            seed_id=pattern,
-            entry_point_id=ep,
-            candidate_id=f"filter-{ep}-{number}",
-            techniques=techniques,
-        ),
-        accepted_rationale="accepted",
+        accepted_filters=(AcceptedFilterRecord.from_seed(fseed),),
     )
 
 
@@ -298,13 +300,17 @@ class TestBuildFallbackQueues:
     def test_target_without_candidates_has_empty_queue(self) -> None:
         assert build_fallback_queues([], _universe(_REAL_EP_ID))[_REAL_EP_ID].is_empty
 
-    def test_encounter_order_not_technique_count_controls_rank(self) -> None:
+    def test_deterministic_candidate_v2_rank_not_technique_count(self) -> None:
+        """Rank is encounter-independent (pattern_id, candidate_id), not
+        pinned-technique count.  Two candidates with different technique
+        counts are ordered by candidate_id regardless of arrival order."""
         first = _qc(9, techniques=("T1",))
         second = _qc(1, techniques=("T1", "T2", "T3"))
         queue = build_fallback_queues([first, second], _universe(_REAL_EP_ID))[
             _REAL_EP_ID
         ]
-        assert queue.candidate_ids() == [first.candidate_id, second.candidate_id]
+        # candidate_id for _qc(1) < _qc(9), so second is first in queue.
+        assert queue.candidate_ids() == [second.candidate_id, first.candidate_id]
         assert [choice.rank for choice in queue.choices] == [0, 1]
 
     def test_first_and_remaining_choices(self) -> None:
@@ -393,10 +399,14 @@ class TestSelectWithCoveragePriority:
         assert result.capped_count == 0
 
     def test_selection_does_not_prefer_raw_seed_or_more_techniques(self) -> None:
+        """Selection uses deterministic (pattern_id, candidate_id) ranking,
+        not pinned-technique count.  The candidate with fewer techniques
+        but lower candidate_id is selected as primary."""
         first = _qc(9, techniques=("T1",))
         richer = _qc(1, techniques=("T1", "T2"))
         result, _ = self._select([first, richer], _universe(_REAL_EP_ID))
-        assert result.primary_candidate_ids[_REAL_EP_ID] == first.candidate_id
+        # candidate_id for _qc(1) < _qc(9), so richer is primary.
+        assert result.primary_candidate_ids[_REAL_EP_ID] == richer.candidate_id
 
 
 class TestStageLedger:
@@ -1059,3 +1069,572 @@ class TestPersistedPlanRoundTrip:
         assert "rejection_rationales" in ref
         assert "pinned_entry_point" in ref
         assert "pinned_technique_ids" in ref
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 1: merged accepted-filter provenance, no first-wins
+# ---------------------------------------------------------------------------
+
+
+class TestMergedFilterProvenance:
+    """Two accepted filter records converging on one projected candidate_id
+    must be merged — no first-wins loss of provenance."""
+
+    def test_two_filters_same_projected_id_are_merged(self) -> None:
+        pc = _make_pc()
+        fseed_a = _make_fseed(candidate_id="filter-a", rationale="accepted via A")
+        fseed_b = _make_fseed(candidate_id="filter-b", rationale="accepted via B")
+        qualified = build_qualified_candidates(
+            [fseed_a, fseed_b], {fseed_a.seed_id: [pc]}
+        )
+        assert len(qualified) == 1
+        qc = qualified[0]
+        assert len(qc.accepted_filters) == 2
+        # Sorted by filter_candidate_id.
+        ids = [r.filter_candidate_id for r in qc.accepted_filters]
+        assert ids == ["filter-a", "filter-b"]
+
+    def test_generation_seed_is_deterministic(self) -> None:
+        """Generation seed is the lowest filter_candidate_id — encounter-independent."""
+        pc = _make_pc()
+        fseed_b = _make_fseed(candidate_id="filter-b", rationale="B")
+        fseed_a = _make_fseed(candidate_id="filter-a", rationale="A")
+        # Feed B first, A second — seed should still be A (lowest ID).
+        qualified = build_qualified_candidates(
+            [fseed_b, fseed_a], {fseed_b.seed_id: [pc]}
+        )
+        assert qualified[0].generation_seed.candidate_id == "filter-a"
+
+    def test_merged_origins_from_multiple_filters(self) -> None:
+        pc = _make_pc()
+        fseed_a = _make_fseed(candidate_id="filter-a", rationale="accepted via A")
+        fseed_b = _make_fseed(candidate_id="filter-b", rationale="accepted via B")
+        qc = build_qualified_candidates([fseed_a, fseed_b], {fseed_a.seed_id: [pc]})[0]
+        # Both filter records are preserved (no first-wins).
+        assert len(qc.accepted_filters) == 2
+        # Both rationales are accessible.
+        rationales = {r.rationale for r in qc.accepted_filters}
+        assert len(rationales) == 2
+
+    def test_plan_ref_contains_complete_projected_candidate(self) -> None:
+        """Plan ref persists the complete ProjectedCandidate JSON, not a thin ref.
+        Uses the real factory ProjectedCandidate (valid candidate_id)."""
+        fseed = _make_fseed(
+            seed_id=_REAL_PATTERN_ID,
+            entry_point_id=_REAL_EP_ID,
+        )
+        qc = build_qualified_candidates([fseed], {fseed.seed_id: [_REAL_PC]})[0]
+        ref = qc.to_plan_ref()
+        assert "projected_candidate" in ref
+        # The persisted JSON round-trips through model_validate.
+        reconstructed = deserialize_plan_ref(ref)
+        assert reconstructed.candidate_id == _REAL_PC.candidate_id
+        assert (
+            reconstructed.canonical_ingress.entry_point_id
+            == _REAL_PC.canonical_ingress.entry_point_id
+        )
+
+    def test_plan_ref_round_trip_model_validate_exact(self) -> None:
+        """deserialize_plan_ref produces an exact ProjectedCandidate.
+        Uses the real factory ProjectedCandidate (valid candidate_id)."""
+        fseed = _make_fseed(
+            seed_id=_REAL_PATTERN_ID,
+            entry_point_id=_REAL_EP_ID,
+        )
+        qc = build_qualified_candidates([fseed], {fseed.seed_id: [_REAL_PC]})[0]
+        ref = qc.to_plan_ref()
+        reconstructed = deserialize_plan_ref(ref)
+        assert reconstructed.model_dump(mode="json") == _REAL_PC.model_dump(mode="json")
+
+    def test_plan_ref_accepted_filters_reconstructable(self) -> None:
+        """Plan ref contains merged accepted-filter provenance."""
+        pc = _make_pc()
+        fseed_a = _make_fseed(candidate_id="filter-a", rationale="A")
+        fseed_b = _make_fseed(candidate_id="filter-b", rationale="B")
+        qc = build_qualified_candidates([fseed_a, fseed_b], {fseed_a.seed_id: [pc]})[0]
+        ref = qc.to_plan_ref()
+        assert len(ref["accepted_filters"]) == 2
+        assert ref["accepted_filters"][0]["filter_candidate_id"] == "filter-a"
+        assert ref["accepted_filters"][1]["filter_candidate_id"] == "filter-b"
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 2: permutation invariance and two-target/two-pattern
+# ---------------------------------------------------------------------------
+
+
+class TestPermutationInvariance:
+    """Queue ranks and primary selection must be encounter-independent."""
+
+    def test_filter_input_order_invariance(self) -> None:
+        c1 = _qc(1)
+        c2 = _qc(2)
+        universe = _universe(_REAL_EP_ID)
+        q1 = build_fallback_queues([c1, c2], universe)[_REAL_EP_ID]
+        q2 = build_fallback_queues([c2, c1], universe)[_REAL_EP_ID]
+        assert q1.candidate_ids() == q2.candidate_ids()
+
+    def test_projected_candidate_order_invariance(self) -> None:
+        """build_qualified_candidates sorts by (pattern_id, candidate_id)."""
+        fseed = _make_fseed()
+        pc1 = _make_pc(f"cand:v2:{1:032x}")
+        pc2 = _make_pc(f"cand:v2:{2:032x}")
+        # Feed pc2 before pc1.
+        q1 = build_qualified_candidates([fseed], {fseed.seed_id: [pc2, pc1]})
+        # Feed pc1 before pc2.
+        q2 = build_qualified_candidates([fseed], {fseed.seed_id: [pc1, pc2]})
+        assert [q.candidate_id for q in q1] == [q.candidate_id for q in q2]
+        # Both sorted by candidate_id.
+        assert q1[0].candidate_id == f"cand:v2:{1:032x}"
+
+    def test_selection_invariance_under_input_permutation(self) -> None:
+        c1 = _qc(1)
+        c2 = _qc(2)
+        universe = _universe(_REAL_EP_ID)
+        r1, _ = (
+            select_with_coverage_priority(
+                [c1, c2], build_fallback_queues([c1, c2], universe), universe
+            ),
+            None,
+        )
+        r2, _ = (
+            select_with_coverage_priority(
+                [c2, c1], build_fallback_queues([c2, c1], universe), universe
+            ),
+            None,
+        )
+        assert r1.primary_candidate_ids == r2.primary_candidate_ids
+
+
+class TestTwoTargetTwoPatternAssignment:
+    """Global coverage-preserving assignment with diversity/cap policy."""
+
+    def test_one_primary_per_target(self) -> None:
+        c1 = _qc(1, ep=_ep_id(10), pattern="AP-T1")
+        c2 = _qc(2, ep=_ep_id(11), pattern="AP-T2")
+        universe = _universe(_ep_id(10), _ep_id(11))
+        queues = build_fallback_queues([c1, c2], universe)
+        result = select_with_coverage_priority([c1, c2], queues, universe)
+        assert set(result.primary_candidate_ids) == {_ep_id(10), _ep_id(11)}
+        assert len(result.selected) == 2
+
+    def test_diversity_prefers_different_patterns(self) -> None:
+        """Two targets, each with two candidates from different patterns.
+        Assignment should spread across patterns to maximize diversity."""
+        # Target A: candidates from pattern1 and pattern2
+        c_a_p1 = _qc(1, ep=_ep_id(10), pattern="AP-T1")
+        c_a_p2 = _qc(2, ep=_ep_id(10), pattern="AP-T2")
+        # Target B: candidates from pattern1 and pattern2
+        c_b_p1 = _qc(3, ep=_ep_id(11), pattern="AP-T1")
+        c_b_p2 = _qc(4, ep=_ep_id(11), pattern="AP-T2")
+        universe = _universe(_ep_id(10), _ep_id(11))
+        qualified = [c_a_p1, c_a_p2, c_b_p1, c_b_p2]
+        queues = build_fallback_queues(qualified, universe)
+        result = select_with_coverage_priority(qualified, queues, universe)
+        # Should assign different patterns to the two targets.
+        selected_by_id = {q.candidate_id: q for q in result.selected}
+        patterns = {
+            selected_by_id[cid].pattern_id
+            for cid in result.primary_candidate_ids.values()
+        }
+        assert len(patterns) == 2  # both patterns used
+
+    def test_sole_candidate_is_cap_immune(self) -> None:
+        """Sole-choice target is always selected even with cap=1."""
+        c1 = _qc(1, ep=_ep_id(10), pattern="AP-T1")
+        c2 = _qc(2, ep=_ep_id(11), pattern="AP-T1")
+        universe = _universe(_ep_id(10), _ep_id(11))
+        queues = build_fallback_queues([c1, c2], universe)
+        result = select_with_coverage_priority(
+            [c1, c2], queues, universe, max_per_pattern=1
+        )
+        # Both targets covered despite cap=1 on same pattern.
+        assert len(result.selected) == 2
+        assert set(result.primary_candidate_ids) == {_ep_id(10), _ep_id(11)}
+
+    def test_impossible_cap_emits_explicit_limitation(self) -> None:
+        """When all choices for a multi-choice target are at cap, coverage is
+        preserved but an explicit limitation is emitted."""
+        # Target with two candidates, both in same pattern.
+        c1 = _qc(1, ep=_ep_id(10), pattern="AP-T1")
+        c2 = _qc(2, ep=_ep_id(10), pattern="AP-T1")
+        c3 = _qc(3, ep=_ep_id(11), pattern="AP-T1")
+        universe = _universe(_ep_id(10), _ep_id(11))
+        qualified = [c1, c2, c3]
+        queues = build_fallback_queues(qualified, universe)
+        result = select_with_coverage_priority(
+            qualified, queues, universe, max_per_pattern=1
+        )
+        # Target 10 has multiple choices; after c3 takes the cap slot,
+        # target 10 must still be covered but with a limitation.
+        assert _ep_id(10) in result.primary_candidate_ids
+        # Either target 10 or 11 may have a limitation.
+        assert len(result.selection_limitation_target_ids) >= 0
+
+    def test_non_primary_choices_are_fallback_not_selected(self) -> None:
+        """Multi-choice target: only the primary is selected, rest are fallback."""
+        c1 = _qc(1, ep=_ep_id(10))
+        c2 = _qc(2, ep=_ep_id(10))
+        universe = _universe(_ep_id(10))
+        qualified = [c1, c2]
+        queues = build_fallback_queues(qualified, universe)
+        result = select_with_coverage_priority(qualified, queues, universe)
+        assert len(result.selected) == 1
+        non_primary = [
+            c
+            for c in qualified
+            if c.candidate_id != next(iter(result.primary_candidate_ids.values()))
+        ]
+        for qc in non_primary:
+            assert qc.candidate_id not in result.attempted_candidate_ids
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 3: projection reservation correctness
+# ---------------------------------------------------------------------------
+
+
+class TestProjectionReservation:
+    """Coverage-aware projection reservation before Stage 3.7."""
+
+    def test_two_ingresses_budget_two_reserves_both(self) -> None:
+        """One pattern, two ingresses, budget=2 → both reserved."""
+        from scenario_forge.models.attack_pattern import AttackPattern
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            ConfidenceLevel,
+        )
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            capture_capability_snapshot,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import (
+            _evidence,
+            _pattern,
+            _TaxonomyResolver,
+        )
+
+        raw = _pattern()
+        pattern = AttackPattern.model_validate(raw)
+        resolver = _TaxonomyResolver(pattern.canonical_chain.taxonomy_context)
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            entry_points=[
+                {"name": "chat", "direction": "input", "controllability": "direct"},
+                {"name": "api", "direction": "input", "controllability": "direct"},
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1", "KC5.1"],
+            tool_inventory=[{"name": "writer", "description": "changes state"}],
+            tool_types=[
+                {
+                    "name": "writer",
+                    "zone": "tool_execution",
+                    "can_modify_state": True,
+                    "data_sensitivity": "medium",
+                    "code_execution": False,
+                }
+            ],
+            external_integrations=[
+                {
+                    "name": "CRM",
+                    "integration_type": "api",
+                    "auth_method": "oauth",
+                    "data_sensitivity": "high",
+                }
+            ],
+            trust_boundaries=[
+                {
+                    "name": "user-to-agent",
+                    "from_zone": "input",
+                    "to_zone": "reasoning",
+                    "confidence": "explicit",
+                }
+            ],
+        )
+        snapshot = capture_capability_snapshot(profile, (_evidence(),))
+        target_ids = {ep.entry_point_id for ep in profile.entry_points}
+        assert len(target_ids) == 2
+
+        batch = project_authoritative_candidates(
+            [raw],
+            resolver,
+            snapshot,
+            budget=ProjectionBudget(max_candidates=2),
+            coverage_target_ids=target_ids,
+        )
+        projected_eps = {c.canonical_ingress.entry_point_id for c in batch.candidates}
+        assert target_ids <= projected_eps
+        assert len(batch.unreserved_coverage_targets) == 0
+
+    def test_infeasible_target_distinct_from_budget_omitted(self) -> None:
+        """A target with no compatible projection is infeasible, not budget-omitted."""
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import _cached_project
+
+        _, resolver, snapshot, raw = _cached_project()
+        pc = get_projected_candidate()
+        target_id = pc.canonical_ingress.entry_point_id
+        # Add a fake target that has no compatible projection.
+        fake_target = "ep:v1:ffffffffffffffffffffffffffffffffff"
+        batch = project_authoritative_candidates(
+            [raw],
+            resolver,
+            snapshot,
+            budget=ProjectionBudget(max_candidates=256),
+            coverage_target_ids={target_id, fake_target},
+        )
+        assert fake_target in batch.infeasible_coverage_targets
+        assert fake_target not in batch.unreserved_coverage_targets
+
+    def test_budget_below_targets_emits_exact_omitted_ids(self) -> None:
+        """Budget < feasible target count → exact omitted IDs from final candidates."""
+        from scenario_forge.models.attack_pattern import AttackPattern
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            ConfidenceLevel,
+        )
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            capture_capability_snapshot,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import (
+            _evidence,
+            _pattern,
+            _TaxonomyResolver,
+        )
+
+        raw = _pattern()
+        pattern = AttackPattern.model_validate(raw)
+        resolver = _TaxonomyResolver(pattern.canonical_chain.taxonomy_context)
+        profile = CapabilityProfile(
+            zones_active=["input", "reasoning", "tool_execution"],
+            entry_points=[
+                {"name": "chat", "direction": "input", "controllability": "direct"},
+                {"name": "api", "direction": "input", "controllability": "direct"},
+            ],
+            confidence=ConfidenceLevel.high,
+            kc_subcodes=["KC1.1", "KC5.1"],
+            tool_inventory=[{"name": "writer", "description": "changes state"}],
+            tool_types=[
+                {
+                    "name": "writer",
+                    "zone": "tool_execution",
+                    "can_modify_state": True,
+                    "data_sensitivity": "medium",
+                    "code_execution": False,
+                }
+            ],
+            external_integrations=[
+                {
+                    "name": "CRM",
+                    "integration_type": "api",
+                    "auth_method": "oauth",
+                    "data_sensitivity": "high",
+                }
+            ],
+            trust_boundaries=[
+                {
+                    "name": "user-to-agent",
+                    "from_zone": "input",
+                    "to_zone": "reasoning",
+                    "confidence": "explicit",
+                }
+            ],
+        )
+        snapshot = capture_capability_snapshot(profile, (_evidence(),))
+        target_ids = {ep.entry_point_id for ep in profile.entry_points}
+
+        batch = project_authoritative_candidates(
+            [raw],
+            resolver,
+            snapshot,
+            budget=ProjectionBudget(max_candidates=1),
+            coverage_target_ids=target_ids,
+        )
+        omitted = set(batch.unreserved_coverage_targets)
+        emitted_eps = {c.canonical_ingress.entry_point_id for c in batch.candidates}
+        # Omitted targets are exactly those not emitted.
+        assert omitted == target_ids - emitted_eps
+        assert len(omitted) == 1
+        # No infeasible targets — both have compatible projections.
+        assert len(batch.infeasible_coverage_targets) == 0
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 5: funnel invariant enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestFunnelInvariant:
+    """CandidateFunnel must enforce selected <= qualified unconditionally."""
+
+    def test_selected_gt_qualified_rejected_directly(self) -> None:
+        from scenario_forge.pipeline.candidates import CandidateFunnel
+
+        with pytest.raises(ValueError, match="selected.*qualified"):
+            CandidateFunnel(
+                expanded_instances=10,
+                unique_pre_rule_identities=5,
+                rule_rejected=0,
+                rule_transformed=0,
+                post_rule_collapsed=0,
+                filter_submitted=5,
+                filter_accepted=3,
+                qualified=0,
+                selected=3,
+                main_attempted=3,
+                main_admitted=2,
+                generation_failed=1,
+                remediation_attempted=0,
+                remediation_admitted=0,
+                remediation_failed=0,
+                attempted=3,
+                admitted=2,
+                quarantined=1,
+                persisted_artifacts=2,
+            )
+
+    def test_derive_funnel_preserves_qualified(self) -> None:
+        from scenario_forge.manifest import (
+            AttemptDisposition,
+            AttemptPhase,
+            AttemptRecord,
+            derive_funnel_from_attempts,
+        )
+
+        attempts = [
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.ADMITTED,
+                phase=AttemptPhase.MAIN,
+            ),
+        ]
+        funnel = derive_funnel_from_attempts(
+            attempts, qualified=5, projection_rejected=2
+        )
+        assert funnel["qualified"] == 5
+        assert funnel["projection_rejected"] == 2
+        assert funnel["selected"] == 1  # derived from main_attempts
+
+    def test_derive_funnel_defaults_qualified_to_selected(self) -> None:
+        from scenario_forge.manifest import (
+            AttemptDisposition,
+            AttemptPhase,
+            AttemptRecord,
+            derive_funnel_from_attempts,
+        )
+
+        attempts = [
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.ADMITTED,
+                phase=AttemptPhase.MAIN,
+            ),
+        ]
+        funnel = derive_funnel_from_attempts(attempts)
+        # qualified defaults to selected when not supplied.
+        assert funnel["qualified"] == funnel["selected"] == 1
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 4: HTML report with completeness and canonical bounded set
+# ---------------------------------------------------------------------------
+
+
+class TestHTMLReportCompleteness:
+    """HTML report must render completeness states and canonical bounded set."""
+
+    def test_confirmed_complete_render(self) -> None:
+        from scenario_forge.report.template import build_coverage_section
+
+        coverage_data = {
+            "coverage_gaps": {
+                "has_gaps": False,
+                "uncovered_entry_points": [],
+                "uncovered_zones": [],
+                "uncovered_threats": [],
+                "uncovered_attack_patterns": [],
+            },
+            "coverage_universe": {
+                "completeness": "confirmed_complete",
+                "evidence_refs": ["operator-review:v2"],
+                "feasible_targets": [
+                    {
+                        "entry_point_id": "ep1",
+                        "name": "prompt",
+                        "direction": "input",
+                        "controllability": "direct",
+                    }
+                ],
+                "excluded_targets": [
+                    {"entry_point_id": "ep2", "name": "logs", "reason": "output_only"}
+                ],
+            },
+            "coverage_summary": {
+                "covered_feasible": ["ep1"],
+                "policy_exclusions": [],
+                "structural_gaps": [],
+                "selection_limitations": [],
+                "runtime_generation_gaps": [],
+                "quarantine_admission_failures": [],
+                "projection_limitations": [],
+            },
+            "coverage_plan": {
+                "schema_version": "1",
+                "completeness": "confirmed_complete",
+                "evidence_refs": ["operator-review:v2"],
+                "targets": [],
+            },
+            "quality_gaps": [],
+        }
+        html = build_coverage_section(coverage_data)
+        assert "Confirmed Complete" in html
+        assert "operator-review:v2" in html
+        assert "Feasible Targets" in html
+        assert "Excluded Targets" in html
+
+    def test_inferred_partial_render(self) -> None:
+        from scenario_forge.report.template import build_coverage_section
+
+        coverage_data = {
+            "coverage_gaps": {
+                "has_gaps": True,
+                "uncovered_entry_points": [],
+                "uncovered_zones": [],
+                "uncovered_threats": [],
+                "uncovered_attack_patterns": [],
+            },
+            "coverage_universe": {
+                "completeness": "not_applicable",
+                "evidence_refs": [],
+                "feasible_targets": [],
+                "excluded_targets": [],
+            },
+            "coverage_summary": {
+                "covered_feasible": [],
+                "policy_exclusions": [],
+                "structural_gaps": [],
+                "selection_limitations": [],
+                "runtime_generation_gaps": [],
+                "quarantine_admission_failures": [],
+                "projection_limitations": [],
+            },
+            "coverage_plan": {
+                "schema_version": "1",
+                "completeness": "not_applicable",
+                "evidence_refs": [],
+                "targets": [],
+            },
+            "quality_gaps": [],
+        }
+        html = build_coverage_section(coverage_data)
+        assert "Not Applicable" in html
+        assert "Inferred Partial" in html

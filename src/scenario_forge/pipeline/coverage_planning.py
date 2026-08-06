@@ -256,21 +256,66 @@ def build_coverage_universe(
 
 
 @dataclass(frozen=True)
+class AcceptedFilterRecord:
+    """Typed accepted-filter evidence for one filter-stage candidate.
+
+    When multiple accepted filter records converge on the same projected
+    ``candidate_id``, all are preserved and merged canonically — no
+    first-wins loss of provenance.
+    """
+
+    filter_candidate_id: str
+    rationale: str
+    origins: tuple[CandidateOrigin, ...] = ()
+    rejection_rationales: tuple[RejectionRecord, ...] = ()
+    pinned_entry_point: str = ""
+    pinned_technique_ids: tuple[str, ...] = ()
+    pinned_technique_names: tuple[str, ...] = ()
+    seed: FilteredSeed | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "filter_candidate_id": self.filter_candidate_id,
+            "rationale": self.rationale,
+            "origins": [o.model_dump(mode="json") for o in self.origins],
+            "rejection_rationales": [
+                r.model_dump(mode="json") for r in self.rejection_rationales
+            ],
+            "pinned_entry_point": self.pinned_entry_point,
+            "pinned_technique_ids": list(self.pinned_technique_ids),
+            "pinned_technique_names": list(self.pinned_technique_names),
+        }
+
+    @classmethod
+    def from_seed(cls, fseed: FilteredSeed) -> AcceptedFilterRecord:
+        """Build from a FilteredSeed, preserving all provenance."""
+        return cls(
+            filter_candidate_id=fseed.candidate_id,
+            rationale=fseed.accepted_rationale,
+            origins=tuple(fseed.origins),
+            rejection_rationales=tuple(fseed.rejection_rationales),
+            pinned_entry_point=fseed.pinned_entry_point,
+            pinned_technique_ids=tuple(fseed.pinned_technique_ids),
+            pinned_technique_names=tuple(fseed.pinned_technique_names),
+            seed=fseed,
+        )
+
+
+@dataclass(frozen=True)
 class QualifiedCandidate:
     """A typed planned candidate carrying complete ProjectedCandidate plus
-    accepted filter evidence.
+    a deterministic tuple of accepted filter records.
 
     Replaces the legacy ``(FilteredSeed, ProjectedCandidate)`` tuple.  The
     complete :class:`ProjectedCandidate` is the authoritative candidate-v2
-    record.  The accepted filter rationale, merged origins, and rule-removal
-    provenance are preserved as first-class typed evidence.  An explicit
-    deterministic rank with candidate-ID tie-break replaces the legacy
-    pinned-technique-count ranking.
+    record.  When multiple accepted filter records converge on one projected
+    candidate, all are preserved as a canonically sorted tuple — no
+    first-wins loss of provenance.  An explicit deterministic rank with
+    candidate-ID tie-break replaces the legacy pinned-technique-count ranking.
     """
 
     projected: ProjectedCandidate
-    filtered_seed: FilteredSeed
-    accepted_rationale: str
+    accepted_filters: tuple[AcceptedFilterRecord, ...]
     rank: int = 0
 
     @property
@@ -289,37 +334,126 @@ class QualifiedCandidate:
         return self.projected.pattern_id
 
     @property
+    def _sorted_filters(self) -> tuple[AcceptedFilterRecord, ...]:
+        """Accepted filter records sorted by filter_candidate_id (canonical)."""
+        return tuple(sorted(self.accepted_filters, key=lambda r: r.filter_candidate_id))
+
+    @property
+    def generation_seed(self) -> FilteredSeed:
+        """Deterministically chosen FilteredSeed for ordinary generation.
+
+        The seed with the lowest ``filter_candidate_id`` is chosen so that
+        generation behaviour is deterministic and encounter-independent.
+        """
+        for record in self._sorted_filters:
+            if record.seed is not None:
+                return record.seed
+        raise ValueError(
+            "QualifiedCandidate has no seed-bearing accepted filter record"
+        )
+
+    @property
+    def filtered_seed(self) -> FilteredSeed:
+        """Backward-compatible alias for :attr:`generation_seed`."""
+        return self.generation_seed
+
+    @property
     def filter_candidate_id(self) -> str:
         """Filter-stage candidate ID (provenance only, not authoritative)."""
-        return self.filtered_seed.candidate_id
+        if not self._sorted_filters:
+            return ""
+        return self._sorted_filters[0].filter_candidate_id
+
+    @property
+    def accepted_rationale(self) -> str:
+        """First rationale (deterministically sorted) for backward compat."""
+        if not self._sorted_filters:
+            return ""
+        return self._sorted_filters[0].rationale
+
+    @property
+    def merged_origins(self) -> list[CandidateOrigin]:
+        """Merged origins from all accepted filter records, deduplicated."""
+        seen: list[str] = []
+        merged: list[CandidateOrigin] = []
+        for record in self._sorted_filters:
+            for origin in record.origins:
+                key = origin.model_dump_json()
+                if key not in seen:
+                    seen.append(key)
+                    merged.append(origin)
+        return merged
 
     @property
     def origins(self) -> list[CandidateOrigin]:
-        """Merged candidate origins from the filtered seed."""
-        return self.filtered_seed.origins
+        """Backward-compatible alias for :attr:`merged_origins`."""
+        return self.merged_origins
+
+    @property
+    def merged_rejection_rationales(self) -> list[RejectionRecord]:
+        """Merged rule-removal provenance from all accepted filter records."""
+        seen: list[str] = []
+        merged: list[RejectionRecord] = []
+        for record in self._sorted_filters:
+            for rr in record.rejection_rationales:
+                key = rr.model_dump_json()
+                if key not in seen:
+                    seen.append(key)
+                    merged.append(rr)
+        return merged
 
     @property
     def rejection_rationales(self) -> list[RejectionRecord]:
-        """Rule-removal provenance from the filtered seed."""
-        return self.filtered_seed.rejection_rationales
+        """Backward-compatible alias for :attr:`merged_rejection_rationales`."""
+        return self.merged_rejection_rationales
 
     def to_plan_ref(self) -> dict:
-        """Serialize to a content-addressed plan reference."""
+        """Serialize to a content-addressed plan reference.
+
+        Persists the complete validated ``ProjectedCandidate`` JSON (not
+        a thin ref) plus the merged filter provenance tuple, so that a
+        persisted fallback choice can be deserialized and reconstructed
+        into an exact ``ProjectedCandidate`` usable by ordinary generation.
+        """
         return {
             "candidate_id": self.candidate_id,
             "filter_candidate_id": self.filter_candidate_id,
             "pattern_id": self.pattern_id,
             "entry_point_id": self.entry_point_id,
             "rank": self.rank,
+            "projected_candidate": self.projected.model_dump(mode="json"),
+            "accepted_filters": [r.to_dict() for r in self._sorted_filters],
             "accepted_rationale": self.accepted_rationale,
-            "origins": [o.model_dump(mode="json") for o in self.origins],
+            "origins": [o.model_dump(mode="json") for o in self.merged_origins],
             "rejection_rationales": [
-                r.model_dump(mode="json") for r in self.rejection_rationales
+                r.model_dump(mode="json") for r in self.merged_rejection_rationales
             ],
-            "pinned_entry_point": self.filtered_seed.pinned_entry_point,
-            "pinned_technique_ids": list(self.filtered_seed.pinned_technique_ids),
-            "pinned_technique_names": list(self.filtered_seed.pinned_technique_names),
+            "pinned_entry_point": (
+                self._sorted_filters[0].pinned_entry_point
+                if self._sorted_filters
+                else ""
+            ),
+            "pinned_technique_ids": (
+                list(self._sorted_filters[0].pinned_technique_ids)
+                if self._sorted_filters
+                else []
+            ),
+            "pinned_technique_names": (
+                list(self._sorted_filters[0].pinned_technique_names)
+                if self._sorted_filters
+                else []
+            ),
         }
+
+
+def _qualified_sort_key(qc: QualifiedCandidate) -> tuple[str, str]:
+    """Encounter-independent deterministic candidate-v2 sort key.
+
+    Ranks by ``(pattern_id, candidate_id)`` — both are intrinsic
+    content-addressed properties of the ProjectedCandidate, independent of
+    filter-result arrival order.  ``candidate_id`` is the tie-break.
+    """
+    return (qc.pattern_id, qc.candidate_id)
 
 
 def build_qualified_candidates(
@@ -334,13 +468,14 @@ def build_qualified_candidates(
     alternatives — they are fanned out, not treated as fatal ambiguity.
 
     Deduplication is by projected ``candidate_id`` — the authoritative
-    candidate-v2 identity.  If two filtered seeds map to the same projected
-    candidate, the first encounter wins and filter provenance from
-    subsequent encounters is merged.
+    candidate-v2 identity.  When multiple accepted filter records converge
+    on the same projected ``candidate_id``, all filter provenance is
+    **merged** into a deterministic sorted tuple — no first-wins loss.
 
-    Ranking is **not** by pinned-technique subset/count.  Deterministic
-    ordering is by encounter order with candidate-ID tie-break, assigned
-    during queue construction.
+    Ranking is **not** by pinned-technique subset/count and **not** by
+    encounter order.  Deterministic ordering is by
+    ``(pattern_id, candidate_id)`` — intrinsic candidate-v2 properties
+    independent of filter-result arrival order.
 
     Args:
         filtered_seeds: Accepted candidates from the LLM filter stage.
@@ -349,10 +484,11 @@ def build_qualified_candidates(
 
     Returns:
         List of :class:`QualifiedCandidate` records, deduplicated by
-        projected ``candidate_id``, preserving filter provenance.
+        projected ``candidate_id``, with merged filter provenance.
     """
-    seen_projected_ids: dict[str, QualifiedCandidate] = {}
-    ordered: list[QualifiedCandidate] = []
+    # Accumulate accepted filter records per projected candidate_id.
+    records_by_projected_id: dict[str, list[AcceptedFilterRecord]] = {}
+    projected_by_id: dict[str, ProjectedCandidate] = {}
 
     for fseed in filtered_seeds:
         pc_list = projected_by_pattern.get(fseed.seed_id, [])
@@ -362,27 +498,31 @@ def build_qualified_candidates(
             if pc.canonical_ingress.entry_point_id == fseed.entry_point_id
         ]
         for pc in matching_pcs:
-            existing = seen_projected_ids.get(pc.candidate_id)
-            if existing is not None:
-                # Same projected candidate already qualified from a different
-                # filtered seed — skip (first encounter wins).  Filter
-                # provenance is preserved from the first encounter.
-                continue
-            qc = QualifiedCandidate(
-                projected=pc,
-                filtered_seed=fseed,
-                accepted_rationale=fseed.accepted_rationale,
+            projected_by_id.setdefault(pc.candidate_id, pc)
+            records_by_projected_id.setdefault(pc.candidate_id, []).append(
+                AcceptedFilterRecord.from_seed(fseed)
             )
-            seen_projected_ids[pc.candidate_id] = qc
-            ordered.append(qc)
+
+    # Build QualifiedCandidate with merged, canonically sorted filter records.
+    qualified = [
+        QualifiedCandidate(
+            projected=projected_by_id[cid],
+            accepted_filters=tuple(
+                sorted(records, key=lambda r: r.filter_candidate_id)
+            ),
+        )
+        for cid, records in records_by_projected_id.items()
+    ]
+    # Deterministic encounter-independent ordering.
+    qualified.sort(key=_qualified_sort_key)
 
     logger.info(
         "Qualified %d candidate(s) from %d filtered seed(s) (%d unique projected IDs).",
-        len(ordered),
+        len(qualified),
         len(filtered_seeds),
-        len(seen_projected_ids),
+        len(records_by_projected_id),
     )
-    return ordered
+    return qualified
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +556,9 @@ class StageEvent:
 
     Preserves the exact candidate/filter identity, pipeline stage, typed
     reason, and rationale/exception/limitation evidence.  The furthest
-    actual event for a target determines its gap attribution.
+    actual event for a target determines its gap attribution.  The optional
+    ``payload`` carries the complete typed model dump (e.g. a full
+    ProjectionIssue or ProjectionLimitation) — not a reduced string.
     """
 
     entry_point_id: str
@@ -424,15 +566,19 @@ class StageEvent:
     stage: str
     reason: str
     detail: str = ""
+    payload: dict | None = None
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "entry_point_id": self.entry_point_id,
             "candidate_id": self.candidate_id,
             "stage": self.stage,
             "reason": self.reason,
             "detail": self.detail,
         }
+        if self.payload is not None:
+            result["payload"] = self.payload
+        return result
 
 
 @dataclass
@@ -454,6 +600,8 @@ class StageLedger:
         stage: str,
         reason: str,
         detail: str = "",
+        *,
+        payload: dict | None = None,
     ) -> None:
         """Record a stage event."""
         self.events.append(
@@ -463,6 +611,7 @@ class StageLedger:
                 stage=stage,
                 reason=reason,
                 detail=detail,
+                payload=payload,
             )
         )
 
@@ -540,8 +689,10 @@ def build_fallback_queues(
     """Build deterministic ranked fallback queues per feasible coverage target.
 
     Each queue is bounded to at most :data:`MAX_FALLBACK_CHOICES` choices.
-    Ranking is deterministic: encounter order (asc), then candidate-ID
-    tie-break (asc).  Ranking is **not** by pinned-technique subset/count.
+    Ranking is deterministic and **encounter-independent**: by
+    ``(pattern_id, candidate_id)`` — intrinsic candidate-v2 properties, not
+    filter-result arrival order.  ``candidate_id`` is the tie-break.
+    Ranking is **not** by pinned-technique subset/count.
 
     Args:
         qualified: Qualified candidates from :func:`build_qualified_candidates`.
@@ -551,20 +702,20 @@ def build_fallback_queues(
         Mapping from ``entry_point_id`` to :class:`TargetFallbackQueue`.
         Targets with no candidates receive an empty queue.
     """
-    by_target: dict[str, list[tuple[int, QualifiedCandidate]]] = {}
-    for idx, qc in enumerate(qualified):
+    by_target: dict[str, list[QualifiedCandidate]] = {}
+    for qc in qualified:
         ep_id = qc.entry_point_id
-        by_target.setdefault(ep_id, []).append((idx, qc))
+        by_target.setdefault(ep_id, []).append(qc)
 
     queues: dict[str, TargetFallbackQueue] = {}
     for target in universe.feasible_targets:
         ep_id = target.entry_point_id
         candidates = by_target.get(ep_id, [])
-        # Deterministic: encounter order (asc), then candidate-ID tie-break (asc).
-        ranked = sorted(candidates, key=lambda pair: (pair[0], pair[1].candidate_id))
+        # Deterministic encounter-independent ranking by candidate-v2 policy.
+        ranked = sorted(candidates, key=_qualified_sort_key)
         bounded = ranked[:MAX_FALLBACK_CHOICES]
         # Assign explicit deterministic ranks.
-        choices = [replace(qc, rank=rank) for rank, (_, qc) in enumerate(bounded)]
+        choices = [replace(qc, rank=rank) for rank, qc in enumerate(bounded)]
         queues[ep_id] = TargetFallbackQueue(
             entry_point_id=ep_id,
             choices=choices,
@@ -588,6 +739,8 @@ class SelectionResult:
     that received no candidate.  ``primary_candidate_ids`` maps target ID
     to the Phase-1 selected candidate ID.  ``attempted_candidate_ids`` is
     the complete set of candidates selected for generation (Phase 1 + 2).
+    ``selection_limitation_target_ids`` lists targets where a per-pattern
+    cap made coverage impossible (explicit limitation, not silent drop).
     """
 
     selected: list[QualifiedCandidate] = field(default_factory=list)
@@ -596,6 +749,7 @@ class SelectionResult:
     per_pattern_counts: dict[str, int] = field(default_factory=dict)
     primary_candidate_ids: dict[str, str] = field(default_factory=dict)
     attempted_candidate_ids: set[str] = field(default_factory=set)
+    selection_limitation_target_ids: list[str] = field(default_factory=list)
 
 
 def select_with_coverage_priority(
@@ -606,48 +760,114 @@ def select_with_coverage_priority(
 ) -> SelectionResult:
     """Select candidates with coverage-first priority.
 
-    **Phase 1 (hard):** Ensure at least one candidate for every feasible
-    coverage target that has candidates in its fallback queue.  The first
-    choice from each target's queue is selected.  Phase 1 is cap-immune.
+    **Phase 1 (hard):** Ensure exactly one unattempted primary candidate
+    for every feasible coverage target that has candidates in its fallback
+    queue.  A global coverage-preserving assignment minimizes per-pattern
+    overage and maximizes existing diversity:
+
+    * Sole-choice targets (one candidate in queue) are always selected --
+      cap-immune.
+    * Multi-choice targets are assigned to the choice whose pattern
+      currently has the lowest count, preferring patterns under cap.
+      When ``max_per_pattern`` is set and all choices' patterns are at
+      cap, the target is still covered (coverage is never sacrificed) but
+      an explicit ``selection_limitation`` is emitted.
 
     Only Phase-1 primaries are selected and attempted through the ordinary
-    lifecycle.  All remaining choices stay as ``fallback_available`` in the
-    coverage plan for cmps.5 retry logic.  This prevents the ordinary
-    generation pass from consuming fallback choices that cmps.5 would
-    otherwise re-attempt.
-
-    Capping never discards a target's sole accepted candidate — candidates
-    reserved in Phase 1 are immune to capping.  ``max_per_pattern`` is
-    accepted for API compatibility but does not cap Phase 1 selections.
+    lifecycle.  All remaining choices stay as ``fallback_available`` in
+    the coverage plan for cmps.5 retry logic.  Capping never discards a
+    target's sole accepted candidate.
 
     Args:
         qualified: All qualified candidates.
         fallback_queues: Per-target fallback queues.
         universe: The coverage universe.
-        max_per_pattern: Optional per-pattern cap (reserved for secondary
-            optimization; does not cap Phase 1 primaries).
+        max_per_pattern: Optional per-pattern cap.  Sole choices are
+            cap-immune; impossible caps emit explicit limitations.
 
     Returns:
-        :class:`SelectionResult` with the final selected list and
-        primary/attempted candidate tracking.
+        :class:`SelectionResult` with the final selected list,
+        primary/attempted candidate tracking, and selection limitations.
     """
-    selected_ids: set[str] = set()
     selected: list[QualifiedCandidate] = []
-    uncovered: list[str] = []
+    selected_ids: set[str] = set()
     primary_ids: dict[str, str] = {}
+    pattern_counts: dict[str, int] = {}
+    limitations: list[str] = []
 
-    for target in universe.feasible_targets:
+    # Process targets in sorted entry_point_id order for determinism.
+    sorted_targets = sorted(universe.feasible_targets, key=lambda t: t.entry_point_id)
+
+    # Phase 1a: Select sole-choice targets (cap-immune).
+    multi_targets: list[CoverageTarget] = []
+    for target in sorted_targets:
         ep_id = target.entry_point_id
         queue = fallback_queues.get(ep_id)
         if queue is None or queue.is_empty:
-            uncovered.append(ep_id)
-            continue
-        first = queue.first_choice
-        assert first is not None
-        if first.candidate_id not in selected_ids:
-            selected.append(first)
-            selected_ids.add(first.candidate_id)
-            primary_ids[ep_id] = first.candidate_id
+            continue  # uncovered -- no candidates at all
+        if len(queue.choices) == 1:
+            qc = queue.choices[0]
+            if qc.candidate_id not in selected_ids:
+                selected.append(qc)
+                selected_ids.add(qc.candidate_id)
+                primary_ids[ep_id] = qc.candidate_id
+                pattern_counts[qc.pattern_id] = pattern_counts.get(qc.pattern_id, 0) + 1
+        else:
+            multi_targets.append(target)
+
+    # Phase 1b: Multi-choice targets -- global assignment minimizing overage.
+    for target in multi_targets:
+        ep_id = target.entry_point_id
+        choices = fallback_queues[ep_id].choices
+
+        if max_per_pattern is not None:
+            under_cap = [
+                qc
+                for qc in choices
+                if pattern_counts.get(qc.pattern_id, 0) < max_per_pattern
+            ]
+            if under_cap:
+                primary = min(
+                    under_cap,
+                    key=lambda qc: (
+                        pattern_counts.get(qc.pattern_id, 0),
+                        qc.candidate_id,
+                    ),
+                )
+            else:
+                # All choices' patterns at cap -- coverage is still preserved
+                # (never sacrifice coverage for a cap), but emit an explicit
+                # selection_limitation.
+                primary = min(
+                    choices,
+                    key=lambda qc: (
+                        pattern_counts.get(qc.pattern_id, 0),
+                        qc.candidate_id,
+                    ),
+                )
+                limitations.append(ep_id)
+        else:
+            # No cap: pick the choice whose pattern has the lowest count
+            # to maximize diversity, with candidate_id tie-break.
+            primary = min(
+                choices,
+                key=lambda qc: (
+                    pattern_counts.get(qc.pattern_id, 0),
+                    qc.candidate_id,
+                ),
+            )
+
+        if primary.candidate_id not in selected_ids:
+            selected.append(primary)
+            selected_ids.add(primary.candidate_id)
+            primary_ids[ep_id] = primary.candidate_id
+            pattern_counts[primary.pattern_id] = (
+                pattern_counts.get(primary.pattern_id, 0) + 1
+            )
+
+    uncovered = [
+        t.entry_point_id for t in sorted_targets if t.entry_point_id not in primary_ids
+    ]
 
     per_pattern: dict[str, int] = {}
     for qc in selected:
@@ -660,6 +880,7 @@ def select_with_coverage_priority(
         per_pattern_counts=per_pattern,
         primary_candidate_ids=primary_ids,
         attempted_candidate_ids=selected_ids,
+        selection_limitation_target_ids=limitations,
     )
 
 
@@ -699,18 +920,21 @@ class CoveragePlanEntry:
 
 @dataclass
 class CoveragePlan:
-    """Versioned coverage plan — a manifest-inventoried artifact.
+    """Versioned coverage plan -- a manifest-inventoried artifact.
 
     Persists per-target ordered qualified choices, primary selected/attempted
     state, and ``fallback_available`` excluding every selected/attempted
     candidate.  Contains content-addressed provenance sufficient for cmps.5
-    retry logic.
+    retry logic.  ``selection_limitation_target_ids`` records targets where
+    a per-pattern cap could not be respected (coverage preserved, cap
+    violated).
     """
 
     schema_version: str
     completeness: str
     evidence_refs: list[str]
     targets: list[CoveragePlanEntry]
+    selection_limitation_target_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -718,6 +942,9 @@ class CoveragePlan:
             "completeness": self.completeness,
             "evidence_refs": list(self.evidence_refs),
             "targets": [t.to_dict() for t in self.targets],
+            "selection_limitation_target_ids": list(
+                self.selection_limitation_target_ids
+            ),
         }
 
 
@@ -781,7 +1008,32 @@ def build_coverage_plan(
         completeness=universe.completeness.value,
         evidence_refs=list(universe.evidence_refs),
         targets=entries,
+        selection_limitation_target_ids=list(
+            selection_result.selection_limitation_target_ids
+        ),
     )
+
+
+def deserialize_plan_ref(ref: dict) -> ProjectedCandidate:
+    """Reconstruct an exact ``ProjectedCandidate`` from a persisted plan ref.
+
+    The plan ref carries the complete validated ``ProjectedCandidate`` JSON
+    (not a thin ref), so this round-trips through ``model_validate`` to
+    produce a fully validated instance usable by ordinary generation.
+
+    Args:
+        ref: A serialized plan reference from :meth:`QualifiedCandidate.to_plan_ref`.
+
+    Returns:
+        A validated :class:`ProjectedCandidate` identical to the original.
+
+    Raises:
+        ValueError: If the ref does not contain a valid projected candidate.
+    """
+    pc_data = ref.get("projected_candidate")
+    if pc_data is None:
+        raise ValueError("plan ref missing 'projected_candidate' — cannot reconstruct")
+    return ProjectedCandidate.model_validate(pc_data)
 
 
 # ---------------------------------------------------------------------------

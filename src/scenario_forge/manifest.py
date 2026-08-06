@@ -1417,6 +1417,8 @@ def derive_funnel_from_attempts(
     filter_submitted: int = 0,
     filter_accepted: int = 0,
     selected: int = 0,
+    qualified: int = 0,
+    projection_rejected: int = 0,
     persisted_artifacts: int = 0,
     seeds_generated: int = 0,
 ) -> dict[str, Any]:
@@ -1430,6 +1432,9 @@ def derive_funnel_from_attempts(
     ``selected`` and ``persisted_artifacts`` are derived from attempts
     when the caller does not supply nonzero values, so the returned dict
     is internally consistent with :class:`CandidateFunnel` equations.
+
+    ``qualified`` and ``projection_rejected`` are preserved through
+    failed-run reconstruction (cmps.4 blocker 5).
     """
     main_attempts = [a for a in attempts if a.phase == AttemptPhase.MAIN]
     rem_attempts = [a for a in attempts if a.phase == AttemptPhase.REMEDIATION]
@@ -1462,6 +1467,10 @@ def derive_funnel_from_attempts(
     #   persisted_artifacts == admitted
     if selected == 0 and main_attempts:
         selected = len(main_attempts)
+    # cmps.4 blocker 5: qualified must be >= selected.  When not supplied
+    # by the caller, derive from selected so the funnel invariant holds.
+    if qualified == 0 and selected > 0:
+        qualified = selected
     if persisted_artifacts == 0:
         persisted_artifacts = total_admitted + total_quarantined
 
@@ -1474,6 +1483,8 @@ def derive_funnel_from_attempts(
         "filter_submitted": filter_submitted,
         "filter_accepted": filter_accepted,
         "selected": selected,
+        "qualified": qualified,
+        "projection_rejected": projection_rejected,
         "main_attempted": len(main_attempts),
         "main_admitted": main_admitted + main_quarantined,
         "generation_failed": main_failed,

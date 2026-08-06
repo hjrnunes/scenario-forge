@@ -220,8 +220,10 @@ class CandidateFunnel(BaseModel):
         # cmps.4: With fan-out, one filtered seed can map to multiple
         # projected candidates with distinct bindings, so selected may
         # exceed filter_accepted.  The invariant is selected <= qualified
-        # (selection cannot admit more than were qualified).
-        if self.qualified > 0 and self.selected > self.qualified:
+        # (selection cannot admit more than were qualified).  Enforced
+        # unconditionally — qualified defaults to 0, so selected > 0
+        # with qualified = 0 is a violation (cmps.4 blocker 5).
+        if self.selected > self.qualified:
             raise ValueError(
                 f"selected ({self.selected}) must be <= qualified ({self.qualified})"
             )

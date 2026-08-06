@@ -498,8 +498,12 @@ class ProjectionBatch(ProjectionModel):
     infeasibilities: tuple[ProjectionIssue, ...]
     limitations: tuple[ProjectionLimitation, ...]
     # Coverage targets that could not be reserved due to budget exhaustion
-    # (cmps.4 blocker 5).  Empty when coverage_target_ids is not provided.
+    # (cmps.4 blocker 3).  Empty when coverage_target_ids is not provided.
     unreserved_coverage_targets: tuple[str, ...] = ()
+    # Coverage targets with no compatible projection at all (structural
+    # infeasibility — distinct from budget-omitted).  Empty when
+    # coverage_target_ids is not provided (cmps.4 blocker 3).
+    infeasible_coverage_targets: tuple[str, ...] = ()
 
 
 def _condition_facts(condition: Condition) -> tuple[AuthoritativeFactReference, ...]:
@@ -1272,9 +1276,11 @@ def project_authoritative_candidates(
 
         total_bindings = prod(len(options) for options in option_sets)
         generated_for_pattern: list[ProjectedCandidate] = []
-        combinations = _coverage_first_combinations(
-            tuple(option_sets), min(total_bindings, budget.max_candidates)
-        )
+        # cmps.4 blocker 3: generate ALL combinations (not truncated by
+        # budget) so that coverage-aware reservation can find a compatible
+        # candidate for every ingress target before variant/per-pattern/global
+        # truncation.  The budget is applied during reservation + fill.
+        combinations = _coverage_first_combinations(tuple(option_sets), total_bindings)
         for resources in combinations:
             bindings = tuple(
                 ResourceBinding(slot_id=slot.slot_id, resource_ref=resource)
@@ -1356,38 +1362,52 @@ def project_authoritative_candidates(
 
     # Allocate the global budget only across feasible candidates.
     #
-    # Coverage-aware reservation (cmps.4 blocker 5): when coverage_target_ids
-    # is provided, reserve one feasible candidate per coverage target before
-    # round-robin variant expansion.  This ensures every ingress target
-    # receives at least one projected candidate before the budget is
-    # exhausted on binding variants.
+    # Coverage-aware reservation (cmps.4 blocker 3): when coverage_target_ids
+    # is provided, derive a deterministic first compatible candidate for
+    # every coverage target BEFORE variant/per-pattern/global truncation.
+    # Reserve in sorted target-ID order.  Distinguish:
+    #   * no compatible projection (infeasible_coverage_targets)
+    #   * compatible-but-budget-omitted (unreserved_coverage_targets)
+    #   * variant truncation (ProjectionLimitation)
+    # Compute omitted IDs from final emitted candidates (after fill).
+    candidate_to_group: dict[str, int] = {}
+    for _gi, (_, _, group) in enumerate(candidate_groups):
+        for candidate in group:
+            candidate_to_group[candidate.candidate_id] = _gi
+
     by_identity: dict[str, ProjectedCandidate] = {}
-    emitted_by_group = [0] * len(candidate_groups)
 
     if coverage_target_ids:
-        remaining_targets = set(coverage_target_ids)
-        for group_index, (_, _, group) in enumerate(candidate_groups):
-            if not remaining_targets or len(by_identity) >= budget.max_candidates:
-                break
+        # Find deterministic first compatible candidate for every target.
+        # Iterate groups in sorted pattern order (candidate_groups is already
+        # sorted), then candidates in coverage-first order.  The first
+        # candidate whose ingress matches a target is its reserved candidate.
+        target_to_first_candidate: dict[str, ProjectedCandidate] = {}
+        for _, _, group in candidate_groups:
             for candidate in group:
                 ep_id = candidate.canonical_ingress.entry_point_id
-                if ep_id not in remaining_targets:
-                    continue
-                previous = by_identity.get(candidate.candidate_id)
-                if previous is not None and previous != candidate:
-                    raise ValueError("candidate-v2 identity collision")
-                if previous is None:
-                    if len(by_identity) >= budget.max_candidates:
-                        break
-                    by_identity[candidate.candidate_id] = candidate
-                    emitted_by_group[group_index] += 1
-                remaining_targets.discard(ep_id)
-                break  # one per target per group
-            if not remaining_targets or len(by_identity) >= budget.max_candidates:
+                if (
+                    ep_id in coverage_target_ids
+                    and ep_id not in target_to_first_candidate
+                ):
+                    target_to_first_candidate[ep_id] = candidate
+
+        # Targets with no compatible projection at all (structural).
+        infeasible_coverage_targets = tuple(
+            sorted(set(coverage_target_ids) - set(target_to_first_candidate))
+        )
+
+        # Reserve one candidate per target in sorted target-ID order.
+        for target_id in sorted(target_to_first_candidate):
+            if len(by_identity) >= budget.max_candidates:
                 break
-        unreserved_targets = tuple(sorted(remaining_targets))
+            candidate = target_to_first_candidate[target_id]
+            cid = candidate.candidate_id
+            if cid in by_identity:
+                continue
+            by_identity[cid] = candidate
     else:
-        unreserved_targets = ()
+        infeasible_coverage_targets = ()
 
     # Round-robin admission gives every feasible pattern a stable baseline
     # before taking a second variation, and identity collisions never consume
@@ -1405,20 +1425,42 @@ def project_authoritative_candidates(
                 raise ValueError("candidate-v2 identity collision")
             if previous is None:
                 by_identity[candidate.candidate_id] = candidate
-                emitted_by_group[group_index] += 1
                 if len(by_identity) == budget.max_candidates:
                     break
         if not made_progress:
             break
         offset += 1
-    for group_index, (pattern_id, total_bindings, group) in enumerate(candidate_groups):
+
+    # Compute emitted_by_group from final by_identity (after all admission).
+    emitted_by_group = [0] * len(candidate_groups)
+    for cid in by_identity:
+        gi = candidate_to_group.get(cid)
+        if gi is not None:
+            emitted_by_group[gi] += 1
+
+    # Compute unreserved targets from final emitted candidates — not from
+    # a pre-fill snapshot.  A target is budget-omitted if it has a
+    # compatible candidate but none was emitted due to budget.
+    if coverage_target_ids:
+        emitted_target_ids = {
+            c.canonical_ingress.entry_point_id for c in by_identity.values()
+        }
+        unreserved_targets = tuple(
+            sorted(set(target_to_first_candidate) - emitted_target_ids)
+        )
+    else:
+        unreserved_targets = ()
+
+    for group_index, (pattern_id, total_bindings_grp, group) in enumerate(
+        candidate_groups
+    ):
         emitted = emitted_by_group[group_index]
-        if group and (emitted < len(group) or len(group) < total_bindings):
+        if group and (emitted < len(group) or len(group) < total_bindings_grp):
             limitations.append(
                 ProjectionLimitation(
                     code="candidate_budget_exhausted",
                     pattern_id=pattern_id,
-                    total_compatible_bindings=total_bindings,
+                    total_compatible_bindings=total_bindings_grp,
                     emitted_bindings=emitted,
                 )
             )
@@ -1443,4 +1485,5 @@ def project_authoritative_candidates(
             sorted(limitations, key=lambda item: (item.pattern_id, item.code))
         ),
         unreserved_coverage_targets=unreserved_targets,
+        infeasible_coverage_targets=infeasible_coverage_targets,
     )

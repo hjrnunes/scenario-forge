@@ -462,6 +462,7 @@ class TestCandidateFunnelValidation:
             "post_rule_collapsed": 1,
             "filter_submitted": 5,
             "filter_accepted": 3,
+            "qualified": 3,
             "selected": 3,
             "main_attempted": 3,
             "main_admitted": 2,

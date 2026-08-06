@@ -80,6 +80,7 @@ from scenario_forge.pipeline.coverage_planning import (
     STAGE_QUARANTINE,
     STAGE_RULES,
     STAGE_SELECTION,
+    CoverageGapReason,
     StageLedger,
     build_coverage_plan,
     build_coverage_universe,
@@ -1245,12 +1246,28 @@ def run_pipeline(
 
         # Record rule-rejection events from the rule filter stage.
         for c in rule_rejected:
+            # cmps.4 blocker 4: Record actual rule-rejection details and
+            # identities/rationales.  RejectionRecord verdicts from the
+            # rule filter are matched by candidate_id for per-candidate
+            # removal-decision provenance.
+            matching_verdicts = [
+                v for v in rule_verdicts if v.candidate_id == c.candidate_id
+            ]
+            if matching_verdicts:
+                removals = [
+                    f"{d.rule_name}: {d.rationale}"
+                    for v in matching_verdicts
+                    for d in v.removal_decisions
+                ]
+                rule_reasons = "; ".join(removals) or matching_verdicts[0].rationale
+            else:
+                rule_reasons = "Rejected by deterministic rule filter"
             stage_ledger.record(
                 entry_point_id=c.entry_point_id,
                 candidate_id=c.candidate_id,
                 stage=STAGE_RULES,
                 reason="deterministic_rule_rejection",
-                detail=f"Rejected by rule filter for pattern {c.seed_id}.",
+                detail=f"pattern={c.seed_id}: {rule_reasons}",
             )
 
         # Record filter-rejection events (rule-passed but LLM-rejected).
@@ -1335,31 +1352,26 @@ def run_pipeline(
         # --- Stage 3.7: Coverage-Aware Planning (cmps.4) ---
         # Build deterministic ranked fallback queues per feasible target
         # from qualified projected candidates, bounded to at most three
-        # choices per target.  Ranking is deterministic: encounter order
-        # with candidate-ID tie-break (NOT pinned-technique count).
+        # choices per target.  Ranking is deterministic and
+        # encounter-independent: (pattern_id, candidate_id) — NOT
+        # pinned-technique count and NOT filter-result arrival order.
         fallback_queues = build_fallback_queues(qualified_candidates, coverage_universe)
 
-        # Record selection-limitation events for targets with no candidates.
-        for ep_id in coverage_universe.feasible_target_ids:
-            queue = fallback_queues.get(ep_id)
-            if queue is None or queue.is_empty:
-                stage_ledger.record(
-                    entry_point_id=ep_id,
-                    candidate_id="",
-                    stage=STAGE_SELECTION,
-                    reason="no_qualified_candidate",
-                    detail="No qualified candidate survived for this target.",
-                )
+        # cmps.4 blocker 4: Do NOT append synthetic selection/no_qualified
+        # events for empty queues.  Selection limitation requires qualified
+        # candidates deliberately not chosen.  The gap for an empty queue is
+        # already attributed by the furthest actual event (rules/filter/
+        # projection) in the stage ledger — never a synthetic selection event.
 
         # Check for projection budget limitations affecting coverage targets.
         # Use the authoritative unreserved_coverage_targets from the projection
-        # batch (cmps.4 blocker 5), not backward set-membership inference.
+        # batch (cmps.4 blocker 3), not backward set-membership inference.
         projection_limitation_target_ids: set[str] = set(
             projection_batch.unreserved_coverage_targets
         )
 
         # Record projection-limitation events for targets omitted by budget
-        # allocation (cmps.4 blocker 5).  Includes the budget and exact target
+        # allocation (cmps.4 blocker 3).  Includes the budget and exact target
         # IDs — not backward set-membership inference.
         budget_max = ProjectionBudget().max_candidates
         for ep_id in projection_batch.unreserved_coverage_targets:
@@ -1374,9 +1386,23 @@ def run_pipeline(
                 ),
             )
 
-        # Preserve projection issues as stage events with full payload
-        # (cmps.4 blocker 3: preserve projection issues/limitations rather
-        # than logging counts).
+        # Record infeasible coverage targets (no compatible projection at all)
+        # as structural projection gaps (cmps.4 blocker 3).
+        for ep_id in projection_batch.infeasible_coverage_targets:
+            stage_ledger.record(
+                entry_point_id=ep_id,
+                candidate_id="",
+                stage=STAGE_PROJECTION,
+                reason="no_compatible_projection",
+                detail=(
+                    f"Coverage target has no compatible projection (target_id={ep_id})."
+                ),
+            )
+
+        # Preserve projection issues as stage events with complete typed
+        # payload (cmps.4 blocker 3: persist complete ProjectionIssue/
+        # ProjectionLimitation payloads — step_id, slot_id, evidence/results
+        # — not reduced strings/counts).
         for issue in projection_batch.infeasibilities:
             stage_ledger.record(
                 entry_point_id="",
@@ -1384,6 +1410,20 @@ def run_pipeline(
                 stage=STAGE_PROJECTION,
                 reason=issue.code,
                 detail=f"pattern={issue.pattern_id}: {issue.detail}",
+                payload=issue.model_dump(mode="json"),
+            )
+        for limitation in projection_batch.limitations:
+            stage_ledger.record(
+                entry_point_id="",
+                candidate_id="",
+                stage=STAGE_PROJECTION,
+                reason="variant_truncation",
+                detail=(
+                    f"pattern={limitation.pattern_id}: "
+                    f"{limitation.emitted_bindings}/"
+                    f"{limitation.total_compatible_bindings} bindings emitted"
+                ),
+                payload=limitation.model_dump(mode="json"),
             )
 
         # Coverage-aware selection: first hard objective is one candidate
@@ -1408,6 +1448,22 @@ def run_pipeline(
                 stage=STAGE_SELECTION,
                 reason="selected",
                 detail=f"Selected for generation (rank {qc.rank}).",
+            )
+
+        # Record selection-limitation events for targets where a per-pattern
+        # cap could not be respected (cmps.4 blocker 2/4: these are real
+        # selection limitations where qualified candidates were deliberately
+        # not chosen for cap reasons — not synthetic events for empty queues).
+        for ep_id in selection_result.selection_limitation_target_ids:
+            stage_ledger.record(
+                entry_point_id=ep_id,
+                candidate_id=selection_result.primary_candidate_ids.get(ep_id, ""),
+                stage=STAGE_SELECTION,
+                reason="selection_limitation",
+                detail=(
+                    "Per-pattern cap could not be respected for this target; "
+                    "coverage preserved but cap violated."
+                ),
             )
 
         if candidates_capped > 0:
@@ -1549,6 +1605,8 @@ def run_pipeline(
                 # Attach candidate filter provenance data to the envelope.
                 # candidate_id is the authoritative projected candidate ID;
                 # filter_candidate_id preserves the filter-stage identity.
+                # cmps.4 blocker 1: Use merged provenance from all accepted
+                # filter records, not just the single generation seed.
                 envelope.candidate_filter = {
                     "candidate_id": authoritative_candidate_id,
                     "filter_candidate_id": fseed.candidate_id,
@@ -1556,9 +1614,10 @@ def run_pipeline(
                     "pinned_entry_point": fseed.pinned_entry_point,
                     "pinned_technique_ids": list(fseed.pinned_technique_ids),
                     "pinned_technique_names": list(fseed.pinned_technique_names),
-                    "origins": [o.model_dump(mode="json") for o in fseed.origins],
+                    "origins": [o.model_dump(mode="json") for o in qc.merged_origins],
                     "rejection_rationales": [
-                        v.model_dump() for v in fseed.rejection_rationales
+                        v.model_dump(mode="json")
+                        for v in qc.merged_rejection_rationales
                     ],
                 }
 
@@ -1964,6 +2023,13 @@ def run_pipeline(
         attacker_diversity = analyze_attacker_diversity(admitted_scenarios)
 
         # --- Funnel-stage attribution for coverage gaps ---
+        # cmps.4 blocker 4: Legacy _compute_gap_attributions uses backward
+        # set-membership inference that can invent generation_failed/no_seed.
+        # Entry-point attribution is now authoritative from the stage ledger
+        # (via quality_gaps below).  We still call _compute_gap_attributions
+        # for threat/zone/attack-pattern attributions, but override
+        # entry_points with ledger-derived values so the HTML cannot render
+        # contradictory old and new claims.
         if coverage_gaps.has_gaps:
             coverage_gaps.gap_attributions = _compute_gap_attributions(
                 coverage_gaps,
@@ -2019,6 +2085,30 @@ def run_pipeline(
                 "  %d quality gap(s) emitted for uncovered targets.",
                 len(quality_gaps),
             )
+
+        # cmps.4 blocker 4: Always replace legacy entry-point attributions
+        # with ledger-derived values so the HTML cannot render contradictory
+        # old (inferred) and new (ledger-derived) claims.  When quality_gaps
+        # is empty, the entry-point map is cleared (no invented attributions).
+        if coverage_gaps.has_gaps:
+            _QUALITY_GAP_TO_ATTR: dict[str, str] = {
+                CoverageGapReason.NO_SEED.value: "no_seed",
+                CoverageGapReason.DETERMINISTIC_RULE_REJECTION.value: "rejected",
+                CoverageGapReason.FILTER_REJECTION.value: "rejected",
+                CoverageGapReason.PROJECTION_REJECTION.value: "no_candidate",
+                CoverageGapReason.SELECTION_LIMITATION.value: "selection_limitation",
+                CoverageGapReason.GENERATION_EXHAUSTION.value: "generation_failed",
+                CoverageGapReason.ADMISSION_FAILURE.value: "admission_failure",
+                CoverageGapReason.PROJECTION_LIMITATION.value: "projection_limitation",
+            }
+            ledger_ep_attrs: dict[str, str] = {}
+            for gap in quality_gaps:
+                ledger_ep_attrs[gap.entry_point_id] = _QUALITY_GAP_TO_ATTR.get(
+                    gap.reason.value, gap.reason.value
+                )
+            # Authoritative replacement — ledger-derived values are the
+            # only entry-point attributions, no merge with legacy inference.
+            coverage_gaps.gap_attributions.entry_points = ledger_ep_attrs
 
         # --- cmps.4 blocker 2: Build and persist versioned coverage plan ---
         coverage_plan = build_coverage_plan(
@@ -2403,6 +2493,8 @@ def run_pipeline(
                     filter_submitted=existing_funnel.get("filter_submitted", 0),
                     filter_accepted=existing_funnel.get("filter_accepted", 0),
                     selected=existing_funnel.get("selected", 0),
+                    qualified=existing_funnel.get("qualified", 0),
+                    projection_rejected=existing_funnel.get("projection_rejected", 0),
                     persisted_artifacts=existing_funnel.get("persisted_artifacts", 0),
                     seeds_generated=existing_funnel.get("seeds_generated", 0),
                 )

@@ -3694,6 +3694,74 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
             "</tr></thead><tbody>" + "".join(plan_rows) + "</tbody></table></div>"
         )
 
+    # --- cmps.4 blocker 4: Coverage universe completeness and bounded set ---
+    universe_data = coverage_data.get("coverage_universe", {})
+    universe_html = ""
+    if universe_data:
+        completeness = universe_data.get("completeness", "not_applicable")
+        evidence_refs = universe_data.get("evidence_refs", [])
+        feasible_targets = universe_data.get("feasible_targets", [])
+        excluded_targets = universe_data.get("excluded_targets", [])
+
+        completeness_label = (
+            "Confirmed Complete"
+            if completeness == "confirmed_complete"
+            else "Not Applicable (Inferred Partial)"
+        )
+        completeness_cls = (
+            "coverage-status-green"
+            if completeness == "confirmed_complete"
+            else "coverage-status-amber"
+        )
+
+        # Bounded canonical target set.
+        target_items = "".join(
+            f"<li>{_esc(t.get('name', t.get('entry_point_id', '')))}"
+            f" <code>{_esc(t.get('entry_point_id', ''))}</code>"
+            f" <span class='coverage-status coverage-status-green'>"
+            f"{_esc(t.get('direction', ''))}/{_esc(t.get('controllability', ''))}"
+            f"</span></li>"
+            for t in feasible_targets
+        )
+        excluded_items = "".join(
+            f"<li>{_esc(e.get('name', e.get('entry_point_id', '')))}"
+            f" <span class='coverage-status coverage-status-red'>"
+            f"{_esc(e.get('reason', ''))}</span></li>"
+            for e in excluded_targets
+        )
+        evidence_html = (
+            "<div class='coverage-empty'>Evidence: "
+            + ", ".join(_esc(e) for e in evidence_refs)
+            + "</div>"
+            if evidence_refs
+            else "<div class='coverage-empty'>No operator-confirmed evidence</div>"
+        )
+
+        universe_html = (
+            '<div style="margin-top:1rem">'
+            "<h3>Coverage Universe</h3>"
+            '<div class="coverage-card">'
+            '<div class="coverage-card-header">'
+            '<span class="coverage-card-title">Inventory Completeness</span>'
+            f'<span class="coverage-status {completeness_cls}">'
+            f"{_esc(completeness_label)}</span>"
+            "</div>"
+            f"{evidence_html}"
+            "</div>"
+            '<div class="coverage-grid" style="margin-top:0.5rem">'
+            f'<div class="coverage-card">'
+            '<div class="coverage-card-header">'
+            f'<span class="coverage-card-title">'
+            f"Feasible Targets ({len(feasible_targets)})</span>"
+            '</div><ul class="coverage-list">' + target_items + "</ul></div>"
+            f'<div class="coverage-card">'
+            '<div class="coverage-card-header">'
+            f'<span class="coverage-card-title">'
+            f"Excluded Targets ({len(excluded_targets)})</span>"
+            '</div><ul class="coverage-list">' + excluded_items + "</ul></div>"
+            "</div></div>"
+        )
+
     return f"""
     <div id="sec-coverage" class="section">
       <div class="section-header">
@@ -3735,6 +3803,7 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
         </div>
       </div>
       {summary_html}
+      {universe_html}
       {plan_html}
     </div>
     """
