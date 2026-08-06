@@ -18,6 +18,7 @@ from scenario_forge.models.capability_profile import (
     compute_trust_boundary_id,
     deduplicate_trust_boundaries,
 )
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     ActorAccessProvenance,
     ActorProfile,
@@ -40,6 +41,7 @@ from scenario_forge.pipeline.generate.narrative import (
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps, run_pipeline
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
+from tests.helpers.projection_factory import get_projected_candidate
 from tests.test_actor_entry_point_validation import (
     _make_envelope,
     _make_indirect_profile,
@@ -212,6 +214,10 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
         patch(
             "scenario_forge.pipeline.generate._assemble_envelope", side_effect=assemble
         ),
+        patch(
+            "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+            return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
+        ),
     ):
         envelope, _ = generate_scenario(
             _seed(),
@@ -223,6 +229,7 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
             prior_titles=["Already Used"],
             run_id=RUN_ID,
             candidate_id=candidate_id,
+            projected_candidate=get_projected_candidate(),
         )
 
     assert narrative_call.call_count >= 3
@@ -416,6 +423,10 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
         patch(
             "scenario_forge.report.generator.generate_report",
             side_effect=lambda data, out_dir: Path(out_dir) / "report.html",
+        ),
+        patch(
+            "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+            return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
         ),
     ):
         result = run_pipeline("test", risk_path, mapping, tmp_path / "runs")

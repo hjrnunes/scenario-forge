@@ -40,6 +40,7 @@ from scenario_forge.models.scenario import (
     ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
+    BehaviorSpec,
     CallMetadata,
     CallName,
     CapabilityProfileRef,
@@ -57,6 +58,14 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
     TechniqueMaturity,
 )
+
+
+def _behavior_spec_with_text(gherkin_text: str) -> BehaviorSpec:
+    """Build a BehaviorSpec with explicit gherkin_text for byte-mismatch tests."""
+    return BehaviorSpec(actions=(), assertions=(), gherkin_text=gherkin_text)
+
+
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.pipeline.candidates import (
     CandidateFunnel,
     CandidateOrigin,
@@ -81,6 +90,24 @@ from scenario_forge.pipeline.generate.assembly import (
 )
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+
+
+@pytest.fixture(autouse=True)
+def _patch_projection_traceability_for_write_tests():
+    """Patch projection traceability validation to valid for this module.
+
+    These tests exercise write/replace atomicity, receipt reconciliation,
+    and remediation funnel equations — not projection traceability.  The
+    dedicated traceability suite covers the writer's fail-closed behaviour
+    on invalid projections.
+    """
+    with patch(
+        "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+        return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
+    ):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,7 +176,7 @@ def _make_profile(
 
 def _make_envelope(
     scenario_id: str = "scenario:v2:8986bff34d530423761ccda45590e6f5c577814b6d647fd4a8001da76dd789b6",
-    behavior_spec: str | None = None,
+    behavior_spec=None,
     candidate_id: str = _VALID_CANDIDATE_ID,
     entry_point_id: str = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ) -> ScenarioEnvelope:
@@ -233,6 +260,7 @@ def _make_envelope(
         ],
     )
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
         candidate_id=candidate_id,
         initial_entry_point_id=entry_point_id,
@@ -253,7 +281,9 @@ def _make_envelope(
         ),
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec=behavior_spec if behavior_spec is not None else {},
+        behavior_spec=behavior_spec
+        if behavior_spec is not None
+        else make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,
@@ -301,7 +331,7 @@ class TestSafePairedArtifacts:
         created by this call must be cleaned up — no partial pair."""
         envelope = _make_envelope(
             scenario_id="scenario:v2:1503279b4d55cb662f6bab433d9a79ff2da62bfae1e1f0bf4d87ec7d93ea2a54",
-            behavior_spec="Feature: test\n  Scenario: test\n",
+            behavior_spec=make_behavior_spec("Feature: test\n  Scenario: test\n"),
         )
         original_open = Path.open
         call_count = 0
@@ -329,7 +359,7 @@ class TestSafePairedArtifacts:
         integrity error, and the pre-existing files must not be modified."""
         envelope = _make_envelope(
             scenario_id="scenario:v2:e52d5e8b4a98bf58090d37f04acbb0c9205c8e620edcbe166f1f963714598a54",
-            behavior_spec="Feature: test\n",
+            behavior_spec=make_behavior_spec("Feature: test\n"),
         )
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
@@ -373,7 +403,7 @@ class TestSafePairedArtifacts:
         feature_text = "Feature: test\n  Scenario: test\n"
         envelope = _make_envelope(
             scenario_id="scenario:v2:df5fe11e7673ab91f40604a8ced378a81198529cbe47faaec5585dba6388f1c7",
-            behavior_spec=feature_text,
+            behavior_spec=_behavior_spec_with_text(feature_text),
         )
         # Create initial artifacts.
         write_scenario_outputs(envelope, tmp_path)
@@ -382,7 +412,7 @@ class TestSafePairedArtifacts:
 
         # Modify envelope (e.g. add validation metadata) but keep
         # behavior_spec identical — feature bytes must be verified.
-        envelope.behavior_spec = feature_text  # same bytes
+        envelope.behavior_spec = _behavior_spec_with_text(feature_text)  # same bytes
         # Add validation to force YAML change.
         from scenario_forge.models.scenario import ValidationBlock
 
@@ -402,12 +432,12 @@ class TestSafePairedArtifacts:
         feature_text = "Feature: original\n"
         envelope = _make_envelope(
             scenario_id="scenario:v2:90b80a06586b377bafcaa855b16a683e07eff90975cd619e552f40e8aa7c20a0",
-            behavior_spec=feature_text,
+            behavior_spec=_behavior_spec_with_text(feature_text),
         )
         write_scenario_outputs(envelope, tmp_path)
 
         # Change behavior_spec to different bytes.
-        envelope.behavior_spec = "Feature: different\n"
+        envelope.behavior_spec = _behavior_spec_with_text("Feature: different\n")
         with pytest.raises(ScenarioForgeIntegrityError, match="Feature byte mismatch"):
             replace_scenario_outputs(
                 envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
@@ -1145,7 +1175,7 @@ class TestWriteFailureAfterCreation:
         """If feature write() fails after both files are opened, both
         current-call files must be cleaned up."""
         envelope = _make_envelope(
-            behavior_spec="Feature: test\n  Scenario: test\n",
+            behavior_spec=make_behavior_spec("Feature: test\n  Scenario: test\n"),
         )
         original_open = Path.open
         call_count = [0]
@@ -1191,7 +1221,7 @@ class TestRaceTimeFileExistsConversion:
             write_scenario_outputs(envelope, tmp_path)
 
     def test_feature_race_file_exists_is_fatal(self, tmp_path: Path):
-        envelope = _make_envelope(behavior_spec="Feature: test\n")
+        envelope = _make_envelope(behavior_spec=make_behavior_spec("Feature: test\n"))
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
         # Pre-create only the feature file to trigger FileExistsError
         # on the second open('x') call.
@@ -1210,7 +1240,7 @@ class TestCleanupFailureFatal:
     """If cleanup of a current-call file fails, raise fatal integrity."""
 
     def test_cleanup_unlink_failure_is_fatal(self, tmp_path: Path):
-        envelope = _make_envelope(behavior_spec="Feature: test\n")
+        envelope = _make_envelope(behavior_spec=make_behavior_spec("Feature: test\n"))
         original_open = Path.open
 
         call_count = [0]
@@ -1773,12 +1803,14 @@ class TestReceiptAdmissionExactness:
         wrong_dir.mkdir()
         yaml_path = wrong_dir / f"{sid}.yaml"
         yaml_path.write_text("dummy", encoding="utf-8")
+        feature_path = wrong_dir / f"{sid}.feature"
+        feature_path.write_text("Feature: dummy\n", encoding="utf-8")
         receipts = [
             {
                 "scenario_id": sid,
                 "candidate_id": _VALID_CANDIDATE_ID,
                 "yaml_path": str(yaml_path),
-                "feature_path": None,
+                "feature_path": str(feature_path),
             }
         ]
         with pytest.raises(SIE, match="does not match canonical path"):
@@ -1801,12 +1833,14 @@ class TestReceiptAdmissionExactness:
         scenarios_dir.mkdir()
         wrong_path = scenarios_dir / f"{sid}.txt"
         wrong_path.write_text("dummy", encoding="utf-8")
+        feature_path = scenarios_dir / f"{sid}.feature"
+        feature_path.write_text("Feature: dummy\n", encoding="utf-8")
         receipts = [
             {
                 "scenario_id": sid,
                 "candidate_id": _VALID_CANDIDATE_ID,
                 "yaml_path": str(wrong_path),
-                "feature_path": None,
+                "feature_path": str(feature_path),
             }
         ]
         with pytest.raises(SIE, match="does not match canonical path"):

@@ -787,9 +787,18 @@ def validate_phantom_capabilities(
                         )
 
         # Also check Gherkin behavior_spec text
-        if scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
+        from scenario_forge.models.scenario import BehaviorSpec as _BehaviorSpec
+
+        gherkin_text_for_phantom = ""
+        if scenario.behavior_spec and isinstance(scenario.behavior_spec, _BehaviorSpec):
+            gherkin_text_for_phantom = scenario.behavior_spec.gherkin_text
+        elif scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
+            gherkin_text_for_phantom = scenario.behavior_spec
+        if gherkin_text_for_phantom:
             for category, checker, reason in _CHECKERS:
-                matched = checker(scenario.behavior_spec, profile, field_name="gherkin")
+                matched = checker(
+                    gherkin_text_for_phantom, profile, field_name="gherkin"
+                )
                 if matched is not None:
                     violations.append(
                         PhantomViolation(
@@ -1290,7 +1299,11 @@ def validate_scenario_semantics(
 
         # 6b. Zone omission — Gherkin.
         gherkin_text = ""
-        if scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
+        from scenario_forge.models.scenario import BehaviorSpec as _BS2
+
+        if scenario.behavior_spec and isinstance(scenario.behavior_spec, _BS2):
+            gherkin_text = scenario.behavior_spec.gherkin_text
+        elif scenario.behavior_spec and isinstance(scenario.behavior_spec, str):
             gherkin_text = scenario.behavior_spec
         gherkin_zones: set[str] = set()
         if gherkin_text:
@@ -2460,8 +2473,12 @@ def validate_gate_logic_consistency(
             continue
 
         # Tree has OR gates -- check that Gherkin has multiple Scenario blocks.
-        gherkin = scenario.behavior_spec
-        if not gherkin or not isinstance(gherkin, str):
+        from scenario_forge.models.scenario import BehaviorSpec as _BehaviorSpec
+
+        gherkin = ""
+        if scenario.behavior_spec and isinstance(scenario.behavior_spec, _BehaviorSpec):
+            gherkin = scenario.behavior_spec.gherkin_text or ""
+        if not gherkin:
             result.clean_scenarios.append(scenario)
             continue
 

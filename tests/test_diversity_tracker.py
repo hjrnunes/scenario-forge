@@ -33,6 +33,7 @@ from scenario_forge.pipeline.diversity import (
     DiversityHints,
     DiversityTracker,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -148,6 +149,7 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id="scenario:v2:b3117469a5faaa9661af2ef23951d98b56d373505dfbcc8ae4fe7fc9c1d3aaef",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -157,7 +159,9 @@ def _make_envelope(
         narrative=narrative,
         actor_profile=actor,
         attack_tree=attack_tree,
-        behavior_spec="Feature: test\n  Scenario: basic\n    Given context\n    When action\n    Then result",
+        behavior_spec=make_behavior_spec(
+            "Feature: test\n  Scenario: basic\n    Given context\n    When action\n    Then result"
+        ),
         faceting=faceting,
         priority=priority,
         generation=GenerationMetadata(

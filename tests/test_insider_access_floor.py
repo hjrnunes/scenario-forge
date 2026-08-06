@@ -37,6 +37,7 @@ from scenario_forge.models.scenario import (
     TechniqueMaturity,
 )
 from scenario_forge.pipeline.validation import validate_insider_access_floor
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 ENTRY_POINT_ID = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DEFAULT_INSIDER_ACCESS = ActorAccessProvenance(
@@ -161,6 +162,7 @@ def _make_envelope(
         ],
     )
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         generated_at=datetime.now(tz=UTC),
@@ -169,7 +171,7 @@ def _make_envelope(
         narrative=narrative,
         actor_profile=actor_profile,
         attack_tree=attack_tree,
-        behavior_spec={},
+        behavior_spec=make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,

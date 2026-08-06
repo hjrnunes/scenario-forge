@@ -44,6 +44,7 @@ from scenario_forge.models.scenario import (
     TechniqueMaturity,
 )
 from scenario_forge.pipeline.validation import validate_scenario_semantics
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 
 def _make_profile(
@@ -217,6 +218,7 @@ def _make_envelope(
         }
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         initial_entry_point_id=(
@@ -228,7 +230,7 @@ def _make_envelope(
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec={},
+        behavior_spec=make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,

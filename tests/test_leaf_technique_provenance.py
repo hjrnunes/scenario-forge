@@ -51,6 +51,7 @@ from scenario_forge.pipeline.validation import (
     _is_consequence_leaf,
     check_leaf_technique_provenance,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 
 def AttackTreeNode(**kwargs) -> _AttackTreeNode:
@@ -166,6 +167,7 @@ def _make_envelope(
     }
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -174,7 +176,7 @@ def _make_envelope(
         scenario_seed_metadata=seed_metadata,
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec={},
+        behavior_spec=make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,

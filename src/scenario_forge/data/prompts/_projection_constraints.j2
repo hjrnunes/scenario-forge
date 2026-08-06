@@ -1,0 +1,59 @@
+{% if projection_context is defined and projection_context %}
+## Canonical Projection Constraints (INVARIANT — scenario-forge-422o.4)
+You MUST realize but NEVER select, alter, omit, reorder, or fabricate the
+projection semantics below.  These constraints are fixed and immutable.
+Every generated artifact (narrative, attack tree, behavior spec) must
+trace back to these exact projected steps, IDs, and resource bindings.
+
+### Projection Digest
+{{ projection_context.projection_digest }}
+
+### Canonical Ingress
+- entry_point_id: {{ projection_context.canonical_ingress.entry_point_id }}
+- ingress_controllability: {{ projection_context.ingress_controllability }}
+
+### Selected Projected Steps (ordered — preserve this total order)
+{% for step in projection_context.selected_steps %}
+{{ loop.index }}. step_id: {{ step.step_id }}
+   - action_kind: {{ step.action_kind }}
+   - executor_role: {{ step.executor_role }}
+   - boundary_position: {{ step.boundary_position }}
+   - resource_links:
+   {% for link in step.resource_links %}     - slot_id: {{ link.slot_id }}, role: {{ link.role }}{% if link.trust_boundary_slot_id %}, trust_boundary: {{ link.trust_boundary_slot_id }}{% endif %}{% if link.target_ingress_slot_id %}, target_ingress: {{ link.target_ingress_slot_id }}{% endif %}
+   {% endfor %}
+   - observable_postconditions:
+   {% for pc in step.observable_postconditions %}     - {{ pc.postcondition_id }}: {{ pc.description }} (security_relevant: {{ pc.security_relevant }}, terminal: {{ pc.terminal }})
+   {% endfor %}
+{% endfor %}
+
+### Omitted Steps
+{% if projection_context.omitted_step_ids %}{{ projection_context.omitted_step_ids | join(', ') }}
+{% else %}(none)
+{% endif %}
+
+### Condition Evaluations
+{% for ce in projection_context.condition_evaluations %}- step {{ ce.step_id }} / condition {{ ce.condition_id }}: {{ ce.result }}
+{% else %}(none)
+{% endfor %}
+
+### Execution Requirements (adapter-neutral — realize exactly)
+{% for req in projection_context.execution_requirements %}- {{ req.requirement_id }}: kind={{ req.kind }}
+   {{ req | tojson }}
+{% else %}(none)
+{% endfor %}
+
+### Projected Taxonomy Mappings
+{% for m in projection_context.projected_mappings %}- step_id={{ m.step_id }}: {{ m.mapping.taxonomy }} / {{ m.mapping.decision }} — {{ m.mapping | tojson }}
+{% else %}(none)
+{% endfor %}
+
+### Resource Slots
+{% for slot in projection_context.resource_slots %}- {{ slot.slot_id }}: kind={{ slot.kind }}, purpose={{ slot.purpose }}
+{% else %}(none)
+{% endfor %}
+
+### Exact Opaque IDs (use these EXACT IDs — do not invent or modify)
+{% for sid in projection_context.selected_step_ids %}- {{ sid }}
+{% endfor %}
+
+{% endif %}

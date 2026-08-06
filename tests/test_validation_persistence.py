@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -19,6 +20,7 @@ from scenario_forge.models.attack_tree import (
     AttackTreeNode,
     GateType,
 )
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -48,6 +50,7 @@ from scenario_forge.pipeline.generate import (
     replace_scenario_outputs,
     write_scenario_outputs,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -161,6 +164,7 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
         candidate_id="cand:v1:11111111111111111111111111111111",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -168,7 +172,7 @@ def _make_envelope(
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec={},
+        behavior_spec=make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,
@@ -181,11 +185,15 @@ def _make_envelope(
 # ---------------------------------------------------------------------------
 
 
+@patch("scenario_forge.pipeline.projection_validation.validate_projection_traceability")
 class TestValidationPersistence:
     """Validation marks should appear in re-written scenario YAMLs."""
 
-    def test_validation_block_written_to_yaml(self, tmp_path: Path) -> None:
+    def test_validation_block_written_to_yaml(self, mock_trace, tmp_path: Path) -> None:
         """A scenario with validation marks should have them in the YAML output."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         validation = ValidationBlock(
             phantom=PhantomValidation(
                 valid=False,
@@ -216,8 +224,11 @@ class TestValidationPersistence:
         assert data["validation"]["structural"]["valid"] is True
         assert data["validation"]["semantic"]["valid"] is True
 
-    def test_validation_passed_flag_written(self, tmp_path: Path) -> None:
+    def test_validation_passed_flag_written(self, mock_trace, tmp_path: Path) -> None:
         """The validation_passed flag should appear in the written YAML."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         validation = ValidationBlock(
             phantom=PhantomValidation(valid=True),
             structural=StructuralValidation(valid=True),
@@ -231,8 +242,13 @@ class TestValidationPersistence:
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
         assert data["validation_passed"] is True
 
-    def test_validation_passed_false_when_phantom_fails(self, tmp_path: Path) -> None:
+    def test_validation_passed_false_when_phantom_fails(
+        self, mock_trace, tmp_path: Path
+    ) -> None:
         """validation_passed should be False when phantom validation fails."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         validation = ValidationBlock(
             phantom=PhantomValidation(
                 valid=False,
@@ -257,8 +273,11 @@ class TestValidationPersistence:
         data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
         assert data["validation_passed"] is False
 
-    def test_no_validation_block_when_none(self, tmp_path: Path) -> None:
+    def test_no_validation_block_when_none(self, mock_trace, tmp_path: Path) -> None:
         """A scenario with no validation should not have a validation key in YAML."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         envelope = _make_envelope(validation=None)
 
         write_scenario_outputs(envelope, tmp_path)
@@ -268,8 +287,13 @@ class TestValidationPersistence:
         # exclude_none means no validation key
         assert "validation" not in data
 
-    def test_parsimony_unprunable_mark_written(self, tmp_path: Path) -> None:
+    def test_parsimony_unprunable_mark_written(
+        self, mock_trace, tmp_path: Path
+    ) -> None:
         """The parsimony_unprunable mark should appear in the YAML."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         validation = ValidationBlock(
             phantom=PhantomValidation(valid=True),
             structural=StructuralValidation(valid=True),
@@ -292,11 +316,15 @@ class TestValidationPersistence:
 # ---------------------------------------------------------------------------
 
 
+@patch("scenario_forge.pipeline.projection_validation.validate_projection_traceability")
 class TestRewriteIntegrity:
     """The validation re-write must not corrupt existing scenario data."""
 
-    def test_rewrite_preserves_narrative(self, tmp_path: Path) -> None:
+    def test_rewrite_preserves_narrative(self, mock_trace, tmp_path: Path) -> None:
         """Narrative content should be identical after re-write with validation."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         envelope = _make_envelope()
         # Write initially (no validation)
         write_scenario_outputs(envelope, tmp_path)
@@ -327,8 +355,13 @@ class TestRewriteIntegrity:
         # But now has validation
         assert "validation" in rewritten_data
 
-    def test_rewrite_preserves_attack_tree_structure(self, tmp_path: Path) -> None:
+    def test_rewrite_preserves_attack_tree_structure(
+        self, mock_trace, tmp_path: Path
+    ) -> None:
         """Attack tree nodes should remain intact after re-write."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         envelope = _make_envelope()
         write_scenario_outputs(envelope, tmp_path)
 
@@ -350,10 +383,17 @@ class TestRewriteIntegrity:
         assert rewritten_root["label"] == original_root["label"]
         assert len(rewritten_root["children"]) == len(original_root["children"])
 
-    def test_rewrite_preserves_gherkin_feature_file(self, tmp_path: Path) -> None:
+    def test_rewrite_preserves_gherkin_feature_file(
+        self, mock_trace, tmp_path: Path
+    ) -> None:
         """The .feature file should survive a re-write of the YAML."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         envelope = _make_envelope()
-        envelope.behavior_spec = "Feature: Test\n  Scenario: Basic\n    Given something"
+        envelope.behavior_spec = make_behavior_spec(
+            "Feature: Test\n  Scenario: Basic\n    Given something"
+        )
         write_scenario_outputs(envelope, tmp_path)
 
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
@@ -369,8 +409,11 @@ class TestRewriteIntegrity:
 
         assert feature_path.read_text(encoding="utf-8") == original_feature
 
-    def test_roundtrip_scenario_id_stable(self, tmp_path: Path) -> None:
+    def test_roundtrip_scenario_id_stable(self, mock_trace, tmp_path: Path) -> None:
         """scenario_id must remain identical through write-rewrite cycle."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         envelope = _make_envelope(
             scenario_id="scenario:v2:d8b4c4b8cc85af40c32ff4240a9890dc8aa7544a67ea76cbeb692f66e4010384"
         )
@@ -505,8 +548,16 @@ class TestParsimonyIntegration:
             "Could not prune to budget: 10 leaves, budget 4"
         )
 
-    def test_unprunable_tree_written_unchanged_to_yaml(self, tmp_path: Path) -> None:
+    @patch(
+        "scenario_forge.pipeline.projection_validation.validate_projection_traceability"
+    )
+    def test_unprunable_tree_written_unchanged_to_yaml(
+        self, mock_trace, tmp_path: Path
+    ) -> None:
         """An unprunable typed-action tree is written without node removal."""
+        mock_trace.return_value = ProjectionTraceabilityResult(
+            valid=True, violations=[]
+        )
         from scenario_forge.pipeline.validation import (
             _collect_leaves,
             enforce_parsimony,

@@ -310,6 +310,18 @@ class AttackTreeNode(BaseModel):
         default=None,
         description="Child nodes. Required for AND/OR gates; must be absent/empty for LEAF.",
     )
+    projected_step_ids: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Canonical projected step IDs (from ProjectionEnvelopeBlock) "
+            "that this tree leaf realizes.  Controlled many-to-many: "
+            "a leaf may realize multiple projected steps (combine) and "
+            "a projected step may be realized by multiple leaves (split). "
+            "Required (non-empty) on security-bearing leaves in scenarios "
+            "with a projection block; the LLM receives the IDs as opaque "
+            "constraints.  Empty on external_precondition leaves."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_gate_children_action(self) -> AttackTreeNode:

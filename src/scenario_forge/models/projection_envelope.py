@@ -166,6 +166,7 @@ class ProjectionTraceabilityViolationCode(str, Enum):
     nested_mutation = "nested_mutation"
     ingress_identity_mismatch = "ingress_identity_mismatch"
     requirement_drift = "requirement_drift"
+    invalid_technique_mapping = "invalid_technique_mapping"
 
 
 class ProjectionTraceabilityViolation(BaseModel):
@@ -213,7 +214,7 @@ class ProjectionEnvelopeBlock(ProjectionModel):
     never chooses or mutates the projection.
     """
 
-    schema_version: Literal["1"] = "1"
+    schema_version: Literal["2"] = "2"
 
     # --- Immutable projection snapshot (contract §1) ---
     projection: ProjectionSnapshot
@@ -225,6 +226,14 @@ class ProjectionEnvelopeBlock(ProjectionModel):
     execution_requirements: tuple[ExecutionRequirement, ...]
     requirement_derivation_version: Literal["1"] = "1"
     execution_requirements_digest: Digest
+    derivation_context_digest: Digest = Field(
+        description=(
+            "Content-addressed digest binding the projection_digest, "
+            "pattern_id, and ingress_controllability into the immutable "
+            "derivation context.  Prevents flipping controllability and "
+            "re-signing arbitrary requirements."
+        ),
+    )
 
     # --- Artifact realization mappings (contract §1, §4, §5) ---
     narrative_realizations: tuple[ArtifactRealizationMapping, ...] = ()
@@ -260,6 +269,28 @@ class ProjectionEnvelopeBlock(ProjectionModel):
             raise ValueError(
                 "execution_requirements_digest does not match the persisted "
                 "execution requirements; requirements were mutated after derivation"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _derivation_context_digest_matches(self) -> ProjectionEnvelopeBlock:
+        """Bind ingress_controllability into the derivation context.
+
+        A caller must not be able to flip controllability and re-sign
+        arbitrary requirements.  The derivation context digest binds
+        projection_digest + pattern_id + ingress_controllability.
+        """
+        from scenario_forge.pipeline.projection import compute_derivation_context_digest
+
+        expected = compute_derivation_context_digest(
+            self.projection.projection_digest,
+            self.projection.source_chain.pattern_id,
+            self.ingress_controllability,
+        )
+        if expected != self.derivation_context_digest:
+            raise ValueError(
+                "derivation_context_digest does not match; ingress "
+                "controllability was flipped or derivation context was mutated"
             )
         return self
 

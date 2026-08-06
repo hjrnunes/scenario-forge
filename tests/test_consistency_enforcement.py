@@ -21,6 +21,7 @@ from scenario_forge.models.attack_tree import (
     ToolInvocationAction,
 )
 from scenario_forge.models.capability_profile import compute_tool_id
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     NarrativeLayer,
     NarrativeStep,
@@ -30,6 +31,7 @@ from scenario_forge.pipeline.generate import (
     _check_non_actionable_leaves,
     _count_leaves,
 )
+from tests.helpers.projection_factory import get_projected_candidate
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -430,8 +432,16 @@ class TestCheckConsistencyIntegration:
 # ---------------------------------------------------------------------------
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestConsistencyRetryLoop:
-    """Verify the retry loop re-invokes Call 2 on consistency violations."""
+    """Verify the retry loop re-invokes Call 2 on consistency violations.
+
+    _assemble_envelope is mocked; traceability validation is patched to
+    valid (covered by the dedicated traceability suite).
+    """
 
     def _make_call_attack_tree_result(
         self,
@@ -542,6 +552,7 @@ class TestConsistencyRetryLoop:
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
+            projected_candidate=get_projected_candidate(),
         )
 
         # Call 2 should have been invoked twice (initial + 1 retry)
@@ -619,6 +630,7 @@ class TestConsistencyRetryLoop:
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
+            projected_candidate=get_projected_candidate(),
         )
 
         # Call 2 should have been invoked only once
@@ -695,6 +707,7 @@ class TestConsistencyRetryLoop:
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             candidate_id="cand:v1:" + "1" * 32,
             pinned_technique_ids=["AML.T0051"],
+            projected_candidate=get_projected_candidate(),
         )
 
         # 1 initial + 2 retries = 3

@@ -84,6 +84,7 @@ from scenario_forge.pipeline.runner import (
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 # ---------------------------------------------------------------------------
 # Fixtures: helpers to build minimal valid objects
@@ -245,6 +246,7 @@ def _make_envelope(
         )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=compute_scenario_id(
             "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "cand:v1:7e57c0de000000000000000000000000",
@@ -261,7 +263,7 @@ def _make_envelope(
         actor_profile=actor_profile,
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec={},
+        behavior_spec=make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,

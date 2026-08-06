@@ -353,6 +353,7 @@ def build_call1_context(
     pinned_entry_point_id: str | None = None,
     access_feedback: str | None = None,
     realization_feedback: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 1 (Narrative).
 
@@ -556,6 +557,7 @@ def build_call1_context(
         "kill_chain": seed.kill_chain,
         "access_feedback": access_feedback or "",
         "realization_feedback": realization_feedback or "",
+        "projection_context": projection_context,
     }
 
 
@@ -575,6 +577,7 @@ def _call_narrative(
     pinned_entry_point_id: str | None = None,
     access_feedback: str | None = None,
     realization_feedback: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     """Generate an attack narrative for a scenario seed (Call 1).
 
@@ -599,6 +602,7 @@ def _call_narrative(
         pinned_entry_point_id=pinned_entry_point_id,
         access_feedback=access_feedback,
         realization_feedback=realization_feedback,
+        projection_context=projection_context,
     )
 
     result = client.complete(

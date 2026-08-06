@@ -445,6 +445,7 @@ def build_call2_context(
     pinned_technique_names: list[str] | None = None,
     consistency_feedback: str | None = None,
     pinned_entry_point_id: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 2 (Attack Tree).
 
@@ -621,6 +622,7 @@ def build_call2_context(
         "consistency_feedback": consistency_feedback,
         # Non-template data for post-generation validation
         "skeleton": skeleton,
+        "projection_context": projection_context,
     }
 
 
@@ -635,6 +637,7 @@ def _call_attack_tree(
     pinned_technique_names: list[str] | None = None,
     consistency_feedback: str | None = None,
     pinned_entry_point_id: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> tuple[AttackTree, LLMResult]:
     """Generate an attack tree for a scenario seed (Call 2).
 
@@ -655,6 +658,7 @@ def _call_attack_tree(
         pinned_technique_names=pinned_technique_names,
         consistency_feedback=consistency_feedback,
         pinned_entry_point_id=pinned_entry_point_id,
+        projection_context=projection_context,
     )
 
     skeleton = ctx["skeleton"]

@@ -18,6 +18,7 @@ Covers:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -53,6 +54,9 @@ from scenario_forge.models.projection_envelope import (
 from scenario_forge.models.scenario import (
     ActorAccessProvenance,
     ActorProfile,
+    BehaviorAction,
+    BehaviorAssertion,
+    BehaviorSpec,
     NarrativeAccessRealization,
     NarrativeLayer,
     NarrativeStep,
@@ -61,10 +65,15 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.projection import (
     ProjectionBudget,
     capture_capability_snapshot,
+    compute_derivation_context_digest,
     project_authoritative_candidates,
 )
 from scenario_forge.pipeline.projection_validation import (
     validate_projection_traceability,
+)
+from tests.helpers.projection_factory import (
+    get_projected_candidate,
+    make_behavior_spec,
 )
 
 ZERO = "0" * 64
@@ -134,6 +143,14 @@ def _step(step_id: str, order: int, *, conditional: bool = False) -> dict[str, A
         "resource_links": (
             [{"slot_id": "ingress", "role": "ingress", "trust_boundary_slot_id": None}]
             if attacker
+            else [
+                {
+                    "slot_id": "tool",
+                    "role": "tool_fixture",
+                    "trust_boundary_slot_id": None,
+                }
+            ]
+            if order == 2
             else []
         ),
         "observable_outcome_links": (
@@ -327,7 +344,10 @@ def _make_block(
         terminal_step = chain.steps[-1]
         assertion_realizations = (
             AssertionRealizationMapping(
-                element_id="assert-1",
+                element_id=(
+                    f"assert-{terminal_step.step_id}-"
+                    f"{terminal_step.observable_postconditions[0].postcondition_id}"
+                ),
                 source_step_ids=(terminal_step.step_id,),
                 projected_postcondition_ids=(
                     terminal_step.observable_postconditions[0].postcondition_id,
@@ -343,6 +363,11 @@ def _make_block(
         execution_requirements=candidate.execution_requirements,
         requirement_derivation_version=candidate.requirement_derivation_version,
         execution_requirements_digest=candidate.execution_requirements_digest,
+        derivation_context_digest=compute_derivation_context_digest(
+            candidate.projection.projection_digest,
+            candidate.projection.source_chain.pattern_id,
+            candidate.ingress_controllability,
+        ),
         narrative_realizations=narrative_realizations,
         tree_realizations=tree_realizations,
         behavior_realizations=behavior_realizations,
@@ -367,6 +392,7 @@ def _make_tree(ingress_id: str) -> AttackTree:
                     gate=GateType.LEAF,
                     zone="input",
                     action=InitialIngressAction(entry_point_id=ingress_id),
+                    projected_step_ids=("step.1",),
                 ),
                 AttackTreeNode(
                     id="n1.2",
@@ -374,6 +400,7 @@ def _make_tree(ingress_id: str) -> AttackTree:
                     gate=GateType.LEAF,
                     zone="reasoning",
                     action=AiSystemAction(),
+                    projected_step_ids=("step.2",),
                 ),
                 AttackTreeNode(
                     id="n1.3",
@@ -381,6 +408,7 @@ def _make_tree(ingress_id: str) -> AttackTree:
                     gate=GateType.LEAF,
                     zone="reasoning",
                     action=ImpactAction(boundary="internal", target="data integrity"),
+                    projected_step_ids=("step.3",),
                 ),
             ],
         ),
@@ -395,13 +423,25 @@ def _make_narrative(ingress_id: str) -> NarrativeLayer:
         zone_sequence=["input", "reasoning"],
         steps=[
             NarrativeStep(
-                step_number=1, zone="input", action="gain access", effect="entry"
+                step_number=1,
+                zone="input",
+                action="gain access",
+                effect="entry",
+                projected_step_ids=("step.1",),
             ),
             NarrativeStep(
-                step_number=2, zone="reasoning", action="exploit", effect="control"
+                step_number=2,
+                zone="reasoning",
+                action="exploit",
+                effect="control",
+                projected_step_ids=("step.2",),
             ),
             NarrativeStep(
-                step_number=3, zone="reasoning", action="impact", effect="damage"
+                step_number=3,
+                zone="reasoning",
+                action="impact",
+                effect="damage",
+                projected_step_ids=("step.3",),
             ),
         ],
         access_realization=NarrativeAccessRealization(
@@ -443,7 +483,7 @@ def _make_envelope(
     if initial_entry_point_id is None:
         initial_entry_point_id = ingress_id
 
-    from datetime import UTC, datetime
+    from datetime import UTC
 
     return ScenarioEnvelope(
         scenario_id="scenario:v2:" + "a" * 64,
@@ -456,7 +496,7 @@ def _make_envelope(
         projection=block,
         narrative=narrative,
         attack_tree=tree,
-        behavior_spec="Feature: test",
+        behavior_spec=make_behavior_spec("Feature: test"),
         faceting=_make_faceting(),
         priority=_make_priority(),
         generation=_make_generation(),
@@ -541,13 +581,17 @@ class TestValidBaseline:
             f"{[(v.code.value, v.stage.value, v.detail) for v in result.violations]}"
         )
 
-    def test_none_projection_returns_valid_empty(self):
-        """Envelope without projection returns valid empty result."""
+    def test_none_projection_returns_invalid(self):
+        """Envelope without projection returns invalid with typed violation."""
         envelope = _make_envelope()
         envelope.projection = None
         result = validate_projection_traceability(envelope)
-        assert result.valid
-        assert result.violations == []
+        assert result.valid is False
+        assert len(result.violations) == 1
+        assert (
+            result.violations[0].code
+            == ProjectionTraceabilityViolationCode.nested_mutation
+        )
 
     def test_block_is_frozen(self):
         """ProjectionEnvelopeBlock is deeply immutable."""
@@ -566,6 +610,11 @@ class TestValidBaseline:
                 projected_mappings=candidate.projected_mappings,
                 execution_requirements=candidate.execution_requirements,
                 execution_requirements_digest=candidate.execution_requirements_digest,
+                derivation_context_digest=compute_derivation_context_digest(
+                    candidate.projection.projection_digest,
+                    candidate.projection.source_chain.pattern_id,
+                    candidate.ingress_controllability,
+                ),
                 extra_field="bad",
             )
 
@@ -665,7 +714,9 @@ class TestReorderedSteps:
         """Reordering narrative realizations violates total order."""
         block = _make_block()
         selected = block.selected_step_ids
-        # Reverse the narrative realizations — step.3 before step.1.
+        # Reverse the narrative realizations — element "1" maps to step.3,
+        # element "3" maps to step.1.  The actual narrative steps still have
+        # correct projected_step_id, so the block mapping is forged.
         reversed_maps = tuple(
             ArtifactRealizationMapping(
                 artifact_stage=ArtifactStage.narrative,
@@ -674,18 +725,59 @@ class TestReorderedSteps:
             )
             for i in range(len(selected))
         )
-        # But we need the element IDs to reference actual narrative steps.
-        # Use step numbers that are reversed.
-        reversed_maps = tuple(
-            ArtifactRealizationMapping(
-                artifact_stage=ArtifactStage.narrative,
-                element_id=str(len(selected) - i),
-                projected_step_ids=(selected[-1 - i],),
-            )
-            for i in range(len(selected))
-        )
         block = block.model_copy(update={"narrative_realizations": reversed_maps})
         envelope = _make_envelope(block)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        # Reversed sidecar mappings produce forged_opaque_id (block mapping
+        # doesn't match actual step projected_step_id) or reordered_projected_step.
+        assert codes, "Expected violations for reversed mappings, got none"
+        assert codes & {
+            ProjectionTraceabilityViolationCode.reordered_projected_step,
+            ProjectionTraceabilityViolationCode.forged_opaque_id,
+        }, f"Expected reorder/forged violation, got {codes}"
+
+    def test_narrative_physically_reordered_fails(self):
+        """Narrative steps physically ordered [2,1,3] fail even if sidecar is ordered."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        # Create a narrative with physical order [2,1,3] — step at position 0
+        # has projected_step_id for step.2, position 1 for step.1.
+        narrative = NarrativeLayer(
+            title="Reordered",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="exploit",
+                    effect="control",
+                    projected_step_ids=(selected[1],),
+                ),
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access",
+                    effect="entry",
+                    projected_step_ids=(selected[0],),
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
         result = validate_projection_traceability(envelope)
         codes = {v.code for v in result.violations}
         assert ProjectionTraceabilityViolationCode.reordered_projected_step in codes
@@ -757,7 +849,36 @@ class TestManyToManyCoverage:
             ),
         )
         block = block.model_copy(update={"narrative_realizations": combined})
-        envelope = _make_envelope(block)
+        # Also update the narrative to match: 2 steps, step 1 covers
+        # step.1 (first of combined pair), step 2 covers step.3.
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = NarrativeLayer(
+            title="Combined",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access and exploit",
+                    effect="entry and control",
+                    projected_step_ids=(selected[0],),
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
         result = validate_projection_traceability(envelope)
         # Should be valid — combine preserves order.
         narrative_codes = {
@@ -768,11 +889,11 @@ class TestManyToManyCoverage:
         assert (
             ProjectionTraceabilityViolationCode.incomplete_coverage
             not in narrative_codes
-        )
+        ), f"Unexpected incomplete_coverage: {narrative_codes}"
         assert (
             ProjectionTraceabilityViolationCode.reordered_projected_step
             not in narrative_codes
-        )
+        ), f"Unexpected reorder: {narrative_codes}"
 
     def test_split_one_step_across_elements(self):
         """Splitting one projected step across multiple elements is valid."""
@@ -822,6 +943,7 @@ class TestResourceBinding:
     def test_wrong_tool_id_in_tree(self):
         """A tree leaf with a tool_id not in projection bindings is flagged."""
         block = _make_block()
+        selected = block.selected_step_ids
         ingress_id = block.canonical_ingress.entry_point_id
         from scenario_forge.models.attack_tree import ToolInvocationAction
 
@@ -840,6 +962,7 @@ class TestResourceBinding:
                         gate=GateType.LEAF,
                         zone="input",
                         action=InitialIngressAction(entry_point_id=ingress_id),
+                        projected_step_ids=(selected[0],),
                     ),
                     AttackTreeNode(
                         id="n1.2",
@@ -849,6 +972,7 @@ class TestResourceBinding:
                         action=ToolInvocationAction(
                             tool_id="tool:v1:" + "f" * 32,
                         ),
+                        projected_step_ids=(selected[1],),
                     ),
                     AttackTreeNode(
                         id="n1.3",
@@ -856,6 +980,7 @@ class TestResourceBinding:
                         gate=GateType.LEAF,
                         zone="reasoning",
                         action=ImpactAction(boundary="internal", target="integrity"),
+                        projected_step_ids=(selected[2],),
                     ),
                 ],
             ),
@@ -1270,6 +1395,11 @@ class TestRealizationModelValidation:
                 projected_mappings=candidate.projected_mappings,
                 execution_requirements=candidate.execution_requirements,
                 execution_requirements_digest=candidate.execution_requirements_digest,
+                derivation_context_digest=compute_derivation_context_digest(
+                    candidate.projection.projection_digest,
+                    candidate.projection.source_chain.pattern_id,
+                    candidate.ingress_controllability,
+                ),
             )
 
 
@@ -1289,10 +1419,10 @@ class TestProjectionEnvelopeBlockSchemaParity:
         jsonschema.Draft202012Validator.check_schema(schema)
 
     def test_block_has_schema_version_const(self):
-        """schema_version is a Literal['1'] const."""
+        """schema_version is a Literal['2'] const."""
         schema = ProjectionEnvelopeBlock.model_json_schema()
         sv = schema["properties"]["schema_version"]
-        assert sv.get("const") == "1"
+        assert sv.get("const") == "2"
 
     def test_block_extra_forbid_in_json_schema(self):
         """additionalProperties is False."""
@@ -1307,8 +1437,6 @@ class TestProjectionEnvelopeBlockSchemaParity:
         defs = schema.get("$defs", {})
         for name in [
             "ProjectionEnvelopeBlock",
-            "ProjectionTraceabilityResult",
-            "ProjectionTraceabilityViolation",
             "ArtifactRealizationMapping",
             "AssertionRealizationMapping",
         ]:
@@ -1321,7 +1449,8 @@ class TestProjectionEnvelopeBlockSchemaParity:
         schema = ScenarioEnvelope.model_json_schema()
         props = schema.get("properties", {})
         assert "projection" in props
-        assert "projection_traceability" in props
+        # projection_traceability is transient (422o.4), not persisted.
+        assert "projection_traceability" not in props
 
     def test_hand_schema_includes_projection_properties(self):
         """Hand-maintained JSON schema includes projection properties."""
@@ -1339,11 +1468,11 @@ class TestProjectionEnvelopeBlockSchemaParity:
         hand = json.loads(path.read_text(encoding="utf-8"))
         props = hand.get("properties", {})
         assert "projection" in props
-        assert "projection_traceability" in props
+        # projection_traceability is transient (422o.4), not persisted.
+        assert "projection_traceability" not in props
         defs = hand.get("$defs", {})
         for name in [
             "ProjectionEnvelopeBlock",
-            "ProjectionTraceabilityResult",
             "ArtifactRealizationMapping",
             "AssertionRealizationMapping",
         ]:
@@ -1366,6 +1495,7 @@ class TestProjectionEnvelopeBlockSchemaParity:
             "nested_mutation",
             "ingress_identity_mismatch",
             "requirement_drift",
+            "invalid_technique_mapping",
         }
         actual = {c.value for c in ProjectionTraceabilityViolationCode}
         assert actual == expected_codes
@@ -1448,6 +1578,11 @@ class TestAdversarialSchemaValidation:
                 projected_mappings=candidate.projected_mappings,
                 execution_requirements=candidate.execution_requirements,
                 execution_requirements_digest=candidate.execution_requirements_digest,
+                derivation_context_digest=compute_derivation_context_digest(
+                    candidate.projection.projection_digest,
+                    candidate.projection.source_chain.pattern_id,
+                    candidate.ingress_controllability,
+                ),
                 unknown_field="evil",
             )
 
@@ -1486,6 +1621,11 @@ class TestAdversarialSchemaValidation:
                 projected_mappings=candidate.projected_mappings,
                 execution_requirements=candidate.execution_requirements,
                 execution_requirements_digest=candidate.execution_requirements_digest,
+                derivation_context_digest=compute_derivation_context_digest(
+                    candidate.projection.projection_digest,
+                    candidate.projection.source_chain.pattern_id,
+                    candidate.ingress_controllability,
+                ),
             )
 
     def test_artifact_mapping_rejects_empty_step_ids(self):
@@ -1579,18 +1719,22 @@ class TestAdversarialSchemaValidation:
 class TestValidatorNoProjection:
     """Validator behavior when projection is absent."""
 
-    def test_no_projection_returns_valid(self):
-        """Envelope without projection returns valid result."""
+    def test_no_projection_returns_invalid(self):
+        """Envelope without projection returns invalid result with typed violation."""
         envelope = _make_envelope()
         envelope = envelope.model_copy(update={"projection": None})
         result = validate_projection_traceability(envelope)
-        assert result.valid is True
-        assert result.violations == []
+        assert result.valid is False
+        assert len(result.violations) == 1
+        assert (
+            result.violations[0].code
+            == ProjectionTraceabilityViolationCode.nested_mutation
+        )
 
-    def test_none_projection_traceability_field_default(self):
-        """projection_traceability defaults to None on ScenarioEnvelope."""
+    def test_projection_traceability_not_persisted(self):
+        """projection_traceability is not a field on ScenarioEnvelope (transient, 422o.4)."""
         envelope = _make_envelope()
-        assert envelope.projection_traceability is None
+        assert not hasattr(envelope, "projection_traceability")
 
 
 class TestComputeExecutionRequirementsDigest:
@@ -1637,3 +1781,1124 @@ class TestComputeExecutionRequirementsDigest:
         ]
         digest = compute_execution_requirements_digest(reqs_data)
         assert digest == candidate.execution_requirements_digest
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial regressions required by Mayor review (422o.4 blockers #2-#4)
+# ---------------------------------------------------------------------------#
+
+
+class TestStandaloneForgedRequirements:
+    """Forged requirements with recomputed digest must be rejected standalone."""
+
+    def test_forged_requirements_with_matching_digest_rejected(self):
+        """Arbitrary requirements + recomputed digest must fail standalone recomputation."""
+        # Create forged requirements that are different from the real ones
+        # but compute a matching digest for them.
+        from scenario_forge.models.attack_pattern import (
+            DirectInputControlRequirement,
+        )
+        from scenario_forge.pipeline.projection import (
+            compute_execution_requirements_digest,
+        )
+
+        forged_reqs = (
+            DirectInputControlRequirement(
+                schema_version="1",
+                requirement_id="req.forged.abc",
+                kind="direct_input_control",
+                entry_point_slot_id="ingress",
+            ),
+        )
+        forged_digest = compute_execution_requirements_digest(forged_reqs)
+        block = _make_block()
+        # model_copy bypasses validators on frozen models, so we can inject
+        # forged requirements with a matching digest
+        block = block.model_copy(
+            update={
+                "execution_requirements": forged_reqs,
+                "execution_requirements_digest": forged_digest,
+            }
+        )
+        envelope = _make_envelope(block)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.requirement_drift in codes, (
+            f"Forged requirements should be rejected by standalone recomputation, "
+            f"got {codes}"
+        )
+
+    def test_forged_projected_mappings_rejected(self):
+        """Projected mappings that don't match embedded chain must be rejected."""
+        from scenario_forge.models.attack_pattern import ExactMapping
+        from scenario_forge.pipeline.projection import ProjectedMapping
+
+        block = _make_block()
+        # Create a forged mapping with a wrong ID
+        forged_mappings = block.projected_mappings + (
+            ProjectedMapping(
+                scope="chain",
+                mapping=ExactMapping(
+                    decision="exact", taxonomy="ATLAS", ids=["FAKE.T9999"]
+                ),
+            ),
+        )
+        block = block.model_copy(update={"projected_mappings": forged_mappings})
+        envelope = _make_envelope(block)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.projection_drift in codes, (
+            f"Forged projected mappings should be rejected, got {codes}"
+        )
+
+    def test_flipped_controllability_rejected(self):
+        """Flipping ingress_controllability and re-signing must fail."""
+        from scenario_forge.pipeline.projection import compute_derivation_context_digest
+
+        block = _make_block()
+        # Flip controllability from direct to indirect
+        flipped = "indirect" if block.ingress_controllability == "direct" else "direct"
+        new_ctx_digest = compute_derivation_context_digest(
+            block.projection.projection_digest,
+            block.projection.source_chain.pattern_id,
+            flipped,
+        )
+        block = block.model_copy(
+            update={
+                "ingress_controllability": flipped,
+                "derivation_context_digest": new_ctx_digest,
+            }
+        )
+        envelope = _make_envelope(block)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        # Flipping controllability should cause requirement_drift because
+        # the recomputed requirements will differ (indirect fails closed)
+        assert ProjectionTraceabilityViolationCode.requirement_drift in codes, (
+            f"Flipped controllability should be rejected, got {codes}"
+        )
+
+
+class TestExtraUnmappedNarrativeAction:
+    """Extra generated narrative actions not in mappings must fail."""
+
+    def test_extra_unmapped_narrative_action_fails(self):
+        """An extra narrative step with projected_step_id not in block realizations fails."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        # Add a 4th narrative step with a projected_step_id
+        narrative = NarrativeLayer(
+            title="Extra step",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access",
+                    effect="entry",
+                    projected_step_ids=(selected[0],),
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="exploit",
+                    effect="control",
+                    projected_step_ids=(selected[1],),
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+                NarrativeStep(
+                    step_number=4,
+                    zone="reasoning",
+                    action="extra action",
+                    effect="extra effect",
+                    projected_step_ids=(selected[0],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.incomplete_coverage in codes, (
+            f"Extra unmapped narrative action should fail, got {codes}"
+        )
+
+
+class TestPhysicallyReorderedTree:
+    """Physically reordered tree must fail even with ordered sidecar."""
+
+    def test_physically_reordered_tree_fails(self):
+        """Tree leaves physically reordered must fail even if sidecar is ordered."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        # Create a tree with leaves in reversed order: step.3, step.2, step.1
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="Attack",
+            root=AttackTreeNode(
+                id="n1",
+                label="goal",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="impact first",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=ImpactAction(boundary="internal", target="integrity"),
+                        projected_step_ids=(selected[2],),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="system action",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                        projected_step_ids=(selected[1],),
+                    ),
+                    AttackTreeNode(
+                        id="n1.3",
+                        label="ingress last",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(entry_point_id=ingress_id),
+                        projected_step_ids=(selected[0],),
+                    ),
+                ],
+            ),
+        )
+        # Block realizations are in correct order matching leaf IDs
+        # But the physical tree order is reversed
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.reordered_projected_step in codes, (
+            f"Physically reordered tree should fail, got {codes}"
+        )
+
+
+class TestNonexistentBehaviorIDs:
+    """Nonexistent behavior/assertion IDs must fail against actual artifact."""
+
+    def test_nonexistent_behavior_action_id_fails(self):
+        """Block behavior realization with nonexistent action ID fails."""
+        from scenario_forge.models.scenario import (
+            BehaviorSpec,
+        )
+
+        block = _make_block()
+        selected = block.selected_step_ids
+        # Create a BehaviorSpec with action IDs ba-1, ba-2, ba-3
+        behavior_spec = BehaviorSpec(
+            actions=(
+                BehaviorAction(
+                    action_id="ba-1",
+                    projected_step_ids=(selected[0],),
+                    source_leaf_id="n1.1",
+                    gherkin_keyword="Given",
+                    text="Given the attacker has access",
+                ),
+                BehaviorAction(
+                    action_id="ba-2",
+                    projected_step_ids=(selected[1],),
+                    source_leaf_id="n1.2",
+                    gherkin_keyword="When",
+                    text="When the system processes input",
+                ),
+                BehaviorAction(
+                    action_id="ba-3",
+                    projected_step_ids=(selected[2],),
+                    source_leaf_id="n1.3",
+                    gherkin_keyword="Then",
+                    text="Then the impact occurs",
+                ),
+            ),
+            assertions=(
+                BehaviorAssertion(
+                    assertion_id="assert-1",
+                    source_step_ids=(selected[2],),
+                    projected_postcondition_ids=("post.3",),
+                    text="Then the security outcome is observed",
+                ),
+            ),
+            gherkin_text="Feature: Test\n  Scenario: Test\n",
+        )
+        # Create block with a nonexistent behavior action ID
+        from scenario_forge.models.projection_envelope import (
+            ArtifactRealizationMapping,
+            ArtifactStage,
+        )
+
+        block = block.model_copy(
+            update={
+                "behavior_realizations": (
+                    ArtifactRealizationMapping(
+                        artifact_stage=ArtifactStage.behavior,
+                        element_id="behavior-fake",
+                        projected_step_ids=(selected[0],),
+                    ),
+                ),
+            }
+        )
+        envelope = _make_envelope(block)
+        envelope = envelope.model_copy(update={"behavior_spec": behavior_spec})
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.forged_opaque_id in codes, (
+            f"Nonexistent behavior action ID should fail, got {codes}"
+        )
+
+    def test_nonexistent_assertion_id_fails(self):
+        """Block assertion realization with nonexistent assertion ID fails."""
+        from scenario_forge.models.scenario import (
+            BehaviorSpec,
+        )
+
+        block = _make_block()
+        selected = block.selected_step_ids
+        behavior_spec = BehaviorSpec(
+            actions=(
+                BehaviorAction(
+                    action_id="ba-1",
+                    projected_step_ids=(selected[0],),
+                    source_leaf_id="n1.1",
+                    gherkin_keyword="Given",
+                    text="Given the attacker has access",
+                ),
+                BehaviorAction(
+                    action_id="ba-2",
+                    projected_step_ids=(selected[1],),
+                    source_leaf_id="n1.2",
+                    gherkin_keyword="When",
+                    text="When the system processes input",
+                ),
+                BehaviorAction(
+                    action_id="ba-3",
+                    projected_step_ids=(selected[2],),
+                    source_leaf_id="n1.3",
+                    gherkin_keyword="Then",
+                    text="Then the impact occurs",
+                ),
+            ),
+            assertions=(
+                BehaviorAssertion(
+                    assertion_id="assert-1",
+                    source_step_ids=(selected[2],),
+                    projected_postcondition_ids=("post.3",),
+                    text="Then the security outcome is observed",
+                ),
+            ),
+            gherkin_text="Feature: Test\n  Scenario: Test\n",
+        )
+        # Create block with a nonexistent assertion ID
+        from scenario_forge.models.projection_envelope import (
+            AssertionRealizationMapping,
+        )
+
+        block = block.model_copy(
+            update={
+                "assertion_realizations": (
+                    AssertionRealizationMapping(
+                        element_id="assert-fake",
+                        source_step_ids=(selected[2],),
+                        projected_postcondition_ids=("post.3",),
+                    ),
+                ),
+            }
+        )
+        envelope = _make_envelope(block)
+        envelope = envelope.model_copy(update={"behavior_spec": behavior_spec})
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.forged_opaque_id in codes, (
+            f"Nonexistent assertion ID should fail, got {codes}"
+        )
+
+
+class TestWrongStepResourceBinding:
+    """Leaf mapped to step A but using step B's valid bound tool must fail."""
+
+    def test_wrong_step_tool_binding_fails(self):
+        """A leaf mapped to step A using step B's valid tool binding must fail.
+
+        step.2 has a tool_fixture resource link to the 'tool' slot.
+        step.3 has no tool link.  A leaf mapped to step.3 but using
+        the tool from step.2's binding must fail with
+        incorrect_resource_binding.
+        """
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        chain = block.projection.source_chain
+
+        # step.2 has the tool_fixture link; step.3 does not.
+        step_with_tool = next(s for s in chain.steps if s.step_id == "step.2")
+        step_without_tool = next(s for s in chain.steps if s.step_id == "step.3")
+        assert any(
+            link.role == "tool_fixture" for link in step_with_tool.resource_links
+        ), "step.2 must have a tool_fixture link"
+        assert not any(
+            link.role == "tool_fixture" for link in step_without_tool.resource_links
+        ), "step.3 must not have a tool_fixture link"
+
+        # Find the tool binding for the step with the tool link
+        tool_link = next(
+            link
+            for link in step_with_tool.resource_links
+            if link.role == "tool_fixture"
+        )
+        bindings_by_slot = {
+            b.slot_id: b.resource_ref for b in block.projection.bindings
+        }
+        tool_ref = bindings_by_slot.get(tool_link.slot_id)
+        from scenario_forge.models.attack_pattern import ToolResourceReference
+
+        assert isinstance(tool_ref, ToolResourceReference), (
+            "Tool binding must be a ToolResourceReference"
+        )
+
+        from scenario_forge.models.attack_tree import ToolInvocationAction
+
+        # Create a tree where leaf n1.2 is mapped to step_without_tool (step.3)
+        # but uses the tool from step_with_tool (step.2)
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="Attack",
+            root=AttackTreeNode(
+                id="n1",
+                label="goal",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="ingress",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(entry_point_id=ingress_id),
+                        projected_step_ids=(selected[0],),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="wrong step tool",
+                        gate=GateType.LEAF,
+                        zone="tool_execution",
+                        action=ToolInvocationAction(tool_id=tool_ref.tool_id),
+                        projected_step_ids=(step_without_tool.step_id,),
+                    ),
+                    AttackTreeNode(
+                        id="n1.3",
+                        label="impact",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=ImpactAction(boundary="internal", target="integrity"),
+                        projected_step_ids=(selected[2],),
+                    ),
+                ],
+            ),
+        )
+        # Update tree realizations to match the actual tree
+        tree_realizations = (
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.attack_tree,
+                element_id="n1.1",
+                projected_step_ids=(selected[0],),
+            ),
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.attack_tree,
+                element_id="n1.2",
+                projected_step_ids=(step_without_tool.step_id,),
+            ),
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.attack_tree,
+                element_id="n1.3",
+                projected_step_ids=(selected[2],),
+            ),
+        )
+        block = block.model_copy(update={"tree_realizations": tree_realizations})
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert (
+            ProjectionTraceabilityViolationCode.incorrect_resource_binding in codes
+        ), f"Tool bound for another step should fail, got {codes}"
+
+
+class TestYamlFeatureRoundTrip:
+    """Persisted YAML + feature round trip independently revalidates."""
+
+    def test_yaml_round_trip_preserves_projection(self):
+        """YAML serialization and deserialization preserves the projection block."""
+        import yaml
+
+        envelope = _make_envelope()
+        data = envelope.model_dump(mode="json", exclude_none=True)
+        yaml_text = yaml.dump(data, default_flow_style=False, sort_keys=False)
+        loaded = yaml.safe_load(yaml_text)
+        restored = ScenarioEnvelope.model_validate(loaded)
+        assert restored.projection is not None
+        assert (
+            restored.projection.projection.projection_digest
+            == envelope.projection.projection.projection_digest
+        )
+        assert (
+            restored.projection.derivation_context_digest
+            == envelope.projection.derivation_context_digest
+        )
+        # Revalidate after round trip
+        result = validate_projection_traceability(restored)
+        assert result.valid, (
+            f"Round-trip envelope should be valid, got violations: "
+            f"{[(v.code.value, v.detail) for v in result.violations]}"
+        )
+
+
+class TestInvalidTechniqueMapping:
+    """Tree leaf with invalid technique_id must produce typed violation."""
+
+    def test_invalid_technique_mapping_fails(self):
+        """A tree leaf with a technique_id not in projection mappings must fail."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="Attack",
+            root=AttackTreeNode(
+                id="n1",
+                label="goal",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="ingress",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(entry_point_id=ingress_id),
+                        projected_step_ids=(selected[0],),
+                        technique_id="AML.T0001",
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="exploit with invalid technique",
+                        gate=GateType.LEAF,
+                        zone="tool_execution",
+                        action=AiSystemAction(),
+                        projected_step_ids=(selected[1],),
+                        technique_id="AML.T9999",
+                    ),
+                    AttackTreeNode(
+                        id="n1.3",
+                        label="impact",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=ImpactAction(boundary="internal", target="integrity"),
+                        projected_step_ids=(selected[2],),
+                    ),
+                ],
+            ),
+        )
+        tree_realizations = (
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.attack_tree,
+                element_id="n1.1",
+                projected_step_ids=(selected[0],),
+            ),
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.attack_tree,
+                element_id="n1.2",
+                projected_step_ids=(selected[1],),
+            ),
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.attack_tree,
+                element_id="n1.3",
+                projected_step_ids=(selected[2],),
+            ),
+        )
+        block = block.model_copy(update={"tree_realizations": tree_realizations})
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.invalid_technique_mapping in codes, (
+            f"Invalid technique mapping should fail, got {codes}"
+        )
+
+
+class TestProductionProjectionPersistence:
+    """Production-written YAML always contains projection; exclude_none does not omit it."""
+
+    def test_exclude_none_preserves_projection(self):
+        """model_dump(exclude_none=True) must not omit the mandatory projection."""
+        envelope = _make_envelope()
+        data = envelope.model_dump(mode="json", exclude_none=True)
+        assert "projection" in data, "projection must not be omitted by exclude_none"
+        assert data["projection"] is not None
+        assert "projection_digest" in data["projection"]["projection"]
+
+    def test_exclude_none_preserves_behavior_spec(self):
+        """model_dump(exclude_none=True) must not omit structured behavior_spec."""
+        envelope = _make_envelope()
+        data = envelope.model_dump(mode="json", exclude_none=True)
+        assert "behavior_spec" in data
+        assert "actions" in data["behavior_spec"]
+        assert "assertions" in data["behavior_spec"]
+
+    def test_yaml_always_contains_projection(self):
+        """YAML serialization always contains the projection block."""
+        import yaml
+
+        envelope = _make_envelope()
+        data = envelope.model_dump(mode="json", exclude_none=True)
+        yaml_text = yaml.dump(data, default_flow_style=False, sort_keys=False)
+        assert "projection:" in yaml_text
+        assert "projection_digest:" in yaml_text
+        assert "derivation_context_digest:" in yaml_text
+
+    def test_missing_projection_rejected_by_model(self):
+        """ScenarioEnvelope model rejects construction without projection."""
+        from pydantic import ValidationError
+
+        envelope = _make_envelope()
+        data = envelope.model_dump(mode="json")
+        del data["projection"]
+        with pytest.raises(ValidationError, match="projection"):
+            ScenarioEnvelope.model_validate(data)
+
+    def test_behavior_spec_must_be_structured(self):
+        """ScenarioEnvelope model rejects raw string behavior_spec."""
+        from pydantic import ValidationError
+
+        envelope = _make_envelope()
+        data = envelope.model_dump(mode="json")
+        data["behavior_spec"] = "Feature: raw string should fail"
+        with pytest.raises(ValidationError, match="behavior_spec"):
+            ScenarioEnvelope.model_validate(data)
+
+
+# ===========================================================================
+# Production prompt rendering: every Call 0–3 receives identical constraints
+# ===========================================================================
+
+
+class TestProjectionConstraintsInPrompts:
+    """Every rendered Call 0–3 prompt embeds the same immutable projection
+    constraints — digest, opaque IDs, ingress, requirements, mappings.
+
+    The LLM may realize but never choose or mutate the projection.  These
+    tests prove the production prompt path threads the qualified
+    ProjectedCandidate through every call context builder.
+    """
+
+    @staticmethod
+    def _projection_context() -> dict[str, Any]:
+        from scenario_forge.pipeline.generate.assembly import (
+            _build_projection_context,
+        )
+
+        return _build_projection_context(get_projected_candidate())
+
+    def test_partial_renders_all_constraints(self):
+        """The _projection_constraints partial renders digest, IDs, ingress."""
+        from scenario_forge.prompts import render_prompt
+
+        ctx = self._projection_context()
+        rendered = render_prompt("_projection_constraints.j2", projection_context=ctx)
+        assert "Canonical Projection Constraints" in rendered
+        assert ctx["projection_digest"] in rendered
+        assert ctx["canonical_ingress"]["entry_point_id"] in rendered
+        for sid in ctx["selected_step_ids"]:
+            assert sid in rendered
+        # Execution requirements present
+        assert "Execution Requirements" in rendered
+        # Projected taxonomy mappings present
+        assert "Projected Taxonomy Mappings" in rendered
+
+    def test_call0_prompt_contains_projection_constraints(self):
+        from scenario_forge.prompts import render_prompt
+        from tests.test_actor_type_compatible_set import (
+            TestActorTypePromptConstraint,
+        )
+
+        ctx = {
+            **TestActorTypePromptConstraint._USER_CTX,
+            "compatible_actor_types": [],
+            "projection_context": self._projection_context(),
+        }
+        prompt = render_prompt("call0_user.j2", **ctx)
+        pc = self._projection_context()
+        assert "Canonical Projection Constraints" in prompt
+        assert pc["projection_digest"] in prompt
+        for sid in pc["selected_step_ids"]:
+            assert sid in prompt
+
+    def test_call3_prompt_contains_projection_constraints(self):
+        from scenario_forge.prompts import render_prompt
+
+        pc = self._projection_context()
+        # Minimal stubs for call3 template variables.
+        ctx = {
+            "control_points": [],
+            "seed": type(
+                "S",
+                (),
+                {
+                    "attack_pattern_name": "X",
+                    "threat_name": "X",
+                },
+            )(),
+            "gherkin_skeleton": "Feature: skeleton\n",
+            "narrative": type(
+                "N",
+                (),
+                {
+                    "title": "T",
+                    "summary": "S",
+                    "entry_point": "E",
+                },
+            )(),
+            "projection_context": pc,
+        }
+        prompt = render_prompt("call3_user.j2", **ctx)
+        assert "Canonical Projection Constraints" in prompt
+        assert pc["projection_digest"] in prompt
+        for sid in pc["selected_step_ids"]:
+            assert sid in prompt
+
+    def test_all_calls_share_identical_digest_and_ids(self):
+        """Every call template that includes the partial embeds the same
+        projection digest and the same set of opaque step IDs."""
+        from scenario_forge.prompts import render_prompt
+        from tests.test_actor_type_compatible_set import (
+            TestActorTypePromptConstraint,
+        )
+
+        pc = self._projection_context()
+        digest = pc["projection_digest"]
+        ids = set(pc["selected_step_ids"])
+
+        # call0
+        ctx0 = {
+            **TestActorTypePromptConstraint._USER_CTX,
+            "compatible_actor_types": [],
+            "projection_context": pc,
+        }
+        p0 = render_prompt("call0_user.j2", **ctx0)
+
+        # call3
+        ctx3 = {
+            "control_points": [],
+            "seed": type("S", (), {"attack_pattern_name": "X", "threat_name": "X"})(),
+            "gherkin_skeleton": "Feature: skeleton\n",
+            "narrative": type(
+                "N", (), {"title": "T", "summary": "S", "entry_point": "E"}
+            )(),
+            "projection_context": pc,
+        }
+        p3 = render_prompt("call3_user.j2", **ctx3)
+
+        # Both prompts contain the identical digest and all opaque IDs.
+        assert digest in p0
+        assert digest in p3
+        for sid in ids:
+            assert sid in p0
+            assert sid in p3
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial: many-to-many split/combine (contract §5)
+# ---------------------------------------------------------------------------#
+
+
+class TestManyToManyRealization:
+    """Controlled many-to-many split/combine with total order preservation."""
+
+    def test_combine_two_steps_in_one_narrative_step(self):
+        """One narrative step realizing two projected steps (combine) passes."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = NarrativeLayer(
+            title="Combine",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access and exploit",
+                    effect="entry and control",
+                    projected_step_ids=(selected[0], selected[1]),
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        # Build block with matching realizations
+        from scenario_forge.models.projection_envelope import (
+            ArtifactRealizationMapping,
+            ArtifactStage,
+        )
+
+        block = _make_block(
+            narrative_realizations=(
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="1",
+                    projected_step_ids=(selected[0], selected[1]),
+                ),
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="2",
+                    projected_step_ids=(selected[2],),
+                ),
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        narrative_violations = [
+            v
+            for v in result.violations
+            if v.stage == ProjectionTraceabilityStage.narrative
+            and v.code
+            in (
+                ProjectionTraceabilityViolationCode.forged_opaque_id,
+                ProjectionTraceabilityViolationCode.incomplete_coverage,
+                ProjectionTraceabilityViolationCode.reordered_projected_step,
+            )
+        ]
+        assert not narrative_violations, (
+            f"Combine should pass, got {[(v.code.value, v.detail) for v in narrative_violations]}"
+        )
+
+    def test_split_one_step_across_two_narrative_steps(self):
+        """One projected step realized by two narrative steps (split) passes."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = NarrativeLayer(
+            title="Split",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning", "tool_execution"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access",
+                    effect="entry",
+                    projected_step_ids=(selected[0],),
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="continue access",
+                    effect="continued entry",
+                    projected_step_ids=(selected[0],),
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="reasoning",
+                    action="exploit",
+                    effect="control",
+                    projected_step_ids=(selected[1],),
+                ),
+                NarrativeStep(
+                    step_number=4,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        from scenario_forge.models.projection_envelope import (
+            ArtifactRealizationMapping,
+            ArtifactStage,
+        )
+
+        block = _make_block(
+            narrative_realizations=(
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="1",
+                    projected_step_ids=(selected[0],),
+                ),
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="2",
+                    projected_step_ids=(selected[0],),
+                ),
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="3",
+                    projected_step_ids=(selected[1],),
+                ),
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="4",
+                    projected_step_ids=(selected[2],),
+                ),
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        narrative_violations = [
+            v
+            for v in result.violations
+            if v.stage == ProjectionTraceabilityStage.narrative
+            and v.code
+            in (
+                ProjectionTraceabilityViolationCode.forged_opaque_id,
+                ProjectionTraceabilityViolationCode.incomplete_coverage,
+                ProjectionTraceabilityViolationCode.reordered_projected_step,
+                ProjectionTraceabilityViolationCode.duplicated_projected_step,
+            )
+        ]
+        assert not narrative_violations, (
+            f"Split should pass, got {[(v.code.value, v.detail) for v in narrative_violations]}"
+        )
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial: unmapped narrative action (no projected_step_ids)
+# ---------------------------------------------------------------------------#
+
+
+class TestUnmappedNarrativeAction:
+    """A narrative step with no projected_step_ids must fail."""
+
+    def test_narrative_step_without_projected_step_ids_fails(self):
+        """A narrative step with empty projected_step_ids is unprojected."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = NarrativeLayer(
+            title="Unmapped",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access",
+                    effect="entry",
+                    projected_step_ids=(selected[0],),
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="unmapped action",
+                    effect="unmapped effect",
+                    projected_step_ids=(),
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert (
+            ProjectionTraceabilityViolationCode.unprojected_security_action in codes
+        ), f"Unmapped narrative step should fail, got {codes}"
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial: strict Gherkin validation
+# ---------------------------------------------------------------------------#
+
+
+class TestStrictGherkinValidation:
+    """Altered/fabricated Gherkin text must fail strict deterministic comparison."""
+
+    def test_altered_gherkin_text_fails(self):
+        """BehaviorSpec with gherkin_text that doesn't match deterministic rendering fails."""
+        envelope = _make_envelope()
+        # Tamper with the gherkin text
+        tampered_spec = BehaviorSpec(
+            actions=envelope.behavior_spec.actions,
+            assertions=envelope.behavior_spec.assertions,
+            gherkin_text="Feature: tampered\n  Scenario: fake\n    When fake action\n",
+        )
+        envelope = envelope.model_copy(update={"behavior_spec": tampered_spec})
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.forged_opaque_id in codes, (
+            f"Altered Gherkin should fail, got {codes}"
+        )
+
+    def test_extra_gherkin_step_fails(self):
+        """Extra Gherkin step not in structured actions fails."""
+        envelope = _make_envelope()
+        # Add an extra step to the Gherkin text
+        original = envelope.behavior_spec.gherkin_text
+        lines = original.splitlines()
+        # Insert an extra step before the last line
+        lines.insert(-1, "    And extra fabricated step")
+        tampered = "\n".join(lines) + "\n"
+        tampered_spec = BehaviorSpec(
+            actions=envelope.behavior_spec.actions,
+            assertions=envelope.behavior_spec.assertions,
+            gherkin_text=tampered,
+        )
+        envelope = envelope.model_copy(update={"behavior_spec": tampered_spec})
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert ProjectionTraceabilityViolationCode.forged_opaque_id in codes, (
+            f"Extra Gherkin step should fail, got {codes}"
+        )
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial: narrative canonical metadata compatibility
+# ---------------------------------------------------------------------------#
+
+
+class TestNarrativeCanonicalMetadata:
+    """Narrative canonical action kind/executor/boundary must match projection."""
+
+    def test_wrong_canonical_action_kind_fails(self):
+        """Narrative step with canonical_action_kind not matching projection fails."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        # Get the actual action_kind for step 1
+        chain = block.projection.source_chain
+        step1 = next(s for s in chain.steps if s.step_id == selected[0])
+        wrong_kind = "impact" if step1.action_kind != "impact" else "prepare"
+        narrative = NarrativeLayer(
+            title="Wrong kind",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access",
+                    effect="entry",
+                    projected_step_ids=(selected[0],),
+                    canonical_action_kind=wrong_kind,
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="exploit",
+                    effect="control",
+                    projected_step_ids=(selected[1],),
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert (
+            ProjectionTraceabilityViolationCode.incorrect_resource_binding in codes
+        ), f"Wrong canonical_action_kind should fail, got {codes}"
+
+    def test_correct_canonical_metadata_passes(self):
+        """Narrative step with matching canonical metadata passes."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        chain = block.projection.source_chain
+        step1 = next(s for s in chain.steps if s.step_id == selected[0])
+        narrative = NarrativeLayer(
+            title="Correct kind",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access",
+                    effect="entry",
+                    projected_step_ids=(selected[0],),
+                    canonical_action_kind=step1.action_kind,
+                    canonical_executor_role=step1.executor_role,
+                    canonical_boundary_position=step1.boundary_position,
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="exploit",
+                    effect="control",
+                    projected_step_ids=(selected[1],),
+                ),
+                NarrativeStep(
+                    step_number=3,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        metadata_violations = [
+            v
+            for v in result.violations
+            if v.stage == ProjectionTraceabilityStage.narrative
+            and v.code == ProjectionTraceabilityViolationCode.incorrect_resource_binding
+            and "canonical_" in v.detail
+        ]
+        assert not metadata_violations, (
+            f"Correct metadata should pass, got {[(v.detail) for v in metadata_violations]}"
+        )

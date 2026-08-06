@@ -14,6 +14,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     ConfidenceLevel,
 )
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     ActorProfile,
     NarrativeLayer,
@@ -21,6 +22,7 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.generate import generate_scenario
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
+from tests.helpers.projection_factory import get_projected_candidate
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,8 +136,19 @@ _PATCHES = [
 # ---------------------------------------------------------------------------
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestEntryPointOverride:
-    """The generate_scenario function must pin entry_point by construction."""
+    """The generate_scenario function must pin entry_point by construction.
+
+    These tests mock _assemble_envelope (returning a MagicMock) to isolate
+    entry-point override behaviour from Pydantic model assembly.  Because
+    the production path now runs projection traceability validation on the
+    assembled envelope, the validator is patched to return valid here —
+    traceability enforcement is covered by the dedicated traceability suite.
+    """
 
     @patch(_PATCHES[0])
     @patch(_PATCHES[1])
@@ -143,7 +156,7 @@ class TestEntryPointOverride:
     @patch(_PATCHES[3])
     @patch(_PATCHES[4])
     @patch(_PATCHES[5])
-    def test_narrative_entry_point_overridden_when_diverges(
+    def test_narrative_entry_point_not_overridden_on_candidate_v2(
         self,
         mock_call_actor,
         mock_validate,
@@ -152,7 +165,9 @@ class TestEntryPointOverride:
         mock_call_spec,
         mock_assemble,
     ):
-        """When narrative.entry_point != pinned_entry_point, override it."""
+        """On candidate-v2 paths, entry-point overwrite is semantic repair
+        and is prohibited (422o.4).  The mismatch is logged, not silently
+        fixed."""
         seed = _make_seed()
         profile = _make_profile()
         client = _make_mock_client()
@@ -182,16 +197,18 @@ class TestEntryPointOverride:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=pinned_ep,
+            projected_candidate=get_projected_candidate(),
         )
 
-        # The narrative passed to Call 2 should have the pinned entry point.
+        # On candidate-v2 paths, entry-point overwrite is NOT performed.
+        # The narrative retains its original (divergent) entry point.
         call2_args = mock_call_tree.call_args
         narrative_arg = call2_args[0][1]  # second positional arg is narrative
-        assert narrative_arg.entry_point == pinned_ep
+        assert narrative_arg.entry_point == "user prompts (input)"
 
-        # The narrative passed to _assemble_envelope should also have pinned ep.
+        # The narrative passed to _assemble_envelope also retains original ep.
         assemble_kwargs = mock_assemble.call_args[1]
-        assert assemble_kwargs["narrative"].entry_point == pinned_ep
+        assert assemble_kwargs["narrative"].entry_point == "user prompts (input)"
 
     @patch(_PATCHES[0])
     @patch(_PATCHES[1])
@@ -237,6 +254,7 @@ class TestEntryPointOverride:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=pinned_ep,
+            projected_candidate=get_projected_candidate(),
         )
 
         # Narrative should retain original entry point (no override)
@@ -287,6 +305,7 @@ class TestEntryPointOverride:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point=None,
+            projected_candidate=get_projected_candidate(),
         )
 
         assemble_kwargs = mock_assemble.call_args[1]
@@ -349,6 +368,7 @@ class TestEntryPointOverride:
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
                 pinned_entry_point=pinned_ep,
+                projected_candidate=get_projected_candidate(),
             )
 
-        assert any("Entry-point override" in m for m in caplog.messages)
+        assert any("not overwriting on candidate-v2 path" in m for m in caplog.messages)

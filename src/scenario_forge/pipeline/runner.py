@@ -54,7 +54,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     is_attacker_accessible_ingress,
 )
-from scenario_forge.models.scenario import ScenarioEnvelope
+from scenario_forge.models.scenario import BehaviorSpec, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateFunnel,
     CandidateTriple,
@@ -733,7 +733,9 @@ def _reconcile_artifacts(
     admitted_behavior_spec: dict[str, bool] = {}
     for s in scenarios:
         admitted_keys.add((s.scenario_id, s.candidate_id))
-        has_bs = s.behavior_spec is not None and isinstance(s.behavior_spec, str)
+        has_bs = s.behavior_spec is not None and isinstance(
+            s.behavior_spec, BehaviorSpec
+        )
         admitted_behavior_spec[s.scenario_id] = has_bs
 
     for receipt in write_receipts:

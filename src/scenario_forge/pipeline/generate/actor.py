@@ -714,6 +714,7 @@ def build_call0_context(
     pinned_entry_point: str | None = None,
     pinned_entry_point_id: str | None = None,
     access_feedback: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 0 (Actor Profile).
 
@@ -1021,6 +1022,7 @@ def build_call0_context(
         "kc_definitions": kc_definitions,
         "ontology_context": ontology_context,
         "tool_inventory": profile.tool_inventory or [],
+        "projection_context": projection_context,
     }
 
 
@@ -1038,6 +1040,7 @@ def _call_actor_profile(
     pinned_entry_point: str | None = None,
     pinned_entry_point_id: str | None = None,
     access_feedback: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> tuple[ActorProfile, LLMResult, str | None]:
     """Generate a threat actor profile for a scenario seed (Call 0).
 
@@ -1060,6 +1063,7 @@ def _call_actor_profile(
         pinned_entry_point=pinned_entry_point,
         pinned_entry_point_id=pinned_entry_point_id,
         access_feedback=access_feedback,
+        projection_context=projection_context,
     )
 
     result = client.complete(

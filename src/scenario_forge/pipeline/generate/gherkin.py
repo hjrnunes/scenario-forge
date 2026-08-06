@@ -352,6 +352,7 @@ def build_call3_context(
     attack_tree: AttackTree,
     profile: CapabilityProfile,
     scenario_tag: str,
+    projection_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 3 (Behavior Spec).
 
@@ -378,6 +379,7 @@ def build_call3_context(
         "narrative": narrative,
         "seed": seed,
         "control_points": control_points,
+        "projection_context": projection_context,
     }
 
 
@@ -390,6 +392,7 @@ def _call_behavior_spec(
     use_case: str,
     scenario_tag: str,
     pinned_technique_ids: list[str] | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> tuple[str, LLMResult]:
     """Generate a behavior spec for a scenario seed (Call 3).
 
@@ -405,6 +408,7 @@ def _call_behavior_spec(
         attack_tree=attack_tree,
         profile=profile,
         scenario_tag=scenario_tag,
+        projection_context=projection_context,
     )
 
     result = client.complete(

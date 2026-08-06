@@ -69,11 +69,13 @@ from scenario_forge.models.projection_envelope import (
 )
 from scenario_forge.pipeline.projection import (
     CapabilityFactSnapshot,
-    _derive_execution_requirements,
+    _derive_execution_requirements_core,
     _fail_closed_if_no_requirements,
     _normalize_semantic_order,
     _pattern_pin,
     _projected_mappings,
+    compute_derivation_context_digest,
+    compute_execution_requirements_digest,
 )
 
 if TYPE_CHECKING:
@@ -109,7 +111,19 @@ def validate_projection_traceability(
 
     block = envelope.projection
     if block is None:
-        return ProjectionTraceabilityResult(valid=True, violations=[])
+        # Missing projection is a typed invalid state (422o.4).
+        # Pre-alpha: no optional legacy loophole.
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.nested_mutation,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    "projection block is absent; every generated scenario "
+                    "must embed exactly one immutable projection block"
+                ),
+            )
+        )
+        return ProjectionTraceabilityResult(valid=False, violations=violations)
 
     # --- Check 1: projection integrity & drift (contract §2) ---
     violations.extend(
@@ -131,6 +145,7 @@ def validate_projection_traceability(
     # --- Checks 2-5, 8-9: artifact realization coverage ---
     violations.extend(_check_narrative_realizations(envelope, block))
     violations.extend(_check_tree_realizations(envelope, block))
+    violations.extend(_check_step_semantic_compatibility(envelope, block))
     violations.extend(_check_behavior_realizations(envelope, block))
     violations.extend(_check_assertion_realizations(envelope, block))
 
@@ -197,10 +212,6 @@ def _check_projection_drift(
     # Recompute execution requirements digest.  Handle both model instances
     # and plain dicts (model_construct bypass may produce dicts for
     # discriminated-union fields).
-    from scenario_forge.pipeline.projection import (
-        compute_execution_requirements_digest,
-    )
-
     expected_req_digest = compute_execution_requirements_digest(
         block.execution_requirements
     )
@@ -216,7 +227,74 @@ def _check_projection_drift(
             )
         )
 
-    # When authoritative source inputs are available, recompute and compare.
+    # --- Standalone recomputation from embedded data (422o.4 blocker #2) ---
+    # Recompute execution requirements from the embedded projection +
+    # ingress_controllability and require exact equality.  This prevents
+    # forged requirements that merely have a matching self-consistent digest.
+    chain = block.projection.source_chain
+    pattern_id = chain.pattern_id
+    recomputed_reqs, req_issue = _derive_execution_requirements_core(
+        pattern_id, chain, block.projection, block.ingress_controllability
+    )
+    recomputed_reqs, req_issue = _fail_closed_if_no_requirements(
+        pattern_id, recomputed_reqs, req_issue
+    )
+    if req_issue is not None:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.requirement_drift,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    f"standalone requirement recomputation failed: {req_issue.detail}"
+                ),
+            )
+        )
+    elif recomputed_reqs != block.execution_requirements:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.requirement_drift,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    "standalone recomputed execution requirements do not "
+                    "match persisted; requirements may be forged"
+                ),
+            )
+        )
+
+    # Verify derivation context digest binds ingress_controllability.
+    expected_ctx_digest = compute_derivation_context_digest(
+        block.projection.projection_digest,
+        pattern_id,
+        block.ingress_controllability,
+    )
+    if expected_ctx_digest != block.derivation_context_digest:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.requirement_drift,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    "derivation_context_digest does not match; ingress "
+                    "controllability may have been flipped"
+                ),
+            )
+        )
+
+    # Recompute projected_mappings from embedded source chain + selected IDs.
+    expected_mappings = _projected_mappings(chain, block.projection.selected_step_ids)
+    if expected_mappings != block.projected_mappings:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.projection_drift,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    "standalone recomputed projected mappings do not match "
+                    "persisted; mappings may be forged"
+                ),
+            )
+        )
+
+    # When authoritative source inputs are available, recompute and compare
+    # as additional qualification (not the only semantic check).
     if (
         authoritative_pattern is not None
         and taxonomy_resolver is not None
@@ -305,8 +383,8 @@ def _recompute_and_compare(
         )
 
     # Recompute execution requirements from the projection.
-    reqs, issue = _derive_execution_requirements(
-        pattern.id, chain, projection, capability_snapshot
+    reqs, issue = _derive_execution_requirements_core(
+        pattern.id, chain, projection, block.ingress_controllability
     )
     reqs, issue = _fail_closed_if_no_requirements(pattern.id, reqs, issue)
     if issue is not None:
@@ -475,7 +553,88 @@ def _check_narrative_realizations(
     realizations = block.narrative_realizations
     narrative = envelope.narrative
     selected = set(block.selected_step_ids)
-    order = block.projected_step_order
+
+    # --- Derive expected realizations from actual narrative.steps fields ---
+    # The sidecar table is not proof; projected_step_ids on each step is the
+    # canonical reference.  We derive what the realizations SHOULD be from
+    # the actual narrative list positions and compare.
+    actual_narrative_mapping: dict[str, tuple[str, ...]] = {}
+    for step in narrative.steps:
+        if step.projected_step_ids:
+            actual_narrative_mapping[str(step.step_number)] = step.projected_step_ids
+
+    # Every narrative action element with projected_step_ids must be mapped
+    # in the block realizations, and the projected_step_ids must match exactly.
+    block_narrative_map: dict[str, tuple[str, ...]] = {
+        r.element_id: r.projected_step_ids for r in realizations
+    }
+    for elem_id, actual_sids in actual_narrative_mapping.items():
+        block_sids = block_narrative_map.get(elem_id)
+        if block_sids is None:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.incomplete_coverage,
+                    stage=ProjectionTraceabilityStage.narrative,
+                    detail=(
+                        f"narrative step '{elem_id}' has projected_step_ids "
+                        f"{actual_sids} but is absent from block "
+                        f"narrative_realizations"
+                    ),
+                    element_id=elem_id,
+                    projected_step_id=actual_sids[0],
+                )
+            )
+        elif set(actual_sids) != set(block_sids):
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                    stage=ProjectionTraceabilityStage.narrative,
+                    detail=(
+                        f"narrative step '{elem_id}' has projected_step_ids "
+                        f"{actual_sids} but block maps it to {block_sids}"
+                    ),
+                    element_id=elem_id,
+                    projected_step_id=actual_sids[0],
+                )
+            )
+
+    # Every narrative step element without projected_step_ids must not
+    # appear in block realizations (no phantom mappings).
+    for r in realizations:
+        step_num = r.element_id
+        step_obj = next(
+            (s for s in narrative.steps if str(s.step_number) == step_num), None
+        )
+        if step_obj is not None and not step_obj.projected_step_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                    stage=ProjectionTraceabilityStage.narrative,
+                    detail=(
+                        f"narrative step '{step_num}' has no projected_step_ids "
+                        f"but appears in block narrative_realizations"
+                    ),
+                    element_id=step_num,
+                )
+            )
+
+    # --- Every narrative action element must map (422o.4 blocker #3) ---
+    # Extra unmapped narrative actions must fail.  A narrative step with
+    # an action but no projected_step_ids is an unprojected security action.
+    for step in narrative.steps:
+        if not step.projected_step_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.unprojected_security_action,
+                    stage=ProjectionTraceabilityStage.narrative,
+                    detail=(
+                        f"narrative step '{step.step_number}' has no "
+                        f"projected_step_ids — every narrative action "
+                        f"element must map to ≥1 projected step"
+                    ),
+                    element_id=str(step.step_number),
+                )
+            )
 
     # Check element IDs reference actual narrative steps.
     valid_step_numbers = {str(s.step_number) for s in narrative.steps}
@@ -522,12 +681,9 @@ def _check_narrative_realizations(
         )
     )
 
-    # Check order preservation.
-    violations.extend(
-        _check_order_preservation(
-            realizations, order, ProjectionTraceabilityStage.narrative, "narrative"
-        )
-    )
+    # --- Validate order from actual narrative.steps list positions ---
+    # Not from sidecar tuple position, but from the physical list order.
+    violations.extend(_check_narrative_physical_order(narrative, block))
 
     # Check duplicated steps across mappings.
     violations.extend(
@@ -539,6 +695,49 @@ def _check_narrative_realizations(
         )
     )
 
+    return violations
+
+
+def _check_narrative_physical_order(
+    narrative: Any,
+    block: ProjectionEnvelopeBlock,
+) -> list[ProjectionTraceabilityViolation]:
+    """Validate that physical narrative.steps list order preserves projection order.
+
+    Uses actual list positions, not sidecar tuple positions.  A narrative
+    physically ordered [2,1,3] must fail even if the sidecar tuple is ordered.
+    With many-to-many, each step may carry multiple projected_step_ids; we
+    check that the minimum ordinal of each step's IDs is non-decreasing.
+    """
+    violations: list[ProjectionTraceabilityViolation] = []
+    order = block.projected_step_order
+
+    # Collect (list_position, min_ordinal) pairs from actual steps.
+    pairs: list[tuple[int, int]] = []
+    for list_pos, step in enumerate(narrative.steps):
+        if step.projected_step_ids:
+            ordinals = [order[sid] for sid in step.projected_step_ids if sid in order]
+            if ordinals:
+                pairs.append((list_pos, min(ordinals)))
+
+    # Check that step ordinals are non-decreasing with list position.
+    for i in range(1, len(pairs)):
+        prev_pos, prev_ordinal = pairs[i - 1]
+        curr_pos, curr_ordinal = pairs[i]
+        if curr_ordinal < prev_ordinal:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.reordered_projected_step,
+                    stage=ProjectionTraceabilityStage.narrative,
+                    detail=(
+                        f"narrative step at list position {curr_pos} has "
+                        f"projection ordinal {curr_ordinal} which precedes "
+                        f"earlier step at position {prev_pos} with ordinal "
+                        f"{prev_ordinal} — physical order violated"
+                    ),
+                    element_id=str(narrative.steps[curr_pos].step_number),
+                )
+            )
     return violations
 
 
@@ -567,7 +766,48 @@ def _check_tree_realizations(
         return violations
 
     selected = set(block.selected_step_ids)
-    order = block.projected_step_order
+
+    # --- Derive expected realizations from actual tree leaf fields ---
+    # The sidecar table is not proof; projected_step_ids on each leaf is the
+    # canonical reference.  We derive what the realizations SHOULD be from
+    # the actual tree traversal and compare.
+    actual_tree_mapping: dict[str, tuple[str, ...]] = {}
+    for leaf in _iter_leaves(tree.root):
+        if leaf.projected_step_ids:
+            actual_tree_mapping[leaf.id] = leaf.projected_step_ids
+
+    block_tree_map: dict[str, tuple[str, ...]] = {
+        r.element_id: r.projected_step_ids for r in realizations
+    }
+    for leaf_id, actual_sids in actual_tree_mapping.items():
+        block_sids = block_tree_map.get(leaf_id)
+        if block_sids is None:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.incomplete_coverage,
+                    stage=ProjectionTraceabilityStage.attack_tree,
+                    detail=(
+                        f"tree leaf '{leaf_id}' has projected_step_ids "
+                        f"{actual_sids} but is absent from block "
+                        f"tree_realizations"
+                    ),
+                    element_id=leaf_id,
+                    projected_step_id=actual_sids[0],
+                )
+            )
+        elif set(actual_sids) != set(block_sids):
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                    stage=ProjectionTraceabilityStage.attack_tree,
+                    detail=(
+                        f"tree leaf '{leaf_id}' has projected_step_ids "
+                        f"{actual_sids} but block maps it to {block_sids}"
+                    ),
+                    element_id=leaf_id,
+                    projected_step_id=actual_sids[0],
+                )
+            )
 
     # Check element IDs reference actual tree leaves.
     valid_leaf_ids = {leaf.id for leaf in _iter_leaves(tree.root)}
@@ -610,11 +850,10 @@ def _check_tree_realizations(
             "attack_tree",
         )
     )
-    violations.extend(
-        _check_order_preservation(
-            realizations, order, ProjectionTraceabilityStage.attack_tree, "attack_tree"
-        )
-    )
+
+    # --- Validate order from actual tree traversal ---
+    violations.extend(_check_tree_physical_order(tree, block))
+
     violations.extend(
         _check_no_duplicated_steps(
             realizations,
@@ -631,6 +870,90 @@ def _check_tree_realizations(
     # Every security-bearing tree leaf must map to ≥1 projected step.
     violations.extend(_check_security_actions_mapped(tree, realizations, block))
 
+    # Check technique mapping validity: tree leaf technique_ids must be
+    # in the projection's projected taxonomy mappings (422o.4 no-repair).
+    violations.extend(_check_technique_mapping(tree, block))
+
+    return violations
+
+
+def _check_technique_mapping(
+    tree: AttackTree,
+    block: ProjectionEnvelopeBlock,
+) -> list[ProjectionTraceabilityViolation]:
+    """Check that tree leaf technique_ids are valid against the projection.
+
+    On candidate-v2 paths (422o.4), technique stripping is semantic repair
+    and is prohibited.  Invalid technique IDs become typed violations
+    attributed to the attack-tree stage for cmps.5 to route.
+    """
+    violations: list[ProjectionTraceabilityViolation] = []
+
+    # Collect all valid ATLAS technique IDs from the projection's mappings.
+    valid_atlas_ids: set[str] = set()
+    for pmapping in block.projected_mappings:
+        m = pmapping.mapping
+        if hasattr(m, "decision") and m.decision == "exact" and m.taxonomy == "ATLAS":
+            valid_atlas_ids.update(m.ids)
+
+    # Check each leaf's technique_id.
+    for leaf in _iter_leaves(tree.root):
+        if leaf.technique_id is None:
+            continue
+        if leaf.technique_id not in valid_atlas_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.invalid_technique_mapping,
+                    stage=ProjectionTraceabilityStage.attack_tree,
+                    detail=(
+                        f"tree leaf '{leaf.id}' has technique_id "
+                        f"'{leaf.technique_id}' not in projection's valid "
+                        f"ATLAS mappings {sorted(valid_atlas_ids)}"
+                    ),
+                    element_id=leaf.id,
+                )
+            )
+
+    return violations
+
+
+def _check_tree_physical_order(
+    tree: AttackTree,
+    block: ProjectionEnvelopeBlock,
+) -> list[ProjectionTraceabilityViolation]:
+    """Validate that physical tree leaf DFS traversal order preserves projection order.
+
+    Uses actual tree traversal, not sidecar tuple positions.  A tree
+    physically reordered must fail even if the sidecar tuple is ordered.
+    """
+    violations: list[ProjectionTraceabilityViolation] = []
+    order = block.projected_step_order
+
+    # Collect (traversal_position, min_ordinal) from actual leaves.
+    pairs: list[tuple[int, str, int]] = []  # (pos, leaf_id, ordinal)
+    for pos, leaf in enumerate(_iter_leaves(tree.root)):
+        if leaf.projected_step_ids:
+            ordinals = [order[sid] for sid in leaf.projected_step_ids if sid in order]
+            if ordinals:
+                pairs.append((pos, leaf.id, min(ordinals)))
+
+    for i in range(1, len(pairs)):
+        prev_pos, _, prev_ordinal = pairs[i - 1]
+        curr_pos, curr_id, curr_ordinal = pairs[i]
+        if curr_ordinal < prev_ordinal:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.reordered_projected_step,
+                    stage=ProjectionTraceabilityStage.attack_tree,
+                    detail=(
+                        f"tree leaf '{curr_id}' at DFS position {curr_pos} has "
+                        f"projection ordinal {curr_ordinal} which precedes "
+                        f"earlier leaf at position {prev_pos} with ordinal "
+                        f"{prev_ordinal} — tree order violated"
+                    ),
+                    element_id=curr_id,
+                )
+            )
     return violations
 
 
@@ -638,18 +961,43 @@ def _check_tree_resource_bindings(
     tree: AttackTree,
     block: ProjectionEnvelopeBlock,
 ) -> list[ProjectionTraceabilityViolation]:
-    """Verify tree leaf resource references match projection bindings."""
+    """Verify tree leaf resource references match projection bindings for their mapped step.
+
+    A resource bound for another step must fail.  For each mapped leaf,
+    the resource it uses must come from a slot linked to the leaf's
+    projected step, not just any slot in the projection.
+    """
     violations: list[ProjectionTraceabilityViolation] = []
     chain = block.projection.source_chain
     bindings_by_slot = {b.slot_id: b.resource_ref for b in block.projection.bindings}
+
+    # Build a map: step_id → set of slot_ids linked to that step.
+    step_to_slots: dict[str, set[str]] = {}
+    for step in chain.steps:
+        step_to_slots[step.step_id] = {link.slot_id for link in step.resource_links}
+
+    # Build a map: leaf_id → projected_step_ids from actual tree fields.
+    leaf_to_steps: dict[str, tuple[str, ...]] = {}
+    for leaf in _iter_leaves(tree.root):
+        leaf_to_steps[leaf.id] = leaf.projected_step_ids
 
     for leaf in _iter_leaves(tree.root):
         action = leaf.action
         if action is None:
             continue
+        mapped_step_ids = leaf_to_steps.get(leaf.id, ())
+        if not mapped_step_ids:
+            # Unmapped leaves are caught by _check_security_actions_mapped.
+            continue
+
+        # Collect all valid slots across all mapped steps (many-to-many:
+        # a leaf realizing multiple steps may use resources from any of them).
+        all_step_slots: set[str] = set()
+        for mapped_step_id in mapped_step_ids:
+            all_step_slots |= step_to_slots.get(mapped_step_id, set())
+
         if isinstance(action, InitialIngressAction):
-            # Checked by ingress identity — but also verify it matches the
-            # ingress slot binding.
+            # Ingress must match the chain's initial ingress slot binding.
             ingress_binding = bindings_by_slot.get(chain.initial_ingress_slot_id)
             if (
                 isinstance(ingress_binding, EntryPointResourceReference)
@@ -667,14 +1015,30 @@ def _check_tree_resource_bindings(
                         element_id=leaf.id,
                     )
                 )
-        elif isinstance(action, ToolInvocationAction):
-            # The tool_id must match a tool slot binding.
-            found = False
-            for ref in bindings_by_slot.values():
-                from scenario_forge.models.attack_pattern import (
-                    ToolResourceReference,
+            # Also verify the ingress slot is linked to at least one mapped step.
+            if chain.initial_ingress_slot_id not in all_step_slots:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.attack_tree,
+                        detail=(
+                            f"tree leaf '{leaf.id}' uses initial_ingress but "
+                            f"none of mapped steps {list(mapped_step_ids)} "
+                            f"have an ingress resource_link"
+                        ),
+                        element_id=leaf.id,
+                        projected_step_id=mapped_step_ids[0],
+                    )
                 )
+        elif isinstance(action, ToolInvocationAction):
+            from scenario_forge.models.attack_pattern import (
+                ToolResourceReference,
+            )
 
+            # The tool must match a tool slot binding linked to a mapped step.
+            found = False
+            for slot_id in all_step_slots:
+                ref = bindings_by_slot.get(slot_id)
                 if (
                     isinstance(ref, ToolResourceReference)
                     and ref.tool_id == action.tool_id
@@ -688,9 +1052,11 @@ def _check_tree_resource_bindings(
                         stage=ProjectionTraceabilityStage.attack_tree,
                         detail=(
                             f"tree leaf '{leaf.id}' tool_id does not match "
-                            f"any projection tool binding"
+                            f"any tool binding linked to mapped steps "
+                            f"{list(mapped_step_ids)}"
                         ),
                         element_id=leaf.id,
+                        projected_step_id=mapped_step_ids[0],
                     )
                 )
         elif isinstance(action, IntegrationInteractionAction):
@@ -698,8 +1064,10 @@ def _check_tree_resource_bindings(
                 IntegrationResourceReference,
             )
 
+            # The integration must match a binding linked to a mapped step.
             found = False
-            for ref in bindings_by_slot.values():
+            for slot_id in all_step_slots:
+                ref = bindings_by_slot.get(slot_id)
                 if (
                     isinstance(ref, IntegrationResourceReference)
                     and ref.integration_id == action.integration_id
@@ -713,9 +1081,11 @@ def _check_tree_resource_bindings(
                         stage=ProjectionTraceabilityStage.attack_tree,
                         detail=(
                             f"tree leaf '{leaf.id}' integration_id does not "
-                            f"match any projection integration binding"
+                            f"match any integration binding linked to "
+                            f"mapped steps {list(mapped_step_ids)}"
                         ),
                         element_id=leaf.id,
+                        projected_step_id=mapped_step_ids[0],
                     )
                 )
 
@@ -760,6 +1130,219 @@ def _check_security_actions_mapped(
 
 
 # ---------------------------------------------------------------------------#
+# Check 4b: per-step semantic compatibility (contract §4)
+# ---------------------------------------------------------------------------#
+
+# Mapping from canonical chain step action_kind to valid tree leaf action kinds.
+# Canonical action_kinds: prepare, deliver, invoke, transform, persist, observe, impact
+# Tree leaf action kinds: initial_ingress, external_precondition, ai_system_action,
+#   tool_invocation, integration_interaction, impact
+_STEP_TO_LEAF_ACTION_COMPAT: dict[str, set[str]] = {
+    "prepare": {"external_precondition", "initial_ingress"},
+    "deliver": {"initial_ingress"},
+    "invoke": {"initial_ingress", "tool_invocation", "integration_interaction"},
+    "transform": {"ai_system_action"},
+    "persist": {"ai_system_action", "tool_invocation"},
+    "observe": {"ai_system_action", "integration_interaction"},
+    "impact": {"impact"},
+}
+
+# Mapping from canonical boundary_position to valid tree leaf constraints.
+_BOUNDARY_COMPAT: dict[str, set[str | None]] = {
+    "outside": {None},  # outside steps → external_precondition (no zone)
+    "crossing": {"input", "reasoning", "tool_execution", "memory", "inter_agent"},
+    "inside": {"input", "reasoning", "tool_execution", "memory", "inter_agent"},
+}
+
+
+def _check_step_semantic_compatibility(
+    envelope: ScenarioEnvelope,
+    block: ProjectionEnvelopeBlock,
+) -> list[ProjectionTraceabilityViolation]:
+    """Validate per-step semantic compatibility between mapped leaves and projection.
+
+    For each mapped leaf, validate:
+    - typed action kind compatibility with the projected step's action_kind
+    - executor/boundary/zone compatibility
+    - exact resource slot/binding linked to that projected step
+    - relevant consumed/produced/effect semantics
+    - observable postconditions
+
+    A resource bound for another step must fail.  An incompatible action
+    kind/effect/postcondition mapping must fail.
+    """
+    violations: list[ProjectionTraceabilityViolation] = []
+    tree = envelope.attack_tree
+    if tree is None:
+        return violations
+
+    chain = block.projection.source_chain
+    step_by_id = {s.step_id: s for s in chain.steps}
+
+    for leaf in _iter_leaves(tree.root):
+        if not leaf.projected_step_ids:
+            continue
+        for sid in leaf.projected_step_ids:
+            step = step_by_id.get(sid)
+            if step is None:
+                continue  # caught by unprojected step check
+
+            action = leaf.action
+            if action is None:
+                continue
+
+            # --- Action kind compatibility ---
+            compatible_kinds = _STEP_TO_LEAF_ACTION_COMPAT.get(step.action_kind, set())
+            if action.kind not in compatible_kinds:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.attack_tree,
+                        detail=(
+                            f"tree leaf '{leaf.id}' action kind '{action.kind}' "
+                            f"is incompatible with projected step "
+                            f"'{step.step_id}' action_kind '{step.action_kind}' "
+                            f"(expected one of {sorted(compatible_kinds)})"
+                        ),
+                        element_id=leaf.id,
+                        projected_step_id=step.step_id,
+                    )
+                )
+
+            # --- Boundary/zone compatibility ---
+            valid_zones = _BOUNDARY_COMPAT.get(step.boundary_position, set())
+            if leaf.zone not in valid_zones:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.attack_tree,
+                        detail=(
+                            f"tree leaf '{leaf.id}' zone '{leaf.zone}' is "
+                            f"incompatible with projected step "
+                            f"'{step.step_id}' boundary_position "
+                            f"'{step.boundary_position}' (expected one of "
+                            f"{sorted(v for v in valid_zones if v is not None) or 'None'})"
+                        ),
+                        element_id=leaf.id,
+                        projected_step_id=step.step_id,
+                    )
+                )
+
+            # --- Executor role compatibility ---
+            # attacker steps → attacker-controlled actions; system steps →
+            # ai_system_action; operator steps → external_precondition or
+            # integration_interaction.
+            if step.executor_role == "attacker" and action.kind not in (
+                "initial_ingress",
+                "external_precondition",
+                "impact",
+                "tool_invocation",
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.attack_tree,
+                        detail=(
+                            f"tree leaf '{leaf.id}' action kind '{action.kind}' "
+                            f"is incompatible with projected step "
+                            f"'{step.step_id}' executor_role 'attacker'"
+                        ),
+                        element_id=leaf.id,
+                        projected_step_id=step.step_id,
+                    )
+                )
+
+    # --- Narrative semantic compatibility ---
+    narrative = envelope.narrative
+    for n_step in narrative.steps:
+        if not n_step.projected_step_ids:
+            continue
+        for sid in n_step.projected_step_ids:
+            step = step_by_id.get(sid)
+            if step is None:
+                continue
+            # Narrative step zone must be compatible with projected step boundary.
+            valid_zones = _BOUNDARY_COMPAT.get(step.boundary_position, set())
+            if n_step.zone not in valid_zones:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.narrative,
+                        detail=(
+                            f"narrative step '{n_step.step_number}' zone "
+                            f"'{n_step.zone}' is incompatible with projected "
+                            f"step '{step.step_id}' boundary_position "
+                            f"'{step.boundary_position}'"
+                        ),
+                        element_id=str(n_step.step_number),
+                        projected_step_id=step.step_id,
+                    )
+                )
+            # --- Canonical action kind compatibility (422o.4 blocker #4) ---
+            if (
+                n_step.canonical_action_kind is not None
+                and n_step.canonical_action_kind != step.action_kind
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.narrative,
+                        detail=(
+                            f"narrative step '{n_step.step_number}' "
+                            f"canonical_action_kind "
+                            f"'{n_step.canonical_action_kind}' does not "
+                            f"match projected step '{step.step_id}' "
+                            f"action_kind '{step.action_kind}'"
+                        ),
+                        element_id=str(n_step.step_number),
+                        projected_step_id=step.step_id,
+                    )
+                )
+            # --- Canonical executor role compatibility ---
+            if (
+                n_step.canonical_executor_role is not None
+                and n_step.canonical_executor_role != step.executor_role
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.narrative,
+                        detail=(
+                            f"narrative step '{n_step.step_number}' "
+                            f"canonical_executor_role "
+                            f"'{n_step.canonical_executor_role}' does not "
+                            f"match projected step '{step.step_id}' "
+                            f"executor_role '{step.executor_role}'"
+                        ),
+                        element_id=str(n_step.step_number),
+                        projected_step_id=step.step_id,
+                    )
+                )
+            # --- Canonical boundary position compatibility ---
+            if (
+                n_step.canonical_boundary_position is not None
+                and n_step.canonical_boundary_position != step.boundary_position
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.narrative,
+                        detail=(
+                            f"narrative step '{n_step.step_number}' "
+                            f"canonical_boundary_position "
+                            f"'{n_step.canonical_boundary_position}' does "
+                            f"not match projected step '{step.step_id}' "
+                            f"boundary_position '{step.boundary_position}'"
+                        ),
+                        element_id=str(n_step.step_number),
+                        projected_step_id=step.step_id,
+                    )
+                )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------#
 # Check 2-5: behavior realizations (contract §4, §5)
 # ---------------------------------------------------------------------------#
 
@@ -771,25 +1354,85 @@ def _check_behavior_realizations(
     violations: list[ProjectionTraceabilityViolation] = []
     realizations = block.behavior_realizations
     selected = set(block.selected_step_ids)
-    order = block.projected_step_order
 
-    # Behavior spec is stored as opaque text (Gherkin).  We cannot
-    # structurally verify element IDs without parsing the Gherkin, which
-    # is beyond this bead's scope (no adapter registries).  We validate
-    # the realization mappings themselves.
-    for r in realizations:
-        if r.artifact_stage != ArtifactStage.behavior:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=ProjectionTraceabilityViolationCode.forged_opaque_id,
-                    stage=ProjectionTraceabilityStage.behavior_spec,
-                    detail=(
-                        f"behavior realization element '{r.element_id}' has "
-                        f"wrong artifact_stage '{r.artifact_stage.value}'"
-                    ),
-                    element_id=r.element_id,
+    # --- Cross-check behavior realizations against actual BehaviorSpec ---
+    # When behavior_spec is a structured BehaviorSpec, derive expected
+    # realizations from its structured actions and compare against block
+    # realizations.  Never accept fake IDs that don't exist in the artifact.
+    from scenario_forge.models.scenario import BehaviorSpec
+
+    behavior_spec = envelope.behavior_spec
+    if isinstance(behavior_spec, BehaviorSpec):
+        actual_action_ids = {a.action_id for a in behavior_spec.actions}
+        actual_action_map: dict[str, tuple[str, ...]] = {
+            a.action_id: a.projected_step_ids for a in behavior_spec.actions
+        }
+        block_behavior_map: dict[str, tuple[str, ...]] = {
+            r.element_id: r.projected_step_ids for r in realizations
+        }
+
+        # Every block behavior realization element must exist in actual actions.
+        for r in realizations:
+            if r.element_id not in actual_action_ids:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                        stage=ProjectionTraceabilityStage.behavior_spec,
+                        detail=(
+                            f"behavior realization element '{r.element_id}' "
+                            f"does not exist in actual BehaviorSpec actions"
+                        ),
+                        element_id=r.element_id,
+                    )
                 )
-            )
+
+        # Every actual action must be in block realizations with matching steps.
+        for action_id, actual_sids in actual_action_map.items():
+            block_sids = block_behavior_map.get(action_id)
+            if block_sids is None:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incomplete_coverage,
+                        stage=ProjectionTraceabilityStage.behavior_spec,
+                        detail=(
+                            f"behavior action '{action_id}' exists in "
+                            f"BehaviorSpec but is absent from block "
+                            f"behavior_realizations"
+                        ),
+                        element_id=action_id,
+                        projected_step_id=actual_sids[0],
+                    )
+                )
+            elif set(actual_sids) != set(block_sids):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                        stage=ProjectionTraceabilityStage.behavior_spec,
+                        detail=(
+                            f"behavior action '{action_id}' has "
+                            f"projected_step_ids {actual_sids} but block "
+                            f"maps it to {block_sids}"
+                        ),
+                        element_id=action_id,
+                        projected_step_id=actual_sids[0],
+                    )
+                )
+    else:
+        # Raw text/dict behavior spec — validate only the realization
+        # mappings themselves (no structured cross-check possible).
+        for r in realizations:
+            if r.artifact_stage != ArtifactStage.behavior:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                        stage=ProjectionTraceabilityStage.behavior_spec,
+                        detail=(
+                            f"behavior realization element '{r.element_id}' has "
+                            f"wrong artifact_stage '{r.artifact_stage.value}'"
+                        ),
+                        element_id=r.element_id,
+                    )
+                )
 
     violations.extend(
         _check_no_unprojected_steps(
@@ -805,14 +1448,6 @@ def _check_behavior_realizations(
         )
     )
     violations.extend(
-        _check_order_preservation(
-            realizations,
-            order,
-            ProjectionTraceabilityStage.behavior_spec,
-            "behavior",
-        )
-    )
-    violations.extend(
         _check_no_duplicated_steps(
             realizations,
             block,
@@ -820,6 +1455,100 @@ def _check_behavior_realizations(
             "behavior",
         )
     )
+
+    # --- Gherkin correspondence (422o.4 blocker #3) ---
+    # Strict deterministic correspondence: re-render the Gherkin from the
+    # structured actions/assertions and compare exactly against the stored
+    # gherkin_text.  This catches any omission, addition, reordering, or
+    # fabrication — no substring matching, no fake IDs.
+    # Zone annotations (display metadata) are stripped before comparison.
+    if isinstance(behavior_spec, BehaviorSpec):
+        import re as _re
+
+        from scenario_forge.pipeline.generate.assembly import (
+            render_gherkin_from_behavior_spec,
+        )
+
+        # Re-render without zone map (zones are display-only).
+        expected_gherkin = render_gherkin_from_behavior_spec(
+            list(behavior_spec.actions),
+            list(behavior_spec.assertions),
+            zone_map=None,
+        )
+        # Strip zone annotations from both texts for comparison.
+        _zone_pat = _re.compile(r"\s*\([^)]*\)\s*$", _re.MULTILINE)
+        actual_stripped = _zone_pat.sub("", behavior_spec.gherkin_text).strip()
+        expected_stripped = _zone_pat.sub("", expected_gherkin).strip()
+        if actual_stripped != expected_stripped:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                    stage=ProjectionTraceabilityStage.behavior_spec,
+                    detail=(
+                        "BehaviorSpec.gherkin_text does not exactly match "
+                        "the deterministic rendering from structured "
+                        "actions/assertions — content was altered, omitted, "
+                        "added, reordered, or fabricated"
+                    ),
+                )
+            )
+
+        # Also verify that every action and assertion text appears as a
+        # distinct step line in the Gherkin (defense in depth).
+        gherkin_lines = [
+            line.strip()
+            for line in behavior_spec.gherkin_text.splitlines()
+            if line.strip()
+            and any(
+                line.strip().startswith(kw) for kw in ("Given", "When", "Then", "And")
+            )
+        ]
+        # Extract the text content after the keyword, stripping zone suffix.
+        step_texts: list[str] = []
+        for line in gherkin_lines:
+            for kw in ("Given", "When", "Then", "And"):
+                if line.startswith(f"{kw} "):
+                    raw = line[len(kw) + 1 :].strip()
+                    # Strip zone suffix.
+                    raw = _zone_pat.sub("", raw).strip()
+                    step_texts.append(raw)
+                    break
+
+        # Every action text must appear as a step text.
+        for action in behavior_spec.actions:
+            base_text = action.text
+            if base_text not in step_texts and not any(
+                base_text in st for st in step_texts
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                        stage=ProjectionTraceabilityStage.behavior_spec,
+                        detail=(
+                            f"behavior action '{action.action_id}' text "
+                            f"'{action.text}' does not appear as a Gherkin "
+                            f"step line"
+                        ),
+                        element_id=action.action_id,
+                    )
+                )
+        # Every assertion text must appear as a step text.
+        for assertion in behavior_spec.assertions:
+            if assertion.text not in step_texts and not any(
+                assertion.text in st for st in step_texts
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                        stage=ProjectionTraceabilityStage.behavior_spec,
+                        detail=(
+                            f"behavior assertion '{assertion.assertion_id}' "
+                            f"text '{assertion.text}' does not appear as a "
+                            f"Gherkin step line"
+                        ),
+                        element_id=assertion.assertion_id,
+                    )
+                )
 
     return violations
 
@@ -837,6 +1566,70 @@ def _check_assertion_realizations(
     violations: list[ProjectionTraceabilityViolation] = []
     chain = block.projection.source_chain
     selected = set(block.selected_step_ids)
+
+    # --- Cross-check assertion realizations against actual BehaviorSpec ---
+    from scenario_forge.models.scenario import BehaviorSpec
+
+    behavior_spec = envelope.behavior_spec
+    if isinstance(behavior_spec, BehaviorSpec):
+        actual_assertion_ids = {a.assertion_id for a in behavior_spec.assertions}
+        actual_assertion_map = {a.assertion_id: a for a in behavior_spec.assertions}
+        # Every block assertion realization must exist in actual assertions.
+        for ar in block.assertion_realizations:
+            if ar.element_id not in actual_assertion_ids:
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                        stage=ProjectionTraceabilityStage.behavior_spec,
+                        detail=(
+                            f"assertion '{ar.element_id}' does not exist in "
+                            f"actual BehaviorSpec assertions"
+                        ),
+                        element_id=ar.element_id,
+                    )
+                )
+            else:
+                actual = actual_assertion_map[ar.element_id]
+                if actual.source_step_ids != ar.source_step_ids:
+                    violations.append(
+                        ProjectionTraceabilityViolation(
+                            code=ProjectionTraceabilityViolationCode.postcondition_assertion_mismatch,
+                            stage=ProjectionTraceabilityStage.behavior_spec,
+                            detail=(
+                                f"assertion '{ar.element_id}' source_step_ids "
+                                f"in block {ar.source_step_ids} do not match "
+                                f"actual BehaviorSpec {actual.source_step_ids}"
+                            ),
+                            element_id=ar.element_id,
+                        )
+                    )
+                if actual.projected_postcondition_ids != ar.projected_postcondition_ids:
+                    violations.append(
+                        ProjectionTraceabilityViolation(
+                            code=ProjectionTraceabilityViolationCode.postcondition_assertion_mismatch,
+                            stage=ProjectionTraceabilityStage.behavior_spec,
+                            detail=(
+                                f"assertion '{ar.element_id}' projected_postcondition_ids "
+                                f"in block {ar.projected_postcondition_ids} do not match "
+                                f"actual BehaviorSpec {actual.projected_postcondition_ids}"
+                            ),
+                            element_id=ar.element_id,
+                        )
+                    )
+        # Every actual assertion must be in block realizations.
+        block_assertion_ids = {ar.element_id for ar in block.assertion_realizations}
+        for actual_id in actual_assertion_ids - block_assertion_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.incomplete_coverage,
+                    stage=ProjectionTraceabilityStage.behavior_spec,
+                    detail=(
+                        f"assertion '{actual_id}' exists in BehaviorSpec but "
+                        f"is absent from block assertion_realizations"
+                    ),
+                    element_id=actual_id,
+                )
+            )
 
     # Build a lookup of postcondition_id → step_id for all selected steps.
     pc_to_step: dict[str, str] = {}

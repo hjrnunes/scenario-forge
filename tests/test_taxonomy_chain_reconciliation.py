@@ -22,6 +22,7 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.generate import _assemble_envelope
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.projection_factory import get_projected_candidate, make_behavior_spec
 
 # ===========================================================================
 # Helpers
@@ -225,7 +226,7 @@ class TestTaxonomyChainReconciliation:
             profile=_make_profile(),
             narrative=_make_narrative(),
             attack_tree=tree,
-            behavior_spec="Feature: test",
+            behavior_spec=make_behavior_spec("Feature: test"),
             call_metadata_list=_make_call_metas(),
             model_name="test-model",
             use_case="test",
@@ -233,6 +234,7 @@ class TestTaxonomyChainReconciliation:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            projected_candidate=get_projected_candidate(),
         )
 
         # Should contain only the technique actually in the tree
@@ -249,7 +251,7 @@ class TestTaxonomyChainReconciliation:
             profile=_make_profile(),
             narrative=_make_narrative(),
             attack_tree=tree,
-            behavior_spec="Feature: test",
+            behavior_spec=make_behavior_spec("Feature: test"),
             call_metadata_list=_make_call_metas(),
             model_name="test-model",
             use_case="test",
@@ -257,6 +259,7 @@ class TestTaxonomyChainReconciliation:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            projected_candidate=get_projected_candidate(),
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids == ["AML.T0054"]
@@ -272,7 +275,7 @@ class TestTaxonomyChainReconciliation:
             profile=_make_profile(),
             narrative=_make_narrative(),
             attack_tree=tree,
-            behavior_spec="Feature: test",
+            behavior_spec=make_behavior_spec("Feature: test"),
             call_metadata_list=_make_call_metas(),
             model_name="test-model",
             use_case="test",
@@ -280,6 +283,7 @@ class TestTaxonomyChainReconciliation:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            projected_candidate=get_projected_candidate(),
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -294,7 +298,7 @@ class TestTaxonomyChainReconciliation:
             profile=_make_profile(),
             narrative=_make_narrative(),
             attack_tree=tree,
-            behavior_spec="Feature: test",
+            behavior_spec=make_behavior_spec("Feature: test"),
             call_metadata_list=_make_call_metas(),
             model_name="test-model",
             use_case="test",
@@ -302,6 +306,7 @@ class TestTaxonomyChainReconciliation:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            projected_candidate=get_projected_candidate(),
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -316,7 +321,7 @@ class TestTaxonomyChainReconciliation:
             profile=_make_profile(),
             narrative=_make_narrative(),
             attack_tree=tree,
-            behavior_spec="Feature: test",
+            behavior_spec=make_behavior_spec("Feature: test"),
             call_metadata_list=_make_call_metas(),
             model_name="test-model",
             use_case="test",
@@ -324,6 +329,7 @@ class TestTaxonomyChainReconciliation:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            projected_candidate=get_projected_candidate(),
         )
 
         # atlas_provenance_ids documents where the scenario came from (seed provenance)
@@ -345,7 +351,7 @@ class TestTaxonomyChainReconciliation:
             profile=_make_profile(),
             narrative=_make_narrative(),
             attack_tree=tree,
-            behavior_spec="Feature: test",
+            behavior_spec=make_behavior_spec("Feature: test"),
             call_metadata_list=_make_call_metas(),
             model_name="test-model",
             use_case="test",
@@ -353,6 +359,7 @@ class TestTaxonomyChainReconciliation:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            projected_candidate=get_projected_candidate(),
         )
 
         assert set(envelope.faceting.taxonomy_chain.atlas_technique_ids) == {

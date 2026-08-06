@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from scenario_forge.models.scenario import ScenarioEnvelope
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 _SCHEMA_PATH = (
     Path(__file__).resolve().parents[1]
@@ -135,6 +136,7 @@ class TestSchemaDrift:
         )
 
         envelope = ScenarioEnvelope(
+            projection=make_projection_block(),
             scenario_id="scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
             candidate_id="cand:v1:11111111111111111111111111111111",
             initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -181,7 +183,7 @@ class TestSchemaDrift:
                     ],
                 ),
             ),
-            behavior_spec="Feature: Test",
+            behavior_spec=make_behavior_spec("Feature: Test"),
             faceting=FacetingMetadata(
                 risk_card=RiskCardRef(
                     risk_id="r1",

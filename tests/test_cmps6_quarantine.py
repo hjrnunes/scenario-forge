@@ -7,8 +7,14 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from scenario_forge.llm.client import LLMResult
-from scenario_forge.manifest import AttemptDisposition, RunStatus, load_manifest
+from scenario_forge.manifest import (
+    ArtifactRole,
+    AttemptDisposition,
+    RunStatus,
+    load_manifest,
+)
 from scenario_forge.models.capability_profile import ConfidenceLevel
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import ActorAccessProvenance
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
 from scenario_forge.pipeline.coverage import CoverageGaps
@@ -123,7 +129,7 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
         eval_scenario_ids.extend(
             item.scenario_id
             for item in resolver.manifest.inventory
-            if item.scenario_id is not None
+            if item.role is ArtifactRole.SCENARIO_YAML
         )
         return {"metrics": {}}
 
@@ -179,6 +185,10 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
         ),
         patch("scenario_forge.eval.runner.run_evaluation", side_effect=evaluate),
         patch("scenario_forge.report.generator.generate_report", side_effect=report),
+        patch(
+            "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+            return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
+        ),
     ):
         result = run_pipeline(
             use_case="A chatbot with a direct user prompt entry point.",

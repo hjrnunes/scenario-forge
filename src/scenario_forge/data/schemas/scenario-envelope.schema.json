@@ -15,7 +15,8 @@
     "faceting",
     "priority",
     "generation",
-    "initial_entry_point_id"
+    "initial_entry_point_id",
+    "projection"
   ],
   "properties": {
     "scenario_id": {
@@ -32,7 +33,7 @@
     "version": {
       "type": "integer",
       "minimum": 1,
-      "default": 2
+      "default": 3
     },
     "generated_at": {
       "type": "string",
@@ -90,7 +91,8 @@
       "$ref": "#/$defs/AttackTree"
     },
     "behavior_spec": {
-      "description": "Tool-neutral test specification. Stored as dict or Gherkin text."
+      "$ref": "#/$defs/BehaviorSpec",
+      "description": "Structured behavior specification with projection-traceable actions and assertions. Pre-alpha: no raw string/dict loophole on the authoritative envelope (422o.4)."
     },
     "faceting": {
       "$ref": "#/$defs/FacetingMetadata"
@@ -136,28 +138,8 @@
       "pattern": "^ep:v1:[0-9a-f]{32}$"
     },
     "projection": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ProjectionEnvelopeBlock"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Deeply immutable, standalone canonical projection snapshot with execution requirements and artifact realization mappings. Absent on legacy envelopes generated before the projection migration; required for candidate-v2 generation."
-    },
-    "projection_traceability": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ProjectionTraceabilityResult"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Typed traceability validation result attributing violations to the earliest responsible generated stage. Consumed by cmps.5 for bounded retry and quarantine routing."
+      "$ref": "#/$defs/ProjectionEnvelopeBlock",
+      "description": "Deeply immutable, standalone canonical projection snapshot with execution requirements and artifact realization mappings. Every generated scenario must embed exactly one projection block."
     }
   },
   "$defs": {
@@ -436,6 +418,50 @@
               "type": "null"
             }
           ]
+        },
+        "projected_step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Canonical projected step IDs that this narrative step realizes. Controlled many-to-many."
+        },
+        "canonical_action_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical action kind from the projected step."
+        },
+        "canonical_executor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical executor role from the projected step."
+        },
+        "canonical_boundary_position": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical boundary position from the projected step."
         }
       }
     },
@@ -826,6 +852,14 @@
               "type": "null"
             }
           ]
+        },
+        "projected_step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Canonical projected step IDs that this tree leaf realizes. Controlled many-to-many."
         }
       },
       "allOf": [
@@ -1842,8 +1876,12 @@
       "description": "Deeply immutable, standalone canonical projection persisted on the envelope.\n\nCarries the full immutable projection snapshot, derived execution\nrequirements, projected taxonomy mappings, canonical ingress identity,\nand artifact realization mappings.  Every generated artifact receives\nthe same fixed projection constraints; generated content realizes but\nnever chooses or mutates the projection.",
       "properties": {
         "schema_version": {
-          "const": "1",
-          "default": "1",
+          "const": "2",
+          "default": "2",
+          "description": "Schema version.",
+          "enum": [
+            "2"
+          ],
           "title": "Schema Version",
           "type": "string"
         },
@@ -1912,6 +1950,11 @@
           "title": "Execution Requirements Digest",
           "type": "string"
         },
+        "derivation_context_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Context Digest",
+          "type": "string"
+        },
         "narrative_realizations": {
           "default": [],
           "items": {
@@ -1951,29 +1994,10 @@
         "ingress_controllability",
         "projected_mappings",
         "execution_requirements",
-        "execution_requirements_digest"
+        "execution_requirements_digest",
+        "derivation_context_digest"
       ],
       "title": "ProjectionEnvelopeBlock",
-      "type": "object"
-    },
-    "ProjectionTraceabilityResult": {
-      "additionalProperties": false,
-      "description": "Aggregated traceability validation result for cmps.5 consumption.",
-      "properties": {
-        "valid": {
-          "default": true,
-          "title": "Valid",
-          "type": "boolean"
-        },
-        "violations": {
-          "items": {
-            "$ref": "#/$defs/ProjectionTraceabilityViolation"
-          },
-          "title": "Violations",
-          "type": "array"
-        }
-      },
-      "title": "ProjectionTraceabilityResult",
       "type": "object"
     },
     "ProjectionTraceabilityViolation": {
@@ -4005,6 +4029,143 @@
         "entry_point_id"
       ],
       "title": "OutputSurfaceResourceReference",
+      "type": "object"
+    },
+    "BehaviorAction": {
+      "additionalProperties": false,
+      "description": "A structured behavior spec action tied to a projected step.\n\nEach behavior action carries the canonical projected step ID it\nrealizes and the tree leaf it was derived from, enabling deterministic\ntraceability without Gherkin parsing.",
+      "properties": {
+        "action_id": {
+          "description": "Stable behavior action identifier, deterministically derived from the tree leaf ID (e.g. 'ba-<leaf_id>').",
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        },
+        "source_leaf_id": {
+          "description": "Attack tree leaf node ID this behavior action was derived from.",
+          "pattern": "^n\\d+(\\.\\d+){0,4}$",
+          "title": "Source Leaf Id",
+          "type": "string"
+        },
+        "gherkin_keyword": {
+          "description": "Gherkin keyword for this action step.",
+          "enum": [
+            "Given",
+            "When",
+            "Then"
+          ],
+          "title": "Gherkin Keyword",
+          "type": "string"
+        },
+        "text": {
+          "description": "Gherkin step text for this action.",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "projected_step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Canonical projected step IDs this behavior action realizes."
+        }
+      },
+      "required": [
+        "action_id",
+        "source_leaf_id",
+        "gherkin_keyword",
+        "text",
+        "projected_step_ids"
+      ],
+      "title": "BehaviorAction",
+      "type": "object"
+    },
+    "BehaviorAssertion": {
+      "additionalProperties": false,
+      "description": "A structured behavior assertion tied to projected postconditions.\n\nAssertions map to projected observable postconditions, not to setup\nsteps.  Each assertion carries the canonical postcondition IDs and\nsource step IDs it verifies.",
+      "properties": {
+        "assertion_id": {
+          "description": "Stable assertion identifier, deterministically derived from the source step and postcondition (e.g. 'assert-<step>-<pc>').",
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "source_step_ids": {
+          "description": "Projected step IDs that own the postconditions this assertion verifies.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Step Ids",
+          "type": "array"
+        },
+        "projected_postcondition_ids": {
+          "description": "Observable postcondition IDs this assertion verifies.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Projected Postcondition Ids",
+          "type": "array"
+        },
+        "gherkin_keyword": {
+          "const": "Then",
+          "default": "Then",
+          "description": "Gherkin keyword for this assertion (always 'Then').",
+          "title": "Gherkin Keyword",
+          "type": "string"
+        },
+        "text": {
+          "description": "Gherkin step text for this assertion.",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "source_step_ids",
+        "projected_postcondition_ids",
+        "text"
+      ],
+      "title": "BehaviorAssertion",
+      "type": "object"
+    },
+    "BehaviorSpec": {
+      "additionalProperties": false,
+      "description": "Structured behavior specification with projection traceability.\n\nCarries structured actions and assertions with canonical projected\nstep/postcondition references, plus the rendered Gherkin text.\nValidation can cross-check the structured elements against the\nrendered Gherkin and the projection block without parsing Gherkin.",
+      "properties": {
+        "actions": {
+          "description": "Structured behavior actions tied to projected steps.",
+          "items": {
+            "$ref": "#/$defs/BehaviorAction"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "assertions": {
+          "description": "Structured behavior assertions tied to projected postconditions.",
+          "items": {
+            "$ref": "#/$defs/BehaviorAssertion"
+          },
+          "title": "Assertions",
+          "type": "array"
+        },
+        "gherkin_text": {
+          "description": "Rendered Gherkin feature text.",
+          "minLength": 1,
+          "title": "Gherkin Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actions",
+        "assertions",
+        "gherkin_text"
+      ],
+      "title": "BehaviorSpec",
       "type": "object"
     }
   }

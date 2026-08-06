@@ -50,6 +50,7 @@ from scenario_forge.pipeline.validation import (
     _extract_narrative_technique_ids,
     validate_scenario_semantics,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,7 +150,16 @@ def _make_envelope(
         )
 
     if behavior_spec is None:
-        behavior_spec = {}
+        behavior_spec = make_behavior_spec()
+    elif isinstance(behavior_spec, str):
+        # Wrap raw Gherkin string into a minimal BehaviorSpec (422o.4).
+        from scenario_forge.models.scenario import BehaviorSpec as _BS
+
+        behavior_spec = _BS(
+            actions=(),
+            assertions=(),
+            gherkin_text=behavior_spec if behavior_spec else "Feature: test",
+        )
 
     attack_tree = AttackTree(
         id="tree-AP-T7-01",
@@ -202,6 +212,7 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id="scenario:v2:ae309cc9a43cb233c07a684edc2a8cd7d11c05ac17af6f10d5c8a9ac93927c7d",
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -865,11 +876,18 @@ Feature: Attack
         assert "reasoning" in zone_violations[0].message
 
     def test_non_string_behavior_spec_skips_gherkin_check(self):
-        """When behavior_spec is not a string, Gherkin zone check is skipped."""
+        """When behavior_spec has no Gherkin zones, zone check finds none."""
         profile = _make_profile()
+        # Use a BehaviorSpec with minimal Gherkin that has no zone mentions.
+        from scenario_forge.models.scenario import BehaviorSpec as _BS
+
         envelope = _make_envelope(
             zone_sequence=["input", "reasoning"],
-            behavior_spec={"key": "value"},  # dict, not string
+            behavior_spec=_BS(
+                actions=(),
+                assertions=(),
+                gherkin_text="Feature: Test\n  Scenario: Test\n    Given something\n",
+            ),
             seed_metadata={"threat_id": "T7"},
         )
         validate_scenario_semantics([envelope], profile)
@@ -879,15 +897,27 @@ Feature: Attack
             for v in envelope.validation.semantic.violations
             if v.rule == "zone_omission_gherkin"
         ]
-        # No Gherkin zone violations since behavior_spec is not a string
-        assert len(zone_violations) == 0
+        # Gherkin without zone mentions produces zone omission violations
+        # for each narrative zone not found in the Gherkin text.
+        assert len(zone_violations) == 2
 
     def test_empty_behavior_spec_skips_gherkin_check(self):
-        """When behavior_spec is an empty string, Gherkin zone check is skipped."""
+        """BehaviorSpec with Gherkin containing all zones passes zone check."""
         profile = _make_profile()
+        from scenario_forge.models.scenario import BehaviorSpec as _BS
+
         envelope = _make_envelope(
             zone_sequence=["input", "reasoning"],
-            behavior_spec="",
+            behavior_spec=_BS(
+                actions=(),
+                assertions=(),
+                gherkin_text=(
+                    "Feature: Test\n"
+                    "  Scenario: Test\n"
+                    "    Given something in (input)\n"
+                    "    Then something in (reasoning)\n"
+                ),
+            ),
             seed_metadata={"threat_id": "T7"},
         )
         validate_scenario_semantics([envelope], profile)
@@ -1175,7 +1205,7 @@ Feature: Attack
         envelope = _make_envelope(
             zone_sequence=["input", "reasoning"],
             tree_root=tree_root,
-            behavior_spec="",  # empty string -> gherkin_zones = set()
+            behavior_spec="Feature: test\n",  # no zone markers -> gherkin_zones = set()
             seed_metadata={"threat_id": "T7"},
         )
         validate_scenario_semantics([envelope], profile)

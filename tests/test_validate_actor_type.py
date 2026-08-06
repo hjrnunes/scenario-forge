@@ -12,6 +12,7 @@ from scenario_forge.models.capability_profile import (
     ConfidenceLevel,
     EntryPoint,
 )
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import ActorAccessProvenance, ActorProfile
 from scenario_forge.pipeline.generate import (
     _ADVERSARIAL_ONLY_THREATS,
@@ -20,6 +21,7 @@ from scenario_forge.pipeline.generate import (
     generate_scenario,
 )
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
+from tests.helpers.projection_factory import get_projected_candidate
 
 _INSIDER_TYPES = frozenset({"negligent-insider", "malicious-insider"})
 
@@ -330,6 +332,10 @@ def _make_client_mock():
     return client
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestBDIRegeneration:
     """Tests for actor profile regeneration after BDI validation reassignment.
 
@@ -390,6 +396,7 @@ class TestBDIRegeneration:
                 pinned_entry_point_id=ep_id,
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
+                projected_candidate=get_projected_candidate(),
             )
 
         assert mock_actor.call_count == 2
@@ -434,6 +441,7 @@ class TestBDIRegeneration:
             pinned_entry_point_id=ep_id,
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            projected_candidate=get_projected_candidate(),
         )
 
         assert mock_actor.call_count == 1
@@ -479,6 +487,7 @@ class TestBDIRegeneration:
             pinned_entry_point_id=ep_id,
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            projected_candidate=get_projected_candidate(),
         )
 
         _, assemble_kwargs = mock_assemble.call_args
@@ -517,6 +526,7 @@ class TestBDIRegeneration:
                 pinned_entry_point_id=ep_id,
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
+                projected_candidate=get_projected_candidate(),
             )
 
     @patch(_PATCHES[0])
@@ -564,6 +574,7 @@ class TestBDIRegeneration:
                 pinned_entry_point_id=ep_id,
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
                 candidate_id="cand:v1:11111111111111111111111111111111",
+                projected_candidate=get_projected_candidate(),
             )
 
         # Re-validation reassigns again; _assemble_envelope gets adversarial-user
@@ -599,6 +610,7 @@ class TestBDIRegeneration:
             pinned_entry_point_id=ep_id,
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            projected_candidate=get_projected_candidate(),
         )
 
         assert mock_actor.call_count == 1
@@ -641,6 +653,7 @@ class TestBDIRegeneration:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             preferred_actor_type="negligent-insider",
+            projected_candidate=get_projected_candidate(),
         )
 
         _, second_kwargs = mock_actor.call_args_list[1]
@@ -670,6 +683,10 @@ def _make_seed_with_threat(threat_id: str) -> ScenarioSeed:
     )
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestAdversarialOnlyThreats:
     """Tests for negligent-insider exclusion based on threat_id."""
 
@@ -724,6 +741,7 @@ class TestAdversarialOnlyThreats:
             pinned_entry_point_id=ep_id,
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            projected_candidate=get_projected_candidate(),
         )
 
         _, first_kwargs = mock_actor.call_args_list[0]
@@ -769,6 +787,7 @@ class TestAdversarialOnlyThreats:
             pinned_entry_point_id=ep_id,
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            projected_candidate=get_projected_candidate(),
         )
 
         _, first_kwargs = mock_actor.call_args_list[0]
@@ -813,6 +832,7 @@ class TestAdversarialOnlyThreats:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=["cybercriminal"],
+            projected_candidate=get_projected_candidate(),
         )
 
         _, first_kwargs = mock_actor.call_args_list[0]
@@ -856,6 +876,7 @@ class TestAdversarialOnlyThreats:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=["negligent-insider"],
+            projected_candidate=get_projected_candidate(),
         )
 
         _, first_kwargs = mock_actor.call_args_list[0]
@@ -898,6 +919,7 @@ class TestAdversarialOnlyThreats:
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
             excluded_actor_types=original_list,
+            projected_candidate=get_projected_candidate(),
         )
 
         assert original_list == ["cybercriminal"], "caller's list was mutated in place"
@@ -960,6 +982,7 @@ class TestAdversarialOnlyThreats:
             pinned_entry_point_id=ep_id,
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
             candidate_id="cand:v1:11111111111111111111111111111111",
+            projected_candidate=get_projected_candidate(),
         )
 
         # Threat-based exclusion was applied

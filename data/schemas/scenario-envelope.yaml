@@ -59,10 +59,12 @@ fields:
   version:
     type: int
     required: true
-    default: 1
+    default: 3
     description: >
       Monotonically increasing version number. Incremented on regeneration when
       the semantic identity tuple is stable but content has changed.
+      Version 3: scenario-forge-422o.4 projection traceability, structured
+      behavior spec, many-to-many realization, canonical narrative metadata.
 
   generated_at:
     type: datetime
@@ -89,7 +91,7 @@ fields:
 
   projection:
     type: object
-    required: false
+    required: true
     description: >-
       Deeply immutable, standalone canonical projection snapshot with
       execution requirements and artifact realization mappings.  Embeds the
@@ -97,18 +99,9 @@ fields:
       digests, ordered selected typed steps, condition evaluations/omissions,
       concrete canonical resource bindings), derived execution requirements,
       projected taxonomy mappings, canonical ingress identity, and artifact
-      realization mappings.  Absent on legacy envelopes generated before the
-      projection migration; required for candidate-v2 generation.  Generated
-      content realizes but never selects, alters, omits, reorders, or
-      fabricates projection semantics.
-
-  projection_traceability:
-    type: object
-    required: false
-    description: >-
-      Typed traceability validation result attributing violations to the
-      earliest responsible generated stage.  Consumed by cmps.5 for bounded
-      retry and quarantine routing.
+      realization mappings.  Every generated scenario must embed exactly
+      one projection block.  Generated content realizes but never selects,
+      alters, omits, reorders, or fabricates projection semantics.
 
   # ===================================================================
   # Layer 1: Narrative
@@ -246,6 +239,30 @@ fields:
         description: >
           If a defensive control exists at this step, name it. Used to identify
           single points of failure and defense-in-depth claims.
+      projected_step_ids:
+        type: list[str]
+        required: false
+        default: []
+        description: >
+          Canonical projected step IDs (from ProjectionEnvelopeBlock) that this
+          narrative step realizes. Controlled many-to-many. Required (non-empty)
+          on every narrative action step in scenarios with a projection block.
+      canonical_action_kind:
+        type: str
+        required: false
+        description: >
+          Canonical action kind from the projected step. Must be compatible
+          with the projected step's action_kind.
+      canonical_executor_role:
+        type: str
+        required: false
+        description: >
+          Canonical executor role from the projected step.
+      canonical_boundary_position:
+        type: str
+        required: false
+        description: >
+          Canonical boundary position from the projected step.
 
   # ===================================================================
   # Layer 2: Attack Tree

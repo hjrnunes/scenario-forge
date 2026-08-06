@@ -23,6 +23,7 @@ from scenario_forge.models.capability_profile import (
     compute_tool_id,
 )
 from scenario_forge.prompts import render_prompt
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -438,6 +439,7 @@ class TestPhantomToolValidation:
         )
 
         return ScenarioEnvelope(
+            projection=make_projection_block(),
             scenario_id="scenario:v2:e57506e29f4fc074e28395ca4cfa61d98d4e927d906b3e176611aaead83608c0",
             candidate_id="cand:v1:7e57c0de000000000000000000000000",
             initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -446,7 +448,7 @@ class TestPhantomToolValidation:
             generator_version="0.1.0",
             narrative=narrative,
             attack_tree=tree,
-            behavior_spec="Feature: Test",
+            behavior_spec=make_behavior_spec("Feature: Test"),
             faceting=faceting,
             priority=priority,
             generation=generation,

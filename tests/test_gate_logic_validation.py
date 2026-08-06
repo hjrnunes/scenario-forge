@@ -19,6 +19,7 @@ from scenario_forge.models.attack_tree import (
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
+    BehaviorSpec,
     CallMetadata,
     CallName,
     CapabilityProfileRef,
@@ -41,6 +42,7 @@ from scenario_forge.pipeline.validation import (
     _has_or_gates,
     validate_gate_logic_consistency,
 )
+from tests.helpers.projection_factory import make_projection_block
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -149,7 +151,12 @@ def _make_scenario(
     behavior_spec: str,
     scenario_id: str = "scenario:v2:6371d0867a839014a8322fbe7a1da0ac84164d2cf2da848cbe0ab719d816404a",
 ) -> ScenarioEnvelope:
-    """Build a minimal ScenarioEnvelope for validation testing."""
+    """Build a minimal ScenarioEnvelope for validation testing.
+
+    ``behavior_spec`` is a raw Gherkin string; it is wrapped in a
+    :class:`BehaviorSpec` so the structured-only envelope model accepts it.
+    Gate-logic validation counts ``Scenario:`` blocks in the rendered text.
+    """
     narrative = NarrativeLayer(
         title="Test Scenario",
         summary="Test summary",
@@ -213,6 +220,7 @@ def _make_scenario(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -224,7 +232,11 @@ def _make_scenario(
         },
         narrative=narrative,
         attack_tree=tree,
-        behavior_spec=behavior_spec,
+        behavior_spec=BehaviorSpec(
+            actions=(),
+            assertions=(),
+            gherkin_text=behavior_spec,
+        ),
         faceting=faceting,
         priority=priority,
         generation=generation,
@@ -365,8 +377,13 @@ class TestValidateGateLogicConsistency:
         assert result.clean_count == 1
 
     def test_empty_behavior_spec_clean(self):
-        """Missing behavior spec is treated as clean (nothing to validate)."""
-        scenario = _make_scenario(_or_gate_tree(), "")
+        """AND-only tree short-circuits before inspecting Gherkin content.
+
+        With the structured BehaviorSpec model, gherkin_text is never empty
+        for a valid envelope.  An AND-only tree has no OR gates, so
+        gate-logic validation is clean regardless of Gherkin content.
+        """
+        scenario = _make_scenario(_and_only_tree(), "Feature: benign\n")
         result = validate_gate_logic_consistency([scenario])
         assert result.clean_count == 1
         assert result.flagged_count == 0

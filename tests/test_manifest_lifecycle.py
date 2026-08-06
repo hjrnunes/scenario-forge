@@ -56,6 +56,7 @@ from scenario_forge.manifest import (
     write_failed_manifest,
     write_manifest_sentinel,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 from tests.manifest_helpers import build_test_run_dir
 
 # --------------------------------------------------------------------------- #
@@ -2799,6 +2800,7 @@ class TestThirdReviewCallLogFailure:
             expected_sid = compute_scenario_id(run_id, cid, 1)
 
             envelope = ScenarioEnvelope(
+                projection=make_projection_block(),
                 scenario_id=expected_sid,
                 candidate_id=cid,
                 initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -2846,7 +2848,9 @@ class TestThirdReviewCallLogFailure:
                         ],
                     ),
                 ),
-                behavior_spec="Feature: Test\n  Scenario: Test\n    Given x\n",
+                behavior_spec=make_behavior_spec(
+                    "Feature: Test\n  Scenario: Test\n    Given x\n"
+                ),
                 faceting=FacetingMetadata(
                     risk_card=RiskCardRef(
                         risk_id="test-risk",

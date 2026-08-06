@@ -49,6 +49,7 @@ from scenario_forge.pipeline.validation import (
     _check_session_introspection,
     validate_phantom_capabilities,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -225,6 +226,7 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
         candidate_id="cand:v1:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -232,7 +234,9 @@ def _make_envelope(
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec=behavior_spec if behavior_spec is not None else {},
+        behavior_spec=behavior_spec
+        if behavior_spec is not None
+        else make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,

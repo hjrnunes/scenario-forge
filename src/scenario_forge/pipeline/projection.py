@@ -100,6 +100,9 @@ def _digest(domain: str, value: Any) -> str:
 #: Domain separator for execution-requirements digest computation.
 EXECUTION_REQUIREMENTS_DIGEST_DOMAIN = "scenario-forge:execution-requirements:v1"
 
+#: Domain separator for derivation context digest computation.
+DERIVATION_CONTEXT_DIGEST_DOMAIN = "scenario-forge:derivation-context:v1"
+
 
 def compute_execution_requirements_digest(
     requirements: Any,
@@ -115,6 +118,27 @@ def compute_execution_requirements_digest(
         else:
             payloads.append(item)
     return _digest(EXECUTION_REQUIREMENTS_DIGEST_DOMAIN, payloads)
+
+
+def compute_derivation_context_digest(
+    projection_digest: str,
+    pattern_id: str,
+    ingress_controllability: str,
+) -> str:
+    """Compute the derivation context digest binding controllability.
+
+    Binds projection_digest + pattern_id + ingress_controllability into a
+    verified immutable digest so a caller cannot flip controllability and
+    re-sign arbitrary requirements.
+    """
+    return _digest(
+        DERIVATION_CONTEXT_DIGEST_DOMAIN,
+        {
+            "projection_digest": projection_digest,
+            "pattern_id": pattern_id,
+            "ingress_controllability": ingress_controllability,
+        },
+    )
 
 
 def _fact_key(reference: AuthoritativeFactReference) -> str:
@@ -624,14 +648,16 @@ def _coverage_first_combinations(
     return tuple(ordered)
 
 
-def _derive_execution_requirements(
+def _derive_execution_requirements_core(
     pattern_id: str,
     chain: CanonicalAttackChain,
     projection: ProjectionSnapshot,
-    snapshot: CapabilityFactSnapshot,
+    ingress_controllability: Literal["direct", "indirect"],
 ) -> tuple[tuple[ExecutionRequirement, ...] | None, ProjectionIssue | None]:
     """Derive execution requirements from explicit canonical linkage only.
 
+    Pure function over the embedded source chain, projection bindings, and
+    the resolved ingress controllability.  No external snapshot is needed.
     No inference from action kind, name, prose, cardinality, taxonomy mapping,
     or catalog partition.  Every requirement is traced to an explicit
     ``resource_links`` or ``observable_outcome_links`` entry on a selected
@@ -639,7 +665,6 @@ def _derive_execution_requirements(
     that have an explicit observable outcome link, not from the
     ``security_relevant`` flag alone.
     """
-    bindings = {item.slot_id: item.resource_ref for item in projection.bindings}
     slots_by_id = {slot.slot_id: slot for slot in chain.resource_slots}
     selected_steps = [
         step
@@ -652,17 +677,7 @@ def _derive_execution_requirements(
         for link in step.resource_links:
             slot = slots_by_id[link.slot_id]
             if link.role == "ingress":
-                ingress_ref = bindings[link.slot_id]
-                if not isinstance(ingress_ref, EntryPointResourceReference):
-                    raise TypeError(  # pragma: no cover - contract guard
-                        "ingress binding is not an entry point"
-                    )
-                ingress = snapshot.profile.resolve_entry_point(
-                    ingress_ref.entry_point_id
-                )
-                if ingress is None:
-                    raise ValueError("canonical ingress is absent from snapshot")
-                if ingress.effective_controllability != "direct":
+                if ingress_controllability != "direct":
                     return None, ProjectionIssue(
                         code="unsupported_requirement_derivation",
                         pattern_id=pattern_id,
@@ -788,6 +803,42 @@ def _fail_closed_if_no_requirements(
             ),
         )
     return requirements, issue
+
+
+def _derive_execution_requirements(
+    pattern_id: str,
+    chain: CanonicalAttackChain,
+    projection: ProjectionSnapshot,
+    snapshot: CapabilityFactSnapshot,
+) -> tuple[tuple[ExecutionRequirement, ...] | None, ProjectionIssue | None]:
+    """Derive execution requirements, resolving ingress controllability from snapshot.
+
+    Backward-compatible wrapper around :func:`_derive_execution_requirements_core`
+    that resolves the ingress controllability from the capability fact snapshot.
+    """
+    bindings = {item.slot_id: item.resource_ref for item in projection.bindings}
+    for step in chain.steps:
+        if step.step_id not in set(projection.selected_step_ids):
+            continue
+        for link in step.resource_links:
+            if link.role == "ingress":
+                ingress_ref = bindings[link.slot_id]
+                if not isinstance(ingress_ref, EntryPointResourceReference):
+                    raise TypeError(  # pragma: no cover - contract guard
+                        "ingress binding is not an entry point"
+                    )
+                ingress = snapshot.profile.resolve_entry_point(
+                    ingress_ref.entry_point_id
+                )
+                if ingress is None:
+                    raise ValueError("canonical ingress is absent from snapshot")
+                return _derive_execution_requirements_core(
+                    pattern_id, chain, projection, ingress.effective_controllability
+                )
+    # No ingress link found — proceed with indirect (will fail closed).
+    return _derive_execution_requirements_core(
+        pattern_id, chain, projection, "indirect"
+    )
 
 
 def _projected_mappings(
