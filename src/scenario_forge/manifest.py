@@ -31,12 +31,14 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-
 # --------------------------------------------------------------------------- #
 # Constants and versions
 # --------------------------------------------------------------------------- #
 
-MANIFEST_VERSION = "2"
+LEGACY_MANIFEST_VERSION = "2"
+# Compatibility constant retained for callers that historically used this as
+# the v2 reader/default sentinel version.  Production opts into v3 explicitly.
+MANIFEST_VERSION = LEGACY_MANIFEST_VERSION
 MANIFEST_V3 = "3"
 ARTIFACT_SCHEMA_VERSION = "1"
 _RUN_ID_TIMESTAMP_LEN = 15  # YYYYMMDDTHHMMSS
@@ -62,7 +64,7 @@ class RunStatus(str, Enum):
     FAILED = "failed"
 
     @classmethod
-    def final_statuses(cls) -> set["RunStatus"]:
+    def final_statuses(cls) -> set[RunStatus]:
         return {cls.COMPLETED, cls.COMPLETED_WITH_ERRORS, cls.FAILED}
 
     @property
@@ -225,7 +227,7 @@ SINGLETON_ROLES: frozenset[ArtifactRole] = frozenset(
 
 
 def required_singleton_roles(
-    *, eval_enabled: bool, manifest_version: str = MANIFEST_VERSION
+    *, eval_enabled: bool, manifest_version: str = LEGACY_MANIFEST_VERSION
 ) -> set[ArtifactRole]:
     """Return the set of singleton roles required for ``completed`` status.
 
@@ -287,7 +289,7 @@ class AttemptRecord(BaseModel):
     model_config = {"use_enum_values": False}
 
     @model_validator(mode="after")
-    def _validate_evidence(self) -> "AttemptRecord":
+    def _validate_evidence(self) -> AttemptRecord:
         """Failed and quarantined attempts require nonempty evidence."""
         if self.disposition in (
             AttemptDisposition.FAILED,
@@ -575,6 +577,7 @@ def write_manifest_sentinel(
     run_id: str,
     timestamp_start: str,
     package_version: str | None = None,
+    manifest_version: str = MANIFEST_VERSION,
 ) -> Path:
     """Write the initial manifest sentinel before any pipeline work begins.
 
@@ -585,7 +588,7 @@ def write_manifest_sentinel(
         package_version = _get_package_version()
 
     sentinel = {
-        "manifest_version": MANIFEST_VERSION,
+        "manifest_version": manifest_version,
         "status": RunStatus.STARTED.value,
         "run_id": run_id,
         "timestamp_start": timestamp_start,
@@ -868,7 +871,7 @@ class ManifestInventoryResolver:
                     f"Invalid or unknown artifact role: {entry.role!r}"
                 ) from None
 
-            if self.manifest.manifest_version == MANIFEST_VERSION and role in {
+            if self.manifest.manifest_version == LEGACY_MANIFEST_VERSION and role in {
                 ArtifactRole.COVERAGE_PLAN,
                 ArtifactRole.FINALIZATION_INVENTORY,
                 ArtifactRole.QUARANTINE_BUNDLE,
@@ -1388,10 +1391,10 @@ def load_manifest(
             f"Unsupported manifest version {actual_version!r}; "
             f"version {requested_version!r} was explicitly requested"
         )
-    if actual_version not in {MANIFEST_VERSION, MANIFEST_V3}:
+    if actual_version not in {LEGACY_MANIFEST_VERSION, MANIFEST_V3}:
         raise ManifestIntegrityError(
             f"Unsupported manifest version {actual_version!r}; supported versions are "
-            f"{MANIFEST_VERSION!r} and {MANIFEST_V3!r}"
+            f"{LEGACY_MANIFEST_VERSION!r} and {MANIFEST_V3!r}"
         )
     return RunManifest.model_validate(data)
 
@@ -1860,7 +1863,9 @@ def validate_completed_inventory(
         _resolver = ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
 
     # Check required singleton roles
-    required = required_singleton_roles(eval_enabled=eval_enabled)
+    required = required_singleton_roles(
+        eval_enabled=eval_enabled, manifest_version=manifest.manifest_version
+    )
     present_roles: set[ArtifactRole] = set()
     for entry in manifest.inventory:
         try:
@@ -1928,21 +1933,28 @@ def validate_completed_inventory(
             f"Scenario YAML/feature ID set mismatch: {'; '.join(parts)}"
         )
 
-    # --- Attempt equations (shared with all final statuses) ---
-    validate_attempt_equations(manifest)
+    # Manifest-v3's durable FinalizationInventory is the attempt authority.
+    # Keep the generic role/pair/count checks here, but do not reconcile its
+    # lifecycle against the legacy manifest.attempts projection.
+    if manifest.manifest_version == MANIFEST_V3:
+        admitted_attempt_keys: set[tuple[str, str]] = set()
+        quarantined_attempt_keys: set[tuple[str, str]] = set()
+    else:
+        validate_attempt_equations(manifest)
 
     # --- Admitted/quarantined scenario inventory identities == attempts ---
     # Reconcile by exact (scenario_id, candidate_id), not scenario_id only.
-    admitted_attempt_keys = {
-        (a.scenario_id, a.candidate_id)
-        for a in manifest.attempts
-        if a.disposition == AttemptDisposition.ADMITTED
-    }
-    quarantined_attempt_keys = {
-        (a.scenario_id, a.candidate_id)
-        for a in manifest.attempts
-        if a.disposition == AttemptDisposition.QUARANTINED
-    }
+    if manifest.manifest_version != MANIFEST_V3:
+        admitted_attempt_keys = {
+            (a.scenario_id, a.candidate_id)
+            for a in manifest.attempts
+            if a.disposition == AttemptDisposition.ADMITTED
+        }
+        quarantined_attempt_keys = {
+            (a.scenario_id, a.candidate_id)
+            for a in manifest.attempts
+            if a.disposition == AttemptDisposition.QUARANTINED
+        }
     # Build inventory scenario (scenario_id, candidate_id) sets
     yaml_inventory_keys: set[tuple[str, str]] = set()
     for entry in manifest.inventory:
@@ -1955,7 +1967,10 @@ def validate_completed_inventory(
 
     # Admitted (non-quarantined) inventory keys must equal admitted attempt keys
     inventory_non_quarantined_keys = yaml_inventory_keys - quarantined_attempt_keys
-    if inventory_non_quarantined_keys != admitted_attempt_keys:
+    if (
+        manifest.manifest_version != MANIFEST_V3
+        and inventory_non_quarantined_keys != admitted_attempt_keys
+    ):
         raise ManifestIntegrityError(
             f"Admitted scenario identity mismatch: "
             f"inventory(non-quarantined)={sorted(inventory_non_quarantined_keys)}, "
@@ -1963,7 +1978,10 @@ def validate_completed_inventory(
         )
     # Quarantined inventory keys must equal quarantined attempt keys
     quarantined_in_inventory = yaml_inventory_keys & quarantined_attempt_keys
-    if quarantined_in_inventory != quarantined_attempt_keys:
+    if (
+        manifest.manifest_version != MANIFEST_V3
+        and quarantined_in_inventory != quarantined_attempt_keys
+    ):
         raise ManifestIntegrityError(
             f"Quarantined scenario identity mismatch: "
             f"inventory(quarantined)={sorted(quarantined_in_inventory)}, "

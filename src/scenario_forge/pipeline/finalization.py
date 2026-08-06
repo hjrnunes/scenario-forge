@@ -196,6 +196,7 @@ class StageInvocation:
     artifacts: GeneratedArtifacts
     final_tree_digest: str | None = None
     candidate_snapshot: Any | None = None
+    retry_feedback: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +335,13 @@ class TargetFinalizationMachine:
     artifacts: GeneratedArtifacts = field(default_factory=GeneratedArtifacts)
     invocation_counts: dict[GeneratedStage, int] = field(default_factory=dict)
     owner_retry_counts: dict[GeneratedStage, int] = field(default_factory=dict)
+    retry_feedback: dict[GeneratedStage, str] = field(default_factory=dict)
+    transition_index_offset: int = 0
+    resume_candidate_id: str | None = None
+    resume_next_stage: GeneratedStage | None = None
+    resume_artifacts: GeneratedArtifacts | None = None
+    resume_invocation_counts: dict[GeneratedStage, int] = field(default_factory=dict)
+    resume_owner_retry_counts: dict[GeneratedStage, int] = field(default_factory=dict)
     transitions: list[LifecycleTransition] = field(default_factory=list)
     violations: list[LifecycleViolation] = field(default_factory=list)
 
@@ -345,7 +353,7 @@ class TargetFinalizationMachine:
             current=state,
             candidate_id=candidate_id,
             reason=reason,
-            transition_index=len(self.transitions),
+            transition_index=self.transition_index_offset + len(self.transitions),
             target_entry_point_id=self.entry.entry_point_id,
         )
         self.persistence.record_transition(transition)
@@ -380,6 +388,7 @@ class TargetFinalizationMachine:
                 final_tree_snapshot.digest if final_tree_snapshot is not None else None
             ),
             candidate_snapshot=candidate,
+            retry_feedback=self.retry_feedback.get(stage),
         )
         try:
             result = self.stage_callbacks[stage](candidate, invocation)
@@ -435,6 +444,14 @@ class TargetFinalizationMachine:
         if used >= MAX_OWNER_RETRIES:
             return None
         self.owner_retry_counts[owner] = used + 1
+        self.retry_feedback[owner] = (
+            "; ".join(
+                f"{item.code}: {item.detail}"
+                for item in violations
+                if item.owner is owner
+            )
+            or f"Retry {owner.value} to correct validation failure"
+        )
         self.artifacts.invalidate_from(owner)
         return owner
 
@@ -443,19 +460,27 @@ class TargetFinalizationMachine:
         candidate: Any,
         candidate_id: str,
         verified_candidate: VerifiedCandidateSnapshot,
+        next_stage: GeneratedStage = GeneratedStage.actor,
     ) -> CandidateTerminalResult:
-        next_stage = GeneratedStage.actor
         snapshot: FinalTreeSnapshot | None = None
         finalized_authority: PrebehaviorFinalizationResult | None = None
+        resume_boundary_state = (
+            self.state if candidate_id == self.resume_candidate_id else None
+        )
         while True:
             for stage in GENERATION_ORDER[GENERATION_ORDER.index(next_stage) :]:
-                if stage is GeneratedStage.behavior:  # noqa: SIM102 - snapshot branch
+                if stage is GeneratedStage.behavior:
                     if snapshot is None:
-                        self._transition(
+                        if resume_boundary_state not in {
                             LifecycleState.finalizing_prebehavior,
-                            candidate_id,
-                            "tree complete",
-                        )
+                            LifecycleState.generating_behavior,
+                            LifecycleState.admitting,
+                        }:
+                            self._transition(
+                                LifecycleState.finalizing_prebehavior,
+                                candidate_id,
+                                "tree complete",
+                            )
                         finalized = self.prebehavior_finalizer(
                             CandidateFinalizationContext(candidate, verified_candidate),
                             self.artifacts,
@@ -489,6 +514,12 @@ class TargetFinalizationMachine:
                                 candidate_id, finalized.repair_record
                             )
 
+                    # A successful behavior result may already be durable when
+                    # a process exits before deterministic admission. Reuse it;
+                    # never repeat the external behavior invocation.
+                    if self.artifacts.behavior is not None:
+                        continue
+
                 stage_violations = self._invoke_stage(
                     candidate, candidate_id, stage, snapshot
                 )
@@ -510,9 +541,10 @@ class TargetFinalizationMachine:
                     raise RuntimeError(
                         "behavior completed without finalized tree snapshot"
                     )
-                self._transition(
-                    LifecycleState.admitting, candidate_id, "stages complete"
-                )
+                if self.state is not LifecycleState.admitting:
+                    self._transition(
+                        LifecycleState.admitting, candidate_id, "stages complete"
+                    )
                 admission_candidate = candidate
                 admission_artifacts = copy.deepcopy(self.artifacts)
                 verify_tree = getattr(snapshot, "verify_digest", None)
@@ -557,19 +589,28 @@ class TargetFinalizationMachine:
     def run(self) -> TargetFinalizationResult:
         for ref in ordered_target_choice_refs(self.entry):
             ref_id = ref["candidate_id"]
-            if ref_id in self.attempted_candidate_ids:
+            resuming = ref_id == self.resume_candidate_id
+            if ref_id in self.attempted_candidate_ids and not resuming:
                 continue
             # Invocation and owner-retry indexes are candidate-local traces.
-            self.invocation_counts = {}
-            self.owner_retry_counts = {}
-            self._transition(
-                LifecycleState.revalidating_candidate,
-                ref_id,
-                "authoritative revalidation",
+            self.invocation_counts = (
+                dict(self.resume_invocation_counts) if resuming else {}
             )
-            # Reserve only after the durable transition succeeds, but before
-            # authoritative validation or any generation callback.
-            self.attempted_candidate_ids.add(ref_id)
+            self.owner_retry_counts = (
+                dict(self.resume_owner_retry_counts) if resuming else {}
+            )
+            self.retry_feedback = {}
+            if resuming:
+                self.artifacts = self.resume_artifacts or GeneratedArtifacts()
+            else:
+                self._transition(
+                    LifecycleState.revalidating_candidate,
+                    ref_id,
+                    "authoritative revalidation",
+                )
+                # Reserve only after the durable transition succeeds, but before
+                # authoritative validation or any generation callback.
+                self.attempted_candidate_ids.add(ref_id)
             try:
                 validation = self.candidate_revalidator(ref)
             except Exception as exc:  # noqa: BLE001 - terminal lifecycle evidence
@@ -617,8 +658,10 @@ class TargetFinalizationMachine:
                         ref_id, CandidateTerminalStatus.rejected, tuple(violations)
                     )
                 else:
-                    self.artifacts = GeneratedArtifacts()
-                    self.owner_retry_counts = {}
+                    if not resuming:
+                        self.artifacts = GeneratedArtifacts()
+                        self.owner_retry_counts = {}
+                    self.retry_feedback = {}
                     try:
                         verified_candidate = _capture_verified_candidate(
                             validation.candidate
@@ -639,7 +682,12 @@ class TargetFinalizationMachine:
                     else:
                         try:
                             terminal = self._run_candidate(
-                                validation.candidate, ref_id, verified_candidate
+                                validation.candidate,
+                                ref_id,
+                                verified_candidate,
+                                self.resume_next_stage
+                                if resuming and self.resume_next_stage is not None
+                                else GeneratedStage.actor,
                             )
                         except FinalizationPersistenceError:
                             raise
@@ -698,7 +746,7 @@ class TargetFinalizationMachine:
                 current=terminal_state,
                 candidate_id=ref_id,
                 reason=f"candidate terminal status: {terminal.status.value}",
-                transition_index=len(self.transitions),
+                transition_index=self.transition_index_offset + len(self.transitions),
                 target_entry_point_id=self.entry.entry_point_id,
             )
             self.state = terminal_state

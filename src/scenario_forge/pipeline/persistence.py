@@ -18,8 +18,8 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 import yaml
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from scenario_forge.manifest import (
     ArtifactEntry,
@@ -29,27 +29,27 @@ from scenario_forge.manifest import (
     atomic_write_text,
     build_artifact_entry,
 )
+from scenario_forge.pipeline.coverage_planning import (
+    QualifiedCandidate,
+    deserialize_qualified_candidate,
+)
 from scenario_forge.pipeline.finalization import (
     MAX_OWNER_RETRIES,
     CandidateTerminalResult,
     CandidateTerminalStatus,
+    FinalizationPersistenceError,
     GeneratedStage,
     GeneratedStageResult,
-    FinalizationPersistenceError,
     LifecycleState,
     LifecycleTransition,
     StageInvocation,
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
-from scenario_forge.pipeline.coverage_planning import (
-    QualifiedCandidate,
-    deserialize_qualified_candidate,
-)
-from scenario_forge.pipeline.projection import canonical_json_bytes
 from scenario_forge.pipeline.generate.stages import (
     StageAttemptFailure,
     StageCallEvidence,
 )
+from scenario_forge.pipeline.projection import canonical_json_bytes
 
 COVERAGE_PLAN_VERSION = "2"
 FINALIZATION_INVENTORY_VERSION = "1"
@@ -1325,6 +1325,11 @@ def _recover_journal(run_dir: Path) -> CoveragePlanV2 | None:
     return journal.coverage_plan
 
 
+def recover_finalization_journal(run_dir: Path) -> CoveragePlanV2 | None:
+    """Complete an interrupted v3 state publication before forensic loading."""
+    return _recover_journal(Path(run_dir))
+
+
 def _read_model(
     run_dir: Path,
     entry: ArtifactEntry | None,
@@ -1628,12 +1633,16 @@ def validate_v3_inventories(resolver: Any) -> None:
                 raise ManifestIntegrityError(
                     f"Quarantine bundle {stage.value} evidence mismatch: {entry.path}"
                 )
-    expected_status = (
-        RunStatus.COMPLETED_WITH_ERRORS if quarantined else RunStatus.COMPLETED
-    )
-    if resolver.manifest.status is not expected_status:
+    if quarantined and resolver.manifest.status is not RunStatus.COMPLETED_WITH_ERRORS:
         raise ManifestIntegrityError(
-            "Manifest v3 completed_with_errors iff quarantine inventory is nonempty"
+            "Manifest v3 quarantine inventory requires completed_with_errors"
+        )
+    if not quarantined and resolver.manifest.status not in {
+        RunStatus.COMPLETED,
+        RunStatus.COMPLETED_WITH_ERRORS,
+    }:
+        raise ManifestIntegrityError(
+            "Manifest v3 inventory requires a completed status"
         )
 
 
@@ -1892,14 +1901,7 @@ class FinalizationPersistenceAdapter:
             if admitted is not None:
                 state = TargetState.admitted
                 fallback: list[QualifiedCandidateRef] = []
-            elif attempted == choice_ids and terminal:
-                state = TargetState.exhausted
-                fallback = []
-            elif not choice_ids and any(
-                item.target_entry_point_id == target.entry_point_id
-                and item.current is LifecycleState.exhausted
-                for item in inventory.transitions
-            ):
+            elif attempted == choice_ids and terminal or not choice_ids:
                 state = TargetState.exhausted
                 fallback = []
             else:
@@ -2425,6 +2427,35 @@ def make_finalization_persistence_adapter(
         canonical_json_bytes(coverage_plan)
     ).hexdigest()
     plan_path = run_dir / "coverage-plan.json"
+    inventory_path = run_dir / "finalization-inventory.json"
+    if not plan_path.exists() and not inventory_path.exists():
+        inventory = FinalizationInventoryV1(
+            schema_version="1",
+            run_id=run_id,
+            coverage_plan_sha256=coverage_plan_sha256,
+            candidate_attempts=[],
+            stage_attempts=[],
+            transitions=[],
+            repairs=[],
+            admission_decisions=[],
+            admitted_inventory=[],
+            quarantine_inventory=[],
+        )
+        journal = PersistenceJournalV1(
+            schema_version="1",
+            coverage_plan=coverage_plan,
+            finalization_inventory=inventory,
+        )
+        _write_model(run_dir, ".finalization-state.json", journal)
+        write_finalization_inventory(run_dir, inventory)
+        write_coverage_plan(run_dir, coverage_plan)
+        (run_dir / ".finalization-state.json").unlink()
+        dir_fd = os.open(run_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+
     if plan_path.exists():
         persisted_plan = read_coverage_plan(run_dir)
         if persisted_plan != coverage_plan:
@@ -2433,8 +2464,7 @@ def make_finalization_persistence_adapter(
             )
     else:
         write_coverage_plan(run_dir, coverage_plan)
-    path = run_dir / "finalization-inventory.json"
-    if path.exists():
+    if inventory_path.exists():
         inventory = read_finalization_inventory(Path(run_dir))
         if (
             inventory.run_id != run_id
