@@ -13,6 +13,7 @@ import os
 import secrets
 import stat
 import threading
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
@@ -39,6 +40,7 @@ from scenario_forge.pipeline.finalization import (
     LifecycleTransition,
     StageInvocation,
 )
+from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.coverage_planning import (
     QualifiedCandidate,
     deserialize_qualified_candidate,
@@ -359,33 +361,10 @@ class GateResultRecord(StrictModel):
     violations: list[ViolationRecord]
     diagnostics: list[ViolationRecord]
 
-
-class AdmissionDecisionRecord(StrictModel):
-    event_id: str = Field(pattern=SHA256_PATTERN)
-    payload_sha256: str = Field(pattern=SHA256_PATTERN)
-    sequence: int = Field(ge=0)
-    candidate_id: str = Field(min_length=1)
-    status: CandidateTerminalStatus
-    admitted: bool
-    gate_results: list[GateResultRecord]
-    candidate_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
-    actor_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
-    narrative_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
-    final_tree_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
-    violations: list[ViolationRecord]
-
     @model_validator(mode="after")
-    def _status_matches_admission(self) -> AdmissionDecisionRecord:
-        if self.admitted != (self.status is CandidateTerminalStatus.admitted):
-            raise ValueError("admitted flag must match terminal candidate status")
-        snapshots = (
-            self.candidate_snapshot_sha256,
-            self.actor_snapshot_sha256,
-            self.narrative_snapshot_sha256,
-            self.final_tree_snapshot_sha256,
-        )
-        if self.admitted and any(digest is None for digest in snapshots):
-            raise ValueError("admitted decision requires all four snapshot digests")
+    def _passed_matches_violations(self) -> GateResultRecord:
+        if self.passed == bool(self.violations):
+            raise ValueError("gate passed flag must be the inverse of violations")
         return self
 
 
@@ -421,6 +400,55 @@ class ArtifactReceipt(StrictModel):
                 raise ValueError("quarantine receipts forbid scenario_id")
         else:
             raise ValueError("unsupported finalization artifact receipt role")
+        return self
+
+
+class AdmissionDecisionRecord(StrictModel):
+    event_id: str = Field(pattern=SHA256_PATTERN)
+    payload_sha256: str = Field(pattern=SHA256_PATTERN)
+    sequence: int = Field(ge=0)
+    candidate_id: str = Field(min_length=1)
+    status: CandidateTerminalStatus
+    admitted: bool
+    gate_results: list[GateResultRecord]
+    candidate_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    actor_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    narrative_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    final_tree_snapshot_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    violations: list[ViolationRecord]
+    terminal_receipts: list[ArtifactReceipt]
+
+    @model_validator(mode="after")
+    def _status_matches_admission(self) -> AdmissionDecisionRecord:
+        if self.admitted != (self.status is CandidateTerminalStatus.admitted):
+            raise ValueError("admitted flag must match terminal candidate status")
+        snapshots = (
+            self.candidate_snapshot_sha256,
+            self.actor_snapshot_sha256,
+            self.narrative_snapshot_sha256,
+            self.final_tree_snapshot_sha256,
+        )
+        if self.admitted and any(digest is None for digest in snapshots):
+            raise ValueError("admitted decision requires all four snapshot digests")
+        expected_roles = (
+            {ArtifactRole.SCENARIO_YAML, ArtifactRole.SCENARIO_FEATURE}
+            if self.admitted
+            else {ArtifactRole.QUARANTINE_BUNDLE}
+        )
+        if (
+            {receipt.role for receipt in self.terminal_receipts} != expected_roles
+            or len(self.terminal_receipts) != len(expected_roles)
+            or any(
+                receipt.candidate_id != self.candidate_id
+                for receipt in self.terminal_receipts
+            )
+        ):
+            raise ValueError("terminal receipts do not match candidate terminal status")
+        if (
+            self.admitted
+            and len({receipt.scenario_id for receipt in self.terminal_receipts}) != 1
+        ):
+            raise ValueError("admitted terminal receipts require one scenario_id")
         return self
 
 
@@ -465,16 +493,80 @@ class FinalizationInventoryV1(StrictModel):
             transitions_by_target.setdefault(
                 transition.target_entry_point_id, []
             ).append(transition)
-        for target_transitions in transitions_by_target.values():
+        attempts_by_target: dict[str, list[CandidateAttemptRecord]] = {}
+        for attempt in self.candidate_attempts:
+            attempts_by_target.setdefault(attempt.target_entry_point_id, []).append(
+                attempt
+            )
+        if set(attempts_by_target) - set(transitions_by_target):
+            raise ValueError("each candidate attempt requires a target trace")
+        terminal_edges: dict[str, TransitionRecord] = {}
+        for target_id, target_transitions in transitions_by_target.items():
+            target_transitions.sort(key=lambda item: item.sequence)
             if [item.index for item in target_transitions] != list(
                 range(len(target_transitions))
             ):
                 raise ValueError("transition indexes must be contiguous per target")
+            if target_transitions[0].previous is not LifecycleState.pending:
+                raise ValueError("first target transition must start from pending")
             for previous, current in zip(target_transitions, target_transitions[1:]):
                 if previous.current is not current.previous:
                     raise ValueError(
                         "transition state chain is noncontiguous per target"
                     )
+            target_attempts = sorted(
+                attempts_by_target.get(target_id, []), key=lambda item: item.sequence
+            )
+            next_attempt = 0
+            active_candidate: str | None = None
+            seen_candidates: set[str] = set()
+            for position, transition in enumerate(target_transitions):
+                if transition.current is LifecycleState.revalidating_candidate:
+                    if (
+                        active_candidate is not None
+                        or transition.candidate_id is None
+                        or transition.candidate_id in seen_candidates
+                        or next_attempt >= len(target_attempts)
+                    ):
+                        raise ValueError("invalid or duplicate candidate trace segment")
+                    attempt = target_attempts[next_attempt]
+                    if (
+                        transition.candidate_id != attempt.candidate_id
+                        or attempt.sequence >= transition.sequence
+                    ):
+                        raise ValueError(
+                            "candidate trace does not match next durable attempt"
+                        )
+                    active_candidate = transition.candidate_id
+                    seen_candidates.add(active_candidate)
+                    next_attempt += 1
+                elif transition.current is LifecycleState.exhausted:
+                    if (
+                        transition.candidate_id is not None
+                        or position != len(target_transitions) - 1
+                        or active_candidate is not None
+                    ):
+                        raise ValueError(
+                            "target exhaustion must be candidate-free and final"
+                        )
+                else:
+                    if (
+                        active_candidate is None
+                        or transition.candidate_id != active_candidate
+                    ):
+                        raise ValueError(
+                            "lifecycle candidate changed inside an active trace"
+                        )
+                    if transition.current in {
+                        LifecycleState.admitted,
+                        LifecycleState.rejected,
+                    }:
+                        terminal_edges[active_candidate] = transition
+                        active_candidate = None
+            if next_attempt != len(target_attempts):
+                raise ValueError(
+                    "each candidate attempt requires one revalidating trace segment"
+                )
         generating_state = {
             GeneratedStage.actor: LifecycleState.generating_actor,
             GeneratedStage.narrative: LifecycleState.generating_narrative,
@@ -510,23 +602,11 @@ class FinalizationInventoryV1(StrictModel):
             for destination in generating_state.values()
         )
         legal_edges.update((source, LifecycleState.rejected) for source in active)
-        for transition in self.transitions:
+        for transition in sorted(self.transitions, key=lambda item: item.sequence):
             if (transition.previous, transition.current) not in legal_edges:
                 raise ValueError(
                     f"illegal lifecycle edge {transition.previous.value}->{transition.current.value}"
                 )
-            if (
-                transition.previous is not LifecycleState.rejected
-                and transition.previous is not LifecycleState.pending
-                and transition.current is not LifecycleState.exhausted
-            ):
-                prior = transitions_by_target[transition.target_entry_point_id][
-                    transition.index - 1
-                ]
-                if prior.candidate_id != transition.candidate_id:
-                    raise ValueError(
-                        "lifecycle candidate changed inside an active trace"
-                    )
         stage_by_id = {item.attempt_id: item for item in self.stage_attempts}
         referenced_stage_ids: set[str] = set()
         for attempt in self.candidate_attempts:
@@ -576,52 +656,136 @@ class FinalizationInventoryV1(StrictModel):
                 for left, right in zip(records, records[1:])
             ):
                 raise ValueError("stage owner retry indexes must be monotonic")
-        generating_transitions = [
-            item
-            for item in self.transitions
-            if item.current in set(generating_state.values())
-        ]
-        ordered_stage_attempts = sorted(
-            self.stage_attempts, key=lambda item: item.sequence
-        )
-        if len(generating_transitions) not in {
-            len(ordered_stage_attempts),
-            len(ordered_stage_attempts) + 1,
-        }:
-            raise ValueError(
-                "generating transitions must correspond 1:1 to stage attempts"
+        for attempt in self.candidate_attempts:
+            generating_transitions = sorted(
+                (
+                    item
+                    for item in self.transitions
+                    if item.candidate_id == attempt.candidate_id
+                    and item.current in set(generating_state.values())
+                ),
+                key=lambda item: item.sequence,
             )
-        for transition, stage in zip(generating_transitions, ordered_stage_attempts):
-            if (
-                transition.current is not generating_state[stage.stage]
-                or transition.candidate_id != stage.candidate_id
-                or transition.sequence >= stage.sequence
+            ordered_stage_attempts = sorted(
+                (
+                    item
+                    for item in self.stage_attempts
+                    if item.candidate_id == attempt.candidate_id
+                ),
+                key=lambda item: item.sequence,
+            )
+            if len(generating_transitions) not in {
+                len(ordered_stage_attempts),
+                len(ordered_stage_attempts) + 1,
+            }:
+                raise ValueError(
+                    "generating transitions must correspond 1:1 to stage attempts"
+                )
+            if len(generating_transitions) == len(ordered_stage_attempts) + 1:
+                unmatched = generating_transitions[-1]
+                later_candidate_events = [
+                    item
+                    for item in [
+                        *self.transitions,
+                        *self.stage_attempts,
+                        *self.repairs,
+                        *self.admission_decisions,
+                    ]
+                    if item.candidate_id == attempt.candidate_id
+                    and item.sequence > unmatched.sequence
+                ]
+                if attempt.candidate_id in terminal_edges or later_candidate_events:
+                    raise ValueError(
+                        "unmatched generating transition must be the active trace tail"
+                    )
+            for transition, stage in zip(
+                generating_transitions, ordered_stage_attempts
             ):
-                raise ValueError("generating transition/stage attempt trace mismatch")
+                if (
+                    transition.current is not generating_state[stage.stage]
+                    or transition.candidate_id != stage.candidate_id
+                    or transition.sequence >= stage.sequence
+                ):
+                    raise ValueError(
+                        "generating transition/stage attempt trace mismatch"
+                    )
         decisions = [item.candidate_id for item in self.admission_decisions]
         if len(decisions) != len(set(decisions)):
             raise ValueError("duplicate terminal admission decisions")
-        terminal_edges = {
-            item.candidate_id: item.current
-            for item in self.transitions
-            if item.current in {LifecycleState.admitted, LifecycleState.rejected}
-        }
+        if set(terminal_edges) != set(decisions):
+            raise ValueError(
+                "terminal edges and admission decisions must match exactly"
+            )
         for decision in self.admission_decisions:
             expected = (
                 LifecycleState.admitted
                 if decision.admitted
                 else LifecycleState.rejected
             )
-            if terminal_edges.get(decision.candidate_id) is not expected:
+            terminal_edge = terminal_edges.get(decision.candidate_id)
+            if terminal_edge is None or terminal_edge.current is not expected:
                 raise ValueError(
                     "admission decision requires matching admitting terminal transition"
                 )
-            if decision.admitted:
-                candidate_stages = [
+            candidate_stages = [
+                item
+                for item in self.stage_attempts
+                if item.candidate_id == decision.candidate_id
+            ]
+            if any(
+                item.sequence >= terminal_edge.sequence for item in candidate_stages
+            ):
+                raise ValueError("stage evidence must precede candidate terminal edge")
+            if terminal_edge.sequence >= decision.sequence:
+                raise ValueError("candidate terminal edge must precede its decision")
+            next_target_transition = next(
+                (
                     item
-                    for item in self.stage_attempts
-                    if item.candidate_id == decision.candidate_id
-                ]
+                    for item in transitions_by_target[
+                        next(
+                            attempt.target_entry_point_id
+                            for attempt in self.candidate_attempts
+                            if attempt.candidate_id == decision.candidate_id
+                        )
+                    ]
+                    if item.sequence > terminal_edge.sequence
+                ),
+                None,
+            )
+            if (
+                next_target_transition is not None
+                and decision.sequence >= next_target_transition.sequence
+            ):
+                raise ValueError(
+                    "candidate decision must precede the next target transition"
+                )
+            if (decision.admitted or decision.gate_results) and (
+                terminal_edge.previous is not LifecycleState.admitting
+            ):
+                raise ValueError(
+                    "postbehavior admission requires admitting terminal edge"
+                )
+            flattened_gate_violations = [
+                violation
+                for gate in decision.gate_results
+                for violation in gate.violations
+            ]
+            if decision.gate_results and (
+                flattened_gate_violations != decision.violations
+            ):
+                raise ValueError(
+                    "admission gate violations must match terminal violations"
+                )
+            if decision.admitted and (
+                not decision.gate_results
+                or any(not gate.passed for gate in decision.gate_results)
+                or decision.violations
+            ):
+                raise ValueError(
+                    "admitted decision requires nonempty passing gate evidence"
+                )
+            if decision.admitted:
+                candidate_stages.sort(key=lambda item: item.sequence)
                 latest_outputs = {
                     stage: next(
                         (
@@ -656,6 +820,29 @@ class FinalizationInventoryV1(StrictModel):
                     raise ValueError(
                         "admission snapshot digests do not match stage evidence"
                     )
+        decision_receipts = [
+            receipt
+            for decision in self.admission_decisions
+            for receipt in decision.terminal_receipts
+        ]
+        inventory_receipts = [
+            *self.admitted_inventory,
+            *self.quarantine_inventory,
+        ]
+        decision_receipt_keys = [
+            canonical_json_bytes(item) for item in decision_receipts
+        ]
+        inventory_receipt_keys = [
+            canonical_json_bytes(item) for item in inventory_receipts
+        ]
+        if (
+            len(decision_receipt_keys) != len(set(decision_receipt_keys))
+            or len(inventory_receipt_keys) != len(set(inventory_receipt_keys))
+            or set(decision_receipt_keys) != set(inventory_receipt_keys)
+        ):
+            raise ValueError(
+                "terminal decision receipts and finalization inventories must match exactly"
+            )
         self._verify_event_hashes()
         return self
 
@@ -729,6 +916,9 @@ class FinalizationInventoryV1(StrictModel):
                     gate.model_dump(mode="json") for gate in item.gate_results
                 ],
                 "snapshots": snapshots,
+                "terminal_receipts": _terminal_receipt_projection(
+                    item.terminal_receipts
+                ),
             }
             _verify_event(item, "candidate_result", item.candidate_id, payload)
 
@@ -749,6 +939,61 @@ class PersistenceJournalV1(StrictModel):
             raise ValueError(
                 "journal inventory does not reference journal coverage plan"
             )
+        events = [
+            *self.finalization_inventory.candidate_attempts,
+            *self.finalization_inventory.stage_attempts,
+            *self.finalization_inventory.transitions,
+            *self.finalization_inventory.repairs,
+            *self.finalization_inventory.admission_decisions,
+        ]
+        latest = max(events, key=lambda item: item.sequence, default=None)
+        terminal = latest if isinstance(latest, AdmissionDecisionRecord) else None
+        if terminal is None:
+            if (
+                self.admitted_publication is not None
+                or self.quarantine_bundle is not None
+            ):
+                raise ValueError(
+                    "journal terminal evidence requires the latest terminal decision"
+                )
+            return self
+        if terminal.admitted:
+            if self.admitted_publication is None or self.quarantine_bundle is not None:
+                raise ValueError(
+                    "admitted journal decision requires exactly one publication"
+                )
+            if terminal.terminal_receipts != _publication_receipts(
+                self.admitted_publication
+            ):
+                raise ValueError(
+                    "journal publication does not match terminal decision receipts"
+                )
+        else:
+            if self.quarantine_bundle is None or self.admitted_publication is not None:
+                raise ValueError(
+                    "non-admitted journal decision requires exactly one quarantine bundle"
+                )
+            attempt = next(
+                (
+                    item
+                    for item in self.finalization_inventory.candidate_attempts
+                    if item.candidate_id == terminal.candidate_id
+                ),
+                None,
+            )
+            bundle = self.quarantine_bundle
+            if (
+                attempt is None
+                or bundle.run_id != self.finalization_inventory.run_id
+                or bundle.attempt_id != attempt.attempt_id
+                or bundle.candidate_id != terminal.candidate_id
+                or bundle.target_entry_point_id != attempt.target_entry_point_id
+                or bundle.violations != terminal.violations
+                or terminal.terminal_receipts != [_quarantine_receipt(bundle)]
+            ):
+                raise ValueError(
+                    "journal quarantine bundle does not match terminal decision"
+                )
         return self
 
 
@@ -834,10 +1079,11 @@ class AdmittedArtifactPublication(StrictModel):
         return self
 
 
-class AdmittedTerminalPayload(StrictModel):
+@dataclass(frozen=True, slots=True)
+class AdmittedTerminalPayload:
     """Successful gate evidence and exact publication bytes as one value."""
 
-    gate_results: list[GateResultRecord]
+    report: PostbehaviorAdmissionReport
     publication: AdmittedArtifactPublication
 
 
@@ -1407,22 +1653,14 @@ def _violations(values: Any) -> list[ViolationRecord]:
 
 
 def make_admitted_terminal_payload(
-    report: Any, publication: AdmittedArtifactPublication
+    report: PostbehaviorAdmissionReport,
+    publication: AdmittedArtifactPublication,
 ) -> AdmittedTerminalPayload:
     """Phase 5 seam joining concrete admission gates to publication bytes."""
 
-    return AdmittedTerminalPayload(
-        gate_results=[
-            GateResultRecord(
-                gate=f"admission_gate_{index}",
-                passed=gate.passed,
-                violations=_violations(gate.violations),
-                diagnostics=_violations(gate.diagnostics),
-            )
-            for index, gate in enumerate(getattr(report, "gate_results", ()))
-        ],
-        publication=publication,
-    )
+    if type(report) is not PostbehaviorAdmissionReport:
+        raise TypeError("admission persistence requires PostbehaviorAdmissionReport")
+    return AdmittedTerminalPayload(report=report, publication=publication)
 
 
 def _llm_result(value: Any) -> LLMResultRecord:
@@ -1498,6 +1736,63 @@ def _publication_receipts(
             (ArtifactRole.SCENARIO_YAML, ".yaml", publication.yaml_text),
             (ArtifactRole.SCENARIO_FEATURE, ".feature", publication.feature_text),
         )
+    ]
+
+
+def _quarantine_receipt(bundle: QuarantineBundleV1) -> ArtifactReceipt:
+    return ArtifactReceipt(
+        candidate_id=bundle.candidate_id,
+        role=ArtifactRole.QUARANTINE_BUNDLE,
+        path=f"quarantine/{bundle.attempt_id}.json",
+        sha256=hashlib.sha256(canonical_json_bytes(bundle)).hexdigest(),
+        scenario_id=None,
+    )
+
+
+def _terminal_receipt_projection(
+    receipts: list[ArtifactReceipt],
+) -> list[dict[str, str | None]]:
+    return [
+        {
+            "role": receipt.role.value,
+            "path": receipt.path,
+            "candidate_id": receipt.candidate_id,
+            "scenario_id": receipt.scenario_id,
+            "sha256": receipt.sha256,
+        }
+        for receipt in sorted(receipts, key=lambda item: (item.role.value, item.path))
+    ]
+
+
+def _gate_report_records(
+    report: PostbehaviorAdmissionReport,
+) -> list[GateResultRecord]:
+    if type(report) is not PostbehaviorAdmissionReport:
+        raise TypeError("admission persistence requires PostbehaviorAdmissionReport")
+    return [
+        GateResultRecord(
+            gate=f"admission_gate_{index}",
+            passed=gate.passed,
+            violations=[
+                ViolationRecord(
+                    code=violation.code.value,
+                    detail=violation.detail,
+                    owner=violation.owner,
+                    retryable=violation.owner is not None,
+                )
+                for violation in gate.violations
+            ],
+            diagnostics=[
+                ViolationRecord(
+                    code=diagnostic.code.value,
+                    detail=diagnostic.detail,
+                    owner=diagnostic.owner,
+                    retryable=diagnostic.owner is not None,
+                )
+                for diagnostic in gate.diagnostics
+            ],
+        )
+        for index, gate in enumerate(report.gate_results)
     ]
 
 
@@ -1872,25 +2167,49 @@ class FinalizationPersistenceAdapter:
                 raise ValueError("candidate terminal result identity mismatch")
             next_inventory = self.inventory.model_copy(deep=True)
             candidate_attempt = self._candidate_attempt(next_inventory, candidate_id)
-            report = result.admission.value if result.admission is not None else None
-            terminal_payload = (
-                AdmittedTerminalPayload.model_validate(report)
-                if result.status is CandidateTerminalStatus.admitted
-                else None
+            admission_value = (
+                result.admission.value if result.admission is not None else None
             )
-            gate_results = (
-                terminal_payload.gate_results
-                if terminal_payload is not None
-                else [
-                    GateResultRecord(
-                        gate=f"admission_gate_{index}",
-                        passed=gate.passed,
-                        violations=_violations(gate.violations),
-                        diagnostics=_violations(gate.diagnostics),
+            expected_admitted = result.status is CandidateTerminalStatus.admitted
+            if result.admission is not None and (
+                result.admission.admitted != expected_admitted
+            ):
+                raise TypeError(
+                    "terminal status and AdmissionDecision.admitted must agree"
+                )
+            terminal_payload: AdmittedTerminalPayload | None = None
+            report: PostbehaviorAdmissionReport | None = None
+            if result.status is CandidateTerminalStatus.admitted:
+                if type(admission_value) is not AdmittedTerminalPayload:
+                    raise TypeError(
+                        "admitted result requires typed report and publication payload"
                     )
-                    for index, gate in enumerate(getattr(report, "gate_results", ()))
+                terminal_payload = admission_value
+                report = terminal_payload.report
+            elif result.admission is not None:
+                if type(admission_value) is not PostbehaviorAdmissionReport:
+                    raise TypeError(
+                        "postbehavior rejection requires PostbehaviorAdmissionReport"
+                    )
+                report = admission_value
+            gate_results = _gate_report_records(report) if report is not None else []
+            serialized_violations = _violations(result.violations)
+            if (
+                report is not None
+                and [
+                    violation for gate in gate_results for violation in gate.violations
                 ]
-            )
+                != serialized_violations
+            ):
+                raise TypeError(
+                    "typed admission report and terminal violations must agree"
+                )
+            if expected_admitted and (
+                not gate_results
+                or any(not gate.passed for gate in gate_results)
+                or serialized_violations
+            ):
+                raise TypeError("admitted result requires nonempty passing gate report")
             target_transitions = [
                 item
                 for item in next_inventory.transitions
@@ -1900,14 +2219,15 @@ class FinalizationPersistenceAdapter:
                 raise ManifestIntegrityError(
                     "Terminal result requires a preceding target transition"
                 )
+            latest_transition = max(target_transitions, key=lambda item: item.sequence)
             terminal_state = (
                 LifecycleState.admitted
                 if result.status is CandidateTerminalStatus.admitted
                 else LifecycleState.rejected
             )
-            transition_index = len(target_transitions)
+            transition_index = max(item.index for item in target_transitions) + 1
             transition_payload = {
-                "previous": target_transitions[-1].current.value,
+                "previous": latest_transition.current.value,
                 "current": terminal_state.value,
                 "candidate_id": candidate_id,
                 "reason": f"candidate terminal status: {result.status.value}",
@@ -1950,57 +2270,17 @@ class FinalizationPersistenceAdapter:
                     None,
                 ),
             }
-            payload = {
-                "candidate_id": candidate_id,
-                "status": result.status.value,
-                "violations": [
-                    item.model_dump(mode="json")
-                    for item in _violations(result.violations)
-                ],
-                "gate_results": [item.model_dump(mode="json") for item in gate_results],
-                "snapshots": snapshots,
-            }
-            payload_sha256 = canonical_sha256(payload)
-            event_id = _event_key("candidate_result", candidate_id)
-            if self._replayed(event_id, payload_sha256):
-                return
-            next_inventory.transitions.append(
-                TransitionRecord(
-                    event_id=transition_event_id,
-                    payload_sha256=transition_payload_sha256,
-                    sequence=self._sequence(next_inventory),
-                    target_entry_point_id=candidate_attempt.target_entry_point_id,
-                    index=transition_index,
-                    previous=target_transitions[-1].current,
-                    current=terminal_state,
-                    candidate_id=candidate_id,
-                    reason=transition_payload["reason"],
-                )
+            publication = (
+                terminal_payload.publication if terminal_payload is not None else None
             )
-            decision = AdmissionDecisionRecord(
-                event_id=event_id,
-                payload_sha256=payload_sha256,
-                sequence=self._sequence(next_inventory),
-                candidate_id=candidate_id,
-                status=result.status,
-                admitted=result.status is CandidateTerminalStatus.admitted,
-                gate_results=gate_results,
-                violations=_violations(result.violations),
-                **snapshots,
-            )
-            next_inventory.admission_decisions.append(decision)
             bundle = None
-            publication = None
-            if decision.admitted:
-                assert terminal_payload is not None
-                publication = terminal_payload.publication
+            if publication is not None:
                 if publication.candidate_id != candidate_id:
                     raise ManifestIntegrityError(
                         "Admitted publication candidate identity mismatch"
                     )
-                next_inventory.admitted_inventory.extend(
-                    _publication_receipts(publication)
-                )
+                terminal_receipts = _publication_receipts(publication)
+                next_inventory.admitted_inventory.extend(terminal_receipts)
             else:
                 target_id = candidate_attempt.target_entry_point_id
                 artifacts = {
@@ -2023,18 +2303,54 @@ class FinalizationPersistenceAdapter:
                     tree=artifacts[GeneratedStage.tree],
                     behavior=artifacts[GeneratedStage.behavior],
                     artifact_sha256=digests,
-                    violations=_violations(result.violations),
+                    violations=serialized_violations,
                 )
-                bundle_path = f"quarantine/{bundle.attempt_id}.json"
-                next_inventory.quarantine_inventory.append(
-                    ArtifactReceipt(
-                        candidate_id=candidate_id,
-                        role=ArtifactRole.QUARANTINE_BUNDLE,
-                        path=bundle_path,
-                        sha256=hashlib.sha256(canonical_json_bytes(bundle)).hexdigest(),
-                        scenario_id=None,
-                    )
+                terminal_receipts = [_quarantine_receipt(bundle)]
+                next_inventory.quarantine_inventory.extend(terminal_receipts)
+            payload = {
+                "candidate_id": candidate_id,
+                "status": result.status.value,
+                "violations": [
+                    item.model_dump(mode="json") for item in serialized_violations
+                ],
+                "gate_results": [item.model_dump(mode="json") for item in gate_results],
+                "snapshots": snapshots,
+                "terminal_receipts": _terminal_receipt_projection(terminal_receipts),
+            }
+            payload_sha256 = canonical_sha256(payload)
+            event_id = _event_key("candidate_result", candidate_id)
+            if self._replayed(event_id, payload_sha256):
+                return
+            if latest_transition.candidate_id != candidate_id:
+                raise ManifestIntegrityError(
+                    "Terminal result does not match active candidate trace"
                 )
+            next_inventory.transitions.append(
+                TransitionRecord(
+                    event_id=transition_event_id,
+                    payload_sha256=transition_payload_sha256,
+                    sequence=self._sequence(next_inventory),
+                    target_entry_point_id=candidate_attempt.target_entry_point_id,
+                    index=transition_index,
+                    previous=latest_transition.current,
+                    current=terminal_state,
+                    candidate_id=candidate_id,
+                    reason=transition_payload["reason"],
+                )
+            )
+            decision = AdmissionDecisionRecord(
+                event_id=event_id,
+                payload_sha256=payload_sha256,
+                sequence=self._sequence(next_inventory),
+                candidate_id=candidate_id,
+                status=result.status,
+                admitted=result.status is CandidateTerminalStatus.admitted,
+                gate_results=gate_results,
+                violations=serialized_violations,
+                terminal_receipts=terminal_receipts,
+                **snapshots,
+            )
+            next_inventory.admission_decisions.append(decision)
             self._commit(
                 next_inventory,
                 quarantine_bundle=bundle,

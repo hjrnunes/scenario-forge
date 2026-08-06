@@ -204,7 +204,14 @@ class PostbehaviorAdmissionPort:
             snapshot.verify_digest()
         except (TypeError, ValueError, AttributeError) as exc:
             violation = _gate(GateCode.snapshot_integrity, str(exc), None)
-            return AdmissionDecision(False, (violation.lifecycle(),))
+            return AdmissionDecision(
+                False,
+                (violation.lifecycle(),),
+                value=PostbehaviorAdmissionReport(
+                    envelope=None,
+                    gate_results=(GateResult((violation,)),),
+                ),
+            )
 
         identity: list[GateViolation] = []
         if envelope.candidate_id != candidate.candidate_id:
@@ -385,11 +392,12 @@ class PostbehaviorAdmissionPort:
             for result in gate_results
             for violation in result.violations
         )
+        report = PostbehaviorAdmissionReport(envelope, tuple(gate_results))
         if violations:
-            return AdmissionDecision(False, violations)
+            return AdmissionDecision(False, violations, value=report)
         return AdmissionDecision(
             True,
-            value=PostbehaviorAdmissionReport(envelope, tuple(gate_results)),
+            value=report,
         )
 
     def _check_behavior(self, tree: Any, behavior: Any, projection: Any) -> GateResult:

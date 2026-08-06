@@ -28,6 +28,7 @@ from scenario_forge.manifest import (
 from scenario_forge.pipeline.finalization import (
     AdmissionDecision,
     CandidateValidation,
+    CandidateTerminalResult,
     CandidateTerminalStatus,
     GENERATION_ORDER,
     GeneratedStage,
@@ -47,6 +48,12 @@ from scenario_forge.pipeline.coverage_planning import (
 )
 from scenario_forge.pipeline.generate.stages import StageCallEvidence
 from scenario_forge.pipeline.finalization_gates import RepairRecord
+from scenario_forge.pipeline.finalization_gates import (
+    GateCode,
+    GateResult,
+    GateViolation,
+)
+from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.projection import canonical_json_bytes
 from scenario_forge.pipeline.persistence import (
     AdmittedArtifactPublication,
@@ -216,12 +223,31 @@ def test_qualified_candidate_requires_complete_canonical_provenance():
 
 
 def test_external_json_schema_validation_uses_generated_contracts():
-    for model, value in (
-        (CoveragePlanV2, _plan()),
-        (FinalizationInventoryV1, _inventory()),
+    bundle = QuarantineBundleV1(
+        schema_version="1",
+        run_id=RUN_ID,
+        attempt_id="attempt-schema",
+        candidate_id=PRIMARY_ID,
+        target_entry_point_id=ENTRY_POINT_ID,
+        actor=None,
+        narrative=None,
+        tree=None,
+        behavior=None,
+        artifact_sha256={},
+        violations=[
+            ViolationRecord(
+                code="schema", detail="evidence", owner=None, retryable=False
+            )
+        ],
+    )
+    for filename, value in (
+        ("coverage-plan-v2.schema.json", _plan()),
+        ("finalization-inventory-v1.schema.json", _inventory()),
+        ("quarantine-bundle-v1.schema.json", bundle),
     ):
         validate_json_schema(
-            instance=value.model_dump(mode="json"), schema=model.model_json_schema()
+            instance=value.model_dump(mode="json"),
+            schema=json.loads((SCHEMA_DIR / filename).read_text()),
         )
 
 
@@ -677,6 +703,15 @@ def _quarantine_v3_parts(tmp_path: Path):
             "narrative_snapshot_sha256": None,
             "final_tree_snapshot_sha256": None,
         },
+        "terminal_receipts": [
+            {
+                "role": receipt.role.value,
+                "path": receipt.path,
+                "candidate_id": receipt.candidate_id,
+                "scenario_id": receipt.scenario_id,
+                "sha256": receipt.sha256,
+            }
+        ],
     }
     final.admission_decisions.append(
         AdmissionDecisionRecord(
@@ -688,6 +723,7 @@ def _quarantine_v3_parts(tmp_path: Path):
             admitted=False,
             gate_results=[],
             violations=[violation],
+            terminal_receipts=[receipt],
         )
     )
     exhausted_payload = {
@@ -735,12 +771,10 @@ def test_valid_v3_quarantine_sets_completed_with_errors(tmp_path: Path):
 
 
 def test_v3_rejects_admitted_quarantine_overlap(tmp_path: Path):
-    coverage, _, bundle, final = _quarantine_v3_parts(tmp_path)
+    _coverage, _, _bundle, final = _quarantine_v3_parts(tmp_path)
     final.admitted_inventory.append(final.quarantine_inventory[0])
-    final_entry = write_finalization_inventory(tmp_path, final)
-    _finalize_v3(tmp_path, [coverage, final_entry, bundle])
-    with pytest.raises(ManifestIntegrityError, match="overlap"):
-        load_strict_resolver(tmp_path, manifest_version="3")
+    with pytest.raises(ValidationError, match="must match exactly"):
+        write_finalization_inventory(tmp_path, final)
 
 
 @pytest.mark.parametrize(
@@ -787,6 +821,61 @@ def test_v3_rejects_quarantine_normal_or_eval_role(tmp_path: Path, leak_role):
     _finalize_v3(tmp_path, [coverage, final, bundle, *leaked])
     with pytest.raises(ManifestIntegrityError, match=match):
         load_strict_resolver(tmp_path, manifest_version="3")
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("nonpending", "start from pending"),
+        ("candidate_exhaustion", "candidate-free and final"),
+        ("duplicate_segment", "duplicate candidate trace segment"),
+    ],
+)
+def test_inventory_rejects_noncausal_target_trace(
+    tmp_path: Path, mutation: str, message: str
+):
+    _coverage, _final_entry, _bundle, final = _quarantine_v3_parts(tmp_path)
+    raw = final.model_dump(mode="json")
+    if mutation == "nonpending":
+        raw["transitions"][0]["previous"] = "rejected"
+    elif mutation == "candidate_exhaustion":
+        raw["transitions"][-1]["candidate_id"] = PRIMARY_ID
+    else:
+        raw["transitions"][-1].update(
+            {
+                "current": "revalidating_candidate",
+                "candidate_id": PRIMARY_ID,
+            }
+        )
+    with pytest.raises(ValidationError, match=message):
+        FinalizationInventoryV1.model_validate(raw)
+
+
+def test_inventory_rejects_terminal_decision_reverse_sequence(tmp_path: Path):
+    _coverage, _final_entry, _bundle, final = _quarantine_v3_parts(tmp_path)
+    raw = final.model_dump(mode="json")
+    terminal = next(
+        item for item in raw["transitions"] if item["current"] == "rejected"
+    )
+    decision = raw["admission_decisions"][0]
+    terminal["sequence"], decision["sequence"] = (
+        decision["sequence"],
+        terminal["sequence"],
+    )
+    with pytest.raises(ValidationError, match="terminal edge must precede"):
+        FinalizationInventoryV1.model_validate(raw)
+
+    raw = final.model_dump(mode="json")
+    exhaustion = next(
+        item for item in raw["transitions"] if item["current"] == "exhausted"
+    )
+    decision = raw["admission_decisions"][0]
+    exhaustion["sequence"], decision["sequence"] = (
+        decision["sequence"],
+        exhaustion["sequence"],
+    )
+    with pytest.raises(ValidationError, match="precede the next target transition"):
+        FinalizationInventoryV1.model_validate(raw)
 
 
 def test_adapter_persists_each_port_event_exactly_once(tmp_path: Path):
@@ -958,7 +1047,9 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
         admission_callback=lambda candidate, artifacts, snapshot: AdmissionDecision(
             True,
             value=AdmittedTerminalPayload(
-                gate_results=[],
+                report=PostbehaviorAdmissionReport(
+                    envelope=object(), gate_results=(GateResult(),)
+                ),
                 publication=AdmittedArtifactPublication(
                     candidate_id=candidate.candidate_id,
                     scenario_id="scenario-admitted",
@@ -991,6 +1082,86 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
     assert (tmp_path / "scenarios/scenario-admitted.yaml").is_file()
     assert (tmp_path / "scenarios/scenario-admitted.feature").is_file()
     assert len(inventory.admitted_inventory) == 2
+
+    restarted = make_finalization_persistence_adapter(
+        tmp_path, run_id=RUN_ID, coverage_plan=current_plan
+    )
+    assert result.admission is not None
+    original_payload = result.admission.value
+    exact_terminal = CandidateTerminalResult(
+        FALLBACK_ID,
+        CandidateTerminalStatus.admitted,
+        admission=AdmissionDecision(True, value=original_payload),
+    )
+    restarted.record_candidate_result(FALLBACK_ID, exact_terminal)
+    restarted.record_candidate_result(
+        PRIMARY_ID,
+        CandidateTerminalResult(
+            PRIMARY_ID,
+            CandidateTerminalStatus.rejected,
+            violations=(
+                LifecycleViolation(
+                    detail="primary rejected",
+                    code="candidate_invalid",
+                    retryable=False,
+                ),
+            ),
+        ),
+    )
+
+    changed_publications = [
+        original_payload.publication.model_copy(
+            update={
+                "yaml_text": (
+                    "scenario_id: scenario-admitted\n"
+                    f"candidate_id: {FALLBACK_ID}\nchanged: true\n"
+                )
+            }
+        ),
+        original_payload.publication.model_copy(
+            update={"feature_text": "Feature: changed admitted\n"}
+        ),
+        original_payload.publication.model_copy(
+            update={
+                "scenario_id": "scenario-changed",
+                "yaml_text": (
+                    f"scenario_id: scenario-changed\ncandidate_id: {FALLBACK_ID}\n"
+                ),
+            }
+        ),
+    ]
+    for publication in changed_publications:
+        conflicting = CandidateTerminalResult(
+            FALLBACK_ID,
+            CandidateTerminalStatus.admitted,
+            admission=AdmissionDecision(
+                True,
+                value=AdmittedTerminalPayload(
+                    report=original_payload.report,
+                    publication=publication,
+                ),
+            ),
+        )
+        with pytest.raises(ManifestIntegrityError, match="Conflicting duplicate"):
+            restarted.record_candidate_result(FALLBACK_ID, conflicting)
+
+    mismatched_publication = changed_publications[-1]
+    journal = {
+        "schema_version": "1",
+        "coverage_plan": current_plan.model_dump(mode="json"),
+        "finalization_inventory": inventory.model_dump(mode="json"),
+        "quarantine_bundle": None,
+        "admitted_publication": mismatched_publication.model_dump(mode="json"),
+    }
+    (tmp_path / "scenarios/scenario-admitted.yaml").unlink()
+    (tmp_path / "scenarios/scenario-admitted.feature").unlink()
+    (tmp_path / ".finalization-state.json").write_bytes(canonical_json_bytes(journal))
+    with pytest.raises(ManifestIntegrityError, match="publication does not match"):
+        make_finalization_persistence_adapter(
+            tmp_path, run_id=RUN_ID, coverage_plan=current_plan
+        )
+    assert not (tmp_path / "scenarios/scenario-changed.yaml").exists()
+    assert not (tmp_path / "scenarios/scenario-changed.feature").exists()
 
 
 def test_interrupted_second_document_write_recovers_from_journal(
@@ -1034,6 +1205,200 @@ def test_interrupted_second_document_write_recovers_from_journal(
     assert not (tmp_path / ".finalization-state.json").exists()
     assert restarted.coverage_plan.targets[0].attempted_candidate_ids == [PRIMARY_ID]
     assert len(restarted.inventory.transitions) == 1
+
+
+def test_recovery_rejects_mismatched_quarantine_journal_before_write(
+    tmp_path: Path, monkeypatch
+):
+    import scenario_forge.pipeline.persistence as persistence_module
+
+    adapter = make_finalization_persistence_adapter(
+        tmp_path, run_id=RUN_ID, coverage_plan=_plan()
+    )
+    adapter.record_transition(
+        LifecycleTransition(
+            LifecycleState.pending,
+            LifecycleState.revalidating_candidate,
+            PRIMARY_ID,
+            "start",
+        )
+    )
+    original = persistence_module.write_quarantine_bundle
+    monkeypatch.setattr(
+        persistence_module,
+        "write_quarantine_bundle",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("bundle write")),
+    )
+    violation = LifecycleViolation(
+        code="pre_admission_failure", detail="failed before admission", retryable=False
+    )
+    with pytest.raises(RuntimeError, match="bundle write"):
+        adapter.record_candidate_result(
+            PRIMARY_ID,
+            CandidateTerminalResult(
+                PRIMARY_ID,
+                CandidateTerminalStatus.rejected,
+                violations=(violation,),
+            ),
+        )
+    monkeypatch.setattr(persistence_module, "write_quarantine_bundle", original)
+    journal_path = tmp_path / ".finalization-state.json"
+    raw = json.loads(journal_path.read_text())
+    raw["quarantine_bundle"]["candidate_id"] = FALLBACK_ID
+    journal_path.write_bytes(canonical_json_bytes(raw))
+    expected_path = tmp_path / f"quarantine/{PRIMARY_ID}:candidate.json"
+    assert not expected_path.exists()
+    with pytest.raises(
+        ManifestIntegrityError, match="quarantine bundle does not match"
+    ):
+        make_finalization_persistence_adapter(
+            tmp_path, run_id=RUN_ID, coverage_plan=_plan()
+        )
+    assert not expected_path.exists()
+
+
+def test_malformed_admitted_report_is_rejected(tmp_path: Path):
+    adapter = make_finalization_persistence_adapter(
+        tmp_path, run_id=RUN_ID, coverage_plan=_plan()
+    )
+    adapter.record_transition(
+        LifecycleTransition(
+            LifecycleState.pending,
+            LifecycleState.revalidating_candidate,
+            PRIMARY_ID,
+            "start",
+        )
+    )
+    with pytest.raises(TypeError, match="typed report"):
+        adapter.record_candidate_result(
+            PRIMARY_ID,
+            CandidateTerminalResult(
+                PRIMARY_ID,
+                CandidateTerminalStatus.admitted,
+                admission=AdmissionDecision(True, value={"gate_results": []}),
+            ),
+        )
+    failed_gate = GateViolation(GateCode.semantic, "failed gate", None)
+    publication = AdmittedArtifactPublication(
+        candidate_id=PRIMARY_ID,
+        scenario_id="malformed-admission",
+        yaml_text=(f"scenario_id: malformed-admission\ncandidate_id: {PRIMARY_ID}\n"),
+        feature_text="Feature: malformed admission\n",
+    )
+    with pytest.raises(TypeError, match="passing gate report"):
+        adapter.record_candidate_result(
+            PRIMARY_ID,
+            CandidateTerminalResult(
+                PRIMARY_ID,
+                CandidateTerminalStatus.admitted,
+                violations=(failed_gate.lifecycle(),),
+                admission=AdmissionDecision(
+                    True,
+                    (failed_gate.lifecycle(),),
+                    value=AdmittedTerminalPayload(
+                        report=PostbehaviorAdmissionReport(
+                            envelope=object(),
+                            gate_results=(GateResult((failed_gate,)),),
+                        ),
+                        publication=publication,
+                    ),
+                ),
+            ),
+        )
+
+
+def test_machine_adapter_persists_complete_postbehavior_rejection_report(
+    tmp_path: Path,
+):
+    choice = _choice(PRIMARY_ID)
+    plan = CoveragePlanV2(
+        schema_version="2",
+        completeness="not_applicable",
+        evidence_refs=[],
+        targets=[
+            CoverageTargetEntry(
+                entry_point_id=ENTRY_POINT_ID,
+                entry_point_name="input",
+                ordered_choices=[choice],
+                primary_candidate_id=PRIMARY_ID,
+                attempted_candidate_ids=[],
+                admitted_candidate_id=None,
+                target_state=TargetState.selected,
+                fallback_available=[choice],
+            )
+        ],
+        selection_limitation_target_ids=[],
+    )
+    adapter = make_finalization_persistence_adapter(
+        tmp_path, run_id=RUN_ID, coverage_plan=plan
+    )
+
+    class Snapshot:
+        def __init__(self, tree):
+            self.tree = tree
+            self.digest = canonical_sha256(tree)
+
+        def verify_digest(self):
+            assert self.digest == canonical_sha256(self.tree)
+
+    def stage(candidate, invocation):
+        return GeneratedStageResult(
+            artifact={"stage": invocation.stage.value},
+            evidence=_stage_evidence(invocation.stage),
+        )
+
+    violation = GateViolation(GateCode.semantic, "hard admission failure", None)
+    diagnostic = GateViolation(
+        GateCode.zone_difference, "retained gate diagnostic", GeneratedStage.tree
+    )
+    report = PostbehaviorAdmissionReport(
+        envelope=object(),
+        gate_results=(GateResult((violation,), (diagnostic,)),),
+    )
+    machine = TargetFinalizationMachine(
+        entry=CoveragePlanEntry(
+            entry_point_id=ENTRY_POINT_ID,
+            entry_point_name="input",
+            ordered_choices=[choice.model_dump(mode="json")],
+            primary_candidate_id=PRIMARY_ID,
+            primary_state="selected",
+            fallback_available=[],
+        ),
+        stage_callbacks={item: stage for item in GENERATION_ORDER},
+        candidate_revalidator=lambda ref: CandidateValidation(
+            deserialize_qualified_candidate(ref).projected
+        ),
+        prebehavior_finalizer=lambda candidate, artifacts: (
+            PrebehaviorFinalizationResult(Snapshot(artifacts.tree))
+        ),
+        admission_callback=lambda candidate, artifacts, snapshot: AdmissionDecision(
+            False, (violation.lifecycle(),), value=report
+        ),
+        persistence=adapter,
+        attempted_candidate_ids=set(),
+    )
+
+    result = machine.run()
+    assert result.state is LifecycleState.exhausted
+    persisted = read_finalization_inventory(tmp_path)
+    decision = persisted.admission_decisions[0]
+    assert decision.gate_results[0].violations[0].detail == "hard admission failure"
+    assert decision.gate_results[0].diagnostics[0].detail == "retained gate diagnostic"
+    assert len(persisted.quarantine_inventory) == 1
+
+    reversed_trace = persisted.model_dump(mode="json")
+    behavior_stage = next(
+        item for item in reversed_trace["stage_attempts"] if item["stage"] == "behavior"
+    )
+    terminal_edge = next(
+        item for item in reversed_trace["transitions"] if item["current"] == "rejected"
+    )
+    behavior_stage["sequence"], terminal_edge["sequence"] = (
+        terminal_edge["sequence"],
+        behavior_stage["sequence"],
+    )
+    with pytest.raises(ValidationError, match="transition indexes|stage evidence"):
+        FinalizationInventoryV1.model_validate(reversed_trace)
 
 
 def test_machine_state_does_not_advance_when_transition_persistence_fails(

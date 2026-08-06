@@ -1068,6 +1068,13 @@ def test_supplied_and_embedded_forged_catalog_pin_cannot_bypass_trusted_pin() ->
     )
 
     assert not decision.admitted
+    assert isinstance(decision.value, PostbehaviorAdmissionReport)
+    assert any(not result.valid for result in decision.value.gate_results)
+    assert decision.value.diagnostics == tuple(
+        diagnostic
+        for result in decision.value.gate_results
+        for diagnostic in result.diagnostics
+    )
     trusted = [
         violation
         for violation in decision.violations
