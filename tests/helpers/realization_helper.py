@@ -1,8 +1,8 @@
 """Shared test helper for building ProjectedStepRealization records.
 
-Used by tests that construct NarrativeStep, BehaviorAction, AttackTreeNode,
-Call1Step, or Call3Action with projected_step_ids and need valid realization
-records but do not need the full projection factory chain.
+Used by tests that construct NarrativeStep, BehaviorAction, AttackTreeNode, or
+Call1Step with projected_step_ids and need valid realization records but do not
+need the full projection factory chain.
 
 Uses :func:`derive_step_realization` to produce canonical records with
 exact opaque resource IDs — not empty tuples that would bypass the

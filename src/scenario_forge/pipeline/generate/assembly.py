@@ -453,15 +453,20 @@ def render_gherkin_from_behavior_spec(
     lines.append("  Scenario: Projected attack realization")
     lines.append("")
 
-    # Render actions in order (Given/When steps).
-    for i, action in enumerate(actions):
+    # Preserve typed transitions.  ``And`` is only shorthand for another
+    # action of the same semantic keyword as the immediately preceding action.
+    previous_keyword: str | None = None
+    for action in actions:
         zone_suffix = ""
         if zone_map and action.action_id in zone_map:
             zone_suffix = f" ({zone_map[action.action_id]})"
-        if i == 0:
-            lines.append(f"    {action.gherkin_keyword} {action.text}{zone_suffix}")
-        else:
-            lines.append(f"    And {action.text}{zone_suffix}")
+        keyword = (
+            "And"
+            if previous_keyword == action.gherkin_keyword
+            else action.gherkin_keyword
+        )
+        lines.append(f"    {keyword} {action.text}{zone_suffix}")
+        previous_keyword = action.gherkin_keyword
 
     # Render assertions (Then steps).
     for assertion in assertions:

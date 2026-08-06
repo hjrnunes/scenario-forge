@@ -1,10 +1,10 @@
-"""Target-scoped finalization/admission lifecycle for cmps.5 phases 1--2.
+"""Target-scoped finalization/admission lifecycle through cmps.5 Phase 3B.
 
 This controller is deliberately not wired into the production runner.  It
 owns candidate choice, targeted retry routing, and admission sequencing while
 all generation, validation, finalization, admission, and persistence effects
-remain dependency-injected ports.  Hard gates, Call 3 cutover, manifest v3,
-quarantine persistence, and runner integration belong to later phases.
+remain dependency-injected ports.  Manifest v3, quarantine persistence, and
+runner integration belong to later phases.
 """
 
 from __future__ import annotations
@@ -101,18 +101,15 @@ class GeneratedArtifacts:
 
 @runtime_checkable
 class FinalTreeSnapshot(Protocol):
-    """Immutable finalized-tree view consumed by future Call 3/gate wiring.
-
-    Phase 2 defines this boundary only.  The production immutable snapshot,
-    hard gates, parsimony checks, and assertions-only Call 3 contract are not
-    implemented here.
-    """
+    """Immutable finalized-tree authority consumed by behavior/admission."""
 
     @property
     def tree(self) -> Any: ...
 
     @property
     def digest(self) -> str: ...
+
+    def verify_digest(self) -> None: ...
 
 
 @runtime_checkable
@@ -192,6 +189,7 @@ class StageInvocation:
     invocation_index: int
     owner_retry_index: int
     artifacts: GeneratedArtifacts
+    final_tree_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +203,9 @@ class GeneratedStageResult:
 class PrebehaviorFinalizationResult:
     snapshot: FinalTreeSnapshot | None
     violations: tuple[LifecycleViolation, ...] = ()
+    candidate_snapshot: VerifiedCandidateSnapshot | None = None
+    actor_snapshot: Any | None = None
+    narrative_snapshot: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,19 +335,32 @@ class TargetFinalizationMachine:
         self.persistence.record_transition(transition)
 
     def _invoke_stage(
-        self, candidate: Any, candidate_id: str, stage: GeneratedStage
+        self,
+        candidate: Any,
+        candidate_id: str,
+        stage: GeneratedStage,
+        final_tree_snapshot: FinalTreeSnapshot | None = None,
     ) -> tuple[LifecycleViolation, ...]:
         self._transition(
             LifecycleState(f"generating_{stage.value}"), candidate_id, "invoke stage"
         )
         invocation_index = self.invocation_counts.get(stage, 0)
         self.invocation_counts[stage] = invocation_index + 1
+        visible_artifacts = self.artifacts
+        visible_tree = None
+        if stage is GeneratedStage.behavior and final_tree_snapshot is not None:
+            visible_tree = final_tree_snapshot.tree
+            visible_artifacts = copy.copy(self.artifacts)
+            visible_artifacts.tree = visible_tree
         invocation = StageInvocation(
             candidate_id=candidate_id,
             stage=stage,
             invocation_index=invocation_index,
             owner_retry_index=self.owner_retry_counts.get(stage, 0),
-            artifacts=self.artifacts,
+            artifacts=visible_artifacts,
+            final_tree_digest=(
+                final_tree_snapshot.digest if final_tree_snapshot is not None else None
+            ),
         )
         try:
             result = self.stage_callbacks[stage](candidate, invocation)
@@ -413,6 +427,7 @@ class TargetFinalizationMachine:
     ) -> CandidateTerminalResult:
         next_stage = GeneratedStage.actor
         snapshot: FinalTreeSnapshot | None = None
+        finalized_authority: PrebehaviorFinalizationResult | None = None
         while True:
             for stage in GENERATION_ORDER[GENERATION_ORDER.index(next_stage) :]:
                 if stage is GeneratedStage.behavior:  # noqa: SIM102 - snapshot branch
@@ -449,12 +464,11 @@ class TargetFinalizationMachine:
                                 (violation,),
                             )
                         snapshot = finalized.snapshot
-                        # Behavior must consume the exact verified tree, including
-                        # any safe prebehavior parsimony repair, rather than the
-                        # stale generated input retained in the artifact bundle.
-                        self.artifacts.tree = snapshot.tree
+                        finalized_authority = finalized
 
-                stage_violations = self._invoke_stage(candidate, candidate_id, stage)
+                stage_violations = self._invoke_stage(
+                    candidate, candidate_id, stage, snapshot
+                )
                 if stage_violations:
                     owner = self._route_violations(stage_violations)
                     if owner is None:
@@ -465,6 +479,7 @@ class TargetFinalizationMachine:
                         )
                     if owner is not GeneratedStage.behavior:
                         snapshot = None
+                        finalized_authority = None
                     next_stage = owner
                     break
             else:
@@ -475,7 +490,26 @@ class TargetFinalizationMachine:
                 self._transition(
                     LifecycleState.admitting, candidate_id, "stages complete"
                 )
-                decision = self.admission_callback(candidate, self.artifacts, snapshot)
+                admission_candidate = candidate
+                admission_artifacts = copy.deepcopy(self.artifacts)
+                verify_tree = getattr(snapshot, "verify_digest", None)
+                if callable(verify_tree):
+                    verify_tree()
+                admission_artifacts.tree = snapshot.tree
+                if finalized_authority is not None:
+                    if finalized_authority.candidate_snapshot is not None:
+                        finalized_authority.candidate_snapshot.verify_digest()
+                        admission_candidate = (
+                            finalized_authority.candidate_snapshot.candidate
+                        )
+                    for name in ("actor", "narrative"):
+                        authority = getattr(finalized_authority, f"{name}_snapshot")
+                        if authority is not None:
+                            authority.verify_digest()
+                            setattr(admission_artifacts, name, getattr(authority, name))
+                decision = self.admission_callback(
+                    admission_candidate, admission_artifacts, snapshot
+                )
                 if decision.admitted:
                     self._transition(LifecycleState.admitted, candidate_id, "admitted")
                     return CandidateTerminalResult(
@@ -493,6 +527,7 @@ class TargetFinalizationMachine:
                     )
                 if owner is not GeneratedStage.behavior:
                     snapshot = None
+                    finalized_authority = None
                 next_stage = owner
                 continue
             continue
@@ -643,6 +678,38 @@ def fallback_candidates_for_target(
         )
         candidates.append(candidate)
     return candidates
+
+
+class AssertionsOnlyBehaviorPort:
+    """Unwired adapter from finalization callbacks to one Call 3 attempt."""
+
+    def __init__(self, prepared: Any) -> None:
+        self.prepared = prepared
+
+    def __call__(
+        self, candidate: Any, invocation: StageInvocation
+    ) -> GeneratedStageResult:
+        if invocation.stage is not GeneratedStage.behavior:
+            raise ValueError("assertions-only behavior port requires behavior stage")
+        candidate_id = getattr(candidate, "candidate_id", None)
+        if candidate_id != self.prepared.candidate_id:
+            raise ValueError("behavior candidate differs from prepared projection")
+        if invocation.final_tree_digest is None or invocation.artifacts.tree is None:
+            raise ValueError("verified final-tree materialization is required")
+
+        from scenario_forge.pipeline.generate.stages import generate_behavior_stage
+
+        result = generate_behavior_stage(
+            self.prepared,
+            invocation.artifacts.narrative,
+            invocation.artifacts.tree,
+        )
+        return GeneratedStageResult(result.artifact, result.evidence)
+
+
+def make_assertions_only_behavior_callback(prepared: Any) -> AssertionsOnlyBehaviorPort:
+    """Build the concrete single-attempt behavior callback without runner wiring."""
+    return AssertionsOnlyBehaviorPort(prepared)
 
 
 # Compatibility alias for callers that used the checkpoint's stage name.
