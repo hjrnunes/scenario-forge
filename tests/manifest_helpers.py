@@ -8,13 +8,13 @@ from typing import Any
 import yaml
 
 from scenario_forge.manifest import (
+    MANIFEST_FILENAME,
     ArtifactEntry,
     ArtifactRole,
     RunManifest,
     RunStatus,
     atomic_write_yaml,
     build_artifact_entry,
-    MANIFEST_FILENAME,
 )
 
 
@@ -84,7 +84,7 @@ def build_test_run_dir(
     if scenarios:
         for i, sc in enumerate(scenarios):
             sid = sc.get("scenario_id", "scenario-unknown")
-            cid = sc.get("candidate_id", f"cand:v1:{i + 1:032d}")
+            cid = sc.get("candidate_id", f"cand:v2:{i + 1:032d}")
             # Ensure the serialized YAML includes candidate_id so it
             # matches the inventory entry (strict validation requires
             # serialized scenario_id AND candidate_id in every YAML).

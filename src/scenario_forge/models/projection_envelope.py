@@ -38,7 +38,12 @@ from scenario_forge.models.attack_pattern import (
     ExecutionRequirement,
     ProjectionSnapshot,
 )
-from scenario_forge.pipeline.projection import Digest, ProjectedMapping, ProjectionModel
+from scenario_forge.pipeline.projection import (
+    CapabilityFactSnapshot,
+    Digest,
+    ProjectedMapping,
+    ProjectionModel,
+)
 
 # ---------------------------------------------------------------------------#
 # Artifact realization mappings
@@ -214,13 +219,20 @@ class ProjectionEnvelopeBlock(ProjectionModel):
     never chooses or mutates the projection.
     """
 
-    schema_version: Literal["2"] = "2"
+    schema_version: Literal["3"] = "3"
 
     # --- Immutable projection snapshot (contract §1) ---
     projection: ProjectionSnapshot
     canonical_ingress: EntryPointResourceReference
     ingress_controllability: Literal["direct", "indirect"]
     projected_mappings: tuple[ProjectedMapping, ...]
+
+    # --- Authoritative capability evidence (422o.4 blocker #3) ---
+    # Full immutable CapabilityFactSnapshot embedded so that controllability
+    # can be *derived* from evidence during standalone validation, not trusted
+    # as an independent persisted input.  The snapshot digest must match
+    # projection.capability_fact_snapshot_digest.
+    capability_snapshot: CapabilityFactSnapshot
 
     # --- Execution requirements (contract §1, §3) ---
     execution_requirements: tuple[ExecutionRequirement, ...]
@@ -291,6 +303,52 @@ class ProjectionEnvelopeBlock(ProjectionModel):
             raise ValueError(
                 "derivation_context_digest does not match; ingress "
                 "controllability was flipped or derivation context was mutated"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _capability_snapshot_digest_matches(self) -> ProjectionEnvelopeBlock:
+        """Verify embedded capability snapshot digest against projection pin.
+
+        The snapshot's ``snapshot_digest`` must equal the projection's
+        ``capability_fact_snapshot_digest``.  This binds the evidence to
+        the projection so a caller cannot substitute a different snapshot
+        and re-derive arbitrary controllability.
+        """
+        if self.capability_snapshot.snapshot_digest != (
+            self.projection.capability_fact_snapshot_digest
+        ):
+            raise ValueError(
+                "capability_snapshot.snapshot_digest does not match "
+                "projection.capability_fact_snapshot_digest; the embedded "
+                "evidence does not belong to this projection"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ingress_controllability_matches_evidence(self) -> ProjectionEnvelopeBlock:
+        """Derive controllability from embedded evidence and require equality.
+
+        The ``ingress_controllability`` field is NOT an independent trusted
+        input — it must equal the effective controllability resolved from
+        the embedded capability snapshot for the canonical ingress entry
+        point.  A caller who flips controllability and re-signs the
+        derivation context digest will fail here because the snapshot
+        evidence produces the original controllability.
+        """
+        ep = self.capability_snapshot.profile.resolve_entry_point(
+            self.canonical_ingress.entry_point_id
+        )
+        if ep is None:
+            raise ValueError(
+                "canonical_ingress entry_point_id is absent from the "
+                "embedded capability snapshot profile"
+            )
+        if ep.effective_controllability != self.ingress_controllability:
+            raise ValueError(
+                f"ingress_controllability '{self.ingress_controllability}' "
+                f"does not match the controllability '{ep.effective_controllability}' "
+                f"derived from the embedded capability snapshot evidence"
             )
         return self
 

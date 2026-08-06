@@ -22,7 +22,7 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.generate import generate_scenario
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
-from tests.helpers.projection_factory import get_projected_candidate
+from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -195,9 +195,10 @@ class TestEntryPointOverride:
             use_case="Test use case",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point=pinned_ep,
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # On candidate-v2 paths, entry-point overwrite is NOT performed.
@@ -252,9 +253,10 @@ class TestEntryPointOverride:
             use_case="Test use case",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point=pinned_ep,
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # Narrative should retain original entry point (no override)
@@ -303,9 +305,10 @@ class TestEntryPointOverride:
             use_case="Test use case",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point=None,
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         assemble_kwargs = mock_assemble.call_args[1]
@@ -366,9 +369,10 @@ class TestEntryPointOverride:
                 use_case="Test use case",
                 pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-                candidate_id="cand:v1:11111111111111111111111111111111",
+                candidate_id="",
                 pinned_entry_point=pinned_ep,
                 projected_candidate=get_projected_candidate(),
+                capability_snapshot=get_test_snapshot(),
             )
 
         assert any("not overwriting on candidate-v2 path" in m for m in caplog.messages)

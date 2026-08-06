@@ -41,7 +41,7 @@ from scenario_forge.pipeline.generate.narrative import (
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps, run_pipeline
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
-from tests.helpers.projection_factory import get_projected_candidate
+from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
 from tests.test_actor_entry_point_validation import (
     _make_envelope,
     _make_indirect_profile,
@@ -165,7 +165,7 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
     )
     template = _make_envelope(entry_point_id=ep.entry_point_id, access=access)
     template.actor_profile = actor
-    candidate_id = "cand:v1:11111111111111111111111111111111"
+    candidate_id = "cand:v2:11111111111111111111111111111111"
 
     def assemble(*args, narrative, **kwargs) -> ScenarioEnvelope:
         envelope = template.model_copy(deep=True)
@@ -228,8 +228,9 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
             pinned_entry_point=ep.name,
             prior_titles=["Already Used"],
             run_id=RUN_ID,
-            candidate_id=candidate_id,
+            candidate_id="",
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
     assert narrative_call.call_count >= 3
@@ -309,7 +310,7 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
             pinned_technique_ids=("AML.T0051.000",),
             pinned_technique_names=("Prompt Injection",),
             entry_point_id=ep.entry_point_id,
-            candidate_id=f"cand:v1:{digit * 32}",
+            candidate_id=f"cand:v2:{digit * 32}",
         )
 
     valid_seed, invalid_seed = filtered(first, "1"), filtered(second, "2")

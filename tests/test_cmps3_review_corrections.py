@@ -115,7 +115,7 @@ def _patch_projection_traceability_for_write_tests():
 
 _VALID_RUN_ID = "20260101T000000_" + "a" * 32
 _VALID_LEGACY_RUN_ID = "a" * 32
-_VALID_CANDIDATE_ID = "cand:v1:" + "1" * 32
+_VALID_CANDIDATE_ID = "cand:v2:" + "1" * 32
 
 # Canonical entry_point_id for "user prompts (zone 1)" — the first entry
 # point in ``_make_profile()``.  Remediation now resolves entry_point_id
@@ -987,7 +987,7 @@ class TestInvalidIdentityInputs:
 
     def test_invalid_candidate_id_short_hex(self):
         with pytest.raises(ValueError, match="candidate_id"):
-            compute_scenario_id(_VALID_RUN_ID, "cand:v1:short", 1)
+            compute_scenario_id(_VALID_RUN_ID, "cand:v2:short", 1)
 
     def test_attempt_zero_rejected(self):
         with pytest.raises(ValueError, match="attempt"):
@@ -1445,7 +1445,7 @@ class TestForgedReturnIdentity:
         ep_id = _USER_PROMPT_EP_ID
         pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
         correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
-        wrong_cid = "cand:v1:22222222222222222222222222222222"
+        wrong_cid = "cand:v2:22222222222222222222222222222222"
         correct_sid = compute_scenario_id(_VALID_RUN_ID, correct_cid, 1)
 
         mock_generate.return_value = (
@@ -1755,7 +1755,7 @@ class TestReceiptAdmissionExactness:
 
         sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
         env = _make_envelope(scenario_id=sid, candidate_id=_VALID_CANDIDATE_ID)
-        wrong_cid = "cand:v1:22222222222222222222222222222222"
+        wrong_cid = "cand:v2:22222222222222222222222222222222"
         receipts = [
             {
                 "scenario_id": sid,
@@ -1872,7 +1872,7 @@ class TestLowercaseIdentityConsistency:
     def test_uppercase_candidate_id_rejected_by_assembly(self):
         from scenario_forge.pipeline.generate.assembly import _validate_candidate_id
 
-        upper = "cand:v1:" + "A" * 32
+        upper = "cand:v2:" + "A" * 32
         with pytest.raises(ValueError, match="lowercase"):
             _validate_candidate_id(upper)
 
@@ -1880,7 +1880,7 @@ class TestLowercaseIdentityConsistency:
         with pytest.raises(ValueError, match="lowercase"):
             compute_scenario_id(
                 _VALID_RUN_ID,
-                "cand:v1:" + "A" * 32,
+                "cand:v2:" + "A" * 32,
                 1,
             )
 
@@ -1896,7 +1896,7 @@ class TestLowercaseIdentityConsistency:
             ScenarioEnvelope.model_validate(
                 {
                     **_make_envelope().model_dump(mode="json"),
-                    "candidate_id": "cand:v1:" + "A" * 32,
+                    "candidate_id": "cand:v2:" + "A" * 32,
                 }
             )
 
@@ -1951,7 +1951,7 @@ class TestLowercaseIdentityConsistency:
 
         env = _make_envelope()
         env_dict = env.model_dump(mode="json")
-        env_dict["candidate_id"] = "cand:v1:" + "A" * 32
+        env_dict["candidate_id"] = "cand:v2:" + "A" * 32
 
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(env_dict, schema)
@@ -1972,7 +1972,7 @@ class TestCanonicalizeSingletonOrigins:
         identical serialized origins after canonicalization."""
         # Build two identical candidates with origins in reversed order.
         origin_forward = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0051", "AML.T0052", "AML.T0053"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0052", "AML.T0053"),
@@ -1992,7 +1992,7 @@ class TestCanonicalizeSingletonOrigins:
             transform_stage="rule_pruning",
         )
         origin_reverse = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0053", "AML.T0052", "AML.T0051"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0053", "AML.T0052"),
@@ -2044,7 +2044,7 @@ class TestCanonicalizeSingletonOrigins:
         """Two decisions with the same technique_id but different rules
         must sort by (technique_id, rule, reason), not technique_id alone."""
         origin_a = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0051", "AML.T0052"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0051",),
@@ -2064,7 +2064,7 @@ class TestCanonicalizeSingletonOrigins:
             transform_stage="rule_pruning",
         )
         origin_b = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0051", "AML.T0052"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0051",),

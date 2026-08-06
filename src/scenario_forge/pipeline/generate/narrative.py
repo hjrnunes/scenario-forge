@@ -46,6 +46,29 @@ class Call1Step(BaseModel):
     action: str
     effect: str
     control_point: str | None = None
+    # --- Projection traceability fields (422o.4) ---
+    # Required on every action step; the LLM receives the IDs as opaque
+    # constraints and must echo them back.  Empty on non-action steps
+    # (e.g. external preconditions).
+    projected_step_ids: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Canonical projected step IDs that this narrative step realizes. "
+            "Must be echoed from the projection context constraints."
+        ),
+    )
+    canonical_action_kind: str | None = Field(
+        default=None,
+        description="Canonical action kind from the projected step.",
+    )
+    canonical_executor_role: str | None = Field(
+        default=None,
+        description="Canonical executor role from the projected step.",
+    )
+    canonical_boundary_position: str | None = Field(
+        default=None,
+        description="Canonical boundary position from the projected step.",
+    )
 
 
 class Call1Response(BaseModel):
@@ -109,6 +132,10 @@ def _sanitize_narrative(narrative: NarrativeLayer) -> NarrativeLayer:
 
     Logs a warning when sanitization modifies any field.
     Returns a (possibly modified) copy of the narrative.
+
+    Uses model_copy(update=...) to preserve projection metadata fields
+    (projected_step_ids, canonical_action_kind, etc.) — only prose text
+    fields are sanitized (422o.4 blocker #4: no semantic repair).
     """
     changed = False
     title = _sanitize_non_latin(narrative.title)
@@ -123,28 +150,24 @@ def _sanitize_narrative(narrative: NarrativeLayer) -> NarrativeLayer:
         effect = _sanitize_non_latin(step.effect)
         if action != step.action or effect != step.effect:
             changed = True
-        new_steps.append(
-            NarrativeStep(
-                step_number=step.step_number,
-                zone=step.zone,
-                action=action,
-                effect=effect,
-                control_point=step.control_point,
+            # Use model_copy to preserve all projection metadata fields.
+            new_steps.append(
+                step.model_copy(update={"action": action, "effect": effect})
             )
-        )
+        else:
+            new_steps.append(step)
 
     if changed:
         logger.warning(
             "Sanitized non-Latin characters from narrative fields "
             "(CJK/Cyrillic/Arabic leak from LLM output)"
         )
-        return NarrativeLayer(
-            title=title,
-            summary=summary,
-            entry_point=narrative.entry_point,
-            zone_sequence=narrative.zone_sequence,
-            steps=new_steps,
-            access_realization=narrative.access_realization,
+        return narrative.model_copy(
+            update={
+                "title": title,
+                "summary": summary,
+                "steps": new_steps,
+            }
         )
     return narrative
 
@@ -182,6 +205,10 @@ def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
             action=s.action,
             effect=s.effect,
             control_point=s.control_point,
+            projected_step_ids=s.projected_step_ids,
+            canonical_action_kind=s.canonical_action_kind,
+            canonical_executor_role=s.canonical_executor_role,
+            canonical_boundary_position=s.canonical_boundary_position,
         )
         for s in resp.steps
     ]

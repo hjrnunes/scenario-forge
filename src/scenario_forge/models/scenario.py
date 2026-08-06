@@ -945,7 +945,7 @@ class ScenarioEnvelope(BaseModel):
     )
     candidate_id: str = Field(
         description=(
-            "Stable canonical candidate identity (cand:v1:<128-bit hex>) "
+            "Stable canonical candidate identity (cand:v2:<128-bit hex>) "
             "that produced this scenario.  Separated from the run-specific "
             "scenario_id so the same candidate across runs yields distinct "
             "scenario IDs."
@@ -955,10 +955,10 @@ class ScenarioEnvelope(BaseModel):
     @field_validator("candidate_id")
     @classmethod
     def _validate_candidate_id_format(cls, v: str) -> str:
-        """Validate that candidate_id follows cand:v1:<32-char lowercase hex> format."""
-        if not v or not v.startswith("cand:v1:"):
-            raise ValueError("candidate_id must follow 'cand:v1:<32-char hex>' format")
-        hex_part = v[len("cand:v1:") :]
+        """Validate that candidate_id follows cand:v2:<32-char lowercase hex> format."""
+        if not v or not v.startswith("cand:v2:"):
+            raise ValueError("candidate_id must follow 'cand:v2:<32-char hex>' format")
+        hex_part = v[len("cand:v2:") :]
         if len(hex_part) != 32:
             raise ValueError(
                 f"candidate_id hex part must be 32 chars, got {len(hex_part)}"

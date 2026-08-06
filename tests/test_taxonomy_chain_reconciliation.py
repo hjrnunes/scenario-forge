@@ -22,7 +22,11 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.generate import _assemble_envelope
 from scenario_forge.pipeline.seeds import ScenarioSeed
-from tests.helpers.projection_factory import get_projected_candidate, make_behavior_spec
+from tests.helpers.projection_factory import (
+    get_projected_candidate,
+    get_test_snapshot,
+    make_behavior_spec,
+)
 
 # ===========================================================================
 # Helpers
@@ -232,9 +236,10 @@ class TestTaxonomyChainReconciliation:
             use_case="test",
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # Should contain only the technique actually in the tree
@@ -257,9 +262,10 @@ class TestTaxonomyChainReconciliation:
             use_case="test",
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids == ["AML.T0054"]
@@ -281,9 +287,10 @@ class TestTaxonomyChainReconciliation:
             use_case="test",
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -304,9 +311,10 @@ class TestTaxonomyChainReconciliation:
             use_case="test",
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         assert envelope.faceting.taxonomy_chain.atlas_technique_ids is None
@@ -327,9 +335,10 @@ class TestTaxonomyChainReconciliation:
             use_case="test",
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # atlas_provenance_ids documents where the scenario came from (seed provenance)
@@ -357,9 +366,10 @@ class TestTaxonomyChainReconciliation:
             use_case="test",
             notes=[],
             run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-            candidate_id="cand:v1:11111111111111111111111111111111",
+            candidate_id="",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         assert set(envelope.faceting.taxonomy_chain.atlas_technique_ids) == {

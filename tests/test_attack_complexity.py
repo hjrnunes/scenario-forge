@@ -72,6 +72,7 @@ from scenario_forge.pipeline.projection import (
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from tests.helpers.projection_factory import (
     get_projected_candidate,
+    get_test_snapshot,
     make_behavior_spec,
     make_projection_block,
 )
@@ -1344,7 +1345,7 @@ class TestNoviceGuardRemoved:
         mock_validate.side_effect = lambda profile: profile
         mock_call1.return_value = (_three_zone_narrative(), _llm_result({}))
         mock_call2.return_value = (_small_tree(), _llm_result({}))
-        mock_call3.return_value = ("Feature: Test", _llm_result({}))
+        mock_call3.return_value = (make_behavior_spec(), _llm_result({}))
 
         client = MagicMock()
         client.model = "test-model"
@@ -1370,8 +1371,9 @@ class TestNoviceGuardRemoved:
                 use_case="Test system",
                 pinned_entry_point_id="ep:v1:" + "cd" * 16,
                 run_id=generate_sortable_run_id(),
-                candidate_id="cand:v1:" + "ab" * 16,
+                candidate_id="",
                 projected_candidate=get_projected_candidate(),
+                capability_snapshot=get_test_snapshot(),
             )
 
     def test_no_post_call0_capability_assignment_survives(self) -> None:
@@ -1422,7 +1424,7 @@ def _envelope_with_assessment(
     return ScenarioEnvelope(
         projection=make_projection_block(),
         scenario_id="scenario:v2:" + "a1" * 32,
-        candidate_id="cand:v1:" + "b2" * 16,
+        candidate_id="cand:v2:" + "b2" * 16,
         initial_entry_point_id="ep:v1:" + "cd" * 16,
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",

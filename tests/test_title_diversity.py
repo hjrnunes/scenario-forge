@@ -104,6 +104,10 @@ def _make_mock_client(title: str = "Test Title") -> MagicMock:
     step.action = "Craft adversarial prompt"
     step.effect = "Agent compromised"
     step.control_point = None
+    step.projected_step_ids = ()
+    step.canonical_action_kind = None
+    step.canonical_executor_role = None
+    step.canonical_boundary_position = None
     mock_response.steps = [step]
     mock_response.access_realization = None
 

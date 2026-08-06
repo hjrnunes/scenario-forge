@@ -177,7 +177,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         projection=make_projection_block(),
         scenario_id="scenario:v2:ff6276e5c312934a645c4801d2bce454291be257a3a31ff510af2c9dd3f61143",
-        candidate_id="cand:v1:7e57c0de000000000000000000000000",
+        candidate_id="cand:v2:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",

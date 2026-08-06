@@ -256,7 +256,7 @@ def _make_envelope(
     return ScenarioEnvelope(
         projection=make_projection_block(),
         scenario_id=scenario_id,
-        candidate_id="cand:v1:7e57c0de000000000000000000000000",
+        candidate_id="cand:v2:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
@@ -332,7 +332,7 @@ class TestOrderingIndependentCollapse:
             technique_ids=("AML.T0051", "AML.T0054"),
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:src1",
+                    source_candidate_id="cand:v2:src1",
                     original_technique_ids=("AML.T0051", "AML.T0054"),
                     transform_stage="expansion",
                 ),
@@ -342,7 +342,7 @@ class TestOrderingIndependentCollapse:
             technique_ids=("AML.T0054", "AML.T0051"),
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:src2",
+                    source_candidate_id="cand:v2:src2",
                     original_technique_ids=("AML.T0054", "AML.T0051"),
                     transform_stage="expansion",
                 ),
@@ -368,7 +368,7 @@ class TestConvergenceWithOrigins:
         c = _make_candidate(
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:abc",
+                    source_candidate_id="cand:v2:abc",
                     original_technique_ids=("AML.T0051",),
                     transform_stage="expansion",
                 ),
@@ -377,7 +377,7 @@ class TestConvergenceWithOrigins:
         result = canonicalize_and_dedup([c], stage="test")
         assert len(result) == 1
         assert len(result[0].origins) == 1
-        assert result[0].origins[0].source_candidate_id == "cand:v1:abc"
+        assert result[0].origins[0].source_candidate_id == "cand:v2:abc"
 
     def test_pruned_multi_technique_convergence_retains_both_origins(self):
         """A singleton and a pruned multi-technique candidate that converge
@@ -445,7 +445,7 @@ class TestCompleteMergedOrigins:
             c = _make_candidate(
                 origins=(
                     CandidateOrigin(
-                        source_candidate_id=f"cand:v1:src{i}",
+                        source_candidate_id=f"cand:v2:src{i}",
                         original_technique_ids=("AML.T0051",),
                         transform_stage="expansion",
                     ),
@@ -457,7 +457,7 @@ class TestCompleteMergedOrigins:
         assert len(result) == 1
         assert len(result[0].origins) == 3
         source_ids = {o.source_candidate_id for o in result[0].origins}
-        assert source_ids == {"cand:v1:src0", "cand:v1:src1", "cand:v1:src2"}
+        assert source_ids == {"cand:v2:src0", "cand:v2:src1", "cand:v2:src2"}
 
     def test_no_duplicate_origins_after_double_dedup(self):
         """Deduplicating an already-deduplicated list does not create
@@ -465,7 +465,7 @@ class TestCompleteMergedOrigins:
         c1 = _make_candidate(
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:a",
+                    source_candidate_id="cand:v2:a",
                     original_technique_ids=("AML.T0051",),
                     transform_stage="expansion",
                 ),
@@ -474,7 +474,7 @@ class TestCompleteMergedOrigins:
         c2 = _make_candidate(
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:b",
+                    source_candidate_id="cand:v2:b",
                     original_technique_ids=("AML.T0051",),
                     transform_stage="expansion",
                 ),
@@ -514,10 +514,10 @@ class TestStableCandidateIds:
         assert id1 != id2
 
     def test_candidate_id_format(self):
-        """Candidate ID follows cand:v1:<32-char hex> format."""
+        """Candidate ID follows cand:v2:<32-char hex> format."""
         cid = compute_candidate_id("AP-T7-01", "ep1", ("AML.T0051",))
-        assert cid.startswith("cand:v1:")
-        hex_part = cid.split("cand:v1:")[1]
+        assert cid.startswith("cand:v2:")
+        hex_part = cid.split("cand:v2:")[1]
         assert len(hex_part) == 32
         int(hex_part, 16)  # Valid hex
 
@@ -535,7 +535,7 @@ class TestScenarioIdCollisionSafety:
         resistance (64 hex chars = 256 bits)."""
         sid = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         assert sid.startswith("scenario:v2:")
@@ -547,12 +547,12 @@ class TestScenarioIdCollisionSafety:
         """Same candidate+attempt but different run → different scenario ID."""
         sid1 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
             "20240101T120001_bbcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         assert sid1 != sid2
@@ -561,12 +561,12 @@ class TestScenarioIdCollisionSafety:
         """Same run+candidate but different attempt → different scenario ID."""
         sid1 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             2,
         )
         assert sid1 != sid2
@@ -575,12 +575,12 @@ class TestScenarioIdCollisionSafety:
         """Same run+attempt but different candidate → different scenario ID."""
         sid1 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:22222222222222222222222222222222",
+            "cand:v2:22222222222222222222222222222222",
             1,
         )
         assert sid1 != sid2
@@ -612,7 +612,7 @@ class TestCrossRunScenarioIds:
 
     def test_same_candidate_distinct_across_runs(self):
         """Same candidate_id in 5 different runs → 5 distinct scenario IDs."""
-        candidate_id = "cand:v1:11111111111111111111111111111111"
+        candidate_id = "cand:v2:11111111111111111111111111111111"
         run_ids = [generate_run_id() for _ in range(5)]
         scenario_ids = {compute_scenario_id(rid, candidate_id, 1) for rid in run_ids}
         assert len(scenario_ids) == 5

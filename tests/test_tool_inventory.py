@@ -441,7 +441,7 @@ class TestPhantomToolValidation:
         return ScenarioEnvelope(
             projection=make_projection_block(),
             scenario_id="scenario:v2:e57506e29f4fc074e28395ca4cfa61d98d4e927d906b3e176611aaead83608c0",
-            candidate_id="cand:v1:7e57c0de000000000000000000000000",
+            candidate_id="cand:v2:7e57c0de000000000000000000000000",
             initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             seed_id="AP-T2-01",
             generated_at=datetime.now(tz=UTC),

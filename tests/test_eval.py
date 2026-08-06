@@ -103,7 +103,7 @@ def _make_scenario(
 
     return {
         "scenario_id": scenario_id,
-        "candidate_id": f"cand:v1:{hashlib.sha256(scenario_id.encode()).hexdigest()[:32]}",
+        "candidate_id": f"cand:v2:{hashlib.sha256(scenario_id.encode()).hexdigest()[:32]}",
         "narrative": {
             "title": title,
             "summary": "An adversarial user exploits agent reasoning.",
@@ -1112,7 +1112,7 @@ class TestRunEvaluation:
             run_dir=run_dir,
             rel_path=f"scenarios/{sid}.yaml",
             scenario_id=sid,
-            candidate_id=f"cand:v1:{hashlib.sha256(sid.encode()).hexdigest()[:32]}",
+            candidate_id=f"cand:v2:{hashlib.sha256(sid.encode()).hexdigest()[:32]}",
         )
         manifest = RunManifest(
             status=RunStatus.COMPLETED,

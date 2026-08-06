@@ -53,8 +53,8 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
             candidate_id=candidate_id,
         )
 
-    valid_seed = filtered("cand:v1:11111111111111111111111111111111")
-    invalid_seed = filtered("cand:v1:22222222222222222222222222222222")
+    valid_seed = filtered("cand:v2:11111111111111111111111111111111")
+    invalid_seed = filtered("cand:v2:22222222222222222222222222222222")
 
     from scenario_forge.models.scenario import NarrativeAccessRealization
 

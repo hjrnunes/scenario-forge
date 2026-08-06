@@ -249,10 +249,10 @@ def _make_envelope(
         projection=make_projection_block(),
         scenario_id=compute_scenario_id(
             "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "cand:v1:7e57c0de000000000000000000000000",
+            "cand:v2:7e57c0de000000000000000000000000",
             1,
         ),
-        candidate_id="cand:v1:7e57c0de000000000000000000000000",
+        candidate_id="cand:v2:7e57c0de000000000000000000000000",
         initial_entry_point_id=(
             entry_point_id
             if entry_point_id is not None

@@ -31,7 +31,7 @@ from scenario_forge.pipeline.generate import (
     _check_non_actionable_leaves,
     _count_leaves,
 )
-from tests.helpers.projection_factory import get_projected_candidate
+from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -550,9 +550,10 @@ class TestConsistencyRetryLoop:
             use_case="Test system",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            candidate_id="cand:v1:" + "1" * 32,
+            candidate_id="",
             pinned_technique_ids=["AML.T0051"],
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # Call 2 should have been invoked twice (initial + 1 retry)
@@ -628,9 +629,10 @@ class TestConsistencyRetryLoop:
             use_case="Test system",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            candidate_id="cand:v1:" + "1" * 32,
+            candidate_id="",
             pinned_technique_ids=["AML.T0051"],
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # Call 2 should have been invoked only once
@@ -705,9 +707,10 @@ class TestConsistencyRetryLoop:
             use_case="Test system",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            candidate_id="cand:v1:" + "1" * 32,
+            candidate_id="",
             pinned_technique_ids=["AML.T0051"],
             projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # 1 initial + 2 retries = 3

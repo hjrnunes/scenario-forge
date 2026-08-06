@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # Canonical candidate identity
 # ---------------------------------------------------------------------------
 
-_CANDIDATE_ID_VERSION = "v1"
+_CANDIDATE_ID_VERSION = "v2"
 
 
 def compute_candidate_id(
@@ -375,7 +375,7 @@ class CandidateTriple(BaseModel):
         description="Canonical, deterministic entry point identity (ep:v1:<hash>).",
     )
     candidate_id: str = Field(
-        description="Canonical, deterministic candidate identity (cand:v1:<hash>).",
+        description="Canonical, deterministic candidate identity (cand:v2:<hash>).",
     )
     origins: tuple[CandidateOrigin, ...] = Field(
         default_factory=tuple,

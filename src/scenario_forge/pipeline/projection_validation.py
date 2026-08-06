@@ -227,14 +227,90 @@ def _check_projection_drift(
             )
         )
 
-    # --- Standalone recomputation from embedded data (422o.4 blocker #2) ---
-    # Recompute execution requirements from the embedded projection +
-    # ingress_controllability and require exact equality.  This prevents
-    # forged requirements that merely have a matching self-consistent digest.
+    # --- Standalone recomputation from embedded evidence (422o.4 blocker #2-#3) ---
+    # Derive controllability from the embedded CapabilityFactSnapshot, NOT
+    # from the persisted ingress_controllability field (which is self-signed).
+    # This prevents a caller from flipping controllability and re-signing
+    # arbitrary requirements.
     chain = block.projection.source_chain
     pattern_id = chain.pattern_id
+
+    # Step 1: Verify snapshot integrity (detect nested mutation of evidence).
+    snapshot = block.capability_snapshot
+    try:
+        snapshot.assert_integrity()
+    except (ValueError, TypeError, AttributeError) as exc:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.nested_mutation,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(f"embedded capability snapshot integrity check failed: {exc}"),
+            )
+        )
+        return violations  # Cannot proceed with corrupted evidence.
+
+    # Step 2: Verify snapshot digest matches the projection pin.
+    if snapshot.snapshot_digest != block.projection.capability_fact_snapshot_digest:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.nested_mutation,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    "embedded capability_snapshot.snapshot_digest does not "
+                    "match projection.capability_fact_snapshot_digest; "
+                    "evidence was substituted after projection"
+                ),
+            )
+        )
+        return violations
+
+    # Step 3: Derive controllability from evidence.
+    try:
+        ep = snapshot.profile.resolve_entry_point(
+            block.canonical_ingress.entry_point_id
+        )
+        if ep is None:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.requirement_drift,
+                    stage=ProjectionTraceabilityStage.actor_profile,
+                    detail=(
+                        "canonical_ingress entry_point_id is absent from "
+                        "the embedded capability snapshot profile"
+                    ),
+                )
+            )
+            return violations
+        derived_controllability = ep.effective_controllability
+    except (ValueError, TypeError, AttributeError) as exc:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.requirement_drift,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=f"failed to derive controllability from evidence: {exc}",
+            )
+        )
+        return violations
+
+    # Step 4: Verify persisted controllability matches derived.
+    if derived_controllability != block.ingress_controllability:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.requirement_drift,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    f"persisted ingress_controllability "
+                    f"'{block.ingress_controllability}' does not match "
+                    f"controllability '{derived_controllability}' derived "
+                    f"from embedded capability evidence"
+                ),
+            )
+        )
+
+    # Step 5: Recompute execution requirements from embedded projection +
+    # derived controllability (NOT persisted controllability).
     recomputed_reqs, req_issue = _derive_execution_requirements_core(
-        pattern_id, chain, block.projection, block.ingress_controllability
+        pattern_id, chain, block.projection, derived_controllability
     )
     recomputed_reqs, req_issue = _fail_closed_if_no_requirements(
         pattern_id, recomputed_reqs, req_issue
@@ -261,11 +337,11 @@ def _check_projection_drift(
             )
         )
 
-    # Verify derivation context digest binds ingress_controllability.
+    # Step 6: Verify derivation context digest using derived controllability.
     expected_ctx_digest = compute_derivation_context_digest(
         block.projection.projection_digest,
         pattern_id,
-        block.ingress_controllability,
+        derived_controllability,
     )
     if expected_ctx_digest != block.derivation_context_digest:
         violations.append(
@@ -273,8 +349,9 @@ def _check_projection_drift(
                 code=ProjectionTraceabilityViolationCode.requirement_drift,
                 stage=ProjectionTraceabilityStage.actor_profile,
                 detail=(
-                    "derivation_context_digest does not match; ingress "
-                    "controllability may have been flipped"
+                    "derivation_context_digest does not match when computed "
+                    "with controllability derived from evidence; controllability "
+                    "may have been flipped"
                 ),
             )
         )

@@ -308,7 +308,7 @@ def _make_block(
     behavior_realizations: tuple[ArtifactRealizationMapping, ...] | None = None,
     assertion_realizations: tuple[AssertionRealizationMapping, ...] | None = None,
 ) -> ProjectionEnvelopeBlock:
-    candidate, _, _, _ = _project()
+    candidate, _, snapshot, _ = _project()
     selected = candidate.projection.selected_step_ids
 
     if narrative_realizations is None:
@@ -360,6 +360,7 @@ def _make_block(
         canonical_ingress=candidate.canonical_ingress,
         ingress_controllability=candidate.ingress_controllability,
         projected_mappings=candidate.projected_mappings,
+        capability_snapshot=snapshot,
         execution_requirements=candidate.execution_requirements,
         requirement_derivation_version=candidate.requirement_derivation_version,
         execution_requirements_digest=candidate.execution_requirements_digest,
@@ -487,8 +488,8 @@ def _make_envelope(
 
     return ScenarioEnvelope(
         scenario_id="scenario:v2:" + "a" * 64,
-        candidate_id="cand:v1:" + "b" * 32,
-        version=1,
+        candidate_id="cand:v2:" + "b" * 32,
+        version=3,
         generated_at=datetime.now(UTC),
         generator_version="test",
         initial_entry_point_id=initial_entry_point_id,
@@ -1419,10 +1420,10 @@ class TestProjectionEnvelopeBlockSchemaParity:
         jsonschema.Draft202012Validator.check_schema(schema)
 
     def test_block_has_schema_version_const(self):
-        """schema_version is a Literal['2'] const."""
+        """schema_version is a Literal['3'] const."""
         schema = ProjectionEnvelopeBlock.model_json_schema()
         sv = schema["properties"]["schema_version"]
-        assert sv.get("const") == "2"
+        assert sv.get("const") == "3"
 
     def test_block_extra_forbid_in_json_schema(self):
         """additionalProperties is False."""
@@ -1852,7 +1853,12 @@ class TestStandaloneForgedRequirements:
         )
 
     def test_flipped_controllability_rejected(self):
-        """Flipping ingress_controllability and re-signing must fail."""
+        """Flipping ingress_controllability and re-signing must fail.
+
+        The model validator catches this at construction, but model_copy
+        bypasses validators.  The standalone validator must also catch it
+        by deriving controllability from the embedded capability evidence.
+        """
         from scenario_forge.pipeline.projection import compute_derivation_context_digest
 
         block = _make_block()
@@ -1869,7 +1875,9 @@ class TestStandaloneForgedRequirements:
                 "derivation_context_digest": new_ctx_digest,
             }
         )
-        envelope = _make_envelope(block)
+        # Use model_copy on the envelope to bypass model re-validation.
+        envelope = _make_envelope()
+        envelope = envelope.model_copy(update={"projection": block})
         result = validate_projection_traceability(envelope)
         codes = {v.code for v in result.violations}
         # Flipping controllability should cause requirement_drift because

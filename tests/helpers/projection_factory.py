@@ -277,6 +277,7 @@ def make_projection_block(
     Defaults to one-to-one realization mappings for all selected steps.
     """
     candidate = get_projected_candidate()
+    snapshot = get_test_snapshot()
     selected = candidate.projection.selected_step_ids
 
     if narrative_realizations is None:
@@ -324,6 +325,7 @@ def make_projection_block(
         canonical_ingress=candidate.canonical_ingress,
         ingress_controllability=candidate.ingress_controllability,
         projected_mappings=candidate.projected_mappings,
+        capability_snapshot=snapshot,
         execution_requirements=candidate.execution_requirements,
         requirement_derivation_version=candidate.requirement_derivation_version,
         execution_requirements_digest=candidate.execution_requirements_digest,

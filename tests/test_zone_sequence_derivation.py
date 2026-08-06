@@ -12,7 +12,7 @@ Covers:
 
 from __future__ import annotations
 
-import logging
+import pytest
 
 from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
 from scenario_forge.pipeline.generate import (
@@ -22,7 +22,6 @@ from scenario_forge.pipeline.generate import (
     _enforce_zones_narrative,
     _map_call1_to_narrative,
 )
-
 
 # ---------------------------------------------------------------------------
 # _derive_zone_sequence unit tests
@@ -224,8 +223,8 @@ class TestZoneActiveFilteringOnDerived:
             steps=steps,
         )
 
-    def test_derived_zone_sequence_filtered_by_zones_active(self):
-        """Derived zone_sequence is filtered by zones_active."""
+    def test_derived_zone_sequence_disallowed_zone_rejected(self):
+        """422o.4: disallowed zones in derived zone_sequence are rejected."""
         narrative = self._make_narrative_from_steps(
             ["input", "reasoning", "memory", "reasoning"]
         )
@@ -235,11 +234,8 @@ class TestZoneActiveFilteringOnDerived:
             "memory",
             "reasoning",
         ]
-        result = _enforce_zones_narrative(
-            narrative, zones_active=["input", "reasoning"]
-        )
-        assert result.zone_sequence == ["input", "reasoning", "reasoning"]
-        assert all(s.zone in ("input", "reasoning") for s in result.steps)
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
 
     def test_derived_with_revisitation_filtered(self):
         """Revisitation pattern survives zone-active filtering when zones are allowed."""
@@ -265,24 +261,17 @@ class TestZoneActiveFilteringOnDerived:
         ]
 
     def test_filtering_preserves_allowed_revisitations(self):
-        """Filtering out a zone between two allowed zones keeps both."""
+        """422o.4: disallowed zone between allowed zones is rejected."""
         narrative = self._make_narrative_from_steps(["input", "memory", "input"])
         assert narrative.zone_sequence == ["input", "memory", "input"]
-        result = _enforce_zones_narrative(
-            narrative, zones_active=["input", "reasoning"]
-        )
-        assert result.zone_sequence == ["input", "input"]
-        assert [s.zone for s in result.steps] == ["input", "input"]
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
 
-    def test_empty_after_filtering_returns_original(self, caplog):
-        """When all derived zones are disallowed, original is returned."""
+    def test_all_disallowed_zones_rejected(self):
+        """422o.4: when all derived zones are disallowed, raise."""
         narrative = self._make_narrative_from_steps(["memory", "inter_agent"])
-        with caplog.at_level(logging.WARNING):
-            result = _enforce_zones_narrative(
-                narrative, zones_active=["input", "reasoning"]
-            )
-        assert result is narrative
-        assert any("keeping original narrative unchanged" in m for m in caplog.messages)
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
 
     def test_none_zones_active_passes_through(self):
         """zones_active=None means no filtering."""

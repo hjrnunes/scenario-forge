@@ -7,13 +7,20 @@ Action-aware Gherkin projection (cmps.9):
 - ``impact`` → Then (projected before the LLM assertion block)
 - Human labels remain display text only; the action discriminator
   determines step kind, not label text.
+
+422o.4: Call 3 returns a structured response keyed by exact projected
+step/postcondition IDs.  The structured response is validated against the
+projection and Gherkin is rendered from the accepted structure.  The LLM
+output is never silently replaced.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 from scenario_forge.data.atlas import ATLAS_TECHNIQUE_NAMES
 from scenario_forge.llm.client import LLMClient, LLMResult
@@ -23,7 +30,12 @@ from scenario_forge.models.attack_tree import (
     GateType,
 )
 from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.models.scenario import NarrativeLayer
+from scenario_forge.models.scenario import (
+    BehaviorAction,
+    BehaviorAssertion,
+    BehaviorSpec,
+    NarrativeLayer,
+)
 from scenario_forge.pipeline.generate.constants import (
     _ASSERTIONS_MARKER,
     THREAT_VIOLATION_CATEGORY,
@@ -36,6 +48,37 @@ logger = logging.getLogger(__name__)
 # Maximum number of Scenario blocks generated from OR-gate cross-products.
 # Beyond this, paths are truncated to avoid Gherkin explosion.
 MAX_OR_PATHS = 6
+
+
+# ---------------------------------------------------------------------------#
+# Structured Call 3 response model (422o.4)
+# ---------------------------------------------------------------------------#
+
+
+class Call3Action(BaseModel):
+    """A structured behavior action from Call 3, keyed by projected step IDs."""
+
+    action_id: str = Field(min_length=1)
+    projected_step_ids: tuple[str, ...] = Field(min_length=1)
+    source_leaf_id: str = Field(pattern=r"^n\d+(\.\d+){0,4}$")
+    gherkin_keyword: Literal["Given", "When", "Then"]
+    text: str = Field(min_length=1)
+
+
+class Call3Assertion(BaseModel):
+    """A structured behavior assertion from Call 3, keyed by postcondition IDs."""
+
+    assertion_id: str = Field(min_length=1)
+    source_step_ids: tuple[str, ...] = Field(min_length=1)
+    projected_postcondition_ids: tuple[str, ...] = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+
+class Call3Response(BaseModel):
+    """Structured response from Call 3, validated against the projection."""
+
+    actions: list[Call3Action] = Field(min_length=1)
+    assertions: list[Call3Assertion] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -393,14 +436,18 @@ def _call_behavior_spec(
     scenario_tag: str,
     pinned_technique_ids: list[str] | None = None,
     projection_context: dict[str, Any] | None = None,
-) -> tuple[str, LLMResult]:
-    """Generate a behavior spec for a scenario seed (Call 3).
+) -> tuple[BehaviorSpec, LLMResult]:
+    """Generate a structured behavior spec for a scenario seed (Call 3).
 
-    Delegates context building to :func:`build_call3_context`, then renders
-    templates, calls the LLM, and splices assertions into the Gherkin skeleton.
+    422o.4: The LLM returns a structured Call3Response keyed by exact
+    projected step/postcondition IDs.  The response is validated against
+    the projection context and the attack tree, then Gherkin is rendered
+    from the accepted structure.  The LLM output is never silently
+    replaced — if the structured response does not match the projection,
+    a ValueError is raised.
 
     Returns:
-        Tuple of (complete_gherkin_spec, LLMResult).
+        Tuple of (BehaviorSpec, LLMResult).
     """
     ctx = build_call3_context(
         seed=seed,
@@ -414,37 +461,138 @@ def _call_behavior_spec(
     result = client.complete(
         system_prompt=render_prompt("call3_system.j2"),
         user_prompt=render_prompt("call3_user.j2", **ctx),
-        response_format=None,
+        response_format=Call3Response,
     )
 
-    content = result.content
-    if not isinstance(content, str) or not content.strip():
+    call3_response: Call3Response = result.content
+
+    # Validate the structured response against the projection and tree.
+    _validate_call3_response(call3_response, attack_tree, projection_context)
+
+    # Convert validated Call3Response into BehaviorSpec.
+    behavior_spec = _call3_response_to_behavior_spec(call3_response, attack_tree, ctx)
+
+    return behavior_spec, result
+
+
+def _validate_call3_response(
+    response: Call3Response,
+    attack_tree: AttackTree,
+    projection_context: dict[str, Any] | None,
+) -> None:
+    """Validate a Call3Response against the projection and attack tree."""
+    if projection_context is None:
+        raise ValueError("Call 3 requires projection context (422o.4)")
+
+    selected_step_ids = set(projection_context.get("selected_step_ids", []))
+    valid_leaf_ids = {leaf.id for leaf in _collect_leaf_nodes_dfs(attack_tree.root)}
+
+    valid_pc_ids: set[str] = set()
+    for step_data in projection_context.get("selected_steps", []):
+        for pc in step_data.get("observable_postconditions", []):
+            valid_pc_ids.add(pc["postcondition_id"])
+
+    action_ids: set[str] = set()
+    covered_steps: set[str] = set()
+    for action in response.actions:
+        if action.action_id in action_ids:
+            raise ValueError(
+                f"Duplicate behavior action ID '{action.action_id}' in Call 3 response"
+            )
+        action_ids.add(action.action_id)
+
+        if action.source_leaf_id not in valid_leaf_ids:
+            raise ValueError(
+                f"Behavior action '{action.action_id}' references "
+                f"nonexistent tree leaf '{action.source_leaf_id}'"
+            )
+
+        for sid in action.projected_step_ids:
+            if sid not in selected_step_ids:
+                raise ValueError(
+                    f"Behavior action '{action.action_id}' references "
+                    f"unprojected step '{sid}'"
+                )
+            covered_steps.add(sid)
+
+    uncovered = selected_step_ids - covered_steps
+    if uncovered:
         raise ValueError(
-            f"Behavior spec generation returned empty content for {seed.seed_id}"
+            f"Call 3 response does not cover projected steps: {sorted(uncovered)}"
         )
 
-    # Clean markdown fences from LLM output
-    cleaned = content.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        cleaned = "\n".join(lines)
+    assertion_ids: set[str] = set()
+    for assertion in response.assertions:
+        if assertion.assertion_id in assertion_ids:
+            raise ValueError(
+                f"Duplicate assertion ID '{assertion.assertion_id}' in Call 3 response"
+            )
+        assertion_ids.add(assertion.assertion_id)
 
-    # Splice the assertion block into the template, ensuring every
-    # Then/But/* line is indented with 4 spaces to sit inside the
-    # Scenario block (the template marker already sits at col 4).
-    indented_lines = []
-    for line in cleaned.strip().splitlines():
-        stripped = line.strip()
-        if stripped:
-            indented_lines.append(f"    {stripped}")
-        else:
-            indented_lines.append("")
-    indented_assertions = "\n".join(indented_lines)
-    complete_gherkin = ctx["gherkin_skeleton"].replace(
-        f"    {_ASSERTIONS_MARKER}", indented_assertions
+        for sid in assertion.source_step_ids:
+            if sid not in selected_step_ids:
+                raise ValueError(
+                    f"Assertion '{assertion.assertion_id}' references "
+                    f"unprojected source step '{sid}'"
+                )
+
+        for pc_id in assertion.projected_postcondition_ids:
+            if pc_id not in valid_pc_ids:
+                raise ValueError(
+                    f"Assertion '{assertion.assertion_id}' references "
+                    f"unknown postcondition '{pc_id}'"
+                )
+
+
+def _call3_response_to_behavior_spec(
+    response: Call3Response,
+    attack_tree: AttackTree,
+    ctx: dict[str, Any],
+) -> BehaviorSpec:
+    """Convert a validated Call3Response into a BehaviorSpec.
+
+    Gherkin is deterministically rendered from the structured actions and
+    assertions — not from an independently authored LLM text output.
+    """
+    actions = tuple(
+        BehaviorAction(
+            action_id=a.action_id,
+            projected_step_ids=a.projected_step_ids,
+            source_leaf_id=a.source_leaf_id,
+            gherkin_keyword=a.gherkin_keyword,
+            text=a.text,
+        )
+        for a in response.actions
+    )
+    assertions = tuple(
+        BehaviorAssertion(
+            assertion_id=a.assertion_id,
+            source_step_ids=a.source_step_ids,
+            projected_postcondition_ids=a.projected_postcondition_ids,
+            gherkin_keyword="Then",
+            text=a.text,
+        )
+        for a in response.assertions
     )
 
-    return complete_gherkin, result
+    # Build zone map from tree leaves for Gherkin zone annotations.
+    zone_map: dict[str, str] = {}
+    for leaf in _collect_leaf_nodes_dfs(attack_tree.root):
+        if leaf.zone is not None:
+            for action in response.actions:
+                if action.source_leaf_id == leaf.id:
+                    zone_map[action.action_id] = leaf.zone
+
+    from scenario_forge.pipeline.generate.assembly import (
+        render_gherkin_from_behavior_spec,
+    )
+
+    rendered = render_gherkin_from_behavior_spec(
+        list(actions), list(assertions), zone_map=zone_map
+    )
+
+    return BehaviorSpec(
+        actions=actions,
+        assertions=assertions,
+        gherkin_text=rendered,
+    )

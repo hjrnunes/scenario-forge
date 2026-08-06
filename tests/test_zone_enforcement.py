@@ -7,8 +7,6 @@ silently pruning disallowed zones (cmps.9 review correction 4).
 
 from __future__ import annotations
 
-import logging
-
 import pytest
 
 from scenario_forge.models.attack_tree import AiSystemAction, AttackTree, AttackTreeNode
@@ -85,82 +83,63 @@ class TestEnforceZonesNarrative:
         )
         assert result is narrative  # no change needed
 
-    def test_disallowed_zone_stripped_from_sequence_and_steps(self):
+    def test_disallowed_zone_raises_value_error(self):
+        """422o.4: disallowed zones are rejected, not stripped."""
         narrative = _make_narrative(
             zone_sequence=["input", "memory", "reasoning"],
             step_zones=["input", "memory", "reasoning"],
         )
-        result = _enforce_zones_narrative(
-            narrative, zones_active=["input", "reasoning"]
-        )
-        assert result.zone_sequence == ["input", "reasoning"]
-        assert [s.zone for s in result.steps] == ["input", "reasoning"]
-
-    def test_steps_renumbered_after_filtering(self):
-        narrative = _make_narrative(
-            zone_sequence=["input", "memory", "reasoning"],
-            step_zones=["input", "memory", "reasoning"],
-        )
-        result = _enforce_zones_narrative(
-            narrative, zones_active=["input", "reasoning"]
-        )
-        assert [s.step_number for s in result.steps] == [1, 2]
-
-    def test_title_and_metadata_preserved(self):
-        narrative = _make_narrative(
-            zone_sequence=["input", "memory"],
-            step_zones=["input", "memory"],
-        )
-        result = _enforce_zones_narrative(narrative, zones_active=["input"])
-        assert result.title == "Test narrative"
-        assert result.summary == "Summary"
-        assert result.entry_point == "user prompts (zone 1)"
-
-    def test_warning_logged_on_strip(self, caplog):
-        narrative = _make_narrative(
-            zone_sequence=["input", "memory", "reasoning"],
-            step_zones=["input", "memory", "reasoning"],
-        )
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="disallowed-zone"):
             _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
-        assert any(
-            "Stripped disallowed zones from narrative" in m for m in caplog.messages
-        )
-        assert any("memory" in m for m in caplog.messages)
 
-    def test_empty_zone_sequence_returns_original(self, caplog):
-        """When filtering would empty zone_sequence, return the original."""
+    def test_disallowed_step_zone_raises_value_error(self):
+        """Step with disallowed zone is rejected, not renumbered."""
+        narrative = _make_narrative(
+            zone_sequence=["input", "reasoning"],
+            step_zones=["input", "memory", "reasoning"],
+        )
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
+
+    def test_no_renumbering_or_filtering_occurs(self):
+        """422o.4: no semantic repair — steps are never renumbered or deleted."""
+        narrative = _make_narrative(
+            zone_sequence=["input", "memory", "reasoning"],
+            step_zones=["input", "memory", "reasoning"],
+        )
+        with pytest.raises(ValueError):
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
+        # Original narrative is not mutated
+        assert [s.step_number for s in narrative.steps] == [1, 2, 3]
+        assert len(narrative.steps) == 3
+
+    def test_all_zones_disallowed_raises(self):
+        """When all zones are disallowed, raise rather than returning original."""
         narrative = _make_narrative(
             zone_sequence=["memory"],
             step_zones=["memory"],
         )
-        with caplog.at_level(logging.WARNING):
-            result = _enforce_zones_narrative(
-                narrative, zones_active=["input", "reasoning"]
-            )
-        # Original is returned unchanged to avoid downstream crashes
-        assert result is narrative
-        assert any("keeping original narrative unchanged" in m for m in caplog.messages)
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
 
-    def test_multiple_disallowed_zones(self):
+    def test_multiple_disallowed_zones_raises(self):
         narrative = _make_narrative(
             zone_sequence=["input", "memory", "inter_agent", "reasoning"],
             step_zones=["input", "memory", "inter_agent", "reasoning"],
         )
-        result = _enforce_zones_narrative(
-            narrative, zones_active=["input", "reasoning"]
-        )
-        assert result.zone_sequence == ["input", "reasoning"]
-        assert len(result.steps) == 2
+        with pytest.raises(ValueError, match="disallowed-zone"):
+            _enforce_zones_narrative(narrative, zones_active=["input", "reasoning"])
 
-    def test_preserves_zone_sequence_order(self):
+    def test_allowed_zones_preserved_unchanged(self):
+        """Allowed zones pass through unchanged."""
         narrative = _make_narrative(
-            zone_sequence=["reasoning", "memory", "input", "memory", "reasoning"],
+            zone_sequence=["reasoning", "input", "reasoning"],
             step_zones=["reasoning", "input"],
         )
         result = _enforce_zones_narrative(
             narrative, zones_active=["input", "reasoning"]
         )
+        assert result is narrative
         assert result.zone_sequence == ["reasoning", "input", "reasoning"]
 
 

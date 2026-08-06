@@ -682,14 +682,18 @@ def _call_attack_tree(
     except Exception as first_error:  # noqa: BLE001
         # One retry with error feedback — Call 2 produces unstructured YAML
         # which is the most fragile output format in the pipeline.
+        # Preserve the original projection-rich prompt and append parse
+        # feedback only (422o.4 blocker #2).
         logger.warning("Attack tree YAML parse failed, retrying: %s", first_error)
 
+        original_user_prompt = render_prompt("call2_user.j2", **ctx)
         retry_user_prompt = (
-            "Your previous output was not valid YAML. The error was:\n"
+            original_user_prompt + "\n\n## Parse Feedback\n"
+            f"Your previous output was not valid YAML. The error was:\n"
             f"  {first_error}\n\n"
             "Please produce valid YAML following the same structure "
-            "described in the system prompt. Use the same seed_id, goal, "
-            "and narrative context from the original request.\n\n"
+            "described above. Use the same seed_id, goal, and narrative "
+            "context from the original request.\n\n"
             f'seed_id={seed.seed_id}, tree id="tree-{seed.seed_id}".'
         )
 
