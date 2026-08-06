@@ -52,6 +52,10 @@ def _narrative(
                 zone="input",
                 action="Craft malicious input.",
                 effect="System processes it.",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
         ]
     return NarrativeLayer(

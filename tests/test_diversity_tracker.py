@@ -66,12 +66,20 @@ def _make_envelope(
                 zone="input",
                 action="Inject malicious content into the prompt",
                 effect="Agent processes the injected content",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
             NarrativeStep(
                 step_number=2,
                 zone="reasoning",
                 action="Exfiltrate sensitive data via side channel",
                 effect="Data leaks to external server",
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
             ),
         ]
     zone_sequence = ["input", "reasoning"]

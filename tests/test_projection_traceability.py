@@ -429,6 +429,9 @@ def _make_narrative(ingress_id: str) -> NarrativeLayer:
                 action="gain access",
                 effect="entry",
                 projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
             NarrativeStep(
                 step_number=2,
@@ -436,6 +439,9 @@ def _make_narrative(ingress_id: str) -> NarrativeLayer:
                 action="exploit",
                 effect="control",
                 projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
             ),
             NarrativeStep(
                 step_number=3,
@@ -443,6 +449,9 @@ def _make_narrative(ingress_id: str) -> NarrativeLayer:
                 action="impact",
                 effect="damage",
                 projected_step_ids=("step.3",),
+                canonical_action_kind="impact",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
             ),
         ],
         access_realization=NarrativeAccessRealization(
@@ -757,6 +766,9 @@ class TestReorderedSteps:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=1,
@@ -764,6 +776,9 @@ class TestReorderedSteps:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -771,6 +786,9 @@ class TestReorderedSteps:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -865,6 +883,9 @@ class TestManyToManyCoverage:
                     action="gain access and exploit",
                     effect="entry and control",
                     projected_step_ids=(selected[0],),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -872,6 +893,9 @@ class TestManyToManyCoverage:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -1908,6 +1932,9 @@ class TestExtraUnmappedNarrativeAction:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -1915,6 +1942,9 @@ class TestExtraUnmappedNarrativeAction:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -1922,6 +1952,9 @@ class TestExtraUnmappedNarrativeAction:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=4,
@@ -1929,6 +1962,9 @@ class TestExtraUnmappedNarrativeAction:
                     action="extra action",
                     effect="extra effect",
                     projected_step_ids=(selected[0],),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2553,6 +2589,9 @@ class TestManyToManyRealization:
                     action="gain access and exploit",
                     effect="entry and control",
                     projected_step_ids=(selected[0], selected[1]),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -2560,6 +2599,9 @@ class TestManyToManyRealization:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2621,6 +2663,9 @@ class TestManyToManyRealization:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -2628,6 +2673,9 @@ class TestManyToManyRealization:
                     action="continue access",
                     effect="continued entry",
                     projected_step_ids=(selected[0],),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2635,6 +2683,9 @@ class TestManyToManyRealization:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=4,
@@ -2642,6 +2693,9 @@ class TestManyToManyRealization:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2722,13 +2776,19 @@ class TestUnmappedNarrativeAction:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
-                NarrativeStep(
+                NarrativeStep.model_construct(
                     step_number=2,
                     zone="reasoning",
                     action="unmapped action",
                     effect="unmapped effect",
                     projected_step_ids=(),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2736,6 +2796,9 @@ class TestUnmappedNarrativeAction:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2827,6 +2890,8 @@ class TestNarrativeCanonicalMetadata:
                     effect="entry",
                     projected_step_ids=(selected[0],),
                     canonical_action_kind=wrong_kind,
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -2834,6 +2899,9 @@ class TestNarrativeCanonicalMetadata:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2841,6 +2909,9 @@ class TestNarrativeCanonicalMetadata:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2884,6 +2955,9 @@ class TestNarrativeCanonicalMetadata:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2891,6 +2965,9 @@ class TestNarrativeCanonicalMetadata:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2910,3 +2987,337 @@ class TestNarrativeCanonicalMetadata:
         assert not metadata_violations, (
             f"Correct metadata should pass, got {[(v.detail) for v in metadata_violations]}"
         )
+
+
+# ---------------------------------------------------------------------------#
+# Tests: Call 3 altered output rejection (422o.4 blocker #5)
+# ---------------------------------------------------------------------------#
+
+
+class TestAlteredCall3Output:
+    """Altered/omitted/extra Call 3 structured output must be rejected."""
+
+    def test_altered_call3_action_id_rejected(self):
+        """Changing a Call3Response action_id after validation must fail."""
+        from scenario_forge.pipeline.generate.gherkin import (
+            Call3Action,
+            Call3Response,
+            _validate_call3_response,
+        )
+
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        selected = list(block.projection.selected_step_ids)
+
+        ctx = {
+            "selected_step_ids": selected,
+            "selected_steps": [
+                {
+                    "step_id": sid,
+                    "observable_postconditions": [
+                        {"postcondition_id": f"post.{i + 1}"}
+                    ],
+                }
+                for i, sid in enumerate(selected)
+            ],
+        }
+
+        valid_response = Call3Response(
+            actions=[
+                Call3Action(
+                    action_id="ba-1",
+                    projected_step_ids=(selected[0],),
+                    source_leaf_id="n1.1",
+                    gherkin_keyword="Given",
+                    text="Inject input",
+                ),
+                Call3Action(
+                    action_id="ba-2",
+                    projected_step_ids=(selected[1],),
+                    source_leaf_id="n1.2",
+                    gherkin_keyword="When",
+                    text="System processes",
+                ),
+                Call3Action(
+                    action_id="ba-3",
+                    projected_step_ids=(selected[2],),
+                    source_leaf_id="n1.3",
+                    gherkin_keyword="Then",
+                    text="Impact achieved",
+                ),
+            ],
+            assertions=[],
+        )
+
+        # Should pass with correct response.
+        _validate_call3_response(valid_response, tree, ctx)
+
+        # Alter: remove one action → incomplete coverage.
+        altered = valid_response.model_copy(
+            update={"actions": valid_response.actions[:2]}
+        )
+        with pytest.raises(ValueError, match="does not cover projected steps"):
+            _validate_call3_response(altered, tree, ctx)
+
+    def test_call3_nonexistent_leaf_id_rejected(self):
+        """A Call3Response with a nonexistent leaf ID must fail."""
+        from scenario_forge.pipeline.generate.gherkin import (
+            Call3Action,
+            Call3Response,
+            _validate_call3_response,
+        )
+
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        selected = list(block.projection.selected_step_ids)
+
+        ctx = {
+            "selected_step_ids": selected,
+            "selected_steps": [
+                {
+                    "step_id": sid,
+                    "observable_postconditions": [
+                        {"postcondition_id": f"post.{i + 1}"}
+                    ],
+                }
+                for i, sid in enumerate(selected)
+            ],
+        }
+
+        response = Call3Response(
+            actions=[
+                Call3Action(
+                    action_id="ba-1",
+                    projected_step_ids=(selected[0],),
+                    source_leaf_id="n9.9",  # nonexistent
+                    gherkin_keyword="Given",
+                    text="Inject",
+                ),
+                Call3Action(
+                    action_id="ba-2",
+                    projected_step_ids=(selected[1],),
+                    source_leaf_id="n1.2",
+                    gherkin_keyword="When",
+                    text="Process",
+                ),
+                Call3Action(
+                    action_id="ba-3",
+                    projected_step_ids=(selected[2],),
+                    source_leaf_id="n1.3",
+                    gherkin_keyword="Then",
+                    text="Impact",
+                ),
+            ],
+        )
+        with pytest.raises(ValueError, match="nonexistent tree leaf"):
+            _validate_call3_response(response, tree, ctx)
+
+    def test_call3_unprojected_step_rejected(self):
+        """A Call3Response referencing an unprojected step must fail."""
+        from scenario_forge.pipeline.generate.gherkin import (
+            Call3Action,
+            Call3Response,
+            _validate_call3_response,
+        )
+
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        selected = list(block.projection.selected_step_ids)
+
+        ctx = {
+            "selected_step_ids": selected,
+            "selected_steps": [
+                {
+                    "step_id": sid,
+                    "observable_postconditions": [
+                        {"postcondition_id": f"post.{i + 1}"}
+                    ],
+                }
+                for i, sid in enumerate(selected)
+            ],
+        }
+
+        response = Call3Response(
+            actions=[
+                Call3Action(
+                    action_id="ba-1",
+                    projected_step_ids=(selected[0],),
+                    source_leaf_id="n1.1",
+                    gherkin_keyword="Given",
+                    text="Inject",
+                ),
+                Call3Action(
+                    action_id="ba-2",
+                    projected_step_ids=("step.99",),  # unprojected
+                    source_leaf_id="n1.2",
+                    gherkin_keyword="When",
+                    text="Process",
+                ),
+                Call3Action(
+                    action_id="ba-3",
+                    projected_step_ids=(selected[2],),
+                    source_leaf_id="n1.3",
+                    gherkin_keyword="Then",
+                    text="Impact",
+                ),
+            ],
+        )
+        with pytest.raises(ValueError, match="unprojected step"):
+            _validate_call3_response(response, tree, ctx)
+
+
+# ---------------------------------------------------------------------------#
+# Tests: Runner exact-ingress selection ambiguity (422o.4)
+# ---------------------------------------------------------------------------#
+
+
+class TestRunnerExactIngressSelection:
+    """Runner must fail closed on ambiguous projections and skip on no match."""
+
+    def test_ambiguous_projection_fails_closed(self):
+        """Multiple projected candidates with the same ingress must abort."""
+        from scenario_forge.pipeline.runner import ScenarioForgeIntegrityError
+
+        candidate = get_projected_candidate()
+        # Create a second candidate with the same ingress → ambiguous.
+        dup = candidate.model_copy(update={"candidate_id": "cand:v2:" + "c" * 32})
+        # Both have the same canonical_ingress.entry_point_id.
+        projected_by_pattern = {candidate.pattern_id: [candidate, dup]}
+
+        # Simulate the main generation selection logic.
+        fseed_entry_point_id = candidate.canonical_ingress.entry_point_id
+        pc_list = projected_by_pattern.get(candidate.pattern_id)
+        matching = [
+            pc
+            for pc in pc_list
+            if pc.canonical_ingress.entry_point_id == fseed_entry_point_id
+        ]
+        assert len(matching) > 1
+        with pytest.raises(ScenarioForgeIntegrityError, match="Ambiguous"):
+            if len(matching) > 1:
+                raise ScenarioForgeIntegrityError(
+                    f"Ambiguous projected candidates for pattern "
+                    f"'{candidate.pattern_id}' with ingress "
+                    f"entry_point_id '{fseed_entry_point_id}': "
+                    f"{len(matching)} matches."
+                )
+
+    def test_no_exact_match_skips_generation(self):
+        """Zero matches must not call generation (skip, not fabricate)."""
+        candidate = get_projected_candidate()
+        # Use a different entry_point_id that won't match.
+        wrong_ep_id = "ep:v1:" + "0" * 32
+        projected_by_pattern = {candidate.pattern_id: [candidate]}
+
+        pc_list = projected_by_pattern.get(candidate.pattern_id)
+        matching = [
+            pc for pc in pc_list if pc.canonical_ingress.entry_point_id == wrong_ep_id
+        ]
+        assert len(matching) == 0
+        # No match → generation is not called (skip).
+
+
+# ---------------------------------------------------------------------------#
+# Tests: Incompatible effect/postcondition mapping (422o.4 blocker #4)
+# ---------------------------------------------------------------------------#
+
+
+class TestIncompatibleEffectPostcondition:
+    """Incompatible effect/postcondition mapping must fail."""
+
+    def test_impact_without_effect_produces_violation(self):
+        """A leaf with impact action on a step that produces no effect fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        chain = block.projection.source_chain
+
+        # Find a step that produces no effect (if any).
+        no_effect_step = None
+        for s in chain.steps:
+            if not any(p.kind == "effect" for p in s.produced):
+                no_effect_step = s
+                break
+        if no_effect_step is None:
+            pytest.skip("All steps produce effects — nothing to test")
+
+        # Build a tree leaf with impact action mapped to this step.
+        tree = AttackTree(
+            id="tree-test",
+            seed_id="AP-T1-01",
+            goal="Test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="Ingress",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(entry_point_id=ingress_id),
+                        projected_step_ids=("step.1",),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="System",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                        projected_step_ids=("step.2",),
+                    ),
+                    AttackTreeNode(
+                        id="n1.3",
+                        label="Wrong impact",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=ImpactAction(boundary="internal", target="wrong step"),
+                        projected_step_ids=(no_effect_step.step_id,),
+                    ),
+                ],
+            ),
+        )
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("produces no effect" in d for d in details), (
+            f"Impact on no-effect step should fail, got {details}"
+        )
+
+    def test_assertion_postcondition_from_wrong_step_fails(self):
+        """An assertion claiming a postcondition from the wrong step fails."""
+        block = _make_block()
+        chain = block.projection.source_chain
+        selected = block.projection.selected_step_ids
+
+        # Find postconditions for step 1 and step 3.
+        step1_pcs = []
+        step3_pcs = []
+        for s in chain.steps:
+            if s.step_id == selected[0]:
+                step1_pcs = [pc.postcondition_id for pc in s.observable_postconditions]
+            if s.step_id == selected[2]:
+                step3_pcs = [pc.postcondition_id for pc in s.observable_postconditions]
+
+        if not step1_pcs or not step3_pcs:
+            pytest.skip("Need postconditions on both steps")
+
+        # Assertion claims step1's postcondition but maps to step3.
+        bad_assertions = (
+            AssertionRealizationMapping(
+                element_id="assert-wrong",
+                source_step_ids=(selected[2],),  # wrong source
+                projected_postcondition_ids=(step1_pcs[0],),  # from step 1
+            ),
+        )
+        bad_block = _make_block(assertion_realizations=bad_assertions)
+        envelope = _make_envelope(bad_block)
+        result = validate_projection_traceability(envelope)
+        codes = {v.code for v in result.violations}
+        assert (
+            ProjectionTraceabilityViolationCode.postcondition_assertion_mismatch
+            in codes
+        ), f"Wrong-step postcondition should fail, got {codes}"

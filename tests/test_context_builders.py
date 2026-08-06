@@ -107,6 +107,10 @@ def _make_narrative() -> NarrativeLayer:
                 action="Craft malicious input [AML.T0054]",
                 effect="Input accepted",
                 control_point=None,
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
             NarrativeStep(
                 step_number=2,
@@ -114,6 +118,10 @@ def _make_narrative() -> NarrativeLayer:
                 action="System processes malicious input",
                 effect="Reasoning compromised",
                 control_point=None,
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
             ),
         ],
     )

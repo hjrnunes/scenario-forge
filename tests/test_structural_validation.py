@@ -56,6 +56,10 @@ def _make_envelope(**overrides) -> ScenarioEnvelope:
             zone="input",
             action="I craft a malicious prompt.",
             effect="The system processes the input.",
+            projected_step_ids=("step.1",),
+            canonical_action_kind="prepare",
+            canonical_executor_role="attacker",
+            canonical_boundary_position="crossing",
         ),
     ]
     narrative = NarrativeLayer(

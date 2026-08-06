@@ -114,38 +114,37 @@ class NarrativeStep(BaseModel):
         description="Defensive control at this step, if one exists.",
     )
     projected_step_ids: tuple[str, ...] = Field(
-        default=(),
+        min_length=1,
         description=(
             "Canonical projected step IDs (from ProjectionEnvelopeBlock) "
             "that this narrative step realizes.  Controlled many-to-many: "
             "a narrative step may realize multiple projected steps (combine) "
             "and a projected step may be realized by multiple narrative "
             "steps (split).  Required (non-empty) on every narrative "
-            "action step in scenarios with a projection block; the LLM "
-            "receives the IDs as opaque constraints.  Empty on non-action "
-            "steps (e.g. external preconditions)."
+            "step in scenarios with a projection block; the LLM receives "
+            "the IDs as opaque constraints."
         ),
     )
     # --- Structured canonical realization metadata (422o.4 blocker #4) ---
     # Prose action/effect explain but are not the authority.  These typed
     # fields carry the canonical semantics that validation reconciles per
-    # projected step.
-    canonical_action_kind: str | None = Field(
-        default=None,
+    # projected step.  Required — no defaults.
+    canonical_action_kind: str = Field(
+        min_length=1,
         description=(
             "Canonical action kind from the projected step (prepare, deliver, "
             "invoke, transform, persist, observe, impact).  Must be compatible "
             "with the projected step's action_kind."
         ),
     )
-    canonical_executor_role: str | None = Field(
-        default=None,
+    canonical_executor_role: str = Field(
+        min_length=1,
         description=(
             "Canonical executor role from the projected step (attacker, system)."
         ),
     )
-    canonical_boundary_position: str | None = Field(
-        default=None,
+    canonical_boundary_position: str = Field(
+        min_length=1,
         description=(
             "Canonical boundary position from the projected step (outside, "
             "crossing, inside)."

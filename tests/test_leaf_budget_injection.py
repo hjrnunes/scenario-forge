@@ -65,6 +65,10 @@ def _make_narrative() -> NarrativeLayer:
                 action="Craft malicious input",
                 effect="Input accepted",
                 control_point=None,
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
         ],
     )

@@ -110,6 +110,10 @@ def _make_narrative(
                 zone="input",
                 action="action 1",
                 effect="effect 1",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
         ],
     )
@@ -326,7 +330,18 @@ class TestHeuristicAttackComplexity:
             summary="S",
             entry_point="ep",
             zone_sequence=["input"],
-            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
+                )
+            ],
         )
         result = _heuristic_attack_complexity(None, narrative_1zone_obj)
         assert result == AttackComplexity.low
@@ -338,7 +353,18 @@ class TestHeuristicAttackComplexity:
             summary="S",
             entry_point="ep",
             zone_sequence=["input", "reasoning", "tool_execution", "memory"],
-            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
+                )
+            ],
         )
         result = _heuristic_attack_complexity(None, narrative)
         assert result == AttackComplexity.high
@@ -350,7 +376,18 @@ class TestHeuristicAttackComplexity:
             summary="S",
             entry_point="ep",
             zone_sequence=["input", "reasoning"],
-            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
+                )
+            ],
         )
         result = _heuristic_attack_complexity(None, narrative)
         assert result == AttackComplexity.medium
@@ -389,7 +426,18 @@ class TestHeuristicRiskImpact:
             summary="S",
             entry_point="ep",
             zone_sequence=["input", "reasoning", "tool_execution", "memory"],
-            steps=[NarrativeStep(step_number=1, zone="input", action="a", effect="e")],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
+                )
+            ],
         )
         result = _heuristic_risk_impact(seed, narrative)
         # Generic text (0.4) + wide zones (0.3) = 0.7 -> medium
@@ -541,6 +589,10 @@ class TestNarrativePatternDiversityPrompt:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "canonical_action_kind": "prepare",
+                    "canonical_executor_role": "attacker",
+                    "canonical_boundary_position": "crossing",
                 }
             ],
         )
@@ -593,6 +645,10 @@ class TestNarrativePatternDiversityPrompt:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "canonical_action_kind": "prepare",
+                    "canonical_executor_role": "attacker",
+                    "canonical_boundary_position": "crossing",
                 }
             ],
         )
@@ -645,24 +701,40 @@ class TestExtractStructuralPattern:
                     zone="input",
                     action="I poison the API data with false information",
                     effect="tainted data",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
                     zone="reasoning",
                     action="The model starts to hallucinate and produce false outputs",
                     effect="wrong output",
+                    projected_step_ids=("step.2",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
                     zone="memory",
                     action="False data persists in long-term memory",
                     effect="permanent taint",
+                    projected_step_ids=("step.3",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=4,
                     zone="reasoning",
                     action="I bypass the human reviewer through fatigue",
                     effect="approved",
+                    projected_step_ids=("step.4",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
         )
@@ -685,12 +757,20 @@ class TestExtractStructuralPattern:
                     zone="input",
                     action="I inject a malicious prompt",
                     effect="accepted",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
                     zone="tool_execution",
                     action="I exfiltrate sensitive data via the tool output",
                     effect="data stolen",
+                    projected_step_ids=("step.2",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
         )
@@ -710,18 +790,30 @@ class TestExtractStructuralPattern:
                     zone="input",
                     action="I inject payload A",
                     effect="partial",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
                     zone="input",
                     action="I inject payload B to reinforce",
                     effect="full",
+                    projected_step_ids=("step.2",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
                     zone="tool_execution",
                     action="I exfiltrate the result",
                     effect="done",
+                    projected_step_ids=("step.3",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
         )
@@ -741,6 +833,10 @@ class TestExtractStructuralPattern:
                     zone="input",
                     action="I do something unusual and novel",
                     effect="unclear",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
             ],
         )
@@ -760,18 +856,30 @@ class TestExtractStructuralPattern:
                     zone="input",
                     action="I probe the API to enumerate endpoints",
                     effect="map",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 NarrativeStep(
                     step_number=2,
                     zone="reasoning",
                     action="I escalate privileges via admin misconfiguration",
                     effect="admin",
+                    projected_step_ids=("step.2",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 NarrativeStep(
                     step_number=3,
                     zone="tool_execution",
                     action="I exfiltrate the full database",
                     effect="stolen",
+                    projected_step_ids=("step.3",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
         )
@@ -838,6 +946,10 @@ class TestStructuralPatternPromptInjection:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "canonical_action_kind": "prepare",
+                    "canonical_executor_role": "attacker",
+                    "canonical_boundary_position": "crossing",
                 }
             ],
         )
@@ -889,6 +1001,10 @@ class TestStructuralPatternPromptInjection:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "canonical_action_kind": "prepare",
+                    "canonical_executor_role": "attacker",
+                    "canonical_boundary_position": "crossing",
                 }
             ],
         )

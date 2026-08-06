@@ -1162,6 +1162,10 @@ class TestGherkinOrBranchPreconditions:
                     zone="input",
                     action="Test action",
                     effect="Test effect",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 )
             ],
         )

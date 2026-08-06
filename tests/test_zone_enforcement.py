@@ -34,6 +34,10 @@ def _make_narrative(
             zone=z,
             action=f"action in {z}",
             effect=f"effect in {z}",
+            projected_step_ids=(f"step.{i + 1}",),
+            canonical_action_kind="prepare",
+            canonical_executor_role="attacker",
+            canonical_boundary_position="crossing",
         )
         for i, z in enumerate(step_zones)
     ]

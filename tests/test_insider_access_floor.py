@@ -72,6 +72,10 @@ def _make_envelope(
             zone="input",
             action=action,
             effect=step_effects[i],
+            projected_step_ids=(f"step.{i + 1}",),
+            canonical_action_kind="prepare",
+            canonical_executor_role="attacker",
+            canonical_boundary_position="crossing",
         )
         for i, action in enumerate(step_actions)
     ]

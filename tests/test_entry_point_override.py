@@ -85,6 +85,10 @@ def _make_narrative(entry_point: str = "user prompts (input)") -> NarrativeLayer
                 zone="input",
                 action="Craft adversarial prompt",
                 effect="Prompt enters system",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
         ],
     )

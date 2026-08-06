@@ -75,7 +75,16 @@ def _make_narrative() -> NarrativeLayer:
         entry_point="test entry point (zone 1)",
         zone_sequence=["input", "reasoning"],
         steps=[
-            NarrativeStep(step_number=1, zone="input", action="act", effect="eff"),
+            NarrativeStep(
+                step_number=1,
+                zone="input",
+                action="act",
+                effect="eff",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            ),
         ],
     )
 

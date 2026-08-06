@@ -1289,13 +1289,34 @@ def _three_zone_narrative() -> Any:
         zone_sequence=["input", "reasoning", "memory"],
         steps=[
             NarrativeStep(
-                step_number=1, zone="input", action="Craft prompt", effect="Enters"
+                step_number=1,
+                zone="input",
+                action="Craft prompt",
+                effect="Enters",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             ),
             NarrativeStep(
-                step_number=2, zone="reasoning", action="Trick", effect="Reasons"
+                step_number=2,
+                zone="reasoning",
+                action="Trick",
+                effect="Reasons",
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
             ),
             NarrativeStep(
-                step_number=3, zone="memory", action="Read", effect="Recalls"
+                step_number=3,
+                zone="memory",
+                action="Read",
+                effect="Recalls",
+                projected_step_ids=("step.3",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
             ),
         ],
     )
@@ -1435,7 +1456,14 @@ def _envelope_with_assessment(
             zone_sequence=["input"],
             steps=[
                 NarrativeStep(
-                    step_number=1, zone="input", action="Act", effect="Effect"
+                    step_number=1,
+                    zone="input",
+                    action="Act",
+                    effect="Effect",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 )
             ],
         ),

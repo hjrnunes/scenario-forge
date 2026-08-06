@@ -34,9 +34,36 @@ class TestDeriveZoneSequence:
     def test_simple_sequence_no_duplicates(self):
         """Distinct zones pass through unchanged."""
         steps = [
-            Call1Step(step_number=1, zone="input", action="a", effect="e"),
-            Call1Step(step_number=2, zone="reasoning", action="a", effect="e"),
-            Call1Step(step_number=3, zone="tool_execution", action="a", effect="e"),
+            Call1Step(
+                step_number=1,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            ),
+            Call1Step(
+                step_number=2,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=3,
+                zone="tool_execution",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.3",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
         ]
         assert _derive_zone_sequence(steps) == [
             "input",
@@ -47,11 +74,56 @@ class TestDeriveZoneSequence:
     def test_consecutive_duplicates_collapsed(self):
         """Consecutive duplicate zones are collapsed to one."""
         steps = [
-            Call1Step(step_number=1, zone="input", action="a", effect="e"),
-            Call1Step(step_number=2, zone="input", action="a", effect="e"),
-            Call1Step(step_number=3, zone="reasoning", action="a", effect="e"),
-            Call1Step(step_number=4, zone="reasoning", action="a", effect="e"),
-            Call1Step(step_number=5, zone="tool_execution", action="a", effect="e"),
+            Call1Step(
+                step_number=1,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            ),
+            Call1Step(
+                step_number=2,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=3,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.3",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=4,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.4",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=5,
+                zone="tool_execution",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.5",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
         ]
         assert _derive_zone_sequence(steps) == [
             "input",
@@ -62,10 +134,46 @@ class TestDeriveZoneSequence:
     def test_non_consecutive_duplicates_preserved(self):
         """Non-consecutive duplicates (revisitations) are preserved."""
         steps = [
-            Call1Step(step_number=1, zone="input", action="a", effect="e"),
-            Call1Step(step_number=2, zone="reasoning", action="a", effect="e"),
-            Call1Step(step_number=3, zone="tool_execution", action="a", effect="e"),
-            Call1Step(step_number=4, zone="reasoning", action="a", effect="e"),
+            Call1Step(
+                step_number=1,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            ),
+            Call1Step(
+                step_number=2,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=3,
+                zone="tool_execution",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.3",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=4,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.4",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
         ]
         assert _derive_zone_sequence(steps) == [
             "input",
@@ -77,14 +185,32 @@ class TestDeriveZoneSequence:
     def test_single_step(self):
         """Single step produces a single-element sequence."""
         steps = [
-            Call1Step(step_number=1, zone="input", action="a", effect="e"),
+            Call1Step(
+                step_number=1,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            ),
         ]
         assert _derive_zone_sequence(steps) == ["input"]
 
     def test_all_same_zone(self):
         """All steps in the same zone collapse to one."""
         steps = [
-            Call1Step(step_number=i, zone="reasoning", action="a", effect="e")
+            Call1Step(
+                step_number=i,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=(f"step.{i}",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            )
             for i in range(1, 6)
         ]
         assert _derive_zone_sequence(steps) == ["reasoning"]
@@ -96,14 +222,86 @@ class TestDeriveZoneSequence:
     def test_complex_revisitation_pattern(self):
         """Complex pattern with multiple revisitations and consecutive runs."""
         steps = [
-            Call1Step(step_number=1, zone="input", action="a", effect="e"),
-            Call1Step(step_number=2, zone="input", action="a", effect="e"),
-            Call1Step(step_number=3, zone="reasoning", action="a", effect="e"),
-            Call1Step(step_number=4, zone="tool_execution", action="a", effect="e"),
-            Call1Step(step_number=5, zone="tool_execution", action="a", effect="e"),
-            Call1Step(step_number=6, zone="reasoning", action="a", effect="e"),
-            Call1Step(step_number=7, zone="reasoning", action="a", effect="e"),
-            Call1Step(step_number=8, zone="memory", action="a", effect="e"),
+            Call1Step(
+                step_number=1,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            ),
+            Call1Step(
+                step_number=2,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=3,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.3",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=4,
+                zone="tool_execution",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.4",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=5,
+                zone="tool_execution",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.5",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=6,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.6",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=7,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.7",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            Call1Step(
+                step_number=8,
+                zone="memory",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.8",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
         ]
         assert _derive_zone_sequence(steps) == [
             "input",
@@ -116,9 +314,36 @@ class TestDeriveZoneSequence:
     def test_works_with_narrative_steps(self):
         """Also works with NarrativeStep objects (not just Call1Step)."""
         steps = [
-            NarrativeStep(step_number=1, zone="input", action="a", effect="e"),
-            NarrativeStep(step_number=2, zone="reasoning", action="a", effect="e"),
-            NarrativeStep(step_number=3, zone="input", action="a", effect="e"),
+            NarrativeStep(
+                step_number=1,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.1",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
+            ),
+            NarrativeStep(
+                step_number=2,
+                zone="reasoning",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.2",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
+            NarrativeStep(
+                step_number=3,
+                zone="input",
+                action="a",
+                effect="e",
+                projected_step_ids=("step.3",),
+                canonical_action_kind="observe",
+                canonical_executor_role="system",
+                canonical_boundary_position="inside",
+            ),
         ]
         assert _derive_zone_sequence(steps) == ["input", "reasoning", "input"]
 
@@ -140,11 +365,47 @@ class TestMapCall1UsesDerivation:
             # LLM produced a collapsed sequence (the bug we're fixing)
             zone_sequence=["input", "reasoning", "tool_execution"],
             steps=[
-                Call1Step(step_number=1, zone="input", action="a", effect="e"),
-                Call1Step(step_number=2, zone="reasoning", action="a", effect="e"),
-                Call1Step(step_number=3, zone="tool_execution", action="a", effect="e"),
+                Call1Step(
+                    step_number=1,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
+                ),
+                Call1Step(
+                    step_number=2,
+                    zone="reasoning",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.2",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
+                ),
+                Call1Step(
+                    step_number=3,
+                    zone="tool_execution",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.3",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
+                ),
                 # LLM collapsed this revisitation in zone_sequence
-                Call1Step(step_number=4, zone="reasoning", action="a", effect="e"),
+                Call1Step(
+                    step_number=4,
+                    zone="reasoning",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.4",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
+                ),
             ],
         )
         narrative = _map_call1_to_narrative(resp)
@@ -164,10 +425,46 @@ class TestMapCall1UsesDerivation:
             entry_point="user input",
             zone_sequence=["input", "reasoning"],
             steps=[
-                Call1Step(step_number=1, zone="input", action="a", effect="e"),
-                Call1Step(step_number=2, zone="input", action="a", effect="e"),
-                Call1Step(step_number=3, zone="reasoning", action="a", effect="e"),
-                Call1Step(step_number=4, zone="reasoning", action="a", effect="e"),
+                Call1Step(
+                    step_number=1,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
+                ),
+                Call1Step(
+                    step_number=2,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.2",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
+                ),
+                Call1Step(
+                    step_number=3,
+                    zone="reasoning",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.3",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
+                ),
+                Call1Step(
+                    step_number=4,
+                    zone="reasoning",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.4",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
+                ),
             ],
         )
         narrative = _map_call1_to_narrative(resp)
@@ -182,8 +479,26 @@ class TestMapCall1UsesDerivation:
             # LLM hallucinated a zone not in any step
             zone_sequence=["input", "memory", "reasoning"],
             steps=[
-                Call1Step(step_number=1, zone="input", action="a", effect="e"),
-                Call1Step(step_number=2, zone="reasoning", action="a", effect="e"),
+                Call1Step(
+                    step_number=1,
+                    zone="input",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.1",),
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
+                ),
+                Call1Step(
+                    step_number=2,
+                    zone="reasoning",
+                    action="a",
+                    effect="e",
+                    projected_step_ids=("step.2",),
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
+                ),
             ],
         )
         narrative = _map_call1_to_narrative(resp)
@@ -207,6 +522,10 @@ class TestZoneActiveFilteringOnDerived:
                 zone=z,
                 action=f"action in {z}",
                 effect=f"effect in {z}",
+                projected_step_ids=(f"step.{i + 1}",),
+                canonical_action_kind="prepare",
+                canonical_executor_role="attacker",
+                canonical_boundary_position="crossing",
             )
             for i, z in enumerate(step_zones)
         ]

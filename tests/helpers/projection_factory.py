@@ -265,6 +265,35 @@ def get_canonical_ingress_id() -> str:
     return get_projected_candidate().canonical_ingress.entry_point_id
 
 
+def get_second_projected_candidate() -> Any:
+    """Return a second ProjectedCandidate with a different ingress for tests.
+
+    Uses model_copy (bypassing validators) to create a candidate with
+    a different pattern_id, candidate_id, and canonical_ingress so that
+    remediation tests can exercise multiple entry points with exact
+    ingress matching.
+    """
+    from scenario_forge.models.attack_pattern import EntryPointResourceReference
+
+    base = get_projected_candidate()
+    second_ep_id = "ep:v1:22222222222222222222222200000002"
+    return base.model_copy(
+        update={
+            "pattern_id": "AP-T2-01",
+            "candidate_id": "cand:v2:22222222222222222222222200000002",
+            "canonical_ingress": EntryPointResourceReference(
+                kind="entry_point",
+                entry_point_id=second_ep_id,
+            ),
+        }
+    )
+
+
+def get_second_canonical_ingress_id() -> str:
+    """Return the second projected candidate's canonical ingress entry_point_id."""
+    return "ep:v1:22222222222222222222222200000002"
+
+
 def make_projection_block(
     *,
     narrative_realizations: tuple[ArtifactRealizationMapping, ...] | None = None,
@@ -379,12 +408,25 @@ def make_behavior_spec(
         if step.step_id in set(selected)
     }
 
+    # Map action_kind → Gherkin keyword for semantically correct behavior.
+    _action_kind_to_gherkin = {
+        "prepare": "Given",
+        "deliver": "Given",
+        "invoke": "When",
+        "transform": "When",
+        "persist": "When",
+        "observe": "When",
+        "impact": "Then",
+    }
+    step_by_id = {s.step_id: s for s in chain.steps if s.step_id in set(selected)}
     actions = [
         BehaviorAction(
             action_id=f"behavior-{i + 1}",
             projected_step_ids=(sid,),
             source_leaf_id=f"n1.{i + 1}",
-            gherkin_keyword="When",
+            gherkin_keyword=_action_kind_to_gherkin.get(
+                step_by_id[sid].action_kind, "When"
+            ),
             text=f"Action for {sid}",
         )
         for i, sid in enumerate(selected)
