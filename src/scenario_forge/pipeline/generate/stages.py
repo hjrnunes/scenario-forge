@@ -126,6 +126,7 @@ class _AttemptRecordingClient:
         self.system_prompt: str | None = None
         self.user_prompt: str | None = None
         self.result: LLMResult | None = None
+        self._unstructured_response = False
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
@@ -140,6 +141,7 @@ class _AttemptRecordingClient:
         self.invoked = True
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
+        self._unstructured_response = response_format is None
         self.result = self._client.complete(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -165,7 +167,13 @@ class _AttemptRecordingClient:
             system_prompt=self.system_prompt,
             user_prompt=self.user_prompt,
             result=self.result,
-            raw_response=self.result.content if self.result is not None else None,
+            raw_response=(
+                self.result.content
+                if self.result is not None
+                and self._unstructured_response
+                and isinstance(self.result.content, str)
+                else None
+            ),
         )
 
 

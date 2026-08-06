@@ -174,7 +174,7 @@ def test_call3_semantic_rejection_retains_truthful_attempt_evidence() -> None:
     assert failure.call_name is CallName.behavior_spec
     assert failure.phase == "post_response"
     assert failure.result is prepared.request.client.complete.return_value
-    assert failure.raw_response == "fixture"
+    assert failure.raw_response is None
     assert failure.exception_type == "ValueError"
 
 
