@@ -6,8 +6,10 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from scenario_forge.llm.client import LLMResult
-from scenario_forge.manifest import ArtifactRole, load_manifest
+from scenario_forge.manifest import ArtifactRole, RunStatus, load_manifest
 from scenario_forge.models.attack_pattern import AttackPattern
 from scenario_forge.models.capability_profile import ConfidenceLevel, EntryPoint
 from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
@@ -25,14 +27,16 @@ from scenario_forge.pipeline.persistence import (
     read_coverage_plan,
     read_finalization_inventory,
 )
-from scenario_forge.pipeline.runner import run_pipeline
+from scenario_forge.pipeline.runner import resume_pipeline, run_pipeline
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
 from tests.helpers.projection_factory import (
+    _evidence,
     _pattern,
     _TaxonomyResolver,
     get_canonical_ingress_id,
     get_projected_candidate,
+    get_test_profile,
     get_test_snapshot,
 )
 from tests.test_actor_entry_point_validation import (
@@ -43,6 +47,51 @@ from tests.test_actor_entry_point_validation import (
 )
 from tests.test_finalization_gates import _phase3b_behavior
 from tests.test_projection_traceability import _make_envelope as _make_valid_envelope
+
+
+def _same_snapshot_fallbacks():
+    """Return two binding variants that share one trusted capability snapshot."""
+    from scenario_forge.models.capability_profile import CapabilityProfile
+    from scenario_forge.pipeline.projection import (
+        ProjectionBudget,
+        capture_capability_snapshot,
+        project_authoritative_candidates,
+    )
+
+    raw = _pattern()
+    pattern = AttackPattern.model_validate(raw)
+    resolver = _TaxonomyResolver(pattern.canonical_chain.taxonomy_context)
+    for tool_name in ("reader", "sender", "executor", "alpha", "b", "zz"):
+        profile_data = get_test_profile().model_dump(mode="json")
+        profile_data["tool_inventory"].append(
+            {"name": tool_name, "description": "reads state"}
+        )
+        profile_data["tool_types"].append(
+            {
+                "name": tool_name,
+                "zone": "tool_execution",
+                "can_modify_state": False,
+                "data_sensitivity": "low",
+                "code_execution": False,
+            }
+        )
+        profile = CapabilityProfile.model_validate(profile_data)
+        snapshot = capture_capability_snapshot(profile, (_evidence(),))
+        batch = project_authoritative_candidates(
+            [raw], resolver, snapshot, budget=ProjectionBudget(max_candidates=100)
+        )
+        writer_id = profile.tool_inventory[0].tool_id
+        writer = next(
+            candidate
+            for candidate in batch.candidates
+            if writer_id in str(candidate.projection.bindings)
+        )
+        alternate = next(
+            candidate for candidate in batch.candidates if candidate != writer
+        )
+        if alternate.candidate_id < writer.candidate_id:
+            return profile, snapshot, [alternate, writer]
+    raise AssertionError("fixture could not place the canonical writer as fallback")
 
 
 def _arrange(tmp_path: Path, *, entry_point_id: str, projected_candidates: list):
@@ -433,6 +482,385 @@ def test_attempt_is_reserved_before_failed_actor_stage(tmp_path: Path) -> None:
     ]
     assert inventory.admission_decisions[0].admitted is False
     assert inventory.quarantine_inventory
+
+
+def test_production_primary_quarantine_then_fallback_admits(tmp_path: Path) -> None:
+    profile, snapshot, projected = _same_snapshot_fallbacks()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=projected[0].canonical_ingress.entry_point_id,
+        projected_candidates=projected,
+    )
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner.infer_capability_profile",
+            return_value=(
+                profile,
+                LLMResult(
+                    content="mock",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                    system_prompt="mock",
+                    user_prompt="mock",
+                ),
+            ),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner.capture_capability_snapshot",
+            return_value=snapshot,
+        )
+    )
+    from scenario_forge.pipeline.coverage_planning import SelectionResult
+
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner.select_with_coverage_priority",
+            side_effect=lambda qualified, _queues, universe, **_kwargs: SelectionResult(
+                selected=[
+                    item
+                    for item in qualified
+                    if item.candidate_id == projected[0].candidate_id
+                ],
+                uncovered_target_ids=sorted(
+                    universe.feasible_target_ids
+                    - {projected[0].canonical_ingress.entry_point_id}
+                ),
+                primary_candidate_ids={
+                    projected[0].canonical_ingress.entry_point_id: projected[
+                        0
+                    ].candidate_id
+                },
+                attempted_candidate_ids={projected[0].candidate_id},
+            ),
+        )
+    )
+    envelope = _make_valid_envelope()
+    envelope.attack_tree.root.threat_id = "T1"
+    actor_result = ActorStageResult(
+        envelope.actor_profile,
+        StageCallEvidence(
+            CallName.actor_profile,
+            LLMResult(
+                content="mock",
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+                system_prompt="mock",
+                user_prompt="mock",
+            ),
+            CallMetadata(
+                call=CallName.actor_profile,
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+        ),
+    )
+    actor = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_actor_stage",
+            side_effect=[
+                RuntimeError("primary failed 0"),
+                RuntimeError("primary failed 1"),
+                RuntimeError("primary failed 2"),
+                actor_result,
+            ],
+        )
+    )
+    for legacy_name in (
+        "write_scenario_outputs",
+        "replace_scenario_outputs",
+        "validate_phantom_capabilities",
+        "enforce_parsimony",
+    ):
+        stack.enter_context(
+            patch(
+                f"scenario_forge.pipeline.runner.{legacy_name}",
+                side_effect=AssertionError(f"legacy path reached: {legacy_name}"),
+            )
+        )
+    with stack:
+        result = run_pipeline(**args)
+
+    generate.assert_not_called()
+    assert actor.call_count == 4
+    inventory = read_finalization_inventory(result.run_dir)
+    assert [item.admitted for item in inventory.admission_decisions] == [False, True]
+    assert load_manifest(result.run_dir).status is RunStatus.COMPLETED_WITH_ERRORS
+
+
+def test_public_resume_terminalizes_unknown_actor_without_reissue(
+    tmp_path: Path,
+) -> None:
+    profile, snapshot, projected = _same_snapshot_fallbacks()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=projected[0].canonical_ingress.entry_point_id,
+        projected_candidates=projected,
+    )
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner.infer_capability_profile",
+            return_value=(
+                profile,
+                LLMResult(
+                    content="mock",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                    system_prompt="mock",
+                    user_prompt="mock",
+                ),
+            ),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner.capture_capability_snapshot",
+            return_value=snapshot,
+        )
+    )
+    from scenario_forge.pipeline.coverage_planning import SelectionResult
+
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner.select_with_coverage_priority",
+            side_effect=lambda qualified, _queues, universe, **_kwargs: SelectionResult(
+                selected=[
+                    item
+                    for item in qualified
+                    if item.candidate_id == projected[0].candidate_id
+                ],
+                uncovered_target_ids=sorted(
+                    universe.feasible_target_ids
+                    - {projected[0].canonical_ingress.entry_point_id}
+                ),
+                primary_candidate_ids={
+                    projected[0].canonical_ingress.entry_point_id: projected[
+                        0
+                    ].candidate_id
+                },
+                attempted_candidate_ids={projected[0].candidate_id},
+            ),
+        )
+    )
+    actor = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_actor_stage",
+            side_effect=KeyboardInterrupt("simulated process exit"),
+        )
+    )
+    with stack:
+        with pytest.raises(KeyboardInterrupt):
+            run_pipeline(**args)
+        run_dir = next(args["output_dir"].iterdir())
+        started = load_manifest(run_dir)
+        assert started.status is RunStatus.STARTED
+        assert {item.role for item in started.inventory} == {
+            ArtifactRole.USE_CASE,
+            ArtifactRole.CAPABILITY_PROFILE,
+            ArtifactRole.THREAT_SURFACE,
+        }
+        before = read_finalization_inventory(run_dir)
+        assert len(before.transitions) >= 2
+        assert before.stage_attempts == []
+
+        envelope = _make_valid_envelope()
+        envelope.attack_tree.root.threat_id = "T1"
+        actor.side_effect = None
+        actor.return_value = ActorStageResult(
+            envelope.actor_profile,
+            StageCallEvidence(
+                CallName.actor_profile,
+                LLMResult(
+                    content="mock",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                    system_prompt="mock",
+                    user_prompt="mock",
+                ),
+                CallMetadata(
+                    call=CallName.actor_profile,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                ),
+            ),
+        )
+        resumed = resume_pipeline(run_dir)
+
+    generate.assert_not_called()
+    assert resumed.run_dir == run_dir
+    assert actor.call_count == 2  # crashed primary call plus fallback only
+    inventory = read_finalization_inventory(run_dir)
+    assert [item.admitted for item in inventory.admission_decisions] == [False, True]
+    unknown = inventory.admission_decisions[0]
+    assert [item.code for item in unknown.violations] == ["unknown_invocation_outcome"]
+    assert unknown.terminal_receipts[0].role is ArtifactRole.QUARANTINE_BUNDLE
+    assert load_manifest(run_dir).status is RunStatus.COMPLETED_WITH_ERRORS
+
+
+def test_public_resume_reuses_only_causal_frontier_after_actor_retry(
+    tmp_path: Path,
+) -> None:
+    from scenario_forge.pipeline.finalization import (
+        AdmissionDecision,
+        GeneratedStage,
+    )
+    from scenario_forge.pipeline.finalization_admission import (
+        PostbehaviorAdmissionReport,
+    )
+    from scenario_forge.pipeline.finalization_gates import (
+        GateCode,
+        GateResult,
+        GateViolation,
+    )
+    from scenario_forge.pipeline.persistence import FinalizationPersistenceAdapter
+    from scenario_forge.pipeline.runner_finalization import (
+        make_postbehavior_admission as real_admission_factory,
+    )
+
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    envelope = _make_valid_envelope()
+    envelope.attack_tree.root.threat_id = "T1"
+    envelope.behavior_spec = _phase3b_behavior(projected, envelope.attack_tree)
+    llm_result = LLMResult(
+        content="mock",
+        prompt_tokens=0,
+        completion_tokens=0,
+        duration_ms=0,
+        system_prompt="mock",
+        user_prompt="mock",
+    )
+
+    def evidence(call: CallName) -> StageCallEvidence:
+        return StageCallEvidence(
+            call,
+            llm_result,
+            CallMetadata(
+                call=call, prompt_tokens=0, completion_tokens=0, duration_ms=0
+            ),
+        )
+
+    actor = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_actor_stage",
+            return_value=ActorStageResult(
+                envelope.actor_profile, evidence(CallName.actor_profile)
+            ),
+        )
+    )
+    narrative = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_narrative_stage",
+            return_value=NarrativeStageResult(
+                envelope.narrative, evidence(CallName.narrative)
+            ),
+        )
+    )
+    tree = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_tree_stage",
+            return_value=TreeStageResult(
+                envelope.attack_tree, evidence(CallName.attack_tree)
+            ),
+        )
+    )
+    behavior = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.generate.stages.generate_behavior_stage",
+            return_value=BehaviorStageResult(
+                envelope.behavior_spec, evidence(CallName.behavior_spec)
+            ),
+        )
+    )
+    routed = False
+
+    def admission_factory(*factory_args, **factory_kwargs):
+        admitted = real_admission_factory(*factory_args, **factory_kwargs)
+
+        def route_once(candidate, artifacts, snapshot):
+            nonlocal routed
+            if not routed:
+                routed = True
+                gate_violation = GateViolation(
+                    GateCode.actor_access,
+                    "retry actor from durable admission evidence",
+                    GeneratedStage.actor,
+                )
+                violation = gate_violation.lifecycle()
+                return AdmissionDecision(
+                    False,
+                    (violation,),
+                    value=PostbehaviorAdmissionReport(
+                        envelope=None,
+                        gate_results=(GateResult((gate_violation,)),),
+                    ),
+                )
+            return admitted(candidate, artifacts, snapshot)
+
+        return route_once
+
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.make_postbehavior_admission",
+            side_effect=admission_factory,
+        )
+    )
+    original_record = FinalizationPersistenceAdapter.record_stage_result
+    crashed = False
+
+    def crash_after_retry_commit(self, invocation, result):
+        nonlocal crashed
+        original_record(self, invocation, result)
+        if (
+            not crashed
+            and invocation.stage is GeneratedStage.actor
+            and invocation.invocation_index == 1
+        ):
+            crashed = True
+            raise KeyboardInterrupt("crash after durable actor retry")
+
+    stack.enter_context(
+        patch.object(
+            FinalizationPersistenceAdapter,
+            "record_stage_result",
+            new=crash_after_retry_commit,
+        )
+    )
+    with stack:
+        with pytest.raises(KeyboardInterrupt):
+            run_pipeline(**args)
+        run_dir = next(args["output_dir"].iterdir())
+        resume_pipeline(run_dir)
+
+    generate.assert_not_called()
+    assert actor.call_count == 2
+    assert narrative.call_count == 2
+    assert tree.call_count == 2
+    assert behavior.call_count == 2
+    inventory = read_finalization_inventory(run_dir)
+    assert inventory.admission_decisions[-1].admitted is True
+    actor_retry = [
+        item
+        for item in inventory.stage_attempts
+        if item.stage is GeneratedStage.actor and item.invocation_index == 1
+    ][0]
+    resumed_narrative = [
+        item
+        for item in inventory.stage_attempts
+        if item.stage is GeneratedStage.narrative and item.invocation_index == 1
+    ][0]
+    assert resumed_narrative.input.visible_artifacts["actor"] == actor_retry.result
 
 
 def _run_and_get_coverage_report(tmp_path: Path, *, confirmed: bool) -> dict:

@@ -49,6 +49,7 @@ from scenario_forge.manifest import (
     validate_completed_inventory,
     write_failed_manifest,
     write_manifest_sentinel,
+    write_started_manifest,
 )
 from scenario_forge.manifest import (
     MANIFEST_V3 as MANIFEST_VERSION,
@@ -155,6 +156,373 @@ class PipelineResult(BaseModel):
     generation_notes: list[str]
     run_dir: Path | None = None
     run_id: str | None = None
+
+
+def _load_admitted_scenarios(
+    run_dir: Path,
+    run_id: str,
+    timestamp_start: str,
+    provenance: Provenance | None,
+    finalization_inventory: object,
+) -> list[ScenarioEnvelope]:
+    """Load admitted YAML only from one hash-verified resolver snapshot."""
+    from scenario_forge.pipeline.runner_finalization import build_v3_inventory
+
+    manifest = RunManifest(
+        manifest_version=MANIFEST_VERSION,
+        status=RunStatus.STARTED,
+        run_id=run_id,
+        timestamp_start=timestamp_start,
+        package_version=importlib.metadata.version("scenario-forge"),
+        provenance=provenance,
+        inventory=build_v3_inventory(
+            run_dir,
+            finalization_inventory,
+            include_coverage=False,
+            include_quarantine=False,
+        ),
+    )
+    resolver = ManifestInventoryResolver(run_dir, manifest, check_orphans=False)
+    return [
+        ScenarioEnvelope.model_validate(resolver.read_yaml(entry))
+        for entry in resolver.entries_by_role(ArtifactRole.SCENARIO_YAML)
+    ]
+
+
+def _complete_v3_run(
+    *,
+    run_dir: Path,
+    run_id: str,
+    timestamp_start: str,
+    provenance: Provenance | None,
+    profile: CapabilityProfile,
+    threat_surface: ThreatSurface,
+    finalization: object,
+    coverage_universe: object,
+    stage_ledger: StageLedger,
+    selection_result: object,
+    fallback_queues: dict,
+    projection_limitation_target_ids: set[str],
+    threats_path: Path | None,
+    eval_enabled: bool,
+    seeds: list[ScenarioSeed],
+    filtered_seeds: list[FilteredSeed] | None,
+    governance_count: int,
+    generation_notes: list[str],
+) -> PipelineResult:
+    """Run the single shared v3 coverage, eval, report, and manifest tail."""
+    from scenario_forge.pipeline.persistence import read_finalization_inventory
+    from scenario_forge.pipeline.runner_finalization import build_v3_inventory
+
+    final_inventory_doc = read_finalization_inventory(run_dir)
+    admitted_scenarios = _load_admitted_scenarios(
+        run_dir, run_id, timestamp_start, provenance, final_inventory_doc
+    )
+    coverage_gaps = analyze_coverage_gaps(profile, threat_surface, admitted_scenarios)
+    decisions = {
+        item.candidate_id: item for item in final_inventory_doc.admission_decisions
+    }
+    generated_target_ids: set[str] = set()
+    quarantined_target_ids: set[str] = set()
+    for candidate_attempt in final_inventory_doc.candidate_attempts:
+        decision = decisions[candidate_attempt.candidate_id]
+        if decision.admitted:
+            generated_target_ids.add(candidate_attempt.target_entry_point_id)
+            stage_ledger.record(
+                candidate_attempt.target_entry_point_id,
+                candidate_attempt.candidate_id,
+                STAGE_GENERATION,
+                "generated",
+                "Candidate completed all generated stages.",
+            )
+            stage_ledger.record(
+                candidate_attempt.target_entry_point_id,
+                candidate_attempt.candidate_id,
+                STAGE_ADMISSION,
+                "admitted",
+                "Candidate passed postbehavior admission.",
+            )
+        else:
+            quarantined_target_ids.add(candidate_attempt.target_entry_point_id)
+            stage_ledger.record(
+                candidate_attempt.target_entry_point_id,
+                candidate_attempt.candidate_id,
+                STAGE_QUARANTINE,
+                decision.status.value,
+                "; ".join(item.detail for item in decision.violations),
+            )
+    quality_gaps, coverage_summary = emit_quality_gaps(
+        coverage_universe,
+        stage_ledger,
+        selection_result,
+        fallback_queues,
+        generated_target_ids=generated_target_ids,
+        quarantined_target_ids=quarantined_target_ids - generated_target_ids,
+        projection_limitation_target_ids=projection_limitation_target_ids,
+    )
+    write_coverage_report(
+        coverage_gaps,
+        run_dir,
+        analyze_attacker_diversity(admitted_scenarios),
+        coverage_universe=coverage_universe,
+        quality_gaps=quality_gaps,
+        coverage_plan=finalization.coverage_plan,
+        coverage_summary=coverage_summary,
+        stage_ledger=stage_ledger,
+        finalization_inventory=final_inventory_doc,
+    )
+
+    # A prior interrupted completion tail is non-authoritative. Reconcile its
+    # optional products before regeneration so failed/disabled retries cannot
+    # leave unmanifested stale files behind.
+    for stale_name in ("eval-scorecard.yaml", "report.html"):
+        (run_dir / stale_name).unlink(missing_ok=True)
+
+    eval_success = False
+    eval_manifest = RunManifest(
+        manifest_version=MANIFEST_VERSION,
+        status=RunStatus.STARTED,
+        run_id=run_id,
+        timestamp_start=timestamp_start,
+        package_version=importlib.metadata.version("scenario-forge"),
+        provenance=provenance,
+        inventory=build_v3_inventory(
+            run_dir, final_inventory_doc, include_quarantine=False
+        ),
+    )
+    if eval_enabled:
+        try:
+            from scenario_forge.eval.runner import run_evaluation
+
+            scorecard = run_evaluation(
+                resolver=build_in_memory_resolver(run_dir, eval_manifest),
+                threats_path=threats_path,
+            )
+            write_eval_scorecard(scorecard, run_dir)
+            eval_success = True
+        except Exception as exc:  # noqa: BLE001 - non-authoritative output
+            logger.warning("Eval scorecard generation failed: %s", exc)
+    else:
+        logger.info("[Eval] Skipped (--no-eval) — non-authoritative.")
+
+    had_quarantine = bool(final_inventory_doc.quarantine_inventory)
+    terminal_processing_succeeded = all(
+        target.target_state.value in {"admitted", "exhausted"}
+        for target in finalization.coverage_plan.targets
+    )
+    intended_status = (
+        RunStatus.COMPLETED
+        if terminal_processing_succeeded
+        and not had_quarantine
+        and eval_enabled
+        and eval_success
+        else RunStatus.COMPLETED_WITH_ERRORS
+    )
+
+    report_success = False
+    try:
+        from scenario_forge.report.data import load_report_data
+        from scenario_forge.report.generator import generate_report
+
+        report_manifest = RunManifest(
+            manifest_version=MANIFEST_VERSION,
+            status=RunStatus.STARTED,
+            run_id=run_id,
+            timestamp_start=timestamp_start,
+            package_version=importlib.metadata.version("scenario-forge"),
+            provenance=provenance,
+            inventory=build_v3_inventory(
+                run_dir, final_inventory_doc, include_eval=eval_success
+            ),
+        )
+        report_data = load_report_data(
+            resolver=build_in_memory_resolver(run_dir, report_manifest)
+        )
+        generate_report(report_data, run_dir)
+        report_success = True
+    except Exception as exc:  # noqa: BLE001 - non-authoritative output
+        logger.warning("Report generation failed: %s", exc)
+
+    final_status = (
+        intended_status if report_success else RunStatus.COMPLETED_WITH_ERRORS
+    )
+    sf_logger = logging.getLogger("scenario_forge")
+    for handler in sf_logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            handler.flush()
+            handler.close()
+            sf_logger.removeHandler(handler)
+    inventory = build_v3_inventory(
+        run_dir,
+        final_inventory_doc,
+        include_eval=eval_success,
+        include_report=report_success,
+        include_log=True,
+    )
+    timestamp_end = datetime.now(UTC).isoformat()
+    if provenance is not None:
+        provenance.timestamp_end = timestamp_end
+        provenance.input_hashes.effective_profile_hash = compute_file_sha256(
+            run_dir / "capability-profile.yaml"
+        )
+    final_manifest = RunManifest(
+        manifest_version=MANIFEST_VERSION,
+        status=final_status,
+        run_id=run_id,
+        timestamp_start=timestamp_start,
+        timestamp_end=timestamp_end,
+        package_version=importlib.metadata.version("scenario-forge"),
+        provenance=provenance,
+        inventory=inventory,
+    )
+    if final_status is RunStatus.COMPLETED:
+        validate_completed_inventory(
+            final_manifest, eval_enabled=eval_enabled, run_dir=run_dir
+        )
+    else:
+        ManifestInventoryResolver(run_dir, final_manifest, check_orphans=True)
+    finalize_manifest(run_dir, final_manifest)
+    return PipelineResult(
+        capability_profile=profile,
+        threat_surface=threat_surface,
+        seeds=seeds,
+        filtered_seeds=filtered_seeds,
+        scenarios=admitted_scenarios,
+        governance_only_count=governance_count,
+        generation_notes=generation_notes,
+        run_dir=run_dir,
+        run_id=run_id,
+    )
+
+
+def resume_pipeline(
+    run_dir: Path,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+    eval: bool = True,
+    log_level: str = "INFO",
+    structured: bool = False,
+) -> PipelineResult:
+    """Resume exactly one interrupted manifest-v3 run in place."""
+    from scenario_forge.log_config import setup_logging
+    from scenario_forge.pipeline.coverage_planning import CoveragePlan, SelectionResult
+    from scenario_forge.pipeline.persistence import (
+        read_finalization_inventory,
+        recover_finalization_journal,
+    )
+    from scenario_forge.pipeline.runner_finalization import run_target_finalization
+
+    try:
+        supplied = Path(run_dir).resolve(strict=True)
+    except OSError as exc:
+        raise ManifestIntegrityError(
+            "resume requires an existing run directory"
+        ) from exc
+    if not supplied.is_dir():
+        raise ManifestIntegrityError("resume requires an existing run directory")
+    recover_finalization_journal(supplied)
+    manifest = load_manifest(supplied, requested_version=MANIFEST_VERSION)
+    if manifest.status is not RunStatus.STARTED:
+        raise ManifestIntegrityError("only a v3 STARTED run can be resumed")
+    if supplied.name != manifest.run_id:
+        raise ManifestIntegrityError("manifest run_id does not match run directory")
+    support = ManifestInventoryResolver(supplied, manifest, check_orphans=False)
+    use_entry = support.entry_by_role(ArtifactRole.USE_CASE)
+    profile_entry = support.entry_by_role(ArtifactRole.CAPABILITY_PROFILE)
+    threat_entry = support.entry_by_role(ArtifactRole.THREAT_SURFACE)
+    if not all((use_entry, profile_entry, threat_entry)):
+        raise ManifestIntegrityError("started manifest support inventory is incomplete")
+    use_case = support.read_text(use_entry)  # type: ignore[arg-type]
+    profile = CapabilityProfile.model_validate(support.read_yaml(profile_entry))  # type: ignore[arg-type]
+    threat_surface = ThreatSurface.model_validate(support.read_yaml(threat_entry))  # type: ignore[arg-type]
+    inventory = read_finalization_inventory(supplied)
+    if inventory.run_id != manifest.run_id:
+        raise ManifestIntegrityError("finalization inventory run_id mismatch")
+
+    setup_logging(log_level=log_level, output_dir=supplied, structured=structured)
+    persisted_model = (
+        manifest.provenance.model_config_provenance
+        if manifest.provenance is not None
+        else None
+    )
+    if persisted_model is None:
+        raise ManifestIntegrityError(
+            "resumable v3 run requires persisted model configuration"
+        )
+    if model is not None and model != persisted_model.model:
+        raise ManifestIntegrityError("resume model override conflicts with provenance")
+    if base_url is not None and base_url != persisted_model.base_url:
+        raise ManifestIntegrityError(
+            "resume endpoint override conflicts with provenance"
+        )
+    client = LLMClient(
+        base_url=base_url or (persisted_model.base_url if persisted_model else None),
+        api_key=api_key,
+        model=model or (persisted_model.model if persisted_model else None),
+        temperature=persisted_model.temperature if persisted_model else None,
+        max_completion_tokens=(
+            persisted_model.max_completion_tokens if persisted_model else None
+        ),
+    )
+    finalization = run_target_finalization(
+        run_dir=supplied,
+        run_id=manifest.run_id,
+        plan=CoveragePlan(
+            schema_version="1",
+            completeness="not_applicable",
+            evidence_refs=[],
+            targets=[],
+        ),
+        profile=profile,
+        client=client,
+        use_case=use_case,
+        taxonomy_resolver=load_taxonomy_resolver(),
+        capability_snapshot=capture_capability_snapshot(profile),
+        trusted_catalog=list(load_attack_patterns().values()),
+    )
+    durable_plan = finalization.coverage_plan
+    selection_result = SelectionResult(
+        uncovered_target_ids=[
+            target.entry_point_id
+            for target in durable_plan.targets
+            if not target.ordered_choices
+        ],
+        primary_candidate_ids={
+            target.entry_point_id: target.primary_candidate_id
+            for target in durable_plan.targets
+            if target.primary_candidate_id is not None
+        },
+        attempted_candidate_ids={
+            candidate_id
+            for target in durable_plan.targets
+            for candidate_id in target.attempted_candidate_ids
+        },
+        selection_limitation_target_ids=list(
+            durable_plan.selection_limitation_target_ids
+        ),
+    )
+    return _complete_v3_run(
+        run_dir=supplied,
+        run_id=manifest.run_id,
+        timestamp_start=manifest.timestamp_start,
+        provenance=manifest.provenance,
+        profile=profile,
+        threat_surface=threat_surface,
+        finalization=finalization,
+        coverage_universe=build_coverage_universe(profile),
+        stage_ledger=StageLedger(),
+        selection_result=selection_result,
+        fallback_queues={},
+        projection_limitation_target_ids=set(),
+        threats_path=None,
+        eval_enabled=eval,
+        seeds=[],
+        filtered_seeds=None,
+        governance_count=len(threat_surface.governance_only),
+        generation_notes=[],
+    )
 
 
 def _iter_leaves(node):
@@ -1538,14 +1906,33 @@ def run_pipeline(
         # Persist the immutable plan and empty inventory before entering any
         # candidate callback.  Everything below this return is intentionally
         # retained as the v2 implementation for Phase 6 removal only.
-        from scenario_forge.pipeline.persistence import read_finalization_inventory
+        from scenario_forge.pipeline.persistence import (
+            make_finalization_persistence_adapter,
+        )
         from scenario_forge.pipeline.runner_finalization import (
-            build_v3_inventory,
             run_target_finalization,
+            strict_v3_coverage_plan,
         )
 
         initial_plan = build_coverage_plan(
             coverage_universe, fallback_queues, selection_result
+        )
+        # Atomically replace the sentinel with a hash-bound inventory of
+        # immutable resume support before publishing mutable lifecycle state.
+        # This keeps a crash immediately after plan persistence resumable.
+        partial_manifest.inventory = [
+            build_artifact_entry(role, run_dir, path)
+            for role, path in (
+                (ArtifactRole.USE_CASE, "use-case.txt"),
+                (ArtifactRole.CAPABILITY_PROFILE, "capability-profile.yaml"),
+                (ArtifactRole.THREAT_SURFACE, "threat-surface.yaml"),
+            )
+        ]
+        write_started_manifest(run_dir, partial_manifest)
+        make_finalization_persistence_adapter(
+            run_dir,
+            run_id=run_id,
+            coverage_plan=strict_v3_coverage_plan(initial_plan),
         )
         finalization = run_target_finalization(
             run_dir=run_dir,
@@ -1558,193 +1945,25 @@ def run_pipeline(
             capability_snapshot=capability_snapshot,
             trusted_catalog=attack_pattern_records,
         )
-        final_inventory_doc = read_finalization_inventory(run_dir)
-        admitted_scenarios = [
-            ScenarioEnvelope.model_validate(
-                yaml.safe_load((run_dir / receipt.path).read_text(encoding="utf-8"))
-            )
-            for receipt in final_inventory_doc.admitted_inventory
-            if receipt.role is ArtifactRole.SCENARIO_YAML
-        ]
-        coverage_gaps = analyze_coverage_gaps(
-            profile, threat_surface, admitted_scenarios
-        )
-        decisions = {
-            item.candidate_id: item for item in final_inventory_doc.admission_decisions
-        }
-        generated_target_ids: set[str] = set()
-        quarantined_target_ids: set[str] = set()
-        for candidate_attempt in final_inventory_doc.candidate_attempts:
-            decision = decisions[candidate_attempt.candidate_id]
-            if decision.admitted:
-                generated_target_ids.add(candidate_attempt.target_entry_point_id)
-                stage_ledger.record(
-                    candidate_attempt.target_entry_point_id,
-                    candidate_attempt.candidate_id,
-                    STAGE_GENERATION,
-                    "generated",
-                    "Candidate completed all generated stages.",
-                )
-                stage_ledger.record(
-                    candidate_attempt.target_entry_point_id,
-                    candidate_attempt.candidate_id,
-                    STAGE_ADMISSION,
-                    "admitted",
-                    "Candidate passed postbehavior admission.",
-                )
-            else:
-                quarantined_target_ids.add(candidate_attempt.target_entry_point_id)
-                stage_ledger.record(
-                    candidate_attempt.target_entry_point_id,
-                    candidate_attempt.candidate_id,
-                    STAGE_QUARANTINE,
-                    decision.status.value,
-                    "; ".join(item.detail for item in decision.violations),
-                )
-        quality_gaps, coverage_summary = emit_quality_gaps(
-            coverage_universe,
-            stage_ledger,
-            selection_result,
-            fallback_queues,
-            generated_target_ids=generated_target_ids,
-            quarantined_target_ids=quarantined_target_ids - generated_target_ids,
-            projection_limitation_target_ids=projection_limitation_target_ids,
-        )
-        write_coverage_report(
-            coverage_gaps,
-            run_dir,
-            analyze_attacker_diversity(admitted_scenarios),
-            coverage_universe=coverage_universe,
-            quality_gaps=quality_gaps,
-            coverage_plan=finalization.coverage_plan,
-            coverage_summary=coverage_summary,
-            stage_ledger=stage_ledger,
-            finalization_inventory=final_inventory_doc,
-        )
-
-        # Evaluation receives an inventory containing admitted scenario pairs
-        # only; quarantine is lifecycle/report evidence and is never scored.
-        eval_success = False
-        eval_inventory = build_v3_inventory(
-            run_dir, final_inventory_doc, include_quarantine=False
-        )
-        eval_manifest = RunManifest(
-            manifest_version=MANIFEST_VERSION,
-            status=RunStatus.STARTED,
-            run_id=run_id,
-            timestamp_start=timestamp_start,
-            package_version=importlib.metadata.version("scenario-forge"),
-            provenance=provenance,
-            inventory=eval_inventory,
-        )
-        if eval:
-            try:
-                from scenario_forge.eval.runner import run_evaluation
-
-                scorecard = run_evaluation(
-                    resolver=build_in_memory_resolver(run_dir, eval_manifest),
-                    threats_path=threats_path,
-                )
-                write_eval_scorecard(scorecard, run_dir)
-                eval_success = True
-            except Exception as exc:  # noqa: BLE001 - non-authoritative output
-                logger.warning("Eval scorecard generation failed: %s", exc)
-        else:
-            logger.info("[Eval] Skipped (--no-eval) — non-authoritative.")
-
-        had_quarantine = bool(final_inventory_doc.quarantine_inventory)
-        terminal_processing_succeeded = all(
-            target.target_state.value in {"admitted", "exhausted"}
-            for target in finalization.coverage_plan.targets
-        )
-        intended_status = (
-            RunStatus.COMPLETED
-            if terminal_processing_succeeded
-            and not had_quarantine
-            and eval
-            and eval_success
-            else RunStatus.COMPLETED_WITH_ERRORS
-        )
-
-        report_success = False
-        try:
-            from scenario_forge.report.data import load_report_data
-            from scenario_forge.report.generator import generate_report
-
-            report_manifest = RunManifest(
-                manifest_version=MANIFEST_VERSION,
-                status=RunStatus.STARTED,
-                run_id=run_id,
-                timestamp_start=timestamp_start,
-                package_version=importlib.metadata.version("scenario-forge"),
-                provenance=provenance,
-                inventory=build_v3_inventory(
-                    run_dir,
-                    final_inventory_doc,
-                    include_eval=eval_success,
-                ),
-            )
-            report_data = load_report_data(
-                resolver=build_in_memory_resolver(run_dir, report_manifest)
-            )
-            generate_report(report_data, run_dir)
-            report_success = True
-        except Exception as exc:  # noqa: BLE001 - non-authoritative output
-            logger.warning("Report generation failed: %s", exc)
-
-        final_status = (
-            intended_status if report_success else RunStatus.COMPLETED_WITH_ERRORS
-        )
-
-        # Close the run-local log before hashing the exact v3 inventory.
-        sf_logger = logging.getLogger("scenario_forge")
-        for handler in sf_logger.handlers[:]:
-            if isinstance(handler, logging.FileHandler):
-                handler.flush()
-                handler.close()
-                sf_logger.removeHandler(handler)
-        inventory = build_v3_inventory(
-            run_dir,
-            final_inventory_doc,
-            include_eval=eval_success,
-            include_report=report_success,
-            include_log=True,
-        )
-        timestamp_end = datetime.now(UTC).isoformat()
-        if provenance is not None:
-            provenance.timestamp_end = timestamp_end
-            profile_disk = run_dir / "capability-profile.yaml"
-            if profile_disk.exists():
-                provenance.input_hashes.effective_profile_hash = compute_file_sha256(
-                    profile_disk
-                )
-        final_manifest = RunManifest(
-            manifest_version=MANIFEST_VERSION,
-            status=final_status,
-            run_id=run_id,
-            timestamp_start=timestamp_start,
-            timestamp_end=timestamp_end,
-            package_version=importlib.metadata.version("scenario-forge"),
-            provenance=provenance,
-            inventory=inventory,
-        )
-        if final_status is RunStatus.COMPLETED:
-            validate_completed_inventory(
-                final_manifest, eval_enabled=eval, run_dir=run_dir
-            )
-        else:
-            ManifestInventoryResolver(run_dir, final_manifest, check_orphans=True)
-        finalize_manifest(run_dir, final_manifest)
-        return PipelineResult(
-            capability_profile=profile,
-            threat_surface=threat_surface,
-            seeds=seeds,
-            filtered_seeds=filtered_seeds,
-            scenarios=admitted_scenarios,
-            governance_only_count=governance_count,
-            generation_notes=generation_notes,
+        return _complete_v3_run(
             run_dir=run_dir,
             run_id=run_id,
+            timestamp_start=timestamp_start,
+            provenance=provenance,
+            profile=profile,
+            threat_surface=threat_surface,
+            finalization=finalization,
+            coverage_universe=coverage_universe,
+            stage_ledger=stage_ledger,
+            selection_result=selection_result,
+            fallback_queues=fallback_queues,
+            projection_limitation_target_ids=projection_limitation_target_ids,
+            threats_path=threats_path,
+            eval_enabled=eval,
+            seeds=seeds,
+            filtered_seeds=filtered_seeds,
+            governance_count=governance_count,
+            generation_notes=generation_notes,
         )
 
         # cmps.4 blocker 5: Capture actual qualified and projection_rejected

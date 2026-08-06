@@ -598,6 +598,17 @@ def write_manifest_sentinel(
     return atomic_write_yaml(manifest_path, sentinel)
 
 
+def write_started_manifest(run_dir: Path, manifest: RunManifest) -> Path:
+    """Atomically checkpoint a resumable, non-final run manifest."""
+    if manifest.status is not RunStatus.STARTED:
+        raise ValueError(
+            f"Cannot checkpoint manifest with non-started status: {manifest.status}"
+        )
+    manifest_path = run_dir / MANIFEST_FILENAME
+    data = manifest.model_dump(mode="json", exclude_none=True)
+    return atomic_write_yaml(manifest_path, data)
+
+
 def finalize_manifest(
     run_dir: Path,
     manifest: RunManifest,

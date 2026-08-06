@@ -79,7 +79,7 @@ def test_v3_production_branch_returns_before_legacy_mutation_calls() -> None:
     )[1].split("# cmps.4 blocker 5: Capture actual qualified", maxsplit=1)[0]
 
     assert "run_target_finalization(" in v3_branch
-    assert "return PipelineResult(" in v3_branch
+    assert "return _complete_v3_run(" in v3_branch
     for forbidden in (
         "generate_scenario(",
         "write_scenario_outputs(",
