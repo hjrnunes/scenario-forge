@@ -42,12 +42,15 @@ Checks performed:
 
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from scenario_forge.models.attack_pattern import (
     AttackPattern,
     EntryPointResourceReference,
+    IntegrationResourceReference,
     TaxonomyResolver,
+    ToolResourceReference,
     validate_attack_pattern,
 )
 from scenario_forge.models.attack_tree import (
@@ -808,39 +811,18 @@ def _check_narrative_physical_order(
 
     Uses actual list positions, not sidecar tuple positions.  A narrative
     physically ordered [2,1,3] must fail even if the sidecar tuple is ordered.
-    With many-to-many, each step may carry multiple projected_step_ids; we
-    check that the minimum ordinal of each step's IDs is non-decreasing.
+    With many-to-many, IDs inside each element must be strictly increasing and
+    adjacent spans may overlap only on IDs they actually share.
     """
-    violations: list[ProjectionTraceabilityViolation] = []
-    order = block.projected_step_order
-
-    # Collect (list_position, min_ordinal) pairs from actual steps.
-    pairs: list[tuple[int, int]] = []
-    for list_pos, step in enumerate(narrative.steps):
-        if step.projected_step_ids:
-            ordinals = [order[sid] for sid in step.projected_step_ids if sid in order]
-            if ordinals:
-                pairs.append((list_pos, min(ordinals)))
-
-    # Check that step ordinals are non-decreasing with list position.
-    for i in range(1, len(pairs)):
-        prev_pos, prev_ordinal = pairs[i - 1]
-        curr_pos, curr_ordinal = pairs[i]
-        if curr_ordinal < prev_ordinal:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=ProjectionTraceabilityViolationCode.reordered_projected_step,
-                    stage=ProjectionTraceabilityStage.narrative,
-                    detail=(
-                        f"narrative step at list position {curr_pos} has "
-                        f"projection ordinal {curr_ordinal} which precedes "
-                        f"earlier step at position {prev_pos} with ordinal "
-                        f"{prev_ordinal} — physical order violated"
-                    ),
-                    element_id=str(narrative.steps[curr_pos].step_number),
-                )
-            )
-    return violations
+    elements = [
+        (str(step.step_number), step.projected_step_ids) for step in narrative.steps
+    ]
+    return _check_artifact_element_order(
+        elements,
+        block.projected_step_order,
+        ProjectionTraceabilityStage.narrative,
+        "narrative",
+    )
 
 
 # ---------------------------------------------------------------------------#
@@ -983,7 +965,7 @@ def _check_technique_mapping(
     tree: AttackTree,
     block: ProjectionEnvelopeBlock,
 ) -> list[ProjectionTraceabilityViolation]:
-    """Check that tree leaf technique_ids are valid against the projection.
+    """Check every tree-node technique_id against the projection.
 
     On candidate-v2 paths (422o.4), technique stripping is semantic repair
     and is prohibited.  Invalid technique IDs become typed violations
@@ -998,21 +980,21 @@ def _check_technique_mapping(
         if hasattr(m, "decision") and m.decision == "exact" and m.taxonomy == "ATLAS":
             valid_atlas_ids.update(m.ids)
 
-    # Check each leaf's technique_id.
-    for leaf in _iter_leaves(tree.root):
-        if leaf.technique_id is None:
+    # Connectors are semantic tree elements too; annotations cannot hide there.
+    for node in _iter_all_nodes(tree.root):
+        if node.technique_id is None:
             continue
-        if leaf.technique_id not in valid_atlas_ids:
+        if node.technique_id not in valid_atlas_ids:
             violations.append(
                 ProjectionTraceabilityViolation(
                     code=ProjectionTraceabilityViolationCode.invalid_technique_mapping,
                     stage=ProjectionTraceabilityStage.attack_tree,
                     detail=(
-                        f"tree leaf '{leaf.id}' has technique_id "
-                        f"'{leaf.technique_id}' not in projection's valid "
+                        f"tree node '{node.id}' has technique_id "
+                        f"'{node.technique_id}' not in projection's valid "
                         f"ATLAS mappings {sorted(valid_atlas_ids)}"
                     ),
-                    element_id=leaf.id,
+                    element_id=node.id,
                 )
             )
 
@@ -1028,32 +1010,63 @@ def _check_tree_physical_order(
     Uses actual tree traversal, not sidecar tuple positions.  A tree
     physically reordered must fail even if the sidecar tuple is ordered.
     """
+    elements = [(leaf.id, leaf.projected_step_ids) for leaf in _iter_leaves(tree.root)]
+    return _check_artifact_element_order(
+        elements,
+        block.projected_step_order,
+        ProjectionTraceabilityStage.attack_tree,
+        "attack_tree",
+    )
+
+
+def _check_artifact_element_order(
+    elements: list[tuple[str, tuple[str, ...]]],
+    order: dict[str, int],
+    stage: ProjectionTraceabilityStage,
+    artifact_name: str,
+) -> list[ProjectionTraceabilityViolation]:
+    """Enforce strict within-element order and non-crossing adjacent spans."""
     violations: list[ProjectionTraceabilityViolation] = []
-    order = block.projected_step_order
-
-    # Collect (traversal_position, min_ordinal) from actual leaves.
-    pairs: list[tuple[int, str, int]] = []  # (pos, leaf_id, ordinal)
-    for pos, leaf in enumerate(_iter_leaves(tree.root)):
-        if leaf.projected_step_ids:
-            ordinals = [order[sid] for sid in leaf.projected_step_ids if sid in order]
-            if ordinals:
-                pairs.append((pos, leaf.id, min(ordinals)))
-
-    for i in range(1, len(pairs)):
-        prev_pos, _, prev_ordinal = pairs[i - 1]
-        curr_pos, curr_id, curr_ordinal = pairs[i]
-        if curr_ordinal < prev_ordinal:
+    spans: list[tuple[str, tuple[str, ...], int, int]] = []
+    for element_id, step_ids in elements:
+        known = tuple(step_id for step_id in step_ids if step_id in order)
+        if not known:
+            continue
+        ordinals = [order[step_id] for step_id in known]
+        if ordinals != sorted(set(ordinals)):
             violations.append(
                 ProjectionTraceabilityViolation(
                     code=ProjectionTraceabilityViolationCode.reordered_projected_step,
-                    stage=ProjectionTraceabilityStage.attack_tree,
+                    stage=stage,
                     detail=(
-                        f"tree leaf '{curr_id}' at DFS position {curr_pos} has "
-                        f"projection ordinal {curr_ordinal} which precedes "
-                        f"earlier leaf at position {prev_pos} with ordinal "
-                        f"{prev_ordinal} — tree order violated"
+                        f"{artifact_name} element '{element_id}' projected_step_ids "
+                        "are not in strict canonical order"
                     ),
-                    element_id=curr_id,
+                    element_id=element_id,
+                )
+            )
+        spans.append((element_id, known, min(ordinals), max(ordinals)))
+
+    for previous, current in pairwise(spans):
+        _, previous_ids, _, previous_max = previous
+        current_id, current_ids, current_min, _ = current
+        shared = set(previous_ids) & set(current_ids)
+        shared_boundary = any(
+            order[step_id] == previous_max == current_min for step_id in shared
+        )
+        if previous_max > current_min or (
+            previous_max == current_min and not shared_boundary
+        ):
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=ProjectionTraceabilityViolationCode.reordered_projected_step,
+                    stage=stage,
+                    detail=(
+                        f"{artifact_name} element '{current_id}' crosses the "
+                        "preceding realization span; equality is allowed only "
+                        "for a projected step shared by both elements"
+                    ),
+                    element_id=current_id,
                 )
             )
     return violations
@@ -1075,8 +1088,27 @@ def _check_tree_resource_bindings(
 
     # Build a map: step_id → set of slot_ids linked to that step.
     step_to_slots: dict[str, set[str]] = {}
+    step_to_links: dict[str, tuple[Any, ...]] = {}
     for step in chain.steps:
         step_to_slots[step.step_id] = {link.slot_id for link in step.resource_links}
+        step_to_links[step.step_id] = step.resource_links
+
+    def integration_requirements(
+        mapped_step_ids: tuple[str, ...],
+    ) -> dict[str, set[str]]:
+        required: dict[str, set[str]] = {}
+        for mapped_step_id in mapped_step_ids:
+            integration_ids = {
+                ref.integration_id
+                for link in step_to_links.get(mapped_step_id, ())
+                if isinstance(
+                    (ref := bindings_by_slot.get(link.slot_id)),
+                    IntegrationResourceReference,
+                )
+            }
+            if integration_ids:
+                required[mapped_step_id] = integration_ids
+        return required
 
     # Build a map: leaf_id → projected_step_ids from actual tree fields.
     leaf_to_steps: dict[str, tuple[str, ...]] = {}
@@ -1133,10 +1165,6 @@ def _check_tree_resource_bindings(
                     )
                 )
         elif isinstance(action, ToolInvocationAction):
-            from scenario_forge.models.attack_pattern import (
-                ToolResourceReference,
-            )
-
             # The tool must match a tool slot binding linked to a mapped step.
             found = False
             for slot_id in all_step_slots:
@@ -1161,30 +1189,58 @@ def _check_tree_resource_bindings(
                         projected_step_id=mapped_step_ids[0],
                     )
                 )
-        elif isinstance(action, IntegrationInteractionAction):
-            from scenario_forge.models.attack_pattern import (
-                IntegrationResourceReference,
-            )
 
-            # The integration must match a binding linked to a mapped step.
-            found = False
-            for slot_id in all_step_slots:
-                ref = bindings_by_slot.get(slot_id)
-                if (
-                    isinstance(ref, IntegrationResourceReference)
-                    and ref.integration_id == action.integration_id
-                ):
-                    found = True
-                    break
-            if not found:
+            required_integrations = integration_requirements(mapped_step_ids)
+            if action.integration_id is None and required_integrations:
                 violations.append(
                     ProjectionTraceabilityViolation(
                         code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
                         stage=ProjectionTraceabilityStage.attack_tree,
                         detail=(
-                            f"tree leaf '{leaf.id}' integration_id does not "
-                            f"match any integration binding linked to "
-                            f"mapped steps {list(mapped_step_ids)}"
+                            f"tree leaf '{leaf.id}' omits integration_id required "
+                            f"by mapped projected steps {list(mapped_step_ids)} "
+                            f"(per-step requirements {required_integrations})"
+                        ),
+                        element_id=leaf.id,
+                        projected_step_id=mapped_step_ids[0],
+                    )
+                )
+            elif action.integration_id is not None and (
+                not required_integrations
+                or any(
+                    action.integration_id not in required
+                    for required in required_integrations.values()
+                )
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.attack_tree,
+                        detail=(
+                            f"tree leaf '{leaf.id}' integration_id "
+                            f"'{action.integration_id}' is not an integration "
+                            "binding linked to every mapped projected step "
+                            f"(per-step requirements {required_integrations})"
+                        ),
+                        element_id=leaf.id,
+                        projected_step_id=mapped_step_ids[0],
+                    )
+                )
+        elif isinstance(action, IntegrationInteractionAction):
+            required_integrations = integration_requirements(mapped_step_ids)
+            if not required_integrations or any(
+                action.integration_id not in required
+                for required in required_integrations.values()
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.attack_tree,
+                        detail=(
+                            f"tree leaf '{leaf.id}' integration_id is not an "
+                            "integration binding linked to every mapped "
+                            "projected step "
+                            f"(per-step requirements {required_integrations})"
                         ),
                         element_id=leaf.id,
                         projected_step_id=mapped_step_ids[0],

@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from scenario_forge.models.scenario import (
         CorpusClaimApplicability,
         ScenarioEnvelope,
+        SemanticValidation,
     )
 
 logger = logging.getLogger(__name__)
@@ -1160,7 +1161,7 @@ def _extract_gherkin_zones_for_validation(gherkin_text: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def validate_scenario_semantics(
+def _validate_scenario_semantics_mutating(
     scenarios: list[ScenarioEnvelope],
     profile: CapabilityProfile,
 ) -> None:
@@ -1651,6 +1652,38 @@ def validate_scenario_semantics(
             scenario.validation.semantic = semantic
 
         # Update validation_passed.
+        scenario.validation_passed = (
+            scenario.validation.phantom.valid
+            and scenario.validation.structural.valid
+            and scenario.validation.semantic.valid
+        )
+
+
+def check_scenario_semantics(
+    scenario: ScenarioEnvelope,
+    profile: CapabilityProfile,
+) -> SemanticValidation:
+    """Run the legacy semantic checks on one copy without changing the input."""
+    cloned = copy.deepcopy(scenario)
+    _validate_scenario_semantics_mutating([cloned], profile)
+    if cloned.validation is None or cloned.validation.semantic is None:
+        raise RuntimeError("semantic validation did not produce a result")
+    return copy.deepcopy(cloned.validation.semantic)
+
+
+def validate_scenario_semantics(
+    scenarios: list[ScenarioEnvelope],
+    profile: CapabilityProfile,
+) -> None:
+    """Compatibility batch wrapper that persists pure per-envelope results."""
+    from scenario_forge.models.scenario import ValidationBlock
+
+    for scenario in scenarios:
+        semantic = check_scenario_semantics(scenario, profile)
+        if scenario.validation is None:
+            scenario.validation = ValidationBlock(semantic=semantic)
+        else:
+            scenario.validation.semantic = semantic
         scenario.validation_passed = (
             scenario.validation.phantom.valid
             and scenario.validation.structural.valid
