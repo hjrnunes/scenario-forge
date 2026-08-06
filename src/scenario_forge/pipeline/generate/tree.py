@@ -792,6 +792,57 @@ def _validate_and_postprocess_tree(
     return tree
 
 
+def _call_attack_tree_once(
+    seed: ScenarioSeed,
+    narrative: NarrativeLayer,
+    client: LLMClient,
+    use_case: str,
+    profile: CapabilityProfile | None = None,
+    actor_profile: ActorProfile | None = None,
+    pinned_technique_ids: list[str] | None = None,
+    pinned_technique_names: list[str] | None = None,
+    consistency_feedback: str | None = None,
+    pinned_entry_point_id: str | None = None,
+    projection_context: dict[str, Any] | None = None,
+) -> tuple[AttackTree, LLMResult]:
+    """Generate and validate one attack-tree attempt (Call 2).
+
+    This is the lifecycle primitive: it performs exactly one LLM invocation
+    and never retries.  Retry ownership belongs to the caller.
+    """
+    ctx = build_call2_context(
+        seed=seed,
+        narrative=narrative,
+        use_case=use_case,
+        profile=profile,
+        actor_profile=actor_profile,
+        pinned_technique_ids=pinned_technique_ids,
+        pinned_technique_names=pinned_technique_names,
+        consistency_feedback=consistency_feedback,
+        pinned_entry_point_id=pinned_entry_point_id,
+        projection_context=projection_context,
+    )
+    skeleton = ctx["skeleton"]
+    result = client.complete(
+        system_prompt=render_prompt(
+            "call2_system.j2",
+            zones_active=profile.zones_active if profile else [],
+            tool_inventory=ctx["tool_inventory"],
+            external_integrations=ctx["external_integrations"],
+            entry_points=ctx["entry_points"],
+        ),
+        user_prompt=render_prompt("call2_user.j2", **ctx),
+        response_format=None,
+    )
+    tree = _parse_attack_tree_yaml(result.content, seed)
+    return (
+        _validate_and_postprocess_tree(
+            tree, profile, pinned_entry_point_id, skeleton, seed, projection_context
+        ),
+        result,
+    )
+
+
 def _call_attack_tree(
     seed: ScenarioSeed,
     narrative: NarrativeLayer,
@@ -805,14 +856,10 @@ def _call_attack_tree(
     pinned_entry_point_id: str | None = None,
     projection_context: dict[str, Any] | None = None,
 ) -> tuple[AttackTree, LLMResult]:
-    """Generate an attack tree for a scenario seed (Call 2).
-
-    Delegates context building to :func:`build_call2_context`, then renders
-    templates, calls the LLM (with one retry on parse **or** validation
-    failure), and post-processes the tree.
+    """Compatibility Call 2 with the historical internal parse retry.
 
     The retry preserves the original projection-rich user prompt and appends
-    feedback only (422o.4 blocker #2).
+    feedback only.  New lifecycle code must use :func:`_call_attack_tree_once`.
 
     Returns:
         Tuple of (AttackTree, LLMResult).
