@@ -64,7 +64,13 @@ class ProjectionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-def _canonical_json(value: Any) -> str:
+def canonical_json_bytes(value: Any) -> bytes:
+    """Encode values using the projection digest contract's canonical JSON.
+
+    Mapping keys and string values are recursively normalized to Unicode NFC;
+    keys are sorted, separators are compact, non-ASCII text remains UTF-8,
+    and non-finite floats are rejected.
+    """
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json")
     value = _normalize_unicode(value)
@@ -74,7 +80,11 @@ def _canonical_json(value: Any) -> str:
         separators=(",", ":"),
         ensure_ascii=False,
         allow_nan=False,
-    )
+    ).encode("utf-8")
+
+
+def _canonical_json(value: Any) -> str:
+    return canonical_json_bytes(value).decode("utf-8")
 
 
 def _normalize_unicode(value: Any) -> Any:

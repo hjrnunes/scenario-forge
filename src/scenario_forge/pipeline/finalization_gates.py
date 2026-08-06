@@ -9,7 +9,6 @@ It performs no generation, persistence, or runner work.
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, TypeVar
@@ -23,6 +22,7 @@ from scenario_forge.models.attack_tree import (
     ExternalPreconditionAction,
     GateType,
 )
+from scenario_forge.models.complexity import capability_level_rank
 from scenario_forge.models.projection_envelope import (
     ProjectionEnvelopeBlock,
     ProjectionTraceabilityViolationCode,
@@ -34,6 +34,7 @@ from scenario_forge.pipeline.complexity import (
     evaluate_capability_admission,
 )
 from scenario_forge.pipeline.finalization import (
+    CandidateFinalizationContext,
     GeneratedArtifacts,
     GeneratedStage,
     LifecycleViolation,
@@ -44,7 +45,7 @@ from scenario_forge.pipeline.generate.constants import compute_leaf_budget
 from scenario_forge.pipeline.generate.narrative import (
     validate_narrative_access_realization,
 )
-from scenario_forge.pipeline.projection import ProjectedCandidate
+from scenario_forge.pipeline.projection import ProjectedCandidate, canonical_json_bytes
 from scenario_forge.pipeline.projection_validation import (
     _check_narrative_realizations,
     _check_or_tree_prohibition,
@@ -108,12 +109,7 @@ M = TypeVar("M", bound=BaseModel)
 
 
 def _canonical(model: BaseModel) -> bytes:
-    return json.dumps(
-        model.model_dump(mode="json"),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode()
+    return canonical_json_bytes(model)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,8 +141,12 @@ class _SemanticSnapshot(Generic[M]):
 
 class ProjectionSemanticSnapshot(_SemanticSnapshot[ProjectedCandidate]):
     @property
-    def projection(self) -> ProjectedCandidate:
+    def candidate(self) -> ProjectedCandidate:
         return self.materialize()
+
+    @property
+    def projection(self) -> ProjectedCandidate:
+        return self.candidate
 
 
 class ActorSemanticSnapshot(_SemanticSnapshot[ActorProfile]):
@@ -190,6 +190,10 @@ def _leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
     return [leaf for child in node.children or () for leaf in _leaves(child)]
 
 
+def _nodes(node: AttackTreeNode) -> list[AttackTreeNode]:
+    return [node, *(item for child in node.children or () for item in _nodes(child))]
+
+
 def check_tree_parsimony(tree: AttackTree, *, budget: int | None = None) -> GateResult:
     leaves = _leaves(tree.root)
     if budget is None:
@@ -209,12 +213,10 @@ def check_tree_parsimony(tree: AttackTree, *, budget: int | None = None) -> Gate
 
 def _prunable(node: AttackTreeNode) -> bool:
     if node.gate is GateType.LEAF:
-        return (
-            isinstance(node.action, ExternalPreconditionAction)
-            and not node.projected_step_ids
-            and not node.realizations
-            and node.technique_id is None
-        )
+        # Every valid Phase 3A leaf carries a typed action.  Unmapped does not
+        # mean redundant: deleting a typed external precondition weakens the
+        # concrete attack and may lower its required complexity.
+        return node.action is None
     return (
         node.gate is GateType.AND
         and bool(node.children)
@@ -349,7 +351,6 @@ def run_prebehavior_gates(
         validate_projection_snapshot(
             candidate.projection.model_dump(mode="json"), capability_snapshot
         )
-        block = _block(candidate, narrative, tree, capability_snapshot)
     except (TypeError, ValueError, AttributeError) as exc:
         return GateResult(
             (
@@ -357,6 +358,40 @@ def run_prebehavior_gates(
                     GateCode.candidate_identity,
                     f"candidate/projection qualification failed: {exc}",
                     None,
+                ),
+            )
+        )
+    for step in narrative.steps:
+        if len(step.projected_step_ids) != len(set(step.projected_step_ids)):
+            return GateResult(
+                (
+                    GateViolation(
+                        GateCode.narrative_realization,
+                        f"narrative step '{step.step_number}' duplicates a projected step",
+                        GeneratedStage.narrative,
+                    ),
+                )
+            )
+    for node in _nodes(tree.root):
+        if len(node.projected_step_ids) != len(set(node.projected_step_ids)):
+            return GateResult(
+                (
+                    GateViolation(
+                        GateCode.tree_realization,
+                        f"tree node '{node.id}' duplicates a projected step",
+                        GeneratedStage.tree,
+                    ),
+                )
+            )
+    try:
+        block = _block(candidate, narrative, tree, capability_snapshot)
+    except (TypeError, ValueError, AttributeError) as exc:
+        return GateResult(
+            (
+                GateViolation(
+                    GateCode.tree_realization,
+                    f"generated realization qualification failed: {exc}",
+                    GeneratedStage.tree,
                 ),
             )
         )
@@ -500,8 +535,18 @@ def run_prebehavior_gates(
             violations.append(
                 GateViolation(GateCode.capability_complexity, routing.feedback, owner)
             )
-    # Stable dedup while retaining owner order.
-    unique = tuple(dict.fromkeys(violations))
+    # Stable dedup followed by canonical candidate → actor → narrative → tree
+    # ownership order.  This makes aggregate retry routing explicit.
+    owner_order = {
+        None: 0,
+        GeneratedStage.actor: 1,
+        GeneratedStage.narrative: 2,
+        GeneratedStage.tree: 3,
+        GeneratedStage.behavior: 4,
+    }
+    unique = tuple(
+        sorted(dict.fromkeys(violations), key=lambda item: owner_order[item.owner])
+    )
     return GateResult(unique, tuple(diagnostics))
 
 
@@ -513,16 +558,31 @@ class PrebehaviorFinalizerPort:
         self.profile = profile or capability_snapshot.profile
 
     def __call__(
-        self, candidate: Any, artifacts: GeneratedArtifacts
+        self, context: CandidateFinalizationContext, artifacts: GeneratedArtifacts
     ) -> PrebehaviorFinalizationResult:
-        projected = (
-            candidate.projected if hasattr(candidate, "projected") else candidate
-        )
-        try:
-            projection = ProjectionSemanticSnapshot.capture(
-                ProjectedCandidate.model_validate(projected.model_dump(mode="json"))
+        if not isinstance(context, CandidateFinalizationContext) or not isinstance(
+            context.verified_snapshot, ProjectionSemanticSnapshot
+        ):
+            return PrebehaviorFinalizationResult(
+                None,
+                (
+                    GateViolation(
+                        GateCode.candidate_identity,
+                        "verified candidate context is required",
+                        None,
+                    ).lifecycle(),
+                ),
             )
+        try:
+            projection = context.verified_snapshot
             projection.verify_digest()
+            current = ProjectedCandidate.model_validate(
+                context.candidate.model_dump(mode="json")
+            )
+            if canonical_json_bytes(current) != projection.canonical_bytes:
+                raise ValueError(
+                    "candidate changed after authoritative revalidation snapshot"
+                )
         except (TypeError, ValueError, AttributeError) as exc:
             return PrebehaviorFinalizationResult(
                 None,
@@ -555,13 +615,12 @@ class PrebehaviorFinalizerPort:
         actor, narrative, tree = captured
         try:
             gates = run_prebehavior_gates(
-                projection.projection,
+                projection.candidate,
                 actor.actor,
                 narrative.narrative,
                 tree.tree,
                 self.capability_snapshot,
                 self.profile,
-                include_complexity=False,
             )
             if gates.violations:
                 return PrebehaviorFinalizationResult(
@@ -572,9 +631,35 @@ class PrebehaviorFinalizerPort:
                 return PrebehaviorFinalizationResult(
                     None, tuple(v.lifecycle() for v in repair.violations)
                 )
+            before_complexity = assess_final_complexity(
+                assess_candidate_complexity(projection.candidate),
+                _leaves(tree.tree.root),
+                actor.actor.access,
+            )
+            after_complexity = assess_final_complexity(
+                assess_candidate_complexity(projection.candidate),
+                _leaves(repair.tree.root),
+                actor.actor.access,
+            )
+            if (
+                before_complexity.final is not None
+                and after_complexity.final is not None
+                and capability_level_rank(after_complexity.final.required_level)
+                < capability_level_rank(before_complexity.final.required_level)
+            ):
+                return PrebehaviorFinalizationResult(
+                    None,
+                    (
+                        GateViolation(
+                            GateCode.parsimony,
+                            "parsimony repair lowered required attack complexity",
+                            GeneratedStage.tree,
+                        ).lifecycle(),
+                    ),
+                )
             # Repair can affect all tree realization gates, so run the full pure set.
             rerun = run_prebehavior_gates(
-                projection.projection,
+                projection.candidate,
                 actor.actor,
                 narrative.narrative,
                 repair.tree,

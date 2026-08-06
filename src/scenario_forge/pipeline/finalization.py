@@ -9,6 +9,8 @@ quarantine persistence, and runner integration belong to later phases.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -113,6 +115,66 @@ class FinalTreeSnapshot(Protocol):
     def digest(self) -> str: ...
 
 
+@runtime_checkable
+class VerifiedCandidateSnapshot(Protocol):
+    """Candidate baseline captured immediately after authoritative revalidation."""
+
+    @property
+    def candidate(self) -> Any: ...
+
+    @property
+    def digest(self) -> str: ...
+
+    def verify_digest(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateFinalizationContext:
+    """Verified baseline plus the live candidate visible to generation stages."""
+
+    candidate: Any
+    verified_snapshot: VerifiedCandidateSnapshot
+
+    @property
+    def candidate_id(self) -> str | None:
+        return getattr(self.candidate, "candidate_id", None)
+
+
+@dataclass(frozen=True, slots=True)
+class _OpaqueCandidateSnapshot:
+    """Test/compatibility snapshot for non-Pydantic Phase 2 candidate doubles."""
+
+    _candidate: Any
+    digest: str
+
+    @classmethod
+    def capture(cls, candidate: Any) -> _OpaqueCandidateSnapshot:
+        copied = copy.deepcopy(candidate)
+        return cls(copied, hashlib.sha256(repr(copied).encode()).hexdigest())
+
+    @property
+    def candidate(self) -> Any:
+        return copy.deepcopy(self._candidate)
+
+    def verify_digest(self) -> None:
+        if hashlib.sha256(repr(self._candidate).encode()).hexdigest() != self.digest:
+            raise ValueError("verified candidate snapshot drifted")
+
+
+def _capture_verified_candidate(candidate: Any) -> VerifiedCandidateSnapshot:
+    """Capture semantic Pydantic candidates; retain Phase 2 test compatibility."""
+    from pydantic import BaseModel
+
+    if isinstance(candidate, BaseModel):
+        # Late import avoids the finalization-gates -> finalization import cycle.
+        from scenario_forge.pipeline.finalization_gates import (
+            ProjectionSemanticSnapshot,
+        )
+
+        return ProjectionSemanticSnapshot.capture(candidate)
+    return _OpaqueCandidateSnapshot.capture(candidate)
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateValidation:
     candidate: Any | None
@@ -183,7 +245,7 @@ class TargetFinalizationResult:
 StageCallback = Callable[[Any, StageInvocation], GeneratedStageResult]
 CandidateRevalidator = Callable[[dict[str, Any]], CandidateValidation]
 PrebehaviorFinalizer = Callable[
-    [Any, GeneratedArtifacts], PrebehaviorFinalizationResult
+    [CandidateFinalizationContext, GeneratedArtifacts], PrebehaviorFinalizationResult
 ]
 AdmissionCallback = Callable[
     [Any, GeneratedArtifacts, FinalTreeSnapshot], AdmissionDecision
@@ -344,7 +406,10 @@ class TargetFinalizationMachine:
         return owner
 
     def _run_candidate(
-        self, candidate: Any, candidate_id: str
+        self,
+        candidate: Any,
+        candidate_id: str,
+        verified_candidate: VerifiedCandidateSnapshot,
     ) -> CandidateTerminalResult:
         next_stage = GeneratedStage.actor
         snapshot: FinalTreeSnapshot | None = None
@@ -358,7 +423,8 @@ class TargetFinalizationMachine:
                             "tree complete",
                         )
                         finalized = self.prebehavior_finalizer(
-                            candidate, self.artifacts
+                            CandidateFinalizationContext(candidate, verified_candidate),
+                            self.artifacts,
                         )
                         if finalized.violations:
                             owner = self._route_violations(finalized.violations)
@@ -494,19 +560,39 @@ class TargetFinalizationMachine:
                     self.artifacts = GeneratedArtifacts()
                     self.owner_retry_counts = {}
                     try:
-                        terminal = self._run_candidate(validation.candidate, ref_id)
-                    except Exception as exc:  # noqa: BLE001 - terminal lifecycle evidence
+                        verified_candidate = _capture_verified_candidate(
+                            validation.candidate
+                        )
+                        verified_candidate.verify_digest()
+                    except Exception as exc:  # noqa: BLE001 - candidate evidence
                         violation = LifecycleViolation(
-                            code="lifecycle_callback_exception",
+                            code="candidate_snapshot_failed",
                             detail=f"{type(exc).__name__}: {exc}",
                             retryable=False,
                         )
                         self.violations.append(violation)
                         terminal = CandidateTerminalResult(
                             ref_id,
-                            CandidateTerminalStatus.generation_or_finalization_failed,
+                            CandidateTerminalStatus.rejected,
                             (violation,),
                         )
+                    else:
+                        try:
+                            terminal = self._run_candidate(
+                                validation.candidate, ref_id, verified_candidate
+                            )
+                        except Exception as exc:  # noqa: BLE001 - lifecycle evidence
+                            violation = LifecycleViolation(
+                                code="lifecycle_callback_exception",
+                                detail=f"{type(exc).__name__}: {exc}",
+                                retryable=False,
+                            )
+                            self.violations.append(violation)
+                            terminal = CandidateTerminalResult(
+                                ref_id,
+                                CandidateTerminalStatus.generation_or_finalization_failed,
+                                (violation,),
+                            )
 
             # The sole terminal persistence point for every reserved choice.
             self.persistence.record_candidate_result(ref_id, terminal)
