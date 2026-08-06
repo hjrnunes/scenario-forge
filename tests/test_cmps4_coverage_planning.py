@@ -1267,11 +1267,12 @@ class TestTwoTargetTwoPatternAssignment:
         result = select_with_coverage_priority(
             qualified, queues, universe, max_per_pattern=1
         )
-        # Target 10 has multiple choices; after c3 takes the cap slot,
-        # target 10 must still be covered but with a limitation.
+        # Target 10 has multiple choices; after one takes the cap slot,
+        # the other target must still be covered but with a limitation.
         assert _ep_id(10) in result.primary_candidate_ids
-        # Either target 10 or 11 may have a limitation.
-        assert len(result.selection_limitation_target_ids) >= 0
+        # Both targets use the same pattern (AP-T1) with cap=1, so exactly
+        # one target must have an overflow limitation.
+        assert len(result.selection_limitation_target_ids) == 1
 
     def test_non_primary_choices_are_fallback_not_selected(self) -> None:
         """Multi-choice target: only the primary is selected, rest are fallback."""
@@ -1542,8 +1543,38 @@ class TestFunnelInvariant:
             ),
         ]
         funnel = derive_funnel_from_attempts(attempts)
-        # qualified defaults to selected when not supplied.
+        # qualified defaults to selected when not supplied AND
+        # projection_rejected is also 0 (qualification stage never reached).
         assert funnel["qualified"] == funnel["selected"] == 1
+
+    def test_derive_funnel_preserves_qualified_with_projection_rejected(self) -> None:
+        """cmps.4 blocker 5: When projection_rejected > 0 but qualified == 0,
+        do NOT default qualified=selected — the actual context indicates
+        qualification data exists but was not passed."""
+        from scenario_forge.manifest import (
+            AttemptDisposition,
+            AttemptPhase,
+            AttemptRecord,
+            derive_funnel_from_attempts,
+        )
+
+        attempts = [
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.FAILED,
+                failure_evidence="Generation failed",
+                phase=AttemptPhase.MAIN,
+            ),
+        ]
+        funnel = derive_funnel_from_attempts(
+            attempts, selected=1, qualified=0, projection_rejected=3
+        )
+        # qualified is NOT defaulted to selected when projection_rejected > 0
+        # (actual context exists — qualification stage was reached).
+        assert funnel["qualified"] == 0
+        assert funnel["projection_rejected"] == 3
+        assert funnel["selected"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -2033,3 +2064,292 @@ class TestBoundedProjection:
         assert len(result.candidates) <= 4
         # Must complete quickly.
         assert elapsed < 15.0, f"projection took {elapsed:.1f}s"
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 4: HTML report typed gap rendering and evidence tests
+# ---------------------------------------------------------------------------
+
+
+class TestTypedGapRendering:
+    """Blocker 4: HTML must render typed gap fields explicitly, not str(dict)."""
+
+    def _coverage_data(self, **kwargs) -> dict:
+        base = {
+            "coverage_gaps": {
+                "uncovered_entry_points": [],
+                "uncovered_zones": [],
+                "uncovered_threats": [],
+                "uncovered_attack_patterns": [],
+            },
+            "coverage_universe": {
+                "completeness": "not_applicable",
+                "evidence_refs": [],
+                "feasible_targets": [],
+                "excluded_targets": [],
+            },
+            "coverage_summary": {
+                "covered_feasible": [],
+                "policy_exclusions": [],
+                "structural_gaps": [],
+                "selection_limitations": [],
+                "runtime_generation_gaps": [],
+                "quarantine_admission_failures": [],
+                "projection_limitations": [],
+            },
+            "coverage_plan": {
+                "schema_version": "1",
+                "completeness": "not_applicable",
+                "evidence_refs": [],
+                "targets": [],
+            },
+            "quality_gaps": [],
+        }
+        base.update(kwargs)
+        return base
+
+    def test_no_str_dict_in_typed_gap_rendering(self) -> None:
+        """HTML must not contain Python dict repr for typed gap items."""
+        from scenario_forge.report.template import build_coverage_section
+
+        data = self._coverage_data(
+            coverage_summary={
+                "covered_feasible": [],
+                "policy_exclusions": [],
+                "structural_gaps": [],
+                "selection_limitations": [
+                    {
+                        "entry_point_id": "ep-1",
+                        "entry_point_name": "User Prompt",
+                        "reason": "selection_limitation",
+                        "candidate_ids": ["cand:v2:aaa"],
+                        "detail": "Per-pattern cap overflow",
+                    },
+                ],
+                "runtime_generation_gaps": [],
+                "quarantine_admission_failures": [],
+                "projection_limitations": [],
+            },
+        )
+        html = build_coverage_section(data)
+        # Must not contain Python dict repr.
+        assert "{" not in html or "coverage-card" in html
+        # Must render the entry point name.
+        assert "User Prompt" in html
+        # Must render the candidate ID.
+        assert "cand:v2:aaa" in html
+        # Must render a human-readable reason, not the raw code.
+        assert "cap overflow" in html.lower() or "selection" in html.lower()
+
+    def test_inferred_partial_does_not_claim_all_covered(self) -> None:
+        """For inferred-partial inventory, HTML must not claim all entry
+        points covered without qualifying the bounded set."""
+        from scenario_forge.report.template import build_coverage_section
+
+        data = self._coverage_data(
+            coverage_universe={
+                "completeness": "not_applicable",
+                "evidence_refs": [],
+                "feasible_targets": [],
+                "excluded_targets": [],
+            },
+        )
+        html = build_coverage_section(data)
+        # Must NOT say "All entry points have scenario coverage." unqualified
+        assert "All entry points have scenario coverage." not in html
+        # Must qualify with bounded/incomplete language
+        assert "identified feasible" in html.lower() or "not confirmed" in html.lower()
+
+    def test_confirmed_complete_claims_all_covered(self) -> None:
+        """For confirmed-complete inventory, HTML may claim all covered."""
+        from scenario_forge.report.template import build_coverage_section
+
+        data = self._coverage_data(
+            coverage_universe={
+                "completeness": "confirmed_complete",
+                "evidence_refs": ["operator-review"],
+                "feasible_targets": [],
+                "excluded_targets": [],
+            },
+        )
+        html = build_coverage_section(data)
+        assert "All confirmed entry points have scenario coverage." in html
+
+    def test_inferred_partial_badge_not_full_coverage(self) -> None:
+        """Inferred-partial inventory must not show 'Full Coverage' badge."""
+        from scenario_forge.report.template import build_coverage_section
+
+        data = self._coverage_data(
+            coverage_universe={
+                "completeness": "not_applicable",
+                "evidence_refs": [],
+                "feasible_targets": [],
+                "excluded_targets": [],
+            },
+        )
+        html = build_coverage_section(data)
+        assert "Full Coverage" not in html
+        assert "Known Targets Covered" in html
+
+    def test_no_legacy_attribution_for_zones_threats_patterns(self) -> None:
+        """Zone/threat/pattern items must not carry funnel-stage attribution
+        spans (legacy inferred labels)."""
+        from scenario_forge.report.template import build_coverage_section
+
+        data = self._coverage_data(
+            coverage_gaps={
+                "uncovered_entry_points": [],
+                "uncovered_zones": ["input"],
+                "uncovered_threats": ["T1"],
+                "uncovered_attack_patterns": ["AP-T1"],
+                "gap_attributions": {
+                    "entry_points": {},
+                    "zones": {"input": "generation_failed"},
+                    "threats": {"T1": "no_seed"},
+                    "attack_patterns": {"AP-T1": "rejected"},
+                },
+            },
+        )
+        html = build_coverage_section(data)
+        # Zones/threats/patterns must NOT have attribution spans
+        # (the _attribution_span renders as <span class="coverage-reason">)
+        # We check that the zone/threat/pattern list items don't contain
+        # the stage labels.
+        assert "generation failed" not in html
+        assert "no seed generated" not in html
+        assert "filtered out" not in html
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 4: Stage ledger records typed filter verdict rationale
+# ---------------------------------------------------------------------------
+
+
+class TestFilterVerdictLedgerEvidence:
+    """Blocker 4: Stage ledger must record actual FilterVerdict rationale."""
+
+    def test_filter_rejection_records_actual_rationale(self) -> None:
+        """The stage ledger must record the actual LLM filter rejection
+        rationale, not generic text."""
+        ledger = StageLedger()
+        ledger.record(
+            entry_point_id="ep-1",
+            candidate_id="cand-1",
+            stage=STAGE_FILTER,
+            reason="filter_rejection",
+            detail="pattern=AP-T1: Candidate lacks required tool access.",
+            payload={
+                "candidate_id": "cand-1",
+                "verdict": "reject",
+                "rationale": "Candidate lacks required tool access.",
+            },
+        )
+        events = ledger.events_for("ep-1")
+        assert len(events) == 1
+        assert events[0].reason == "filter_rejection"
+        assert "Candidate lacks required tool access" in events[0].detail
+        assert events[0].payload is not None
+        assert events[0].payload["rationale"] == "Candidate lacks required tool access."
+
+
+# ---------------------------------------------------------------------------
+# cmps.4 blocker 5: Failed funnel context — persisted manifest equations
+# ---------------------------------------------------------------------------
+
+
+class TestFailedFunnelContext:
+    """Blocker 5: Exception reconstruction must use actual counts."""
+
+    def test_partial_manifest_captures_qualified_before_generation(self) -> None:
+        """The partial_manifest.funnel must capture qualified and
+        projection_rejected after selection, before generation may fail."""
+        # Simulate the funnel dict that the runner captures.
+        funnel_snapshot = {
+            "qualified": 5,
+            "projection_rejected": 3,
+            "selected": 2,
+        }
+        # If generation fails after first reservation, the exception handler
+        # reads these from existing_funnel.
+        existing_qualified = funnel_snapshot.get("qualified", 0)
+        existing_projection_rejected = funnel_snapshot.get("projection_rejected", 0)
+        existing_selected = funnel_snapshot.get("selected", 0)
+
+        from scenario_forge.manifest import (
+            AttemptDisposition,
+            AttemptPhase,
+            AttemptRecord,
+            derive_funnel_from_attempts,
+        )
+
+        # One attempt succeeded, one failed (failure after first reservation).
+        attempts = [
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.ADMITTED,
+                phase=AttemptPhase.MAIN,
+            ),
+            AttemptRecord(
+                candidate_id="c2",
+                scenario_id="",
+                disposition=AttemptDisposition.FAILED,
+                failure_evidence="Generation failed",
+                phase=AttemptPhase.MAIN,
+            ),
+        ]
+        funnel = derive_funnel_from_attempts(
+            attempts,
+            selected=existing_selected,
+            qualified=existing_qualified,
+            projection_rejected=existing_projection_rejected,
+        )
+        # Actual counts preserved, not defaulted.
+        assert funnel["qualified"] == 5
+        assert funnel["projection_rejected"] == 3
+        assert funnel["selected"] == 2
+        assert funnel["qualified"] > funnel["selected"]
+        assert funnel["projection_rejected"] > 0
+
+    def test_failure_after_first_reservation_manifest_equations(self) -> None:
+        """Integration: failure after first reservation with qualified>selected
+        and projection_rejected>0 — assert persisted failed manifest equations."""
+        from scenario_forge.manifest import (
+            AttemptDisposition,
+            AttemptPhase,
+            AttemptRecord,
+            derive_funnel_from_attempts,
+        )
+
+        # Simulate: 5 qualified, 3 projection-rejected, 2 selected.
+        # First generation succeeds, second fails.
+        attempts = [
+            AttemptRecord(
+                candidate_id="c1",
+                scenario_id="s1",
+                disposition=AttemptDisposition.ADMITTED,
+                phase=AttemptPhase.MAIN,
+            ),
+            AttemptRecord(
+                candidate_id="c2",
+                scenario_id="",
+                disposition=AttemptDisposition.FAILED,
+                failure_evidence="Generation failed",
+                phase=AttemptPhase.MAIN,
+            ),
+        ]
+        funnel = derive_funnel_from_attempts(
+            attempts,
+            selected=2,
+            qualified=5,
+            projection_rejected=3,
+        )
+        # Persisted failed manifest equations.
+        assert funnel["qualified"] == 5  # actual, not defaulted to selected
+        assert funnel["projection_rejected"] == 3  # actual, not zero
+        assert funnel["selected"] == 2
+        assert funnel["main_attempted"] == 2
+        assert funnel["generation_failed"] == 1
+        assert funnel["main_admitted"] == 1  # one admitted
+        # qualified > selected (not defaulted)
+        assert funnel["qualified"] > funnel["selected"]

@@ -380,7 +380,7 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
         ),
         patch(
             "scenario_forge.pipeline.runner.filter_candidates",
-            return_value=([valid_seed, invalid_seed], []),
+            return_value=([valid_seed, invalid_seed], [], []),
         ),
         patch("scenario_forge.pipeline.runner.generate_scenario", side_effect=generate),
         patch(

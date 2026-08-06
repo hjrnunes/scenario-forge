@@ -2978,7 +2978,7 @@ class TestThirdReviewCallLogFailure:
             ),
             patch(
                 "scenario_forge.pipeline.runner.filter_candidates",
-                return_value=([fseed], []),
+                return_value=([fseed], [], []),
             ),
             patch(
                 "scenario_forge.pipeline.runner.analyze_coverage_gaps",

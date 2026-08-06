@@ -1091,18 +1091,19 @@ class _PatternProjectionState:
         if self._iter is None:
             object.__setattr__(self, "_iter", iter(self.combination_iter))
 
-    def next_candidate(self) -> ProjectedCandidate | None:
+    def next_candidate(self, issues: list | None = None) -> ProjectedCandidate | None:
         """Lazily build the next feasible candidate from the iterator.
 
         Returns None when the iterator is exhausted.  Combinations that
-        fail execution requirements derivation are skipped (the issue is
-        recorded by the caller).  The full Cartesian product is never
-        materialized — only one combination is consumed per call.
+        fail execution requirements derivation are skipped; if an
+        ``issues`` list is provided, the structural issue is appended to
+        it.  The full Cartesian product is never materialized — only one
+        combination is consumed per call.
         """
         if self.iterator_exhausted:
             return None
         for resources in self._iter:
-            candidate = _build_candidate_from_combination(
+            candidate, issue = _build_candidate_from_combination(
                 self.pattern_id,
                 self.chain,
                 self.selected,
@@ -1114,6 +1115,8 @@ class _PatternProjectionState:
                 self.precondition_results,
                 self.snapshot,
             )
+            if issue is not None and issues is not None:
+                issues.append(issue)
             if candidate is not None:
                 self.generated.append(candidate)
                 return candidate
@@ -1144,11 +1147,12 @@ def _build_candidate_from_combination(
     pattern_pin: str,
     precondition_results: tuple[PreconditionEvaluationResult, ...],
     snapshot: CapabilityFactSnapshot,
-) -> ProjectedCandidate | None:
+) -> tuple[ProjectedCandidate | None, Any | None]:
     """Build a single ProjectedCandidate from one resource combination.
 
-    Returns the candidate, or None if the combination fails execution
-    requirements derivation (a structural rejection, not a budget limit).
+    Returns ``(candidate, issue)``.  When the combination fails execution
+    requirements derivation (a structural rejection, not a budget limit),
+    ``candidate`` is None and ``issue`` carries the typed ProjectionIssue.
     """
     bindings = tuple(
         ResourceBinding(slot_id=slot.slot_id, resource_ref=resource)
@@ -1177,7 +1181,7 @@ def _build_candidate_from_combination(
         pattern_id, requirements, issue
     )
     if issue is not None:
-        return None
+        return None, issue
     requirements_digest = compute_execution_requirements_digest(requirements)
     ingress_ref = next(
         item.resource_ref
@@ -1188,7 +1192,7 @@ def _build_candidate_from_combination(
     ingress = snapshot.profile.resolve_entry_point(ingress_ref.entry_point_id)
     assert ingress is not None
     selected_steps = [step for step in chain.steps if step.step_id in set(selected)]
-    return ProjectedCandidate(
+    candidate = ProjectedCandidate(
         candidate_id=_candidate_v2_id(pattern_id, projection),
         pattern_id=pattern_id,
         chain_id=chain.chain_id,
@@ -1217,6 +1221,7 @@ def _build_candidate_from_combination(
             execution_requirement_count=len(requirements),
         ),
     )
+    return candidate, None
 
 
 def project_authoritative_candidates(
@@ -1553,7 +1558,7 @@ def project_authoritative_candidates(
             # Pull candidates lazily until we find one matching a remaining
             # target or the iterator is exhausted.
             while state.feasible_remaining and remaining_targets:
-                candidate = state.next_candidate()
+                candidate = state.next_candidate(issues)
                 if candidate is None:
                     break
                 ep_id = candidate.canonical_ingress.entry_point_id
@@ -1569,7 +1574,7 @@ def project_authoritative_candidates(
                 if not remaining_targets:
                     break
                 while state.feasible_remaining:
-                    candidate = state.next_candidate()
+                    candidate = state.next_candidate(issues)
                     if candidate is None:
                         break
                     ep_id = candidate.canonical_ingress.entry_point_id
@@ -1606,7 +1611,7 @@ def project_authoritative_candidates(
                 break
             if not state.feasible_remaining:
                 continue
-            candidate = state.next_candidate()
+            candidate = state.next_candidate(issues)
             if candidate is None:
                 continue
             made_progress = True
@@ -1617,6 +1622,15 @@ def project_authoritative_candidates(
                 by_identity[candidate.candidate_id] = candidate
         if not made_progress:
             break
+
+    # cmps.4 blocker 3: Probe each pattern state that still has
+    # feasible_remaining to determine whether the budget genuinely
+    # truncated feasible output.  Pull one more candidate; if feasible,
+    # state.emitted increases and the limitation check will catch it.
+    # This does NOT admit the probed candidate — it only checks existence.
+    for state in candidate_groups:
+        if state.feasible_remaining:
+            state.next_candidate(issues)
 
     # Compute emitted_by_group from final by_identity (after all admission).
     emitted_by_group = [0] * len(candidate_groups)
@@ -1642,19 +1656,17 @@ def project_authoritative_candidates(
 
     # Emit candidate_budget_exhausted ONLY if a feasible iterator was
     # actually truncated by the budget — never because combinations failed
-    # structural derivation.  A pattern has a budget limitation when:
-    #   - its iterator was NOT exhausted (more feasible combinations exist)
-    #   - AND some of its generated candidates were not admitted
-    # OR
-    #   - its iterator was truncated but some feasible candidates exist
-    #     that were not admitted.
-    # Patterns whose iterator was naturally exhausted (all feasible
-    # combinations admitted) do NOT get a limitation.
+    # structural derivation.  A pattern has a budget limitation only when
+    # some of its generated feasible candidates were NOT admitted (i.e.,
+    # the budget prevented feasible candidates from being emitted).
+    # Patterns whose all feasible candidates were admitted do NOT get a
+    # limitation, even if the iterator was not naturally exhausted (the
+    # remaining combinations may all be structurally rejected).
     for group_index, state in enumerate(candidate_groups):
         emitted = emitted_by_group[group_index]
-        # Budget limitation only if the iterator was truncated (not
-        # exhausted) OR if there are generated candidates not admitted.
-        if state.feasible_remaining or (state.emitted > emitted):
+        # Budget limitation only if generated feasible candidates exceed
+        # those admitted — the budget genuinely truncated feasible output.
+        if state.emitted > emitted:
             limitations.append(
                 ProjectionLimitation(
                     code="candidate_budget_exhausted",

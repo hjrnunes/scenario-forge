@@ -197,7 +197,7 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
         ),
         patch(
             "scenario_forge.pipeline.runner.filter_candidates",
-            return_value=([valid_seed, invalid_seed], []),
+            return_value=([valid_seed, invalid_seed], [], []),
         ),
         patch("scenario_forge.pipeline.runner.generate_scenario", side_effect=generate),
         patch(

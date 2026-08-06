@@ -108,7 +108,7 @@ def _arrange(tmp_path: Path, *, entry_point_id: str, projected_candidates: list)
         "expand_seeds": MagicMock(return_value=[seed]),
         "expand_candidates": MagicMock(side_effect=expand),
         "apply_rule_based_filter": MagicMock(side_effect=rules),
-        "filter_candidates": MagicMock(return_value=([filtered], [])),
+        "filter_candidates": MagicMock(return_value=([filtered], [], [])),
         "generate_scenario": generate,
         "project_authoritative_candidates": MagicMock(
             return_value=MagicMock(

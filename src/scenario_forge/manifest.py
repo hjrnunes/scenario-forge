@@ -1467,9 +1467,13 @@ def derive_funnel_from_attempts(
     #   persisted_artifacts == admitted
     if selected == 0 and main_attempts:
         selected = len(main_attempts)
-    # cmps.4 blocker 5: qualified must be >= selected.  When not supplied
-    # by the caller, derive from selected so the funnel invariant holds.
-    if qualified == 0 and selected > 0:
+    # cmps.4 blocker 5: qualified must be >= selected.  When the caller
+    # supplies an actual qualified value (> 0), preserve it — do NOT
+    # default qualified=selected when actual context exists.  Only
+    # derive from selected when the caller truly has no qualification
+    # data (qualified == 0 AND projection_rejected == 0, meaning the
+    # qualification stage was never reached).
+    if qualified == 0 and selected > 0 and projection_rejected == 0:
         qualified = selected
     if persisted_artifacts == 0:
         persisted_artifacts = total_admitted + total_quarantined

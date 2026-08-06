@@ -1211,7 +1211,7 @@ def filter_candidates(
     client: LLMClient,
     use_case: str,
     profile: CapabilityProfile,
-) -> tuple[list[FilteredSeed], list[dict]]:
+) -> tuple[list[FilteredSeed], list[dict], list[FilterVerdict]]:
     """Filter candidates via one LLM call per seed (with retry-on-malformed).
 
     Groups candidates by ``seed_id``, renders a batch prompt for each seed
@@ -1237,7 +1237,10 @@ def filter_candidates(
         profile: Capability profile of the system under assessment.
 
     Returns:
-        Tuple of (filtered_seeds, call_log_entries).
+        Tuple of (filtered_seeds, call_log_entries, rejected_verdicts).
+        ``rejected_verdicts`` carries typed :class:`FilterVerdict` records
+        for every LLM-rejected candidate, preserving the rationale and
+        filter candidate ID for stage-ledger evidence.
 
     Raises:
         FilterProtocolError: If a seed's response cannot be reconciled
@@ -1459,7 +1462,7 @@ def filter_candidates(
                     seed_id,
                     len(accepted_verdicts),
                 )
-                return [], 0, len(seed_candidates), seed_call_logs
+                return [], 0, len(seed_candidates), seed_call_logs, rejected_verdicts
 
             seed_results: list[FilteredSeed] = []
             for verdict in accepted_verdicts:
@@ -1498,6 +1501,7 @@ def filter_candidates(
                 seed_accepted,
                 seed_total - seed_accepted,
                 seed_call_logs,
+                rejected_verdicts,
             )
         except Exception as exc:
             raise FilterProtocolError(
@@ -1509,6 +1513,7 @@ def filter_candidates(
     total_rejected = 0
     results: list[FilteredSeed] = []
     call_log_entries: list[dict] = []
+    all_rejected_verdicts: list[FilterVerdict] = []
     protocol_errors: list[FilterProtocolError] = []
 
     max_workers = min(8, len(groups))
@@ -1520,11 +1525,12 @@ def filter_candidates(
         for future in as_completed(futures):
             seed_id = futures[future]
             try:
-                seed_results, n_acc, n_rej, seed_logs = future.result()
+                seed_results, n_acc, n_rej, seed_logs, seed_rejected = future.result()
                 results.extend(seed_results)
                 total_accepted += n_acc
                 total_rejected += n_rej
                 call_log_entries.extend(seed_logs)
+                all_rejected_verdicts.extend(seed_rejected)
             except FilterProtocolError as exc:
                 logger.error("Filter protocol failure for seed %s: %s", seed_id, exc)
                 protocol_errors.append(exc)
@@ -1561,7 +1567,7 @@ def filter_candidates(
         total_rejected,
     )
 
-    return results, call_log_entries
+    return results, call_log_entries, all_rejected_verdicts
 
 
 # ---------------------------------------------------------------------------

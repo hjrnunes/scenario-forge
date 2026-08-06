@@ -1184,8 +1184,8 @@ def run_pipeline(
 
         # Phase 2: LLM filter on survivors only.
         try:
-            filtered_seeds, filter_call_logs = filter_candidates(
-                rule_passed, seeds, client, use_case, profile
+            filtered_seeds, filter_call_logs, filter_rejected_verdicts = (
+                filter_candidates(rule_passed, seeds, client, use_case, profile)
             )
         except FilterProtocolError as exc:
             # Persist call/protocol evidence before failing the run.
@@ -1271,15 +1271,28 @@ def run_pipeline(
             )
 
         # Record filter-rejection events (rule-passed but LLM-rejected).
+        # cmps.4 blocker 4: Use the actual typed FilterVerdict rationale,
+        # not generic text.  The rejected verdicts survive from the filter
+        # protocol result, indexed by candidate_id.
         accepted_filter_ids = {f.candidate_id for f in filtered_seeds}
+        filter_rejection_by_id = {v.candidate_id: v for v in filter_rejected_verdicts}
         for c in rule_passed:
             if c.candidate_id not in accepted_filter_ids:
+                verdict = filter_rejection_by_id.get(c.candidate_id)
+                rationale = (
+                    verdict.rationale
+                    if verdict is not None
+                    else "Candidate rejected by LLM filter."
+                )
                 stage_ledger.record(
                     entry_point_id=c.entry_point_id,
                     candidate_id=c.candidate_id,
                     stage=STAGE_FILTER,
                     reason="filter_rejection",
-                    detail="Candidate rejected by LLM filter.",
+                    detail=f"pattern={c.seed_id}: {rationale}",
+                    payload=(
+                        verdict.model_dump(mode="json") if verdict is not None else None
+                    ),
                 )
 
         # --- cmps.4 blocker 1: Qualified candidates over ProjectedCandidate ---
@@ -1484,6 +1497,24 @@ def run_pipeline(
             len(qualified_candidates),
             projection_rejected_count,
         )
+
+        # cmps.4 blocker 5: Capture actual qualified and projection_rejected
+        # counts immediately after qualification/selection, BEFORE generation
+        # may fail.  Store in partial_manifest.funnel so exception
+        # reconstruction uses actual counts, not defaulted values.
+        partial_manifest.funnel = {
+            **partial_manifest.funnel,
+            "qualified": len(qualified_candidates),
+            "projection_rejected": projection_rejected_count,
+            "selected": selected_count,
+            "filter_accepted": filter_accepted,
+            "filter_submitted": filter_submitted,
+            "unique_pre_rule_identities": unique_pre_rule_identities,
+            "rule_rejected": rule_rejected_count,
+            "rule_transformed": rule_transformed_count,
+            "post_rule_collapsed": post_rule_collapsed,
+            "expanded_instances": expanded_instances,
+        }
 
         # --- Stage 4: Scenario Generation ---
         logger.info("[Stage 4] Generating %d scenarios...", selected_count)
@@ -2026,10 +2057,11 @@ def run_pipeline(
         # cmps.4 blocker 4: Legacy _compute_gap_attributions uses backward
         # set-membership inference that can invent generation_failed/no_seed.
         # Entry-point attribution is now authoritative from the stage ledger
-        # (via quality_gaps below).  We still call _compute_gap_attributions
-        # for threat/zone/attack-pattern attributions, but override
-        # entry_points with ledger-derived values so the HTML cannot render
-        # contradictory old and new claims.
+        # (via quality_gaps below).  We call _compute_gap_attributions for
+        # backward-compatible gap detection, but clear zone/threat/pattern
+        # attribution maps — the template no longer renders them as
+        # funnel-stage claims, and the ledger summary is the sole
+        # funnel-stage attribution.
         if coverage_gaps.has_gaps:
             coverage_gaps.gap_attributions = _compute_gap_attributions(
                 coverage_gaps,
@@ -2039,6 +2071,11 @@ def run_pipeline(
                 scenarios,
                 profile=profile,
             )
+            # Clear legacy inferred attributions for non-entry-point
+            # dimensions — not authoritative ledger evidence.
+            coverage_gaps.gap_attributions.zones = {}
+            coverage_gaps.gap_attributions.threats = {}
+            coverage_gaps.gap_attributions.attack_patterns = {}
 
         # --- cmps.4: Typed quality gaps from actual stage ledger evidence ---
         # Emit typed, stage-attributed quality gaps for feasible targets
