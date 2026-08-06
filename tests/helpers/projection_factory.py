@@ -265,6 +265,21 @@ def get_projected_candidate():
     return _cached_project()[0]
 
 
+def get_projected_candidates() -> tuple[Any, ...]:
+    """Return all valid candidates emitted by the shared projection fixture."""
+    raw = _pattern()
+    pattern = AttackPattern.model_validate(raw)
+    resolver = _TaxonomyResolver(pattern.canonical_chain.taxonomy_context)
+    candidates = []
+    for value in ("active", "inactive"):
+        snapshot = capture_capability_snapshot(_profile(), (_evidence(value),))
+        batch = project_authoritative_candidates(
+            [raw], resolver, snapshot, budget=ProjectionBudget(max_candidates=100)
+        )
+        candidates.extend(batch.candidates)
+    return tuple(candidates)
+
+
 def get_canonical_ingress_id() -> str:
     """Return the canonical ingress entry_point_id from the test projection."""
     return get_projected_candidate().canonical_ingress.entry_point_id

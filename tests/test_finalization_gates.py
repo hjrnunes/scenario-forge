@@ -836,6 +836,9 @@ class _Persistence:
     def record_candidate_result(self, candidate_id, result) -> None:
         pass
 
+    def record_repair(self, candidate_id, record) -> None:
+        pass
+
 
 def test_concrete_finalizer_fails_closed_without_verified_candidate_context() -> None:
     candidate, actor, narrative, tree = _valid_parts()
@@ -1065,6 +1068,13 @@ def test_supplied_and_embedded_forged_catalog_pin_cannot_bypass_trusted_pin() ->
     )
 
     assert not decision.admitted
+    assert isinstance(decision.value, PostbehaviorAdmissionReport)
+    assert any(not result.valid for result in decision.value.gate_results)
+    assert decision.value.diagnostics == tuple(
+        diagnostic
+        for result in decision.value.gate_results
+        for diagnostic in result.diagnostics
+    )
     trusted = [
         violation
         for violation in decision.violations

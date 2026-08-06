@@ -57,6 +57,7 @@ class LifecycleState(str, Enum):
     generating_behavior = "generating_behavior"
     admitting = "admitting"
     admitted = "admitted"
+    rejected = "rejected"
     exhausted = "exhausted"
 
 
@@ -64,6 +65,10 @@ class CandidateTerminalStatus(str, Enum):
     admitted = "admitted"
     rejected = "rejected"
     generation_or_finalization_failed = "generation_or_finalization_failed"
+
+
+class FinalizationPersistenceError(RuntimeError):
+    """Durable lifecycle state could not be committed and must be recovered."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +195,7 @@ class StageInvocation:
     owner_retry_index: int
     artifacts: GeneratedArtifacts
     final_tree_digest: str | None = None
+    candidate_snapshot: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +212,7 @@ class PrebehaviorFinalizationResult:
     candidate_snapshot: VerifiedCandidateSnapshot | None = None
     actor_snapshot: Any | None = None
     narrative_snapshot: Any | None = None
+    repair_record: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +238,8 @@ class LifecycleTransition:
     current: LifecycleState
     candidate_id: str | None
     reason: str
+    transition_index: int = 0
+    target_entry_point_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +274,8 @@ class FinalizationPersistencePort(Protocol):
     def record_candidate_result(
         self, candidate_id: str, result: CandidateTerminalResult
     ) -> None: ...
+
+    def record_repair(self, candidate_id: str, record: Any) -> None: ...
 
 
 def earliest_generated_owner(
@@ -329,10 +340,17 @@ class TargetFinalizationMachine:
     def _transition(
         self, state: LifecycleState, candidate_id: str | None, reason: str
     ) -> None:
-        transition = LifecycleTransition(self.state, state, candidate_id, reason)
+        transition = LifecycleTransition(
+            previous=self.state,
+            current=state,
+            candidate_id=candidate_id,
+            reason=reason,
+            transition_index=len(self.transitions),
+            target_entry_point_id=self.entry.entry_point_id,
+        )
+        self.persistence.record_transition(transition)
         self.state = state
         self.transitions.append(transition)
-        self.persistence.record_transition(transition)
 
     def _invoke_stage(
         self,
@@ -361,6 +379,7 @@ class TargetFinalizationMachine:
             final_tree_digest=(
                 final_tree_snapshot.digest if final_tree_snapshot is not None else None
             ),
+            candidate_snapshot=candidate,
         )
         try:
             result = self.stage_callbacks[stage](candidate, invocation)
@@ -465,6 +484,10 @@ class TargetFinalizationMachine:
                             )
                         snapshot = finalized.snapshot
                         finalized_authority = finalized
+                        if finalized.repair_record is not None:
+                            self.persistence.record_repair(
+                                candidate_id, finalized.repair_record
+                            )
 
                 stage_violations = self._invoke_stage(
                     candidate, candidate_id, stage, snapshot
@@ -511,7 +534,6 @@ class TargetFinalizationMachine:
                     admission_candidate, admission_artifacts, snapshot
                 )
                 if decision.admitted:
-                    self._transition(LifecycleState.admitted, candidate_id, "admitted")
                     return CandidateTerminalResult(
                         candidate_id,
                         CandidateTerminalStatus.admitted,
@@ -537,14 +559,17 @@ class TargetFinalizationMachine:
             ref_id = ref["candidate_id"]
             if ref_id in self.attempted_candidate_ids:
                 continue
-            # Mark before authoritative validation so a failed choice cannot be
-            # reused by another target in the same run.
-            self.attempted_candidate_ids.add(ref_id)
+            # Invocation and owner-retry indexes are candidate-local traces.
+            self.invocation_counts = {}
+            self.owner_retry_counts = {}
             self._transition(
                 LifecycleState.revalidating_candidate,
                 ref_id,
                 "authoritative revalidation",
             )
+            # Reserve only after the durable transition succeeds, but before
+            # authoritative validation or any generation callback.
+            self.attempted_candidate_ids.add(ref_id)
             try:
                 validation = self.candidate_revalidator(ref)
             except Exception as exc:  # noqa: BLE001 - terminal lifecycle evidence
@@ -616,21 +641,68 @@ class TargetFinalizationMachine:
                             terminal = self._run_candidate(
                                 validation.candidate, ref_id, verified_candidate
                             )
+                        except FinalizationPersistenceError:
+                            raise
                         except Exception as exc:  # noqa: BLE001 - lifecycle evidence
-                            violation = LifecycleViolation(
-                                code="lifecycle_callback_exception",
-                                detail=f"{type(exc).__name__}: {exc}",
-                                retryable=False,
-                            )
+                            if self.state is LifecycleState.admitting:
+                                from scenario_forge.pipeline.finalization_admission import (
+                                    PostbehaviorAdmissionReport,
+                                )
+                                from scenario_forge.pipeline.finalization_gates import (
+                                    GateCode,
+                                    GateResult,
+                                    GateViolation,
+                                )
+
+                                gate_violation = GateViolation(
+                                    GateCode.admission_exception,
+                                    f"{type(exc).__name__}: {exc}",
+                                    None,
+                                )
+                                violation = gate_violation.lifecycle()
+                                admission = AdmissionDecision(
+                                    False,
+                                    (violation,),
+                                    value=PostbehaviorAdmissionReport(
+                                        envelope=None,
+                                        gate_results=(GateResult((gate_violation,)),),
+                                    ),
+                                )
+                                terminal_status = CandidateTerminalStatus.rejected
+                            else:
+                                violation = LifecycleViolation(
+                                    code="lifecycle_callback_exception",
+                                    detail=f"{type(exc).__name__}: {exc}",
+                                    retryable=False,
+                                )
+                                admission = None
+                                terminal_status = CandidateTerminalStatus.generation_or_finalization_failed
                             self.violations.append(violation)
                             terminal = CandidateTerminalResult(
                                 ref_id,
-                                CandidateTerminalStatus.generation_or_finalization_failed,
+                                terminal_status,
                                 (violation,),
+                                admission,
                             )
 
-            # The sole terminal persistence point for every reserved choice.
+            terminal_state = (
+                LifecycleState.admitted
+                if terminal.status is CandidateTerminalStatus.admitted
+                else LifecycleState.rejected
+            )
+            # The adapter atomically persists the terminal edge, decision, and
+            # publication/quarantine evidence before local state advances.
             self.persistence.record_candidate_result(ref_id, terminal)
+            terminal_transition = LifecycleTransition(
+                previous=self.state,
+                current=terminal_state,
+                candidate_id=ref_id,
+                reason=f"candidate terminal status: {terminal.status.value}",
+                transition_index=len(self.transitions),
+                target_entry_point_id=self.entry.entry_point_id,
+            )
+            self.state = terminal_state
+            self.transitions.append(terminal_transition)
             if terminal.status is CandidateTerminalStatus.admitted:
                 return TargetFinalizationResult(
                     state=self.state,
@@ -640,7 +712,6 @@ class TargetFinalizationMachine:
                     violations=tuple(self.violations),
                     transitions=tuple(self.transitions),
                 )
-
         self._transition(LifecycleState.exhausted, None, "candidate choices exhausted")
         return TargetFinalizationResult(
             state=self.state,

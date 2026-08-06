@@ -55,6 +55,7 @@ from scenario_forge.pipeline.projection_validation import (
 
 
 class GateCode(str, Enum):
+    admission_exception = "admission_exception"
     snapshot_integrity = "snapshot_integrity"
     candidate_identity = "candidate_identity"
     actor_access = "actor_access"
@@ -720,6 +721,7 @@ class PrebehaviorFinalizerPort:
                 candidate_snapshot=projection,
                 actor_snapshot=actor,
                 narrative_snapshot=narrative,
+                repair_record=repair.record,
             )
         except (TypeError, ValueError, AttributeError) as exc:
             return PrebehaviorFinalizationResult(

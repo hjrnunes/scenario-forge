@@ -20,6 +20,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import subprocess
 import tempfile
 from datetime import UTC, datetime
@@ -36,6 +37,7 @@ from pydantic import BaseModel, Field, model_validator
 # --------------------------------------------------------------------------- #
 
 MANIFEST_VERSION = "2"
+MANIFEST_V3 = "3"
 ARTIFACT_SCHEMA_VERSION = "1"
 _RUN_ID_TIMESTAMP_LEN = 15  # YYYYMMDDTHHMMSS
 _RUN_ID_SEPARATOR = "_"
@@ -91,6 +93,9 @@ class ArtifactRole(str, Enum):
     EVAL_SCORECARD = "eval_scorecard"
     REPORT = "report"
     PIPELINE_LOG = "pipeline_log"
+    COVERAGE_PLAN = "coverage_plan"
+    FINALIZATION_INVENTORY = "finalization_inventory"
+    QUARANTINE_BUNDLE = "quarantine_bundle"
 
 
 class AttemptDisposition(str, Enum):
@@ -181,6 +186,24 @@ _ROLE_METADATA: dict[ArtifactRole, dict[str, Any]] = {
         "schema_versions": ["1"],
         "singleton_path": "pipeline.log",
     },
+    ArtifactRole.COVERAGE_PLAN: {
+        "extension": ".json",
+        "media_type": "application/json",
+        "schema_versions": ["2"],
+        "singleton_path": "coverage-plan.json",
+    },
+    ArtifactRole.FINALIZATION_INVENTORY: {
+        "extension": ".json",
+        "media_type": "application/json",
+        "schema_versions": ["1"],
+        "singleton_path": "finalization-inventory.json",
+    },
+    ArtifactRole.QUARANTINE_BUNDLE: {
+        "extension": ".json",
+        "media_type": "application/json",
+        "schema_versions": ["1"],
+        "singleton_path": None,
+    },
 }
 
 # Roles that must appear at most once in the inventory.
@@ -195,11 +218,15 @@ SINGLETON_ROLES: frozenset[ArtifactRole] = frozenset(
         ArtifactRole.PIPELINE_LOG,
         ArtifactRole.PIPELINE_CALL_LOG,
         ArtifactRole.SCENARIO_CALL_LOG,
+        ArtifactRole.COVERAGE_PLAN,
+        ArtifactRole.FINALIZATION_INVENTORY,
     }
 )
 
 
-def required_singleton_roles(*, eval_enabled: bool) -> set[ArtifactRole]:
+def required_singleton_roles(
+    *, eval_enabled: bool, manifest_version: str = MANIFEST_VERSION
+) -> set[ArtifactRole]:
     """Return the set of singleton roles required for ``completed`` status.
 
     *report* is always required.  *eval_scorecard* is required only when
@@ -215,6 +242,8 @@ def required_singleton_roles(*, eval_enabled: bool) -> set[ArtifactRole]:
     }
     if eval_enabled:
         roles.add(ArtifactRole.EVAL_SCORECARD)
+    if manifest_version == MANIFEST_V3:
+        roles.update({ArtifactRole.COVERAGE_PLAN, ArtifactRole.FINALIZATION_INVENTORY})
     return roles
 
 
@@ -504,6 +533,14 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> Path
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
+        # Persist the directory entry as well as file contents.  Without this
+        # fsync, a power loss after replace can lose the rename despite a
+        # fully flushed temporary file.
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except Exception:
         try:
             os.unlink(tmp_path)
@@ -752,6 +789,10 @@ class ManifestIntegrityError(Exception):
     """Raised when manifest inventory validation fails."""
 
 
+def _before_artifact_leaf_open() -> None:
+    """Test seam invoked after parent traversal and before artifact open."""
+
+
 class ManifestInventoryResolver:
     """Strict manifest inventory resolver and validator.
 
@@ -770,7 +811,7 @@ class ManifestInventoryResolver:
         manifest: RunManifest,
         check_orphans: bool = True,
     ) -> None:
-        self.run_dir = Path(run_dir).resolve()
+        self.run_dir = Path(run_dir).absolute()
         self.manifest = manifest
         self.check_orphans = check_orphans
         self._by_role: dict[ArtifactRole, list[ArtifactEntry]] = {}
@@ -778,7 +819,20 @@ class ManifestInventoryResolver:
         # path.  read_text/read_bytes serve from this cache so consumers
         # always receive the exact bytes that were validated.
         self._content_cache: dict[str, bytes] = {}
-        self._validate()
+        self._validated_entries: dict[str, ArtifactEntry] = {}
+        try:
+            self._validation_root_fd: int | None = os.open(
+                self.run_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+        except OSError as exc:
+            raise ManifestIntegrityError(
+                f"Cannot safely open run directory {self.run_dir}: {exc}"
+            ) from exc
+        try:
+            self._validate()
+        finally:
+            os.close(self._validation_root_fd)
+            self._validation_root_fd = None
 
     # --- Validation ---
 
@@ -791,7 +845,7 @@ class ManifestInventoryResolver:
         """
         is_completed = self.manifest.status == RunStatus.COMPLETED
         seen_canonical: set[str] = set()
-        seen_resolved: set[Path] = set()
+        seen_physical: set[tuple[int, int]] = set()
         singleton_counts: dict[ArtifactRole, int] = {}
         scenario_ids: set[tuple[ArtifactRole, str]] = set()
         # Track (scenario_id -> candidate_id) to reject duplicate candidate
@@ -814,6 +868,15 @@ class ManifestInventoryResolver:
                     f"Invalid or unknown artifact role: {entry.role!r}"
                 ) from None
 
+            if self.manifest.manifest_version == MANIFEST_VERSION and role in {
+                ArtifactRole.COVERAGE_PLAN,
+                ArtifactRole.FINALIZATION_INVENTORY,
+                ArtifactRole.QUARANTINE_BUNDLE,
+            }:
+                raise ManifestIntegrityError(
+                    f"Manifest v2 does not support v3-only role {role.value}"
+                )
+
             # --- 2. Path validation ---
             entry_path = Path(entry.path)
             if entry_path.is_absolute():
@@ -832,58 +895,27 @@ class ManifestInventoryResolver:
                     f"Artifact path is not canonical: '{entry.path}' "
                     f"(expected '{canonical}')"
                 )
-            # Reject dot-dot paths
+            # Reject dot and dot-dot path components.
             if ".." in entry_path.parts:
                 raise ManifestIntegrityError(
                     f"Artifact path contains '..': {entry.path}"
                 )
-            # --- 2b. Reject symlinks and non-regular files (before resolve) ---
-            path_to_check = self.run_dir / entry.path
-            if path_to_check.is_symlink():
+            if entry.path == "." or "." in entry_path.parts:
                 raise ManifestIntegrityError(
-                    f"Artifact path is a symlink: {entry.path}"
+                    f"Artifact path contains a dot component: {entry.path}"
                 )
-            # Check for symlink components in the path
-            current = self.run_dir
-            for part in entry_path.parts:
-                current = current / part
-                if current.is_symlink():
-                    raise ManifestIntegrityError(
-                        f"Symlink component in artifact path: {entry.path}"
-                    )
-            resolved = (self.run_dir / entry.path).resolve()
-            try:
-                resolved.relative_to(self.run_dir)
-            except ValueError:
-                raise ManifestIntegrityError(
-                    f"Artifact path escapes run directory: {entry.path}"
-                ) from None
-
-            # --- 3. No duplicate canonical or resolved paths ---
+            # --- 3. No duplicate canonical paths ---
             if entry.path in seen_canonical:
                 raise ManifestIntegrityError(
                     f"Duplicate artifact canonical path: {entry.path}"
                 )
             seen_canonical.add(entry.path)
-            if resolved in seen_resolved:
-                raise ManifestIntegrityError(
-                    f"Duplicate artifact resolved path: {resolved}"
-                )
-            seen_resolved.add(resolved)
 
-            # --- 4. File must exist ---
-            if not resolved.exists():
-                raise ManifestIntegrityError(
-                    f"Manifested artifact does not exist: {entry.path}"
-                )
-
-            if not resolved.is_file():
-                raise ManifestIntegrityError(
-                    f"Artifact is not a regular file: {entry.path}"
-                )
-
-            # --- 6. Hash verification (no-follow read for symlink safety) ---
-            # Read all content through a single O_NOFOLLOW fd so that
+            # --- 4. Safe open and hash verification ---
+            # Traverse from the run directory one component at a time. Each
+            # parent and the leaf is opened without following symlinks, so
+            # pathname replacement cannot redirect the verified read.
+            # Read all content through a single fd so that
             # hash and YAML identity checks use the exact same bytes,
             # eliminating TOCTOU between separate reads.
             if not entry.sha256:
@@ -894,21 +926,12 @@ class ManifestInventoryResolver:
                 raise ManifestIntegrityError(
                     f"Malformed SHA-256 for artifact {entry.path}: {entry.sha256}"
                 )
-            content_bytes = b""
-            try:
-                fd = os.open(str(resolved), os.O_RDONLY | os.O_NOFOLLOW)
-                try:
-                    while True:
-                        chunk = os.read(fd, 65536)
-                        if not chunk:
-                            break
-                        content_bytes += chunk
-                finally:
-                    os.close(fd)
-            except OSError as exc:
+            content_bytes, physical_id = self._open_artifact(entry.path)
+            if physical_id in seen_physical:
                 raise ManifestIntegrityError(
-                    f"Cannot safely read artifact {entry.path}: {exc}"
-                ) from exc
+                    f"Duplicate artifact physical file (device/inode): {entry.path}"
+                )
+            seen_physical.add(physical_id)
             actual_hash = hashlib.sha256(content_bytes).hexdigest()
             if actual_hash != entry.sha256:
                 raise ManifestIntegrityError(
@@ -975,6 +998,20 @@ class ManifestInventoryResolver:
                 if not entry.candidate_id:
                     raise ManifestIntegrityError(
                         f"Role {role.value} requires candidate_id: {entry.path}"
+                    )
+            if role is ArtifactRole.QUARANTINE_BUNDLE:
+                if entry.scenario_id is not None:
+                    raise ManifestIntegrityError(
+                        f"Quarantine bundle must not carry scenario_id: {entry.path}"
+                    )
+                if not entry.candidate_id:
+                    raise ManifestIntegrityError(
+                        f"Role {role.value} requires candidate_id: {entry.path}"
+                    )
+                expected_prefix = "quarantine/"
+                if not entry.path.startswith(expected_prefix):
+                    raise ManifestIntegrityError(
+                        f"Quarantine bundle must be below '{expected_prefix}': {entry.path}"
                     )
 
             # --- 8. Singleton cardinality ---
@@ -1072,6 +1109,7 @@ class ManifestInventoryResolver:
 
             # Index by role
             self._by_role.setdefault(role, []).append(entry)
+            self._validated_entries[entry.path] = entry
 
         # --- 11. Post-index global YAML/feature pairing and identity checks ---
         # Duplicate candidate_id across different scenarios (post-loop).
@@ -1146,6 +1184,49 @@ class ManifestInventoryResolver:
                     f"feature={feat_sid}, yaml={inv_sid}"
                 )
 
+        if self.manifest.manifest_version == MANIFEST_V3:
+            legacy_authorities = {
+                "attempts": self.manifest.attempts,
+                "funnel": self.manifest.funnel,
+                "stage_records": self.manifest.stage_records,
+                "rule_verdicts": self.manifest.rule_verdicts,
+                "artifacts": self.manifest.artifacts,
+                "phantom_validation": self.manifest.phantom_validation,
+                "structural_validation": self.manifest.structural_validation,
+                "semantic_validation": self.manifest.semantic_validation,
+                "leaf_technique_provenance": self.manifest.leaf_technique_provenance,
+                "parsimony": self.manifest.parsimony,
+                "scenarios_generated": self.manifest.scenarios_generated,
+                "scenarios_failed": self.manifest.scenarios_failed,
+            }
+            populated = sorted(
+                name for name, value in legacy_authorities.items() if value
+            )
+            if populated:
+                raise ManifestIntegrityError(
+                    "Manifest v3 lifecycle authority is finalization_inventory; "
+                    f"legacy lifecycle fields must be empty: {populated}"
+                )
+
+        if self.manifest.manifest_version == MANIFEST_V3 and self.manifest.status in {
+            RunStatus.COMPLETED,
+            RunStatus.COMPLETED_WITH_ERRORS,
+        }:
+            for role in (
+                ArtifactRole.COVERAGE_PLAN,
+                ArtifactRole.FINALIZATION_INVENTORY,
+            ):
+                if singleton_counts.get(role, 0) != 1:
+                    raise ManifestIntegrityError(
+                        f"Manifest v3 status {self.manifest.status.value} requires "
+                        f"exactly one {role.value} artifact"
+                    )
+
+            # Keep v3-only policy out of current production v2 reads.
+            from scenario_forge.pipeline.persistence import validate_v3_inventories
+
+            validate_v3_inventories(self)
+
         # --- 12. Orphan detection ---
         if self.check_orphans:
             self._check_orphans(seen_canonical)
@@ -1186,8 +1267,8 @@ class ManifestInventoryResolver:
         return entries[0] if entries else None
 
     def resolve_path(self, entry: ArtifactEntry) -> Path:
-        """Resolve an inventory entry to an absolute path."""
-        return (self.run_dir / entry.path).resolve()
+        """Return the lexical absolute path without following components."""
+        return self.run_dir / entry.path
 
     def read_bytes(self, entry: ArtifactEntry) -> bytes:
         """Read the content of an inventory entry as bytes.
@@ -1197,11 +1278,6 @@ class ManifestInventoryResolver:
         exact bytes that were validated, never a fresh read that could
         be affected by post-validation file replacement.
         """
-        cached = self._content_cache.get(entry.path)
-        if cached is not None:
-            return cached
-        # Fallback: re-read with no-follow+hash validation (should not
-        # happen in normal flow since _validate populates the cache).
         return self._verified_read(entry)
 
     def read_text(self, entry: ArtifactEntry, encoding: str = "utf-8") -> str:
@@ -1220,30 +1296,55 @@ class ManifestInventoryResolver:
         return json.loads(self.read_text(entry))
 
     def _verified_read(self, entry: ArtifactEntry) -> bytes:
-        """Re-read with no-follow and hash validation (fallback)."""
-        resolved = self.resolve_path(entry)
-        content = b""
-        try:
-            fd = os.open(str(resolved), os.O_RDONLY | os.O_NOFOLLOW)
-            try:
-                while True:
-                    chunk = os.read(fd, 65536)
-                    if not chunk:
-                        break
-                    content += chunk
-            finally:
-                os.close(fd)
-        except OSError as exc:
+        """Return only bytes cached for an exact validated inventory entry."""
+        validated = self._validated_entries.get(entry.path)
+        content = self._content_cache.get(entry.path)
+        if validated != entry or content is None:
             raise ManifestIntegrityError(
-                f"Cannot safely read artifact {entry.path}: {exc}"
-            ) from exc
-        actual = hashlib.sha256(content).hexdigest()
-        if actual != entry.sha256:
-            raise ManifestIntegrityError(
-                f"Hash mismatch on re-read for {entry.path}: "
-                f"manifest={entry.sha256}, actual={actual}"
+                f"Artifact was not validated and cached by this resolver: {entry.path}"
             )
         return content
+
+    def _open_artifact(self, relative_path: str) -> tuple[bytes, tuple[int, int]]:
+        """Open a regular artifact by component-wise dirfd traversal."""
+        opened_dirs: list[int] = []
+        leaf_fd: int | None = None
+        try:
+            current_fd = (
+                os.dup(self._validation_root_fd)
+                if self._validation_root_fd is not None
+                else os.open(self.run_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            )
+            opened_dirs.append(current_fd)
+            parts = PurePosixPath(relative_path).parts
+            for part in parts[:-1]:
+                current_fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_fd,
+                )
+                opened_dirs.append(current_fd)
+            _before_artifact_leaf_open()
+            leaf_fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=current_fd)
+            file_stat = os.fstat(leaf_fd)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise ManifestIntegrityError(
+                    f"Artifact is not a regular file: {relative_path}"
+                )
+            chunks: list[bytes] = []
+            while chunk := os.read(leaf_fd, 65536):
+                chunks.append(chunk)
+            return b"".join(chunks), (file_stat.st_dev, file_stat.st_ino)
+        except OSError as exc:
+            raise ManifestIntegrityError(
+                f"Cannot safely read artifact {relative_path} (symlink, does not exist, "
+                f"or unsafe path): {exc}"
+            ) from exc
+        finally:
+            if leaf_fd is not None:
+                os.close(leaf_fd)
+            for directory_fd in reversed(opened_dirs):
+                os.close(directory_fd)
 
     def scenario_yaml_entries(self) -> list[ArtifactEntry]:
         """Return all scenario YAML entries, sorted by scenario_id."""
@@ -1267,7 +1368,9 @@ class ManifestInventoryResolver:
         return None
 
 
-def load_manifest(run_dir: Path) -> RunManifest:
+def load_manifest(
+    run_dir: Path, *, requested_version: str | None = None
+) -> RunManifest:
     """Load and parse a manifest from a run directory.
 
     Does not validate inventory — use :func:`load_strict_resolver` for that.
@@ -1279,6 +1382,17 @@ def load_manifest(run_dir: Path) -> RunManifest:
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     if not data or not isinstance(data, dict):
         raise ManifestIntegrityError(f"Invalid manifest in {manifest_path}: not a dict")
+    actual_version = str(data.get("manifest_version", ""))
+    if requested_version is not None and actual_version != requested_version:
+        raise ManifestIntegrityError(
+            f"Unsupported manifest version {actual_version!r}; "
+            f"version {requested_version!r} was explicitly requested"
+        )
+    if actual_version not in {MANIFEST_VERSION, MANIFEST_V3}:
+        raise ManifestIntegrityError(
+            f"Unsupported manifest version {actual_version!r}; supported versions are "
+            f"{MANIFEST_VERSION!r} and {MANIFEST_V3!r}"
+        )
     return RunManifest.model_validate(data)
 
 
@@ -1286,6 +1400,7 @@ def load_strict_resolver(
     run_dir: Path,
     require_final: bool = True,
     require_authoritative: bool = False,
+    manifest_version: str | None = None,
 ) -> ManifestInventoryResolver:
     """Load a manifest from disk and build a strict inventory resolver.
 
@@ -1304,7 +1419,7 @@ def load_strict_resolver(
             f"Run directory does not exist or is not a directory: {run_dir}"
         )
 
-    manifest = load_manifest(run_dir)
+    manifest = load_manifest(run_dir, requested_version=manifest_version)
 
     if require_final and not manifest.status.is_final:
         raise ManifestIntegrityError(
@@ -1382,6 +1497,7 @@ def build_artifact_entry(
     rel_path: str,
     scenario_id: str | None = None,
     candidate_id: str | None = None,
+    schema_version: str = ARTIFACT_SCHEMA_VERSION,
 ) -> ArtifactEntry:
     """Build an ArtifactEntry from a file in the run directory.
 
@@ -1402,7 +1518,7 @@ def build_artifact_entry(
         scenario_id=scenario_id,
         candidate_id=candidate_id,
         media_type=meta.get("media_type", "application/octet-stream"),
-        schema_version=ARTIFACT_SCHEMA_VERSION,
+        schema_version=schema_version,
     )
 
 
