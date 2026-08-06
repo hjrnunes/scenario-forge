@@ -9,11 +9,30 @@ the embedded :class:`~scenario_forge.models.projection_envelope.ProjectionEnvelo
 Pre-alpha: all fields are required (no defaults).  A field may be an
 empty tuple when the canonical step genuinely has no entries of that
 kind, but the field must be present and explicitly provided.
+
+This module is the **single source of truth** for canonical realization
+derivation (:func:`extract_resource_id`, :func:`derive_step_realization`).
+Generation, validation, and test helpers all import from here so that
+there is no duplicate derivation path.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
+from scenario_forge.models.attack_pattern import (
+    AgentInternalResourceReference,
+    EntryPointResourceReference,
+    IntegrationResourceReference,
+    OutputSurfaceResourceReference,
+    ToolResourceReference,
+    TrustBoundaryResourceReference,
+)
+
+if TYPE_CHECKING:
+    from scenario_forge.models.attack_pattern import CanonicalChainStep
 
 
 class ProjectedStepRealization(BaseModel):
@@ -67,4 +86,76 @@ class ProjectedStepRealization(BaseModel):
     )
     postcondition_ids: tuple[str, ...] = Field(
         description="Owned observable postcondition IDs.",
+    )
+
+
+# ---------------------------------------------------------------------------#
+# Canonical derivation — single source of truth
+# ---------------------------------------------------------------------------#
+
+
+def extract_resource_id(ref: Any) -> str:
+    """Extract the typed opaque resource ID from a ``CanonicalResourceReference``.
+
+    Exhaustively matches every discriminated subtype of the
+    ``CanonicalResourceReference`` union.  Raises ``TypeError`` for
+    unsupported types — never silently defaults.
+
+    For ``AgentInternalResourceReference`` (which has no ID field),
+    returns ``"agent_internal"``.
+    """
+    if isinstance(ref, EntryPointResourceReference):
+        return ref.entry_point_id
+    if isinstance(ref, ToolResourceReference):
+        return ref.tool_id
+    if isinstance(ref, IntegrationResourceReference):
+        return ref.integration_id
+    if isinstance(ref, TrustBoundaryResourceReference):
+        return ref.trust_boundary_id
+    if isinstance(ref, OutputSurfaceResourceReference):
+        return ref.entry_point_id
+    if isinstance(ref, AgentInternalResourceReference):
+        return "agent_internal"
+    raise TypeError(
+        f"Unsupported resource reference type {type(ref).__name__}: "
+        f"expected a CanonicalResourceReference subtype"
+    )
+
+
+def derive_step_realization(
+    step: CanonicalChainStep,
+    binding_by_slot: dict[str, Any],
+) -> ProjectedStepRealization:
+    """Build the canonical ``ProjectedStepRealization`` for *step*.
+
+    This is the **single source of truth** for what a correct realization
+    record looks like.  Generation, validation, and test helpers all use
+    this function so that there is no duplicate derivation path.
+
+    Uses :func:`extract_resource_id` for typed opaque resource-ID
+    extraction.  Tuples preserve canonical order (step order), enabling
+    direct ``==`` comparison without sorting.
+    """
+    resource_ref_ids = tuple(
+        extract_resource_id(binding_by_slot[link.slot_id])
+        for link in step.resource_links
+        if link.slot_id in binding_by_slot
+    )
+    return ProjectedStepRealization(
+        projected_step_id=step.step_id,
+        action_kind=step.action_kind,
+        executor_role=step.executor_role,
+        boundary_position=step.boundary_position,
+        resource_ref_ids=resource_ref_ids,
+        consumed_ref_ids=tuple(c.ref_id for c in step.consumed),
+        produced_ref_ids=tuple(p.ref_id for p in step.produced),
+        produced_effect_ids=tuple(
+            p.ref_id for p in step.produced if p.kind == "effect"
+        ),
+        outcome_link_pc_ids=tuple(
+            ol.postcondition_id for ol in step.observable_outcome_links
+        ),
+        postcondition_ids=tuple(
+            pc.postcondition_id for pc in step.observable_postconditions
+        ),
     )

@@ -431,7 +431,7 @@ def make_behavior_spec(
     step_by_id = {s.step_id: s for s in chain.steps if s.step_id in set(selected)}
     # Build per-step realization records from the canonical chain.
     binding_by_slot = {b.slot_id: b.resource_ref for b in candidate.projection.bindings}
-    from scenario_forge.pipeline.projection_validation import derive_step_realization
+    from scenario_forge.models.realization import derive_step_realization
 
     actions = [
         BehaviorAction(
@@ -449,14 +449,14 @@ def make_behavior_spec(
 
     assertions: list[BehaviorAssertion] = []
     for step_id, pc_ids in security_pcs.items():
-        if pc_ids:
+        for pc_id in pc_ids:
             assertions.append(
                 BehaviorAssertion(
-                    assertion_id=f"assert-{step_id}-{'-'.join(pc_ids)}",
+                    assertion_id=f"assert-{step_id}-{pc_id}",
                     source_step_ids=(step_id,),
-                    projected_postcondition_ids=tuple(pc_ids),
+                    projected_postcondition_ids=(pc_id,),
                     gherkin_keyword="Then",
-                    text=f"Verify postconditions for {step_id}",
+                    text=f"Verify postcondition {pc_id} for {step_id}",
                 )
             )
 
@@ -501,7 +501,7 @@ def make_step_realizations(
     :func:`derive_step_realization` for canonical resource-ID extraction.
     Use this in tests that construct NarrativeStep or BehaviorAction directly.
     """
-    from scenario_forge.pipeline.projection_validation import derive_step_realization
+    from scenario_forge.models.realization import derive_step_realization
 
     candidate = get_projected_candidate()
     chain = candidate.projection.source_chain

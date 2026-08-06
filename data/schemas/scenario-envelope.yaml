@@ -393,17 +393,20 @@ fields:
           Child nodes.  Required for AND gates (>= 2); absent for LEAF.
       projected_step_ids:
         type: list[str]
-        required: true
+        required: false
         description: >
           Canonical projected step IDs.  Non-empty on security-bearing
-          leaves; empty on external_precondition leaves.  Default empty.
+          leaves; empty on external_precondition leaves.  Requiredness
+          is enforced conditionally by semantic validation, not by the
+          schema (Pydantic/JSON also default to empty).
       realizations:
         type: list[ProjectedStepRealization]
-        required: true
+        required: false
         description: >
           Per-projected-step canonical realization records.  Required
           (non-empty) when projected_step_ids is non-empty; empty on
-          external_precondition leaves.
+          external_precondition leaves.  Requiredness is enforced
+          conditionally by semantic validation.
 
   # ===================================================================
   # Layer 3: Behavior Specification
@@ -491,8 +494,11 @@ fields:
         description: "Observable postcondition IDs (non-empty)."
       gherkin_keyword:
         type: str
-        required: true
+        required: false
         enum: [Then]
+        description: >
+          Gherkin keyword for this assertion.  Defaults to "Then" in the
+          Pydantic model; not required in JSON schema.
       text:
         type: str
         required: true

@@ -415,23 +415,6 @@ def _collect_control_points(node: AttackTreeNode) -> list[str]:
     return sorted(points)
 
 
-def _extract_resource_id_from_dict(ref: Any) -> str:
-    """Extract the opaque ID from a JSON-serialized resource reference dict.
-
-    Handles the dict form produced by ``model_dump(mode="json")`` on
-    ``CanonicalResourceReference`` subtypes.
-    """
-    if ref is None:
-        return ""
-    if isinstance(ref, dict):
-        for key in ("entry_point_id", "tool_id", "integration_id", "trust_boundary_id"):
-            if key in ref:
-                return str(ref[key])
-        if ref.get("kind") == "agent_internal":
-            return "agent_internal"
-    return str(ref)
-
-
 def build_call3_context(
     seed: ScenarioSeed,
     narrative: NarrativeLayer,
@@ -485,36 +468,28 @@ def build_call3_context(
             for sid in leaf.projected_step_ids:
                 sd = step_semantics.get(sid)
                 if sd:
+                    # Use the nested canonical realization record directly.
+                    realization = sd.get("realization", {})
                     leaf_step_data.append(
                         {
                             "step_id": sid,
-                            "action_kind": sd["action_kind"],
-                            "executor_role": sd["executor_role"],
-                            "boundary_position": sd["boundary_position"],
-                            "consumed_ref_ids": [
-                                c["ref_id"] for c in sd.get("consumed", [])
-                            ],
-                            "produced_ref_ids": [
-                                p["ref_id"] for p in sd.get("produced", [])
-                            ],
-                            "produced_effect_ids": [
-                                p["ref_id"]
-                                for p in sd.get("produced", [])
-                                if p.get("kind") == "effect"
-                            ],
-                            "outcome_link_pc_ids": [
-                                ol["postcondition_id"]
-                                for ol in sd.get("observable_outcome_links", [])
-                            ],
-                            "postcondition_ids": [
-                                pc["postcondition_id"]
-                                for pc in sd.get("observable_postconditions", [])
-                            ],
-                            "resource_ref_ids": [
-                                _extract_resource_id_from_dict(link.get("resource_ref"))
-                                for link in sd.get("resource_links", [])
-                                if link.get("resource_ref")
-                            ],
+                            "action_kind": realization.get("action_kind", ""),
+                            "executor_role": realization.get("executor_role", ""),
+                            "boundary_position": realization.get(
+                                "boundary_position", ""
+                            ),
+                            "consumed_ref_ids": realization.get("consumed_ref_ids", []),
+                            "produced_ref_ids": realization.get("produced_ref_ids", []),
+                            "produced_effect_ids": realization.get(
+                                "produced_effect_ids", []
+                            ),
+                            "outcome_link_pc_ids": realization.get(
+                                "outcome_link_pc_ids", []
+                            ),
+                            "postcondition_ids": realization.get(
+                                "postcondition_ids", []
+                            ),
+                            "resource_ref_ids": realization.get("resource_ref_ids", []),
                         }
                     )
             leaf_entry["step_semantics"] = leaf_step_data
@@ -703,7 +678,8 @@ def _validate_call3_response(
             )
 
         # Exact projected_step_ids match: action IDs must equal leaf IDs
-        if set(action.projected_step_ids) != set(leaf.projected_step_ids):
+        # as ordered tuples (reversal must fail).
+        if tuple(action.projected_step_ids) != tuple(leaf.projected_step_ids):
             raise ValueError(
                 f"Behavior action '{action.action_id}' projected_step_ids "
                 f"{list(action.projected_step_ids)} do not exactly match "
@@ -737,18 +713,9 @@ def _validate_call3_response(
                     f"for step '{r.projected_step_id}' not found in "
                     f"projection context"
                 )
-            expected_r = ProjectedStepRealization(
-                projected_step_id=r.projected_step_id,
-                action_kind=sd.get("action_kind", ""),
-                executor_role=sd.get("executor_role", ""),
-                boundary_position=sd.get("boundary_position", ""),
-                resource_ref_ids=tuple(sd.get("resource_ref_ids", ())),
-                consumed_ref_ids=tuple(sd.get("consumed_ref_ids", ())),
-                produced_ref_ids=tuple(sd.get("produced_ref_ids", ())),
-                produced_effect_ids=tuple(sd.get("produced_effect_ids", ())),
-                outcome_link_pc_ids=tuple(sd.get("outcome_link_pc_ids", ())),
-                postcondition_ids=tuple(sd.get("postcondition_ids", ())),
-            )
+            # Reconstruct canonical realization from the nested context
+            # field using model_validate — no manual field-by-field.
+            expected_r = ProjectedStepRealization.model_validate(sd["realization"])
             if r != expected_r:
                 raise ValueError(
                     f"Behavior action '{action.action_id}' realization "
@@ -778,8 +745,14 @@ def _validate_call3_response(
         )
 
     # --- Assertion validation ---
+    # Contract: one assertion per (owning step, postcondition) pair.
+    # - assertion_id == "assert-{source_step_id}-{postcondition_id}"
+    # - source_step_ids is a single-element tuple containing the owner
+    # - projected_postcondition_ids is a single-element tuple
+    # - No unrelated extra source steps (exact ownership, not membership)
     assertion_ids: set[str] = set()
     covered_security_pcs: set[str] = set()
+    seen_assertion_pairs: set[tuple[str, str]] = set()
     for assertion in response.assertions:
         if assertion.assertion_id in assertion_ids:
             raise ValueError(
@@ -787,30 +760,67 @@ def _validate_call3_response(
             )
         assertion_ids.add(assertion.assertion_id)
 
-        for sid in assertion.source_step_ids:
-            if sid not in selected_step_ids:
-                raise ValueError(
-                    f"Assertion '{assertion.assertion_id}' references "
-                    f"unprojected source step '{sid}'"
-                )
+        # Exactly one source step and one postcondition per assertion.
+        if len(assertion.source_step_ids) != 1:
+            raise ValueError(
+                f"Assertion '{assertion.assertion_id}' has "
+                f"{len(assertion.source_step_ids)} source_step_ids — "
+                f"exactly one (the owning step) is required"
+            )
+        if len(assertion.projected_postcondition_ids) != 1:
+            raise ValueError(
+                f"Assertion '{assertion.assertion_id}' has "
+                f"{len(assertion.projected_postcondition_ids)} "
+                f"projected_postcondition_ids — exactly one per assertion "
+                f"is required (one assertion per owning-step/postcondition pair)"
+            )
 
-        for pc_id in assertion.projected_postcondition_ids:
-            if pc_id not in pc_ownership:
-                raise ValueError(
-                    f"Assertion '{assertion.assertion_id}' references "
-                    f"unknown postcondition '{pc_id}'"
-                )
-            # Every postcondition must be owned by one of the stated source steps
-            owning_step = pc_ownership[pc_id]
-            if owning_step not in assertion.source_step_ids:
-                raise ValueError(
-                    f"Assertion '{assertion.assertion_id}' references "
-                    f"postcondition '{pc_id}' owned by step '{owning_step}' "
-                    f"but owning step is not in source_step_ids "
-                    f"{list(assertion.source_step_ids)}"
-                )
-            if pc_id in security_relevant_pcs:
-                covered_security_pcs.add(pc_id)
+        source_step = assertion.source_step_ids[0]
+        pc_id = assertion.projected_postcondition_ids[0]
+
+        if source_step not in selected_step_ids:
+            raise ValueError(
+                f"Assertion '{assertion.assertion_id}' references "
+                f"unprojected source step '{source_step}'"
+            )
+
+        if pc_id not in pc_ownership:
+            raise ValueError(
+                f"Assertion '{assertion.assertion_id}' references "
+                f"unknown postcondition '{pc_id}'"
+            )
+
+        # Exact ownership: source_step must be THE owner, not just a member.
+        owning_step = pc_ownership[pc_id]
+        if source_step != owning_step:
+            raise ValueError(
+                f"Assertion '{assertion.assertion_id}' states source step "
+                f"'{source_step}' but postcondition '{pc_id}' is owned by "
+                f"step '{owning_step}' — source_step_ids must exactly equal "
+                f"the postcondition owner, not merely contain it"
+            )
+
+        # Deterministic assertion ID: assert-<owner_step>-<postcondition>
+        expected_assertion_id = f"assert-{owning_step}-{pc_id}"
+        if assertion.assertion_id != expected_assertion_id:
+            raise ValueError(
+                f"Assertion ID '{assertion.assertion_id}' does not match "
+                f"deterministic expected ID '{expected_assertion_id}' "
+                f"(assert-<owning_step_id>-<postcondition_id>)"
+            )
+
+        # No duplicate (step, postcondition) pairs.
+        pair = (owning_step, pc_id)
+        if pair in seen_assertion_pairs:
+            raise ValueError(
+                f"Assertion '{assertion.assertion_id}' duplicates the "
+                f"(step, postcondition) pair ({owning_step}, {pc_id}) "
+                f"already covered by another assertion"
+            )
+        seen_assertion_pairs.add(pair)
+
+        if pc_id in security_relevant_pcs:
+            covered_security_pcs.add(pc_id)
 
     # Full security-relevant postcondition coverage
     uncovered_security_pcs = security_relevant_pcs - covered_security_pcs

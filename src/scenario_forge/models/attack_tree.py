@@ -376,29 +376,32 @@ class AttackTreeNode(BaseModel):
             self._validate_action_zone()
 
         # --- Realization coverage check (422o.4) ---
-        if self.gate == GateType.LEAF and self.projected_step_ids:
-            if not self.realizations:
-                raise ValueError(
-                    f"LEAF node '{self.id}' has projected_step_ids "
-                    f"{self.projected_step_ids} but no realizations. "
-                    f"Security-bearing leaves must carry one realization "
-                    f"record per projected_step_id."
-                )
-            realization_ids_list = [r.projected_step_id for r in self.realizations]
+        # Enforced unconditionally on ALL LEAF nodes, not just when
+        # projected_step_ids is truthy.  This closes the external_precondition
+        # bypass where empty IDs + arbitrary realizations would pass.
+        if self.gate == GateType.LEAF:
+            real_ids_list = [r.projected_step_id for r in self.realizations]
             projected_ids = set(self.projected_step_ids)
-            if len(set(realization_ids_list)) != len(realization_ids_list):
+
+            # Duplicate realization records are always invalid.
+            if len(set(real_ids_list)) != len(real_ids_list):
                 raise ValueError(
                     f"LEAF node '{self.id}' has duplicate realization "
                     f"records (same projected_step_id appears more than once)"
                 )
-            if len(realization_ids_list) != len(projected_ids):
+
+            # Count/uniqueness: exactly one realization per projected ID.
+            if len(real_ids_list) != len(projected_ids):
                 raise ValueError(
-                    f"LEAF node '{self.id}' has {len(realization_ids_list)} "
+                    f"LEAF node '{self.id}' has {len(real_ids_list)} "
                     f"realization records but {len(projected_ids)} "
                     f"projected_step_ids — exactly one record per "
                     f"projected_step_id is required"
                 )
-            realization_ids = set(realization_ids_list)
+
+            # ID set equality (catches empty IDs + nonempty realizations
+            # and vice versa).
+            realization_ids = set(real_ids_list)
             if realization_ids != projected_ids:
                 raise ValueError(
                     f"LEAF node '{self.id}' realization IDs "

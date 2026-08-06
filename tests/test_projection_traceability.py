@@ -4301,3 +4301,302 @@ class TestCall2ProjectionValidation:
 
         # Should not raise
         _validate_tree_against_projection(tree, ctx)
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 review blocker #1: canonical derivation tests
+# ---------------------------------------------------------------------------#
+
+
+class TestCanonicalDerivation:
+    """Tests for the single source of truth extract_resource_id and
+    derive_step_realization functions in models.realization."""
+
+    def test_extract_resource_id_unsupported_type_raises(self):
+        """extract_resource_id must raise TypeError for unsupported types."""
+        from scenario_forge.models.realization import extract_resource_id
+
+        with pytest.raises(TypeError, match="Unsupported resource reference"):
+            extract_resource_id(object())
+
+    def test_extract_resource_id_all_subtypes(self):
+        """All six valid resource-reference subtypes return expected IDs."""
+        from scenario_forge.models.attack_pattern import (
+            AgentInternalResourceReference,
+            EntryPointResourceReference,
+            IntegrationResourceReference,
+            OutputSurfaceResourceReference,
+            ToolResourceReference,
+            TrustBoundaryResourceReference,
+        )
+        from scenario_forge.models.realization import extract_resource_id
+
+        _hex32 = "a" * 32
+        assert (
+            extract_resource_id(
+                EntryPointResourceReference(
+                    kind="entry_point",
+                    entry_point_id=f"ep:v1:{_hex32}",
+                )
+            )
+            == f"ep:v1:{_hex32}"
+        )
+        assert (
+            extract_resource_id(
+                ToolResourceReference(
+                    kind="tool",
+                    tool_id=f"tool:v1:{_hex32}",
+                )
+            )
+            == f"tool:v1:{_hex32}"
+        )
+        assert (
+            extract_resource_id(
+                IntegrationResourceReference(
+                    kind="integration",
+                    integration_id=f"int:v1:{_hex32}",
+                )
+            )
+            == f"int:v1:{_hex32}"
+        )
+        assert (
+            extract_resource_id(
+                TrustBoundaryResourceReference(
+                    kind="trust_boundary",
+                    trust_boundary_id=f"tb:v1:{_hex32}",
+                )
+            )
+            == f"tb:v1:{_hex32}"
+        )
+        assert (
+            extract_resource_id(
+                OutputSurfaceResourceReference(
+                    kind="output_surface",
+                    entry_point_id=f"ep:v1:{_hex32}",
+                )
+            )
+            == f"ep:v1:{_hex32}"
+        )
+        assert (
+            extract_resource_id(AgentInternalResourceReference(kind="agent_internal"))
+            == "agent_internal"
+        )
+
+    def test_realization_permutation_rejected(self):
+        """Reversing a canonically multi-valued tuple must fail.
+
+        Direct model equality (no sorting) means permutations are caught.
+        Constructs a synthetic step with ≥2 consumed refs to guarantee
+        a multi-valued tuple for permutation testing.
+        """
+        from scenario_forge.models.attack_pattern import ArtifactReference
+        from scenario_forge.models.realization import derive_step_realization
+
+        # Build a synthetic step with ≥2 consumed refs for permutation.
+        synthetic_step = type(
+            "SyntheticStep",
+            (),
+            {
+                "step_id": "step.synth",
+                "action_kind": "execute",
+                "executor_role": "attacker",
+                "boundary_position": "internal",
+                "resource_links": [],
+                "consumed": [
+                    ArtifactReference(
+                        ref_id="ref_a", value_type="string", kind="artifact"
+                    ),
+                    ArtifactReference(
+                        ref_id="ref_b", value_type="string", kind="artifact"
+                    ),
+                ],
+                "produced": [],
+                "observable_outcome_links": [],
+                "observable_postconditions": [],
+            },
+        )
+        canonical = derive_step_realization(synthetic_step, {})
+        assert len(canonical.consumed_ref_ids) == 2
+        # Permute the consumed_ref_ids tuple
+        permuted = canonical.model_copy(
+            update={"consumed_ref_ids": tuple(reversed(canonical.consumed_ref_ids))}
+        )
+        assert permuted != canonical, (
+            "Permuting consumed_ref_ids should produce a different record"
+        )
+        # Verify direct equality catches the difference (no sorting)
+        assert permuted.consumed_ref_ids != canonical.consumed_ref_ids
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 review blocker #2: external_precondition bypass tests
+# ---------------------------------------------------------------------------#
+
+
+class TestExternalPreconditionBypass:
+    """External precondition leaves must have both empty IDs and empty
+    realizations — enforced unconditionally at model and validation level."""
+
+    def test_model_rejects_external_precondition_with_realizations(self):
+        """AttackTreeNode model must reject external_precondition with
+        nonempty realizations even when projected_step_ids is empty."""
+        from scenario_forge.models.attack_tree import ExternalPreconditionAction
+        from scenario_forge.models.realization import ProjectedStepRealization
+
+        fake_realization = ProjectedStepRealization(
+            projected_step_id="step.1",
+            action_kind="prepare",
+            executor_role="attacker",
+            boundary_position="crossing",
+            resource_ref_ids=(),
+            consumed_ref_ids=(),
+            produced_ref_ids=(),
+            produced_effect_ids=(),
+            outcome_link_pc_ids=(),
+            postcondition_ids=(),
+        )
+        with pytest.raises(
+            ValueError,
+            match="1 realization records but 0 projected_step_ids",
+        ):
+            AttackTreeNode(
+                id="n1.1",
+                label="External",
+                gate=GateType.LEAF,
+                action=ExternalPreconditionAction(access_provenance="phishing"),
+                projected_step_ids=(),
+                realizations=(fake_realization,),
+            )
+
+    def test_call2_rejects_external_precondition_with_realizations(self):
+        """Call2 tree validation must reject external_precondition with
+        nonempty realizations."""
+        from scenario_forge.models.attack_tree import ExternalPreconditionAction
+        from scenario_forge.models.realization import ProjectedStepRealization
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from scenario_forge.pipeline.generate.tree import (
+            _validate_tree_against_projection,
+        )
+
+        candidate = get_projected_candidate()
+        ctx = _build_projection_context(candidate)
+
+        fake_realization = ProjectedStepRealization(
+            projected_step_id="step.1",
+            action_kind="prepare",
+            executor_role="attacker",
+            boundary_position="crossing",
+            resource_ref_ids=(),
+            consumed_ref_ids=(),
+            produced_ref_ids=(),
+            produced_effect_ids=(),
+            outcome_link_pc_ids=(),
+            postcondition_ids=(),
+        )
+        # Use model_construct to bypass model validator on both the bad
+        # leaf and the root node (so the child validator doesn't fire).
+        bad_leaf = AttackTreeNode.model_construct(
+            id="n1.99",
+            label="External",
+            gate=GateType.LEAF,
+            zone=None,
+            action=ExternalPreconditionAction(access_provenance="phishing"),
+            projected_step_ids=(),
+            realizations=(fake_realization,),
+        )
+        good_leaves = [
+            _make_tree_leaf(candidate, i)
+            for i in range(len(candidate.projection.selected_step_ids))
+        ]
+        root = AttackTreeNode.model_construct(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
+            zone="input",
+            children=good_leaves + [bad_leaf],
+        )
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="Test",
+            root=root,
+        )
+        with pytest.raises(ValueError, match="external preconditions must have empty"):
+            _validate_tree_against_projection(tree, ctx)
+
+    def test_final_validation_rejects_external_precondition_with_realizations(self):
+        """Final projection validation must report violations for
+        external_precondition leaves with nonempty realizations."""
+        from scenario_forge.models.attack_tree import ExternalPreconditionAction
+        from scenario_forge.models.realization import ProjectedStepRealization
+
+        block = _make_block()
+        narrative = _make_narrative(block.canonical_ingress.entry_point_id)
+        envelope = _make_envelope(block, narrative=narrative)
+
+        fake_realization = ProjectedStepRealization(
+            projected_step_id="step.1",
+            action_kind="prepare",
+            executor_role="attacker",
+            boundary_position="crossing",
+            resource_ref_ids=(),
+            consumed_ref_ids=(),
+            produced_ref_ids=(),
+            produced_effect_ids=(),
+            outcome_link_pc_ids=(),
+            postcondition_ids=(),
+        )
+        bad_leaf = AttackTreeNode.model_construct(
+            id="n1.99",
+            label="External",
+            gate=GateType.LEAF,
+            zone=None,
+            action=ExternalPreconditionAction(access_provenance="phishing"),
+            projected_step_ids=(),
+            realizations=(fake_realization,),
+        )
+        # Replace tree with one containing the bad leaf
+        if envelope.attack_tree is not None:
+            new_root = envelope.attack_tree.root.model_copy(
+                update={
+                    "children": list(envelope.attack_tree.root.children or [])
+                    + [bad_leaf]
+                }
+            )
+            mutated = envelope.model_copy(
+                update={
+                    "attack_tree": envelope.attack_tree.model_copy(
+                        update={"root": new_root}
+                    )
+                }
+            )
+            result = validate_projection_traceability(mutated)
+            assert any(
+                "external precondition" in v.detail.lower()
+                and "realization" in v.detail.lower()
+                for v in result.violations
+            ), (
+                f"Expected external_precondition realization violation, "
+                f"got: {[v.detail for v in result.violations]}"
+            )
+
+
+def _make_tree_leaf(candidate, index):
+    """Helper: make a valid tree leaf for a selected step."""
+    selected = candidate.projection.selected_step_ids
+    if index >= len(selected):
+        return None
+    sid = selected[index]
+    return AttackTreeNode(
+        id=f"n1.{index + 1}",
+        label=f"Action for {sid}",
+        gate=GateType.LEAF,
+        zone="input" if index == 0 else "reasoning",
+        action=AiSystemAction()
+        if index > 0
+        else InitialIngressAction(
+            entry_point_id=candidate.canonical_ingress.entry_point_id
+        ),
+        projected_step_ids=(sid,),
+        realizations=make_step_realizations((sid,)),
+    )

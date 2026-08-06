@@ -356,27 +356,15 @@ def _validate_tree_against_projection(
 
     selected_step_ids = set(projection_context.get("selected_step_ids", []))
 
-    # Build canonical realization records from projection context.
+    # Build canonical realization records from projection context using
+    # the single domain model constructor — no manual field-by-field.
     from scenario_forge.models.realization import ProjectedStepRealization
 
-    # The projection context carries serialized step data; we need the
-    # canonical step objects and bindings to derive realizations.  When
-    # available, use the embedded chain.  Otherwise, compare against the
-    # serialized realization fields in the context.
     step_realizations: dict[str, ProjectedStepRealization] = {}
     for sd in projection_context.get("selected_steps", []):
         sid = sd["step_id"]
-        step_realizations[sid] = ProjectedStepRealization(
-            projected_step_id=sid,
-            action_kind=sd.get("action_kind", ""),
-            executor_role=sd.get("executor_role", ""),
-            boundary_position=sd.get("boundary_position", ""),
-            resource_ref_ids=tuple(sd.get("resource_ref_ids", ())),
-            consumed_ref_ids=tuple(sd.get("consumed_ref_ids", ())),
-            produced_ref_ids=tuple(sd.get("produced_ref_ids", ())),
-            produced_effect_ids=tuple(sd.get("produced_effect_ids", ())),
-            outcome_link_pc_ids=tuple(sd.get("outcome_link_pc_ids", ())),
-            postcondition_ids=tuple(sd.get("postcondition_ids", ())),
+        step_realizations[sid] = ProjectedStepRealization.model_validate(
+            sd["realization"]
         )
 
     def _check_node(node: AttackTreeNode) -> None:
@@ -391,12 +379,20 @@ def _validate_tree_against_projection(
             is_external = action_kind == "external_precondition"
 
             if is_external:
-                # External preconditions must remain unmapped.
+                # External preconditions must remain unmapped — both IDs
+                # and realizations must be empty.
                 if node.projected_step_ids:
                     raise ValueError(
                         f"External precondition leaf '{node.id}' has "
                         f"projected_step_ids {list(node.projected_step_ids)} "
                         f"— external preconditions must be unmapped"
+                    )
+                if node.realizations:
+                    raise ValueError(
+                        f"External precondition leaf '{node.id}' has "
+                        f"{len(node.realizations)} realization records "
+                        f"— external preconditions must have empty "
+                        f"realizations"
                     )
             else:
                 # Every non-external leaf must have nonempty projected IDs.

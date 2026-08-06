@@ -1592,7 +1592,10 @@ class TestCall3ExactOwnershipAdversarial:
                 text=response.assertions[0].text,
             )
         client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="owning step is not in source_step_ids"):
+        with pytest.raises(
+            ValueError,
+            match="source_step_ids must exactly equal the postcondition owner",
+        ):
             _call_behavior_spec(
                 seed=_make_seed(),
                 narrative=_make_narrative(),
@@ -1644,6 +1647,156 @@ class TestCall3ExactOwnershipAdversarial:
         )
         client = _make_mock_client_call3(response)
         with pytest.raises(ValueError, match="duplicate"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial tests for 422o.4 review blocker #3: exact tuple/ownership
+# ---------------------------------------------------------------------------#
+
+
+class TestCall3TupleOwnershipAdversarial:
+    """Adversarial tests for exact tuple equality and assertion identity."""
+
+    def test_reversed_action_projected_ids_rejected(self):
+        """Action with reversed multi-step projected_step_ids must fail.
+
+        Uses model_copy to bypass the leaf lookup, then swaps the order
+        of a two-step leaf's projected IDs so the tuple is reversed.
+        """
+        candidate = get_projected_candidate()
+        selected = list(candidate.projection.selected_step_ids)
+        if len(selected) < 2:
+            pytest.skip("Need ≥2 projected steps for reversal test")
+        # Build a leaf that maps to two steps
+        leaf = _make_leaf(
+            "n1.99",
+            "Multi-step leaf",
+            "input",
+            None,
+            projected_step_ids=(selected[0], selected[1]),
+            realizations=make_step_realizations((selected[0], selected[1])),
+        )
+        # Build a tree with this leaf plus a regular leaf (AND needs ≥2)
+        regular_leaf = _make_leaf(
+            "n1.1",
+            "Regular",
+            "input",
+            projected_step_ids=(selected[0],),
+            realizations=make_step_realizations((selected[0],)),
+        )
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="Test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                zone="input",
+                children=[regular_leaf, leaf],
+            ),
+        )
+        # Build response with reversed IDs
+        action = Call3Action(
+            action_id="ba-n1.99",
+            projected_step_ids=(selected[1], selected[0]),  # reversed
+            source_leaf_id="n1.99",
+            gherkin_keyword="When",
+            text="Reversed action",
+            realizations=make_step_realizations((selected[1], selected[0])),
+        )
+        response = Call3Response(
+            actions=[action],
+            assertions=[],
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="do not exactly match source leaf"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=tree,
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_arbitrary_assertion_id_rejected(self):
+        """Assertion ID not matching assert-<step>-<postcondition> must fail."""
+        response = _make_call3_response()
+        if not response.assertions:
+            pytest.skip("No assertions in test fixture")
+        # Keep valid source/postcondition but use arbitrary ID
+        a = response.assertions[0]
+        response.assertions[0] = Call3Assertion(
+            assertion_id="arbitrary-assert",
+            source_step_ids=a.source_step_ids,
+            projected_postcondition_ids=a.projected_postcondition_ids,
+            text=a.text,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(
+            ValueError, match="does not match deterministic expected ID"
+        ):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_extra_unrelated_source_step_rejected(self):
+        """Assertion with valid postcondition plus extra unrelated source
+        step must fail — source_step_ids must have exactly one element."""
+        response = _make_call3_response()
+        if not response.assertions:
+            pytest.skip("No assertions in test fixture")
+        a = response.assertions[0]
+        # Add an extra unrelated source step (two elements instead of one)
+        extra_step = "step.1" if a.source_step_ids[0] != "step.1" else "step.2"
+        response.assertions[0] = Call3Assertion(
+            assertion_id=a.assertion_id,
+            source_step_ids=(a.source_step_ids[0], extra_step),
+            projected_postcondition_ids=a.projected_postcondition_ids,
+            text=a.text,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="exactly one.*owning step.*is required"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_omitted_assertion_coverage_rejected(self):
+        """Missing a security-relevant postcondition assertion must fail."""
+        response = _make_call3_response()
+        if not response.assertions:
+            pytest.skip("No assertions in test fixture")
+        # Remove all assertions
+        response.assertions = []
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="does not cover security-relevant"):
             _call_behavior_spec(
                 seed=_make_seed(),
                 narrative=_make_narrative(),

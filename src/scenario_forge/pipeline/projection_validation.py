@@ -47,11 +47,7 @@ from typing import TYPE_CHECKING, Any
 from scenario_forge.models.attack_pattern import (
     AttackPattern,
     EntryPointResourceReference,
-    IntegrationResourceReference,
-    OutputSurfaceResourceReference,
     TaxonomyResolver,
-    ToolResourceReference,
-    TrustBoundaryResourceReference,
     validate_attack_pattern,
 )
 from scenario_forge.models.attack_tree import (
@@ -71,7 +67,10 @@ from scenario_forge.models.projection_envelope import (
     ProjectionTraceabilityViolation,
     ProjectionTraceabilityViolationCode,
 )
-from scenario_forge.models.realization import ProjectedStepRealization
+from scenario_forge.models.realization import (
+    ProjectedStepRealization,
+    derive_step_realization,
+)
 from scenario_forge.pipeline.projection import (
     CapabilityFactSnapshot,
     _candidate_v2_id,
@@ -1281,201 +1280,39 @@ _STEP_ACTION_KIND_TO_GHERKIN: dict[str, set[str]] = {
 }
 
 
-# ---------------------------------------------------------------------------#
-# Canonical resource-ID extraction and step-realization derivation
-# ---------------------------------------------------------------------------#
-
-
-def _extract_resource_id(ref: Any) -> str:
-    """Extract the typed opaque resource ID from a CanonicalResourceReference.
-
-    Returns the canonical ID string (e.g. ``ep:v1:...``, ``tool:v1:...``,
-    ``int:v1:...``) for any discriminated resource reference.  For
-    ``AgentInternalResourceReference`` (which has no ID field), returns
-    ``"agent_internal"``.
-    """
-    if isinstance(ref, EntryPointResourceReference):
-        return ref.entry_point_id
-    if isinstance(ref, ToolResourceReference):
-        return ref.tool_id
-    if isinstance(ref, IntegrationResourceReference):
-        return ref.integration_id
-    if isinstance(ref, TrustBoundaryResourceReference):
-        return ref.trust_boundary_id
-    if isinstance(ref, OutputSurfaceResourceReference):
-        return ref.entry_point_id
-    # AgentInternalResourceReference has no ID field.
-    return "agent_internal"
-
-
-def derive_step_realization(
-    step: Any,
-    binding_by_slot: dict[str, Any],
-) -> ProjectedStepRealization:
-    """Build the canonical ``ProjectedStepRealization`` for *step*.
-
-    Uses typed opaque resource-ID extraction so that the same canonical
-    ID string is produced regardless of whether the caller holds a
-    Pydantic model, a JSON dict, or a serialized form.
-
-    This is the single source of truth for what a correct realization
-    record looks like — validators and test helpers both use it.
-    """
-    resource_ref_ids = tuple(
-        _extract_resource_id(binding_by_slot[link.slot_id])
-        for link in step.resource_links
-        if link.slot_id in binding_by_slot
-    )
-    return ProjectedStepRealization(
-        projected_step_id=step.step_id,
-        action_kind=step.action_kind,
-        executor_role=step.executor_role,
-        boundary_position=step.boundary_position,
-        resource_ref_ids=resource_ref_ids,
-        consumed_ref_ids=tuple(c.ref_id for c in step.consumed),
-        produced_ref_ids=tuple(p.ref_id for p in step.produced),
-        produced_effect_ids=tuple(
-            p.ref_id for p in step.produced if p.kind == "effect"
-        ),
-        outcome_link_pc_ids=tuple(
-            ol.postcondition_id for ol in step.observable_outcome_links
-        ),
-        postcondition_ids=tuple(
-            pc.postcondition_id for pc in step.observable_postconditions
-        ),
-    )
-
-
 def _compare_realization_to_step(
-    realization: Any,
+    realization: ProjectedStepRealization,
     step: Any,
     stage: ProjectionTraceabilityStage,
     element_id: str,
     binding_by_slot: dict[str, Any] | None = None,
 ) -> list[ProjectionTraceabilityViolation]:
-    """Compare a ProjectedStepRealization record against a canonical step.
+    """Compare a ``ProjectedStepRealization`` against a canonical step.
 
-    422o.4: ALL fields are compared **unconditionally** — including
-    expected empty tuples.  Clearing a canonically non-empty tuple
-    suppresses nothing.  Tuples are compared by sorted value (not sets)
-    so that duplicates and exact membership are both caught.
+    Uses :func:`derive_step_realization` to build the canonical expected
+    record and compares via **direct ``==`` equality** — no sorting, no
+    field-by-field checks.  Tuples preserve canonical order, so a
+    permutation is a violation.  All fields including expected empty
+    tuples are compared unconditionally.
 
-    Returns violations for any mismatch.
+    Returns a list of violations (empty if the realization matches).
     """
-    violations: list[ProjectionTraceabilityViolation] = []
-    _code = ProjectionTraceabilityViolationCode.incorrect_resource_binding
-
-    def _check_tuple(
-        field_name: str,
-        actual: tuple[str, ...],
-        expected: tuple[str, ...],
-    ) -> None:
-        if sorted(actual) != sorted(expected):
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=_code,
-                    stage=stage,
-                    detail=(
-                        f"element '{element_id}' {field_name} "
-                        f"{sorted(actual)} do not match "
-                        f"projected step '{step.step_id}' "
-                        f"{field_name} {sorted(expected)}"
-                    ),
-                    element_id=element_id,
-                    projected_step_id=step.step_id,
-                )
-            )
-
-    # --- Core fields (always checked) ---
-    if realization.action_kind != step.action_kind:
-        violations.append(
+    expected = derive_step_realization(step, binding_by_slot or {})
+    if realization != expected:
+        return [
             ProjectionTraceabilityViolation(
-                code=_code,
+                code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
                 stage=stage,
                 detail=(
-                    f"element '{element_id}' realization action_kind "
-                    f"'{realization.action_kind}' does not match "
-                    f"projected step '{step.step_id}' action_kind "
-                    f"'{step.action_kind}'"
+                    f"element '{element_id}' realization for step "
+                    f"'{step.step_id}' does not exactly match canonical "
+                    f"derivation: got={realization}, expected={expected}"
                 ),
                 element_id=element_id,
                 projected_step_id=step.step_id,
             )
-        )
-    if realization.executor_role != step.executor_role:
-        violations.append(
-            ProjectionTraceabilityViolation(
-                code=_code,
-                stage=stage,
-                detail=(
-                    f"element '{element_id}' realization executor_role "
-                    f"'{realization.executor_role}' does not match "
-                    f"projected step '{step.step_id}' executor_role "
-                    f"'{step.executor_role}'"
-                ),
-                element_id=element_id,
-                projected_step_id=step.step_id,
-            )
-        )
-    if realization.boundary_position != step.boundary_position:
-        violations.append(
-            ProjectionTraceabilityViolation(
-                code=_code,
-                stage=stage,
-                detail=(
-                    f"element '{element_id}' realization boundary_position "
-                    f"'{realization.boundary_position}' does not match "
-                    f"projected step '{step.step_id}' boundary_position "
-                    f"'{step.boundary_position}'"
-                ),
-                element_id=element_id,
-                projected_step_id=step.step_id,
-            )
-        )
-
-    # --- Tuple fields (ALL checked unconditionally, 422o.4 blocker #1) ---
-    _check_tuple(
-        "consumed_ref_ids",
-        realization.consumed_ref_ids,
-        tuple(c.ref_id for c in step.consumed),
-    )
-    _check_tuple(
-        "produced_ref_ids",
-        realization.produced_ref_ids,
-        tuple(p.ref_id for p in step.produced),
-    )
-    _check_tuple(
-        "produced_effect_ids",
-        realization.produced_effect_ids,
-        tuple(p.ref_id for p in step.produced if p.kind == "effect"),
-    )
-    _check_tuple(
-        "outcome_link_pc_ids",
-        realization.outcome_link_pc_ids,
-        tuple(ol.postcondition_id for ol in step.observable_outcome_links),
-    )
-    _check_tuple(
-        "postcondition_ids",
-        realization.postcondition_ids,
-        tuple(pc.postcondition_id for pc in step.observable_postconditions),
-    )
-
-    # --- Resource ref IDs (unconditional, canonical extraction) ---
-    if binding_by_slot is not None:
-        step_resource_refs = tuple(
-            _extract_resource_id(binding_by_slot[link.slot_id])
-            for link in step.resource_links
-            if link.slot_id in binding_by_slot
-        )
-    else:
-        step_resource_refs = ()
-    _check_tuple(
-        "resource_ref_ids",
-        realization.resource_ref_ids,
-        step_resource_refs,
-    )
-
-    return violations
+        ]
+    return []
 
 
 # Mapping from canonical boundary_position to valid tree leaf constraints.
@@ -1515,6 +1352,29 @@ def _check_step_semantic_compatibility(
     # --- Tree leaf semantic compatibility ---
     if tree is not None:
         for leaf in _iter_leaves(tree.root):
+            # External preconditions must have both empty IDs and empty
+            # realizations (422o.4 blocker #2 — defense in depth alongside
+            # the model validator).
+            action = leaf.action
+            if (
+                action is not None
+                and action.kind == "external_precondition"
+                and leaf.realizations
+            ):
+                violations.append(
+                    ProjectionTraceabilityViolation(
+                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        stage=ProjectionTraceabilityStage.attack_tree,
+                        detail=(
+                            f"external precondition leaf '{leaf.id}' has "
+                            f"{len(leaf.realizations)} realization records "
+                            f"— external preconditions must have empty "
+                            f"realizations"
+                        ),
+                        element_id=leaf.id,
+                        projected_step_id="",
+                    )
+                )
             if not leaf.projected_step_ids:
                 continue
             for sid in leaf.projected_step_ids:

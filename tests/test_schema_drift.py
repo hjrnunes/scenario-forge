@@ -326,80 +326,49 @@ class TestNestedRequirednessParity:
         )
 
     def test_behavior_action_required_parity(self, pydantic_schema, hand_schema):
-        """BehaviorAction projection fields are required in all schemas."""
+        """BehaviorAction required fields match exactly across all schemas."""
         pyd_req = _json_schema_required(
             pydantic_schema.get("$defs", {}), "BehaviorAction"
         )
         hand_req = _json_schema_required(hand_schema.get("$defs", {}), "BehaviorAction")
-        required_fields = {
-            "action_id",
-            "projected_step_ids",
-            "source_leaf_id",
-            "gherkin_keyword",
-            "text",
-        }
-        for field in required_fields:
-            assert field in pyd_req, (
-                f"BehaviorAction.{field} must be required in Pydantic schema, "
-                f"got required={sorted(pyd_req)}"
-            )
-            assert field in hand_req, (
-                f"BehaviorAction.{field} must be required in hand JSON schema, "
-                f"got required={sorted(hand_req)}"
-            )
-        # Parity: both schemas must agree on the full required set.
-        assert pyd_req == hand_req, (
+        yaml_req = _yaml_required_fields("BehaviorAction")
+        assert pyd_req == hand_req == yaml_req, (
             f"BehaviorAction required fields differ: "
-            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}"
+            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}, "
+            f"yaml={sorted(yaml_req)}"
         )
 
     def test_behavior_assertion_required_parity(self, pydantic_schema, hand_schema):
-        """BehaviorAssertion projection fields are required in all schemas."""
+        """BehaviorAssertion required fields match exactly across all schemas.
+
+        gherkin_keyword has default="Then" so it's not required in any
+        schema; the other fields must be required everywhere.
+        """
         pyd_req = _json_schema_required(
             pydantic_schema.get("$defs", {}), "BehaviorAssertion"
         )
         hand_req = _json_schema_required(
             hand_schema.get("$defs", {}), "BehaviorAssertion"
         )
-        # gherkin_keyword has default="Then" so it's not required;
-        # the other fields must be required in both schemas.
-        required_fields = {
-            "assertion_id",
-            "source_step_ids",
-            "projected_postcondition_ids",
-            "text",
-        }
-        for field in required_fields:
-            assert field in pyd_req, (
-                f"BehaviorAssertion.{field} must be required in Pydantic schema, "
-                f"got required={sorted(pyd_req)}"
-            )
-            assert field in hand_req, (
-                f"BehaviorAssertion.{field} must be required in hand JSON schema, "
-                f"got required={sorted(hand_req)}"
-            )
-        # Parity: both schemas must agree on the full required set.
-        assert pyd_req == hand_req, (
+        yaml_req = _yaml_required_fields("BehaviorAssertion")
+        assert pyd_req == hand_req == yaml_req, (
             f"BehaviorAssertion required fields differ: "
-            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}"
+            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}, "
+            f"yaml={sorted(yaml_req)}"
         )
 
     def test_behavior_spec_required_parity(self, pydantic_schema, hand_schema):
-        """BehaviorSpec top-level fields are required in all schemas."""
+        """BehaviorSpec top-level fields match exactly across all schemas."""
         pyd_req = _json_schema_required(
             pydantic_schema.get("$defs", {}), "BehaviorSpec"
         )
         hand_req = _json_schema_required(hand_schema.get("$defs", {}), "BehaviorSpec")
-        required_fields = {"actions", "assertions", "gherkin_text"}
-        for field in required_fields:
-            assert field in pyd_req, (
-                f"BehaviorSpec.{field} must be required in Pydantic schema, "
-                f"got required={sorted(pyd_req)}"
-            )
-            assert field in hand_req, (
-                f"BehaviorSpec.{field} must be required in hand JSON schema, "
-                f"got required={sorted(hand_req)}"
-            )
+        yaml_req = _yaml_required_fields("BehaviorSpec")
+        assert pyd_req == hand_req == yaml_req, (
+            f"BehaviorSpec required fields differ: "
+            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}, "
+            f"yaml={sorted(yaml_req)}"
+        )
 
     def test_projection_required_at_top_level(self, pydantic_schema, hand_schema):
         """projection is required at the top level in all schemas."""
@@ -448,33 +417,22 @@ class TestNestedRequirednessParity:
             )
 
     def test_attack_tree_node_required_parity(self, pydantic_schema, hand_schema):
-        """AttackTreeNode required fields match across all schemas."""
+        """AttackTreeNode required fields match exactly across all schemas.
+
+        projected_step_ids and realizations are NOT required in any schema
+        (Pydantic/JSON default to empty; requiredness is enforced
+        conditionally by semantic validation, not by the schema).
+        """
         pyd_req = _json_schema_required(
             pydantic_schema.get("$defs", {}), "AttackTreeNode"
         )
         hand_req = _json_schema_required(hand_schema.get("$defs", {}), "AttackTreeNode")
         yaml_req = _yaml_required_fields("AttackTreeNode")
-        # Core required fields (always required in model)
-        core_fields = {"id", "label", "gate"}
-        for field in core_fields:
-            assert field in pyd_req, (
-                f"AttackTreeNode.{field} must be required in Pydantic, "
-                f"got {sorted(pyd_req)}"
-            )
-            assert field in hand_req, (
-                f"AttackTreeNode.{field} must be required in hand JSON, "
-                f"got {sorted(hand_req)}"
-            )
-            assert field in yaml_req, (
-                f"AttackTreeNode.{field} must be required in YAML, "
-                f"got {sorted(yaml_req)}"
-            )
-        # Projection fields must be required in YAML
-        for field in ("projected_step_ids", "realizations"):
-            assert field in yaml_req, (
-                f"AttackTreeNode.{field} must be required in YAML, "
-                f"got {sorted(yaml_req)}"
-            )
+        assert pyd_req == hand_req == yaml_req, (
+            f"AttackTreeNode required fields differ: "
+            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}, "
+            f"yaml={sorted(yaml_req)}"
+        )
 
     def test_behavior_action_realizations_required_parity(
         self, pydantic_schema, hand_schema

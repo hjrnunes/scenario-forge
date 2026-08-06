@@ -11,8 +11,10 @@ unconditional comparison validator.
 
 from __future__ import annotations
 
-from scenario_forge.models.realization import ProjectedStepRealization
-from scenario_forge.pipeline.projection_validation import derive_step_realization
+from scenario_forge.models.realization import (
+    ProjectedStepRealization,
+    derive_step_realization,
+)
 
 
 def make_realizations(
