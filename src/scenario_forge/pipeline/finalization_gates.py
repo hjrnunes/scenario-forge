@@ -720,6 +720,7 @@ class PrebehaviorFinalizerPort:
                 candidate_snapshot=projection,
                 actor_snapshot=actor,
                 narrative_snapshot=narrative,
+                repair_record=repair.record,
             )
         except (TypeError, ValueError, AttributeError) as exc:
             return PrebehaviorFinalizationResult(

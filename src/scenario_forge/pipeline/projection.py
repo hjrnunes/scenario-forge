@@ -92,10 +92,17 @@ def _normalize_unicode(value: Any) -> Any:
     if isinstance(value, str):
         return unicodedata.normalize("NFC", value)
     if isinstance(value, dict):
-        return {
-            unicodedata.normalize("NFC", key): _normalize_unicode(item)
-            for key, item in value.items()
-        }
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("canonical JSON mapping keys must be strings")
+            normalized_key = unicodedata.normalize("NFC", key)
+            if normalized_key in normalized:
+                raise ValueError(
+                    "canonical JSON mapping keys collide after NFC normalization"
+                )
+            normalized[normalized_key] = _normalize_unicode(item)
+        return normalized
     if isinstance(value, list):
         return [_normalize_unicode(item) for item in value]
     if isinstance(value, tuple):

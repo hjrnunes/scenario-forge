@@ -850,6 +850,15 @@ class ManifestInventoryResolver:
                     f"Invalid or unknown artifact role: {entry.role!r}"
                 ) from None
 
+            if self.manifest.manifest_version == MANIFEST_VERSION and role in {
+                ArtifactRole.COVERAGE_PLAN,
+                ArtifactRole.FINALIZATION_INVENTORY,
+                ArtifactRole.QUARANTINE_BUNDLE,
+            }:
+                raise ManifestIntegrityError(
+                    f"Manifest v2 does not support v3-only role {role.value}"
+                )
+
             # --- 2. Path validation ---
             entry_path = Path(entry.path)
             if entry_path.is_absolute():
@@ -1194,6 +1203,30 @@ class ManifestInventoryResolver:
                 raise ManifestIntegrityError(
                     f"Feature scenario_id mismatch for {stem}.feature: "
                     f"feature={feat_sid}, yaml={inv_sid}"
+                )
+
+        if self.manifest.manifest_version == MANIFEST_V3:
+            legacy_authorities = {
+                "attempts": self.manifest.attempts,
+                "funnel": self.manifest.funnel,
+                "stage_records": self.manifest.stage_records,
+                "rule_verdicts": self.manifest.rule_verdicts,
+                "artifacts": self.manifest.artifacts,
+                "phantom_validation": self.manifest.phantom_validation,
+                "structural_validation": self.manifest.structural_validation,
+                "semantic_validation": self.manifest.semantic_validation,
+                "leaf_technique_provenance": self.manifest.leaf_technique_provenance,
+                "parsimony": self.manifest.parsimony,
+                "scenarios_generated": self.manifest.scenarios_generated,
+                "scenarios_failed": self.manifest.scenarios_failed,
+            }
+            populated = sorted(
+                name for name, value in legacy_authorities.items() if value
+            )
+            if populated:
+                raise ManifestIntegrityError(
+                    "Manifest v3 lifecycle authority is finalization_inventory; "
+                    f"legacy lifecycle fields must be empty: {populated}"
                 )
 
         if self.manifest.manifest_version == MANIFEST_V3 and self.manifest.status in {
