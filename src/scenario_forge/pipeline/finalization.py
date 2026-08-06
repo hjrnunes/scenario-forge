@@ -350,7 +350,7 @@ class TargetFinalizationMachine:
         snapshot: FinalTreeSnapshot | None = None
         while True:
             for stage in GENERATION_ORDER[GENERATION_ORDER.index(next_stage) :]:
-                if stage is GeneratedStage.behavior:
+                if stage is GeneratedStage.behavior:  # noqa: SIM102 - snapshot branch
                     if snapshot is None:
                         self._transition(
                             LifecycleState.finalizing_prebehavior,
@@ -383,6 +383,10 @@ class TargetFinalizationMachine:
                                 (violation,),
                             )
                         snapshot = finalized.snapshot
+                        # Behavior must consume the exact verified tree, including
+                        # any safe prebehavior parsimony repair, rather than the
+                        # stale generated input retained in the artifact bundle.
+                        self.artifacts.tree = snapshot.tree
 
                 stage_violations = self._invoke_stage(candidate, candidate_id, stage)
                 if stage_violations:
