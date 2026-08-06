@@ -765,6 +765,13 @@ class FinalizationInventoryV1(StrictModel):
                 raise ValueError(
                     "postbehavior admission requires admitting terminal edge"
                 )
+            if (
+                terminal_edge.previous is LifecycleState.admitting
+                and not decision.gate_results
+            ):
+                raise ValueError(
+                    "admitting terminal edge requires typed admission gate evidence"
+                )
             flattened_gate_violations = [
                 violation
                 for gate in decision.gate_results
@@ -2220,6 +2227,10 @@ class FinalizationPersistenceAdapter:
                     "Terminal result requires a preceding target transition"
                 )
             latest_transition = max(target_transitions, key=lambda item: item.sequence)
+            if latest_transition.current is LifecycleState.admitting and report is None:
+                raise TypeError(
+                    "admitting terminal result requires PostbehaviorAdmissionReport"
+                )
             terminal_state = (
                 LifecycleState.admitted
                 if result.status is CandidateTerminalStatus.admitted

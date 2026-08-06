@@ -1307,8 +1307,9 @@ def test_malformed_admitted_report_is_rejected(tmp_path: Path):
         )
 
 
+@pytest.mark.parametrize("admission_exception", [False, True])
 def test_machine_adapter_persists_complete_postbehavior_rejection_report(
-    tmp_path: Path,
+    tmp_path: Path, admission_exception: bool
 ):
     choice = _choice(PRIMARY_ID)
     plan = CoveragePlanV2(
@@ -1355,6 +1356,20 @@ def test_machine_adapter_persists_complete_postbehavior_rejection_report(
         envelope=object(),
         gate_results=(GateResult((violation,), (diagnostic,)),),
     )
+
+    def admit(candidate, artifacts, snapshot):
+        if admission_exception:
+            raise RuntimeError("admission callback exploded")
+        with pytest.raises(TypeError, match="requires PostbehaviorAdmissionReport"):
+            adapter.record_candidate_result(
+                PRIMARY_ID,
+                CandidateTerminalResult(
+                    PRIMARY_ID,
+                    CandidateTerminalStatus.rejected,
+                ),
+            )
+        return AdmissionDecision(False, (violation.lifecycle(),), value=report)
+
     machine = TargetFinalizationMachine(
         entry=CoveragePlanEntry(
             entry_point_id=ENTRY_POINT_ID,
@@ -1371,9 +1386,7 @@ def test_machine_adapter_persists_complete_postbehavior_rejection_report(
         prebehavior_finalizer=lambda candidate, artifacts: (
             PrebehaviorFinalizationResult(Snapshot(artifacts.tree))
         ),
-        admission_callback=lambda candidate, artifacts, snapshot: AdmissionDecision(
-            False, (violation.lifecycle(),), value=report
-        ),
+        admission_callback=admit,
         persistence=adapter,
         attempted_candidate_ids=set(),
     )
@@ -1382,9 +1395,24 @@ def test_machine_adapter_persists_complete_postbehavior_rejection_report(
     assert result.state is LifecycleState.exhausted
     persisted = read_finalization_inventory(tmp_path)
     decision = persisted.admission_decisions[0]
-    assert decision.gate_results[0].violations[0].detail == "hard admission failure"
-    assert decision.gate_results[0].diagnostics[0].detail == "retained gate diagnostic"
+    if admission_exception:
+        assert decision.gate_results[0].violations[0].code == "admission_exception"
+        assert (
+            decision.gate_results[0].violations[0].detail
+            == "RuntimeError: admission callback exploded"
+        )
+        assert decision.gate_results[0].violations[0].owner is None
+    else:
+        assert decision.gate_results[0].violations[0].detail == "hard admission failure"
+        assert (
+            decision.gate_results[0].diagnostics[0].detail == "retained gate diagnostic"
+        )
     assert len(persisted.quarantine_inventory) == 1
+
+    missing_report = persisted.model_dump(mode="json")
+    missing_report["admission_decisions"][0]["gate_results"] = []
+    with pytest.raises(ValidationError, match="requires typed admission gate evidence"):
+        FinalizationInventoryV1.model_validate(missing_report)
 
     reversed_trace = persisted.model_dump(mode="json")
     behavior_stage = next(

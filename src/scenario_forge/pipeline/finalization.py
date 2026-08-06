@@ -644,16 +644,45 @@ class TargetFinalizationMachine:
                         except FinalizationPersistenceError:
                             raise
                         except Exception as exc:  # noqa: BLE001 - lifecycle evidence
-                            violation = LifecycleViolation(
-                                code="lifecycle_callback_exception",
-                                detail=f"{type(exc).__name__}: {exc}",
-                                retryable=False,
-                            )
+                            if self.state is LifecycleState.admitting:
+                                from scenario_forge.pipeline.finalization_admission import (
+                                    PostbehaviorAdmissionReport,
+                                )
+                                from scenario_forge.pipeline.finalization_gates import (
+                                    GateCode,
+                                    GateResult,
+                                    GateViolation,
+                                )
+
+                                gate_violation = GateViolation(
+                                    GateCode.admission_exception,
+                                    f"{type(exc).__name__}: {exc}",
+                                    None,
+                                )
+                                violation = gate_violation.lifecycle()
+                                admission = AdmissionDecision(
+                                    False,
+                                    (violation,),
+                                    value=PostbehaviorAdmissionReport(
+                                        envelope=None,
+                                        gate_results=(GateResult((gate_violation,)),),
+                                    ),
+                                )
+                                terminal_status = CandidateTerminalStatus.rejected
+                            else:
+                                violation = LifecycleViolation(
+                                    code="lifecycle_callback_exception",
+                                    detail=f"{type(exc).__name__}: {exc}",
+                                    retryable=False,
+                                )
+                                admission = None
+                                terminal_status = CandidateTerminalStatus.generation_or_finalization_failed
                             self.violations.append(violation)
                             terminal = CandidateTerminalResult(
                                 ref_id,
-                                CandidateTerminalStatus.generation_or_finalization_failed,
+                                terminal_status,
                                 (violation,),
+                                admission,
                             )
 
             terminal_state = (

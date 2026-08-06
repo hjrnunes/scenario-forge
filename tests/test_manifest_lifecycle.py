@@ -535,6 +535,20 @@ class TestInventoryIntegrity:
         assert [resolver.read_bytes(entry) for entry in entries] == list(
             originals.values()
         )
+        resolver._content_cache.pop(entries[0].path)
+        with pytest.raises(ManifestIntegrityError, match="not validated and cached"):
+            resolver.read_bytes(entries[0])
+
+        secret = tmp_path / "secret.feature"
+        secret.write_bytes(b"Feature: secret\n")
+        forged = entries[0].model_copy(
+            update={
+                "path": "../secret.feature",
+                "sha256": compute_file_sha256(secret),
+            }
+        )
+        with pytest.raises(ManifestIntegrityError, match="not validated and cached"):
+            resolver._verified_read(forged)
 
     def test_hardlinked_inventory_entries_rejected(self, tmp_path: Path):
         run_dir = tmp_path / "run"

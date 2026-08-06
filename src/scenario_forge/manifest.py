@@ -819,6 +819,7 @@ class ManifestInventoryResolver:
         # path.  read_text/read_bytes serve from this cache so consumers
         # always receive the exact bytes that were validated.
         self._content_cache: dict[str, bytes] = {}
+        self._validated_entries: dict[str, ArtifactEntry] = {}
         try:
             self._validation_root_fd: int | None = os.open(
                 self.run_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -1108,6 +1109,7 @@ class ManifestInventoryResolver:
 
             # Index by role
             self._by_role.setdefault(role, []).append(entry)
+            self._validated_entries[entry.path] = entry
 
         # --- 11. Post-index global YAML/feature pairing and identity checks ---
         # Duplicate candidate_id across different scenarios (post-loop).
@@ -1276,11 +1278,6 @@ class ManifestInventoryResolver:
         exact bytes that were validated, never a fresh read that could
         be affected by post-validation file replacement.
         """
-        cached = self._content_cache.get(entry.path)
-        if cached is not None:
-            return cached
-        # Fallback: re-read with no-follow+hash validation (should not
-        # happen in normal flow since _validate populates the cache).
         return self._verified_read(entry)
 
     def read_text(self, entry: ArtifactEntry, encoding: str = "utf-8") -> str:
@@ -1299,13 +1296,12 @@ class ManifestInventoryResolver:
         return json.loads(self.read_text(entry))
 
     def _verified_read(self, entry: ArtifactEntry) -> bytes:
-        """Re-read with no-follow and hash validation (fallback)."""
-        content, _physical_id = self._open_artifact(entry.path)
-        actual = hashlib.sha256(content).hexdigest()
-        if actual != entry.sha256:
+        """Return only bytes cached for an exact validated inventory entry."""
+        validated = self._validated_entries.get(entry.path)
+        content = self._content_cache.get(entry.path)
+        if validated != entry or content is None:
             raise ManifestIntegrityError(
-                f"Hash mismatch on re-read for {entry.path}: "
-                f"manifest={entry.sha256}, actual={actual}"
+                f"Artifact was not validated and cached by this resolver: {entry.path}"
             )
         return content
 
