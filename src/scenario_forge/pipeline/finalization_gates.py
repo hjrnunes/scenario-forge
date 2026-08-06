@@ -77,6 +77,7 @@ class GateCode(str, Enum):
     assertion_mismatch = "assertion_mismatch"
     no_realized_security_actions = "no_realized_security_actions"
     scenario_identity = "scenario_identity"
+    trusted_context = "trusted_context"
 
 
 @dataclass(frozen=True, slots=True)

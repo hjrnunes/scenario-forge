@@ -546,6 +546,7 @@ def _check_ingress_identity(
                     f"'{envelope.initial_entry_point_id}' does not match "
                     f"projection canonical_ingress '{expected}'"
                 ),
+                element_id="envelope.initial_entry_point_id",
             )
         )
 
@@ -565,6 +566,7 @@ def _check_ingress_identity(
                     f"'{actor.access.initial_entry_point_id}' does not "
                     f"match projection canonical_ingress '{expected}'"
                 ),
+                element_id="actor_profile.access.initial_entry_point_id",
             )
         )
 

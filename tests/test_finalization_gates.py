@@ -6,6 +6,7 @@ import copy
 import math
 import unicodedata
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +18,11 @@ from scenario_forge.models.attack_tree import (
     GateType,
     IntegrationInteractionAction,
     ToolInvocationAction,
+)
+from scenario_forge.models.projection_envelope import (
+    ProjectionTraceabilityStage,
+    ProjectionTraceabilityViolation,
+    ProjectionTraceabilityViolationCode,
 )
 from scenario_forge.models.scenario import BehaviorAssertion, BehaviorSpec
 from scenario_forge.pipeline import finalization_gates
@@ -33,15 +39,19 @@ from scenario_forge.pipeline.finalization import (
     LifecycleState,
     TargetFinalizationMachine,
     earliest_generated_owner,
+    make_assertions_only_behavior_callback,
 )
 from scenario_forge.pipeline.finalization_admission import (
+    _SEMANTIC_OWNER_BY_RULE,
     PostbehaviorAdmissionReport,
+    _owner_for_trace,
     make_postbehavior_admission,
 )
 from scenario_forge.pipeline.finalization_gates import (
     ActorSemanticSnapshot,
     FinalTreeSemanticSnapshot,
     GateCode,
+    GateViolation,
     NarrativeSemanticSnapshot,
     ProjectionSemanticSnapshot,
     RepairRecord,
@@ -59,6 +69,7 @@ from scenario_forge.pipeline.generate.gherkin import _derive_behavior_actions
 from scenario_forge.pipeline.projection import canonical_json_bytes
 from scenario_forge.pipeline.projection_validation import (
     _check_narrative_physical_order,
+    _check_step_semantic_compatibility,
     _check_technique_mapping,
     _check_tree_physical_order,
     _check_tree_resource_bindings,
@@ -978,7 +989,9 @@ def _phase3b_behavior(candidate, tree) -> BehaviorSpec:
     )
 
 
-def _postbehavior_port(*, envelope_mutator=None):
+def _postbehavior_port(
+    *, envelope_mutator=None, expected_catalog_pin=None, trusted_catalog=None
+):
     def assemble(candidate, actor, narrative, tree, behavior):
         block = _build_projection_block(
             candidate, narrative, tree, behavior, get_test_snapshot()
@@ -996,17 +1009,25 @@ def _postbehavior_port(*, envelope_mutator=None):
 
     return make_postbehavior_admission(
         assemble,
-        trusted_catalog=[get_test_raw_pattern()],
+        trusted_catalog=(
+            [get_test_raw_pattern()] if trusted_catalog is None else trusted_catalog
+        ),
         taxonomy_resolver=get_test_resolver(),
         capability_snapshot=get_test_snapshot(),
         expected_scenario_id="scenario:v2:" + "a" * 64,
+        expected_catalog_pin=expected_catalog_pin,
     )
 
 
-def _admit_behavior(behavior, *, tree=None, envelope_mutator=None):
+def _admit_behavior(
+    behavior, *, tree=None, envelope_mutator=None, expected_catalog_pin=None
+):
     candidate, actor, narrative, valid_tree = _valid_parts()
     final_tree = tree or valid_tree
-    return _postbehavior_port(envelope_mutator=envelope_mutator)(
+    return _postbehavior_port(
+        envelope_mutator=envelope_mutator,
+        expected_catalog_pin=expected_catalog_pin,
+    )(
         candidate,
         GeneratedArtifacts(
             actor=actor, narrative=narrative, tree=valid_tree, behavior=behavior
@@ -1024,6 +1045,334 @@ def test_positive_complete_postbehavior_admission_is_verify_only() -> None:
     assert decision.admitted
     assert isinstance(decision.value, PostbehaviorAdmissionReport)
     assert all(result.valid for result in decision.value.gate_results)
+
+
+def test_supplied_and_embedded_forged_catalog_pin_cannot_bypass_trusted_pin() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+    forged_pin = "f" * 64
+
+    def forge_embedded_pin(envelope):
+        projection = envelope.projection.projection.model_copy(
+            update={"catalog_pin": forged_pin}
+        )
+        object.__setattr__(envelope.projection, "projection", projection)
+
+    decision = _admit_behavior(
+        behavior,
+        envelope_mutator=forge_embedded_pin,
+        expected_catalog_pin=forged_pin,
+    )
+
+    assert not decision.admitted
+    trusted = [
+        violation
+        for violation in decision.violations
+        if violation.code == GateCode.trusted_context.value
+        or "catalog_pin" in violation.detail
+    ]
+    assert trusted
+    assert all(not violation.retryable for violation in trusted)
+
+
+def test_absent_pattern_still_recomputes_and_checks_supplied_catalog_pin() -> None:
+    candidate, actor, narrative, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+
+    decision = _postbehavior_port(trusted_catalog=[], expected_catalog_pin="f" * 64)(
+        candidate,
+        GeneratedArtifacts(
+            actor=actor, narrative=narrative, tree=tree, behavior=behavior
+        ),
+        FinalTreeSemanticSnapshot.capture(tree),
+    )
+
+    assert not decision.admitted
+    codes = {violation.code for violation in decision.violations}
+    assert GateCode.candidate_identity.value in codes
+    assert GateCode.trusted_context.value in codes
+    assert all(
+        not violation.retryable
+        for violation in decision.violations
+        if violation.code
+        in {GateCode.candidate_identity.value, GateCode.trusted_context.value}
+    )
+
+
+@pytest.mark.parametrize(
+    ("code", "stage", "element_id", "expected"),
+    [
+        (
+            ProjectionTraceabilityViolationCode.forged_opaque_id,
+            ProjectionTraceabilityStage.actor_profile,
+            "forged-candidate",
+            None,
+        ),
+        (
+            ProjectionTraceabilityViolationCode.ingress_identity_mismatch,
+            ProjectionTraceabilityStage.actor_profile,
+            "envelope.initial_entry_point_id",
+            None,
+        ),
+        (
+            ProjectionTraceabilityViolationCode.ingress_identity_mismatch,
+            ProjectionTraceabilityStage.actor_profile,
+            "actor_profile.access.initial_entry_point_id",
+            GeneratedStage.actor,
+        ),
+        (
+            ProjectionTraceabilityViolationCode.ingress_identity_mismatch,
+            ProjectionTraceabilityStage.narrative,
+            "1",
+            GeneratedStage.narrative,
+        ),
+        (
+            ProjectionTraceabilityViolationCode.ingress_identity_mismatch,
+            ProjectionTraceabilityStage.attack_tree,
+            "n1.1",
+            GeneratedStage.tree,
+        ),
+        (
+            ProjectionTraceabilityViolationCode.reordered_projected_step,
+            ProjectionTraceabilityStage.narrative,
+            "1",
+            GeneratedStage.narrative,
+        ),
+        (
+            ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+            ProjectionTraceabilityStage.attack_tree,
+            "n1.1",
+            GeneratedStage.tree,
+        ),
+        (
+            ProjectionTraceabilityViolationCode.postcondition_assertion_mismatch,
+            ProjectionTraceabilityStage.behavior_spec,
+            "assert-1",
+            GeneratedStage.behavior,
+        ),
+    ],
+)
+def test_trace_owner_routing_is_explicit_by_code_and_source(
+    code, stage, element_id, expected
+) -> None:
+    item = ProjectionTraceabilityViolation(
+        code=code, stage=stage, detail="test", element_id=element_id
+    )
+
+    assert _owner_for_trace(item) is expected
+
+
+@pytest.mark.parametrize(
+    ("rule", "expected"),
+    [
+        ("zone_in_profile", GeneratedStage.narrative),
+        ("goal_actor_mismatch", GeneratedStage.actor),
+        ("technique_exists", GeneratedStage.tree),
+        ("zone_omission_gherkin", GeneratedStage.behavior),
+        ("missing_access_realization", GeneratedStage.narrative),
+        ("realization_entry_point_mismatch", GeneratedStage.narrative),
+        ("realization_influence_source_mismatch", GeneratedStage.narrative),
+        ("realization_trust_boundary_mismatch", GeneratedStage.narrative),
+        ("realization_step_not_found", GeneratedStage.narrative),
+        ("direct_realization_has_indirect_ref", GeneratedStage.narrative),
+    ],
+)
+def test_semantic_owner_routing_is_explicit(rule: str, expected) -> None:
+    assert _SEMANTIC_OWNER_BY_RULE[rule] is expected
+
+
+def test_recomputed_candidate_identity_failure_is_nonretryable() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+
+    def forge_candidate_id(envelope):
+        object.__setattr__(envelope, "candidate_id", "cand:v2:" + "f" * 32)
+
+    decision = _admit_behavior(behavior, envelope_mutator=forge_candidate_id)
+
+    assert not decision.admitted
+    forged = [
+        violation
+        for violation in decision.violations
+        if "recomputed projected candidate ID" in violation.detail
+    ]
+    assert forged
+    assert all(
+        not violation.retryable and violation.owner is None for violation in forged
+    )
+
+
+def test_goal_actor_semantic_failure_routes_to_actor() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+
+    def mismatch_goal_and_actor(envelope):
+        envelope.actor_profile = envelope.actor_profile.model_copy(
+            update={"goal_category": "IN-7.1"}
+        )
+
+    decision = _admit_behavior(behavior, envelope_mutator=mismatch_goal_and_actor)
+
+    assert not decision.admitted
+    failures = [
+        violation
+        for violation in decision.violations
+        if "Supply-chain goal" in violation.detail
+    ]
+    assert failures
+    assert all(violation.owner is GeneratedStage.actor for violation in failures)
+
+
+def test_zone_in_profile_semantic_failure_routes_to_narrative() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+
+    def add_unknown_narrative_zone(envelope):
+        envelope.narrative.zone_sequence.append("memory")
+
+    decision = _admit_behavior(behavior, envelope_mutator=add_unknown_narrative_zone)
+
+    assert not decision.admitted
+    failures = [
+        violation
+        for violation in decision.violations
+        if "not in profile's zones_active" in violation.detail
+    ]
+    assert failures
+    assert all(violation.owner is GeneratedStage.narrative for violation in failures)
+
+
+def test_aggregate_postbehavior_owners_route_earliest_generated_stage() -> None:
+    violations = tuple(
+        GateViolation(GateCode.semantic, owner.value, owner).lifecycle()
+        for owner in (
+            GeneratedStage.behavior,
+            GeneratedStage.tree,
+            GeneratedStage.narrative,
+            GeneratedStage.actor,
+        )
+    )
+
+    assert earliest_generated_owner(violations) is GeneratedStage.actor
+
+
+@pytest.mark.parametrize("admitted", [True, False])
+def test_postbehavior_admission_is_pure_for_success_and_failure(admitted: bool) -> None:
+    candidate, actor, narrative, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+    if not admitted:
+        behavior = behavior.model_copy(
+            update={"assertions": (), "gherkin_text": "invalid"}
+        )
+    artifacts = GeneratedArtifacts(
+        actor=actor, narrative=narrative, tree=tree, behavior=behavior
+    )
+    snapshot = FinalTreeSemanticSnapshot.capture(tree)
+    inputs = (candidate, actor, narrative, tree, behavior)
+    before = tuple(
+        canonical_json_bytes(item.model_dump(mode="json")) for item in inputs
+    )
+
+    decision = _postbehavior_port()(candidate, artifacts, snapshot)
+
+    after = tuple(canonical_json_bytes(item.model_dump(mode="json")) for item in inputs)
+    assert decision.admitted is admitted
+    assert after == before
+    snapshot.verify_digest()
+
+
+def test_legacy_keyword_is_readable_but_strict_admission_rejects_it() -> None:
+    candidate, actor, narrative, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+    legacy_action = behavior.actions[0].model_copy(update={"gherkin_keyword": "Given"})
+    legacy_actions = (legacy_action, *behavior.actions[1:])
+    legacy_behavior = behavior.model_copy(
+        update={
+            "actions": legacy_actions,
+            "gherkin_text": render_gherkin_from_behavior_spec(
+                list(legacy_actions), list(behavior.assertions)
+            ),
+        }
+    )
+    block = _build_projection_block(
+        candidate, narrative, tree, legacy_behavior, get_test_snapshot()
+    )
+    envelope = _make_envelope(
+        block,
+        tree=tree,
+        narrative=narrative,
+        actor=actor,
+        behavior_spec=legacy_behavior,
+    )
+
+    legacy_violations = _check_step_semantic_compatibility(envelope, block)
+    decision = _admit_behavior(legacy_behavior)
+
+    assert not any("gherkin_keyword" in item.detail for item in legacy_violations)
+    assert not decision.admitted
+    assert any(
+        item.code == GateCode.tree_action_mismatch.value
+        and item.owner is GeneratedStage.tree
+        for item in decision.violations
+    )
+
+
+def test_full_concrete_phase3b_finalization_composition(monkeypatch) -> None:
+    candidate, actor, narrative, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+    call3_trees: list[AttackTree] = []
+    prepared = SimpleNamespace(candidate_id=candidate.candidate_id)
+
+    def call3(_prepared, generated_narrative, finalized_tree):
+        assert generated_narrative == narrative
+        call3_trees.append(finalized_tree)
+        return SimpleNamespace(artifact=behavior, evidence={"call": 3})
+
+    monkeypatch.setattr(
+        "scenario_forge.pipeline.generate.stages.generate_behavior_stage", call3
+    )
+
+    def generated_stage(_candidate, invocation):
+        return GeneratedStageResult(
+            {
+                GeneratedStage.actor: actor,
+                GeneratedStage.narrative: narrative,
+                GeneratedStage.tree: tree,
+            }[invocation.stage]
+        )
+
+    entry = CoveragePlanEntry(
+        entry_point_id=candidate.canonical_ingress.entry_point_id,
+        entry_point_name="test",
+        ordered_choices=[{"candidate_id": candidate.candidate_id}],
+        primary_candidate_id=candidate.candidate_id,
+        primary_state="selected",
+        fallback_available=[],
+    )
+    machine = TargetFinalizationMachine(
+        entry=entry,
+        stage_callbacks={
+            GeneratedStage.actor: generated_stage,
+            GeneratedStage.narrative: generated_stage,
+            GeneratedStage.tree: generated_stage,
+            GeneratedStage.behavior: make_assertions_only_behavior_callback(prepared),
+        },
+        candidate_revalidator=lambda _ref: CandidateValidation(candidate),
+        prebehavior_finalizer=make_prebehavior_finalizer(get_test_snapshot()),
+        admission_callback=_postbehavior_port(),
+        persistence=_Persistence(),
+        attempted_candidate_ids=set(),
+    )
+
+    result = machine.run()
+
+    assert result.state is LifecycleState.admitted
+    assert result.admission is not None and result.admission.admitted
+    assert len(call3_trees) == 1
+    assert call3_trees[0] is not tree
+    assert FinalTreeSemanticSnapshot.capture(call3_trees[0]).digest == (
+        FinalTreeSemanticSnapshot.capture(tree).digest
+    )
 
 
 @pytest.mark.parametrize("direction", ["tree_without_action", "action_without_tree"])

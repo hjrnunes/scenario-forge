@@ -29,6 +29,7 @@ from scenario_forge.models.capability_profile import (
     compute_tool_id,
 )
 from scenario_forge.models.scenario import (
+    BehaviorAction,
     BehaviorSpec,
     NarrativeLayer,
     NarrativeStep,
@@ -42,7 +43,10 @@ from scenario_forge.pipeline.generate import (
     _collect_leaf_nodes_dfs,
     _enumerate_paths,
 )
-from scenario_forge.pipeline.generate.assembly import _build_projection_context
+from scenario_forge.pipeline.generate.assembly import (
+    _build_projection_context,
+    render_gherkin_from_behavior_spec,
+)
 from scenario_forge.pipeline.generate.gherkin import (
     Call3Assertion,
     Call3Response,
@@ -1391,6 +1395,57 @@ class TestBuildGherkinTemplateOrGates:
 # ---------------------------------------------------------------------------
 # Tests: OR-gate Call 3 assertion splicing
 # ---------------------------------------------------------------------------
+
+
+def test_renderer_preserves_when_to_then_keyword_transition() -> None:
+    actions = [
+        BehaviorAction(
+            action_id="ba-n1.1",
+            projected_step_ids=("step.1",),
+            source_leaf_id="n1.1",
+            gherkin_keyword="When",
+            text="the attacker enters",
+            realizations=make_realizations(("step.1",)),
+        ),
+        BehaviorAction(
+            action_id="ba-n1.2",
+            projected_step_ids=("step.2",),
+            source_leaf_id="n1.2",
+            gherkin_keyword="Then",
+            text="the impact is observed",
+            realizations=make_realizations(("step.2",)),
+        ),
+    ]
+
+    rendered = render_gherkin_from_behavior_spec(actions, [])
+
+    assert "    When the attacker enters\n" in rendered
+    assert "    Then the impact is observed\n" in rendered
+    assert "    And the impact is observed\n" not in rendered
+
+
+def test_renderer_preserves_given_to_when_and_compacts_repeated_when() -> None:
+    actions = [
+        BehaviorAction(
+            action_id=f"ba-n1.{index}",
+            projected_step_ids=(f"step.{index}",),
+            source_leaf_id=f"n1.{index}",
+            gherkin_keyword=keyword,
+            text=text,
+            realizations=make_realizations((f"step.{index}",)),
+        )
+        for index, keyword, text in (
+            (1, "Given", "external access exists"),
+            (2, "When", "the attacker enters"),
+            (3, "When", "the system processes input"),
+        )
+    ]
+
+    rendered = render_gherkin_from_behavior_spec(actions, [])
+
+    assert "    Given external access exists\n" in rendered
+    assert "    When the attacker enters\n" in rendered
+    assert "    And the system processes input\n" in rendered
 
 
 class TestCallBehaviorSpecValidation:

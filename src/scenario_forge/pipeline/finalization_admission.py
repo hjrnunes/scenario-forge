@@ -45,15 +45,74 @@ from scenario_forge.pipeline.validation import (
 
 EnvelopeAssembler = Callable[[Any, Any, Any, Any, Any], Any]
 
-_IMMUTABLE_TRACE_CODES = {
-    ProjectionTraceabilityViolationCode.nested_mutation,
-    ProjectionTraceabilityViolationCode.projection_drift,
-    ProjectionTraceabilityViolationCode.requirement_drift,
-}
 _SEMANTIC_DIAGNOSTIC_RULES = {
     "missing_scenario_threat_id",
     "zone_omission_tree",
     "zone_omission_gherkin",
+}
+_TRACE_OWNER_BY_STAGE = {
+    ProjectionTraceabilityStage.actor_profile: GeneratedStage.actor,
+    ProjectionTraceabilityStage.narrative: GeneratedStage.narrative,
+    ProjectionTraceabilityStage.attack_tree: GeneratedStage.tree,
+    ProjectionTraceabilityStage.behavior_spec: GeneratedStage.behavior,
+}
+_TRACE_OWNER_OVERRIDES: dict[
+    tuple[ProjectionTraceabilityViolationCode, ProjectionTraceabilityStage],
+    GeneratedStage | None,
+] = {
+    **{
+        (code, stage): None
+        for code in (
+            ProjectionTraceabilityViolationCode.nested_mutation,
+            ProjectionTraceabilityViolationCode.projection_drift,
+            ProjectionTraceabilityViolationCode.requirement_drift,
+        )
+        for stage in ProjectionTraceabilityStage
+    },
+    (
+        ProjectionTraceabilityViolationCode.forged_opaque_id,
+        ProjectionTraceabilityStage.actor_profile,
+    ): None,
+}
+_SEMANTIC_OWNER_BY_RULE: dict[str, GeneratedStage | None] = {
+    "technique_exists": GeneratedStage.tree,
+    "threat_id_range": GeneratedStage.tree,
+    "missing_scenario_threat_id": GeneratedStage.tree,
+    "narrative_technique_orphan": GeneratedStage.narrative,
+    "zone_in_profile": GeneratedStage.narrative,
+    "zone_omission_tree": GeneratedStage.tree,
+    "zone_omission_gherkin": GeneratedStage.behavior,
+    "zone_coverage_dropout": GeneratedStage.narrative,
+    "untyped-tool-execution": GeneratedStage.tree,
+    "unknown_entry_point_id": GeneratedStage.tree,
+    "inaccessible_ingress_entry_point": GeneratedStage.tree,
+    "phantom_tool": GeneratedStage.tree,
+    "unknown_integration_id": GeneratedStage.tree,
+    "seed_technique_provenance": GeneratedStage.tree,
+    "goal_actor_mismatch": GeneratedStage.actor,
+    "goal_mechanism_mismatch": GeneratedStage.actor,
+    "missing_access_provenance": GeneratedStage.actor,
+    "unresolved_entry_point_id": GeneratedStage.actor,
+    "ineligible_ingress_entry_point": GeneratedStage.actor,
+    "system_entry_point_as_ingress": GeneratedStage.actor,
+    "ingress_mode_controllability_mismatch": GeneratedStage.actor,
+    "unresolved_influence_source": GeneratedStage.actor,
+    "self_relation_influence_source": GeneratedStage.actor,
+    "output_influence_source": GeneratedStage.actor,
+    "system_influence_source": GeneratedStage.actor,
+    "unresolved_trust_boundary": GeneratedStage.actor,
+    "trust_boundary_target_zone_mismatch": GeneratedStage.actor,
+    "trust_boundary_source_zone_mismatch": GeneratedStage.actor,
+    "external_boundary_source_not_indirect": GeneratedStage.actor,
+    "access_class_ingress_mode_incompatible": GeneratedStage.actor,
+    "incomplete_indirect_evidence": GeneratedStage.actor,
+    "missing_insider_advantage": GeneratedStage.actor,
+    "missing_access_realization": GeneratedStage.narrative,
+    "realization_entry_point_mismatch": GeneratedStage.narrative,
+    "realization_influence_source_mismatch": GeneratedStage.narrative,
+    "realization_trust_boundary_mismatch": GeneratedStage.narrative,
+    "realization_step_not_found": GeneratedStage.narrative,
+    "direct_realization_has_indirect_ref": GeneratedStage.narrative,
 }
 
 
@@ -83,14 +142,14 @@ def _keyword(leaf: Any) -> str:
 
 
 def _owner_for_trace(item: Any) -> GeneratedStage | None:
-    if item.code in _IMMUTABLE_TRACE_CODES:
-        return None
-    return {
-        ProjectionTraceabilityStage.actor_profile: GeneratedStage.actor,
-        ProjectionTraceabilityStage.narrative: GeneratedStage.narrative,
-        ProjectionTraceabilityStage.attack_tree: GeneratedStage.tree,
-        ProjectionTraceabilityStage.behavior_spec: GeneratedStage.behavior,
-    }[item.stage]
+    if item.code is ProjectionTraceabilityViolationCode.ingress_identity_mismatch:
+        return {
+            "envelope.initial_entry_point_id": None,
+            "actor_profile.access.initial_entry_point_id": GeneratedStage.actor,
+        }.get(item.element_id, _TRACE_OWNER_BY_STAGE[item.stage])
+    return _TRACE_OWNER_OVERRIDES.get(
+        (item.code, item.stage), _TRACE_OWNER_BY_STAGE[item.stage]
+    )
 
 
 def _owner_for_structural(detail: str) -> GeneratedStage | None:
@@ -166,6 +225,24 @@ class PostbehaviorAdmissionPort:
             )
         gate_results.append(GateResult(tuple(identity)))
 
+        authoritative_pin = compute_authoritative_catalog_pin(
+            self.trusted_catalog, self.taxonomy_resolver
+        )
+        trusted_context: list[GateViolation] = []
+        if (
+            self.expected_catalog_pin is not None
+            and self.expected_catalog_pin != authoritative_pin
+        ):
+            trusted_context.append(
+                _gate(
+                    GateCode.trusted_context,
+                    "supplied expected catalog pin differs from trusted "
+                    "catalog recomputation",
+                    None,
+                )
+            )
+        gate_results.append(GateResult(tuple(trusted_context)))
+
         pattern = next(
             (
                 record
@@ -187,18 +264,12 @@ class PostbehaviorAdmissionPort:
                 )
             )
         else:
-            expected_pin = (
-                self.expected_catalog_pin
-                or compute_authoritative_catalog_pin(
-                    self.trusted_catalog, self.taxonomy_resolver
-                )
-            )
             trace = validate_projection_traceability(
                 envelope,
                 authoritative_pattern=pattern,
                 taxonomy_resolver=self.taxonomy_resolver,
                 capability_snapshot=self.capability_snapshot,
-                expected_catalog_pin=expected_pin,
+                expected_catalog_pin=authoritative_pin,
             )
             gate_results.append(
                 GateResult(
@@ -246,15 +317,11 @@ class PostbehaviorAdmissionPort:
         semantic_hard: list[GateViolation] = []
         semantic_diagnostics: list[GateViolation] = []
         for item in semantic.violations:
-            owner = (
-                GeneratedStage.behavior
-                if "gherkin" in item.rule
-                else GeneratedStage.narrative
-                if "narrative" in item.rule
-                else GeneratedStage.actor
-                if "access" in item.rule
-                else GeneratedStage.tree
-            )
+            # Traceability emits source-qualified evidence for this overloaded
+            # rule, so do not duplicate it with an ownerless semantic string.
+            if item.rule == "initial_entry_point_id_mismatch":
+                continue
+            owner = _SEMANTIC_OWNER_BY_RULE.get(item.rule)
             violation = _gate(GateCode.semantic, item.message, owner)
             if item.rule in _SEMANTIC_DIAGNOSTIC_RULES:
                 semantic_diagnostics.append(violation)
