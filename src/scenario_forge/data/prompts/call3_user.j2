@@ -28,6 +28,19 @@ zone, and the eligible Gherkin keyword for its action semantics.
   - action_kind: {{ leaf.action_kind }}
   - zone: {{ leaf.zone }}
   - eligible_keyword: {{ leaf.eligible_keyword }}
+{% if leaf.step_semantics is defined and leaf.step_semantics %}
+  - step_semantics (copy these into the action's `realizations` array):
+{% for ss in leaf.step_semantics %}    - step_id: {{ ss.step_id }}
+      - action_kind: {{ ss.action_kind }}
+      - executor_role: {{ ss.executor_role }}
+      - boundary_position: {{ ss.boundary_position }}
+      - resource_ref_ids: {{ ss.resource_ref_ids | tojson }}
+      - consumed_ref_ids: {{ ss.consumed_ref_ids | tojson }}
+      - produced_ref_ids: {{ ss.produced_ref_ids | tojson }}
+      - produced_effect_ids: {{ ss.produced_effect_ids | tojson }}
+      - outcome_link_pc_ids: {{ ss.outcome_link_pc_ids | tojson }}
+      - postcondition_ids: {{ ss.postcondition_ids | tojson }}
+{% endfor %}{% endif %}
 {% endfor %}
 
 ## Postcondition Ownership Table

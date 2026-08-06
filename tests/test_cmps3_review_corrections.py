@@ -98,6 +98,7 @@ from tests.helpers.projection_factory import (
     make_behavior_spec,
     make_projection_block,
 )
+from tests.helpers.realization_helper import make_realizations
 
 
 @pytest.fixture(autouse=True)
@@ -218,9 +219,12 @@ def _make_envelope(
                 action="I craft a malicious prompt.",
                 effect="The system processes the input.",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )

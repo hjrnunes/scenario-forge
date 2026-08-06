@@ -23,6 +23,7 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.generate import generate_scenario
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -86,9 +87,12 @@ def _make_narrative(entry_point: str = "user prompts (input)") -> NarrativeLayer
                 action="Craft adversarial prompt",
                 effect="Prompt enters system",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )

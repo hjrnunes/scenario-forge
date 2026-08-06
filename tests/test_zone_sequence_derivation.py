@@ -22,6 +22,7 @@ from scenario_forge.pipeline.generate import (
     _enforce_zones_narrative,
     _map_call1_to_narrative,
 )
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # _derive_zone_sequence unit tests
@@ -40,9 +41,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             Call1Step(
                 step_number=2,
@@ -50,9 +54,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=3,
@@ -60,9 +67,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ]
         assert _derive_zone_sequence(steps) == [
@@ -80,9 +90,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             Call1Step(
                 step_number=2,
@@ -90,9 +103,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=3,
@@ -100,9 +116,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=4,
@@ -110,9 +129,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.4",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.4",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=5,
@@ -120,9 +142,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.5",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.5",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ]
         assert _derive_zone_sequence(steps) == [
@@ -140,9 +165,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             Call1Step(
                 step_number=2,
@@ -150,9 +178,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=3,
@@ -160,9 +191,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=4,
@@ -170,9 +204,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.4",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.4",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ]
         assert _derive_zone_sequence(steps) == [
@@ -191,9 +228,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ]
         assert _derive_zone_sequence(steps) == ["input"]
@@ -207,9 +247,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=(f"step.{i}",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    (f"step.{i}",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             )
             for i in range(1, 6)
         ]
@@ -228,9 +271,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             Call1Step(
                 step_number=2,
@@ -238,9 +284,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=3,
@@ -248,9 +297,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=4,
@@ -258,9 +310,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.4",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.4",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=5,
@@ -268,9 +323,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.5",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.5",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=6,
@@ -278,9 +336,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.6",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.6",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=7,
@@ -288,9 +349,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.7",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.7",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             Call1Step(
                 step_number=8,
@@ -298,9 +362,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.8",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.8",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ]
         assert _derive_zone_sequence(steps) == [
@@ -320,9 +387,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
@@ -330,9 +400,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             NarrativeStep(
                 step_number=3,
@@ -340,9 +413,12 @@ class TestDeriveZoneSequence:
                 action="a",
                 effect="e",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ]
         assert _derive_zone_sequence(steps) == ["input", "reasoning", "input"]
@@ -371,9 +447,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 Call1Step(
                     step_number=2,
@@ -381,9 +460,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.2",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 Call1Step(
                     step_number=3,
@@ -391,9 +473,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.3",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.3",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 # LLM collapsed this revisitation in zone_sequence
                 Call1Step(
@@ -402,9 +487,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.4",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.4",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -431,9 +519,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 Call1Step(
                     step_number=2,
@@ -441,9 +532,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.2",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 Call1Step(
                     step_number=3,
@@ -451,9 +545,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.3",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.3",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 Call1Step(
                     step_number=4,
@@ -461,9 +558,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.4",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.4",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -485,9 +585,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 Call1Step(
                     step_number=2,
@@ -495,9 +598,12 @@ class TestMapCall1UsesDerivation:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.2",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -523,9 +629,12 @@ class TestZoneActiveFilteringOnDerived:
                 action=f"action in {z}",
                 effect=f"effect in {z}",
                 projected_step_ids=(f"step.{i + 1}",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    (f"step.{i + 1}",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             )
             for i, z in enumerate(step_zones)
         ]

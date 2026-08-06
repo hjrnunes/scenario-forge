@@ -34,6 +34,7 @@ from scenario_forge.pipeline.generate import (
     _format_skeleton_yaml,
     _validate_mandatory_leaves,
 )
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -52,9 +53,12 @@ def _make_narrative(
                 action="Craft a prompt injection [AML.T0054] payload",
                 effect="Input accepted by the system",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
@@ -62,9 +66,12 @@ def _make_narrative(
                 action="LLM processes the injected prompt",
                 effect="Agent reasoning compromised",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             NarrativeStep(
                 step_number=3,
@@ -72,9 +79,12 @@ def _make_narrative(
                 action="Agent invokes unauthorized tool [AML.T0053]",
                 effect="Tool executes attacker's command",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ]
     if zone_sequence is None:
@@ -242,9 +252,12 @@ class TestBuildTreeSkeleton:
                 action="Perform LLM Jailbreak to bypass safety filters",
                 effect="Safety constraints overridden",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ]
         narrative = _make_narrative(steps=steps, zone_sequence=["reasoning"])
@@ -294,9 +307,12 @@ class TestBuildTreeSkeleton:
                 action="attacker performs rag poisoning attack",
                 effect="Knowledge base corrupted",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ]
         narrative = _make_narrative(steps=steps, zone_sequence=["input"])
@@ -317,9 +333,12 @@ class TestBuildTreeSkeleton:
                 action="Send request to API",
                 effect="AI Agent Tool Invocation [AML.T0053] succeeds",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ]
         narrative = _make_narrative(steps=steps, zone_sequence=["tool_execution"])
@@ -582,9 +601,12 @@ class TestTechniqueZoneConstraints:
                     action="Agent processes tool invocation AML.T0053",
                     effect="Unauthorized tool call",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             zone_sequence=["reasoning"],
@@ -610,9 +632,12 @@ class TestTechniqueZoneConstraints:
                     action="Attacker crafts LLM Jailbreak [AML.T0054] prompt",
                     effect="Jailbreak payload delivered",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             zone_sequence=["input"],
@@ -639,9 +664,12 @@ class TestTechniqueZoneConstraints:
                     action="AI generates hallucinated content AML.T0060",
                     effect="False information published",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             zone_sequence=["tool_execution"],
@@ -664,9 +692,12 @@ class TestTechniqueZoneConstraints:
                     action="Attacker obtains capabilities AML.T0016",
                     effect="Resources acquired",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             zone_sequence=["reasoning"],
@@ -691,9 +722,12 @@ class TestTechniqueZoneConstraints:
                     action="Generic unrelated action",
                     effect="Something happens",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             zone_sequence=["input"],

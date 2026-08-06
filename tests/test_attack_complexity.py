@@ -76,6 +76,7 @@ from tests.helpers.projection_factory import (
     make_behavior_spec,
     make_projection_block,
 )
+from tests.helpers.realization_helper import make_realizations
 
 ZERO = "0" * 64
 
@@ -1294,9 +1295,12 @@ def _three_zone_narrative() -> Any:
                 action="Craft prompt",
                 effect="Enters",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
@@ -1304,9 +1308,12 @@ def _three_zone_narrative() -> Any:
                 action="Trick",
                 effect="Reasons",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             NarrativeStep(
                 step_number=3,
@@ -1314,9 +1321,12 @@ def _three_zone_narrative() -> Any:
                 action="Read",
                 effect="Recalls",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ],
     )
@@ -1461,9 +1471,12 @@ def _envelope_with_assessment(
                     action="Act",
                     effect="Effect",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 )
             ],
         ),

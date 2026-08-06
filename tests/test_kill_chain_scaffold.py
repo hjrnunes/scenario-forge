@@ -23,6 +23,7 @@ from scenario_forge.pipeline.generate.tree import build_call2_context
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
 from scenario_forge.prompts import render_prompt
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -172,9 +173,12 @@ def _make_narrative() -> NarrativeLayer:
                 effect="Input accepted",
                 control_point=None,
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )

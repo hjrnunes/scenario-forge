@@ -19,6 +19,7 @@ from scenario_forge.pipeline.generate import (
     compute_entry_point_affinity,
     get_overused_entry_points,
 )
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # compute_entry_point_affinity
@@ -314,9 +315,12 @@ class TestNarrativePromptIntegration:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -370,9 +374,12 @@ class TestNarrativePromptIntegration:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -425,9 +432,12 @@ class TestNarrativePromptIntegration:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -479,9 +489,12 @@ class TestNarrativePromptIntegration:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )

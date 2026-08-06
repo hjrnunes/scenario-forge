@@ -48,7 +48,11 @@ from scenario_forge.pipeline.generate.gherkin import (
     Call3Response,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
-from tests.helpers.projection_factory import get_projected_candidate
+from tests.helpers.projection_factory import (
+    get_projected_candidate,
+    make_step_realizations,
+)
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -114,9 +118,12 @@ def _make_narrative() -> NarrativeLayer:
                 action="Submit crafted prompt",
                 effect="Prompt accepted by input handler",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
@@ -124,9 +131,12 @@ def _make_narrative() -> NarrativeLayer:
                 action="Exploit reasoning engine",
                 effect="Model generates deceptive output",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ],
     )
@@ -623,9 +633,12 @@ class TestBuildGherkinTemplate:
                     action="Submit query",
                     effect="Query accepted",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -757,7 +770,6 @@ def _make_call3_response():
     candidate = get_projected_candidate()
     selected = candidate.projection.selected_step_ids
     chain = candidate.projection.source_chain
-    step_by_id = {s.step_id: s for s in chain.steps}
 
     actions = [
         Call3Action(
@@ -766,9 +778,7 @@ def _make_call3_response():
             source_leaf_id=f"n1.{i + 1}",
             gherkin_keyword="When",
             text=f"Perform action for {sid}",
-            canonical_action_kind=step_by_id[sid].action_kind,
-            canonical_executor_role=step_by_id[sid].executor_role,
-            canonical_boundary_position=step_by_id[sid].boundary_position,
+            realizations=make_step_realizations((sid,)),
         )
         for i, sid in enumerate(selected)
     ]
@@ -870,9 +880,7 @@ class TestCallBehaviorSpecIntegration:
             source_leaf_id=response.actions[0].source_leaf_id,
             gherkin_keyword=response.actions[0].gherkin_keyword,
             text=response.actions[0].text,
-            canonical_action_kind=response.actions[0].canonical_action_kind,
-            canonical_executor_role=response.actions[0].canonical_executor_role,
-            canonical_boundary_position=response.actions[0].canonical_boundary_position,
+            realizations=response.actions[0].realizations,
         )
         client = _make_mock_client_call3(response)
         with pytest.raises(ValueError, match="unprojected step"):
@@ -896,9 +904,7 @@ class TestCallBehaviorSpecIntegration:
             source_leaf_id="n9.9",
             gherkin_keyword=response.actions[0].gherkin_keyword,
             text=response.actions[0].text,
-            canonical_action_kind=response.actions[0].canonical_action_kind,
-            canonical_executor_role=response.actions[0].canonical_executor_role,
-            canonical_boundary_position=response.actions[0].canonical_boundary_position,
+            realizations=response.actions[0].realizations,
         )
         client = _make_mock_client_call3(response)
         with pytest.raises(ValueError, match="nonexistent tree leaf"):
@@ -1434,9 +1440,7 @@ class TestCallBehaviorSpecValidation:
             source_leaf_id=response.actions[1].source_leaf_id,
             gherkin_keyword=response.actions[1].gherkin_keyword,
             text=response.actions[1].text,
-            canonical_action_kind=response.actions[1].canonical_action_kind,
-            canonical_executor_role=response.actions[1].canonical_executor_role,
-            canonical_boundary_position=response.actions[1].canonical_boundary_position,
+            realizations=response.actions[1].realizations,
         )
         client = _make_mock_client_call3(response)
         with pytest.raises(ValueError, match="Duplicate behavior action ID"):

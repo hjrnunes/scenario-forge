@@ -42,6 +42,7 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.validation import validate_scenario_structure
 from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,9 +58,12 @@ def _make_envelope(**overrides) -> ScenarioEnvelope:
             action="I craft a malicious prompt.",
             effect="The system processes the input.",
             projected_step_ids=("step.1",),
-            canonical_action_kind="prepare",
-            canonical_executor_role="attacker",
-            canonical_boundary_position="crossing",
+            realizations=make_realizations(
+                ("step.1",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         ),
     ]
     narrative = NarrativeLayer(

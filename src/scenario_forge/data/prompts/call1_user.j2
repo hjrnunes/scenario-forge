@@ -37,6 +37,21 @@ The following tactical progression is derived from real-world case study evidenc
 ---
 
 {% include "_projection_constraints.j2" %}
+## Projection Traceability (REQUIRED — scenario-forge-422o.4)
+Each narrative step MUST include a `realizations` array with one record per
+`projected_step_id`.  Each record carries the canonical step semantics:
+- `projected_step_id`: the exact step ID from the Projection Constraints
+- `action_kind`, `executor_role`, `boundary_position`: echo verbatim from the
+  Selected Projected Steps section
+- `resource_ref_ids`: concrete resource reference IDs for this step's resource_links
+- `consumed_ref_ids`: consumed reference IDs from the step's consumed section
+- `produced_ref_ids`: produced reference IDs from the step's produced section
+- `produced_effect_ids`: produced reference IDs where kind == "effect"
+- `outcome_link_pc_ids`: postcondition IDs from the step's observable_outcome_links
+- `postcondition_ids`: postcondition IDs from the step's observable_postconditions
+Copy all fields verbatim from the Projection Constraints.  Never invent, omit,
+or modify canonical semantics.
+
 ## Your Task
 Write a concrete attack narrative for this attack pattern applied to the target system above.
 {% if pinned_entry_point and pinned_entry_point_direction == 'input' %}

@@ -38,6 +38,7 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.validation import validate_insider_access_floor
 from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 ENTRY_POINT_ID = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DEFAULT_INSIDER_ACCESS = ActorAccessProvenance(
@@ -73,9 +74,12 @@ def _make_envelope(
             action=action,
             effect=step_effects[i],
             projected_step_ids=(f"step.{i + 1}",),
-            canonical_action_kind="prepare",
-            canonical_executor_role="attacker",
-            canonical_boundary_position="crossing",
+            realizations=make_realizations(
+                (f"step.{i + 1}",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         )
         for i, action in enumerate(step_actions)
     ]

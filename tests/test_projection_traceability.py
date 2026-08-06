@@ -74,7 +74,9 @@ from scenario_forge.pipeline.projection_validation import (
 from tests.helpers.projection_factory import (
     get_projected_candidate,
     make_behavior_spec,
+    make_step_realizations,
 )
+from tests.helpers.realization_helper import make_realizations
 
 ZERO = "0" * 64
 
@@ -376,6 +378,32 @@ def _make_block(
     )
 
 
+def _collect_all_leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
+    """Collect all LEAF nodes from the tree (depth-first)."""
+    if node.gate == GateType.LEAF:
+        return [node]
+    leaves: list[AttackTreeNode] = []
+    if node.children:
+        for child in node.children:
+            leaves.extend(_collect_all_leaves(child))
+    return leaves
+
+
+def _replace_leaf(tree: AttackTree, new_leaf: AttackTreeNode) -> AttackTree:
+    """Replace a leaf in the tree by matching leaf.id, returning a new tree."""
+
+    def _replace_node(node: AttackTreeNode) -> AttackTreeNode:
+        if node.gate == GateType.LEAF and node.id == new_leaf.id:
+            return new_leaf
+        if node.children:
+            return node.model_copy(
+                update={"children": [_replace_node(c) for c in node.children]}
+            )
+        return node
+
+    return tree.model_copy(update={"root": _replace_node(tree.root)})
+
+
 def _make_tree(ingress_id: str) -> AttackTree:
     """Build a minimal valid AND-only attack tree matching the projection."""
     return AttackTree(
@@ -394,6 +422,7 @@ def _make_tree(ingress_id: str) -> AttackTree:
                     zone="input",
                     action=InitialIngressAction(entry_point_id=ingress_id),
                     projected_step_ids=("step.1",),
+                    realizations=make_step_realizations(("step.1",)),
                 ),
                 AttackTreeNode(
                     id="n1.2",
@@ -402,6 +431,7 @@ def _make_tree(ingress_id: str) -> AttackTree:
                     zone="reasoning",
                     action=AiSystemAction(),
                     projected_step_ids=("step.2",),
+                    realizations=make_step_realizations(("step.2",)),
                 ),
                 AttackTreeNode(
                     id="n1.3",
@@ -410,6 +440,7 @@ def _make_tree(ingress_id: str) -> AttackTree:
                     zone="reasoning",
                     action=ImpactAction(boundary="internal", target="data integrity"),
                     projected_step_ids=("step.3",),
+                    realizations=make_step_realizations(("step.3",)),
                 ),
             ],
         ),
@@ -429,9 +460,7 @@ def _make_narrative(ingress_id: str) -> NarrativeLayer:
                 action="gain access",
                 effect="entry",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_step_realizations(("step.1",)),
             ),
             NarrativeStep(
                 step_number=2,
@@ -439,9 +468,7 @@ def _make_narrative(ingress_id: str) -> NarrativeLayer:
                 action="exploit",
                 effect="control",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_step_realizations(("step.2",)),
             ),
             NarrativeStep(
                 step_number=3,
@@ -449,9 +476,7 @@ def _make_narrative(ingress_id: str) -> NarrativeLayer:
                 action="impact",
                 effect="damage",
                 projected_step_ids=("step.3",),
-                canonical_action_kind="impact",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_step_realizations(("step.3",)),
             ),
         ],
         access_realization=NarrativeAccessRealization(
@@ -468,6 +493,7 @@ def _make_envelope(
     narrative: NarrativeLayer | None = None,
     actor: ActorProfile | None = None,
     initial_entry_point_id: str | None = None,
+    behavior_spec: Any = None,
 ) -> ScenarioEnvelope:
     if block is None:
         block = _make_block()
@@ -510,7 +536,9 @@ def _make_envelope(
         projection=block,
         narrative=narrative,
         attack_tree=tree,
-        behavior_spec=make_behavior_spec("Feature: test"),
+        behavior_spec=behavior_spec
+        if behavior_spec is not None
+        else make_behavior_spec("Feature: test"),
         faceting=_make_faceting(),
         priority=_make_priority(),
         generation=_make_generation(),
@@ -770,9 +798,12 @@ class TestReorderedSteps:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=1,
@@ -780,9 +811,12 @@ class TestReorderedSteps:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -790,9 +824,12 @@ class TestReorderedSteps:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -887,9 +924,12 @@ class TestManyToManyCoverage:
                     action="gain access and exploit",
                     effect="entry and control",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -897,9 +937,12 @@ class TestManyToManyCoverage:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -992,6 +1035,7 @@ class TestResourceBinding:
                         zone="input",
                         action=InitialIngressAction(entry_point_id=ingress_id),
                         projected_step_ids=(selected[0],),
+                        realizations=make_realizations((selected[0],)),
                     ),
                     AttackTreeNode(
                         id="n1.2",
@@ -1002,6 +1046,7 @@ class TestResourceBinding:
                             tool_id="tool:v1:" + "f" * 32,
                         ),
                         projected_step_ids=(selected[1],),
+                        realizations=make_realizations((selected[1],)),
                     ),
                     AttackTreeNode(
                         id="n1.3",
@@ -1010,6 +1055,7 @@ class TestResourceBinding:
                         zone="reasoning",
                         action=ImpactAction(boundary="internal", target="integrity"),
                         projected_step_ids=(selected[2],),
+                        realizations=make_realizations((selected[2],)),
                     ),
                 ],
             ),
@@ -1936,9 +1982,12 @@ class TestExtraUnmappedNarrativeAction:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -1946,9 +1995,12 @@ class TestExtraUnmappedNarrativeAction:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -1956,9 +2008,12 @@ class TestExtraUnmappedNarrativeAction:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=4,
@@ -1966,9 +2021,12 @@ class TestExtraUnmappedNarrativeAction:
                     action="extra action",
                     effect="extra effect",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2009,6 +2067,7 @@ class TestPhysicallyReorderedTree:
                         zone="reasoning",
                         action=ImpactAction(boundary="internal", target="integrity"),
                         projected_step_ids=(selected[2],),
+                        realizations=make_realizations((selected[2],)),
                     ),
                     AttackTreeNode(
                         id="n1.2",
@@ -2017,6 +2076,7 @@ class TestPhysicallyReorderedTree:
                         zone="reasoning",
                         action=AiSystemAction(),
                         projected_step_ids=(selected[1],),
+                        realizations=make_realizations((selected[1],)),
                     ),
                     AttackTreeNode(
                         id="n1.3",
@@ -2025,6 +2085,7 @@ class TestPhysicallyReorderedTree:
                         zone="input",
                         action=InitialIngressAction(entry_point_id=ingress_id),
                         projected_step_ids=(selected[0],),
+                        realizations=make_realizations((selected[0],)),
                     ),
                 ],
             ),
@@ -2059,9 +2120,12 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Given the attacker has access",
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 BehaviorAction(
                     action_id="ba-2",
@@ -2069,9 +2133,12 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="When the system processes input",
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 BehaviorAction(
                     action_id="ba-3",
@@ -2079,9 +2146,12 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Then the impact occurs",
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ),
             assertions=(
@@ -2135,9 +2205,12 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Given the attacker has access",
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 BehaviorAction(
                     action_id="ba-2",
@@ -2145,9 +2218,12 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="When the system processes input",
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 BehaviorAction(
                     action_id="ba-3",
@@ -2155,9 +2231,12 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Then the impact occurs",
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ),
             assertions=(
@@ -2257,6 +2336,7 @@ class TestWrongStepResourceBinding:
                         zone="input",
                         action=InitialIngressAction(entry_point_id=ingress_id),
                         projected_step_ids=(selected[0],),
+                        realizations=make_realizations((selected[0],)),
                     ),
                     AttackTreeNode(
                         id="n1.2",
@@ -2265,6 +2345,7 @@ class TestWrongStepResourceBinding:
                         zone="tool_execution",
                         action=ToolInvocationAction(tool_id=tool_ref.tool_id),
                         projected_step_ids=(step_without_tool.step_id,),
+                        realizations=make_realizations((step_without_tool.step_id,)),
                     ),
                     AttackTreeNode(
                         id="n1.3",
@@ -2273,6 +2354,7 @@ class TestWrongStepResourceBinding:
                         zone="reasoning",
                         action=ImpactAction(boundary="internal", target="integrity"),
                         projected_step_ids=(selected[2],),
+                        realizations=make_realizations((selected[2],)),
                     ),
                 ],
             ),
@@ -2358,6 +2440,7 @@ class TestInvalidTechniqueMapping:
                         zone="input",
                         action=InitialIngressAction(entry_point_id=ingress_id),
                         projected_step_ids=(selected[0],),
+                        realizations=make_realizations((selected[0],)),
                         technique_id="AML.T0001",
                     ),
                     AttackTreeNode(
@@ -2367,6 +2450,7 @@ class TestInvalidTechniqueMapping:
                         zone="tool_execution",
                         action=AiSystemAction(),
                         projected_step_ids=(selected[1],),
+                        realizations=make_realizations((selected[1],)),
                         technique_id="AML.T9999",
                     ),
                     AttackTreeNode(
@@ -2376,6 +2460,7 @@ class TestInvalidTechniqueMapping:
                         zone="reasoning",
                         action=ImpactAction(boundary="internal", target="integrity"),
                         projected_step_ids=(selected[2],),
+                        realizations=make_realizations((selected[2],)),
                     ),
                 ],
             ),
@@ -2613,9 +2698,15 @@ class TestManyToManyRealization:
                     action="gain access and exploit",
                     effect="entry and control",
                     projected_step_ids=(selected[0], selected[1]),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (
+                            selected[0],
+                            selected[1],
+                        ),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -2623,9 +2714,12 @@ class TestManyToManyRealization:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2687,9 +2781,12 @@ class TestManyToManyRealization:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -2697,9 +2794,12 @@ class TestManyToManyRealization:
                     action="continue access",
                     effect="continued entry",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2707,9 +2807,12 @@ class TestManyToManyRealization:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=4,
@@ -2717,9 +2820,12 @@ class TestManyToManyRealization:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2800,9 +2906,12 @@ class TestUnmappedNarrativeAction:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep.model_construct(
                     step_number=2,
@@ -2810,9 +2919,12 @@ class TestUnmappedNarrativeAction:
                     action="unmapped action",
                     effect="unmapped effect",
                     projected_step_ids=(),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2820,9 +2932,12 @@ class TestUnmappedNarrativeAction:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2913,9 +3028,12 @@ class TestNarrativeCanonicalMetadata:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind=wrong_kind,
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind=wrong_kind,
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -2923,9 +3041,12 @@ class TestNarrativeCanonicalMetadata:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2933,9 +3054,12 @@ class TestNarrativeCanonicalMetadata:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -2969,9 +3093,12 @@ class TestNarrativeCanonicalMetadata:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
-                    canonical_action_kind=step1.action_kind,
-                    canonical_executor_role=step1.executor_role,
-                    canonical_boundary_position=step1.boundary_position,
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind=step1.action_kind,
+                        executor_role=step1.executor_role,
+                        boundary_position=step1.boundary_position,
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -2979,9 +3106,12 @@ class TestNarrativeCanonicalMetadata:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -2989,9 +3119,12 @@ class TestNarrativeCanonicalMetadata:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -3055,9 +3188,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Inject input",
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 Call3Action(
                     action_id="ba-2",
@@ -3065,9 +3201,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="System processes",
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 Call3Action(
                     action_id="ba-3",
@@ -3075,9 +3214,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Impact achieved",
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
             assertions=[],
@@ -3127,9 +3269,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n9.9",  # nonexistent
                     gherkin_keyword="Given",
                     text="Inject",
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 Call3Action(
                     action_id="ba-2",
@@ -3137,9 +3282,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="Process",
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[1],),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 Call3Action(
                     action_id="ba-3",
@@ -3147,9 +3295,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Impact",
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -3190,9 +3341,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Inject",
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        (selected[0],),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 Call3Action(
                     action_id="ba-2",
@@ -3200,9 +3354,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="Process",
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.99",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 Call3Action(
                     action_id="ba-3",
@@ -3210,9 +3367,12 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Impact",
-                    canonical_action_kind="impact",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        (selected[2],),
+                        action_kind="impact",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -3398,6 +3558,7 @@ class TestIncompatibleEffectPostcondition:
                         zone="input",
                         action=InitialIngressAction(entry_point_id=ingress_id),
                         projected_step_ids=("step.1",),
+                        realizations=make_step_realizations(("step.1",)),
                     ),
                     AttackTreeNode(
                         id="n1.2",
@@ -3406,6 +3567,7 @@ class TestIncompatibleEffectPostcondition:
                         zone="reasoning",
                         action=AiSystemAction(),
                         projected_step_ids=("step.2",),
+                        realizations=make_step_realizations(("step.2",)),
                     ),
                     AttackTreeNode(
                         id="n1.3",
@@ -3414,6 +3576,7 @@ class TestIncompatibleEffectPostcondition:
                         zone="reasoning",
                         action=ImpactAction(boundary="internal", target="no effect"),
                         projected_step_ids=(no_effect_step.step_id,),
+                        realizations=make_step_realizations((no_effect_step.step_id,)),
                     ),
                 ],
             ),
@@ -3459,3 +3622,381 @@ class TestIncompatibleEffectPostcondition:
             ProjectionTraceabilityViolationCode.postcondition_assertion_mismatch
             in codes
         ), f"Wrong-step postcondition should fail, got {codes}"
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial: per-step realization record mutations (422o.4 blocker #3)
+# ---------------------------------------------------------------------------#
+
+
+class TestRealizationRecordMutations:
+    """Adversarial tests for per-step realization record reconciliation.
+
+    Each test mutates a single field in a realization record and verifies
+    the validator catches it at the narrative or behavior boundary.
+    """
+
+    def test_narrative_forged_consumed_ref_ids_fails(self):
+        """Narrative realization with wrong consumed_ref_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        # Mutate consumed_ref_ids on step.1's realization
+        step1 = narrative.steps[0]
+        mutated_realization = step1.realizations[0].model_copy(
+            update={"consumed_ref_ids": ("fake.consumed",)}
+        )
+        new_steps = list(narrative.steps)
+        new_steps[0] = step1.model_copy(update={"realizations": (mutated_realization,)})
+        narrative = narrative.model_copy(update={"steps": new_steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("consumed_ref_ids" in d for d in details), (
+            f"Forged consumed_ref_ids should fail, got {details}"
+        )
+
+    def test_narrative_forged_produced_ref_ids_fails(self):
+        """Narrative realization with wrong produced_ref_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        step1 = narrative.steps[0]
+        mutated_realization = step1.realizations[0].model_copy(
+            update={"produced_ref_ids": ("fake.produced",)}
+        )
+        new_steps = list(narrative.steps)
+        new_steps[0] = step1.model_copy(update={"realizations": (mutated_realization,)})
+        narrative = narrative.model_copy(update={"steps": new_steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("produced_ref_ids" in d for d in details), (
+            f"Forged produced_ref_ids should fail, got {details}"
+        )
+
+    def test_narrative_forged_postcondition_ids_fails(self):
+        """Narrative realization with wrong postcondition_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        step3 = narrative.steps[2]
+        mutated_realization = step3.realizations[0].model_copy(
+            update={"postcondition_ids": ("fake.post",)}
+        )
+        new_steps = list(narrative.steps)
+        new_steps[2] = step3.model_copy(update={"realizations": (mutated_realization,)})
+        narrative = narrative.model_copy(update={"steps": new_steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("postcondition_ids" in d for d in details), (
+            f"Forged postcondition_ids should fail, got {details}"
+        )
+
+    def test_narrative_forged_outcome_link_pc_ids_fails(self):
+        """Narrative realization with wrong outcome_link_pc_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        step3 = narrative.steps[2]
+        step3_step = block.projection.source_chain.steps[-1]
+        # Add a fake outcome link if the step has outcome links
+        if step3_step.observable_outcome_links:
+            mutated_realization = step3.realizations[0].model_copy(
+                update={"outcome_link_pc_ids": ("fake.outcome",)}
+            )
+            new_steps = list(narrative.steps)
+            new_steps[2] = step3.model_copy(
+                update={"realizations": (mutated_realization,)}
+            )
+            narrative = narrative.model_copy(update={"steps": new_steps})
+            envelope = _make_envelope(block, narrative=narrative)
+            result = validate_projection_traceability(envelope)
+            details = [v.detail for v in result.violations]
+            assert any("outcome_link_pc_ids" in d for d in details), (
+                f"Forged outcome_link_pc_ids should fail, got {details}"
+            )
+
+    def test_narrative_forged_produced_effect_ids_fails(self):
+        """Narrative realization with wrong produced_effect_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        step1 = narrative.steps[0]
+        step1_step = block.projection.source_chain.steps[0]
+        if any(p.kind == "effect" for p in step1_step.produced):
+            mutated_realization = step1.realizations[0].model_copy(
+                update={"produced_effect_ids": ("fake.effect",)}
+            )
+            new_steps = list(narrative.steps)
+            new_steps[0] = step1.model_copy(
+                update={"realizations": (mutated_realization,)}
+            )
+            narrative = narrative.model_copy(update={"steps": new_steps})
+            envelope = _make_envelope(block, narrative=narrative)
+            result = validate_projection_traceability(envelope)
+            details = [v.detail for v in result.violations]
+            assert any("produced_effect_ids" in d for d in details), (
+                f"Forged produced_effect_ids should fail, got {details}"
+            )
+
+    def test_behavior_forged_consumed_ref_ids_fails(self):
+        """Behavior realization with wrong consumed_ref_ids fails."""
+        block = _make_block()
+        behavior_spec = make_behavior_spec()
+        # Mutate consumed_ref_ids on first action's realization
+        action0 = behavior_spec.actions[0]
+        if action0.realizations[0].consumed_ref_ids:
+            mutated_realization = action0.realizations[0].model_copy(
+                update={"consumed_ref_ids": ("fake.consumed",)}
+            )
+            new_actions = list(behavior_spec.actions)
+            new_actions[0] = action0.model_copy(
+                update={"realizations": (mutated_realization,)}
+            )
+            behavior_spec = behavior_spec.model_copy(
+                update={"actions": tuple(new_actions)}
+            )
+            envelope = _make_envelope(block, behavior_spec=behavior_spec)
+            result = validate_projection_traceability(envelope)
+            details = [v.detail for v in result.violations]
+            assert any("consumed_ref_ids" in d for d in details), (
+                f"Forged behavior consumed_ref_ids should fail, got {details}"
+            )
+
+    def test_behavior_forged_produced_ref_ids_fails(self):
+        """Behavior realization with wrong produced_ref_ids fails."""
+        block = _make_block()
+        behavior_spec = make_behavior_spec()
+        action0 = behavior_spec.actions[0]
+        mutated_realization = action0.realizations[0].model_copy(
+            update={"produced_ref_ids": ("fake.produced",)}
+        )
+        new_actions = list(behavior_spec.actions)
+        new_actions[0] = action0.model_copy(
+            update={"realizations": (mutated_realization,)}
+        )
+        behavior_spec = behavior_spec.model_copy(update={"actions": tuple(new_actions)})
+        envelope = _make_envelope(block, behavior_spec=behavior_spec)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("produced_ref_ids" in d for d in details), (
+            f"Forged behavior produced_ref_ids should fail, got {details}"
+        )
+
+    def test_behavior_forged_postcondition_ids_fails(self):
+        """Behavior realization with wrong postcondition_ids fails."""
+        block = _make_block()
+        behavior_spec = make_behavior_spec()
+        # Find an action with postcondition_ids
+        for i, action in enumerate(behavior_spec.actions):
+            if action.realizations[0].postcondition_ids:
+                mutated_realization = action.realizations[0].model_copy(
+                    update={"postcondition_ids": ("fake.post",)}
+                )
+                new_actions = list(behavior_spec.actions)
+                new_actions[i] = action.model_copy(
+                    update={"realizations": (mutated_realization,)}
+                )
+                behavior_spec = behavior_spec.model_copy(
+                    update={"actions": tuple(new_actions)}
+                )
+                envelope = _make_envelope(block, behavior_spec=behavior_spec)
+                result = validate_projection_traceability(envelope)
+                details = [v.detail for v in result.violations]
+                assert any("postcondition_ids" in d for d in details), (
+                    f"Forged behavior postcondition_ids should fail, got {details}"
+                )
+                return
+        pytest.skip("No action with postcondition_ids found")
+
+    def test_combine_step_with_per_step_realizations_passes(self):
+        """Combine (many-to-many) with correct per-step realization records passes.
+
+        A narrative step mapping to two projected steps carries two
+        realization records with different action_kinds — the scalar
+        approach couldn't express this, but per-step records can.
+        """
+        block = _make_block()
+        selected = block.selected_step_ids
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = NarrativeLayer(
+            title="Combine",
+            summary="Adversarial summary",
+            entry_point="chat",
+            zone_sequence=["input", "reasoning"],
+            steps=[
+                NarrativeStep(
+                    step_number=1,
+                    zone="input",
+                    action="gain access and exploit",
+                    effect="entry and control",
+                    projected_step_ids=(selected[0], selected[1]),
+                    realizations=make_step_realizations((selected[0], selected[1])),
+                ),
+                NarrativeStep(
+                    step_number=2,
+                    zone="reasoning",
+                    action="impact",
+                    effect="damage",
+                    projected_step_ids=(selected[2],),
+                    realizations=make_step_realizations((selected[2],)),
+                ),
+            ],
+            access_realization=NarrativeAccessRealization(
+                initial_entry_point_id=ingress_id,
+                responsible_step_number=1,
+            ),
+        )
+        from scenario_forge.models.projection_envelope import (
+            ArtifactRealizationMapping,
+            ArtifactStage,
+        )
+
+        block = _make_block(
+            narrative_realizations=(
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="1",
+                    projected_step_ids=(selected[0], selected[1]),
+                ),
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id="2",
+                    projected_step_ids=(selected[2],),
+                ),
+            ),
+        )
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        semantic_violations = [
+            v
+            for v in result.violations
+            if v.stage == ProjectionTraceabilityStage.narrative
+            and v.code == ProjectionTraceabilityViolationCode.incorrect_resource_binding
+        ]
+        assert not semantic_violations, (
+            f"Combine with per-step realizations should pass, "
+            f"got {[(v.code.value, v.detail) for v in semantic_violations]}"
+        )
+
+
+class TestTreeRealizationRecordMutations:
+    """Adversarial tests for per-step realization record reconciliation at the tree boundary.
+
+    Each test mutates a single field in a realization record on a tree leaf
+    and verifies the validator catches it at the attack_tree stage.
+    """
+
+    def test_tree_forged_consumed_ref_ids_fails(self):
+        """Tree leaf realization with wrong consumed_ref_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        leaf = _collect_all_leaves(tree.root)[0]
+        mutated = leaf.realizations[0].model_copy(
+            update={"consumed_ref_ids": ("fake.consumed",)}
+        )
+        leaf = leaf.model_copy(update={"realizations": (mutated,)})
+        tree = _replace_leaf(tree, leaf)
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("consumed_ref_ids" in d for d in details), (
+            f"Forged tree consumed_ref_ids should fail, got {details}"
+        )
+
+    def test_tree_forged_produced_ref_ids_fails(self):
+        """Tree leaf realization with wrong produced_ref_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        leaf = _collect_all_leaves(tree.root)[0]
+        mutated = leaf.realizations[0].model_copy(
+            update={"produced_ref_ids": ("fake.produced",)}
+        )
+        leaf = leaf.model_copy(update={"realizations": (mutated,)})
+        tree = _replace_leaf(tree, leaf)
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("produced_ref_ids" in d for d in details), (
+            f"Forged tree produced_ref_ids should fail, got {details}"
+        )
+
+    def test_tree_forged_postcondition_ids_fails(self):
+        """Tree leaf realization with wrong postcondition_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        # Use the last leaf (impact step) which has postconditions
+        leaves = _collect_all_leaves(tree.root)
+        leaf = leaves[-1]
+        mutated = leaf.realizations[0].model_copy(
+            update={"postcondition_ids": ("fake.post",)}
+        )
+        leaf = leaf.model_copy(update={"realizations": (mutated,)})
+        tree = _replace_leaf(tree, leaf)
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("postcondition_ids" in d for d in details), (
+            f"Forged tree postcondition_ids should fail, got {details}"
+        )
+
+    def test_tree_forged_outcome_link_pc_ids_fails(self):
+        """Tree leaf realization with wrong outcome_link_pc_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        leaves = _collect_all_leaves(tree.root)
+        leaf = leaves[-1]
+        mutated = leaf.realizations[0].model_copy(
+            update={"outcome_link_pc_ids": ("fake.outcome",)}
+        )
+        leaf = leaf.model_copy(update={"realizations": (mutated,)})
+        tree = _replace_leaf(tree, leaf)
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("outcome_link_pc_ids" in d for d in details), (
+            f"Forged tree outcome_link_pc_ids should fail, got {details}"
+        )
+
+    def test_tree_forged_resource_ref_ids_fails(self):
+        """Tree leaf realization with wrong resource_ref_ids fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        leaf = _collect_all_leaves(tree.root)[0]
+        mutated = leaf.realizations[0].model_copy(
+            update={"resource_ref_ids": ("fake.resource",)}
+        )
+        leaf = leaf.model_copy(update={"realizations": (mutated,)})
+        tree = _replace_leaf(tree, leaf)
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("resource_ref_ids" in d for d in details), (
+            f"Forged tree resource_ref_ids should fail, got {details}"
+        )
+
+    def test_tree_forged_action_kind_fails(self):
+        """Tree leaf realization with wrong action_kind fails."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+        leaf = _collect_all_leaves(tree.root)[0]
+        wrong_kind = (
+            "impact" if leaf.realizations[0].action_kind != "impact" else "prepare"
+        )
+        mutated = leaf.realizations[0].model_copy(update={"action_kind": wrong_kind})
+        leaf = leaf.model_copy(update={"realizations": (mutated,)})
+        tree = _replace_leaf(tree, leaf)
+        envelope = _make_envelope(block, tree=tree)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("action_kind" in d for d in details), (
+            f"Forged tree action_kind should fail, got {details}"
+        )

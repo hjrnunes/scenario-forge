@@ -128,6 +128,7 @@ class TestSchemaDrift:
             NarrativeStep,
             Priority,
             PrioritySignals,
+            ProjectedStepRealization,
             RiskCardRef,
             SeverityLevel,
             StructuralExposureSignal,
@@ -154,9 +155,20 @@ class TestSchemaDrift:
                         action="Test action",
                         effect="Test effect",
                         projected_step_ids=("step.1",),
-                        canonical_action_kind="prepare",
-                        canonical_executor_role="attacker",
-                        canonical_boundary_position="crossing",
+                        realizations=(
+                            ProjectedStepRealization(
+                                projected_step_id="step.1",
+                                action_kind="prepare",
+                                executor_role="attacker",
+                                boundary_position="crossing",
+                                resource_ref_ids=(),
+                                consumed_ref_ids=(),
+                                produced_ref_ids=(),
+                                produced_effect_ids=(),
+                                outcome_link_pc_ids=(),
+                                postcondition_ids=(),
+                            ),
+                        ),
                     )
                 ],
             ),
@@ -284,9 +296,7 @@ class TestNestedRequirednessParity:
         # Projection traceability fields must be required everywhere.
         projection_fields = {
             "projected_step_ids",
-            "canonical_action_kind",
-            "canonical_executor_role",
-            "canonical_boundary_position",
+            "realizations",
         }
         for field in projection_fields:
             assert field in pyd_req, (

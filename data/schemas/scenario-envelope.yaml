@@ -246,22 +246,47 @@ fields:
           Canonical projected step IDs (from ProjectionEnvelopeBlock) that this
           narrative step realizes. Controlled many-to-many. Required (non-empty)
           on every narrative action step.
-      canonical_action_kind:
-        type: str
+      realizations:
+        type: list[object]
         required: true
         description: >
-          Canonical action kind from the projected step. Must be compatible
-          with the projected step's action_kind.
-      canonical_executor_role:
-        type: str
-        required: true
-        description: >
-          Canonical executor role from the projected step.
-      canonical_boundary_position:
-        type: str
-        required: true
-        description: >
-          Canonical boundary position from the projected step.
+          Per-projected-step canonical realization records. One record per
+          projected_step_id. Each record carries action_kind, executor_role,
+          boundary_position, resource_ref_ids, consumed_ref_ids,
+          produced_ref_ids, produced_effect_ids, outcome_link_pc_ids,
+          and postcondition_ids. The validator compares each record against
+          the embedded canonical step at the narrative boundary.
+        items:
+          projected_step_id:
+            type: str
+            required: true
+          action_kind:
+            type: str
+            required: true
+          executor_role:
+            type: str
+            required: true
+          boundary_position:
+            type: str
+            required: true
+          resource_ref_ids:
+            type: list[str]
+            required: false
+          consumed_ref_ids:
+            type: list[str]
+            required: false
+          produced_ref_ids:
+            type: list[str]
+            required: false
+          produced_effect_ids:
+            type: list[str]
+            required: false
+          outcome_link_pc_ids:
+            type: list[str]
+            required: false
+          postcondition_ids:
+            type: list[str]
+            required: false
 
   # ===================================================================
   # Layer 2: Attack Tree
@@ -756,6 +781,18 @@ example:
           action:
             kind: "initial_ingress"
             entry_point_id: "ep:v1:00000000000000000000000000000000"
+          projected_step_ids: ["step.1"]
+          realizations:
+            - projected_step_id: "step.1"
+              action_kind: "deliver"
+              executor_role: "attacker"
+              boundary_position: "crossing"
+              resource_ref_ids: ["ep:v1:00000000000000000000000000000000"]
+              consumed_ref_ids: []
+              produced_ref_ids: ["prompt_payload"]
+              produced_effect_ids: []
+              outcome_link_pc_ids: []
+              postcondition_ids: []
           control_point: "Input validation"
           evidence_level: "assumed"
         - id: "n1.2"
@@ -764,6 +801,18 @@ example:
           zone: reasoning
           action:
             kind: "ai_system_action"
+          projected_step_ids: ["step.2"]
+          realizations:
+            - projected_step_id: "step.2"
+              action_kind: "observe"
+              executor_role: "system"
+              boundary_position: "inside"
+              resource_ref_ids: []
+              consumed_ref_ids: ["prompt_payload"]
+              produced_ref_ids: []
+              produced_effect_ids: []
+              outcome_link_pc_ids: []
+              postcondition_ids: []
           control_point: "Business rule enforcement"
           structural_exposure: "single_point_of_failure"
           evidence_level: "assumed"
@@ -774,6 +823,18 @@ example:
           action:
             kind: "tool_invocation"
             tool_id: "tool:v1:00000000000000000000000000000000"
+          projected_step_ids: ["step.3"]
+          realizations:
+            - projected_step_id: "step.3"
+              action_kind: "invoke"
+              executor_role: "system"
+              boundary_position: "inside"
+              resource_ref_ids: ["tool:v1:00000000000000000000000000000000"]
+              consumed_ref_ids: []
+              produced_ref_ids: ["api_call"]
+              produced_effect_ids: ["api_call"]
+              outcome_link_pc_ids: ["post.3"]
+              postcondition_ids: ["post.3"]
           control_point: "API parameter bounds"
           evidence_level: "assumed"
 
@@ -787,16 +848,49 @@ example:
         source_leaf_id: "n1.1"
         gherkin_keyword: "When"
         text: "the attacker submits a crafted prompt via the chat interface"
+        realizations:
+          - projected_step_id: "step.1"
+            action_kind: "deliver"
+            executor_role: "attacker"
+            boundary_position: "crossing"
+            resource_ref_ids: ["ep:v1:00000000000000000000000000000000"]
+            consumed_ref_ids: []
+            produced_ref_ids: ["prompt_payload"]
+            produced_effect_ids: []
+            outcome_link_pc_ids: []
+            postcondition_ids: []
       - action_id: "ba-n1.2"
         projected_step_ids: ["step.2"]
         source_leaf_id: "n1.2"
         gherkin_keyword: "And"
         text: "the agent processes the input without input validation"
+        realizations:
+          - projected_step_id: "step.2"
+            action_kind: "observe"
+            executor_role: "system"
+            boundary_position: "inside"
+            resource_ref_ids: []
+            consumed_ref_ids: ["prompt_payload"]
+            produced_ref_ids: []
+            produced_effect_ids: []
+            outcome_link_pc_ids: []
+            postcondition_ids: []
       - action_id: "ba-n1.3"
         projected_step_ids: ["step.3"]
         source_leaf_id: "n1.3"
         gherkin_keyword: "Then"
         text: "the booking tool is invoked with an unbounded quantity"
+        realizations:
+          - projected_step_id: "step.3"
+            action_kind: "invoke"
+            executor_role: "system"
+            boundary_position: "inside"
+            resource_ref_ids: ["tool:v1:00000000000000000000000000000000"]
+            consumed_ref_ids: []
+            produced_ref_ids: ["api_call"]
+            produced_effect_ids: ["api_call"]
+            outcome_link_pc_ids: ["post.3"]
+            postcondition_ids: ["post.3"]
     assertions:
       - assertion_id: "assert-step.3-post.3"
         source_step_ids: ["step.3"]

@@ -34,6 +34,7 @@ from scenario_forge.pipeline.diversity import (
     DiversityTracker,
 )
 from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,9 +68,12 @@ def _make_envelope(
                 action="Inject malicious content into the prompt",
                 effect="Agent processes the injected content",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
@@ -77,9 +81,12 @@ def _make_envelope(
                 action="Exfiltrate sensitive data via side channel",
                 effect="Data leaks to external server",
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ]
     zone_sequence = ["input", "reasoning"]

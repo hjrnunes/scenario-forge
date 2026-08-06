@@ -51,6 +51,7 @@ from scenario_forge.pipeline.validation import (
     validate_scenario_semantics,
 )
 from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -124,9 +125,12 @@ def _make_envelope(
                 action="Crafting a malicious prompt.",
                 effect="System processes input.",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ]
 
@@ -254,9 +258,12 @@ class TestExtractNarrativeTechniqueIds:
                     action="Inject prompt.",
                     effect="System responds.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -277,9 +284,12 @@ class TestExtractNarrativeTechniqueIds:
                     action="Inject prompt.",
                     effect="System responds.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -300,9 +310,12 @@ class TestExtractNarrativeTechniqueIds:
                     action="Uses [AML.T0051.000] prompt injection.",
                     effect="System responds.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -323,9 +336,12 @@ class TestExtractNarrativeTechniqueIds:
                     action="Inject prompt.",
                     effect="AML.T0054 jailbreak succeeds.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -346,9 +362,12 @@ class TestExtractNarrativeTechniqueIds:
                     action="Inject prompt.",
                     effect="System responds.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -369,9 +388,12 @@ class TestExtractNarrativeTechniqueIds:
                     action="Applies [AML.T0054] jailbreak.",
                     effect="System responds with AML.T0051.001 effect.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -393,9 +415,12 @@ class TestNarrativeTechniqueOrphan:
                     action="Uses [AML.T0051] prompt injection.",
                     effect="System is compromised.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             seed_metadata={"threat_id": "T7"},
@@ -421,9 +446,12 @@ class TestNarrativeTechniqueOrphan:
                     action="Uses [AML.T0043] crafting technique.",
                     effect="System is compromised.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             seed_metadata={"threat_id": "T7"},
@@ -1297,9 +1325,12 @@ Feature: Attack
                     action="Uses [AML.T0051] prompt injection.",
                     effect="System processes.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             narrative_summary="Attack using AML.T0054 jailbreak.",
@@ -1352,9 +1383,12 @@ Feature: Attack
                     action="Uses [AML.T0043] crafting technique.",
                     effect="System processes.",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
             tree_root=tree_root,

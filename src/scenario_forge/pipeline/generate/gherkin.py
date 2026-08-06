@@ -30,6 +30,7 @@ from scenario_forge.models.attack_tree import (
     GateType,
 )
 from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.realization import ProjectedStepRealization
 from scenario_forge.models.scenario import (
     BehaviorAction,
     BehaviorAssertion,
@@ -63,10 +64,8 @@ class Call3Action(BaseModel):
     source_leaf_id: str = Field(pattern=r"^n\d+(\.\d+){0,4}$")
     gherkin_keyword: Literal["Given", "When", "Then"]
     text: str = Field(min_length=1)
-    # 422o.4 blocker #4: canonical semantics for per-step reconciliation.
-    canonical_action_kind: str = Field(min_length=1)
-    canonical_executor_role: str = Field(min_length=1)
-    canonical_boundary_position: str = Field(min_length=1)
+    # 422o.4 blocker #3: per-step canonical realization records.
+    realizations: tuple[ProjectedStepRealization, ...] = Field(min_length=1)
 
 
 class Call3Assertion(BaseModel):
@@ -429,15 +428,57 @@ def build_call3_context(
             else "When"
         )
         action_kind = leaf.action.kind if leaf.action else "unknown"
-        leaf_catalog.append(
-            {
-                "leaf_id": leaf.id,
-                "projected_step_ids": list(leaf.projected_step_ids),
-                "action_kind": action_kind,
-                "zone": leaf.zone,
-                "eligible_keyword": eligible,
-            }
-        )
+        leaf_entry: dict[str, Any] = {
+            "leaf_id": leaf.id,
+            "projected_step_ids": list(leaf.projected_step_ids),
+            "action_kind": action_kind,
+            "zone": leaf.zone,
+            "eligible_keyword": eligible,
+        }
+        # Enrich with full per-step canonical semantics from projection
+        # context so the LLM can emit complete realization records.
+        if projection_context:
+            step_semantics = {}
+            for sd in projection_context.get("selected_steps", []):
+                step_semantics[sd["step_id"]] = sd
+            leaf_step_data = []
+            for sid in leaf.projected_step_ids:
+                sd = step_semantics.get(sid)
+                if sd:
+                    leaf_step_data.append(
+                        {
+                            "step_id": sid,
+                            "action_kind": sd["action_kind"],
+                            "executor_role": sd["executor_role"],
+                            "boundary_position": sd["boundary_position"],
+                            "consumed_ref_ids": [
+                                c["ref_id"] for c in sd.get("consumed", [])
+                            ],
+                            "produced_ref_ids": [
+                                p["ref_id"] for p in sd.get("produced", [])
+                            ],
+                            "produced_effect_ids": [
+                                p["ref_id"]
+                                for p in sd.get("produced", [])
+                                if p.get("kind") == "effect"
+                            ],
+                            "outcome_link_pc_ids": [
+                                ol["postcondition_id"]
+                                for ol in sd.get("observable_outcome_links", [])
+                            ],
+                            "postcondition_ids": [
+                                pc["postcondition_id"]
+                                for pc in sd.get("observable_postconditions", [])
+                            ],
+                            "resource_ref_ids": [
+                                str(link.get("resource_ref", ""))
+                                for link in sd.get("resource_links", [])
+                                if link.get("resource_ref")
+                            ],
+                        }
+                    )
+            leaf_entry["step_semantics"] = leaf_step_data
+        leaf_catalog.append(leaf_entry)
 
     # Build postcondition ownership table from projection context.
     postcondition_ownership: list[dict[str, Any]] = []
@@ -599,9 +640,7 @@ def _call3_response_to_behavior_spec(
             source_leaf_id=a.source_leaf_id,
             gherkin_keyword=a.gherkin_keyword,
             text=a.text,
-            canonical_action_kind=a.canonical_action_kind,
-            canonical_executor_role=a.canonical_executor_role,
-            canonical_boundary_position=a.canonical_boundary_position,
+            realizations=a.realizations,
         )
         for a in response.actions
     )

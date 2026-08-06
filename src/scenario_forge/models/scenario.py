@@ -28,6 +28,7 @@ from scenario_forge.models.complexity import (
 from scenario_forge.models.projection_envelope import (
     ProjectionEnvelopeBlock,
 )
+from scenario_forge.models.realization import ProjectedStepRealization
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -94,8 +95,9 @@ class CallName(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------#
 # Narrative sub-models
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------#
 
 
 class NarrativeStep(BaseModel):
@@ -125,29 +127,17 @@ class NarrativeStep(BaseModel):
             "the IDs as opaque constraints."
         ),
     )
-    # --- Structured canonical realization metadata (422o.4 blocker #4) ---
-    # Prose action/effect explain but are not the authority.  These typed
-    # fields carry the canonical semantics that validation reconciles per
-    # projected step.  Required — no defaults.
-    canonical_action_kind: str = Field(
+    # --- Per-projected-step canonical realization records (422o.4 blocker #3) ---
+    # One record per projected_step_id, carrying action/executor/boundary,
+    # concrete resources, consumed/produced refs/effects, outcome links,
+    # and owned postconditions.  Prose action/effect explain but are not
+    # the authority -- these typed records are the authority.
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
         min_length=1,
         description=(
-            "Canonical action kind from the projected step (prepare, deliver, "
-            "invoke, transform, persist, observe, impact).  Must be compatible "
-            "with the projected step's action_kind."
-        ),
-    )
-    canonical_executor_role: str = Field(
-        min_length=1,
-        description=(
-            "Canonical executor role from the projected step (attacker, system)."
-        ),
-    )
-    canonical_boundary_position: str = Field(
-        min_length=1,
-        description=(
-            "Canonical boundary position from the projected step (outside, "
-            "crossing, inside)."
+            "Per-projected-step canonical realization records.  One record "
+            "per projected_step_id.  The validator compares each record "
+            "against the embedded canonical step at the narrative boundary."
         ),
     )
 
@@ -164,6 +154,17 @@ class NarrativeStep(BaseModel):
             raise ValueError(
                 f"narrative step {self.step_number} has duplicate projected_step_ids"
             )
+        # Realizations must cover exactly the projected_step_ids.
+        # model_construct may not set realizations; skip check if absent.
+        if self.realizations:
+            realization_ids = {r.projected_step_id for r in self.realizations}
+            projected_ids = set(self.projected_step_ids)
+            if realization_ids != projected_ids:
+                raise ValueError(
+                    f"narrative step {self.step_number} realization IDs "
+                    f"{realization_ids} do not match projected_step_ids "
+                    f"{projected_ids}"
+                )
         return self
 
 
@@ -835,26 +836,13 @@ class BehaviorAction(BaseModel):
         description="Gherkin step text for this action.",
         min_length=1,
     )
-    # --- Structured canonical realization metadata (422o.4 blocker #4) ---
-    canonical_action_kind: str = Field(
+    # --- Per-projected-step canonical realization records (422o.4 blocker #3) ---
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
         min_length=1,
         description=(
-            "Canonical action kind from the projected step (prepare, deliver, "
-            "invoke, transform, persist, observe, impact).  Must be compatible "
-            "with the projected step's action_kind."
-        ),
-    )
-    canonical_executor_role: str = Field(
-        min_length=1,
-        description=(
-            "Canonical executor role from the projected step (attacker, system)."
-        ),
-    )
-    canonical_boundary_position: str = Field(
-        min_length=1,
-        description=(
-            "Canonical boundary position from the projected step (outside, "
-            "crossing, inside)."
+            "Per-projected-step canonical realization records.  One record "
+            "per projected_step_id.  The validator compares each record "
+            "against the embedded canonical step at the behavior boundary."
         ),
     )
 
@@ -867,6 +855,15 @@ class BehaviorAction(BaseModel):
             raise ValueError(
                 f"behavior action '{self.action_id}' has duplicate projected_step_ids"
             )
+        if self.realizations:
+            realization_ids = {r.projected_step_id for r in self.realizations}
+            projected_ids = set(self.projected_step_ids)
+            if realization_ids != projected_ids:
+                raise ValueError(
+                    f"behavior action '{self.action_id}' realization IDs "
+                    f"{realization_ids} do not match projected_step_ids "
+                    f"{projected_ids}"
+                )
         return self
 
 

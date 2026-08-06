@@ -42,6 +42,7 @@ from scenario_forge.pipeline.runner import _remediate_coverage_gaps, run_pipelin
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
 from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
+from tests.helpers.realization_helper import make_realizations
 from tests.test_actor_entry_point_validation import (
     _make_envelope,
     _make_indirect_profile,
@@ -159,9 +160,12 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
                 action="Inject",
                 effect="Parse",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             )
         ],
         access_realization=NarrativeAccessRealization(

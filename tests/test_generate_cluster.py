@@ -31,6 +31,7 @@ _CALL1_SYS_DEFAULTS = {
     "tool_inventory": [],
 }
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.realization_helper import make_realizations
 
 # ===========================================================================
 # Bead cyo: HITL failure mechanism prompt
@@ -167,9 +168,12 @@ def _make_narrative(
             action=f"action {i + 1}",
             effect=f"effect {i + 1}",
             projected_step_ids=(f"step.{i + 1}",),
-            canonical_action_kind="prepare",
-            canonical_executor_role="attacker",
-            canonical_boundary_position="crossing",
+            realizations=make_realizations(
+                (f"step.{i + 1}",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         )
         for i in range(num_steps)
     ]

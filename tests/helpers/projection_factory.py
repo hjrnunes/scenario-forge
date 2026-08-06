@@ -30,6 +30,7 @@ from scenario_forge.models.scenario import (
     BehaviorAction,
     BehaviorAssertion,
     BehaviorSpec,
+    ProjectedStepRealization,
 )
 from scenario_forge.pipeline.projection import (
     ProjectionBudget,
@@ -419,6 +420,8 @@ def make_behavior_spec(
         "impact": "Then",
     }
     step_by_id = {s.step_id: s for s in chain.steps if s.step_id in set(selected)}
+    # Build per-step realization records from the canonical chain.
+    binding_by_slot = {b.slot_id: b.resource_ref for b in candidate.projection.bindings}
     actions = [
         BehaviorAction(
             action_id=f"behavior-{i + 1}",
@@ -428,9 +431,32 @@ def make_behavior_spec(
                 step_by_id[sid].action_kind, "When"
             ),
             text=f"Action for {sid}",
-            canonical_action_kind=step_by_id[sid].action_kind,
-            canonical_executor_role=step_by_id[sid].executor_role,
-            canonical_boundary_position=step_by_id[sid].boundary_position,
+            realizations=(
+                ProjectedStepRealization(
+                    projected_step_id=sid,
+                    action_kind=step_by_id[sid].action_kind,
+                    executor_role=step_by_id[sid].executor_role,
+                    boundary_position=step_by_id[sid].boundary_position,
+                    resource_ref_ids=tuple(
+                        str(binding_by_slot[link.slot_id])
+                        for link in step_by_id[sid].resource_links
+                        if link.slot_id in binding_by_slot
+                    ),
+                    consumed_ref_ids=tuple(c.ref_id for c in step_by_id[sid].consumed),
+                    produced_ref_ids=tuple(p.ref_id for p in step_by_id[sid].produced),
+                    produced_effect_ids=tuple(
+                        p.ref_id for p in step_by_id[sid].produced if p.kind == "effect"
+                    ),
+                    outcome_link_pc_ids=tuple(
+                        ol.postcondition_id
+                        for ol in step_by_id[sid].observable_outcome_links
+                    ),
+                    postcondition_ids=tuple(
+                        pc.postcondition_id
+                        for pc in step_by_id[sid].observable_postconditions
+                    ),
+                ),
+            ),
         )
         for i, sid in enumerate(selected)
     ]
@@ -477,3 +503,46 @@ def make_behavior_spec(
         assertions=tuple(assertions),
         gherkin_text=rendered,
     )
+
+
+def make_step_realizations(
+    step_ids: tuple[str, ...] | list[str],
+) -> tuple[ProjectedStepRealization, ...]:
+    """Build per-step realization records from the shared test projection.
+
+    Creates one ProjectedStepRealization per step_id with ALL canonical
+    fields populated from the embedded projection chain.  Use this in
+    tests that construct NarrativeStep or BehaviorAction directly.
+    """
+    candidate = get_projected_candidate()
+    chain = candidate.projection.source_chain
+    step_by_id = {s.step_id: s for s in chain.steps}
+    binding_by_slot = {b.slot_id: b.resource_ref for b in candidate.projection.bindings}
+    realizations = []
+    for sid in step_ids:
+        step = step_by_id[sid]
+        realizations.append(
+            ProjectedStepRealization(
+                projected_step_id=sid,
+                action_kind=step.action_kind,
+                executor_role=step.executor_role,
+                boundary_position=step.boundary_position,
+                resource_ref_ids=tuple(
+                    str(binding_by_slot[link.slot_id])
+                    for link in step.resource_links
+                    if link.slot_id in binding_by_slot
+                ),
+                consumed_ref_ids=tuple(c.ref_id for c in step.consumed),
+                produced_ref_ids=tuple(p.ref_id for p in step.produced),
+                produced_effect_ids=tuple(
+                    p.ref_id for p in step.produced if p.kind == "effect"
+                ),
+                outcome_link_pc_ids=tuple(
+                    ol.postcondition_id for ol in step.observable_outcome_links
+                ),
+                postcondition_ids=tuple(
+                    pc.postcondition_id for pc in step.observable_postconditions
+                ),
+            )
+        )
+    return tuple(realizations)

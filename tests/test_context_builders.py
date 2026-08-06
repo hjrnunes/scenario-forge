@@ -31,6 +31,7 @@ from scenario_forge.pipeline.generate import (
     build_call3_context,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -108,9 +109,12 @@ def _make_narrative() -> NarrativeLayer:
                 effect="Input accepted",
                 control_point=None,
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
@@ -119,9 +123,12 @@ def _make_narrative() -> NarrativeLayer:
                 effect="Reasoning compromised",
                 control_point=None,
                 projected_step_ids=("step.2",),
-                canonical_action_kind="observe",
-                canonical_executor_role="system",
-                canonical_boundary_position="inside",
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ],
     )

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.realization import ProjectedStepRealization
 from scenario_forge.models.scenario import (
     ActorProfile,
     NarrativeAccessRealization,
@@ -48,7 +49,7 @@ class Call1Step(BaseModel):
     control_point: str | None = None
     # --- Projection traceability fields (422o.4) ---
     # Required on every step; the LLM receives the IDs as opaque
-    # constraints and must echo them back.  No defaults — a missing
+    # constraints and must echo them back.  No defaults -- a missing
     # field is a typed violation, not an acceptable empty value.
     projected_step_ids: tuple[str, ...] = Field(
         min_length=1,
@@ -57,17 +58,14 @@ class Call1Step(BaseModel):
             "Must be echoed from the projection context constraints."
         ),
     )
-    canonical_action_kind: str = Field(
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
         min_length=1,
-        description="Canonical action kind from the projected step.",
-    )
-    canonical_executor_role: str = Field(
-        min_length=1,
-        description="Canonical executor role from the projected step.",
-    )
-    canonical_boundary_position: str = Field(
-        min_length=1,
-        description="Canonical boundary position from the projected step.",
+        description=(
+            "Per-projected-step canonical realization records.  Each record "
+            "carries action_kind, executor_role, boundary_position, concrete "
+            "resources, consumed/produced refs/effects, outcome links, and "
+            "owned postconditions.  Echo verbatim from the Projection Constraints."
+        ),
     )
 
 
@@ -206,9 +204,7 @@ def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
             effect=s.effect,
             control_point=s.control_point,
             projected_step_ids=s.projected_step_ids,
-            canonical_action_kind=s.canonical_action_kind,
-            canonical_executor_role=s.canonical_executor_role,
-            canonical_boundary_position=s.canonical_boundary_position,
+            realizations=s.realizations,
         )
         for s in resp.steps
     ]

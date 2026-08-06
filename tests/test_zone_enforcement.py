@@ -15,6 +15,7 @@ from scenario_forge.pipeline.generate import (
     _enforce_zones_attack_tree,
     _enforce_zones_narrative,
 )
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,9 +36,12 @@ def _make_narrative(
             action=f"action in {z}",
             effect=f"effect in {z}",
             projected_step_ids=(f"step.{i + 1}",),
-            canonical_action_kind="prepare",
-            canonical_executor_role="attacker",
-            canonical_boundary_position="crossing",
+            realizations=make_realizations(
+                (f"step.{i + 1}",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         )
         for i, z in enumerate(step_zones)
     ]

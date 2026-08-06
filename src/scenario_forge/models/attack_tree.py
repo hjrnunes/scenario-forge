@@ -25,6 +25,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scenario_forge.models.realization import ProjectedStepRealization
+
 logger = logging.getLogger(__name__)
 
 
@@ -322,6 +324,16 @@ class AttackTreeNode(BaseModel):
             "constraints.  Empty on external_precondition leaves."
         ),
     )
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
+        default=(),
+        description=(
+            "Per-projected-step canonical realization records.  One record "
+            "per projected_step_id.  Required (non-empty) when "
+            "projected_step_ids is non-empty; empty on external_precondition "
+            "leaves.  The validator compares each record against the embedded "
+            "canonical step at the tree boundary."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_gate_children_action(self) -> AttackTreeNode:
@@ -362,6 +374,24 @@ class AttackTreeNode(BaseModel):
         # --- Conditional zone validation for leaf actions ---
         if self.gate == GateType.LEAF and self.action is not None:
             self._validate_action_zone()
+
+        # --- Realization coverage check (422o.4) ---
+        if self.gate == GateType.LEAF and self.projected_step_ids:
+            if not self.realizations:
+                raise ValueError(
+                    f"LEAF node '{self.id}' has projected_step_ids "
+                    f"{self.projected_step_ids} but no realizations. "
+                    f"Security-bearing leaves must carry one realization "
+                    f"record per projected_step_id."
+                )
+            realization_ids = {r.projected_step_id for r in self.realizations}
+            projected_ids = set(self.projected_step_ids)
+            if realization_ids != projected_ids:
+                raise ValueError(
+                    f"LEAF node '{self.id}' realization IDs "
+                    f"{realization_ids} do not match projected_step_ids "
+                    f"{projected_ids}"
+                )
 
         return self
 

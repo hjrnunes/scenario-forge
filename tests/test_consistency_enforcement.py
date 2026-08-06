@@ -32,6 +32,7 @@ from scenario_forge.pipeline.generate import (
     _count_leaves,
 )
 from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -77,9 +78,12 @@ def _make_narrative(
             action=f"Step {i + 1} action.",
             effect=f"Step {i + 1} effect.",
             projected_step_ids=(f"step.{i + 1}",),
-            canonical_action_kind="prepare",
-            canonical_executor_role="attacker",
-            canonical_boundary_position="crossing",
+            realizations=make_realizations(
+                (f"step.{i + 1}",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         )
         for i in range(step_count)
     ]

@@ -38,6 +38,7 @@ from scenario_forge.pipeline.generate import (
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.prompts import render_prompt
+from tests.helpers.realization_helper import make_realizations
 
 # ===========================================================================
 # Helpers
@@ -111,9 +112,12 @@ def _make_narrative(
                 action="action 1",
                 effect="effect 1",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )
@@ -337,9 +341,12 @@ class TestHeuristicAttackComplexity:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 )
             ],
         )
@@ -360,9 +367,12 @@ class TestHeuristicAttackComplexity:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 )
             ],
         )
@@ -383,9 +393,12 @@ class TestHeuristicAttackComplexity:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 )
             ],
         )
@@ -433,9 +446,12 @@ class TestHeuristicRiskImpact:
                     action="a",
                     effect="e",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 )
             ],
         )
@@ -590,9 +606,12 @@ class TestNarrativePatternDiversityPrompt:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -646,9 +665,12 @@ class TestNarrativePatternDiversityPrompt:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -702,9 +724,12 @@ class TestExtractStructuralPattern:
                     action="I poison the API data with false information",
                     effect="tainted data",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -712,9 +737,12 @@ class TestExtractStructuralPattern:
                     action="The model starts to hallucinate and produce false outputs",
                     effect="wrong output",
                     projected_step_ids=("step.2",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -722,9 +750,12 @@ class TestExtractStructuralPattern:
                     action="False data persists in long-term memory",
                     effect="permanent taint",
                     projected_step_ids=("step.3",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.3",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=4,
@@ -732,9 +763,12 @@ class TestExtractStructuralPattern:
                     action="I bypass the human reviewer through fatigue",
                     effect="approved",
                     projected_step_ids=("step.4",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.4",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -758,9 +792,12 @@ class TestExtractStructuralPattern:
                     action="I inject a malicious prompt",
                     effect="accepted",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -768,9 +805,12 @@ class TestExtractStructuralPattern:
                     action="I exfiltrate sensitive data via the tool output",
                     effect="data stolen",
                     projected_step_ids=("step.2",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -791,9 +831,12 @@ class TestExtractStructuralPattern:
                     action="I inject payload A",
                     effect="partial",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -801,9 +844,12 @@ class TestExtractStructuralPattern:
                     action="I inject payload B to reinforce",
                     effect="full",
                     projected_step_ids=("step.2",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -811,9 +857,12 @@ class TestExtractStructuralPattern:
                     action="I exfiltrate the result",
                     effect="done",
                     projected_step_ids=("step.3",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.3",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -834,9 +883,12 @@ class TestExtractStructuralPattern:
                     action="I do something unusual and novel",
                     effect="unclear",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -857,9 +909,12 @@ class TestExtractStructuralPattern:
                     action="I probe the API to enumerate endpoints",
                     effect="map",
                     projected_step_ids=("step.1",),
-                    canonical_action_kind="prepare",
-                    canonical_executor_role="attacker",
-                    canonical_boundary_position="crossing",
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -867,9 +922,12 @@ class TestExtractStructuralPattern:
                     action="I escalate privileges via admin misconfiguration",
                     effect="admin",
                     projected_step_ids=("step.2",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -877,9 +935,12 @@ class TestExtractStructuralPattern:
                     action="I exfiltrate the full database",
                     effect="stolen",
                     projected_step_ids=("step.3",),
-                    canonical_action_kind="observe",
-                    canonical_executor_role="system",
-                    canonical_boundary_position="inside",
+                    realizations=make_realizations(
+                        ("step.3",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -947,9 +1008,12 @@ class TestStructuralPatternPromptInjection:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -1002,9 +1066,12 @@ class TestStructuralPatternPromptInjection:
                     "action": "test",
                     "effect": "test",
                     "projected_step_ids": ("step.1",),
-                    "canonical_action_kind": "prepare",
-                    "canonical_executor_role": "attacker",
-                    "canonical_boundary_position": "crossing",
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )

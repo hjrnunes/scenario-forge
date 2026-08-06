@@ -27,6 +27,7 @@ from tests.helpers.projection_factory import (
     get_test_snapshot,
     make_behavior_spec,
 )
+from tests.helpers.realization_helper import make_realizations
 
 # ===========================================================================
 # Helpers
@@ -81,9 +82,12 @@ def _make_narrative() -> NarrativeLayer:
                 action="act",
                 effect="eff",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )

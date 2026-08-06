@@ -19,6 +19,7 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.generate.narrative import (
     validate_narrative_access_realization,
 )
+from tests.helpers.realization_helper import make_realizations
 from tests.test_actor_entry_point_validation import _make_envelope
 
 # -- helpers -----------------------------------------------------------------
@@ -53,9 +54,12 @@ def _narrative(
                 action="Craft malicious input.",
                 effect="System processes it.",
                 projected_step_ids=("step.1",),
-                canonical_action_kind="prepare",
-                canonical_executor_role="attacker",
-                canonical_boundary_position="crossing",
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ]
     return NarrativeLayer(

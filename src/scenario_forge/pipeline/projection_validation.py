@@ -1275,6 +1275,191 @@ _STEP_ACTION_KIND_TO_GHERKIN: dict[str, set[str]] = {
     "impact": {"Then", "When"},
 }
 
+
+def _compare_realization_to_step(
+    realization: Any,
+    step: Any,
+    stage: ProjectionTraceabilityStage,
+    element_id: str,
+    binding_by_slot: dict[str, Any] | None = None,
+) -> list[ProjectionTraceabilityViolation]:
+    """Compare a ProjectedStepRealization record against a canonical step.
+
+    Checks action_kind, executor_role, boundary_position always.
+    Checks resource_ref_ids, consumed_ref_ids, produced_ref_ids,
+    produced_effect_ids, outcome_link_pc_ids, postcondition_ids
+    when non-empty in the realization record.
+
+    Returns violations for any mismatch.
+    """
+    violations: list[ProjectionTraceabilityViolation] = []
+    _code = ProjectionTraceabilityViolationCode.incorrect_resource_binding
+
+    # --- Core fields (always checked) ---
+    if realization.action_kind != step.action_kind:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=_code,
+                stage=stage,
+                detail=(
+                    f"element '{element_id}' realization action_kind "
+                    f"'{realization.action_kind}' does not match "
+                    f"projected step '{step.step_id}' action_kind "
+                    f"'{step.action_kind}'"
+                ),
+                element_id=element_id,
+                projected_step_id=step.step_id,
+            )
+        )
+    if realization.executor_role != step.executor_role:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=_code,
+                stage=stage,
+                detail=(
+                    f"element '{element_id}' realization executor_role "
+                    f"'{realization.executor_role}' does not match "
+                    f"projected step '{step.step_id}' executor_role "
+                    f"'{step.executor_role}'"
+                ),
+                element_id=element_id,
+                projected_step_id=step.step_id,
+            )
+        )
+    if realization.boundary_position != step.boundary_position:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=_code,
+                stage=stage,
+                detail=(
+                    f"element '{element_id}' realization boundary_position "
+                    f"'{realization.boundary_position}' does not match "
+                    f"projected step '{step.step_id}' boundary_position "
+                    f"'{step.boundary_position}'"
+                ),
+                element_id=element_id,
+                projected_step_id=step.step_id,
+            )
+        )
+
+    # --- Additional fields (checked when non-empty in realization) ---
+    if realization.consumed_ref_ids:
+        step_consumed_ids = {c.ref_id for c in step.consumed}
+        if set(realization.consumed_ref_ids) != step_consumed_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=_code,
+                    stage=stage,
+                    detail=(
+                        f"element '{element_id}' consumed_ref_ids "
+                        f"{sorted(realization.consumed_ref_ids)} do not match "
+                        f"projected step '{step.step_id}' consumed "
+                        f"{sorted(step_consumed_ids)}"
+                    ),
+                    element_id=element_id,
+                    projected_step_id=step.step_id,
+                )
+            )
+
+    if realization.produced_ref_ids:
+        step_produced_ids = {p.ref_id for p in step.produced}
+        if set(realization.produced_ref_ids) != step_produced_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=_code,
+                    stage=stage,
+                    detail=(
+                        f"element '{element_id}' produced_ref_ids "
+                        f"{sorted(realization.produced_ref_ids)} do not match "
+                        f"projected step '{step.step_id}' produced "
+                        f"{sorted(step_produced_ids)}"
+                    ),
+                    element_id=element_id,
+                    projected_step_id=step.step_id,
+                )
+            )
+
+    if realization.produced_effect_ids:
+        step_effect_ids = {p.ref_id for p in step.produced if p.kind == "effect"}
+        if set(realization.produced_effect_ids) != step_effect_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=_code,
+                    stage=stage,
+                    detail=(
+                        f"element '{element_id}' produced_effect_ids "
+                        f"{sorted(realization.produced_effect_ids)} do not match "
+                        f"projected step '{step.step_id}' effects "
+                        f"{sorted(step_effect_ids)}"
+                    ),
+                    element_id=element_id,
+                    projected_step_id=step.step_id,
+                )
+            )
+
+    if realization.outcome_link_pc_ids:
+        step_outcome_pc_ids = {
+            ol.postcondition_id for ol in step.observable_outcome_links
+        }
+        if set(realization.outcome_link_pc_ids) != step_outcome_pc_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=_code,
+                    stage=stage,
+                    detail=(
+                        f"element '{element_id}' outcome_link_pc_ids "
+                        f"{sorted(realization.outcome_link_pc_ids)} do not match "
+                        f"projected step '{step.step_id}' outcome links "
+                        f"{sorted(step_outcome_pc_ids)}"
+                    ),
+                    element_id=element_id,
+                    projected_step_id=step.step_id,
+                )
+            )
+
+    if realization.postcondition_ids:
+        step_pc_ids = {pc.postcondition_id for pc in step.observable_postconditions}
+        if set(realization.postcondition_ids) != step_pc_ids:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=_code,
+                    stage=stage,
+                    detail=(
+                        f"element '{element_id}' postcondition_ids "
+                        f"{sorted(realization.postcondition_ids)} do not match "
+                        f"projected step '{step.step_id}' postconditions "
+                        f"{sorted(step_pc_ids)}"
+                    ),
+                    element_id=element_id,
+                    projected_step_id=step.step_id,
+                )
+            )
+
+    if realization.resource_ref_ids and binding_by_slot is not None:
+        step_resource_refs = set()
+        for link in step.resource_links:
+            ref = binding_by_slot.get(link.slot_id)
+            if ref is not None:
+                step_resource_refs.add(str(ref))
+        if set(realization.resource_ref_ids) != step_resource_refs:
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=_code,
+                    stage=stage,
+                    detail=(
+                        f"element '{element_id}' resource_ref_ids "
+                        f"{sorted(realization.resource_ref_ids)} do not match "
+                        f"projected step '{step.step_id}' resource bindings "
+                        f"{sorted(step_resource_refs)}"
+                    ),
+                    element_id=element_id,
+                    projected_step_id=step.step_id,
+                )
+            )
+
+    return violations
+
+
 # Mapping from canonical boundary_position to valid tree leaf constraints.
 _BOUNDARY_COMPAT: dict[str, set[str | None]] = {
     "outside": {None},  # outside steps → external_precondition (no zone)
@@ -1505,6 +1690,22 @@ def _check_step_semantic_compatibility(
                                 )
                             )
 
+                # --- Per-step realization record reconciliation (tree boundary) ---
+                # Compare each realization record on the tree leaf against the
+                # embedded canonical step.  Same check as narrative/behavior.
+                for realization in leaf.realizations:
+                    if realization.projected_step_id != sid:
+                        continue
+                    violations.extend(
+                        _compare_realization_to_step(
+                            realization,
+                            step,
+                            stage=ProjectionTraceabilityStage.attack_tree,
+                            element_id=leaf.id,
+                            binding_by_slot=binding_by_slot,
+                        )
+                    )
+
     # --- Narrative semantic compatibility ---
     narrative = envelope.narrative
     for n_step in narrative.steps:
@@ -1531,63 +1732,28 @@ def _check_step_semantic_compatibility(
                         projected_step_id=step.step_id,
                     )
                 )
-            # --- Canonical action kind compatibility (422o.4 blocker #4) ---
-            # Fields are required (min_length=1) — unconditional check.
-            if n_step.canonical_action_kind != step.action_kind:
-                violations.append(
-                    ProjectionTraceabilityViolation(
-                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+            # --- Per-step realization record reconciliation (422o.4 blocker #3) ---
+            # Compare each realization record against the embedded canonical
+            # step.  All non-empty additional fields are checked; the
+            # production path always populates them.
+            for realization in n_step.realizations:
+                if realization.projected_step_id != sid:
+                    continue
+                violations.extend(
+                    _compare_realization_to_step(
+                        realization,
+                        step,
                         stage=ProjectionTraceabilityStage.narrative,
-                        detail=(
-                            f"narrative step '{n_step.step_number}' "
-                            f"canonical_action_kind "
-                            f"'{n_step.canonical_action_kind}' does not "
-                            f"match projected step '{step.step_id}' "
-                            f"action_kind '{step.action_kind}'"
-                        ),
                         element_id=str(n_step.step_number),
-                        projected_step_id=step.step_id,
-                    )
-                )
-            # --- Canonical executor role compatibility ---
-            if n_step.canonical_executor_role != step.executor_role:
-                violations.append(
-                    ProjectionTraceabilityViolation(
-                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
-                        stage=ProjectionTraceabilityStage.narrative,
-                        detail=(
-                            f"narrative step '{n_step.step_number}' "
-                            f"canonical_executor_role "
-                            f"'{n_step.canonical_executor_role}' does not "
-                            f"match projected step '{step.step_id}' "
-                            f"executor_role '{step.executor_role}'"
-                        ),
-                        element_id=str(n_step.step_number),
-                        projected_step_id=step.step_id,
-                    )
-                )
-            # --- Canonical boundary position compatibility ---
-            if n_step.canonical_boundary_position != step.boundary_position:
-                violations.append(
-                    ProjectionTraceabilityViolation(
-                        code=ProjectionTraceabilityViolationCode.incorrect_resource_binding,
-                        stage=ProjectionTraceabilityStage.narrative,
-                        detail=(
-                            f"narrative step '{n_step.step_number}' "
-                            f"canonical_boundary_position "
-                            f"'{n_step.canonical_boundary_position}' does "
-                            f"not match projected step '{step.step_id}' "
-                            f"boundary_position '{step.boundary_position}'"
-                        ),
-                        element_id=str(n_step.step_number),
-                        projected_step_id=step.step_id,
+                        binding_by_slot=binding_by_slot,
                     )
                 )
 
-    # --- Behavior action semantic compatibility (422o.4 blocker #4) ---
+    # --- Behavior action semantic compatibility (422o.4 blocker #3) ---
     # Validate behavior actions against exact requirements and postconditions,
     # not only projected-step membership.  Check Gherkin keyword matches
-    # canonical action semantics.
+    # canonical action semantics, and compare realization records against
+    # the embedded canonical step.
     from scenario_forge.models.scenario import BehaviorSpec
 
     behavior_spec = envelope.behavior_spec
@@ -1640,6 +1806,19 @@ def _check_step_semantic_compatibility(
                                 projected_step_id=sid,
                             )
                         )
+                # --- Per-step realization record reconciliation (422o.4 blocker #3) ---
+                for realization in b_action.realizations:
+                    if realization.projected_step_id != sid:
+                        continue
+                    violations.extend(
+                        _compare_realization_to_step(
+                            realization,
+                            step,
+                            stage=ProjectionTraceabilityStage.behavior_spec,
+                            element_id=b_action.action_id,
+                            binding_by_slot=binding_by_slot,
+                        )
+                    )
 
     return violations
 

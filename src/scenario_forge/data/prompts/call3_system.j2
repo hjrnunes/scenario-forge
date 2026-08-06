@@ -13,7 +13,21 @@ Return a JSON object with this exact structure:
       "projected_step_ids": ["step.N"],
       "source_leaf_id": "n1.N",
       "gherkin_keyword": "Given" | "When" | "Then",
-      "text": "<Gherkin step text>"
+      "text": "<Gherkin step text>",
+      "realizations": [
+        {
+          "projected_step_id": "step.N",
+          "action_kind": "prepare|deliver|invoke|transform|persist|observe|impact",
+          "executor_role": "attacker|system|operator",
+          "boundary_position": "outside|crossing|inside",
+          "resource_ref_ids": ["<resource_ref>"],
+          "consumed_ref_ids": ["<ref_id>"],
+          "produced_ref_ids": ["<ref_id>"],
+          "produced_effect_ids": ["<effect_ref_id>"],
+          "outcome_link_pc_ids": ["<postcondition_id>"],
+          "postcondition_ids": ["<postcondition_id>"]
+        }
+      ]
     }
   ],
   "assertions": [
@@ -42,12 +56,13 @@ Return a JSON object with this exact structure:
   - "Then" for impact/effect actions that produce observable outcomes
   Do NOT use "When" indiscriminately — match the canonical action semantics.
 - `text`: concrete Gherkin step text in active voice.
-- `canonical_action_kind`: the action_kind from the projected step in the
-  Projection Constraints.  Echo verbatim.
-- `canonical_executor_role`: the executor_role from the projected step.
-  Echo verbatim.
-- `canonical_boundary_position`: the boundary_position from the projected
-  step.  Echo verbatim.
+- `realizations`: array of per-projected-step canonical realization
+  records.  Each record carries `action_kind`, `executor_role`,
+  `boundary_position`, `resource_ref_ids`, `consumed_ref_ids`,
+  `produced_ref_ids`, `produced_effect_ids`, `outcome_link_pc_ids`,
+  and `postcondition_ids`.  Copy these verbatim from the Tree Leaf
+  Catalog's `step_semantics` for each projected step the action
+  realizes.  Never invent or omit fields.
 
 ### Assertions
 - `assertion_id`: deterministic, derived from source step and postcondition.

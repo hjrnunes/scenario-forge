@@ -57,6 +57,7 @@ from scenario_forge.manifest import (
     write_manifest_sentinel,
 )
 from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 from tests.manifest_helpers import build_test_run_dir
 
 # --------------------------------------------------------------------------- #
@@ -2818,9 +2819,12 @@ class TestThirdReviewCallLogFailure:
                             action="Test action",
                             effect="Test effect",
                             projected_step_ids=("step.1",),
-                            canonical_action_kind="prepare",
-                            canonical_executor_role="attacker",
-                            canonical_boundary_position="crossing",
+                            realizations=make_realizations(
+                                ("step.1",),
+                                action_kind="prepare",
+                                executor_role="attacker",
+                                boundary_position="crossing",
+                            ),
                         ),
                     ],
                 ),
