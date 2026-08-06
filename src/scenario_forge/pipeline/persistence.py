@@ -694,9 +694,45 @@ class FinalizationInventoryV1(StrictModel):
                     if item.candidate_id == attempt.candidate_id
                     and item.sequence > unmatched.sequence
                 ]
-                if attempt.candidate_id in terminal_edges or later_candidate_events:
+                decision = next(
+                    (
+                        item
+                        for item in self.admission_decisions
+                        if item.candidate_id == attempt.candidate_id
+                    ),
+                    None,
+                )
+                terminal = terminal_edges.get(attempt.candidate_id)
+                ordered_later = sorted(
+                    later_candidate_events, key=lambda item: item.sequence
+                )
+                exact_unknown_terminal = (
+                    terminal is not None
+                    and decision is not None
+                    and ordered_later == [terminal, decision]
+                    and terminal.previous is unmatched.current
+                    and terminal.sequence == unmatched.sequence + 1
+                    and decision.sequence == terminal.sequence + 1
+                    and decision.status
+                    is CandidateTerminalStatus.generation_or_finalization_failed
+                    and not decision.admitted
+                    and not decision.gate_results
+                    and len(decision.violations) == 1
+                    and decision.violations[0].code == "unknown_invocation_outcome"
+                    and decision.violations[0].owner is None
+                    and not decision.violations[0].retryable
+                    and len(decision.terminal_receipts) == 1
+                    and decision.terminal_receipts[0].role
+                    is ArtifactRole.QUARANTINE_BUNDLE
+                    and not any(
+                        item.sequence > unmatched.sequence
+                        for item in [*self.stage_attempts, *self.repairs]
+                        if item.candidate_id == attempt.candidate_id
+                    )
+                )
+                if later_candidate_events and not exact_unknown_terminal:
                     raise ValueError(
-                        "unmatched generating transition must be the active trace tail"
+                        "unmatched generating transition permits only exact unknown-outcome terminalization"
                     )
             for transition, stage in zip(
                 generating_transitions, ordered_stage_attempts
@@ -928,6 +964,40 @@ class FinalizationInventoryV1(StrictModel):
                 ),
             }
             _verify_event(item, "candidate_result", item.candidate_id, payload)
+
+
+def _causal_stage_artifacts(
+    records: list[StageAttemptRecord],
+) -> dict[GeneratedStage, JsonValue]:
+    """Reduce stage evidence to one causally contiguous artifact frontier."""
+    frontier: dict[GeneratedStage, JsonValue] = {}
+    order = tuple(GeneratedStage)
+    for record in sorted(records, key=lambda item: item.sequence):
+        for invalidated in order[order.index(record.stage) :]:
+            frontier.pop(invalidated, None)
+        visible = dict(record.input.visible_artifacts)
+        if record.stage is GeneratedStage.behavior:
+            visible_tree = visible.get(GeneratedStage.tree.value)
+            if (
+                visible_tree is None
+                or record.final_tree_snapshot_sha256 != canonical_sha256(visible_tree)
+            ):
+                raise ValueError(
+                    "behavior evidence is not bound to its final-tree input"
+                )
+            frontier[GeneratedStage.tree] = visible_tree
+        expected_visible = {
+            stage.value: artifact for stage, artifact in frontier.items()
+        }
+        if visible != expected_visible:
+            raise ValueError("stage evidence is not one contiguous causal frontier")
+        if (
+            record.result is not None
+            and not record.violations
+            and record.call is not None
+        ):
+            frontier[record.stage] = record.result
+    return frontier
 
 
 class PersistenceJournalV1(StrictModel):
@@ -1616,20 +1686,15 @@ def validate_v3_inventories(resolver: Any) -> None:
             raise ManifestIntegrityError(
                 f"Quarantine bundle violations mismatch terminal decision: {entry.path}"
             )
+        causal_artifacts = _causal_stage_artifacts(
+            [
+                item
+                for item in final.stage_attempts
+                if item.candidate_id == bundle.candidate_id
+            ]
+        )
         for stage in GeneratedStage:
-            latest = next(
-                (
-                    item
-                    for item in reversed(final.stage_attempts)
-                    if item.candidate_id == bundle.candidate_id
-                    and item.stage is stage
-                    and item.result is not None
-                ),
-                None,
-            )
-            if getattr(bundle, stage.value) != (
-                latest.result if latest is not None else None
-            ):
+            if getattr(bundle, stage.value) != causal_artifacts.get(stage):
                 raise ManifestIntegrityError(
                     f"Quarantine bundle {stage.value} evidence mismatch: {entry.path}"
                 )
@@ -2296,9 +2361,9 @@ class FinalizationPersistenceAdapter:
                 next_inventory.admitted_inventory.extend(terminal_receipts)
             else:
                 target_id = candidate_attempt.target_entry_point_id
+                causal_artifacts = _causal_stage_artifacts(stages)
                 artifacts = {
-                    stage: latest[stage].result if latest[stage] is not None else None
-                    for stage in GeneratedStage
+                    stage: causal_artifacts.get(stage) for stage in GeneratedStage
                 }
                 digests = {
                     stage: canonical_sha256(artifact)

@@ -342,6 +342,7 @@ class TargetFinalizationMachine:
     resume_artifacts: GeneratedArtifacts | None = None
     resume_invocation_counts: dict[GeneratedStage, int] = field(default_factory=dict)
     resume_owner_retry_counts: dict[GeneratedStage, int] = field(default_factory=dict)
+    resume_retry_feedback: dict[GeneratedStage, str] = field(default_factory=dict)
     transitions: list[LifecycleTransition] = field(default_factory=list)
     violations: list[LifecycleViolation] = field(default_factory=list)
 
@@ -464,23 +465,26 @@ class TargetFinalizationMachine:
     ) -> CandidateTerminalResult:
         snapshot: FinalTreeSnapshot | None = None
         finalized_authority: PrebehaviorFinalizationResult | None = None
-        resume_boundary_state = (
-            self.state if candidate_id == self.resume_candidate_id else None
+        suppress_durable_boundary = (
+            candidate_id == self.resume_candidate_id
+            and self.state
+            in {
+                LifecycleState.finalizing_prebehavior,
+                LifecycleState.generating_behavior,
+                LifecycleState.admitting,
+            }
         )
         while True:
             for stage in GENERATION_ORDER[GENERATION_ORDER.index(next_stage) :]:
                 if stage is GeneratedStage.behavior:
                     if snapshot is None:
-                        if resume_boundary_state not in {
-                            LifecycleState.finalizing_prebehavior,
-                            LifecycleState.generating_behavior,
-                            LifecycleState.admitting,
-                        }:
+                        if not suppress_durable_boundary:
                             self._transition(
                                 LifecycleState.finalizing_prebehavior,
                                 candidate_id,
                                 "tree complete",
                             )
+                        suppress_durable_boundary = False
                         finalized = self.prebehavior_finalizer(
                             CandidateFinalizationContext(candidate, verified_candidate),
                             self.artifacts,
@@ -599,7 +603,7 @@ class TargetFinalizationMachine:
             self.owner_retry_counts = (
                 dict(self.resume_owner_retry_counts) if resuming else {}
             )
-            self.retry_feedback = {}
+            self.retry_feedback = dict(self.resume_retry_feedback) if resuming else {}
             if resuming:
                 self.artifacts = self.resume_artifacts or GeneratedArtifacts()
             else:
@@ -661,7 +665,6 @@ class TargetFinalizationMachine:
                     if not resuming:
                         self.artifacts = GeneratedArtifacts()
                         self.owner_retry_counts = {}
-                    self.retry_feedback = {}
                     try:
                         verified_candidate = _capture_verified_candidate(
                             validation.candidate

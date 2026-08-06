@@ -9,7 +9,12 @@ from typing import Any
 import yaml
 
 from scenario_forge.llm.client import LLMResult
-from scenario_forge.manifest import ArtifactEntry, ArtifactRole, build_artifact_entry
+from scenario_forge.manifest import (
+    _ROLE_METADATA,
+    ArtifactEntry,
+    ArtifactRole,
+    build_artifact_entry,
+)
 from scenario_forge.models.attack_tree import AttackTree
 from scenario_forge.models.scenario import (
     ActorProfile,
@@ -54,6 +59,7 @@ from scenario_forge.pipeline.persistence import (
     CoveragePlanV2,
     CoverageTargetEntry,
     QualifiedCandidateRef,
+    canonical_sha256,
     make_admitted_terminal_payload,
     make_finalization_persistence_adapter,
     read_coverage_plan,
@@ -116,6 +122,7 @@ def build_v3_inventory(
     run_dir: Path,
     finalization_inventory: Any,
     *,
+    include_coverage: bool = True,
     include_eval: bool = False,
     include_report: bool = False,
     include_log: bool = False,
@@ -141,7 +148,8 @@ def build_v3_inventory(
     add(ArtifactRole.USE_CASE, "use-case.txt")
     add(ArtifactRole.CAPABILITY_PROFILE, "capability-profile.yaml")
     add(ArtifactRole.THREAT_SURFACE, "threat-surface.yaml")
-    add(ArtifactRole.COVERAGE_REPORT, "coverage-gaps.json")
+    if include_coverage:
+        add(ArtifactRole.COVERAGE_REPORT, "coverage-gaps.json")
     add(ArtifactRole.COVERAGE_PLAN, "coverage-plan.json")
     add(ArtifactRole.FINALIZATION_INVENTORY, "finalization-inventory.json")
     add(ArtifactRole.PIPELINE_CALL_LOG, "calls.jsonl", required=False)
@@ -156,15 +164,15 @@ def build_v3_inventory(
     if include_quarantine:
         receipts.extend(finalization_inventory.quarantine_inventory)
     for receipt in receipts:
-        entry = build_artifact_entry(
+        entry = ArtifactEntry(
             role=receipt.role,
-            run_dir=run_dir,
-            rel_path=receipt.path,
+            path=receipt.path,
+            sha256=receipt.sha256,
+            schema_version="1",
+            media_type=_ROLE_METADATA[receipt.role]["media_type"],
             scenario_id=receipt.scenario_id,
             candidate_id=receipt.candidate_id,
         )
-        if entry.sha256 != receipt.sha256:
-            raise ValueError(f"finalization receipt hash drift: {receipt.path}")
         entries.append(entry)
     return entries
 
@@ -282,8 +290,56 @@ def run_target_finalization(
                     GeneratedStage.behavior: BehaviorSpec,
                 }
                 latest: dict[GeneratedStage, Any] = {}
+                durable_feedback: dict[GeneratedStage, str] = {}
+                durable_candidate = ref_by_id[
+                    active_attempt.candidate_id
+                ].projected_candidate
+                if any(
+                    canonical_sha256(record.input.candidate)
+                    != canonical_sha256(durable_candidate)
+                    for record in candidate_stages
+                ):
+                    raise ValueError(
+                        "stage resume candidate snapshot differs from durable plan"
+                    )
                 for record in candidate_stages:
-                    if record.result is not None:
+                    # Every invocation supersedes its owner and all downstream
+                    # artifacts.  Replay the journal in sequence rather than
+                    # selecting an independently-latest value for each stage.
+                    for invalidated in tuple(GeneratedStage)[
+                        tuple(GeneratedStage).index(record.stage) :
+                    ]:
+                        latest.pop(invalidated, None)
+                        evidence_by_id.get(active_attempt.candidate_id, {}).pop(
+                            invalidated, None
+                        )
+                    visible = dict(record.input.visible_artifacts)
+                    if record.stage is GeneratedStage.behavior:
+                        visible_tree = visible.get(GeneratedStage.tree.value)
+                        if (
+                            visible_tree is None
+                            or record.final_tree_snapshot_sha256
+                            != canonical_sha256(visible_tree)
+                        ):
+                            raise ValueError(
+                                "behavior resume input is not bound to its final tree digest"
+                            )
+                        latest[GeneratedStage.tree] = AttackTree.model_validate(
+                            visible_tree
+                        )
+                    expected_visible = {
+                        stage.value: artifact.model_dump(mode="json")
+                        for stage, artifact in latest.items()
+                    }
+                    if visible != expected_visible:
+                        raise ValueError(
+                            "stage resume input is not the contiguous causal artifact frontier"
+                        )
+                    if (
+                        record.result is not None
+                        and not record.violations
+                        and record.call is not None
+                    ):
                         latest[record.stage] = model_by_stage[
                             record.stage
                         ].model_validate(record.result)
@@ -292,6 +348,15 @@ def run_target_finalization(
                             evidence_by_id.setdefault(active_attempt.candidate_id, {})[
                                 record.stage
                             ] = evidence
+                    if record.violations:
+                        durable_feedback[record.stage] = (
+                            "; ".join(
+                                f"{item.code}: {item.detail}"
+                                for item in record.violations
+                                if item.owner is record.stage
+                            )
+                            or f"Retry {record.stage.value} to correct validation failure"
+                        )
                 for stage, artifact in latest.items():
                     resume_artifacts.set(stage, artifact)
                 if candidate_stages and candidate_stages[-1].violations:
@@ -439,6 +504,22 @@ def run_target_finalization(
 
         # Restart authority is the durable CoveragePlanV2, including its exact
         # choice refs; never substitute freshly computed plan refs.
+        available_refs = [
+            item.model_dump(mode="json") for item in target.fallback_available
+        ]
+        if (
+            resume_candidate_id is not None
+            and resume_candidate_id != target.primary_candidate_id
+        ):
+            resumed_ref = ref_by_id[resume_candidate_id].model_dump(mode="json")
+            available_refs = [
+                resumed_ref,
+                *[
+                    item
+                    for item in available_refs
+                    if item["candidate_id"] != resume_candidate_id
+                ],
+            ]
         legacy_entry = CoveragePlanEntry(
             entry_point_id=target.entry_point_id,
             entry_point_name=target.entry_point_name,
@@ -447,9 +528,7 @@ def run_target_finalization(
             ],
             primary_candidate_id=target.primary_candidate_id,
             primary_state=target.target_state.value,
-            fallback_available=[
-                item.model_dump(mode="json") for item in target.fallback_available
-            ],
+            fallback_available=available_refs,
         )
         machine = TargetFinalizationMachine(
             entry=legacy_entry,
@@ -496,6 +575,9 @@ def run_target_finalization(
                 for stage in GeneratedStage
             }
             if active_attempt is not None
+            else {},
+            resume_retry_feedback=durable_feedback
+            if active_attempt is not None and resume_candidate_id is not None
             else {},
             transition_index_offset=(
                 max(
