@@ -842,7 +842,7 @@ def _assemble_envelope(
 # ---------------------------------------------------------------------------
 
 
-def generate_scenario(
+def _generate_scenario_compatibility(
     seed: ScenarioSeed,
     profile: CapabilityProfile,
     client: LLMClient,
@@ -1524,6 +1524,64 @@ def generate_scenario(
         entry["scenario_id"] = envelope.scenario_id
 
     return envelope, call_log_entries
+
+
+def generate_scenario(
+    seed: ScenarioSeed,
+    profile: CapabilityProfile,
+    client: LLMClient,
+    use_case: str,
+    pinned_entry_point_id: str,
+    *,
+    preferred_entry_point: str | None = None,
+    excluded_entry_points: list[str] | None = None,
+    excluded_patterns: list[str] | None = None,
+    excluded_structural_patterns: list[str] | None = None,
+    preferred_actor_type: str | None = None,
+    excluded_actor_types: list[str] | None = None,
+    preferred_capability_level: str | None = None,
+    attack_goal: dict[str, Any] | None = None,
+    pinned_entry_point: str | None = None,
+    pinned_technique_ids: list[str] | None = None,
+    pinned_technique_names: list[str] | None = None,
+    prior_titles: list[str] | None = None,
+    run_id: str = "",
+    candidate_id: str = "",
+    attempt: int = 1,
+    projected_candidate: ProjectedCandidate,
+    capability_snapshot: CapabilityFactSnapshot,
+) -> tuple[ScenarioEnvelope, list[dict]]:
+    """Compatibility adapter preserving the pre-cmps.5 production behavior.
+
+    The typed single-attempt lifecycle API lives in ``generate.stages``.
+    Runner cutover is deliberately deferred to later cmps.5 phases, so this
+    adapter retains all current internal retries, call counts, patch targets,
+    return shape, and fail-closed traceability behavior.
+    """
+    return _generate_scenario_compatibility(
+        seed,
+        profile,
+        client,
+        use_case,
+        pinned_entry_point_id,
+        preferred_entry_point=preferred_entry_point,
+        excluded_entry_points=excluded_entry_points,
+        excluded_patterns=excluded_patterns,
+        excluded_structural_patterns=excluded_structural_patterns,
+        preferred_actor_type=preferred_actor_type,
+        excluded_actor_types=excluded_actor_types,
+        preferred_capability_level=preferred_capability_level,
+        attack_goal=attack_goal,
+        pinned_entry_point=pinned_entry_point,
+        pinned_technique_ids=pinned_technique_ids,
+        pinned_technique_names=pinned_technique_names,
+        prior_titles=prior_titles,
+        run_id=run_id,
+        candidate_id=candidate_id,
+        attempt=attempt,
+        projected_candidate=projected_candidate,
+        capability_snapshot=capability_snapshot,
+    )
 
 
 def compute_artifact_hash(data: bytes) -> str:

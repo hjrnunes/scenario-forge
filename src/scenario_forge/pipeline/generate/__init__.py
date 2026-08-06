@@ -151,6 +151,7 @@ from scenario_forge.pipeline.generate.priority import (
 from scenario_forge.pipeline.generate.tree import (
     _build_tree_skeleton,
     _call_attack_tree,
+    _call_attack_tree_once,
     _check_consistency,
     _check_non_actionable_leaves,
     _collect_threat_ids_from_tree,
@@ -176,6 +177,24 @@ from scenario_forge.pipeline.generate.zones import (
     validate_attack_tree_zones,
 )
 
+from scenario_forge.pipeline.generate.stages import (
+    ActorStageResult,
+    BehaviorStageResult,
+    GenerationRequest,
+    NarrativeStageResult,
+    PreparedGeneration,
+    RetryDirective,
+    StageAttemptFailure,
+    StageCallEvidence,
+    TreeStageResult,
+    assemble_final_envelope,
+    generate_actor_stage,
+    generate_behavior_stage,
+    generate_narrative_stage,
+    generate_tree_stage,
+    prepare_generation,
+)
+
 __all__ = [
     # constants
     "ALL_ACTOR_TYPES",
@@ -196,6 +215,15 @@ __all__ = [
     "_THREAT_GOAL_EXCLUSIONS",
     "_ZONE_TO_DEFAULT_MAESTRO",
     "ActorAccessViolation",
+    "ActorStageResult",
+    "BehaviorStageResult",
+    "GenerationRequest",
+    "NarrativeStageResult",
+    "PreparedGeneration",
+    "RetryDirective",
+    "StageAttemptFailure",
+    "StageCallEvidence",
+    "TreeStageResult",
     # actor
     "Call0Response",
     # narrative
@@ -217,6 +245,7 @@ __all__ = [
     "_build_tree_skeleton",
     "_call_actor_profile",
     "_call_attack_tree",
+    "_call_attack_tree_once",
     "_call_behavior_spec",
     "_call_log_entry",
     "_call_log_entry_error",
@@ -271,6 +300,7 @@ __all__ = [
     "_validate_technique_zone_node",
     "_validate_tree_against_projection",
     "_warn_dominant_threat_id_crossref",
+    "assemble_final_envelope",
     "assign_entry_point",
     "build_actor_access_provenance",
     "build_call0_context",
@@ -289,7 +319,12 @@ __all__ = [
     "extract_structural_pattern",
     "filter_sub_goals_by_zones",
     "generate_run_id",
+    "generate_actor_stage",
+    "generate_behavior_stage",
+    "generate_narrative_stage",
     "generate_scenario",
+    "generate_tree_stage",
+    "prepare_generation",
     "get_all_sub_goals",
     "get_overused_entry_points",
     "get_overused_patterns",
