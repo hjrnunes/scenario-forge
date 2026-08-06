@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field, model_validator
 # --------------------------------------------------------------------------- #
 
 MANIFEST_VERSION = "2"
+MANIFEST_V3 = "3"
 ARTIFACT_SCHEMA_VERSION = "1"
 _RUN_ID_TIMESTAMP_LEN = 15  # YYYYMMDDTHHMMSS
 _RUN_ID_SEPARATOR = "_"
@@ -91,6 +92,9 @@ class ArtifactRole(str, Enum):
     EVAL_SCORECARD = "eval_scorecard"
     REPORT = "report"
     PIPELINE_LOG = "pipeline_log"
+    COVERAGE_PLAN = "coverage_plan"
+    FINALIZATION_INVENTORY = "finalization_inventory"
+    QUARANTINE_BUNDLE = "quarantine_bundle"
 
 
 class AttemptDisposition(str, Enum):
@@ -181,6 +185,24 @@ _ROLE_METADATA: dict[ArtifactRole, dict[str, Any]] = {
         "schema_versions": ["1"],
         "singleton_path": "pipeline.log",
     },
+    ArtifactRole.COVERAGE_PLAN: {
+        "extension": ".json",
+        "media_type": "application/json",
+        "schema_versions": ["2"],
+        "singleton_path": "coverage-plan.json",
+    },
+    ArtifactRole.FINALIZATION_INVENTORY: {
+        "extension": ".json",
+        "media_type": "application/json",
+        "schema_versions": ["1"],
+        "singleton_path": "finalization-inventory.json",
+    },
+    ArtifactRole.QUARANTINE_BUNDLE: {
+        "extension": ".json",
+        "media_type": "application/json",
+        "schema_versions": ["1"],
+        "singleton_path": None,
+    },
 }
 
 # Roles that must appear at most once in the inventory.
@@ -195,11 +217,15 @@ SINGLETON_ROLES: frozenset[ArtifactRole] = frozenset(
         ArtifactRole.PIPELINE_LOG,
         ArtifactRole.PIPELINE_CALL_LOG,
         ArtifactRole.SCENARIO_CALL_LOG,
+        ArtifactRole.COVERAGE_PLAN,
+        ArtifactRole.FINALIZATION_INVENTORY,
     }
 )
 
 
-def required_singleton_roles(*, eval_enabled: bool) -> set[ArtifactRole]:
+def required_singleton_roles(
+    *, eval_enabled: bool, manifest_version: str = MANIFEST_VERSION
+) -> set[ArtifactRole]:
     """Return the set of singleton roles required for ``completed`` status.
 
     *report* is always required.  *eval_scorecard* is required only when
@@ -215,6 +241,8 @@ def required_singleton_roles(*, eval_enabled: bool) -> set[ArtifactRole]:
     }
     if eval_enabled:
         roles.add(ArtifactRole.EVAL_SCORECARD)
+    if manifest_version == MANIFEST_V3:
+        roles.update({ArtifactRole.COVERAGE_PLAN, ArtifactRole.FINALIZATION_INVENTORY})
     return roles
 
 
@@ -504,6 +532,14 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> Path
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
+        # Persist the directory entry as well as file contents.  Without this
+        # fsync, a power loss after replace can lose the rename despite a
+        # fully flushed temporary file.
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except Exception:
         try:
             os.unlink(tmp_path)
@@ -976,6 +1012,20 @@ class ManifestInventoryResolver:
                     raise ManifestIntegrityError(
                         f"Role {role.value} requires candidate_id: {entry.path}"
                     )
+            if role is ArtifactRole.QUARANTINE_BUNDLE:
+                if entry.scenario_id is not None:
+                    raise ManifestIntegrityError(
+                        f"Quarantine bundle must not carry scenario_id: {entry.path}"
+                    )
+                if not entry.candidate_id:
+                    raise ManifestIntegrityError(
+                        f"Role {role.value} requires candidate_id: {entry.path}"
+                    )
+                expected_prefix = "quarantine/"
+                if not entry.path.startswith(expected_prefix):
+                    raise ManifestIntegrityError(
+                        f"Quarantine bundle must be below '{expected_prefix}': {entry.path}"
+                    )
 
             # --- 8. Singleton cardinality ---
             if role in SINGLETON_ROLES:
@@ -1146,6 +1196,25 @@ class ManifestInventoryResolver:
                     f"feature={feat_sid}, yaml={inv_sid}"
                 )
 
+        if self.manifest.manifest_version == MANIFEST_V3 and self.manifest.status in {
+            RunStatus.COMPLETED,
+            RunStatus.COMPLETED_WITH_ERRORS,
+        }:
+            for role in (
+                ArtifactRole.COVERAGE_PLAN,
+                ArtifactRole.FINALIZATION_INVENTORY,
+            ):
+                if singleton_counts.get(role, 0) != 1:
+                    raise ManifestIntegrityError(
+                        f"Manifest v3 status {self.manifest.status.value} requires "
+                        f"exactly one {role.value} artifact"
+                    )
+
+            # Keep v3-only policy out of current production v2 reads.
+            from scenario_forge.pipeline.persistence import validate_v3_inventories
+
+            validate_v3_inventories(self)
+
         # --- 12. Orphan detection ---
         if self.check_orphans:
             self._check_orphans(seen_canonical)
@@ -1267,7 +1336,9 @@ class ManifestInventoryResolver:
         return None
 
 
-def load_manifest(run_dir: Path) -> RunManifest:
+def load_manifest(
+    run_dir: Path, *, requested_version: str | None = None
+) -> RunManifest:
     """Load and parse a manifest from a run directory.
 
     Does not validate inventory — use :func:`load_strict_resolver` for that.
@@ -1279,6 +1350,17 @@ def load_manifest(run_dir: Path) -> RunManifest:
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     if not data or not isinstance(data, dict):
         raise ManifestIntegrityError(f"Invalid manifest in {manifest_path}: not a dict")
+    actual_version = str(data.get("manifest_version", ""))
+    if requested_version is not None and actual_version != requested_version:
+        raise ManifestIntegrityError(
+            f"Unsupported manifest version {actual_version!r}; "
+            f"version {requested_version!r} was explicitly requested"
+        )
+    if actual_version not in {MANIFEST_VERSION, MANIFEST_V3}:
+        raise ManifestIntegrityError(
+            f"Unsupported manifest version {actual_version!r}; supported versions are "
+            f"{MANIFEST_VERSION!r} and {MANIFEST_V3!r}"
+        )
     return RunManifest.model_validate(data)
 
 
@@ -1286,6 +1368,7 @@ def load_strict_resolver(
     run_dir: Path,
     require_final: bool = True,
     require_authoritative: bool = False,
+    manifest_version: str | None = None,
 ) -> ManifestInventoryResolver:
     """Load a manifest from disk and build a strict inventory resolver.
 
@@ -1304,7 +1387,7 @@ def load_strict_resolver(
             f"Run directory does not exist or is not a directory: {run_dir}"
         )
 
-    manifest = load_manifest(run_dir)
+    manifest = load_manifest(run_dir, requested_version=manifest_version)
 
     if require_final and not manifest.status.is_final:
         raise ManifestIntegrityError(
@@ -1382,6 +1465,7 @@ def build_artifact_entry(
     rel_path: str,
     scenario_id: str | None = None,
     candidate_id: str | None = None,
+    schema_version: str = ARTIFACT_SCHEMA_VERSION,
 ) -> ArtifactEntry:
     """Build an ArtifactEntry from a file in the run directory.
 
@@ -1402,7 +1486,7 @@ def build_artifact_entry(
         scenario_id=scenario_id,
         candidate_id=candidate_id,
         media_type=meta.get("media_type", "application/octet-stream"),
-        schema_version=ARTIFACT_SCHEMA_VERSION,
+        schema_version=schema_version,
     )
 
 
