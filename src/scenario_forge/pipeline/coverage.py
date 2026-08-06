@@ -22,6 +22,7 @@ from scenario_forge.models.capability_profile import (
     is_attacker_accessible_ingress,
 )
 from scenario_forge.models.scenario import ScenarioEnvelope
+from scenario_forge.pipeline.coverage_planning import CoverageUniverse, QualityGap
 from scenario_forge.pipeline.threats import ThreatSurface
 
 logger = logging.getLogger(__name__)
@@ -374,6 +375,9 @@ def write_coverage_report(
     coverage_gaps: CoverageGaps,
     output_dir: Path,
     attacker_diversity: AttackerDiversityResult | None = None,
+    *,
+    coverage_universe: CoverageUniverse | None = None,
+    quality_gaps: list[QualityGap] | None = None,
 ) -> Path:
     """Write coverage analysis results to coverage-gaps.json.
 
@@ -381,6 +385,11 @@ def write_coverage_report(
         coverage_gaps: Result from analyze_coverage_gaps.
         output_dir: Pipeline output directory.
         attacker_diversity: Optional result from analyze_attacker_diversity.
+        coverage_universe: Optional serialized coverage universe from
+            cmps.4 coverage-aware planning (feasible targets, typed
+            exclusions, completeness).
+        quality_gaps: Optional list of typed, stage-attributed quality
+            gaps for uncovered feasible targets (cmps.4).
 
     Returns:
         Path to the written coverage-gaps.json file.
@@ -390,6 +399,10 @@ def write_coverage_report(
     }
     if attacker_diversity is not None:
         report["attacker_diversity"] = attacker_diversity.to_dict()
+    if coverage_universe is not None:
+        report["coverage_universe"] = coverage_universe.to_dict()
+    if quality_gaps:
+        report["quality_gaps"] = [g.to_dict() for g in quality_gaps]
     path = output_dir / "coverage-gaps.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Coverage report written to %s", path)

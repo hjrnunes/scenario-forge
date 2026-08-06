@@ -6,7 +6,6 @@ import hashlib
 import importlib.metadata
 import logging
 import re
-from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -54,7 +53,6 @@ from scenario_forge.manifest import (
 from scenario_forge.models.capability_profile import (
     ZONE_NAMES,
     CapabilityProfile,
-    is_attacker_accessible_ingress,
 )
 from scenario_forge.models.scenario import BehaviorSpec, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
@@ -64,32 +62,33 @@ from scenario_forge.pipeline.candidates import (
     FilterProtocolError,
     StageRecord,
     apply_rule_based_filter,
-    cap_scenarios_per_pattern,
     expand_candidates,
     filter_candidates,
 )
 from scenario_forge.pipeline.coverage import (
     CoverageGaps,
-    EntryPointGap,
     GapAttributions,
     analyze_attacker_diversity,
     analyze_coverage_gaps,
     write_coverage_report,
+)
+from scenario_forge.pipeline.coverage_planning import (
+    build_coverage_universe,
+    build_fallback_queues,
+    emit_quality_gaps,
+    select_with_coverage_priority,
 )
 from scenario_forge.pipeline.diversity import DiversityTracker
 from scenario_forge.pipeline.generate import (
     GenerationError,
     ScenarioForgeIntegrityError,
     compute_artifact_hash,
-    compute_compatible_goal_ids,
-    compute_entry_point_affinity,
     compute_scenario_id,
     filter_sub_goals_by_zones,
     generate_run_id,
     generate_scenario,
     get_all_sub_goals,
     replace_scenario_outputs,
-    select_attack_goal,
     write_call_log,
     write_scenario_outputs,
 )
@@ -103,7 +102,6 @@ from scenario_forge.pipeline.io import (
 )
 from scenario_forge.pipeline.profile import infer_capability_profile
 from scenario_forge.pipeline.projection import (
-    CapabilityFactSnapshot,
     ProjectedCandidate,
     capture_capability_snapshot,
     project_authoritative_candidates,
@@ -368,382 +366,6 @@ def _compute_gap_attributions(
         zones=zone_attrs,
         threats=threat_attrs,
         attack_patterns=ap_attrs,
-    )
-
-
-def _pick_best_seed_for_entry_point(
-    entry_point: str,
-    seeds: list[ScenarioSeed],
-    profile: CapabilityProfile,
-) -> ScenarioSeed | None:
-    """Select the seed whose threat zones best match a given entry point.
-
-    Uses ``compute_entry_point_affinity`` to score how well the entry point
-    feeds into the zones referenced by each seed's agentic threat IDs.
-    Falls back to the first seed if no affinity signal is available.
-
-    Returns ``None`` only when the seed list is empty.
-    """
-    if not seeds:
-        return None
-    if len(seeds) == 1:
-        return seeds[0]
-
-    best_seed = seeds[0]
-    best_score = -1.0
-
-    for seed in seeds:
-        # Use the profile's active zones as a proxy for the seed's zone
-        # affinity (consistent with the main generation loop).
-        scores = compute_entry_point_affinity(
-            [entry_point],
-            profile.zones_active,
-        )
-        score = scores.get(entry_point, 0.0)
-        if score > best_score:
-            best_score = score
-            best_seed = seed
-
-    return best_seed
-
-
-def _is_gap_attacker_accessible(
-    ep_gap: EntryPointGap,
-    profile: CapabilityProfile,
-    active_zones: set[str],
-) -> bool:
-    """Check whether a coverage gap entry point is attacker-accessible.
-
-    Defense-in-depth: coverage gaps already filter via
-    ``is_attacker_accessible_ingress``, but remediation re-checks to
-    ensure no ineligible entry point is ever remediated (cmps.9 third
-    review correction 2).
-    """
-    ep = profile.resolve_entry_point(ep_gap.entry_point_id)
-    if ep is None:
-        return False
-    return is_attacker_accessible_ingress(ep, active_zones)
-
-
-def _remediate_coverage_gaps(
-    coverage_gaps: CoverageGaps,
-    seeds: list[ScenarioSeed],
-    profile: CapabilityProfile,
-    client: LLMClient,
-    use_case: str,
-    scenarios_dir: Path,
-    run_id: str,
-    attempted_candidate_ids: set[str],
-    admitted_candidate_ids: set[str],
-    admitted_scenario_ids: set[str],
-    write_receipts: list[dict],
-    attempts: list[AttemptRecord],
-    available_goals: list[dict] | None = None,
-    goal_usage: Counter | None = None,
-    early_quarantined_sids: set[str] | None = None,
-    *,
-    projected_by_pattern: dict[str, list[ProjectedCandidate]] | None = None,
-    capability_snapshot: CapabilityFactSnapshot | None = None,
-) -> tuple[list[ScenarioEnvelope], list[str], int, int]:
-    """Generate additional scenarios for entry points that received none.
-
-    Remediation scenarios go through the same generation, write, and
-    admission path as main candidates — they are counted in
-    attempted/admitted/failed funnel metrics.  The candidate ID is
-    computed from the actual pinned technique tuple (the seed's
-    ATLAS technique IDs for the selected entry point), not an empty
-    technique set.
-
-    Returns:
-        Tuple of (remediation_scenarios, generation_notes,
-        remediation_attempted, remediation_failed).
-    """
-    if not coverage_gaps.uncovered_entry_points:
-        return [], [], 0, 0
-
-    remediation_scenarios: list[ScenarioEnvelope] = []
-    generation_notes: list[str] = []
-    remediation_attempted = 0
-    remediation_failed = 0
-
-    # Filter out entry points that are not attacker-accessible ingress
-    # routes — they should never be remediation targets (cmps.9 third
-    # review correction 2).  Coverage gaps already use the centralized
-    # predicate, but defense-in-depth: re-check here.
-    active_zones = set(profile.zones_active) if profile.zones_active else set()
-    uncovered = [
-        ep_gap
-        for ep_gap in coverage_gaps.uncovered_entry_points
-        if _is_gap_attacker_accessible(ep_gap, profile, active_zones)
-    ]
-    if not uncovered:
-        return [], [], 0, 0
-    logger.info(
-        "[Remediation] %d uncovered entry point(s) to remediate: %s",
-        len(uncovered),
-        [ep.name for ep in uncovered],
-    )
-
-    remediated_ids: set[str] = set()
-
-    for ep_gap in uncovered:
-        ep_id: str | None = ep_gap.entry_point_id
-        ep_name: str = ep_gap.name
-
-        if ep_id in remediated_ids:
-            continue
-        if ep_id is not None:
-            remediated_ids.add(ep_id)
-
-        seed = _pick_best_seed_for_entry_point(ep_name, seeds, profile)
-        if seed is None:
-            note = (
-                f"Remediation skipped for entry point '{ep_name}': no seeds available"
-            )
-            logger.warning("  %s", note)
-            generation_notes.append(note)
-            continue
-
-        logger.info(
-            "  Remediating entry point '%s' (id=%s) with seed %s (%s)...",
-            ep_name,
-            ep_id or "none",
-            seed.seed_id,
-            seed.attack_pattern_name,
-        )
-
-        selected_goal = None
-        if available_goals and goal_usage is not None:
-            seed_goals = compute_compatible_goal_ids(
-                threat_id=seed.threat_id,
-                sub_goals=available_goals,
-                zones_active=profile.zones_active,
-                kc_subcodes=profile.kc_subcodes,
-            )
-            try:
-                selected_goal = select_attack_goal(
-                    seed_goals,
-                    goal_usage,
-                    total_seeds=len(uncovered),
-                    threat_id=seed.threat_id,
-                )
-            except ValueError:
-                pass
-
-        # Compute candidate_id from the actual pinned technique tuple,
-        # using the same canonical technique source as expansion
-        # (ATLAS techniques, otherwise LAAF techniques).
-        pinned_technique_ids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
-
-        # 422o.4: Look up the authoritative projected candidate for
-        # remediation.  If no projection is available, remediation must
-        # remain explicitly unavailable — never fabricate from legacy
-        # seed fields.  Match by exact ingress entry_point_id, not
-        # pc_list[0].  Multiple matches are ambiguous — fail closed.
-        remediation_pc: ProjectedCandidate | None = None
-        if projected_by_pattern is not None and ep_id is not None:
-            pc_list = projected_by_pattern.get(seed.seed_id)
-            if pc_list:
-                matching = [
-                    pc for pc in pc_list if pc.canonical_ingress.entry_point_id == ep_id
-                ]
-                if len(matching) > 1:
-                    raise ScenarioForgeIntegrityError(
-                        f"Ambiguous projected candidates for remediation "
-                        f"pattern '{seed.seed_id}' with ingress "
-                        f"entry_point_id '{ep_id}': {len(matching)} matches. "
-                        f"Aborting run (422o.4: exact ingress must be unique)."
-                    )
-                remediation_pc = matching[0] if matching else None
-        if remediation_pc is None or capability_snapshot is None:
-            note = (
-                f"Remediation skipped for entry point '{ep_name}': "
-                f"no projected candidate for pattern '{seed.seed_id}' "
-                f"(422o.4: no projection, no generation)."
-            )
-            logger.warning("  %s", note)
-            generation_notes.append(note)
-            continue
-
-        remediation_candidate_id = remediation_pc.candidate_id
-
-        # Fatal: duplicate candidate admission aborts the run.
-        if remediation_candidate_id in attempted_candidate_ids:
-            raise ScenarioForgeIntegrityError(
-                f"Remediation duplicate candidate_id "
-                f"'{remediation_candidate_id}' already attempted. Aborting run."
-            )
-
-        attempted_candidate_ids.add(remediation_candidate_id)
-        remediation_attempted += 1
-        remediation_expected_sid = compute_scenario_id(
-            run_id, remediation_candidate_id, 1
-        )
-        rem_attempt_rec = _reserve_attempt(
-            attempts,
-            candidate_id=remediation_candidate_id,
-            scenario_id=remediation_expected_sid,
-            phase=AttemptPhase.REMEDIATION,
-        )
-
-        try:
-            envelope, call_log_entries = generate_scenario(
-                seed,
-                profile,
-                client,
-                use_case,
-                pinned_entry_point=ep_name,
-                pinned_entry_point_id=ep_id,
-                pinned_technique_ids=pinned_technique_ids,
-                attack_goal=selected_goal,
-                run_id=run_id,
-                candidate_id=remediation_candidate_id,
-                projected_candidate=remediation_pc,
-                capability_snapshot=capability_snapshot,
-            )
-            envelope.candidate_filter = {
-                "candidate_id": remediation_candidate_id,
-                "entry_point_id": ep_id,
-                "pinned_entry_point": ep_name,
-                "pinned_technique_ids": pinned_technique_ids,
-                "pinned_technique_names": [],
-                "origins": [],
-                "rejection_rationales": [],
-                "is_remediation": True,
-            }
-
-            # Fatal: duplicate scenario ID.
-            if envelope.scenario_id in admitted_scenario_ids:
-                raise ScenarioForgeIntegrityError(
-                    f"Remediation duplicate scenario ID: "
-                    f"'{envelope.scenario_id}' already admitted. Aborting run."
-                )
-
-            # Pre-write identity verification for remediation.
-            if envelope.candidate_id != remediation_candidate_id:
-                raise ScenarioForgeIntegrityError(
-                    f"Remediation returned envelope candidate_id "
-                    f"'{envelope.candidate_id}' does not match attempted "
-                    f"candidate_id '{remediation_candidate_id}'. Aborting run."
-                )
-            expected_sid = compute_scenario_id(run_id, remediation_candidate_id, 1)
-            if envelope.scenario_id != expected_sid:
-                raise ScenarioForgeIntegrityError(
-                    f"Remediation returned envelope scenario_id "
-                    f"'{envelope.scenario_id}' does not match expected "
-                    f"'{expected_sid}' from compute_scenario_id. Aborting run."
-                )
-
-            # Pre-write candidate-ownership assertion (cmps.6): the
-            # envelope, actor access, candidate (ep_id), and every tree
-            # initial_ingress ID must all equal the one candidate-owned ID.
-            # Same gate as main generation — no divergent IDs accepted.
-            # ep_id is always a non-empty canonical ID (EntryPointGap
-            # requires entry_point_id: str); an absent ID is a fatal bug.
-            if not ep_id:
-                raise ScenarioForgeIntegrityError(
-                    "Remediation entry point gap has no canonical "
-                    "entry_point_id — cannot assert ownership. Aborting run."
-                )
-            _assert_entry_point_ownership(envelope, ep_id)
-
-            yaml_path, feature_path = write_scenario_outputs(envelope, scenarios_dir)
-
-            # Record a provisional receipt immediately after successful
-            # paired artifact creation, before the call-log write.
-            _provisional_receipt = {
-                "scenario_id": envelope.scenario_id,
-                "candidate_id": remediation_candidate_id,
-                "yaml_path": str(yaml_path),
-                "feature_path": str(feature_path) if feature_path else None,
-            }
-            write_receipts.append(_provisional_receipt)
-
-            # Call-log failure after artifact creation is fatal.
-            try:
-                write_call_log(call_log_entries, scenarios_dir)
-            except Exception as exc:
-                raise ScenarioForgeIntegrityError(
-                    f"Remediation call-log write failed after artifact "
-                    f"creation for scenario '{envelope.scenario_id}': {exc}. "
-                    f"Aborting run."
-                ) from exc
-
-            admitted_candidate_ids.add(remediation_candidate_id)
-            admitted_scenario_ids.add(envelope.scenario_id)
-            remediation_scenarios.append(envelope)
-            _finalize_attempt(
-                rem_attempt_rec,
-                disposition=AttemptDisposition.ADMITTED,
-            )
-
-            # cmps.6 early access gate for remediation: only update
-            # goal_usage for access-valid scenarios.
-            _rem_access_violations = _run_early_access_gate(envelope, profile)
-            if not _rem_access_violations:
-                if (
-                    goal_usage is not None
-                    and envelope.actor_profile is not None
-                    and envelope.actor_profile.goal_category is not None
-                ):
-                    goal_usage[envelope.actor_profile.goal_category] += 1
-            else:
-                if early_quarantined_sids is not None:
-                    early_quarantined_sids.add(envelope.scenario_id)
-                logger.warning(
-                    "Remediation early access gate QUARANTINED %s: %s",
-                    envelope.scenario_id,
-                    "; ".join(_rem_access_violations),
-                )
-            logger.info(
-                "    Remediation scenario generated: %s (entry point: %s)",
-                envelope.scenario_id,
-                envelope.narrative.entry_point,
-            )
-        except ScenarioForgeIntegrityError:
-            raise
-        except GenerationError as exc:
-            if exc.call_log_entries:
-                write_call_log(exc.call_log_entries, scenarios_dir)
-            note = (
-                f"Remediation generation failed for entry point '{ep_name}' "
-                f"with seed {seed.seed_id}: {exc}"
-            )
-            logger.error("    %s", note)
-            generation_notes.append(note)
-            remediation_failed += 1
-            _finalize_attempt(
-                rem_attempt_rec,
-                disposition=AttemptDisposition.FAILED,
-                failure_evidence=str(exc),
-                exc=exc,
-            )
-        except Exception as exc:  # noqa: BLE001 - remediation must catch all to record failure
-            note = (
-                f"Remediation generation failed for entry point '{ep_name}' "
-                f"with seed {seed.seed_id}: {exc}"
-            )
-            logger.error("    %s", note)
-            generation_notes.append(note)
-            remediation_failed += 1
-            _finalize_attempt(
-                rem_attempt_rec,
-                disposition=AttemptDisposition.FAILED,
-                failure_evidence=str(exc),
-                exc=exc,
-            )
-
-    logger.info(
-        "[Remediation] %d/%d uncovered entry points remediated",
-        len(remediation_scenarios),
-        len(uncovered),
-    )
-
-    return (
-        remediation_scenarios,
-        generation_notes,
-        remediation_attempted,
-        remediation_failed,
     )
 
 
@@ -1568,24 +1190,6 @@ def run_pipeline(
             filter_accepted,
         )
 
-        # Apply per-pattern cap if requested.
-        candidates_capped = 0
-        if max_scenarios_per_pattern is not None:
-            pre_cap_count = len(filtered_seeds)
-            filtered_seeds = cap_scenarios_per_pattern(
-                filtered_seeds,
-                max_scenarios_per_pattern,
-                stage_records=stage_records,
-            )
-            candidates_capped = pre_cap_count - len(filtered_seeds)
-            if candidates_capped > 0:
-                logger.info(
-                    "  Per-pattern cap (%d): %d -> %d filtered seeds (%d capped)",
-                    max_scenarios_per_pattern,
-                    pre_cap_count,
-                    len(filtered_seeds),
-                    candidates_capped,
-                )
         # --- Stage 3.6: Authoritative Projection (422o.4) ---
         # Project qualified candidate-v2 records from the authoritative
         # catalog.  Each generated scenario must receive a real
@@ -1616,11 +1220,15 @@ def run_pipeline(
         # projection-stage rejections — excluded from selected, not silently
         # skipped mid-loop.  Multiple matches are ambiguous — fatal.
         projection_rejected_count = 0
+        projection_rejected_by_target: dict[str, list[str]] = {}
         joined_seeds: list[tuple[FilteredSeed, ProjectedCandidate]] = []
         for fseed in filtered_seeds:
             pc_list = projected_by_pattern.get(fseed.seed_id)
             if not pc_list:
                 projection_rejected_count += 1
+                projection_rejected_by_target.setdefault(
+                    fseed.entry_point_id, []
+                ).append(fseed.candidate_id)
                 logger.warning(
                     "  No projected candidate for pattern '%s' — "
                     "excluded from selected (422o.4: no projection).",
@@ -1642,6 +1250,9 @@ def run_pipeline(
                 )
             if not matching_pcs:
                 projection_rejected_count += 1
+                projection_rejected_by_target.setdefault(
+                    fseed.entry_point_id, []
+                ).append(fseed.candidate_id)
                 logger.warning(
                     "  No projected candidate for pattern '%s' with "
                     "ingress entry_point_id '%s' — excluded from "
@@ -1651,13 +1262,56 @@ def run_pipeline(
                 )
                 continue
             joined_seeds.append((fseed, matching_pcs[0]))
-        selected_count = len(joined_seeds)
         if projection_rejected_count:
             logger.info(
                 "  %d filtered seed(s) rejected at projection stage "
                 "(no exact ingress match).",
                 projection_rejected_count,
             )
+
+        # --- Stage 3.7: Coverage-Aware Planning (cmps.4) ---
+        # Build the coverage universe from the capability profile.
+        # Feasible targets are canonical entry points with direction
+        # input|bidirectional and controllability direct|indirect.
+        # Output-only / system-controlled entries are excluded with
+        # typed reasons.
+        coverage_universe = build_coverage_universe(profile)
+
+        # Build deterministic ranked fallback queues per feasible target
+        # from accepted projected candidates, bounded to at most three
+        # choices per target.
+        fallback_queues = build_fallback_queues(joined_seeds, coverage_universe)
+
+        # Coverage-aware selection: first hard objective is one candidate
+        # for every feasible coverage target.  Only then optimize secondary
+        # diversity / per-pattern caps.  Capping must not discard a target's
+        # sole accepted candidate.
+        selection_result = select_with_coverage_priority(
+            joined_seeds,
+            fallback_queues,
+            coverage_universe,
+            max_per_pattern=max_scenarios_per_pattern,
+        )
+        selected_count = len(selection_result.selected)
+        candidates_capped = selection_result.capped_count
+        if candidates_capped > 0:
+            logger.info(
+                "  Coverage-aware selection: %d candidates capped by "
+                "per-pattern limit (sole-target candidates preserved).",
+                candidates_capped,
+            )
+        if selection_result.uncovered_target_ids:
+            logger.info(
+                "  %d feasible target(s) with no candidate: %s",
+                len(selection_result.uncovered_target_ids),
+                selection_result.uncovered_target_ids,
+            )
+        logger.info(
+            "  Selected %d candidate(s) from %d joined (%d projection-rejected).",
+            selected_count,
+            len(joined_seeds),
+            projection_rejected_count,
+        )
 
         # --- Stage 4: Scenario Generation ---
         logger.info("[Stage 4] Generating %d scenarios...", selected_count)
@@ -1709,7 +1363,7 @@ def run_pipeline(
             )
             available_goals = []
 
-        for i, (fseed, projected_candidate) in enumerate(joined_seeds, 1):
+        for i, (fseed, projected_candidate) in enumerate(selection_result.selected, 1):
             label = f"{fseed.seed_id}: {fseed.attack_pattern_name}"
             logger.info("  [%d/%d] %s...", i, selected_count, label)
 
@@ -1918,47 +1572,15 @@ def run_pipeline(
         if generation_notes:
             logger.info("  %d note(s) recorded", len(generation_notes))
 
-        # --- Coverage Remediation Pass (before validation) ---
-        # Remediation scenarios go through the same generation/write/admission
-        # path as main candidates, then pass through all validation passes.
-        # cmps.6: exclude early-quarantined scenarios from coverage analysis
-        # so they don't suppress remediation for their entry point.
-        pre_remediation_scenarios = [
-            s for s in scenarios if s.scenario_id not in early_quarantined_sids
-        ]
-        pre_remediation_gaps = analyze_coverage_gaps(
-            profile, threat_surface, pre_remediation_scenarios
-        )
+        # --- cmps.4: No post-validation raw-seed remediation ---
+        # The legacy remediation pass has been removed.  Coverage-aware
+        # planning (Stage 3.7) ensures one candidate per feasible target
+        # before generation.  Uncovered targets receive typed quality
+        # gaps in the coverage report (below).  No scenario is generated
+        # from a raw/unfiltered seed after normal generation/validation.
         rem_attempted = 0
         rem_failed = 0
         rem_admitted = 0
-        if pre_remediation_gaps.uncovered_entry_points:
-            remediation_scenarios, remediation_notes, rem_attempted, rem_failed = (
-                _remediate_coverage_gaps(
-                    pre_remediation_gaps,
-                    seeds,
-                    profile,
-                    client,
-                    use_case,
-                    scenarios_dir,
-                    run_id=run_id,
-                    attempted_candidate_ids=attempted_candidate_ids,
-                    admitted_candidate_ids=admitted_candidate_ids,
-                    admitted_scenario_ids=admitted_scenario_ids,
-                    write_receipts=write_receipts,
-                    attempts=attempts,
-                    available_goals=available_goals,
-                    goal_usage=tracker.goal_usage,
-                    early_quarantined_sids=early_quarantined_sids,
-                    projected_by_pattern=projected_by_pattern,
-                    capability_snapshot=capability_snapshot,
-                )
-            )
-            rem_admitted = len(remediation_scenarios)
-            scenarios.extend(remediation_scenarios)
-            generation_notes.extend(remediation_notes)
-            attempted_count += rem_attempted
-            failed_count += rem_failed
 
         # --- Phantom Capability Validation Pass ---
         logger.info("[Validation] Checking for phantom capabilities...")
@@ -2188,7 +1810,60 @@ def run_pipeline(
                 scenarios,
                 profile=profile,
             )
-        write_coverage_report(coverage_gaps, run_dir, attacker_diversity)
+
+        # --- cmps.4: Typed quality gaps ---
+        # Emit typed, stage-attributed quality gaps for feasible targets
+        # without coverage.  Walks the funnel backwards to attribute each
+        # gap to the earliest stage where the target's candidate(s) fell
+        # out.  Coverage is never fabricated.
+        generated_target_ids: set[str] = set()
+        quarantined_target_ids: set[str] = set()
+        for env in scenarios:
+            cf = env.candidate_filter or {}
+            ep_id = cf.get("entry_point_id")
+            if ep_id:
+                if env.scenario_id in quarantined_sids:
+                    quarantined_target_ids.add(ep_id)
+                else:
+                    generated_target_ids.add(ep_id)
+
+        # Build rule-rejected and filter-rejected by target for attribution.
+        rule_rejected_by_target: dict[str, list[str]] = {}
+        for c in rule_rejected:
+            rule_rejected_by_target.setdefault(c.entry_point_id, []).append(
+                c.candidate_id
+            )
+        filter_rejected_by_target: dict[str, list[str]] = {}
+        accepted_filter_ids = {f.candidate_id for f in filtered_seeds}
+        for c in rule_passed:
+            if c.candidate_id not in accepted_filter_ids:
+                filter_rejected_by_target.setdefault(c.entry_point_id, []).append(
+                    c.candidate_id
+                )
+
+        quality_gaps = emit_quality_gaps(
+            coverage_universe,
+            selection_result,
+            fallback_queues,
+            generated_target_ids=generated_target_ids,
+            quarantined_target_ids=quarantined_target_ids,
+            rule_rejected_by_target=rule_rejected_by_target,
+            filter_rejected_by_target=filter_rejected_by_target,
+            projection_rejected_by_target=projection_rejected_by_target,
+        )
+        if quality_gaps:
+            logger.info(
+                "  %d quality gap(s) emitted for uncovered targets.",
+                len(quality_gaps),
+            )
+
+        write_coverage_report(
+            coverage_gaps,
+            run_dir,
+            attacker_diversity,
+            coverage_universe=coverage_universe,
+            quality_gaps=quality_gaps,
+        )
 
         # --- Compute artifact hashes from this run's write receipts ---
         scenarios_dir_final = get_scenarios_dir(run_dir)

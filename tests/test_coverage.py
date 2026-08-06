@@ -15,9 +15,6 @@ Covers:
   - Missing actor profile (unknown)
   - Empty scenarios list
 - Coverage report output
-- Coverage remediation (scenario-forge-5gs):
-  - _pick_best_seed_for_entry_point selection
-  - _remediate_coverage_gaps full flow
 """
 
 from __future__ import annotations
@@ -25,7 +22,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -51,7 +47,6 @@ from scenario_forge.models.scenario import (
     FacetingMetadata,
     GenerationMetadata,
     LikelihoodLevel,
-    NarrativeAccessRealization,
     NarrativeLayer,
     NarrativeStep,
     Priority,
@@ -80,15 +75,10 @@ from scenario_forge.pipeline.coverage import (
 from scenario_forge.pipeline.generate import compute_scenario_id
 from scenario_forge.pipeline.runner import (
     _compute_gap_attributions,
-    _pick_best_seed_for_entry_point,
-    _remediate_coverage_gaps,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
 from tests.helpers.projection_factory import (
-    get_canonical_ingress_id,
-    get_projected_candidate,
-    get_test_snapshot,
     make_behavior_spec,
     make_projection_block,
 )
@@ -108,25 +98,6 @@ def _make_risk_card_ref(risk_id: str = "test-risk") -> RiskCardRef:
         confidence=0.9,
         grounding_confidence="high",
     )
-
-
-def _make_remediation_envelope(
-    run_id: str,
-    candidate_id: str,
-    entry_point: str = "user prompts (zone 1)",
-    scenario_seed: str = "AP-T1-01",
-    entry_point_id: str | None = None,
-) -> ScenarioEnvelope:
-    """Build an envelope with IDs matching compute_scenario_id for remediation mocks."""
-    scenario_id = compute_scenario_id(run_id, candidate_id, 1)
-    env = _make_envelope(
-        entry_point=entry_point,
-        scenario_seed=scenario_seed,
-        entry_point_id=entry_point_id,
-    )
-    env.scenario_id = scenario_id
-    env.candidate_id = candidate_id
-    return env
 
 
 def _make_envelope(
@@ -1001,7 +972,7 @@ class TestWriteCoverageReport:
 
 
 # ---------------------------------------------------------------------------
-# Coverage remediation tests (scenario-forge-5gs)
+# Gap attribution tests (scenario-forge-qaeh)
 # ---------------------------------------------------------------------------
 
 
@@ -1025,334 +996,6 @@ def _make_seed(
         owasp_llm_ids=["LLM01"],
         agentic_threat_ids=agentic_threat_ids,
     )
-
-
-class TestPickBestSeedForEntryPoint:
-    """Tests for _pick_best_seed_for_entry_point."""
-
-    def test_returns_none_for_empty_seeds(self):
-        profile = _make_profile()
-        result = _pick_best_seed_for_entry_point("chat input (zone 1)", [], profile)
-        assert result is None
-
-    def test_returns_only_seed_when_one_available(self):
-        profile = _make_profile()
-        seed = _make_seed()
-        result = _pick_best_seed_for_entry_point("chat input (zone 1)", [seed], profile)
-        assert result is seed
-
-    def test_returns_a_seed_from_multiple(self):
-        """With multiple seeds, should return one of them (not None)."""
-        profile = _make_profile(zones_active=["input", "reasoning", "tool_execution"])
-        seeds = [
-            _make_seed(seed_id="AP-T1-01", threat_id="T1"),
-            _make_seed(seed_id="AP-T2-01", threat_id="T2"),
-            _make_seed(seed_id="AP-T3-01", threat_id="T3"),
-        ]
-        result = _pick_best_seed_for_entry_point(
-            "admin console (zone 2)", seeds, profile
-        )
-        assert result is not None
-        assert result in seeds
-
-
-class TestRemediateCoverageGaps:
-    """Tests for _remediate_coverage_gaps."""
-
-    def test_no_uncovered_entry_points_returns_empty(self, tmp_path: Path):
-        """When there are no uncovered entry points, nothing happens."""
-        gaps = CoverageGaps(uncovered_entry_points=[])
-        profile = _make_profile()
-        client = MagicMock()
-
-        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
-            gaps,
-            [_make_seed()],
-            profile,
-            client,
-            "test use case",
-            tmp_path,
-            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            attempted_candidate_ids=set(),
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=[],
-            attempts=[],
-        )
-        assert scenarios == []
-        assert notes == []
-
-    def test_no_seeds_records_skip_note(self, tmp_path: Path):
-        """When seeds are empty, each uncovered EP gets a skip note."""
-        ep_name = "user prompts (zone 1)"
-        ep_id = compute_entry_point_id(ep_name, "bidirectional", None)
-        gaps = CoverageGaps(
-            uncovered_entry_points=[EntryPointGap(entry_point_id=ep_id, name=ep_name)]
-        )
-        profile = _make_profile()
-        client = MagicMock()
-
-        scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
-            gaps,
-            [],
-            profile,
-            client,
-            "test use case",
-            tmp_path,
-            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            attempted_candidate_ids=set(),
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=[],
-            attempts=[],
-        )
-        assert scenarios == []
-        assert len(notes) == 1
-        assert "no seeds available" in notes[0]
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    def test_generates_scenario_for_each_uncovered_ep(
-        self, mock_write_log, mock_write, mock_generate, mock_accessible, tmp_path: Path
-    ):
-        """Each uncovered entry point should trigger one generate_scenario call."""
-        uncovered = ["chat input (zone 1)", "admin dashboard (zone 2)"]
-        first_ep_id = get_canonical_ingress_id()
-        second_ep_id = "ep:v1:22222222222222222222222200000002"
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id=first_ep_id,
-                    name="chat input (zone 1)",
-                ),
-                EntryPointGap(
-                    entry_point_id=second_ep_id,
-                    name="admin dashboard (zone 2)",
-                ),
-            ]
-        )
-        profile = _make_profile(
-            entry_points=[
-                "existing ep",
-                "chat input (zone 1)",
-                "admin dashboard (zone 2)",
-            ],
-            zones_active=["input", "reasoning"],
-        )
-        seeds = [_make_seed(seed_id="AP-T1-01"), _make_seed(seed_id="AP-T2-01")]
-        client = MagicMock()
-
-        # Create mock envelopes with matching IDs for each uncovered EP.
-        run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
-        def gen_side_effect(*args, **kwargs):
-            cid = kwargs["candidate_id"]
-            ep_id = kwargs.get("pinned_entry_point_id", "")
-            env = _make_remediation_envelope(
-                run_id=run_id,
-                candidate_id=cid,
-                entry_point=kwargs.get("pinned_entry_point", "user prompts (zone 1)"),
-                scenario_seed=kwargs.get("pinned_entry_point_id", "ep-id"),
-                entry_point_id=ep_id,
-            )
-            env.narrative.access_realization = NarrativeAccessRealization(
-                initial_entry_point_id=ep_id,
-                responsible_step_number=1,
-            )
-            return (env, [])
-
-        mock_generate.side_effect = gen_side_effect
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        projected_t1 = get_projected_candidate()
-        from tests.helpers.projection_factory import get_second_projected_candidate
-
-        projected_t2 = get_second_projected_candidate()
-        with patch(
-            "scenario_forge.pipeline.runner._pick_best_seed_for_entry_point",
-            side_effect=seeds,
-        ):
-            scenarios, _notes, _attempted, _failed = _remediate_coverage_gaps(
-                gaps,
-                seeds,
-                profile,
-                client,
-                "test use case",
-                tmp_path,
-                run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                attempted_candidate_ids=set(),
-                admitted_candidate_ids=set(),
-                admitted_scenario_ids=set(),
-                write_receipts=[],
-                attempts=[],
-                projected_by_pattern={
-                    "AP-T1-01": [projected_t1],
-                    "AP-T2-01": [projected_t2],
-                },
-                capability_snapshot=get_test_snapshot(),
-            )
-
-        assert len(scenarios) == 2
-        assert mock_generate.call_count == 2
-
-        # Verify each call used the correct pinned_entry_point (hard constraint).
-        for i, ep in enumerate(uncovered):
-            call_kwargs = mock_generate.call_args_list[i]
-            assert call_kwargs.kwargs.get("pinned_entry_point") == ep
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    def test_handles_generation_failure_gracefully(
-        self, mock_write_log, mock_write, mock_generate, mock_accessible, tmp_path: Path
-    ):
-        """When generate_scenario raises, we record a note and continue."""
-        ep_fail_name = "ep-fail (zone 1)"
-        ep_ok_name = "ep-ok (zone 2)"
-        ep_fail_id = get_canonical_ingress_id()
-        ep_ok_id = "ep:v1:22222222222222222222222200000002"
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(entry_point_id=ep_fail_id, name=ep_fail_name),
-                EntryPointGap(entry_point_id=ep_ok_id, name=ep_ok_name),
-            ]
-        )
-        profile = _make_profile(
-            entry_points=[ep_fail_name, ep_ok_name],
-            zones_active=["input", "reasoning"],
-        )
-        seeds = [_make_seed(), _make_seed(seed_id="AP-T2-01")]
-        client = MagicMock()
-
-        # First call fails, second succeeds with matching IDs.
-        run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        projected_t1 = get_projected_candidate()
-        from tests.helpers.projection_factory import get_second_projected_candidate
-
-        projected_t2 = get_second_projected_candidate()
-        ok_cand_id = projected_t2.candidate_id
-        ok_envelope = _make_remediation_envelope(
-            run_id=run_id,
-            candidate_id=ok_cand_id,
-            entry_point="ep-ok (zone 2)",
-            entry_point_id=ep_ok_id,
-        )
-        ok_envelope.narrative.access_realization = NarrativeAccessRealization(
-            initial_entry_point_id=ep_ok_id,
-            responsible_step_number=1,
-        )
-        mock_generate.side_effect = [
-            RuntimeError("LLM timeout"),
-            (ok_envelope, []),
-        ]
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        with patch(
-            "scenario_forge.pipeline.runner._pick_best_seed_for_entry_point",
-            side_effect=seeds,
-        ):
-            scenarios, notes, _attempted, _failed = _remediate_coverage_gaps(
-                gaps,
-                seeds,
-                profile,
-                client,
-                "test use case",
-                tmp_path,
-                run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                attempted_candidate_ids=set(),
-                admitted_candidate_ids=set(),
-                admitted_scenario_ids=set(),
-                write_receipts=[],
-                attempts=[],
-                projected_by_pattern={
-                    "AP-T1-01": [projected_t1],
-                    "AP-T2-01": [projected_t2],
-                },
-                capability_snapshot=get_test_snapshot(),
-            )
-
-        assert len(scenarios) == 1
-        assert scenarios[0] is ok_envelope
-        assert len(notes) == 1
-        assert "Remediation generation failed" in notes[0]
-        assert "ep-fail (zone 1)" in notes[0]
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner._pick_best_seed_for_entry_point")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    def test_passes_seed_and_profile_to_generate(
-        self,
-        mock_write_log,
-        mock_write,
-        mock_generate,
-        mock_pick_seed,
-        mock_accessible,
-        tmp_path: Path,
-    ):
-        """Verify generate_scenario receives the correct seed, profile, and use_case."""
-        ep_name = "api gateway (zone 3)"
-        ep_id = get_canonical_ingress_id()
-        gaps = CoverageGaps(
-            uncovered_entry_points=[EntryPointGap(entry_point_id=ep_id, name=ep_name)]
-        )
-        profile = _make_profile(
-            entry_points=[ep_name],
-            zones_active=["input", "reasoning", "tool_execution"],
-        )
-        seed = _make_seed(seed_id="AP-T1-01")
-        client = MagicMock()
-        mock_pick_seed.return_value = seed
-
-        run_id = "20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        cand_id = get_projected_candidate().candidate_id
-        mock_envelope = _make_remediation_envelope(
-            run_id=run_id,
-            candidate_id=cand_id,
-            entry_point="api gateway (zone 3)",
-            entry_point_id=ep_id,
-        )
-        mock_generate.return_value = (mock_envelope, [])
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        _scenarios, _notes, _attempted, _failed = _remediate_coverage_gaps(
-            gaps,
-            [seed],
-            profile,
-            client,
-            "my use case",
-            tmp_path,
-            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            attempted_candidate_ids=set(),
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=[],
-            attempts=[],
-            projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
-            capability_snapshot=get_test_snapshot(),
-        )
-
-        call_args = mock_generate.call_args
-        assert call_args.args[0] is seed  # seed
-        assert call_args.args[1] is profile  # profile
-        assert call_args.args[2] is client  # client
-        assert call_args.args[3] == "my use case"  # use_case
-        assert call_args.kwargs["pinned_entry_point"] == "api gateway (zone 3)"
-
-
-# ---------------------------------------------------------------------------
-# Gap attribution tests (scenario-forge-qaeh)
-# ---------------------------------------------------------------------------
 
 
 def _make_candidate(

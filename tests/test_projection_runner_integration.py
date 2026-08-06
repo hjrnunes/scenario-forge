@@ -17,7 +17,7 @@ from scenario_forge.models.scenario import (
     NarrativeAccessRealization,
 )
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
-from scenario_forge.pipeline.coverage import CoverageGaps, EntryPointGap
+from scenario_forge.pipeline.coverage import CoverageGaps
 from scenario_forge.pipeline.generate import compute_scenario_id
 from scenario_forge.pipeline.runner import ScenarioForgeIntegrityError, run_pipeline
 from scenario_forge.pipeline.seeds import ScenarioSeed
@@ -256,28 +256,6 @@ def test_multiple_exact_projection_matches_are_fatal(tmp_path: Path) -> None:
         ),
     ):
         run_pipeline(**args)
-
-
-def test_remediation_rejects_candidate_already_attempted_by_main(
-    tmp_path: Path,
-) -> None:
-    projected = get_projected_candidate().model_copy(
-        update={"candidate_id": "cand:v2:" + "3" * 32}
-    )
-    stack, patches, generate, args = _arrange(
-        tmp_path,
-        entry_point_id=get_canonical_ingress_id(),
-        projected_candidates=[projected],
-    )
-    generate.side_effect = _successful_generation(projected)
-    patches["analyze_coverage_gaps"].return_value = CoverageGaps(
-        uncovered_entry_points=[
-            EntryPointGap(entry_point_id=get_canonical_ingress_id(), name="chat")
-        ]
-    )
-    with stack, pytest.raises(ScenarioForgeIntegrityError, match="already attempted"):
-        run_pipeline(**args)
-    assert generate.call_count == 1
 
 
 def test_runner_uses_unmodified_derived_projected_candidate(tmp_path: Path) -> None:
