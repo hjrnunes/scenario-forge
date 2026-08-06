@@ -836,6 +836,9 @@ class _Persistence:
     def record_candidate_result(self, candidate_id, result) -> None:
         pass
 
+    def record_repair(self, candidate_id, record) -> None:
+        pass
+
 
 def test_concrete_finalizer_fails_closed_without_verified_candidate_context() -> None:
     candidate, actor, narrative, tree = _valid_parts()
