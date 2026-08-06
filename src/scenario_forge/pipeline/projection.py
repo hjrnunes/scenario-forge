@@ -339,6 +339,7 @@ class ProjectionBudget(ProjectionModel):
     """Explicit global expansion bound."""
 
     max_candidates: int = Field(default=256, gt=0)
+    max_derivation_work: int = Field(default=4096, gt=0)
 
 
 class PreconditionEvaluationResult(ProjectionModel):
@@ -366,7 +367,7 @@ class ProjectionIssue(ProjectionModel):
 
 
 class ProjectionLimitation(ProjectionModel):
-    code: Literal["candidate_budget_exhausted"]
+    code: Literal["candidate_budget_exhausted", "derivation_work_exhausted"]
     pattern_id: str
     total_compatible_bindings: int = Field(ge=0)
     emitted_bindings: int = Field(ge=0)
@@ -1044,6 +1045,32 @@ def _pattern_pin(pattern: AttackPattern) -> str:
     )
 
 
+def compute_authoritative_catalog_pin(
+    records: Sequence[dict[str, Any]], taxonomy_resolver: TaxonomyResolver
+) -> Digest:
+    """Compute the canonical pin for a complete trusted authoritative catalog.
+
+    This is deliberately separate from bounded projection: validation of a
+    persisted candidate must not depend on whether its binding variant would
+    be rediscovered under an arbitrary projection budget.
+    """
+    qualified: dict[str, str] = {}
+    for raw in records:
+        pattern = validate_attack_pattern(raw, taxonomy_resolver)
+        pattern = AttackPattern.model_validate(
+            _normalize_semantic_order(pattern.model_dump(mode="json"))
+        )
+        pattern_pin = _pattern_pin(pattern)
+        previous = qualified.get(pattern.id)
+        if previous is not None and previous != pattern_pin:
+            raise ValueError("conflicting authoritative records share one pattern id")
+        qualified[pattern.id] = pattern_pin
+    return _content_pin(
+        "scenario-forge:authoritative-catalog:v1",
+        [qualified[pattern_id] for pattern_id in sorted(qualified)],
+    )
+
+
 @dataclass
 class _PatternProjectionState:
     """Lazy per-pattern projection state for bounded candidate generation.
@@ -1521,160 +1548,182 @@ def project_authoritative_candidates(
         )
         candidate_groups.append(pattern_state)
 
-    # Allocate the global budget only across feasible candidates.
-    #
-    # Coverage-aware reservation (cmps.4 blocker 3 corrected): when
-    # coverage_target_ids is provided, lazily derive one deterministic
-    # compatible ingress baseline per sorted coverage target BEFORE any
-    # per-pattern/global variant truncation.  Then lazily perform bounded
-    # variant expansion with explicit work bound.  The full Cartesian
-    # product is never materialized.
-    #
-    # Distinguish:
-    #   * no compatible projection (infeasible_coverage_targets)
-    #   * compatible-but-budget-omitted (unreserved_coverage_targets)
-    #   * variant truncation (ProjectionLimitation)
-    # ``candidate_budget_exhausted`` only if a feasible iterator was
-    # actually truncated, never because combinations failed structural
-    # derivation.
+    # Bounded, lazy allocation.  Every derivation consumes exactly one work
+    # unit, including structural rejects; no helper may scan an iterator.
+    # Candidates discovered during target reservation are kept pending, so a
+    # later variant fill cannot silently discard a feasible candidate.
     by_identity: dict[str, ProjectedCandidate] = {}
+    pending: list[tuple[int, ProjectedCandidate]] = []
+    emitted_by_group = [0] * len(candidate_groups)
+    work_used = 0
+    work_exhausted = False
 
-    if coverage_target_ids:
-        # Lazily find deterministic first compatible candidate for every
-        # target.  Iterate pattern states in sorted pattern order
-        # (candidate_groups is already sorted), pulling from lazy iterators
-        # until we find a candidate whose ingress matches each target.
-        # This does NOT materialize all candidates — only enough to find
-        # the first compatible one per target.
-        target_to_first_candidate: dict[str, ProjectedCandidate] = {}
-        remaining_targets = set(coverage_target_ids)
-
-        # First, pull the first candidate from each pattern state (baseline).
-        # This covers the common case where the baseline ingress matches a
-        # target without needing to iterate further.
-        for state in candidate_groups:
-            if not remaining_targets:
-                break
-            # Pull candidates lazily until we find one matching a remaining
-            # target or the iterator is exhausted.
-            while state.feasible_remaining and remaining_targets:
-                candidate = state.next_candidate(issues)
-                if candidate is None:
-                    break
-                ep_id = candidate.canonical_ingress.entry_point_id
-                if ep_id in remaining_targets:
-                    target_to_first_candidate[ep_id] = candidate
-                    remaining_targets.discard(ep_id)
-                    break  # move to next pattern state
-
-        # If some targets are still unmatched, continue iterating all
-        # pattern states more aggressively (pulling more candidates).
-        if remaining_targets:
-            for state in candidate_groups:
-                if not remaining_targets:
-                    break
-                while state.feasible_remaining:
-                    candidate = state.next_candidate(issues)
-                    if candidate is None:
-                        break
-                    ep_id = candidate.canonical_ingress.entry_point_id
-                    if ep_id in remaining_targets:
-                        target_to_first_candidate[ep_id] = candidate
-                        remaining_targets.discard(ep_id)
-                        break
-
-        # Targets with no compatible projection at all (structural).
-        infeasible_coverage_targets = tuple(
-            sorted(set(coverage_target_ids) - set(target_to_first_candidate))
+    def derive_one(
+        group_index: int, iterator: Any
+    ) -> tuple[ProjectedCandidate | None, bool]:
+        """Derive at most one combination; return (candidate, exhausted)."""
+        nonlocal work_used, work_exhausted
+        if work_used >= budget.max_derivation_work:
+            work_exhausted = True
+            return None, True
+        try:
+            resources = next(iterator)
+        except StopIteration:
+            return None, True
+        work_used += 1
+        state = candidate_groups[group_index]
+        candidate, issue = _build_candidate_from_combination(
+            state.pattern_id,
+            state.chain,
+            state.selected,
+            state.condition_results,
+            state.omissions,
+            resources,
+            state.catalog_pin,
+            state.pattern_pin,
+            state.precondition_results,
+            state.snapshot,
         )
+        if issue is not None:
+            issues.append(issue)
+        if candidate is not None:
+            state.generated.append(candidate)
+            pending.append((group_index, candidate))
+        return candidate, False
 
-        # Reserve one candidate per target in sorted target-ID order.
+    def emit(group_index: int, candidate: ProjectedCandidate) -> None:
+        previous = by_identity.get(candidate.candidate_id)
+        if previous is not None and previous != candidate:
+            raise ValueError("candidate-v2 identity collision")
+        if previous is None and len(by_identity) < budget.max_candidates:
+            by_identity[candidate.candidate_id] = candidate
+            emitted_by_group[group_index] += 1
+
+    target_to_first_candidate: dict[str, tuple[int, ProjectedCandidate]] = {}
+    unresolved_targets: set[str] = set()
+    if coverage_target_ids:
+        # Pin the ingress slot to each sorted target, then derive a
+        # coverage-first baseline for the other slots.  This independently
+        # reserves every target; a pattern with 3+ ingresses is not limited
+        # by prior generic iterator passes.
+        for target_id in sorted(coverage_target_ids):
+            target_found = False
+            for group_index, state in enumerate(candidate_groups):
+                ingress_index = next(
+                    index
+                    for index, slot in enumerate(state.chain.resource_slots)
+                    if slot.slot_id == state.chain.initial_ingress_slot_id
+                )
+                target_ref = next(
+                    (
+                        ref
+                        for ref in state.option_sets[ingress_index]
+                        if isinstance(ref, EntryPointResourceReference)
+                        and ref.entry_point_id == target_id
+                    ),
+                    None,
+                )
+                if target_ref is None:
+                    continue
+                target_options = list(state.option_sets)
+                target_options[ingress_index] = (target_ref,)
+                target_iter = iter(
+                    _iter_coverage_first_combinations(tuple(target_options))
+                )
+                while True:
+                    candidate, exhausted = derive_one(group_index, target_iter)
+                    if work_exhausted:
+                        break
+                    if candidate is not None:
+                        target_to_first_candidate[target_id] = (group_index, candidate)
+                        target_found = True
+                        break
+                    if exhausted:
+                        break
+                if target_found or work_exhausted:
+                    break
+            if not target_found:
+                if work_exhausted:
+                    unresolved_targets.add(target_id)
+                else:
+                    unresolved_targets.add(target_id)
+
+        infeasible_coverage_targets = tuple(
+            sorted(unresolved_targets) if not work_exhausted else ()
+        )
+        unknown_coverage_targets = set(unresolved_targets) if work_exhausted else set()
         for target_id in sorted(target_to_first_candidate):
-            if len(by_identity) >= budget.max_candidates:
-                break
-            candidate = target_to_first_candidate[target_id]
-            cid = candidate.candidate_id
-            if cid in by_identity:
-                continue
-            by_identity[cid] = candidate
+            group_index, candidate = target_to_first_candidate[target_id]
+            emit(group_index, candidate)
     else:
         infeasible_coverage_targets = ()
+        unknown_coverage_targets: set[str] = set()
 
-    # Bounded variant expansion: round-robin across pattern states,
-    # lazily pulling next candidates up to the budget.  This gives every
-    # feasible pattern a stable baseline before taking a second variation.
-    # Identity collisions never consume capacity.
-    while len(by_identity) < budget.max_candidates:
-        made_progress = False
-        for state in candidate_groups:
-            if len(by_identity) >= budget.max_candidates:
+    # Emit every already-derived pending candidate before deriving variants.
+    pending_index = 0
+    while pending_index < len(pending) and len(by_identity) < budget.max_candidates:
+        group_index, candidate = pending[pending_index]
+        pending_index += 1
+        emit(group_index, candidate)
+
+    # Round-robin variant fill.  Each call derives one combination, so work
+    # remains hard-bounded even for enormous structurally-rejected products.
+    while len(by_identity) < budget.max_candidates and not work_exhausted:
+        progressed = False
+        for group_index, state in enumerate(candidate_groups):
+            candidate, exhausted = derive_one(group_index, state._iter)
+            if candidate is not None:
+                emit(group_index, candidate)
+                progressed = True
+            elif not exhausted:
+                progressed = True
+            if len(by_identity) >= budget.max_candidates or work_exhausted:
                 break
-            if not state.feasible_remaining:
-                continue
-            candidate = state.next_candidate(issues)
-            if candidate is None:
-                continue
-            made_progress = True
-            previous = by_identity.get(candidate.candidate_id)
-            if previous is not None and previous != candidate:
-                raise ValueError("candidate-v2 identity collision")
-            if previous is None:
-                by_identity[candidate.candidate_id] = candidate
-        if not made_progress:
+        if not progressed:
             break
 
-    # cmps.4 blocker 3: Probe each pattern state that still has
-    # feasible_remaining to determine whether the budget genuinely
-    # truncated feasible output.  Pull one more candidate; if feasible,
-    # state.emitted increases and the limitation check will catch it.
-    # This does NOT admit the probed candidate — it only checks existence.
-    for state in candidate_groups:
-        if state.feasible_remaining:
-            state.next_candidate(issues)
-
-    # Compute emitted_by_group from final by_identity (after all admission).
-    emitted_by_group = [0] * len(candidate_groups)
-    for cid in by_identity:
-        # Find which pattern state generated this candidate.
-        for gi, state in enumerate(candidate_groups):
-            if any(c.candidate_id == cid for c in state.generated):
-                emitted_by_group[gi] += 1
+    # A single bounded probe may establish a real candidate-output truncation;
+    # it never scans the remaining Cartesian product.
+    if len(by_identity) >= budget.max_candidates and not pending[pending_index:]:
+        for group_index, state in enumerate(candidate_groups):
+            candidate, _ = derive_one(group_index, state._iter)
+            if candidate is not None or work_exhausted:
                 break
 
-    # Compute unreserved targets from final emitted candidates — not from
-    # a pre-fill snapshot.  A target is budget-omitted if it has a
-    # compatible candidate but none was emitted due to budget.
     if coverage_target_ids:
         emitted_target_ids = {
-            c.canonical_ingress.entry_point_id for c in by_identity.values()
+            candidate.canonical_ingress.entry_point_id
+            for candidate in by_identity.values()
         }
         unreserved_targets = tuple(
-            sorted(set(target_to_first_candidate) - emitted_target_ids)
+            sorted(
+                (set(target_to_first_candidate) | unknown_coverage_targets)
+                - emitted_target_ids
+            )
         )
     else:
         unreserved_targets = ()
 
-    # Emit candidate_budget_exhausted ONLY if a feasible iterator was
-    # actually truncated by the budget — never because combinations failed
-    # structural derivation.  A pattern has a budget limitation only when
-    # some of its generated feasible candidates were NOT admitted (i.e.,
-    # the budget prevented feasible candidates from being emitted).
-    # Patterns whose all feasible candidates were admitted do NOT get a
-    # limitation, even if the iterator was not naturally exhausted (the
-    # remaining combinations may all be structurally rejected).
     for group_index, state in enumerate(candidate_groups):
-        emitted = emitted_by_group[group_index]
-        # Budget limitation only if generated feasible candidates exceed
-        # those admitted — the budget genuinely truncated feasible output.
-        if state.emitted > emitted:
+        if state.emitted > emitted_by_group[group_index]:
             limitations.append(
                 ProjectionLimitation(
                     code="candidate_budget_exhausted",
                     pattern_id=state.pattern_id,
                     total_compatible_bindings=state.total_bindings,
-                    emitted_bindings=emitted,
+                    emitted_bindings=emitted_by_group[group_index],
                 )
             )
+    if work_exhausted:
+        limitations.extend(
+            ProjectionLimitation(
+                code="derivation_work_exhausted",
+                pattern_id=state.pattern_id,
+                total_compatible_bindings=state.total_bindings,
+                emitted_bindings=emitted_by_group[group_index],
+            )
+            for group_index, state in enumerate(candidate_groups)
+        )
     unique_issues = {
         _canonical_json(issue.model_dump(mode="json")): issue for issue in issues
     }

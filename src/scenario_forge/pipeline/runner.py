@@ -1506,7 +1506,10 @@ def run_pipeline(
             **partial_manifest.funnel,
             "qualified": len(qualified_candidates),
             "projection_rejected": projection_rejected_count,
-            "selected": selected_count,
+            # Planned count is diagnostic only; failed lifecycle selected is
+            # reconstructed from actual main reservations in the exception
+            # path so selected == main_attempted always holds.
+            "planned_selected": selected_count,
             "filter_accepted": filter_accepted,
             "filter_submitted": filter_submitted,
             "unique_pre_rule_identities": unique_pre_rule_identities,
@@ -2516,25 +2519,23 @@ def run_pipeline(
             # terminal equation validation can run even when the normal
             # funnel construction was never reached.  Preserve existing
             # funnel data if present.
-            if attempts:
-                existing_funnel = failed_manifest.funnel or {}
-                failed_manifest.funnel = derive_funnel_from_attempts(
-                    attempts,
-                    expanded_instances=existing_funnel.get("expanded_instances", 0),
-                    unique_pre_rule_identities=existing_funnel.get(
-                        "unique_pre_rule_identities", 0
-                    ),
-                    rule_rejected=existing_funnel.get("rule_rejected", 0),
-                    rule_transformed=existing_funnel.get("rule_transformed", 0),
-                    post_rule_collapsed=existing_funnel.get("post_rule_collapsed", 0),
-                    filter_submitted=existing_funnel.get("filter_submitted", 0),
-                    filter_accepted=existing_funnel.get("filter_accepted", 0),
-                    selected=existing_funnel.get("selected", 0),
-                    qualified=existing_funnel.get("qualified", 0),
-                    projection_rejected=existing_funnel.get("projection_rejected", 0),
-                    persisted_artifacts=existing_funnel.get("persisted_artifacts", 0),
-                    seeds_generated=existing_funnel.get("seeds_generated", 0),
-                )
+            existing_funnel = failed_manifest.funnel or {}
+            failed_manifest.funnel = derive_funnel_from_attempts(
+                attempts,
+                expanded_instances=existing_funnel.get("expanded_instances", 0),
+                unique_pre_rule_identities=existing_funnel.get(
+                    "unique_pre_rule_identities", 0
+                ),
+                rule_rejected=existing_funnel.get("rule_rejected", 0),
+                rule_transformed=existing_funnel.get("rule_transformed", 0),
+                post_rule_collapsed=existing_funnel.get("post_rule_collapsed", 0),
+                filter_submitted=existing_funnel.get("filter_submitted", 0),
+                filter_accepted=existing_funnel.get("filter_accepted", 0),
+                qualified=existing_funnel.get("qualified", 0),
+                projection_rejected=existing_funnel.get("projection_rejected", 0),
+                persisted_artifacts=existing_funnel.get("persisted_artifacts", 0),
+                seeds_generated=existing_funnel.get("seeds_generated", 0),
+            )
             # Tolerantly inventory each existing recognized artifact
             # independently, without requiring late-stage outputs.
             failed_manifest.inventory = _build_failed_evidence_inventory(

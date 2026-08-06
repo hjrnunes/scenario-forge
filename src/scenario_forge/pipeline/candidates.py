@@ -1248,7 +1248,7 @@ def filter_candidates(
     """
     if not candidates:
         logger.info("Filter: no candidates to filter")
-        return [], []
+        return [], [], []
 
     # Build seed lookup for constructing FilteredSeed with full fields
     seed_lookup: dict[str, ScenarioSeed] = {s.seed_id: s for s in seeds}
@@ -1268,10 +1268,11 @@ def filter_candidates(
     def _filter_one_seed(
         seed_id: str,
         seed_candidates: list[CandidateTriple],
-    ) -> tuple[list[FilteredSeed], int, int, list[dict]]:
+    ) -> tuple[list[FilteredSeed], int, int, list[dict], list[FilterVerdict]]:
         """Filter candidates for a single seed.
 
-        Returns (accepted, n_accepted, n_rejected, call_log_entries).
+        Returns (accepted, n_accepted, n_rejected, call_log_entries,
+        rejected_verdicts).
         Raises FilterProtocolError on irreconcilable response.
         """
         # Reject duplicate candidate IDs in the submitted input — this

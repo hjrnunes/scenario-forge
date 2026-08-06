@@ -1315,7 +1315,19 @@ def deserialize_qualified_candidate(ref: dict) -> DeserializedPlanRef:
 
     records: list[AcceptedFilterRecord] = []
     for raw in raw_filters:
-        records.append(AcceptedFilterRecord.from_dict(raw))
+        record = AcceptedFilterRecord.from_dict(raw)
+        if record.seed is None:
+            raise ValueError(
+                f"accepted filter record '{record.filter_candidate_id}' is missing seed"
+            )
+        # The serialized summary fields are not independent evidence.  They
+        # must exactly be the canonical projection of the embedded seed.
+        if record != AcceptedFilterRecord.from_seed(record.seed):
+            raise ValueError(
+                f"accepted filter record '{record.filter_candidate_id}' does not "
+                "match its embedded FilteredSeed"
+            )
+        records.append(record)
 
     # Reject duplicate filter_candidate_ids.
     filter_ids = [r.filter_candidate_id for r in records]
@@ -1348,6 +1360,31 @@ def deserialize_qualified_candidate(ref: dict) -> DeserializedPlanRef:
 
     rank = ref.get("rank", 0)
 
+    # Validate duplicated outer summaries rather than trusting them.  This
+    # keeps existing plan consumers compatible without creating a second,
+    # mutable source of filter provenance.
+    canonical_qc = QualifiedCandidate(
+        projected=pc, accepted_filters=tuple(records), rank=rank
+    )
+    expected_outer = {
+        "filter_candidate_id": canonical_qc.filter_candidate_id,
+        "accepted_rationale": canonical_qc.accepted_rationale,
+        "origins": [o.model_dump(mode="json") for o in canonical_qc.merged_origins],
+        "rejection_rationales": [
+            r.model_dump(mode="json") for r in canonical_qc.merged_rejection_rationales
+        ],
+        "pinned_entry_point": canonical_qc.generation_seed.pinned_entry_point,
+        "pinned_technique_ids": list(canonical_qc.generation_seed.pinned_technique_ids),
+        "pinned_technique_names": list(
+            canonical_qc.generation_seed.pinned_technique_names
+        ),
+    }
+    for field_name, expected in expected_outer.items():
+        if ref.get(field_name) != expected:
+            raise ValueError(
+                f"plan ref outer {field_name} does not match accepted filter records"
+            )
+
     return DeserializedPlanRef(
         projected=pc,
         accepted_filters=tuple(records),
@@ -1359,6 +1396,7 @@ def revalidate_qualified_candidate(
     ref: dict,
     taxonomy_resolver: Any,
     snapshot: Any,
+    trusted_catalog: Sequence[dict[str, Any]],
 ) -> DeserializedPlanRef:
     """Deserialize AND authoritatively revalidate a plan ref.
 
@@ -1384,59 +1422,43 @@ def revalidate_qualified_candidate(
             requalification drifts from the embedded projection.
     """
     from scenario_forge.pipeline.projection import (
-        ProjectionBudget,
-        project_authoritative_candidates,
+        compute_authoritative_catalog_pin,
+        validate_projected_candidate,
     )
 
     deserialized = deserialize_qualified_candidate(ref)
 
-    # Re-derive the projected candidate from trusted catalog + snapshot.
-    # We use the pattern_id from the deserialized candidate to locate the
-    # trusted record, then project with a budget sufficient to include it.
+    # Locate the matching record in the COMPLETE trusted catalog, then use
+    # the direct validation contract.  Do not bounded-reproject: an exact
+    # binding variant can validly sit beyond any chosen projection budget.
     trusted_pattern_id = deserialized.pattern_id
-
-    # Load the trusted catalog and find the matching pattern record.
-    from scenario_forge.data.loaders import load_attack_patterns
-
-    trusted_records = load_attack_patterns()
-    trusted_record = trusted_records.get(trusted_pattern_id)
+    trusted_record = next(
+        (
+            record
+            for record in trusted_catalog
+            if record.get("id") == trusted_pattern_id
+        ),
+        None,
+    )
     if trusted_record is None:
         raise ValueError(
             f"authoritative drift: pattern '{trusted_pattern_id}' not found "
             f"in trusted catalog"
         )
 
-    # Project with the trusted snapshot, requesting the specific ingress.
-    trusted_batch = project_authoritative_candidates(
-        [trusted_record],
-        taxonomy_resolver,
-        snapshot,
-        budget=ProjectionBudget(max_candidates=256),
-        coverage_target_ids={deserialized.entry_point_id},
+    expected_catalog_pin = compute_authoritative_catalog_pin(
+        trusted_catalog, taxonomy_resolver
     )
-
-    # Find the trusted candidate matching the deserialized candidate_id.
-    trusted_match = None
-    for candidate in trusted_batch.candidates:
-        if candidate.candidate_id == deserialized.candidate_id:
-            trusted_match = candidate
-            break
-
-    if trusted_match is None:
+    validated = validate_projected_candidate(
+        deserialized.projected.model_dump(mode="json"),
+        snapshot,
+        trusted_record,
+        taxonomy_resolver,
+        expected_catalog_pin=expected_catalog_pin,
+    )
+    if validated != deserialized.projected:
         raise ValueError(
-            f"authoritative drift: candidate '{deserialized.candidate_id}' "
-            f"could not be re-derived from trusted catalog + snapshot "
-            f"(emitted {len(trusted_batch.candidates)} candidate(s), "
-            f"none matching)"
-        )
-
-    # Verify the trusted projection matches the embedded projection exactly.
-    if trusted_match.model_dump(mode="json") != deserialized.projected.model_dump(
-        mode="json"
-    ):
-        raise ValueError(
-            f"authoritative drift: trusted projection for candidate "
-            f"'{deserialized.candidate_id}' does not match embedded projection"
+            "authoritative validation did not preserve persisted candidate"
         )
 
     return deserialized

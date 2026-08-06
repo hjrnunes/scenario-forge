@@ -1461,12 +1461,11 @@ def derive_funnel_from_attempts(
     total_admitted = main_admitted + rem_admitted
     total_quarantined = main_quarantined + rem_quarantined
 
-    # Derive selected and persisted_artifacts from attempts when not
-    # supplied, so the funnel is consistent with CandidateFunnel equations:
-    #   selected == main_attempted
-    #   persisted_artifacts == admitted
-    if selected == 0 and main_attempts:
-        selected = len(main_attempts)
+    # Failed-run lifecycle counts must be reconstructed from actual reserved
+    # attempts, never from the pre-generation plan.  In particular, a fatal
+    # error after reserving the first of two planned candidates has selected
+    # == main_attempted == 1, not the planned count of two.
+    selected = len(main_attempts)
     # cmps.4 blocker 5: qualified must be >= selected.  When the caller
     # supplies an actual qualified value (> 0), preserve it — do NOT
     # default qualified=selected when actual context exists.  Only
@@ -1475,6 +1474,10 @@ def derive_funnel_from_attempts(
     # qualification stage was never reached).
     if qualified == 0 and selected > 0 and projection_rejected == 0:
         qualified = selected
+    if selected > qualified:
+        raise ManifestIntegrityError(
+            f"failed funnel selected={selected} exceeds qualified={qualified}"
+        )
     if persisted_artifacts == 0:
         persisted_artifacts = total_admitted + total_quarantined
 

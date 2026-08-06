@@ -14,7 +14,7 @@ from scenario_forge.models.capability_profile import (
     InventoryCompleteness,
 )
 from scenario_forge.models.scenario import RiskCardRef
-from scenario_forge.pipeline.candidates import FilteredSeed
+from scenario_forge.pipeline.candidates import FilteredSeed, filter_candidates
 from scenario_forge.pipeline.coverage_planning import (
     MAX_FALLBACK_CHOICES,
     STAGE_ADMISSION,
@@ -42,6 +42,7 @@ from scenario_forge.pipeline.coverage_planning import (
     deserialize_plan_ref,
     deserialize_qualified_candidate,
     emit_quality_gaps,
+    revalidate_qualified_candidate,
     select_with_coverage_priority,
 )
 from scenario_forge.pipeline.projection import ProjectedCandidate
@@ -1547,10 +1548,8 @@ class TestFunnelInvariant:
         # projection_rejected is also 0 (qualification stage never reached).
         assert funnel["qualified"] == funnel["selected"] == 1
 
-    def test_derive_funnel_preserves_qualified_with_projection_rejected(self) -> None:
-        """cmps.4 blocker 5: When projection_rejected > 0 but qualified == 0,
-        do NOT default qualified=selected — the actual context indicates
-        qualification data exists but was not passed."""
+    def test_derive_funnel_rejects_selected_above_qualified(self) -> None:
+        """cmps.4 blocker 5: failed manifests enforce selected <= qualified."""
         from scenario_forge.manifest import (
             AttemptDisposition,
             AttemptPhase,
@@ -1567,14 +1566,12 @@ class TestFunnelInvariant:
                 phase=AttemptPhase.MAIN,
             ),
         ]
-        funnel = derive_funnel_from_attempts(
-            attempts, selected=1, qualified=0, projection_rejected=3
-        )
-        # qualified is NOT defaulted to selected when projection_rejected > 0
-        # (actual context exists — qualification stage was reached).
-        assert funnel["qualified"] == 0
-        assert funnel["projection_rejected"] == 3
-        assert funnel["selected"] == 1
+        from scenario_forge.manifest import ManifestIntegrityError
+
+        with pytest.raises(ManifestIntegrityError, match="exceeds qualified"):
+            derive_funnel_from_attempts(
+                attempts, selected=1, qualified=0, projection_rejected=3
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1833,6 +1830,66 @@ class TestExecutablePersistedFallback:
         ref["accepted_filters"][0]["seed"]["entry_point_id"] = "ep:v1:tampered"
         with pytest.raises(ValueError, match="disagrees"):
             deserialize_qualified_candidate(ref)
+
+    def test_missing_seed_and_changed_record_summary_rejected(self) -> None:
+        qc = self._make_real_qc()
+        ref = qc.to_plan_ref()
+        ref["accepted_filters"][0].pop("seed")
+        with pytest.raises(ValueError, match="missing seed"):
+            deserialize_qualified_candidate(ref)
+
+        ref = qc.to_plan_ref()
+        ref["accepted_filters"][0]["rationale"] = "tampered"
+        with pytest.raises(ValueError, match="does not match"):
+            deserialize_qualified_candidate(ref)
+
+    def test_authoritative_validation_uses_complete_catalog_pin(self) -> None:
+        """A fallback validates directly against its authoritative record and
+        the pin of the complete catalog, without bounded reprojection."""
+        from copy import deepcopy
+
+        from scenario_forge.models.attack_pattern import compute_chain_semantic_digest
+        from scenario_forge.pipeline.projection import (
+            ProjectionBudget,
+            project_authoritative_candidates,
+        )
+        from tests.helpers.projection_factory import (
+            get_test_raw_pattern,
+            get_test_resolver,
+            get_test_snapshot,
+        )
+
+        raw = get_test_raw_pattern()
+        other = deepcopy(raw)
+        other["id"] = "AP-T1-02"
+        other["canonical_chain"]["pattern_id"] = "AP-T1-02"
+        other["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+            other["canonical_chain"]
+        )
+        resolver = get_test_resolver()
+        snapshot = get_test_snapshot()
+        batch = project_authoritative_candidates(
+            [raw, other], resolver, snapshot, budget=ProjectionBudget(max_candidates=8)
+        )
+        projected = next(
+            candidate
+            for candidate in batch.candidates
+            if candidate.pattern_id == raw["id"]
+        )
+        seed = _make_fseed(entry_point_id=projected.canonical_ingress.entry_point_id)
+        qc = QualifiedCandidate(
+            projected=projected,
+            accepted_filters=(AcceptedFilterRecord.from_seed(seed),),
+        )
+        ref = qc.to_plan_ref()
+        validated = revalidate_qualified_candidate(
+            ref, resolver, snapshot, [raw, other]
+        )
+        assert validated.generation_seed == seed
+        assert validated.projected == projected
+
+        with pytest.raises(ValueError, match="catalog pin"):
+            revalidate_qualified_candidate(ref, resolver, snapshot, [raw])
 
 
 # ---------------------------------------------------------------------------
@@ -2250,6 +2307,15 @@ class TestFilterVerdictLedgerEvidence:
         assert "Candidate lacks required tool access" in events[0].detail
         assert events[0].payload is not None
         assert events[0].payload["rationale"] == "Candidate lacks required tool access."
+
+    def test_empty_filter_returns_three_tuple(self) -> None:
+        """All-rule-rejected runs reach the empty filter API without unpacking
+        failure in the runner."""
+        profile = _profile(
+            [EntryPoint(name="prompt", direction="input", controllability="direct")]
+        )
+        result = filter_candidates([], [], None, "test", profile)
+        assert result == ([], [], [])
 
 
 # ---------------------------------------------------------------------------
