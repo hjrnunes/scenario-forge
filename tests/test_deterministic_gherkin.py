@@ -44,7 +44,6 @@ from scenario_forge.pipeline.generate import (
 )
 from scenario_forge.pipeline.generate.assembly import _build_projection_context
 from scenario_forge.pipeline.generate.gherkin import (
-    Call3Action,
     Call3Assertion,
     Call3Response,
 )
@@ -775,22 +774,10 @@ def _make_tree_for_projection():
 
 
 def _make_call3_response():
-    """Build a valid Call3Response matching the projection."""
+    """Build a valid assertions-only Call3Response matching the projection."""
     candidate = get_projected_candidate()
     selected = candidate.projection.selected_step_ids
     chain = candidate.projection.source_chain
-
-    actions = [
-        Call3Action(
-            action_id=f"ba-n1.{i + 1}",
-            projected_step_ids=(sid,),
-            source_leaf_id=f"n1.{i + 1}",
-            gherkin_keyword="When",
-            text=f"Perform action for {sid}",
-            realizations=make_step_realizations((sid,)),
-        )
-        for i, sid in enumerate(selected)
-    ]
 
     assertions: list[Call3Assertion] = []
     for step in chain.steps:
@@ -806,7 +793,7 @@ def _make_call3_response():
                         )
                     )
 
-    return Call3Response(actions=actions, assertions=assertions)
+    return Call3Response(assertions=assertions)
 
 
 def _make_mock_client_call3(response: Call3Response | None = None) -> MagicMock:
@@ -878,74 +865,40 @@ class TestCallBehaviorSpecIntegration:
                 scenario_tag="abc123",
             )
 
-    def test_altered_call3_action_rejected(self):
-        """422o.4: altering the Call3Response action to reference an
-        unprojected step is rejected.  The exact-ownership check catches
-        the mismatch before the global unprojected-step check."""
-        response = _make_call3_response()
-        # Corrupt: reference an unprojected step ID
-        # Use model_copy to bypass the model validator since we're
-        # testing the validation function, not the model constructor.
-        response.actions[0] = response.actions[0].model_copy(
-            update={"projected_step_ids": ("nonexistent.step",)}
+    def test_actions_are_derived_independently_of_llm_response(self):
+        tree = _make_tree_for_projection()
+        first, _ = _call_behavior_spec(
+            _make_seed(),
+            _make_narrative(),
+            tree,
+            _make_profile(),
+            _make_mock_client_call3(),
+            "Test",
+            "abc123",
+            projection_context=_make_projection_context(),
         )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="do not exactly match source leaf"):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
-
-    def test_nonexistent_leaf_id_rejected(self):
-        """422o.4: Call3Response with nonexistent tree leaf ID is rejected."""
-        response = _make_call3_response()
-        response.actions[0] = Call3Action(
-            action_id="ba-n9.9",
-            projected_step_ids=response.actions[0].projected_step_ids,
-            source_leaf_id="n9.9",
-            gherkin_keyword=response.actions[0].gherkin_keyword,
-            text=response.actions[0].text,
-            realizations=response.actions[0].realizations,
+        second, _ = _call_behavior_spec(
+            _make_seed(),
+            _make_narrative(),
+            tree,
+            _make_profile(),
+            _make_mock_client_call3(),
+            "Test",
+            "abc123",
+            projection_context=_make_projection_context(),
         )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="nonexistent tree leaf"):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
 
-    def test_incomplete_step_coverage_rejected(self):
-        """422o.4: Call3Response that doesn't cover all projected steps is rejected.
-        The missing-mapped-leaf check fires before the global coverage check."""
-        response = _make_call3_response()
-        # Remove the last action to leave a step uncovered
-        response.actions = response.actions[:-1]
-        client = _make_mock_client_call3(response)
-        with pytest.raises(
-            ValueError, match="does not provide actions for mapped leaves"
-        ):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
+        assert first.actions == second.actions
+        assert [action.source_leaf_id for action in first.actions] == [
+            leaf.id for leaf in _collect_leaf_nodes_dfs(tree.root)
+        ]
+        assert [action.action_id for action in first.actions] == [
+            f"ba-{leaf.id}" for leaf in _collect_leaf_nodes_dfs(tree.root)
+        ]
+
+    def test_call3_schema_rejects_llm_authored_actions(self):
+        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+            Call3Response.model_validate({"actions": [], "assertions": []})
 
     def test_llm_receives_projection_context_in_prompt(self):
         """The LLM call receives projection context in the user prompt."""
@@ -966,6 +919,8 @@ class TestCallBehaviorSpecIntegration:
             or "projected" in call_args.lower()
             or "step" in call_args.lower()
         )
+        assert "Produce only the structured JSON assertions" in call_args
+        assert client.complete.call_args.kwargs["response_format"] is Call3Response
 
 
 def mock_client_complete_user_prompt(client: MagicMock) -> str:
@@ -1441,19 +1396,18 @@ class TestBuildGherkinTemplateOrGates:
 class TestCallBehaviorSpecValidation:
     """422o.4: Test Call 3 structured validation edge cases."""
 
-    def test_duplicate_action_id_rejected(self):
-        """Duplicate action IDs in Call3Response are rejected."""
+    def test_ambiguous_cross_step_postcondition_owner_rejected(self):
         response = _make_call3_response()
-        response.actions[1] = Call3Action(
-            action_id=response.actions[0].action_id,
-            projected_step_ids=response.actions[1].projected_step_ids,
-            source_leaf_id=response.actions[1].source_leaf_id,
-            gherkin_keyword=response.actions[1].gherkin_keyword,
-            text=response.actions[1].text,
-            realizations=response.actions[1].realizations,
+        context = _make_projection_context()
+        first_postcondition = context["selected_steps"][0]["observable_postconditions"][
+            0
+        ]
+        context["selected_steps"][1]["observable_postconditions"].append(
+            dict(first_postcondition)
         )
         client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="Duplicate behavior action ID"):
+
+        with pytest.raises(ValueError, match="ambiguous owners"):
             _call_behavior_spec(
                 seed=_make_seed(),
                 narrative=_make_narrative(),
@@ -1462,7 +1416,7 @@ class TestCallBehaviorSpecValidation:
                 client=client,
                 use_case="Test",
                 scenario_tag="abc123",
-                projection_context=_make_projection_context(),
+                projection_context=context,
             )
 
     def test_assertion_unknown_postcondition_rejected(self):
@@ -1488,6 +1442,23 @@ class TestCallBehaviorSpecValidation:
                 projection_context=_make_projection_context(),
             )
 
+    def test_duplicate_assertion_id_rejected(self):
+        response = _make_call3_response()
+        response.assertions.append(response.assertions[0])
+        client = _make_mock_client_call3(response)
+
+        with pytest.raises(ValueError, match="Duplicate assertion ID"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
 
 # ---------------------------------------------------------------------------#
 # 422o.4 Review blocker #3: Call 3 exact ownership adversarial tests
@@ -1495,87 +1466,7 @@ class TestCallBehaviorSpecValidation:
 
 
 class TestCall3ExactOwnershipAdversarial:
-    """Adversarial tests for exact leaf ownership, deterministic IDs,
-    keywords, and realization equality in Call 3 validation."""
-
-    def test_reused_source_leaf_id_rejected(self):
-        """Two actions sourcing the same leaf must fail.
-        The duplicate action ID check fires first because both must use
-        the same deterministic ba-<leaf_id> ID."""
-        response = _make_call3_response()
-        # Copy first action's source_leaf_id to second action
-        first_source = response.actions[0].source_leaf_id
-        response.actions[1] = Call3Action(
-            action_id=f"ba-{first_source}",
-            projected_step_ids=response.actions[1].projected_step_ids,
-            source_leaf_id=first_source,
-            gherkin_keyword=response.actions[1].gherkin_keyword,
-            text=response.actions[1].text,
-            realizations=response.actions[1].realizations,
-        )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="Duplicate behavior action ID"):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
-
-    def test_arbitrary_action_id_rejected(self):
-        """Action ID not matching ba-<leaf_id> must fail."""
-        response = _make_call3_response()
-        response.actions[0] = Call3Action(
-            action_id="arbitrary-id",
-            projected_step_ids=response.actions[0].projected_step_ids,
-            source_leaf_id=response.actions[0].source_leaf_id,
-            gherkin_keyword=response.actions[0].gherkin_keyword,
-            text=response.actions[0].text,
-            realizations=response.actions[0].realizations,
-        )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(
-            ValueError, match="does not match deterministic expected ID"
-        ):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
-
-    def test_wrong_keyword_rejected(self):
-        """Action with wrong Gherkin keyword for its leaf kind must fail."""
-        response = _make_call3_response()
-        # All leaves are AiSystemAction → "When"; try "Given"
-        response.actions[0] = Call3Action(
-            action_id=response.actions[0].action_id,
-            projected_step_ids=response.actions[0].projected_step_ids,
-            source_leaf_id=response.actions[0].source_leaf_id,
-            gherkin_keyword="Given",  # wrong — should be "When"
-            text=response.actions[0].text,
-            realizations=response.actions[0].realizations,
-        )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="does not match eligible keyword"):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
+    """Adversarial tests for exact assertion ownership in Call 3."""
 
     def test_wrong_owner_postcondition_rejected(self):
         """Assertion with globally valid postcondition but wrong source step
@@ -1607,57 +1498,6 @@ class TestCall3ExactOwnershipAdversarial:
                 projection_context=_make_projection_context(),
             )
 
-    def test_cleared_realization_tuple_rejected(self):
-        """Clearing realization tuple fields must fail."""
-        response = _make_call3_response()
-        cleared = (
-            response.actions[0]
-            .realizations[0]
-            .model_copy(update={"produced_ref_ids": ()})
-        )
-        response.actions[0] = Call3Action(
-            action_id=response.actions[0].action_id,
-            projected_step_ids=response.actions[0].projected_step_ids,
-            source_leaf_id=response.actions[0].source_leaf_id,
-            gherkin_keyword=response.actions[0].gherkin_keyword,
-            text=response.actions[0].text,
-            realizations=(cleared,),
-        )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="produced_ref_ids"):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
-
-    def test_duplicate_realization_record_rejected(self):
-        """Duplicate realization records in a Call3Action must fail."""
-        response = _make_call3_response()
-        reals = response.actions[0].realizations
-        # Use model_copy to bypass model validator; the validation
-        # function also checks for duplicate realization records.
-        response.actions[0] = response.actions[0].model_copy(
-            update={"realizations": reals + reals}
-        )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="duplicate"):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=_make_tree_for_projection(),
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
-
 
 # ---------------------------------------------------------------------------#
 # Adversarial tests for 422o.4 review blocker #3: exact tuple/ownership
@@ -1665,72 +1505,7 @@ class TestCall3ExactOwnershipAdversarial:
 
 
 class TestCall3TupleOwnershipAdversarial:
-    """Adversarial tests for exact tuple equality and assertion identity."""
-
-    def test_reversed_action_projected_ids_rejected(self):
-        """Action with reversed multi-step projected_step_ids must fail.
-
-        Uses model_copy to bypass the leaf lookup, then swaps the order
-        of a two-step leaf's projected IDs so the tuple is reversed.
-        """
-        candidate = get_projected_candidate()
-        selected = list(candidate.projection.selected_step_ids)
-        if len(selected) < 2:
-            pytest.skip("Need ≥2 projected steps for reversal test")
-        # Build a leaf that maps to two steps
-        leaf = _make_leaf(
-            "n1.99",
-            "Multi-step leaf",
-            "input",
-            None,
-            projected_step_ids=(selected[0], selected[1]),
-            realizations=make_step_realizations((selected[0], selected[1])),
-        )
-        # Build a tree with this leaf plus a regular leaf (AND needs ≥2)
-        regular_leaf = _make_leaf(
-            "n1.1",
-            "Regular",
-            "input",
-            projected_step_ids=(selected[0],),
-            realizations=make_step_realizations((selected[0],)),
-        )
-        tree = AttackTree(
-            id="tree-AP-T1-01",
-            seed_id="AP-T1-01",
-            goal="Test",
-            root=AttackTreeNode(
-                id="n1",
-                label="Root",
-                gate=GateType.AND,
-                zone="input",
-                children=[regular_leaf, leaf],
-            ),
-        )
-        # Build response with reversed IDs
-        action = Call3Action(
-            action_id="ba-n1.99",
-            projected_step_ids=(selected[1], selected[0]),  # reversed
-            source_leaf_id="n1.99",
-            gherkin_keyword="When",
-            text="Reversed action",
-            realizations=make_step_realizations((selected[1], selected[0])),
-        )
-        response = Call3Response(
-            actions=[action],
-            assertions=[],
-        )
-        client = _make_mock_client_call3(response)
-        with pytest.raises(ValueError, match="do not exactly match source leaf"):
-            _call_behavior_spec(
-                seed=_make_seed(),
-                narrative=_make_narrative(),
-                attack_tree=tree,
-                profile=_make_profile(),
-                client=client,
-                use_case="Test",
-                scenario_tag="abc123",
-                projection_context=_make_projection_context(),
-            )
+    """Adversarial tests for exact assertion identity and ownership."""
 
     def test_arbitrary_assertion_id_rejected(self):
         """Assertion ID not matching assert-<step>-<postcondition> must fail."""

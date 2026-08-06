@@ -1698,8 +1698,29 @@ def _check_step_semantic_compatibility(
                 step = step_by_id.get(sid)
                 if step is None:
                     continue  # caught by unprojected step check
-                # Gherkin keyword must match canonical action_kind semantics.
-                valid_keywords = _STEP_ACTION_KIND_TO_GHERKIN.get(
+                # Phase 3B actions are derived from the finalized leaf.  The
+                # leaf's typed action discriminator owns the eligible Gherkin
+                # keyword; projected action_kind still owns the canonical
+                # realization record checked below.
+                source_leaf = _leaf_by_id.get(b_action.source_leaf_id)
+                leaf_kind = (
+                    source_leaf.action.kind
+                    if source_leaf is not None and source_leaf.action is not None
+                    else None
+                )
+                leaf_keywords = (
+                    {"Given"}
+                    if leaf_kind == "external_precondition"
+                    else {"Then"}
+                    if leaf_kind == "impact"
+                    else {"When"}
+                    if leaf_kind is not None
+                    else set()
+                )
+                # Legacy structured envelopes authored actions from projected
+                # action_kind.  Keep those readable while Phase 3B admission
+                # separately enforces the single deterministic leaf keyword.
+                valid_keywords = leaf_keywords | _STEP_ACTION_KIND_TO_GHERKIN.get(
                     step.action_kind, set()
                 )
                 if valid_keywords and b_action.gherkin_keyword not in valid_keywords:
@@ -1710,9 +1731,9 @@ def _check_step_semantic_compatibility(
                             detail=(
                                 f"behavior action '{b_action.action_id}' "
                                 f"gherkin_keyword '{b_action.gherkin_keyword}' "
-                                f"is incompatible with projected step "
-                                f"'{step.step_id}' action_kind "
-                                f"'{step.action_kind}' "
+                                f"is incompatible with finalized leaf "
+                                f"'{b_action.source_leaf_id}' action kind "
+                                f"'{leaf_kind}' "
                                 f"(expected one of {sorted(valid_keywords)})"
                             ),
                             element_id=b_action.action_id,
@@ -1927,7 +1948,7 @@ def _check_behavior_realizations(
 
         # Every action text must appear as a step text.
         for action in behavior_spec.actions:
-            base_text = action.text
+            base_text = _zone_pat.sub("", action.text).strip()
             if base_text not in step_texts and not any(
                 base_text in st for st in step_texts
             ):

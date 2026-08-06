@@ -8,10 +8,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scenario_forge.llm.client import LLMResult
-from scenario_forge.models.scenario import CallName
 from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
+from scenario_forge.models.scenario import CallName
+from scenario_forge.pipeline.finalization import (
+    GeneratedArtifacts,
+    GeneratedStage,
+    StageInvocation,
+    make_assertions_only_behavior_callback,
+)
 from scenario_forge.pipeline.generate import generate_scenario
 from scenario_forge.pipeline.generate.stages import (
+    BehaviorStageResult,
     GenerationRequest,
     PreparedGeneration,
     RetryDirective,
@@ -94,6 +101,33 @@ def test_each_stage_delegates_to_exactly_one_call_primitive() -> None:
     ] == list(CallName)
     for primitive in (call0, call1, call2, call3):
         primitive.assert_called_once()
+
+
+def test_finalization_behavior_port_invokes_call3_once_with_final_tree_copy() -> None:
+    prepared = _prepared()
+    candidate = MagicMock(candidate_id=prepared.candidate_id)
+    narrative = object()
+    final_tree_copy = object()
+    behavior = object()
+    evidence = object()
+    invocation = StageInvocation(
+        candidate_id=prepared.candidate_id,
+        stage=GeneratedStage.behavior,
+        invocation_index=0,
+        owner_retry_index=0,
+        artifacts=GeneratedArtifacts(narrative=narrative, tree=final_tree_copy),
+        final_tree_digest="verified-digest",
+    )
+
+    with patch(
+        "scenario_forge.pipeline.generate.stages.generate_behavior_stage",
+        return_value=BehaviorStageResult(behavior, evidence),
+    ) as call3:
+        result = make_assertions_only_behavior_callback(prepared)(candidate, invocation)
+
+    call3.assert_called_once_with(prepared, narrative, final_tree_copy)
+    assert result.artifact is behavior
+    assert result.evidence is evidence
 
 
 def test_retry_directive_is_data_not_hidden_control_flow() -> None:

@@ -18,6 +18,7 @@ from scenario_forge.models.attack_tree import (
     IntegrationInteractionAction,
     ToolInvocationAction,
 )
+from scenario_forge.models.scenario import BehaviorAssertion, BehaviorSpec
 from scenario_forge.pipeline import finalization_gates
 from scenario_forge.pipeline.coverage_planning import CoveragePlanEntry
 from scenario_forge.pipeline.finalization import (
@@ -33,6 +34,10 @@ from scenario_forge.pipeline.finalization import (
     TargetFinalizationMachine,
     earliest_generated_owner,
 )
+from scenario_forge.pipeline.finalization_admission import (
+    PostbehaviorAdmissionReport,
+    make_postbehavior_admission,
+)
 from scenario_forge.pipeline.finalization_gates import (
     ActorSemanticSnapshot,
     FinalTreeSemanticSnapshot,
@@ -45,7 +50,12 @@ from scenario_forge.pipeline.finalization_gates import (
     make_prebehavior_finalizer,
     run_prebehavior_gates,
 )
-from scenario_forge.pipeline.generate.assembly import _build_projection_block
+from scenario_forge.pipeline.generate.assembly import (
+    _build_projection_block,
+    _build_projection_context,
+    render_gherkin_from_behavior_spec,
+)
+from scenario_forge.pipeline.generate.gherkin import _derive_behavior_actions
 from scenario_forge.pipeline.projection import canonical_json_bytes
 from scenario_forge.pipeline.projection_validation import (
     _check_narrative_physical_order,
@@ -60,6 +70,8 @@ from scenario_forge.pipeline.validation import (
 from tests.helpers.projection_factory import (
     get_projected_candidate,
     get_test_profile,
+    get_test_raw_pattern,
+    get_test_resolver,
     get_test_snapshot,
 )
 from tests.helpers.realization_helper import make_realizations
@@ -374,6 +386,24 @@ def test_duplicate_and_omitted_realizations_are_hard_failures() -> None:
     assert any(
         v.code is GateCode.narrative_realization
         for v in _run(narrative=duplicate).violations
+    )
+
+
+def test_tree_realization_order_must_match_projected_step_order() -> None:
+    _, _, _, tree = _valid_parts()
+    leaf = tree.root.children[1]
+    changed_leaf = leaf.model_copy(
+        update={
+            "projected_step_ids": ("step.1", "step.2"),
+            "realizations": tuple(reversed(make_realizations(("step.1", "step.2")))),
+        }
+    )
+
+    result = _run(tree=_replace_leaf(tree, leaf.id, changed_leaf))
+
+    assert any(
+        violation.code is GateCode.tree_realization and "order" in violation.detail
+        for violation in result.violations
     )
 
 
@@ -918,3 +948,213 @@ def test_concrete_callback_allows_behavior_only_after_verified_snapshot() -> Non
 
     assert result.state is LifecycleState.admitted
     assert events == ["actor", "narrative", "tree", "verified-snapshot", "behavior"]
+
+
+def _phase3b_behavior(candidate, tree) -> BehaviorSpec:
+    actions = _derive_behavior_actions(
+        tree, get_test_profile(), _build_projection_context(candidate)
+    )
+    assertions: list[BehaviorAssertion] = []
+    selected = set(candidate.projection.selected_step_ids)
+    for step in candidate.projection.source_chain.steps:
+        if step.step_id not in selected:
+            continue
+        for postcondition in step.observable_postconditions:
+            if postcondition.security_relevant:
+                assertions.append(
+                    BehaviorAssertion(
+                        assertion_id=(
+                            f"assert-{step.step_id}-{postcondition.postcondition_id}"
+                        ),
+                        source_step_ids=(step.step_id,),
+                        projected_postcondition_ids=(postcondition.postcondition_id,),
+                        text=postcondition.description,
+                    )
+                )
+    return BehaviorSpec(
+        actions=actions,
+        assertions=tuple(assertions),
+        gherkin_text=render_gherkin_from_behavior_spec(actions, assertions),
+    )
+
+
+def _postbehavior_port(*, envelope_mutator=None):
+    def assemble(candidate, actor, narrative, tree, behavior):
+        block = _build_projection_block(
+            candidate, narrative, tree, behavior, get_test_snapshot()
+        )
+        envelope = _make_envelope(
+            block,
+            tree=tree,
+            narrative=narrative,
+            actor=actor,
+            behavior_spec=behavior,
+        )
+        if envelope_mutator is not None:
+            envelope_mutator(envelope)
+        return envelope
+
+    return make_postbehavior_admission(
+        assemble,
+        trusted_catalog=[get_test_raw_pattern()],
+        taxonomy_resolver=get_test_resolver(),
+        capability_snapshot=get_test_snapshot(),
+        expected_scenario_id="scenario:v2:" + "a" * 64,
+    )
+
+
+def _admit_behavior(behavior, *, tree=None, envelope_mutator=None):
+    candidate, actor, narrative, valid_tree = _valid_parts()
+    final_tree = tree or valid_tree
+    return _postbehavior_port(envelope_mutator=envelope_mutator)(
+        candidate,
+        GeneratedArtifacts(
+            actor=actor, narrative=narrative, tree=valid_tree, behavior=behavior
+        ),
+        FinalTreeSemanticSnapshot.capture(final_tree),
+    )
+
+
+def test_positive_complete_postbehavior_admission_is_verify_only() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+
+    decision = _admit_behavior(behavior)
+
+    assert decision.admitted
+    assert isinstance(decision.value, PostbehaviorAdmissionReport)
+    assert all(result.valid for result in decision.value.gate_results)
+
+
+@pytest.mark.parametrize("direction", ["tree_without_action", "action_without_tree"])
+def test_postbehavior_rejects_tree_action_orphans(direction: str) -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+    actions = list(behavior.actions)
+    if direction == "tree_without_action":
+        actions.pop()
+    else:
+        actions.append(actions[-1].model_copy(update={"action_id": "ba-n9.9"}))
+    altered = behavior.model_copy(
+        update={
+            "actions": tuple(actions),
+            "gherkin_text": render_gherkin_from_behavior_spec(
+                actions, list(behavior.assertions)
+            ),
+        }
+    )
+
+    decision = _admit_behavior(altered)
+
+    assert not decision.admitted
+    assert any(
+        v.code == GateCode.tree_action_mismatch.value for v in decision.violations
+    )
+    assert any(v.owner is GeneratedStage.tree for v in decision.violations)
+
+
+def test_postbehavior_rejects_action_resource_realization_drift_as_tree_owned() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+    first = behavior.actions[0]
+    drifted_realization = first.realizations[0].model_copy(
+        update={"resource_ref_ids": ()}
+    )
+    altered_action = first.model_copy(update={"realizations": (drifted_realization,)})
+    actions = (altered_action, *behavior.actions[1:])
+    altered = behavior.model_copy(
+        update={
+            "actions": actions,
+            "gherkin_text": render_gherkin_from_behavior_spec(
+                list(actions), list(behavior.assertions)
+            ),
+        }
+    )
+
+    decision = _admit_behavior(altered)
+
+    assert not decision.admitted
+    assert any(
+        v.code == GateCode.tree_action_mismatch.value for v in decision.violations
+    )
+    assert any(v.owner is GeneratedStage.tree for v in decision.violations)
+
+
+def test_postbehavior_rejects_assertion_owner_and_coverage_as_behavior_owned() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+    assertion = behavior.assertions[0]
+    altered_assertion = assertion.model_copy(update={"source_step_ids": ("step.1",)})
+    altered = behavior.model_copy(
+        update={
+            "assertions": (altered_assertion,),
+            "gherkin_text": render_gherkin_from_behavior_spec(
+                list(behavior.actions), [altered_assertion]
+            ),
+        }
+    )
+
+    decision = _admit_behavior(altered)
+
+    assert not decision.admitted
+    assertion_failures = [
+        violation
+        for violation in decision.violations
+        if "assertion" in violation.detail.lower()
+        or "postcondition" in violation.detail.lower()
+    ]
+    assert assertion_failures
+    assert all(v.owner is GeneratedStage.behavior for v in assertion_failures)
+
+
+def test_postbehavior_rejects_deep_requirements_drift_nonretryably() -> None:
+    candidate, _, _, tree = _valid_parts()
+    behavior = _phase3b_behavior(candidate, tree)
+
+    def mutate(envelope):
+        object.__setattr__(
+            envelope.projection, "execution_requirements_digest", "f" * 64
+        )
+
+    decision = _admit_behavior(behavior, envelope_mutator=mutate)
+
+    assert not decision.admitted
+    immutable = [
+        violation
+        for violation in decision.violations
+        if "requirement" in violation.detail.lower()
+    ]
+    assert immutable
+    assert all(not violation.retryable for violation in immutable)
+
+
+def test_postbehavior_empty_tree_and_actions_never_pass() -> None:
+    _, _, _, tree = _valid_parts()
+    external_children = [
+        child.model_copy(
+            update={
+                "zone": None,
+                "action": ExternalPreconditionAction(),
+                "projected_step_ids": (),
+                "realizations": (),
+            }
+        )
+        for child in tree.root.children
+    ]
+    external_tree = tree.model_copy(
+        update={"root": tree.root.model_copy(update={"children": external_children})}
+    )
+    behavior = BehaviorSpec(
+        actions=(),
+        assertions=(),
+        gherkin_text=render_gherkin_from_behavior_spec([], []),
+    )
+
+    decision = _admit_behavior(behavior, tree=external_tree)
+
+    assert not decision.admitted
+    assert any(
+        violation.code == GateCode.no_realized_security_actions.value
+        and violation.owner is GeneratedStage.tree
+        for violation in decision.violations
+    )

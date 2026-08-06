@@ -69,6 +69,14 @@ class GateCode(str, Enum):
     parsimony = "parsimony"
     zone_difference = "zone_difference"
     heuristic_correspondence = "heuristic_correspondence"
+    traceability = "traceability"
+    structural = "structural"
+    semantic = "semantic"
+    phantom = "phantom"
+    tree_action_mismatch = "tree_action_mismatch"
+    assertion_mismatch = "assertion_mismatch"
+    no_realized_security_actions = "no_realized_security_actions"
+    scenario_identity = "scenario_identity"
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,6 +369,26 @@ def run_prebehavior_gates(
                 ),
             )
         )
+    selected_step_ids = set(candidate.projection.selected_step_ids)
+    postcondition_owners: dict[str, str] = {}
+    for step in candidate.projection.source_chain.steps:
+        if step.step_id not in selected_step_ids:
+            continue
+        for postcondition in step.observable_postconditions:
+            existing_owner = postcondition_owners.get(postcondition.postcondition_id)
+            if existing_owner is not None and existing_owner != step.step_id:
+                return GateResult(
+                    (
+                        GateViolation(
+                            GateCode.candidate_identity,
+                            f"postcondition '{postcondition.postcondition_id}' has "
+                            f"ambiguous owners '{existing_owner}' and "
+                            f"'{step.step_id}'",
+                            None,
+                        ),
+                    )
+                )
+            postcondition_owners[postcondition.postcondition_id] = step.step_id
     for step in narrative.steps:
         if len(step.projected_step_ids) != len(set(step.projected_step_ids)):
             return GateResult(
@@ -379,6 +407,20 @@ def run_prebehavior_gates(
                     GateViolation(
                         GateCode.tree_realization,
                         f"tree node '{node.id}' duplicates a projected step",
+                        GeneratedStage.tree,
+                    ),
+                )
+            )
+        realization_ids = tuple(
+            realization.projected_step_id for realization in node.realizations
+        )
+        if realization_ids != tuple(node.projected_step_ids):
+            return GateResult(
+                (
+                    GateViolation(
+                        GateCode.tree_realization,
+                        f"tree node '{node.id}' realization order does not match "
+                        "projected_step_ids",
                         GeneratedStage.tree,
                     ),
                 )
@@ -672,7 +714,12 @@ class PrebehaviorFinalizerPort:
                 )
             snapshot = FinalTreeSemanticSnapshot.capture(repair.tree)
             snapshot.verify_digest()
-            return PrebehaviorFinalizationResult(snapshot)
+            return PrebehaviorFinalizationResult(
+                snapshot,
+                candidate_snapshot=projection,
+                actor_snapshot=actor,
+                narrative_snapshot=narrative,
+            )
         except (TypeError, ValueError, AttributeError) as exc:
             return PrebehaviorFinalizationResult(
                 None,

@@ -63,7 +63,6 @@ from scenario_forge.models.scenario import (
     ScenarioEnvelope,
 )
 from scenario_forge.pipeline.generate.gherkin import (
-    Call3Action,
     Call3Assertion,
     Call3Response,
 )
@@ -3163,7 +3162,7 @@ class TestAlteredCall3Output:
 
     @staticmethod
     def _make_valid_call3_response(selected: list[str]) -> Call3Response:
-        """Build a valid Call3Response matching the tree's leaf IDs and kinds."""
+        """Build a valid assertions-only Call3Response."""
         # Build assertions for security-relevant postconditions
         candidate = get_projected_candidate()
         chain = candidate.projection.source_chain
@@ -3181,38 +3180,9 @@ class TestAlteredCall3Output:
                             )
                         )
 
-        return Call3Response(
-            actions=[
-                Call3Action(
-                    action_id="ba-n1.1",
-                    projected_step_ids=(selected[0],),
-                    source_leaf_id="n1.1",
-                    gherkin_keyword="When",  # initial_ingress → When
-                    text="Inject input",
-                    realizations=make_step_realizations((selected[0],)),
-                ),
-                Call3Action(
-                    action_id="ba-n1.2",
-                    projected_step_ids=(selected[1],),
-                    source_leaf_id="n1.2",
-                    gherkin_keyword="When",  # ai_system_action → When
-                    text="System processes",
-                    realizations=make_step_realizations((selected[1],)),
-                ),
-                Call3Action(
-                    action_id="ba-n1.3",
-                    projected_step_ids=(selected[2],),
-                    source_leaf_id="n1.3",
-                    gherkin_keyword="Then",  # impact → Then
-                    text="Impact achieved",
-                    realizations=make_step_realizations((selected[2],)),
-                ),
-            ],
-            assertions=assertions,
-        )
+        return Call3Response(assertions=assertions)
 
-    def test_altered_call3_action_id_rejected(self):
-        """Removing an action from a valid Call3Response must fail."""
+    def test_valid_assertions_only_call3_response_passes(self):
         from scenario_forge.pipeline.generate.gherkin import (
             _validate_call3_response,
         )
@@ -3224,68 +3194,11 @@ class TestAlteredCall3Output:
         ctx = self._make_call3_ctx(selected)
 
         valid_response = self._make_valid_call3_response(selected)
-        # Should pass with correct response.
         _validate_call3_response(valid_response, tree, ctx)
 
-        # Alter: remove one action → missing mapped leaf + incomplete coverage.
-        altered = valid_response.model_copy(
-            update={"actions": valid_response.actions[:2]}
-        )
-        with pytest.raises(
-            ValueError, match="does not provide actions for mapped leaves"
-        ):
-            _validate_call3_response(altered, tree, ctx)
-
-    def test_call3_nonexistent_leaf_id_rejected(self):
-        """A Call3Response with a nonexistent leaf ID must fail."""
-        from scenario_forge.pipeline.generate.gherkin import (
-            _validate_call3_response,
-        )
-
-        block = _make_block()
-        ingress_id = block.canonical_ingress.entry_point_id
-        tree = _make_tree(ingress_id)
-        selected = list(block.projection.selected_step_ids)
-        ctx = self._make_call3_ctx(selected)
-
-        response = self._make_valid_call3_response(selected)
-        # Corrupt: use a nonexistent leaf ID with matching deterministic action ID
-        response.actions[0] = Call3Action(
-            action_id="ba-n9.9",
-            projected_step_ids=(selected[0],),
-            source_leaf_id="n9.9",  # nonexistent
-            gherkin_keyword="When",
-            text="Inject",
-            realizations=make_step_realizations((selected[0],)),
-        )
-        with pytest.raises(ValueError, match="nonexistent tree leaf"):
-            _validate_call3_response(response, tree, ctx)
-
-    def test_call3_unprojected_step_rejected(self):
-        """A Call3Response referencing an unprojected step must fail.
-        The exact-ownership check catches the mismatch before the global
-        unprojected-step check."""
-        from scenario_forge.pipeline.generate.gherkin import (
-            _validate_call3_response,
-        )
-
-        block = _make_block()
-        ingress_id = block.canonical_ingress.entry_point_id
-        tree = _make_tree(ingress_id)
-        selected = list(block.projection.selected_step_ids)
-        ctx = self._make_call3_ctx(selected)
-
-        response = self._make_valid_call3_response(selected)
-        # Corrupt: action for n1.2 references an unprojected step ID.
-        # The leaf n1.2 has projected_step_ids=(selected[1],), so the
-        # exact-ownership check fires first.
-        # Use model_copy to bypass the model validator since we're
-        # testing the validation function, not the model constructor.
-        response.actions[1] = response.actions[1].model_copy(
-            update={"projected_step_ids": ("step.99",)}
-        )
-        with pytest.raises(ValueError, match="do not exactly match source leaf"):
-            _validate_call3_response(response, tree, ctx)
+    def test_call3_contract_rejects_action_control(self):
+        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+            Call3Response.model_validate({"assertions": [], "actions": []})
 
 
 # ---------------------------------------------------------------------------#
