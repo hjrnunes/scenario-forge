@@ -8,7 +8,7 @@ validation, retry routing, admission, and persistence remain explicit ports.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.attack_tree import AttackTree
@@ -83,6 +83,90 @@ class StageCallEvidence:
     call_name: CallName
     result: LLMResult
     metadata: CallMetadata
+
+
+class StageAttemptFailure(Exception):
+    """Truthful evidence for a failed single stage attempt.
+
+    ``phase`` discriminates failures before the client was called, failures
+    raised by the client invocation, and failures after an ``LLMResult`` was
+    obtained.  Missing result/raw response fields are intentionally ``None``.
+    """
+
+    def __init__(
+        self,
+        *,
+        call_name: CallName,
+        exception: BaseException,
+        phase: Literal["before_invocation", "invocation", "post_response"],
+        invoked: bool,
+        system_prompt: str | None = None,
+        user_prompt: str | None = None,
+        result: LLMResult | None = None,
+        raw_response: Any | None = None,
+    ) -> None:
+        super().__init__(str(exception))
+        self.call_name = call_name
+        self.exception_type = type(exception).__name__
+        self.detail = str(exception)
+        self.phase = phase
+        self.invoked = invoked
+        self.system_prompt = system_prompt
+        self.user_prompt = user_prompt
+        self.result = result
+        self.raw_response = raw_response
+
+
+class _AttemptRecordingClient:
+    """Transparent client proxy retaining truthful one-attempt evidence."""
+
+    def __init__(self, client: LLMClient) -> None:
+        self._client = client
+        self.invoked = False
+        self.system_prompt: str | None = None
+        self.user_prompt: str | None = None
+        self.result: LLMResult | None = None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def complete(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_format: Any = None,
+        **kwargs: Any,
+    ) -> LLMResult:
+        self.invoked = True
+        self.system_prompt = system_prompt
+        self.user_prompt = user_prompt
+        self.result = self._client.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_format=response_format,
+            **kwargs,
+        )
+        return self.result
+
+    def failure(
+        self, call_name: CallName, exception: BaseException
+    ) -> StageAttemptFailure:
+        return StageAttemptFailure(
+            call_name=call_name,
+            exception=exception,
+            phase=(
+                "post_response"
+                if self.result is not None
+                else "invocation"
+                if self.invoked
+                else "before_invocation"
+            ),
+            invoked=self.invoked,
+            system_prompt=self.system_prompt,
+            user_prompt=self.user_prompt,
+            result=self.result,
+            raw_response=self.result.content if self.result is not None else None,
+        )
 
 
 ArtifactT = TypeVar("ArtifactT")
@@ -166,22 +250,28 @@ def generate_actor_stage(
     import scenario_forge.pipeline.generate as generate
 
     request = prepared.request
-    actor, result, limitation = generate._call_actor_profile(
-        request.seed,
-        request.profile,
-        request.client,
-        request.use_case,
-        preferred_actor_type=request.preferred_actor_type,
-        excluded_actor_types=list(request.excluded_actor_types) or None,
-        preferred_capability_level=request.preferred_capability_level,
-        attack_goal=request.attack_goal,
-        pinned_technique_ids=list(request.pinned_technique_ids) or None,
-        forced_actor_type=retry.forced_actor_type if retry else None,
-        pinned_entry_point=request.pinned_entry_point,
-        pinned_entry_point_id=request.pinned_entry_point_id,
-        access_feedback=retry.feedback if retry else None,
-        projection_context=prepared.projection_context,
-    )
+    recorder = _AttemptRecordingClient(request.client)
+    try:
+        actor, result, limitation = generate._call_actor_profile(
+            request.seed,
+            request.profile,
+            recorder,
+            request.use_case,
+            preferred_actor_type=request.preferred_actor_type,
+            excluded_actor_types=list(request.excluded_actor_types) or None,
+            preferred_capability_level=request.preferred_capability_level,
+            attack_goal=request.attack_goal,
+            pinned_technique_ids=list(request.pinned_technique_ids) or None,
+            forced_actor_type=retry.forced_actor_type if retry else None,
+            pinned_entry_point=request.pinned_entry_point,
+            pinned_entry_point_id=request.pinned_entry_point_id,
+            access_feedback=retry.feedback if retry else None,
+            projection_context=prepared.projection_context,
+        )
+    except StageAttemptFailure:
+        raise
+    except Exception as exc:
+        raise recorder.failure(CallName.actor_profile, exc) from exc
     return ActorStageResult(
         artifact=actor,
         evidence=_evidence(CallName.actor_profile, result),
@@ -203,23 +293,31 @@ def generate_narrative_stage(
         if retry and retry.prior_titles is not None
         else request.prior_titles
     )
-    narrative, result = generate._call_narrative(
-        request.seed,
-        request.profile,
-        request.client,
-        request.use_case,
-        actor_profile=actor,
-        preferred_entry_point=request.preferred_entry_point,
-        excluded_entry_points=list(request.excluded_entry_points) or None,
-        excluded_patterns=list(request.excluded_patterns) or None,
-        excluded_structural_patterns=list(request.excluded_structural_patterns) or None,
-        pinned_entry_point=request.pinned_entry_point,
-        pinned_technique_ids=list(request.pinned_technique_ids) or None,
-        prior_titles=list(titles) or None,
-        pinned_entry_point_id=request.pinned_entry_point_id,
-        realization_feedback=retry.feedback if retry else None,
-        projection_context=prepared.projection_context,
-    )
+    recorder = _AttemptRecordingClient(request.client)
+    try:
+        narrative, result = generate._call_narrative(
+            request.seed,
+            request.profile,
+            recorder,
+            request.use_case,
+            actor_profile=actor,
+            preferred_entry_point=request.preferred_entry_point,
+            excluded_entry_points=list(request.excluded_entry_points) or None,
+            excluded_patterns=list(request.excluded_patterns) or None,
+            excluded_structural_patterns=(
+                list(request.excluded_structural_patterns) or None
+            ),
+            pinned_entry_point=request.pinned_entry_point,
+            pinned_technique_ids=list(request.pinned_technique_ids) or None,
+            prior_titles=list(titles) or None,
+            pinned_entry_point_id=request.pinned_entry_point_id,
+            realization_feedback=retry.feedback if retry else None,
+            projection_context=prepared.projection_context,
+        )
+    except StageAttemptFailure:
+        raise
+    except Exception as exc:
+        raise recorder.failure(CallName.narrative, exc) from exc
     return NarrativeStageResult(
         artifact=narrative, evidence=_evidence(CallName.narrative, result)
     )
@@ -235,19 +333,25 @@ def generate_tree_stage(
     import scenario_forge.pipeline.generate as generate
 
     request = prepared.request
-    tree, result = generate._call_attack_tree_once(
-        request.seed,
-        narrative,
-        request.client,
-        request.use_case,
-        profile=request.profile,
-        actor_profile=actor,
-        pinned_technique_ids=list(request.pinned_technique_ids) or None,
-        pinned_technique_names=list(request.pinned_technique_names) or None,
-        consistency_feedback=retry.feedback if retry else None,
-        pinned_entry_point_id=request.pinned_entry_point_id,
-        projection_context=prepared.projection_context,
-    )
+    recorder = _AttemptRecordingClient(request.client)
+    try:
+        tree, result = generate._call_attack_tree_once(
+            request.seed,
+            narrative,
+            recorder,
+            request.use_case,
+            profile=request.profile,
+            actor_profile=actor,
+            pinned_technique_ids=list(request.pinned_technique_ids) or None,
+            pinned_technique_names=list(request.pinned_technique_names) or None,
+            consistency_feedback=retry.feedback if retry else None,
+            pinned_entry_point_id=request.pinned_entry_point_id,
+            projection_context=prepared.projection_context,
+        )
+    except StageAttemptFailure:
+        raise
+    except Exception as exc:
+        raise recorder.failure(CallName.attack_tree, exc) from exc
     return TreeStageResult(
         artifact=tree, evidence=_evidence(CallName.attack_tree, result)
     )
@@ -264,17 +368,23 @@ def generate_behavior_stage(
     import scenario_forge.pipeline.generate as generate
 
     request = prepared.request
-    behavior, result = generate._call_behavior_spec(
-        request.seed,
-        narrative,
-        tree,
-        request.profile,
-        request.client,
-        request.use_case,
-        prepared.scenario_id,
-        pinned_technique_ids=list(request.pinned_technique_ids) or None,
-        projection_context=prepared.projection_context,
-    )
+    recorder = _AttemptRecordingClient(request.client)
+    try:
+        behavior, result = generate._call_behavior_spec(
+            request.seed,
+            narrative,
+            tree,
+            request.profile,
+            recorder,
+            request.use_case,
+            prepared.scenario_id,
+            pinned_technique_ids=list(request.pinned_technique_ids) or None,
+            projection_context=prepared.projection_context,
+        )
+    except StageAttemptFailure:
+        raise
+    except Exception as exc:
+        raise recorder.failure(CallName.behavior_spec, exc) from exc
     return BehaviorStageResult(
         artifact=behavior, evidence=_evidence(CallName.behavior_spec, result)
     )

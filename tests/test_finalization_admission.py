@@ -6,11 +6,14 @@ from dataclasses import dataclass
 
 import pytest
 
+from scenario_forge.models.scenario import CallName
 from scenario_forge.pipeline.coverage_planning import CoveragePlanEntry
+from scenario_forge.pipeline.generate.stages import StageAttemptFailure
 from scenario_forge.pipeline.finalization import (
     GENERATION_ORDER,
     MAX_OWNER_RETRIES,
     AdmissionDecision,
+    CandidateTerminalStatus,
     CandidateValidation,
     GeneratedStage,
     GeneratedStageResult,
@@ -218,6 +221,47 @@ def test_projection_owned_violation_is_nonretryable_and_advances_choice() -> Non
     assert generated_candidates == ["fallback"] * len(GENERATION_ORDER)
 
 
+def test_revalidation_identity_substitution_rejects_reserved_ref_and_cannot_reuse() -> (
+    None
+):
+    generated_candidates: list[str] = []
+    attempted: set[str] = set()
+
+    def revalidate(ref):
+        # Persisted A attempts to substitute canonical B.  The real B fallback
+        # remains independently eligible and may only be generated as B.
+        return CandidateValidation(Candidate("B"))
+
+    def stage(candidate, invocation):
+        generated_candidates.append(candidate.candidate_id)
+        return GeneratedStageResult(invocation.stage.value)
+
+    machine, _, persistence = _machine(
+        entry=_entry(primary="A", fallbacks=("B",)),
+        revalidate=revalidate,
+        callbacks={stage_name: stage for stage_name in GENERATION_ORDER},
+        attempted=attempted,
+    )
+    result = machine.run()
+
+    assert result.candidate_id == "B"
+    assert generated_candidates == ["B"] * len(GENERATION_ORDER)
+    assert attempted == {"A", "B"}
+    assert [candidate_id for candidate_id, _ in persistence.candidate_results] == [
+        "A",
+        "B",
+    ]
+    mismatch = persistence.candidate_results[0][1]
+    assert mismatch.status is CandidateTerminalStatus.rejected
+    assert mismatch.violations[0].code == "candidate_identity_mismatch"
+
+    second, second_calls, _ = _machine(
+        entry=_entry(primary="A", fallbacks=("B",)), attempted=attempted
+    )
+    assert second.run().state is LifecycleState.exhausted
+    assert second_calls == []
+
+
 def test_primary_is_first_then_fallbacks_bounded_to_three() -> None:
     entry = _entry(primary="p", fallbacks=("f1", "f2", "f3", "f4"))
     assert [ref["candidate_id"] for ref in ordered_target_choice_refs(entry)] == [
@@ -285,3 +329,117 @@ def test_prebehavior_finalization_is_reachable_and_precedes_behavior() -> None:
     machine.run()
 
     assert events == ["actor", "narrative", "tree", "finalize", "behavior"]
+
+
+def test_stage_retry_exhaustion_records_terminal_before_fallback() -> None:
+    calls: list[tuple[str, GeneratedStage]] = []
+
+    def stage(candidate, invocation):
+        calls.append((candidate.candidate_id, invocation.stage))
+        if (
+            candidate.candidate_id == "primary"
+            and invocation.stage is GeneratedStage.tree
+        ):
+            return GeneratedStageResult(
+                None,
+                violations=(
+                    LifecycleViolation("tree failed", owner=GeneratedStage.tree),
+                ),
+            )
+        return GeneratedStageResult(invocation.stage.value)
+
+    machine, _, persistence = _machine(
+        entry=_entry(),
+        callbacks={stage_name: stage for stage_name in GENERATION_ORDER},
+    )
+    result = machine.run()
+
+    assert result.candidate_id == "fallback"
+    assert calls.count(("primary", GeneratedStage.tree)) == MAX_OWNER_RETRIES + 1
+    assert [item[0] for item in persistence.candidate_results] == [
+        "primary",
+        "fallback",
+    ]
+    assert persistence.candidate_results[0][1].status is (
+        CandidateTerminalStatus.generation_or_finalization_failed
+    )
+    assert (
+        persistence.candidate_results[1][1].status is CandidateTerminalStatus.admitted
+    )
+
+
+def test_missing_final_tree_snapshot_records_one_terminal_result() -> None:
+    def finalize(candidate, artifacts):
+        if candidate.candidate_id == "primary":
+            return PrebehaviorFinalizationResult(None)
+        return PrebehaviorFinalizationResult(Snapshot(artifacts.tree))
+
+    machine, _, persistence = _machine(entry=_entry(), finalize=finalize)
+    assert machine.run().candidate_id == "fallback"
+
+    assert [item[0] for item in persistence.candidate_results] == [
+        "primary",
+        "fallback",
+    ]
+    failed = persistence.candidate_results[0][1]
+    assert failed.status is CandidateTerminalStatus.generation_or_finalization_failed
+    assert failed.violations[0].code == "missing_final_tree_snapshot"
+
+
+def test_nonretryable_prebehavior_violation_records_one_terminal_result() -> None:
+    def finalize(candidate, artifacts):
+        if candidate.candidate_id == "primary":
+            return PrebehaviorFinalizationResult(
+                None,
+                (
+                    LifecycleViolation(
+                        "projection-owned finalization failure",
+                        code="projection",
+                        retryable=False,
+                    ),
+                ),
+            )
+        return PrebehaviorFinalizationResult(Snapshot(artifacts.tree))
+
+    machine, _, persistence = _machine(entry=_entry(), finalize=finalize)
+    assert machine.run().candidate_id == "fallback"
+
+    assert len(persistence.candidate_results) == 2
+    assert len({item[0] for item in persistence.candidate_results}) == 2
+    assert persistence.candidate_results[0][1].status is (
+        CandidateTerminalStatus.generation_or_finalization_failed
+    )
+
+
+def test_stage_attempt_failure_evidence_is_persisted_on_every_failed_invocation() -> (
+    None
+):
+    failure = StageAttemptFailure(
+        call_name=CallName.attack_tree,
+        exception=ValueError("parse rejected"),
+        phase="post_response",
+        invoked=True,
+        system_prompt="system",
+        user_prompt="user",
+    )
+
+    def stage(candidate, invocation):
+        if invocation.stage is GeneratedStage.tree:
+            raise failure
+        return GeneratedStageResult(invocation.stage.value)
+
+    machine, _, persistence = _machine(
+        callbacks={stage_name: stage for stage_name in GENERATION_ORDER}
+    )
+    machine.run()
+
+    failed_results = [
+        result
+        for invocation, result in persistence.stage_results
+        if invocation.stage is GeneratedStage.tree
+    ]
+    assert len(failed_results) == MAX_OWNER_RETRIES + 1
+    assert all(result.evidence is failure for result in failed_results)
+    assert all(
+        result.violations[0].code == "stage_attempt_failed" for result in failed_results
+    )

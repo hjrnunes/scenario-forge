@@ -14,12 +14,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
+from scenario_forge.models.scenario import CallName
 from scenario_forge.pipeline.coverage_planning import (
     CoveragePlan,
     CoveragePlanEntry,
     deserialize_qualified_candidate,
     revalidate_qualified_candidate,
 )
+from scenario_forge.pipeline.generate.stages import StageAttemptFailure
 
 MAX_OWNER_RETRIES = 2
 MAX_TARGETED_RETRIES = MAX_OWNER_RETRIES  # Compatibility name.
@@ -54,6 +56,12 @@ class LifecycleState(str, Enum):
     admitting = "admitting"
     admitted = "admitted"
     exhausted = "exhausted"
+
+
+class CandidateTerminalStatus(str, Enum):
+    admitted = "admitted"
+    rejected = "rejected"
+    generation_or_finalization_failed = "generation_or_finalization_failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +153,16 @@ class AdmissionDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateTerminalResult:
+    """Exactly one terminal lifecycle outcome for one reserved plan choice."""
+
+    candidate_id: str
+    status: CandidateTerminalStatus
+    violations: tuple[LifecycleViolation, ...] = ()
+    admission: AdmissionDecision | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class LifecycleTransition:
     previous: LifecycleState
     current: LifecycleState
@@ -182,7 +200,7 @@ class FinalizationPersistencePort(Protocol):
     ) -> None: ...
 
     def record_candidate_result(
-        self, candidate_id: str, decision: AdmissionDecision | None
+        self, candidate_id: str, result: CandidateTerminalResult
     ) -> None: ...
 
 
@@ -198,16 +216,6 @@ def earliest_generated_owner(
         return None
     owners = {violation.owner for violation in violations}
     return next((stage for stage in GENERATION_ORDER if stage in owners), None)
-
-
-def _candidate_id(candidate: Any, ref: dict[str, Any]) -> str:
-    value = getattr(candidate, "candidate_id", None) if candidate is not None else None
-    if isinstance(value, str):
-        return value
-    ref_value = ref.get("candidate_id")
-    if not isinstance(ref_value, str):
-        raise ValueError("candidate revalidator must return a candidate_id")
-    return ref_value
 
 
 def ordered_target_choice_refs(entry: CoveragePlanEntry) -> tuple[dict[str, Any], ...]:
@@ -280,14 +288,39 @@ class TargetFinalizationMachine:
         )
         try:
             result = self.stage_callbacks[stage](candidate, invocation)
-        except Exception as exc:  # noqa: BLE001 - callback failure is lifecycle data
+        except StageAttemptFailure as exc:
             result = GeneratedStageResult(
                 artifact=None,
+                evidence=exc,
+                violations=(
+                    LifecycleViolation(
+                        owner=stage,
+                        code="stage_attempt_failed",
+                        detail=f"{exc.exception_type}: {exc.detail}",
+                    ),
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - callback failure is lifecycle data
+            call_name = {
+                GeneratedStage.actor: CallName.actor_profile,
+                GeneratedStage.narrative: CallName.narrative,
+                GeneratedStage.tree: CallName.attack_tree,
+                GeneratedStage.behavior: CallName.behavior_spec,
+            }[stage]
+            failure = StageAttemptFailure(
+                call_name=call_name,
+                exception=exc,
+                phase="before_invocation",
+                invoked=False,
+            )
+            result = GeneratedStageResult(
+                artifact=None,
+                evidence=failure,
                 violations=(
                     LifecycleViolation(
                         owner=stage,
                         code="stage_exception",
-                        detail=f"{type(exc).__name__}: {exc}",
+                        detail=f"{failure.exception_type}: {failure.detail}",
                     ),
                 ),
             )
@@ -312,7 +345,7 @@ class TargetFinalizationMachine:
 
     def _run_candidate(
         self, candidate: Any, candidate_id: str
-    ) -> AdmissionDecision | None:
+    ) -> CandidateTerminalResult:
         next_stage = GeneratedStage.actor
         snapshot: FinalTreeSnapshot | None = None
         while True:
@@ -330,25 +363,36 @@ class TargetFinalizationMachine:
                         if finalized.violations:
                             owner = self._route_violations(finalized.violations)
                             if owner is None:
-                                return None
+                                return CandidateTerminalResult(
+                                    candidate_id,
+                                    CandidateTerminalStatus.generation_or_finalization_failed,
+                                    tuple(finalized.violations),
+                                )
                             next_stage = owner
                             break
                         if finalized.snapshot is None:
-                            self.violations.append(
-                                LifecycleViolation(
-                                    code="missing_final_tree_snapshot",
-                                    detail="prebehavior finalizer returned no snapshot",
-                                    retryable=False,
-                                )
+                            violation = LifecycleViolation(
+                                code="missing_final_tree_snapshot",
+                                detail="prebehavior finalizer returned no snapshot",
+                                retryable=False,
                             )
-                            return None
+                            self.violations.append(violation)
+                            return CandidateTerminalResult(
+                                candidate_id,
+                                CandidateTerminalStatus.generation_or_finalization_failed,
+                                (violation,),
+                            )
                         snapshot = finalized.snapshot
 
                 stage_violations = self._invoke_stage(candidate, candidate_id, stage)
                 if stage_violations:
                     owner = self._route_violations(stage_violations)
                     if owner is None:
-                        return None
+                        return CandidateTerminalResult(
+                            candidate_id,
+                            CandidateTerminalStatus.generation_or_finalization_failed,
+                            tuple(stage_violations),
+                        )
                     if owner is not GeneratedStage.behavior:
                         snapshot = None
                     next_stage = owner
@@ -363,13 +407,20 @@ class TargetFinalizationMachine:
                 )
                 decision = self.admission_callback(candidate, self.artifacts, snapshot)
                 if decision.admitted:
-                    self.persistence.record_candidate_result(candidate_id, decision)
                     self._transition(LifecycleState.admitted, candidate_id, "admitted")
-                    return decision
+                    return CandidateTerminalResult(
+                        candidate_id,
+                        CandidateTerminalStatus.admitted,
+                        admission=decision,
+                    )
                 owner = self._route_violations(decision.violations)
                 if owner is None:
-                    self.persistence.record_candidate_result(candidate_id, decision)
-                    return None
+                    return CandidateTerminalResult(
+                        candidate_id,
+                        CandidateTerminalStatus.rejected,
+                        tuple(decision.violations),
+                        decision,
+                    )
                 if owner is not GeneratedStage.behavior:
                     snapshot = None
                 next_stage = owner
@@ -389,28 +440,77 @@ class TargetFinalizationMachine:
                 ref_id,
                 "authoritative revalidation",
             )
-            validation = self.candidate_revalidator(ref)
-            candidate_id = _candidate_id(validation.candidate, ref)
-            if validation.violations or not validation.valid:
-                violations = validation.violations or (
-                    LifecycleViolation(
-                        code="candidate_revalidation_failed",
-                        detail="authoritative candidate revalidation failed",
-                        retryable=False,
-                    ),
+            try:
+                validation = self.candidate_revalidator(ref)
+            except Exception as exc:  # noqa: BLE001 - terminal lifecycle evidence
+                violation = LifecycleViolation(
+                    code="candidate_revalidation_exception",
+                    detail=f"{type(exc).__name__}: {exc}",
+                    retryable=False,
                 )
-                self.violations.extend(violations)
-                self.persistence.record_candidate_result(candidate_id, None)
-                continue
+                self.violations.append(violation)
+                terminal = CandidateTerminalResult(
+                    ref_id, CandidateTerminalStatus.rejected, (violation,)
+                )
+            else:
+                canonical_id = (
+                    getattr(validation.candidate, "candidate_id", None)
+                    if validation.candidate is not None
+                    else None
+                )
+                identity_violation = (
+                    LifecycleViolation(
+                        code="candidate_identity_mismatch",
+                        detail=(
+                            f"revalidated candidate_id {canonical_id!r} does not match "
+                            f"persisted candidate_id {ref_id!r}"
+                        ),
+                        retryable=False,
+                    )
+                    if validation.candidate is not None and canonical_id != ref_id
+                    else None
+                )
+                if validation.violations or not validation.valid or identity_violation:
+                    violations = list(validation.violations)
+                    if identity_violation is not None:
+                        violations.append(identity_violation)
+                    if not violations:
+                        violations.append(
+                            LifecycleViolation(
+                                code="candidate_revalidation_failed",
+                                detail="authoritative candidate revalidation failed",
+                                retryable=False,
+                            )
+                        )
+                    self.violations.extend(violations)
+                    terminal = CandidateTerminalResult(
+                        ref_id, CandidateTerminalStatus.rejected, tuple(violations)
+                    )
+                else:
+                    self.artifacts = GeneratedArtifacts()
+                    self.owner_retry_counts = {}
+                    try:
+                        terminal = self._run_candidate(validation.candidate, ref_id)
+                    except Exception as exc:  # noqa: BLE001 - terminal lifecycle evidence
+                        violation = LifecycleViolation(
+                            code="lifecycle_callback_exception",
+                            detail=f"{type(exc).__name__}: {exc}",
+                            retryable=False,
+                        )
+                        self.violations.append(violation)
+                        terminal = CandidateTerminalResult(
+                            ref_id,
+                            CandidateTerminalStatus.generation_or_finalization_failed,
+                            (violation,),
+                        )
 
-            self.artifacts = GeneratedArtifacts()
-            self.owner_retry_counts = {}
-            admission = self._run_candidate(validation.candidate, candidate_id)
-            if admission is not None and admission.admitted:
+            # The sole terminal persistence point for every reserved choice.
+            self.persistence.record_candidate_result(ref_id, terminal)
+            if terminal.status is CandidateTerminalStatus.admitted:
                 return TargetFinalizationResult(
                     state=self.state,
-                    candidate_id=candidate_id,
-                    admission=admission,
+                    candidate_id=ref_id,
+                    admission=terminal.admission,
                     attempted_candidate_ids=tuple(sorted(self.attempted_candidate_ids)),
                     violations=tuple(self.violations),
                     transitions=tuple(self.transitions),

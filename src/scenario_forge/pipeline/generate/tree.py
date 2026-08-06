@@ -20,7 +20,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     is_attacker_accessible_ingress,
 )
-from scenario_forge.models.scenario import ActorProfile, NarrativeLayer
+from scenario_forge.models.scenario import ActorProfile, CallName, NarrativeLayer
 from scenario_forge.pipeline.generate.constants import (
     _STEP_NODE_CORRESPONDENCE_FLOOR,
     compute_leaf_budget,
@@ -823,24 +823,50 @@ def _call_attack_tree_once(
         projection_context=projection_context,
     )
     skeleton = ctx["skeleton"]
-    result = client.complete(
-        system_prompt=render_prompt(
-            "call2_system.j2",
-            zones_active=profile.zones_active if profile else [],
-            tool_inventory=ctx["tool_inventory"],
-            external_integrations=ctx["external_integrations"],
-            entry_points=ctx["entry_points"],
-        ),
-        user_prompt=render_prompt("call2_user.j2", **ctx),
-        response_format=None,
+    system_prompt = render_prompt(
+        "call2_system.j2",
+        zones_active=profile.zones_active if profile else [],
+        tool_inventory=ctx["tool_inventory"],
+        external_integrations=ctx["external_integrations"],
+        entry_points=ctx["entry_points"],
     )
-    tree = _parse_attack_tree_yaml(result.content, seed)
-    return (
-        _validate_and_postprocess_tree(
+    user_prompt = render_prompt("call2_user.j2", **ctx)
+    try:
+        result = client.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_format=None,
+        )
+    except Exception as exc:
+        from scenario_forge.pipeline.generate.stages import StageAttemptFailure
+
+        raise StageAttemptFailure(
+            call_name=CallName.attack_tree,
+            exception=exc,
+            phase="invocation",
+            invoked=True,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        ) from exc
+    try:
+        tree = _parse_attack_tree_yaml(result.content, seed)
+        tree = _validate_and_postprocess_tree(
             tree, profile, pinned_entry_point_id, skeleton, seed, projection_context
-        ),
-        result,
-    )
+        )
+    except Exception as exc:
+        from scenario_forge.pipeline.generate.stages import StageAttemptFailure
+
+        raise StageAttemptFailure(
+            call_name=CallName.attack_tree,
+            exception=exc,
+            phase="post_response",
+            invoked=True,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            result=result,
+            raw_response=result.content,
+        ) from exc
+    return tree, result
 
 
 def _call_attack_tree(

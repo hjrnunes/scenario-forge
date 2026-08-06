@@ -18,7 +18,11 @@ from scenario_forge.models.scenario import (
     NarrativeLayer,
     NarrativeStep,
 )
-from scenario_forge.pipeline.generate import _call_attack_tree
+from scenario_forge.pipeline.generate import (
+    StageAttemptFailure,
+    _call_attack_tree,
+    _call_attack_tree_once,
+)
 from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
@@ -167,6 +171,34 @@ class TestAttackTreeRetry:
             "user_prompt", retry_call_args[1] if len(retry_call_args[1]) > 1 else ""
         )
         assert "rejected" in retry_user_prompt or "not valid YAML" in retry_user_prompt
+
+    def test_call_attack_tree_once_failure_calls_client_once_and_retains_result(
+        self,
+    ) -> None:
+        seed = _make_seed()
+        result = _make_llm_result(_INVALID_YAML)
+        client = MagicMock()
+        client.complete.return_value = result
+
+        with pytest.raises(StageAttemptFailure) as raised:
+            _call_attack_tree_once(
+                seed=seed,
+                narrative=_make_narrative(),
+                client=client,
+                use_case="A test use case",
+                profile=_make_profile(),
+                pinned_entry_point_id="ep:v1:52306ddb893a33ef2dc0f20c01e815f1",
+            )
+
+        client.complete.assert_called_once()
+        failure = raised.value
+        assert failure.phase == "post_response"
+        assert failure.result is result
+        assert failure.raw_response == _INVALID_YAML
+        assert (
+            failure.system_prompt == client.complete.call_args.kwargs["system_prompt"]
+        )
+        assert failure.user_prompt == client.complete.call_args.kwargs["user_prompt"]
 
     def test_both_attempts_fail_raises_original_error(self) -> None:
         """When both attempts fail, the original error is raised."""

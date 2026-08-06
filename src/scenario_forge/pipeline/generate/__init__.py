@@ -184,6 +184,7 @@ from scenario_forge.pipeline.generate.stages import (
     NarrativeStageResult,
     PreparedGeneration,
     RetryDirective,
+    StageAttemptFailure,
     StageCallEvidence,
     TreeStageResult,
     assemble_final_envelope,
@@ -220,6 +221,7 @@ __all__ = [
     "NarrativeStageResult",
     "PreparedGeneration",
     "RetryDirective",
+    "StageAttemptFailure",
     "StageCallEvidence",
     "TreeStageResult",
     # actor

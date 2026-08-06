@@ -5,16 +5,25 @@ from __future__ import annotations
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from scenario_forge.llm.client import LLMResult
 from scenario_forge.models.scenario import CallName
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
+from scenario_forge.pipeline.generate import generate_scenario
 from scenario_forge.pipeline.generate.stages import (
     GenerationRequest,
     PreparedGeneration,
     RetryDirective,
+    StageAttemptFailure,
     generate_actor_stage,
     generate_behavior_stage,
     generate_narrative_stage,
     generate_tree_stage,
+)
+from tests.helpers.projection_factory import (
+    get_projected_candidate,
+    get_test_snapshot,
 )
 
 
@@ -103,3 +112,188 @@ def test_retry_directive_is_data_not_hidden_control_flow() -> None:
     assert primitive.call_args.kwargs["access_feedback"] == "repair evidence"
     assert primitive.call_args.kwargs["forced_actor_type"] == "external"
     assert result.diversity_limitation == "limited"
+
+
+def test_tree_post_response_rejection_retains_truthful_attempt_evidence() -> None:
+    prepared = _prepared()
+    prepared.request.client.complete.return_value = _result()
+
+    def reject_after_response(seed, narrative, client, use_case, **kwargs):
+        client.complete(
+            system_prompt="tree system",
+            user_prompt="tree user",
+            response_format=None,
+        )
+        raise ValueError("tree parse rejected")
+
+    with (
+        patch(
+            "scenario_forge.pipeline.generate._call_attack_tree_once",
+            side_effect=reject_after_response,
+        ),
+        pytest.raises(StageAttemptFailure) as raised,
+    ):
+        generate_tree_stage(prepared, cast(Any, object()), cast(Any, object()))
+
+    failure = raised.value
+    prepared.request.client.complete.assert_called_once()
+    assert failure.call_name is CallName.attack_tree
+    assert failure.phase == "post_response"
+    assert failure.invoked is True
+    assert failure.system_prompt == "tree system"
+    assert failure.user_prompt == "tree user"
+    assert failure.result is prepared.request.client.complete.return_value
+    assert failure.raw_response == "fixture"
+
+
+def test_call3_semantic_rejection_retains_truthful_attempt_evidence() -> None:
+    prepared = _prepared()
+    prepared.request.client.complete.return_value = _result()
+
+    def reject_semantics(
+        seed, narrative, tree, profile, client, use_case, tag, **kwargs
+    ):
+        client.complete(
+            system_prompt="call3 system",
+            user_prompt="call3 user",
+            response_format=object,
+        )
+        raise ValueError("Call 3 semantic rejection")
+
+    with (
+        patch(
+            "scenario_forge.pipeline.generate._call_behavior_spec",
+            side_effect=reject_semantics,
+        ),
+        pytest.raises(StageAttemptFailure) as raised,
+    ):
+        generate_behavior_stage(prepared, cast(Any, object()), cast(Any, object()))
+
+    failure = raised.value
+    prepared.request.client.complete.assert_called_once()
+    assert failure.call_name is CallName.behavior_spec
+    assert failure.phase == "post_response"
+    assert failure.result is prepared.request.client.complete.return_value
+    assert failure.raw_response == "fixture"
+    assert failure.exception_type == "ValueError"
+
+
+def test_client_exception_is_invoked_without_synthesized_response() -> None:
+    prepared = _prepared()
+    prepared.request.client.complete.side_effect = ConnectionError("transport down")
+
+    def invoke(seed, narrative, tree, profile, client, use_case, tag, **kwargs):
+        return client.complete(
+            system_prompt="call3 system",
+            user_prompt="call3 user",
+            response_format=object,
+        )
+
+    with (
+        patch(
+            "scenario_forge.pipeline.generate._call_behavior_spec", side_effect=invoke
+        ),
+        pytest.raises(StageAttemptFailure) as raised,
+    ):
+        generate_behavior_stage(prepared, cast(Any, object()), cast(Any, object()))
+
+    failure = raised.value
+    prepared.request.client.complete.assert_called_once()
+    assert failure.phase == "invocation"
+    assert failure.invoked is True
+    assert failure.result is None
+    assert failure.raw_response is None
+    assert failure.exception_type == "ConnectionError"
+
+
+def test_generate_scenario_legacy_adapter_preserves_call_order_output_and_logs() -> (
+    None
+):
+    order: list[CallName] = []
+    actor = MagicMock(actor_type="cybercriminal", goal_category=None)
+    narrative = MagicMock(
+        title="Unique title",
+        summary="Summary",
+        steps=[],
+        entry_point="chat",
+        zone_sequence=["input"],
+    )
+    tree = MagicMock()
+    behavior = MagicMock()
+    envelope = MagicMock(scenario_id="scenario:v2:compatibility")
+
+    def call0(*args, **kwargs):
+        order.append(CallName.actor_profile)
+        return actor, _result(), None
+
+    def call1(*args, **kwargs):
+        order.append(CallName.narrative)
+        return narrative, _result()
+
+    def call2(*args, **kwargs):
+        order.append(CallName.attack_tree)
+        return tree, _result()
+
+    def call3(*args, **kwargs):
+        order.append(CallName.behavior_spec)
+        return behavior, _result()
+
+    seed = MagicMock(
+        seed_id="AP-T1-01",
+        threat_id="T1",
+        attack_pattern_name="Pattern",
+        atlas_technique_ids=[],
+    )
+    profile = MagicMock(tool_inventory=[])
+    client = MagicMock(model="test-model")
+
+    with (
+        patch(
+            "scenario_forge.pipeline.generate._call_actor_profile", side_effect=call0
+        ),
+        patch("scenario_forge.pipeline.generate._call_narrative", side_effect=call1),
+        patch("scenario_forge.pipeline.generate._call_attack_tree", side_effect=call2),
+        patch(
+            "scenario_forge.pipeline.generate._call_behavior_spec", side_effect=call3
+        ),
+        patch(
+            "scenario_forge.pipeline.generate._validate_actor_type",
+            side_effect=lambda value: value,
+        ),
+        patch(
+            "scenario_forge.pipeline.generate.validate_actor_access_provenance",
+            return_value=[],
+        ),
+        patch(
+            "scenario_forge.pipeline.generate.narrative.validate_narrative_access_realization",
+            return_value=[],
+        ),
+        patch(
+            "scenario_forge.pipeline.generate.assembly._check_consistency",
+            return_value=[],
+        ),
+        patch("scenario_forge.pipeline.generate._warn_dominant_threat_id_crossref"),
+        patch(
+            "scenario_forge.pipeline.generate._assemble_envelope",
+            return_value=envelope,
+        ),
+        patch(
+            "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+            return_value=ProjectionTraceabilityResult(valid=True),
+        ),
+    ):
+        actual_envelope, logs = generate_scenario(
+            seed=seed,
+            profile=profile,
+            client=client,
+            use_case="test",
+            pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            run_id="20260101T000000_0123456789abcdef0123456789abcdef",
+            projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
+        )
+
+    assert order == list(CallName)
+    assert actual_envelope is envelope
+    assert [entry["call"] for entry in logs] == [item.value for item in CallName]
+    assert {entry["scenario_id"] for entry in logs} == {envelope.scenario_id}
