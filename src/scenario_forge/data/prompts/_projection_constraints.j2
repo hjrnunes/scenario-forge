@@ -18,11 +18,22 @@ trace back to these exact projected steps, IDs, and resource bindings.
    - action_kind: {{ step.action_kind }}
    - executor_role: {{ step.executor_role }}
    - boundary_position: {{ step.boundary_position }}
+   - attacker_controlled: {{ step.attacker_controlled }}
+   - requirement: {{ step.requirement }}
    - resource_links:
-   {% for link in step.resource_links %}     - slot_id: {{ link.slot_id }}, role: {{ link.role }}{% if link.trust_boundary_slot_id %}, trust_boundary: {{ link.trust_boundary_slot_id }}{% endif %}{% if link.target_ingress_slot_id %}, target_ingress: {{ link.target_ingress_slot_id }}{% endif %}
-   {% endfor %}
-   - observable_postconditions:
+   {% for link in step.resource_links %}     - slot_id: {{ link.slot_id }}, role: {{ link.role }}{% if link.trust_boundary_slot_id %}, trust_boundary: {{ link.trust_boundary_slot_id }}{% endif %}{% if link.target_ingress_slot_id %}, target_ingress: {{ link.target_ingress_slot_id }}{% endif %}{% if link.resource_ref %}, resource_ref: {{ link.resource_ref | tojson }}{% endif %}
+   {% endfor %}   - consumed:
+   {% for c in step.consumed %}     - kind={{ c.kind }}, ref_id={{ c.ref_id }}, value_type={{ c.value_type }}
+   {% else %}     (none)
+   {% endfor %}   - produced:
+   {% for p in step.produced %}     - kind={{ p.kind }}, ref_id={{ p.ref_id }}, value_type={{ p.value_type }}
+   {% else %}     (none)
+   {% endfor %}   - observable_postconditions:
    {% for pc in step.observable_postconditions %}     - {{ pc.postcondition_id }}: {{ pc.description }} (security_relevant: {{ pc.security_relevant }}, terminal: {{ pc.terminal }})
+   {% else %}     (none)
+   {% endfor %}   - observable_outcome_links:
+   {% for ol in step.observable_outcome_links %}     - postcondition_id: {{ ol.postcondition_id }}, observation: {{ ol.observation }}, binding_slot_id: {{ ol.binding_slot_id }}
+   {% else %}     (none)
    {% endfor %}
 {% endfor %}
 
@@ -31,7 +42,13 @@ trace back to these exact projected steps, IDs, and resource bindings.
 {% else %}(none)
 {% endif %}
 
-### Condition Evaluations
+### Condition Results (full evaluations with evidence)
+{% for cr in projection_context.condition_results %}- step {{ cr.condition_step_id }}: result={{ cr.result }}
+  {% for e in cr.evidence %}  - evidence: fact={{ e.fact.namespace }}/{{ e.fact.fact_id }}, status={{ e.status }}, value={{ e.value }}
+  {% endfor %}{% else %}(none)
+{% endfor %}
+
+### Condition Evaluations (precondition summary)
 {% for ce in projection_context.condition_evaluations %}- step {{ ce.step_id }} / condition {{ ce.condition_id }}: {{ ce.result }}
 {% else %}(none)
 {% endfor %}
@@ -47,8 +64,13 @@ trace back to these exact projected steps, IDs, and resource bindings.
 {% else %}(none)
 {% endfor %}
 
-### Resource Slots
-{% for slot in projection_context.resource_slots %}- {{ slot.slot_id }}: kind={{ slot.kind }}, purpose={{ slot.purpose }}
+### Resource Slots (with concrete bindings)
+{% for slot in projection_context.resource_slots %}- {{ slot.slot_id }}: kind={{ slot.kind }}, purpose={{ slot.purpose }}{% if slot.resource_ref %}, resource_ref: {{ slot.resource_ref | tojson }}{% endif %}
+{% else %}(none)
+{% endfor %}
+
+### Concrete Resource Bindings
+{% for b in projection_context.bindings %}- slot_id: {{ b.slot_id }}, resource_ref: {{ b.resource_ref | tojson }}
 {% else %}(none)
 {% endfor %}
 

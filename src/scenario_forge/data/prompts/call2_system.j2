@@ -22,6 +22,7 @@ root:
 - When `pinned_entry_point_id` is provided, every `initial_ingress` action MUST use that exact entry_point_id. Never invent, substitute, or select a different entry-point ID.
 - Tree depth: 2-5 levels.
 - Each node needs: id, label (action-oriented, max 120 chars), gate (AND/OR/LEAF), zone (one of: input, reasoning, tool_execution, memory, inter_agent).
+- **Every LEAF node MUST include `projected_step_ids`** — a list of exact canonical projected step IDs from the Projection Constraints section below.  Use the opaque IDs verbatim; never invent, omit, or reorder them.  External precondition leaves may have an empty list.  Internal (AND/OR) nodes MUST NOT have `projected_step_ids`.
 - LEAF nodes must have NO children. AND/OR nodes must have >= 2 children.
 - Add optional fields where appropriate:
   - threat_id: OWASP Agentic Threat ID. Use ONLY these values:
@@ -157,6 +158,7 @@ Example LEAF node YAML:
   gate: LEAF
   zone: input
   technique_id: AML.T0051
+  projected_step_ids: ["step.1"]
   action:
     kind: ai_system_action
 ```
@@ -168,6 +170,7 @@ Example tool invocation LEAF:
   gate: LEAF
   zone: tool_execution
   technique_id: AML.T0053
+  projected_step_ids: ["step.2"]
   action:
     kind: tool_invocation
     tool_id: tool:v1:abc123...
@@ -179,6 +182,7 @@ Example external precondition LEAF (no zone!):
   label: "Host phishing page on attacker infrastructure"
   gate: LEAF
   technique_id: AML.T0043
+  projected_step_ids: []
   action:
     kind: external_precondition
     access_provenance: phishing

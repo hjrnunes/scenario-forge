@@ -1,6 +1,6 @@
 {% if control_points %}
 ## Available Defense Mechanisms
-The following defensive controls exist at various points in the attack path. Select from these for the But assertion:
+The following defensive controls exist at various points in the attack path. Select from these for defense-failure assertions:
 {% for cp in control_points %}
 - {{ cp }}
 {% endfor %}
@@ -9,9 +9,6 @@ The following defensive controls exist at various points in the attack path. Sel
 - Attack pattern: {{ seed.attack_pattern_name }}
 - Threat category: {{ seed.threat_name }}
 
-## Pre-built Gherkin Scenario
-
-{{ gherkin_skeleton }}
 ## Narrative Context
 Title: {{ narrative.title }}
 Summary: {{ narrative.summary }}
@@ -20,5 +17,34 @@ Entry point: {{ narrative.entry_point }}
 ---
 
 {% include "_projection_constraints.j2" %}
+
+## Tree Leaf Catalog (use these exact IDs)
+Each tree leaf is listed with its projected step IDs, typed action kind,
+zone, and the eligible Gherkin keyword for its action semantics.
+
+{% for leaf in leaf_catalog %}
+- leaf_id: {{ leaf.leaf_id }}
+  - projected_step_ids: {{ leaf.projected_step_ids | tojson }}
+  - action_kind: {{ leaf.action_kind }}
+  - zone: {{ leaf.zone }}
+  - eligible_keyword: {{ leaf.eligible_keyword }}
+{% endfor %}
+
+## Postcondition Ownership Table
+Each observable postcondition is owned by exactly one projected step.
+Assertions MUST reference the postcondition IDs from the owning step.
+
+{% for pc in postcondition_ownership %}
+- postcondition_id: {{ pc.postcondition_id }}
+  - owning_step_id: {{ pc.owning_step_id }}
+  - description: {{ pc.description }}
+  - security_relevant: {{ pc.security_relevant }}
+  - terminal: {{ pc.terminal }}
+{% endfor %}
+
 ## Your Task
-Write the assertion block (Then/But/*) for the scenario above. Output ONLY the assertion lines — no tags, Feature, Background, or When/And steps.
+Produce the structured JSON behavior specification (actions + assertions)
+for the scenario above.  Every action must reference a tree leaf from the
+Leaf Catalog and use the exact projected step IDs from the Projection
+Constraints.  Every assertion must reference postconditions from the
+Postcondition Ownership Table, using the owning step as source_step_ids.

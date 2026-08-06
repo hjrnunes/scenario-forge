@@ -495,9 +495,13 @@ def _make_envelope(
 
     from datetime import UTC
 
+    # Use the actual projected candidate ID so candidate ID recompute passes.
+    candidate, _, _, _ = _project()
+    cid = candidate.candidate_id
+
     return ScenarioEnvelope(
         scenario_id="scenario:v2:" + "a" * 64,
-        candidate_id="cand:v2:" + "b" * 32,
+        candidate_id=cid,
         version=3,
         generated_at=datetime.now(UTC),
         generator_version="test",
@@ -2055,6 +2059,9 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Given the attacker has access",
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 BehaviorAction(
                     action_id="ba-2",
@@ -2062,6 +2069,9 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="When the system processes input",
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 BehaviorAction(
                     action_id="ba-3",
@@ -2069,6 +2079,9 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Then the impact occurs",
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ),
             assertions=(
@@ -2122,6 +2135,9 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Given the attacker has access",
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 BehaviorAction(
                     action_id="ba-2",
@@ -2129,6 +2145,9 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="When the system processes input",
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 BehaviorAction(
                     action_id="ba-3",
@@ -2136,6 +2155,9 @@ class TestNonexistentBehaviorIDs:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Then the impact occurs",
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ),
             assertions=(
@@ -2506,7 +2528,6 @@ class TestProjectionConstraintsInPrompts:
                     "threat_name": "X",
                 },
             )(),
-            "gherkin_skeleton": "Feature: skeleton\n",
             "narrative": type(
                 "N",
                 (),
@@ -2517,6 +2538,8 @@ class TestProjectionConstraintsInPrompts:
                 },
             )(),
             "projection_context": pc,
+            "leaf_catalog": [],
+            "postcondition_ownership": [],
         }
         prompt = render_prompt("call3_user.j2", **ctx)
         assert "Canonical Projection Constraints" in prompt
@@ -2548,11 +2571,12 @@ class TestProjectionConstraintsInPrompts:
         ctx3 = {
             "control_points": [],
             "seed": type("S", (), {"attack_pattern_name": "X", "threat_name": "X"})(),
-            "gherkin_skeleton": "Feature: skeleton\n",
             "narrative": type(
                 "N", (), {"title": "T", "summary": "S", "entry_point": "E"}
             )(),
             "projection_context": pc,
+            "leaf_catalog": [],
+            "postcondition_ownership": [],
         }
         p3 = render_prompt("call3_user.j2", **ctx3)
 
@@ -3031,6 +3055,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Inject input",
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 Call3Action(
                     action_id="ba-2",
@@ -3038,6 +3065,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="System processes",
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 Call3Action(
                     action_id="ba-3",
@@ -3045,6 +3075,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Impact achieved",
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
             assertions=[],
@@ -3094,6 +3127,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n9.9",  # nonexistent
                     gherkin_keyword="Given",
                     text="Inject",
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 Call3Action(
                     action_id="ba-2",
@@ -3101,6 +3137,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="Process",
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 Call3Action(
                     action_id="ba-3",
@@ -3108,6 +3147,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Impact",
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
         )
@@ -3148,6 +3190,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.1",
                     gherkin_keyword="Given",
                     text="Inject",
+                    canonical_action_kind="prepare",
+                    canonical_executor_role="attacker",
+                    canonical_boundary_position="crossing",
                 ),
                 Call3Action(
                     action_id="ba-2",
@@ -3155,6 +3200,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.2",
                     gherkin_keyword="When",
                     text="Process",
+                    canonical_action_kind="observe",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
                 Call3Action(
                     action_id="ba-3",
@@ -3162,6 +3210,9 @@ class TestAlteredCall3Output:
                     source_leaf_id="n1.3",
                     gherkin_keyword="Then",
                     text="Impact",
+                    canonical_action_kind="impact",
+                    canonical_executor_role="system",
+                    canonical_boundary_position="inside",
                 ),
             ],
         )
@@ -3229,23 +3280,110 @@ class TestIncompatibleEffectPostcondition:
     """Incompatible effect/postcondition mapping must fail."""
 
     def test_impact_without_effect_produces_violation(self):
-        """A leaf with impact action on a step that produces no effect fails."""
-        block = _make_block()
-        ingress_id = block.canonical_ingress.entry_point_id
-        chain = block.projection.source_chain
+        """A leaf with impact action on a step that produces no effect fails.
 
-        # Find a step that produces no effect (if any).
-        no_effect_step = None
-        for s in chain.steps:
-            if not any(p.kind == "effect" for p in s.produced):
-                no_effect_step = s
-                break
-        if no_effect_step is None:
-            pytest.skip("All steps produce effects — nothing to test")
+        This is a true no-effect fixture: step.3 is built with empty
+        ``produced`` (no effect entries at all).  The previous version
+        skipped when all steps produced effects — that skip is not
+        acceptable (422o.4 blocker #4: this skip is not follow-up debt).
+        """
+        # Build a pattern where step.3 produces no effect (only a state
+        # artifact, not an effect).  Produced must be non-empty (min_length=1)
+        # but the key is that no entry has kind=="effect".
+        raw = _pattern()
+        for s in raw["canonical_chain"]["steps"]:
+            if s["step_id"] == "step.3":
+                s["produced"] = [
+                    {"kind": "state", "ref_id": "state.3", "value_type": "boolean"}
+                ]
+        # Recompute semantic digest after modifying step produced.
+        raw["canonical_chain"]["semantic_digest"] = compute_chain_semantic_digest(
+            raw["canonical_chain"]
+        )
+        pattern = AttackPattern.model_validate(raw)
+        resolver = TaxonomyResolver(pattern.canonical_chain.taxonomy_context)
+        snapshot = capture_capability_snapshot(_profile(), (_evidence(),))
+        batch = project_authoritative_candidates(
+            [raw],
+            resolver,
+            snapshot,
+            budget=ProjectionBudget(max_candidates=100),
+        )
+        assert len(batch.candidates) >= 1
+        candidate = batch.candidates[0]
 
-        # Build a tree leaf with impact action mapped to this step.
+        # Verify the fixture: step.3 truly has no produced effects.
+        chain = candidate.projection.source_chain
+        no_effect_step = chain.steps[-1]
+        assert no_effect_step.step_id == "step.3"
+        assert not any(p.kind == "effect" for p in no_effect_step.produced), (
+            "Fixture must have a step with no produced effects"
+        )
+
+        selected = candidate.projection.selected_step_ids
+        ingress_id = candidate.canonical_ingress.entry_point_id
+
+        # Build realizations: all steps covered, step.3 via impact leaf.
+        narrative_realizations = tuple(
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.narrative,
+                element_id=str(i + 1),
+                projected_step_ids=(sid,),
+            )
+            for i, sid in enumerate(selected)
+        )
+        tree_realizations = tuple(
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.attack_tree,
+                element_id=f"n1.{i + 1}",
+                projected_step_ids=(sid,),
+            )
+            for i, sid in enumerate(selected)
+        )
+        behavior_realizations = tuple(
+            ArtifactRealizationMapping(
+                artifact_stage=ArtifactStage.behavior,
+                element_id=f"behavior-{i + 1}",
+                projected_step_ids=(sid,),
+            )
+            for i, sid in enumerate(selected)
+        )
+        assertion_realizations = (
+            AssertionRealizationMapping(
+                element_id=(
+                    f"assert-{selected[0]}-"
+                    f"{chain.steps[0].observable_postconditions[0].postcondition_id}"
+                ),
+                source_step_ids=(selected[0],),
+                projected_postcondition_ids=(
+                    chain.steps[0].observable_postconditions[0].postcondition_id,
+                ),
+            ),
+        )
+
+        block = ProjectionEnvelopeBlock(
+            projection=candidate.projection,
+            canonical_ingress=candidate.canonical_ingress,
+            ingress_controllability=candidate.ingress_controllability,
+            projected_mappings=candidate.projected_mappings,
+            capability_snapshot=snapshot,
+            execution_requirements=candidate.execution_requirements,
+            requirement_derivation_version=candidate.requirement_derivation_version,
+            execution_requirements_digest=candidate.execution_requirements_digest,
+            derivation_context_digest=compute_derivation_context_digest(
+                candidate.projection.projection_digest,
+                candidate.projection.source_chain.pattern_id,
+                candidate.ingress_controllability,
+            ),
+            narrative_realizations=narrative_realizations,
+            tree_realizations=tree_realizations,
+            behavior_realizations=behavior_realizations,
+            assertion_realizations=assertion_realizations,
+        )
+
+        # Build a tree leaf with impact action mapped to the no-effect step.
         tree = AttackTree(
-            id="tree-test",
+            id="tree-AP-T1-01",
             seed_id="AP-T1-01",
             goal="Test",
             root=AttackTreeNode(
@@ -3274,7 +3412,7 @@ class TestIncompatibleEffectPostcondition:
                         label="Wrong impact",
                         gate=GateType.LEAF,
                         zone="reasoning",
-                        action=ImpactAction(boundary="internal", target="wrong step"),
+                        action=ImpactAction(boundary="internal", target="no effect"),
                         projected_step_ids=(no_effect_step.step_id,),
                     ),
                 ],

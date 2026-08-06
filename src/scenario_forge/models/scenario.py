@@ -801,6 +801,10 @@ class BehaviorAction(BaseModel):
     Each behavior action carries the canonical projected step IDs it
     realizes (controlled many-to-many) and the tree leaf it was derived
     from, enabling deterministic traceability without Gherkin parsing.
+
+    422o.4 blocker #4: Carries canonical action/executor/boundary
+    metadata so the validator can reconcile per-step semantics at the
+    behavior boundary, not just at the tree boundary.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -830,6 +834,28 @@ class BehaviorAction(BaseModel):
     text: str = Field(
         description="Gherkin step text for this action.",
         min_length=1,
+    )
+    # --- Structured canonical realization metadata (422o.4 blocker #4) ---
+    canonical_action_kind: str = Field(
+        min_length=1,
+        description=(
+            "Canonical action kind from the projected step (prepare, deliver, "
+            "invoke, transform, persist, observe, impact).  Must be compatible "
+            "with the projected step's action_kind."
+        ),
+    )
+    canonical_executor_role: str = Field(
+        min_length=1,
+        description=(
+            "Canonical executor role from the projected step (attacker, system)."
+        ),
+    )
+    canonical_boundary_position: str = Field(
+        min_length=1,
+        description=(
+            "Canonical boundary position from the projected step (outside, "
+            "crossing, inside)."
+        ),
     )
 
     @model_validator(mode="after")

@@ -69,6 +69,7 @@ from scenario_forge.models.projection_envelope import (
 )
 from scenario_forge.pipeline.projection import (
     CapabilityFactSnapshot,
+    _candidate_v2_id,
     _derive_execution_requirements_core,
     _fail_closed_if_no_requirements,
     _normalize_semantic_order,
@@ -138,6 +139,26 @@ def validate_projection_traceability(
 
     # --- Check 6: ingress identity (contract §7) ---
     violations.extend(_check_ingress_identity(envelope, block))
+
+    # --- Check 6b: candidate ID recompute (422o.4 blocker #1) ---
+    # Recompute the projected candidate ID from the embedded
+    # ProjectionSnapshot and compare to envelope.candidate_id.
+    recomputed_cid = _candidate_v2_id(
+        block.projection.source_chain.pattern_id, block.projection
+    )
+    if envelope.candidate_id != recomputed_cid:
+        violations.append(
+            ProjectionTraceabilityViolation(
+                code=ProjectionTraceabilityViolationCode.forged_opaque_id,
+                stage=ProjectionTraceabilityStage.actor_profile,
+                detail=(
+                    f"envelope candidate_id '{envelope.candidate_id}' does not "
+                    f"match recomputed projected candidate ID "
+                    f"'{recomputed_cid}' from embedded ProjectionSnapshot"
+                ),
+                element_id=envelope.candidate_id,
+            )
+        )
 
     # --- Check 7: OR-tree prohibition (contract §6) ---
     violations.extend(_check_or_tree_prohibition(envelope, block))
@@ -1363,14 +1384,16 @@ def _check_step_semantic_compatibility(
                     )
 
                 # --- Produced effect compatibility (422o.4 blocker #4) ---
+                # Fix: impact + empty produced must fail, not pass.
+                # The previous guard `step_produced_kinds and ...` was falsy
+                # when produced was empty, silently accepting impact actions
+                # on steps that produce nothing.
                 step_produced_kinds = {p.kind for p in step.produced}
                 if step_produced_kinds and action.kind == "ai_system_action":
                     if "effect" in step_produced_kinds and not step.attacker_controlled:
                         pass  # already validated by executor role check
-                elif (
-                    step_produced_kinds
-                    and action.kind == "impact"
-                    and not any(p.kind == "effect" for p in step.produced)
+                elif action.kind == "impact" and not any(
+                    p.kind == "effect" for p in step.produced
                 ):
                     violations.append(
                         ProjectionTraceabilityViolation(

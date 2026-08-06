@@ -237,3 +237,165 @@ class TestSchemaDrift:
 
         envelope_dict = envelope.model_dump(mode="json")
         jsonschema.validate(envelope_dict, hand_schema)
+
+
+_YAML_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / "schemas" / "scenario-envelope.yaml"
+)
+
+
+def _yaml_required_fields(section: str, sub: str | None = None) -> set[str]:
+    """Extract required field names from a YAML schema section."""
+    import yaml
+
+    doc = yaml.safe_load(_YAML_SCHEMA_PATH.read_text(encoding="utf-8"))
+    fields = doc["fields"]
+    section_def = fields[section]
+    if sub is not None:
+        section_def = section_def["fields"][sub]
+    sub_fields = section_def.get("fields", {})
+    return {
+        name for name, spec in sub_fields.items() if spec.get("required", False) is True
+    }
+
+
+def _json_schema_required(defs: dict, def_name: str) -> set[str]:
+    """Extract required field names from a JSON Schema $def."""
+    defn = defs.get(def_name, {})
+    return set(defn.get("required", []))
+
+
+class TestNestedRequirednessParity:
+    """Nested required-field parity across Pydantic JSON, hand JSON, and YAML.
+
+    Ensures that requiredness of projection-traceability fields on
+    NarrativeStep, BehaviorAction, BehaviorAssertion, and BehaviorSpec
+    is consistent across all three schema representations.
+    """
+
+    def test_narrative_step_required_parity(self, pydantic_schema, hand_schema):
+        """NarrativeStep projection fields are required in all schemas."""
+        pyd_req = _json_schema_required(
+            pydantic_schema.get("$defs", {}), "NarrativeStep"
+        )
+        hand_req = _json_schema_required(hand_schema.get("$defs", {}), "NarrativeStep")
+        yaml_req = _yaml_required_fields("NarrativeStep")
+
+        # Projection traceability fields must be required everywhere.
+        projection_fields = {
+            "projected_step_ids",
+            "canonical_action_kind",
+            "canonical_executor_role",
+            "canonical_boundary_position",
+        }
+        for field in projection_fields:
+            assert field in pyd_req, (
+                f"NarrativeStep.{field} must be required in Pydantic schema, "
+                f"got required={sorted(pyd_req)}"
+            )
+            assert field in hand_req, (
+                f"NarrativeStep.{field} must be required in hand JSON schema, "
+                f"got required={sorted(hand_req)}"
+            )
+            assert field in yaml_req, (
+                f"NarrativeStep.{field} must be required in YAML schema, "
+                f"got required={sorted(yaml_req)}"
+            )
+
+    def test_narrative_step_no_empty_default_projected_step_ids(self):
+        """YAML schema must not give projected_step_ids an empty default."""
+        import yaml
+
+        doc = yaml.safe_load(_YAML_SCHEMA_PATH.read_text(encoding="utf-8"))
+        psids = doc["fields"]["NarrativeStep"]["fields"]["projected_step_ids"]
+        assert "default" not in psids or psids["default"] != [], (
+            "projected_step_ids must not have an empty-list default in YAML schema"
+        )
+        assert psids.get("required") is True, (
+            "projected_step_ids must be required in YAML schema"
+        )
+
+    def test_behavior_action_required_parity(self, pydantic_schema, hand_schema):
+        """BehaviorAction projection fields are required in all schemas."""
+        pyd_req = _json_schema_required(
+            pydantic_schema.get("$defs", {}), "BehaviorAction"
+        )
+        hand_req = _json_schema_required(hand_schema.get("$defs", {}), "BehaviorAction")
+        required_fields = {
+            "action_id",
+            "projected_step_ids",
+            "source_leaf_id",
+            "gherkin_keyword",
+            "text",
+        }
+        for field in required_fields:
+            assert field in pyd_req, (
+                f"BehaviorAction.{field} must be required in Pydantic schema, "
+                f"got required={sorted(pyd_req)}"
+            )
+            assert field in hand_req, (
+                f"BehaviorAction.{field} must be required in hand JSON schema, "
+                f"got required={sorted(hand_req)}"
+            )
+        # Parity: both schemas must agree on the full required set.
+        assert pyd_req == hand_req, (
+            f"BehaviorAction required fields differ: "
+            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}"
+        )
+
+    def test_behavior_assertion_required_parity(self, pydantic_schema, hand_schema):
+        """BehaviorAssertion projection fields are required in all schemas."""
+        pyd_req = _json_schema_required(
+            pydantic_schema.get("$defs", {}), "BehaviorAssertion"
+        )
+        hand_req = _json_schema_required(
+            hand_schema.get("$defs", {}), "BehaviorAssertion"
+        )
+        # gherkin_keyword has default="Then" so it's not required;
+        # the other fields must be required in both schemas.
+        required_fields = {
+            "assertion_id",
+            "source_step_ids",
+            "projected_postcondition_ids",
+            "text",
+        }
+        for field in required_fields:
+            assert field in pyd_req, (
+                f"BehaviorAssertion.{field} must be required in Pydantic schema, "
+                f"got required={sorted(pyd_req)}"
+            )
+            assert field in hand_req, (
+                f"BehaviorAssertion.{field} must be required in hand JSON schema, "
+                f"got required={sorted(hand_req)}"
+            )
+        # Parity: both schemas must agree on the full required set.
+        assert pyd_req == hand_req, (
+            f"BehaviorAssertion required fields differ: "
+            f"pydantic={sorted(pyd_req)}, hand={sorted(hand_req)}"
+        )
+
+    def test_behavior_spec_required_parity(self, pydantic_schema, hand_schema):
+        """BehaviorSpec top-level fields are required in all schemas."""
+        pyd_req = _json_schema_required(
+            pydantic_schema.get("$defs", {}), "BehaviorSpec"
+        )
+        hand_req = _json_schema_required(hand_schema.get("$defs", {}), "BehaviorSpec")
+        required_fields = {"actions", "assertions", "gherkin_text"}
+        for field in required_fields:
+            assert field in pyd_req, (
+                f"BehaviorSpec.{field} must be required in Pydantic schema, "
+                f"got required={sorted(pyd_req)}"
+            )
+            assert field in hand_req, (
+                f"BehaviorSpec.{field} must be required in hand JSON schema, "
+                f"got required={sorted(hand_req)}"
+            )
+
+    def test_projection_required_at_top_level(self, pydantic_schema, hand_schema):
+        """projection is required at the top level in all schemas."""
+        pyd_req = set(pydantic_schema.get("required", []))
+        hand_req = set(hand_schema.get("required", []))
+        assert "projection" in pyd_req, "projection must be required in Pydantic schema"
+        assert "projection" in hand_req, (
+            "projection must be required in hand JSON schema"
+        )

@@ -63,6 +63,10 @@ class Call3Action(BaseModel):
     source_leaf_id: str = Field(pattern=r"^n\d+(\.\d+){0,4}$")
     gherkin_keyword: Literal["Given", "When", "Then"]
     text: str = Field(min_length=1)
+    # 422o.4 blocker #4: canonical semantics for per-step reconciliation.
+    canonical_action_kind: str = Field(min_length=1)
+    canonical_executor_role: str = Field(min_length=1)
+    canonical_boundary_position: str = Field(min_length=1)
 
 
 class Call3Assertion(BaseModel):
@@ -402,27 +406,61 @@ def build_call3_context(
     Pure data-preparation function that constructs all template variables
     needed by ``call3_user.j2``.  No LLM calls.
 
+    422o.4: Provides a leaf catalog (leaf_id, projected step IDs, action
+    kind, zone, eligible Gherkin keyword) and a postcondition ownership
+    table (postcondition ID, owning step ID, semantics) so the LLM can
+    emit a structured Call3Response keyed by exact projected IDs.
+
     Returns:
         Dict mapping template variable names to their values.
     """
-    # Build deterministic Gherkin skeleton from tree + narrative
-    gherkin_template = _build_gherkin_template(
-        narrative=narrative,
-        attack_tree=attack_tree,
-        profile=profile,
-        seed=seed,
-        scenario_tag=scenario_tag,
-    )
-
     # Collect defensive control points from attack tree nodes
     control_points = _collect_control_points(attack_tree.root)
 
+    # Build leaf catalog from actual tree leaves.
+    leaf_catalog: list[dict[str, Any]] = []
+    for leaf in _collect_leaf_nodes_dfs(attack_tree.root):
+        step_kind = _leaf_step_kind(leaf)
+        eligible = (
+            "Given"
+            if step_kind == _STEP_KIND_GIVEN
+            else "Then"
+            if step_kind == _STEP_KIND_THEN
+            else "When"
+        )
+        action_kind = leaf.action.kind if leaf.action else "unknown"
+        leaf_catalog.append(
+            {
+                "leaf_id": leaf.id,
+                "projected_step_ids": list(leaf.projected_step_ids),
+                "action_kind": action_kind,
+                "zone": leaf.zone,
+                "eligible_keyword": eligible,
+            }
+        )
+
+    # Build postcondition ownership table from projection context.
+    postcondition_ownership: list[dict[str, Any]] = []
+    if projection_context:
+        for step_data in projection_context.get("selected_steps", []):
+            for pc in step_data.get("observable_postconditions", []):
+                postcondition_ownership.append(
+                    {
+                        "postcondition_id": pc["postcondition_id"],
+                        "owning_step_id": step_data["step_id"],
+                        "description": pc["description"],
+                        "security_relevant": pc["security_relevant"],
+                        "terminal": pc["terminal"],
+                    }
+                )
+
     return {
-        "gherkin_skeleton": gherkin_template,
         "narrative": narrative,
         "seed": seed,
         "control_points": control_points,
         "projection_context": projection_context,
+        "leaf_catalog": leaf_catalog,
+        "postcondition_ownership": postcondition_ownership,
     }
 
 
@@ -561,6 +599,9 @@ def _call3_response_to_behavior_spec(
             source_leaf_id=a.source_leaf_id,
             gherkin_keyword=a.gherkin_keyword,
             text=a.text,
+            canonical_action_kind=a.canonical_action_kind,
+            canonical_executor_role=a.canonical_executor_role,
+            canonical_boundary_position=a.canonical_boundary_position,
         )
         for a in response.actions
     )

@@ -132,7 +132,16 @@ class CandidateFunnel(BaseModel):
         description="Candidates accepted by the LLM filter.",
     )
     selected: int = Field(
-        description="Candidates remaining after capping/selection.",
+        description="Candidates remaining after capping/selection and projection prejoin.",
+    )
+    projection_rejected: int = Field(
+        default=0,
+        description=(
+            "Filtered seeds rejected at the projection stage (no exact "
+            "ingress match to a projected candidate).  Excluded from "
+            "selected — a typed projection-stage rejection, not a silent "
+            "skip (422o.4)."
+        ),
     )
     main_attempted: int = Field(
         description="Main generation attempts (from selected candidates).",
@@ -199,6 +208,15 @@ class CandidateFunnel(BaseModel):
         if self.selected > self.filter_accepted:
             raise ValueError(
                 f"selected ({self.selected}) must be <= "
+                f"filter_accepted ({self.filter_accepted})"
+            )
+        # Projection rejections are a subset of filter_accepted - selected.
+        # After capping and projection prejoin: selected + projection_rejected
+        # must not exceed filter_accepted (capping may further reduce).
+        if self.selected + self.projection_rejected > self.filter_accepted:
+            raise ValueError(
+                f"selected ({self.selected}) + projection_rejected "
+                f"({self.projection_rejected}) must be <= "
                 f"filter_accepted ({self.filter_accepted})"
             )
         # Main lifecycle: selected candidates each get one attempt.

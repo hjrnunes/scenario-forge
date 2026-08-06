@@ -2070,7 +2070,7 @@
     },
     "ArtifactRealizationMapping": {
       "additionalProperties": false,
-      "description": "Map one generated artifact element to one or more projected steps.\n\nControlled many-to-many realization (contract \u00a75): one artifact element\nmay realize multiple projected steps (combine), and one projected step\nmay be realized by multiple artifact elements (split).  The total order\nof projected steps must be preserved across element ordering within the\nsame artifact stage.",
+      "description": "Map one generated artifact element to one or more projected steps.\n\nControlled many-to-many realization (contract §5): one artifact element\nmay realize multiple projected steps (combine), and one projected step\nmay be realized by multiple artifact elements (split).  The total order\nof projected steps must be preserved across element ordering within the\nsame artifact stage.",
       "properties": {
         "artifact_stage": {
           "$ref": "#/$defs/ArtifactStage"
@@ -2111,7 +2111,7 @@
     },
     "AssertionRealizationMapping": {
       "additionalProperties": false,
-      "description": "Map a generated behavior assertion to projected observable postconditions.\n\nAssertions map to projected observable postconditions (contract \u00a74), not\nmechanically to setup steps.  Each assertion traces to one or more\npostconditions owned by one or more selected projected steps.",
+      "description": "Map a generated behavior assertion to projected observable postconditions.\n\nAssertions map to projected observable postconditions (contract §4), not\nmechanically to setup steps.  Each assertion traces to one or more\npostconditions owned by one or more selected projected steps.",
       "properties": {
         "element_id": {
           "description": "Generated behavior assertion element identifier.",
@@ -3322,7 +3322,7 @@
     },
     "StepResourceLink": {
       "additionalProperties": false,
-      "description": "Explicit link from a step to a required resource slot.\n\nThe ``role`` declares how the slot is used by the step, determining the\nexecution-requirement derivation.  No inference from action kind, name,\nor cardinality is performed by the projection \u2014 the link is the sole\nauthority for requirement derivation.\n\nFor ``source_influence`` links the ``slot_id`` is the upstream source\nslot (an entry point or integration the attacker influences outside the\ntrust boundary), ``trust_boundary_slot_id`` is the boundary the source\ncontent crosses, and ``target_ingress_slot_id`` is the canonical ingress\nentry point the influenced content flows into.  The target-ingress edge\nis explicit: the projection never assumes the chain's initial ingress\nimplicitly supplies this relation.",
+      "description": "Explicit link from a step to a required resource slot.\n\nThe ``role`` declares how the slot is used by the step, determining the\nexecution-requirement derivation.  No inference from action kind, name,\nor cardinality is performed by the projection — the link is the sole\nauthority for requirement derivation.\n\nFor ``source_influence`` links the ``slot_id`` is the upstream source\nslot (an entry point or integration the attacker influences outside the\ntrust boundary), ``trust_boundary_slot_id`` is the boundary the source\ncontent crosses, and ``target_ingress_slot_id`` is the canonical ingress\nentry point the influenced content flows into.  The target-ingress edge\nis explicit: the projection never assumes the chain's initial ingress\nimplicitly supplies this relation.",
       "properties": {
         "slot_id": {
           "minLength": 1,
@@ -3610,7 +3610,7 @@
     },
     "AgentInternalResourceReference": {
       "additionalProperties": false,
-      "description": "Canonical reference to agent-internal state.\n\nAgent-internal state is data assembled or transformed within the\nagent's own working context \u2014 neither an external entry point, tool,\nintegration, nor trust boundary.  Capability profiles do not carry\nan authoritative agent-internal-state inventory, so this reference\ntype is **unresolvable** by design: ``contains_resource`` always\nreturns ``False`` and ``_references_for_kind`` always returns an\nempty tuple.  Patterns that require an ``agent_internal`` resource\nslot are therefore typed-infeasible for candidate-v2 projection.",
+      "description": "Canonical reference to agent-internal state.\n\nAgent-internal state is data assembled or transformed within the\nagent's own working context — neither an external entry point, tool,\nintegration, nor trust boundary.  Capability profiles do not carry\nan authoritative agent-internal-state inventory, so this reference\ntype is **unresolvable** by design: ``contains_resource`` always\nreturns ``False`` and ``_references_for_kind`` always returns an\nempty tuple.  Patterns that require an ``agent_internal`` resource\nslot are therefore typed-infeasible for candidate-v2 projection.",
       "properties": {
         "kind": {
           "const": "agent_internal",
@@ -3999,7 +3999,7 @@
     },
     "OutputSurfaceResourceReference": {
       "additionalProperties": false,
-      "description": "Canonical reference to an output-direction entry point.\n\nAn output surface is the agent's rendered-response surface \u2014 the\nmodel's output that a client renders or fetches.  It is distinct from\nan input entry point (``EntryPointResourceReference``) even though\nboth resolve to an :class:`EntryPoint` in the capability profile:\nonly entry points with ``direction == \"output\"`` qualify as output\nsurfaces.",
+      "description": "Canonical reference to an output-direction entry point.\n\nAn output surface is the agent's rendered-response surface — the\nmodel's output that a client renders or fetches.  It is distinct from\nan input entry point (``EntryPointResourceReference``) even though\nboth resolve to an :class:`EntryPoint` in the capability profile:\nonly entry points with ``direction == \"output\"`` qualify as output\nsurfaces.",
       "properties": {
         "kind": {
           "const": "output_surface",
@@ -4021,7 +4021,7 @@
     },
     "BehaviorAction": {
       "additionalProperties": false,
-      "description": "A structured behavior spec action tied to a projected step.\n\nEach behavior action carries the canonical projected step ID it\nrealizes and the tree leaf it was derived from, enabling deterministic\ntraceability without Gherkin parsing.",
+      "description": "A structured behavior spec action tied to a projected step.\n\nEach behavior action carries the canonical projected step ID it\nrealizes and the tree leaf it was derived from, enabling deterministic\ntraceability without Gherkin parsing.\n\n422o.4 blocker #4: Carries canonical action/executor/boundary\nmetadata so the validator can reconcile per-step semantics at the\nbehavior boundary.",
       "properties": {
         "action_id": {
           "description": "Stable behavior action identifier, deterministically derived from the tree leaf ID (e.g. 'ba-<leaf_id>').",
@@ -4058,6 +4058,21 @@
           },
           "minItems": 1,
           "description": "Canonical projected step IDs this behavior action realizes."
+        },
+        "canonical_action_kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical action kind from the projected step."
+        },
+        "canonical_executor_role": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical executor role from the projected step."
+        },
+        "canonical_boundary_position": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical boundary position from the projected step."
         }
       },
       "required": [
@@ -4065,7 +4080,10 @@
         "source_leaf_id",
         "gherkin_keyword",
         "text",
-        "projected_step_ids"
+        "projected_step_ids",
+        "canonical_action_kind",
+        "canonical_executor_role",
+        "canonical_boundary_position"
       ],
       "title": "BehaviorAction",
       "type": "object"
@@ -4547,7 +4565,7 @@
             }
           ],
           "default": null,
-          "description": "Canonical Schneider zone for initial ingress through this entry point. When None, inferred from direction: input\u2192input, bidirectional\u2192input, output\u2192output. This establishes canonical ingress-zone semantics in typed profile data rather than inferring from labels.",
+          "description": "Canonical Schneider zone for initial ingress through this entry point. When None, inferred from direction: input→input, bidirectional→input, output→output. This establishes canonical ingress-zone semantics in typed profile data rather than inferring from labels.",
           "title": "Ingress Zone"
         }
       },
@@ -4558,7 +4576,7 @@
       "type": "object"
     },
     "ExternalIntegration": {
-      "description": "An external system or service the agent integrates with.\n\nThe ``integration_id`` is a computed canonical identity (deterministic,\nversioned, 128-bit) derived from the canonical name and integration type.\nApplication-assigned \u2014 the LLM never invents IDs.",
+      "description": "An external system or service the agent integrates with.\n\nThe ``integration_id`` is a computed canonical identity (deterministic,\nversioned, 128-bit) derived from the canonical name and integration type.\nApplication-assigned — the LLM never invents IDs.",
       "properties": {
         "name": {
           "description": "Name of the external system (e.g. 'CRM', 'payment gateway')",
@@ -4618,7 +4636,7 @@
       "type": "object"
     },
     "ToolInventoryEntry": {
-      "description": "A tool in the system's tool inventory (Stage 1).\n\nLightweight description of a tool or API the system can invoke,\nextracted during Stage 1 capability profile inference.  Used to\nground downstream scenario generation \u2014 the LLM may only reference\ntools listed here, preventing phantom tool hallucination.\n\nThe ``tool_id`` is a computed canonical identity (deterministic,\nversioned, 128-bit) derived from the canonical tool name.\nApplication-assigned \u2014 the LLM never invents IDs.",
+      "description": "A tool in the system's tool inventory (Stage 1).\n\nLightweight description of a tool or API the system can invoke,\nextracted during Stage 1 capability profile inference.  Used to\nground downstream scenario generation — the LLM may only reference\ntools listed here, preventing phantom tool hallucination.\n\nThe ``tool_id`` is a computed canonical identity (deterministic,\nversioned, 128-bit) derived from the canonical tool name.\nApplication-assigned — the LLM never invents IDs.",
       "properties": {
         "name": {
           "description": "Tool or API name",

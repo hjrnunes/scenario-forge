@@ -346,6 +346,7 @@ def build_behavior_spec_from_tree(
     selected = set(block.projection.selected_step_ids)
 
     actions: list[BehaviorAction] = []
+    step_by_id = {s.step_id: s for s in chain.steps}
     for leaf in _iter_leaves(attack_tree.root):
         if not leaf.projected_step_ids:
             continue
@@ -355,6 +356,8 @@ def build_behavior_spec_from_tree(
         text = leaf.label or leaf.id
         if leaf.description:
             text = leaf.description
+        # Get canonical semantics from the first mapped projected step.
+        first_step = step_by_id.get(leaf.projected_step_ids[0])
         actions.append(
             BehaviorAction(
                 action_id=f"ba-{leaf.id}",
@@ -362,6 +365,15 @@ def build_behavior_spec_from_tree(
                 source_leaf_id=leaf.id,
                 gherkin_keyword="When",
                 text=text,
+                canonical_action_kind=(
+                    first_step.action_kind if first_step else "observe"
+                ),
+                canonical_executor_role=(
+                    first_step.executor_role if first_step else "system"
+                ),
+                canonical_boundary_position=(
+                    first_step.boundary_position if first_step else "inside"
+                ),
             )
         )
 

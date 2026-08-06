@@ -428,6 +428,9 @@ def make_behavior_spec(
                 step_by_id[sid].action_kind, "When"
             ),
             text=f"Action for {sid}",
+            canonical_action_kind=step_by_id[sid].action_kind,
+            canonical_executor_role=step_by_id[sid].executor_role,
+            canonical_boundary_position=step_by_id[sid].boundary_position,
         )
         for i, sid in enumerate(selected)
     ]

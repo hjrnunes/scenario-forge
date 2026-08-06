@@ -1586,8 +1586,6 @@ def run_pipeline(
                     len(filtered_seeds),
                     candidates_capped,
                 )
-        selected_count = len(filtered_seeds)
-
         # --- Stage 3.6: Authoritative Projection (422o.4) ---
         # Project qualified candidate-v2 records from the authoritative
         # catalog.  Each generated scenario must receive a real
@@ -1613,8 +1611,56 @@ def run_pipeline(
             len(projection_batch.limitations),
         )
 
+        # 422o.4: Prejoin filtered seeds to exactly one projected candidate
+        # before selected_count.  Seeds with zero exact-ingress matches are
+        # projection-stage rejections — excluded from selected, not silently
+        # skipped mid-loop.  Multiple matches are ambiguous — fatal.
+        projection_rejected_count = 0
+        joined_seeds: list[tuple[FilteredSeed, ProjectedCandidate]] = []
+        for fseed in filtered_seeds:
+            pc_list = projected_by_pattern.get(fseed.seed_id)
+            if not pc_list:
+                projection_rejected_count += 1
+                logger.warning(
+                    "  No projected candidate for pattern '%s' — "
+                    "excluded from selected (422o.4: no projection).",
+                    fseed.seed_id,
+                )
+                continue
+            matching_pcs = [
+                pc
+                for pc in pc_list
+                if pc.canonical_ingress.entry_point_id == fseed.entry_point_id
+            ]
+            if len(matching_pcs) > 1:
+                raise ScenarioForgeIntegrityError(
+                    f"Ambiguous projected candidates for pattern "
+                    f"'{fseed.seed_id}' with ingress "
+                    f"entry_point_id '{fseed.entry_point_id}': "
+                    f"{len(matching_pcs)} matches. "
+                    f"Aborting run (422o.4: exact ingress must be unique)."
+                )
+            if not matching_pcs:
+                projection_rejected_count += 1
+                logger.warning(
+                    "  No projected candidate for pattern '%s' with "
+                    "ingress entry_point_id '%s' — excluded from "
+                    "selected (422o.4: no exact projection match).",
+                    fseed.seed_id,
+                    fseed.entry_point_id,
+                )
+                continue
+            joined_seeds.append((fseed, matching_pcs[0]))
+        selected_count = len(joined_seeds)
+        if projection_rejected_count:
+            logger.info(
+                "  %d filtered seed(s) rejected at projection stage "
+                "(no exact ingress match).",
+                projection_rejected_count,
+            )
+
         # --- Stage 4: Scenario Generation ---
-        logger.info("[Stage 4] Generating %d scenarios...", len(filtered_seeds))
+        logger.info("[Stage 4] Generating %d scenarios...", selected_count)
         scenarios_dir = get_scenarios_dir(run_dir)
 
         # Reject non-empty scenarios directory at setup — at this minimal seam
@@ -1638,7 +1684,7 @@ def run_pipeline(
         write_receipts: list[dict] = []
 
         tracker = DiversityTracker()
-        total_seeds = len(filtered_seeds)
+        total_seeds = selected_count
 
         # Load attack goals taxonomy and filter to system-relevant sub-goals.
         try:
@@ -1663,9 +1709,9 @@ def run_pipeline(
             )
             available_goals = []
 
-        for i, fseed in enumerate(filtered_seeds, 1):
+        for i, (fseed, projected_candidate) in enumerate(joined_seeds, 1):
             label = f"{fseed.seed_id}: {fseed.attack_pattern_name}"
-            logger.info("  [%d/%d] %s...", i, total_seeds, label)
+            logger.info("  [%d/%d] %s...", i, selected_count, label)
 
             hints = tracker.get_diversity_hints(
                 seed_threat_id=fseed.threat_id,
@@ -1676,47 +1722,11 @@ def run_pipeline(
             )
 
             try:
-                # 422o.4: Look up the authoritative projected candidate
-                # for this filtered seed's pattern.  The projected
-                # candidate's cand:v2 identity is authoritative — never
-                # fabricate from legacy seed fields.
-                pc_list = projected_by_pattern.get(fseed.seed_id)
-                if not pc_list:
-                    logger.warning(
-                        "  No projected candidate for pattern '%s' — "
-                        "skipping (422o.4: no projection, no generation).",
-                        fseed.seed_id,
-                    )
-                    continue
-                # 422o.4: Deterministically select the projected candidate
-                # whose canonical ingress entry_point_id matches the
-                # filtered seed's pinned entry point.  Never use pc_list[0]
-                # or heuristic choice — exact ingress binding match only.
-                # Zero matches: no projection, skip.  Multiple matches:
-                # ambiguous, fail closed — never silently pick the first.
-                matching_pcs = [
-                    pc
-                    for pc in pc_list
-                    if pc.canonical_ingress.entry_point_id == fseed.entry_point_id
-                ]
-                if len(matching_pcs) > 1:
-                    raise ScenarioForgeIntegrityError(
-                        f"Ambiguous projected candidates for pattern "
-                        f"'{fseed.seed_id}' with ingress "
-                        f"entry_point_id '{fseed.entry_point_id}': "
-                        f"{len(matching_pcs)} matches. "
-                        f"Aborting run (422o.4: exact ingress must be unique)."
-                    )
-                projected_candidate = matching_pcs[0] if matching_pcs else None
-                if projected_candidate is None:
-                    logger.warning(
-                        "  No projected candidate for pattern '%s' with "
-                        "ingress entry_point_id '%s' — skipping "
-                        "(422o.4: no exact projection match, no generation).",
-                        fseed.seed_id,
-                        fseed.entry_point_id,
-                    )
-                    continue
+                # 422o.4: projected_candidate is prejoined before
+                # selected_count.  Its cand:v2 identity is authoritative —
+                # used for attempt, envelope, receipt, admitted, inventory.
+                # The filter candidate_id (fseed.candidate_id) is persisted
+                # separately in candidate_filter for provenance only.
                 authoritative_candidate_id = projected_candidate.candidate_id
 
                 # Fatal: duplicate candidate admission aborts the run.
@@ -1765,8 +1775,11 @@ def run_pipeline(
                     capability_snapshot=capability_snapshot,
                 )
                 # Attach candidate filter provenance data to the envelope.
+                # candidate_id is the authoritative projected candidate ID;
+                # filter_candidate_id preserves the filter-stage identity.
                 envelope.candidate_filter = {
-                    "candidate_id": fseed.candidate_id,
+                    "candidate_id": authoritative_candidate_id,
+                    "filter_candidate_id": fseed.candidate_id,
                     "entry_point_id": fseed.entry_point_id,
                     "pinned_entry_point": fseed.pinned_entry_point,
                     "pinned_technique_ids": list(fseed.pinned_technique_ids),
@@ -1820,7 +1833,7 @@ def run_pipeline(
                 # strict-forensic orphans.
                 _provisional_receipt = {
                     "scenario_id": envelope.scenario_id,
-                    "candidate_id": fseed.candidate_id,
+                    "candidate_id": authoritative_candidate_id,
                     "yaml_path": str(yaml_path),
                     "feature_path": str(feature_path) if feature_path else None,
                 }
@@ -1836,7 +1849,7 @@ def run_pipeline(
                         f"scenario '{envelope.scenario_id}': {exc}. Aborting run."
                     ) from exc
 
-                admitted_candidate_ids.add(fseed.candidate_id)
+                admitted_candidate_ids.add(authoritative_candidate_id)
                 admitted_scenario_ids.add(envelope.scenario_id)
                 scenarios.append(envelope)
                 main_admitted_count += 1
@@ -1900,7 +1913,7 @@ def run_pipeline(
         logger.info(
             "  %d/%d scenarios generated successfully",
             len(scenarios),
-            len(filtered_seeds),
+            selected_count,
         )
         if generation_notes:
             logger.info("  %d note(s) recorded", len(generation_notes))
@@ -2197,6 +2210,7 @@ def run_pipeline(
             filter_submitted=filter_submitted,
             filter_accepted=filter_accepted,
             selected=selected_count,
+            projection_rejected=projection_rejected_count,
             main_attempted=selected_count,
             main_admitted=main_admitted_count,
             generation_failed=failed_count - rem_failed,
