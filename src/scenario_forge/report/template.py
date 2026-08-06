@@ -3591,6 +3591,109 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     else:
         badge_text = f"{total_gaps} gap{'s' if total_gaps != 1 else ''}"
 
+    # --- cmps.4: Categorized coverage summary (blocker 3) ---
+    summary = coverage_data.get("coverage_summary", {})
+    summary_html = ""
+    if summary:
+        covered = summary.get("covered_feasible", [])
+        policy_exc = summary.get("policy_exclusions", [])
+        struct_gaps = summary.get("structural_gaps", [])
+        sel_lims = summary.get("selection_limitations", [])
+        runtime_gaps = summary.get("runtime_generation_gaps", [])
+        quarantine_fails = summary.get("quarantine_admission_failures", [])
+        proj_lims = summary.get("projection_limitations", [])
+
+        def _cat_card(title: str, items: list, css_cls: str = "") -> str:
+            if not items:
+                return ""
+            parts = [f"<li>{_esc(str(item))}</li>" for item in items]
+            return (
+                f'<div class="coverage-card">'
+                f'<div class="coverage-card-header">'
+                f'<span class="coverage-card-title">{_esc(title)}</span>'
+                f'<span class="coverage-status {css_cls}">{len(items)}</span>'
+                f'</div><ul class="coverage-list">{"".join(parts)}</ul></div>'
+            )
+
+        cat_cards = []
+        if covered:
+            cat_cards.append(
+                f'<div class="coverage-card">'
+                f'<div class="coverage-card-header">'
+                f'<span class="coverage-card-title">Covered Feasible Targets</span>'
+                f'<span class="coverage-status coverage-status-green">{len(covered)}</span>'
+                f'</div><ul class="coverage-list">'
+                + "".join(f"<li>{_esc(t)}</li>" for t in covered)
+                + "</ul></div>"
+            )
+        if policy_exc:
+            cat_cards.append(_cat_card("Policy Exclusions", policy_exc))
+        if struct_gaps:
+            cat_cards.append(
+                _cat_card(
+                    "Structural / Projection Gaps", struct_gaps, "coverage-status-red"
+                )
+            )
+        if sel_lims:
+            cat_cards.append(
+                _cat_card("Selection Limitations", sel_lims, "coverage-status-amber")
+            )
+        if runtime_gaps:
+            cat_cards.append(
+                _cat_card(
+                    "Runtime Generation Gaps", runtime_gaps, "coverage-status-red"
+                )
+            )
+        if quarantine_fails:
+            cat_cards.append(
+                _cat_card(
+                    "Quarantine / Admission Failures",
+                    quarantine_fails,
+                    "coverage-status-red",
+                )
+            )
+        if proj_lims:
+            cat_cards.append(
+                _cat_card("Projection Limitations", proj_lims, "coverage-status-amber")
+            )
+
+        if cat_cards:
+            summary_html = (
+                '<div class="coverage-grid" style="margin-top:1rem">'
+                + "".join(cat_cards)
+                + "</div>"
+            )
+
+    # --- cmps.4: Coverage plan (blocker 2) ---
+    plan = coverage_data.get("coverage_plan", {})
+    plan_html = ""
+    if plan and plan.get("targets"):
+        plan_rows = []
+        for entry in plan["targets"]:
+            ep_id = entry.get("entry_point_id", "")
+            ep_name = entry.get("entry_point_name", "")
+            primary = entry.get("primary_candidate_id") or "—"
+            state = entry.get("primary_state", "—")
+            fb_count = len(entry.get("fallback_available", []))
+            choices = entry.get("ordered_choices", [])
+            choice_ids = [c.get("candidate_id", "") for c in choices]
+            plan_rows.append(
+                f"<tr><td>{_esc(ep_name)}</td><td>{_esc(primary)}</td>"
+                f"<td>{_esc(state)}</td>"
+                f"<td>{_esc(', '.join(choice_ids))}</td>"
+                f"<td>{fb_count}</td></tr>"
+            )
+        plan_html = (
+            '<div style="margin-top:1rem">'
+            "<h3>Coverage Plan (schema v"
+            + _esc(str(plan.get("schema_version", "")))
+            + ")</h3>"
+            '<table class="data-table"><thead><tr>'
+            "<th>Target</th><th>Primary Candidate</th><th>State</th>"
+            "<th>Ordered Choices</th><th>Fallback Available</th>"
+            "</tr></thead><tbody>" + "".join(plan_rows) + "</tbody></table></div>"
+        )
+
     return f"""
     <div id="sec-coverage" class="section">
       <div class="section-header">
@@ -3631,6 +3734,8 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
           {ap_body}
         </div>
       </div>
+      {summary_html}
+      {plan_html}
     </div>
     """
 

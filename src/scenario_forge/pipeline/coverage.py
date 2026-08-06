@@ -22,7 +22,13 @@ from scenario_forge.models.capability_profile import (
     is_attacker_accessible_ingress,
 )
 from scenario_forge.models.scenario import ScenarioEnvelope
-from scenario_forge.pipeline.coverage_planning import CoverageUniverse, QualityGap
+from scenario_forge.pipeline.coverage_planning import (
+    CoveragePlan,
+    CoverageSummary,
+    CoverageUniverse,
+    QualityGap,
+    StageLedger,
+)
 from scenario_forge.pipeline.threats import ThreatSurface
 
 logger = logging.getLogger(__name__)
@@ -378,6 +384,9 @@ def write_coverage_report(
     *,
     coverage_universe: CoverageUniverse | None = None,
     quality_gaps: list[QualityGap] | None = None,
+    coverage_plan: CoveragePlan | None = None,
+    coverage_summary: CoverageSummary | None = None,
+    stage_ledger: StageLedger | None = None,
 ) -> Path:
     """Write coverage analysis results to coverage-gaps.json.
 
@@ -387,9 +396,17 @@ def write_coverage_report(
         attacker_diversity: Optional result from analyze_attacker_diversity.
         coverage_universe: Optional serialized coverage universe from
             cmps.4 coverage-aware planning (feasible targets, typed
-            exclusions, completeness).
+            exclusions, completeness, evidence refs).
         quality_gaps: Optional list of typed, stage-attributed quality
             gaps for uncovered feasible targets (cmps.4).
+        coverage_plan: Optional versioned coverage plan with per-target
+            ordered choices, primary selected/attempted state, and
+            fallback_available (cmps.4 blocker 2).
+        coverage_summary: Optional categorized coverage summary
+            distinguishing covered, excluded, and gap categories (cmps.4
+            blocker 3).
+        stage_ledger: Optional stage ledger with actual per-target/candidate
+            stage events (cmps.4 blocker 3).
 
     Returns:
         Path to the written coverage-gaps.json file.
@@ -403,6 +420,12 @@ def write_coverage_report(
         report["coverage_universe"] = coverage_universe.to_dict()
     if quality_gaps:
         report["quality_gaps"] = [g.to_dict() for g in quality_gaps]
+    if coverage_plan is not None:
+        report["coverage_plan"] = coverage_plan.to_dict()
+    if coverage_summary is not None:
+        report["coverage_summary"] = coverage_summary.to_dict()
+    if stage_ledger is not None and stage_ledger.events:
+        report["stage_ledger"] = stage_ledger.to_dict()
     path = output_dir / "coverage-gaps.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Coverage report written to %s", path)

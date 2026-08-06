@@ -18,8 +18,11 @@ from scenario_forge.models.scenario import (
 )
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
 from scenario_forge.pipeline.coverage import CoverageGaps
-from scenario_forge.pipeline.generate import compute_scenario_id
-from scenario_forge.pipeline.runner import ScenarioForgeIntegrityError, run_pipeline
+from scenario_forge.pipeline.generate import (
+    ScenarioForgeIntegrityError,
+    compute_scenario_id,
+)
+from scenario_forge.pipeline.runner import run_pipeline
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
 from tests.helpers.projection_factory import (
@@ -241,21 +244,109 @@ def test_zero_exact_projection_match_completes_without_generation(
     assert manifest.funnel["selected"] == 0
 
 
-def test_multiple_exact_projection_matches_are_fatal(tmp_path: Path) -> None:
-    first = get_projected_candidate()
-    second = first.model_copy(update={"candidate_id": "cand:v2:" + "2" * 32})
-    stack, _, _, args = _arrange(
+def test_multiple_exact_projection_matches_fan_out(tmp_path: Path) -> None:
+    """cmps.4: Multiple projected candidates with distinct bindings for the
+    same pattern+ingress are valid alternatives — fanned out, not fatal.
+
+    Uses a real projection from a profile with two tools, producing two
+    ProjectedCandidate records with the same pattern_id and same
+    canonical_ingress entry_point_id but genuinely different concrete
+    bindings (different tool bindings) and recomputed candidate_ids —
+    not model_copy with a swapped ID.
+    """
+    from scenario_forge.models.attack_pattern import AttackPattern
+    from scenario_forge.models.capability_profile import (
+        CapabilityProfile,
+        ConfidenceLevel,
+    )
+    from scenario_forge.pipeline.projection import (
+        ProjectionBudget,
+        capture_capability_snapshot,
+        project_authoritative_candidates,
+    )
+    from tests.helpers.projection_factory import (
+        _evidence,
+        _pattern,
+        _TaxonomyResolver,
+    )
+
+    raw = _pattern()
+    pattern = AttackPattern.model_validate(raw)
+    resolver = _TaxonomyResolver(pattern.canonical_chain.taxonomy_context)
+    # Profile with 2 tools → 2 binding combinations for same ingress.
+    profile = CapabilityProfile(
+        zones_active=["input", "reasoning", "tool_execution"],
+        entry_points=[
+            {"name": "chat", "direction": "input", "controllability": "direct"},
+        ],
+        confidence=ConfidenceLevel.high,
+        kc_subcodes=["KC1.1", "KC5.1"],
+        tool_inventory=[
+            {"name": "writer", "description": "changes state"},
+            {"name": "reader", "description": "reads state"},
+        ],
+        tool_types=[
+            {
+                "name": "writer",
+                "zone": "tool_execution",
+                "can_modify_state": True,
+                "data_sensitivity": "medium",
+                "code_execution": False,
+            },
+            {
+                "name": "reader",
+                "zone": "tool_execution",
+                "can_modify_state": False,
+                "data_sensitivity": "low",
+                "code_execution": False,
+            },
+        ],
+        external_integrations=[
+            {
+                "name": "CRM",
+                "integration_type": "api",
+                "auth_method": "oauth",
+                "data_sensitivity": "high",
+            }
+        ],
+        trust_boundaries=[
+            {
+                "name": "user-to-agent",
+                "from_zone": "input",
+                "to_zone": "reasoning",
+                "confidence": "explicit",
+            }
+        ],
+    )
+    snapshot = capture_capability_snapshot(profile, (_evidence(),))
+    batch = project_authoritative_candidates(
+        [raw], resolver, snapshot, budget=ProjectionBudget(max_candidates=100)
+    )
+    assert len(batch.candidates) == 2
+    first, second = batch.candidates
+    assert first.candidate_id != second.candidate_id
+    # Same pattern+ingress, different concrete bindings.
+    assert (
+        first.canonical_ingress.entry_point_id
+        == second.canonical_ingress.entry_point_id
+    )
+    assert first.pattern_id == second.pattern_id
+
+    # Arrange the runner with both projected candidates.  The filtered seed
+    # matches the shared ingress; the runner fans out all matches.
+    stack, _, _generate, args = _arrange(
         tmp_path,
-        entry_point_id=get_canonical_ingress_id(),
+        entry_point_id=first.canonical_ingress.entry_point_id,
         projected_candidates=[first, second],
     )
-    with (
-        stack,
-        pytest.raises(
-            ScenarioForgeIntegrityError, match="Ambiguous projected candidates"
-        ),
-    ):
-        run_pipeline(**args)
+    with stack:
+        result = run_pipeline(**args)
+    assert result.run_dir is not None
+    manifest = load_manifest(result.run_dir)
+    # qualified counts both fanned-out projected candidates.
+    assert manifest.funnel["qualified"] >= 2
+    # Only the primary (first choice) is selected for generation.
+    assert manifest.funnel["selected"] >= 1
 
 
 def test_runner_uses_unmodified_derived_projected_candidate(tmp_path: Path) -> None:
@@ -277,3 +368,182 @@ def test_runner_uses_unmodified_derived_projected_candidate(tmp_path: Path) -> N
     # Check via the mock's return value
     call_result = generate.call_args
     assert call_result.kwargs["projected_candidate"] is projected
+
+
+def test_forged_candidate_identity_cannot_write(tmp_path: Path) -> None:
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    successful_generation = _successful_generation(projected)
+
+    def forged_generation(*generation_args, **generation_kwargs):
+        envelope, call_log = successful_generation(
+            *generation_args, **generation_kwargs
+        )
+        envelope.candidate_id = "cand:v2:" + "9" * 32
+        return envelope, call_log
+
+    generate.side_effect = forged_generation
+    with (
+        stack,
+        pytest.raises(
+            ScenarioForgeIntegrityError, match="does not match attempted candidate_id"
+        ),
+    ):
+        run_pipeline(**args)
+
+
+def test_attempt_is_reserved_before_failed_generation(tmp_path: Path) -> None:
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    generate.side_effect = RuntimeError("generation failed")
+    with stack:
+        result = run_pipeline(**args)
+
+    generate.assert_called_once()
+    assert generate.call_args.kwargs["projected_candidate"] is projected
+    manifest = load_manifest(result.run_dir)
+    assert len(manifest.attempts) == 1
+    assert manifest.attempts[0].candidate_id == projected.candidate_id
+    assert manifest.attempts[0].disposition is AttemptDisposition.FAILED
+
+
+def test_returned_scenario_identity_mismatch_is_fatal(tmp_path: Path) -> None:
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    successful_generation = _successful_generation(projected)
+
+    def mismatched_generation(*generation_args, **generation_kwargs):
+        envelope, call_log = successful_generation(
+            *generation_args, **generation_kwargs
+        )
+        expected = compute_scenario_id(
+            generation_kwargs["run_id"], projected.candidate_id, 1
+        )
+        envelope.scenario_id = f"{expected}-forged"
+        return envelope, call_log
+
+    generate.side_effect = mismatched_generation
+    with (
+        stack,
+        pytest.raises(ScenarioForgeIntegrityError, match="does not match expected"),
+    ):
+        run_pipeline(**args)
+
+
+def test_call_log_failure_after_artifact_write_is_fatal(tmp_path: Path) -> None:
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    generate.side_effect = _successful_generation(projected)
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner.write_call_log",
+            side_effect=OSError("call log unavailable"),
+        )
+    )
+
+    with (
+        stack,
+        pytest.raises(
+            ScenarioForgeIntegrityError,
+            match="Call-log write failed after artifact creation",
+        ),
+    ):
+        run_pipeline(**args)
+
+    scenario_files = list(args["output_dir"].glob("*/scenarios/*"))
+    assert any(path.suffix == ".yaml" for path in scenario_files)
+    assert any(path.suffix == ".feature" for path in scenario_files)
+
+
+def _run_and_get_coverage_report(tmp_path: Path, *, confirmed: bool) -> dict:
+    """Run the pipeline with a mocked profile and return coverage-gaps.json."""
+    import json
+
+    from scenario_forge.models.capability_profile import InventoryCompleteness
+
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    generate.side_effect = _successful_generation(projected)
+
+    # Patch the profile's entry_point_completeness after _arrange sets it up.
+    if confirmed:
+        # Need to find the profile in the patches and set confirmed.
+        # _arrange patches infer_capability_profile; we re-patch it.
+        from scenario_forge.models.capability_profile import (
+            InventoryCompleteness,
+        )
+        from tests.helpers.projection_factory import get_test_profile
+
+        profile = get_test_profile()
+        profile.entry_point_completeness = (
+            InventoryCompleteness.operator_confirmed_complete
+        )
+        profile.entry_point_evidence = ["operator-review:test-evidence"]
+
+        infer_mock = stack.enter_context(
+            __import__(
+                "unittest.mock",
+                fromlist=["patch"],
+            ).patch("scenario_forge.pipeline.runner.infer_capability_profile")
+        )
+        from scenario_forge.llm.client import LLMResult
+
+        llm_result = LLMResult(
+            content="mock",
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+            system_prompt="mock",
+            user_prompt="mock",
+        )
+        infer_mock.return_value = (profile, llm_result)
+
+    with stack:
+        result = run_pipeline(**args)
+
+    report_path = result.run_dir / "coverage-gaps.json"
+    return json.loads(report_path.read_text(encoding="utf-8"))
+
+
+class TestRunnerProfileCompletenessDerivation:
+    """cmps.4 blocker 4: runner must derive completeness from profile, not
+    free-form input.  An inferred profile cannot claim confirmed by passing
+    an enum."""
+
+    def test_inferred_profile_reports_not_applicable(self, tmp_path: Path) -> None:
+        report = _run_and_get_coverage_report(tmp_path, confirmed=False)
+        universe = report.get("coverage_universe", {})
+        assert universe["completeness"] == "not_applicable"
+        plan = report.get("coverage_plan", {})
+        assert plan["completeness"] == "not_applicable"
+
+    def test_confirmed_profile_reports_confirmed_complete_with_refs(
+        self, tmp_path: Path
+    ) -> None:
+        report = _run_and_get_coverage_report(tmp_path, confirmed=True)
+        universe = report.get("coverage_universe", {})
+        assert universe["completeness"] == "confirmed_complete"
+        assert "operator-review:test-evidence" in universe.get("evidence_refs", [])
+        plan = report.get("coverage_plan", {})
+        assert plan["completeness"] == "confirmed_complete"
+        assert "operator-review:test-evidence" in plan.get("evidence_refs", [])

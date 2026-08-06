@@ -497,6 +497,9 @@ class ProjectionBatch(ProjectionModel):
     candidates: tuple[ProjectedCandidate, ...]
     infeasibilities: tuple[ProjectionIssue, ...]
     limitations: tuple[ProjectionLimitation, ...]
+    # Coverage targets that could not be reserved due to budget exhaustion
+    # (cmps.4 blocker 5).  Empty when coverage_target_ids is not provided.
+    unreserved_coverage_targets: tuple[str, ...] = ()
 
 
 def _condition_facts(condition: Condition) -> tuple[AuthoritativeFactReference, ...]:
@@ -999,12 +1002,21 @@ def project_authoritative_candidates(
     snapshot: CapabilityFactSnapshot,
     *,
     budget: ProjectionBudget | None = None,
+    coverage_target_ids: set[str] | None = None,
 ) -> ProjectionBatch:
     """Qualify, project, bind, and identify authoritative candidate-v2 records.
 
     Structurally parsed ``AttackPattern`` objects and legacy catalogue records are
     deliberately not accepted: every raw record crosses the merged qualification
     boundary in this call.
+
+    When ``coverage_target_ids`` is provided, the global budget allocation is
+    coverage-aware: one feasible candidate per coverage target is reserved
+    before binding variants and secondary expansion.  This ensures every
+    ingress target receives at least one projected candidate before the
+    budget is exhausted.  If ``budget.max_candidates`` is below the number of
+    feasible coverage targets, reservation is best-effort and the caller
+    should emit a ``selection_limitation`` for uncovered targets.
     """
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes, dict)):
         raise TypeError("authoritative projection requires a sequence of raw records")
@@ -1342,11 +1354,44 @@ def project_authoritative_candidates(
             )
         candidate_groups.append((pattern.id, total_bindings, generated_for_pattern))
 
-    # Allocate the global budget only across feasible candidates.  Round-robin
-    # admission gives every feasible pattern a stable baseline before taking a
-    # second variation, and identity collisions never consume capacity.
+    # Allocate the global budget only across feasible candidates.
+    #
+    # Coverage-aware reservation (cmps.4 blocker 5): when coverage_target_ids
+    # is provided, reserve one feasible candidate per coverage target before
+    # round-robin variant expansion.  This ensures every ingress target
+    # receives at least one projected candidate before the budget is
+    # exhausted on binding variants.
     by_identity: dict[str, ProjectedCandidate] = {}
     emitted_by_group = [0] * len(candidate_groups)
+
+    if coverage_target_ids:
+        remaining_targets = set(coverage_target_ids)
+        for group_index, (_, _, group) in enumerate(candidate_groups):
+            if not remaining_targets or len(by_identity) >= budget.max_candidates:
+                break
+            for candidate in group:
+                ep_id = candidate.canonical_ingress.entry_point_id
+                if ep_id not in remaining_targets:
+                    continue
+                previous = by_identity.get(candidate.candidate_id)
+                if previous is not None and previous != candidate:
+                    raise ValueError("candidate-v2 identity collision")
+                if previous is None:
+                    if len(by_identity) >= budget.max_candidates:
+                        break
+                    by_identity[candidate.candidate_id] = candidate
+                    emitted_by_group[group_index] += 1
+                remaining_targets.discard(ep_id)
+                break  # one per target per group
+            if not remaining_targets or len(by_identity) >= budget.max_candidates:
+                break
+        unreserved_targets = tuple(sorted(remaining_targets))
+    else:
+        unreserved_targets = ()
+
+    # Round-robin admission gives every feasible pattern a stable baseline
+    # before taking a second variation, and identity collisions never consume
+    # capacity.
     offset = 0
     while len(by_identity) < budget.max_candidates:
         made_progress = False
@@ -1397,4 +1442,5 @@ def project_authoritative_candidates(
         limitations=tuple(
             sorted(limitations, key=lambda item: (item.pattern_id, item.code))
         ),
+        unreserved_coverage_targets=unreserved_targets,
     )

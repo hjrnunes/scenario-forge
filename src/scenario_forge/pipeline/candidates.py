@@ -132,7 +132,19 @@ class CandidateFunnel(BaseModel):
         description="Candidates accepted by the LLM filter.",
     )
     selected: int = Field(
-        description="Candidates remaining after capping/selection and projection prejoin.",
+        description=(
+            "Qualified projected candidates selected for generation after "
+            "coverage-aware selection.  May exceed filter_accepted because "
+            "one filtered seed can fan out to multiple projected candidates "
+            "with distinct concrete bindings (cmps.4)."
+        ),
+    )
+    qualified: int = Field(
+        default=0,
+        description=(
+            "Total qualified projected candidates after fan-out and "
+            "deduplication by candidate_id (cmps.4).  Selected <= qualified."
+        ),
     )
     projection_rejected: int = Field(
         default=0,
@@ -205,18 +217,18 @@ class CandidateFunnel(BaseModel):
                 f"filter_accepted ({self.filter_accepted}) must be <= "
                 f"filter_submitted ({self.filter_submitted})"
             )
-        if self.selected > self.filter_accepted:
+        # cmps.4: With fan-out, one filtered seed can map to multiple
+        # projected candidates with distinct bindings, so selected may
+        # exceed filter_accepted.  The invariant is selected <= qualified
+        # (selection cannot admit more than were qualified).
+        if self.qualified > 0 and self.selected > self.qualified:
             raise ValueError(
-                f"selected ({self.selected}) must be <= "
-                f"filter_accepted ({self.filter_accepted})"
+                f"selected ({self.selected}) must be <= qualified ({self.qualified})"
             )
-        # Projection rejections are a subset of filter_accepted - selected.
-        # After capping and projection prejoin: selected + projection_rejected
-        # must not exceed filter_accepted (capping may further reduce).
-        if self.selected + self.projection_rejected > self.filter_accepted:
+        # Projection rejections are a subset of filter_accepted.
+        if self.projection_rejected > self.filter_accepted:
             raise ValueError(
-                f"selected ({self.selected}) + projection_rejected "
-                f"({self.projection_rejected}) must be <= "
+                f"projection_rejected ({self.projection_rejected}) must be <= "
                 f"filter_accepted ({self.filter_accepted})"
             )
         # Main lifecycle: selected candidates each get one attempt.
@@ -556,6 +568,14 @@ class FilteredSeed(ScenarioSeed):
     rejection_rationales: list[RejectionRecord] = Field(
         default_factory=list,
         description="Sibling candidates that were rejected (for provenance tab).",
+    )
+    accepted_rationale: str = Field(
+        default="",
+        description=(
+            "LLM filter acceptance rationale for this candidate (cmps.4). "
+            "Preserves the accepted FilterVerdict rationale as first-class "
+            "typed evidence alongside the rejected sibling rationales."
+        ),
     )
 
 
@@ -1459,6 +1479,7 @@ def filter_candidates(
                         candidate_id=cand.candidate_id,
                         origins=list(cand.origins),
                         rejection_rationales=rejection_records,
+                        accepted_rationale=verdict.rationale,
                     )
                 )
 

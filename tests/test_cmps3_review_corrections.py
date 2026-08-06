@@ -535,13 +535,31 @@ class TestCandidateFunnelValidation:
         with pytest.raises(ValueError, match="filter_accepted.*filter_submitted"):
             CandidateFunnel(**kw)
 
-    def test_rejects_selected_gt_filter_accepted(self):
+    def test_rejects_selected_gt_qualified(self):
+        """cmps.4: selected may exceed filter_accepted (fan-out) but not qualified."""
         kw = self._valid_funnel_kwargs()
         kw["selected"] = 10
+        kw["qualified"] = 5
         kw["main_attempted"] = 10
         kw["attempted"] = 10
-        with pytest.raises(ValueError, match="selected.*filter_accepted"):
+        with pytest.raises(ValueError, match="selected.*qualified"):
             CandidateFunnel(**kw)
+
+    def test_selected_gt_filter_accepted_allowed_with_fanout(self):
+        """cmps.4: selected can exceed filter_accepted when qualified >= selected."""
+        kw = self._valid_funnel_kwargs()
+        kw["filter_accepted"] = 3
+        kw["selected"] = 5
+        kw["qualified"] = 5
+        kw["main_attempted"] = 5
+        kw["attempted"] = 5
+        kw["main_admitted"] = 4
+        kw["generation_failed"] = 1
+        kw["admitted"] = 4
+        kw["persisted_artifacts"] = 4
+        # Should NOT raise — fan-out allows selected > filter_accepted.
+        f = CandidateFunnel(**kw)
+        assert f.selected == 5
 
     def test_rejects_quarantined_gt_admitted(self):
         kw = self._valid_funnel_kwargs()
