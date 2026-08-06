@@ -25,6 +25,10 @@ from scenario_forge.models.complexity import (
     AttackComplexityAssessment,
     CapabilityLevel,
 )
+from scenario_forge.models.projection_envelope import (
+    ProjectionEnvelopeBlock,
+)
+from scenario_forge.models.realization import ProjectedStepRealization
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -91,8 +95,9 @@ class CallName(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------#
 # Narrative sub-models
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------#
 
 
 class NarrativeStep(BaseModel):
@@ -110,6 +115,71 @@ class NarrativeStep(BaseModel):
         default=None,
         description="Defensive control at this step, if one exists.",
     )
+    projected_step_ids: tuple[str, ...] = Field(
+        min_length=1,
+        description=(
+            "Canonical projected step IDs (from ProjectionEnvelopeBlock) "
+            "that this narrative step realizes.  Controlled many-to-many: "
+            "a narrative step may realize multiple projected steps (combine) "
+            "and a projected step may be realized by multiple narrative "
+            "steps (split).  Required (non-empty) on every narrative "
+            "step in scenarios with a projection block; the LLM receives "
+            "the IDs as opaque constraints."
+        ),
+    )
+    # --- Per-projected-step canonical realization records (422o.4 blocker #3) ---
+    # One record per projected_step_id, carrying action/executor/boundary,
+    # concrete resources, consumed/produced refs/effects, outcome links,
+    # and owned postconditions.  Prose action/effect explain but are not
+    # the authority -- these typed records are the authority.
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
+        min_length=1,
+        description=(
+            "Per-projected-step canonical realization records.  One record "
+            "per projected_step_id.  The validator compares each record "
+            "against the embedded canonical step at the narrative boundary."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_projected_step_ids(self) -> NarrativeStep:
+        """Each projected step ID must match the canonical pattern."""
+        for sid in self.projected_step_ids:
+            if not sid or not sid[0].isalnum():
+                raise ValueError(
+                    f"projected_step_ids contains invalid ID '{sid}': "
+                    f"must start with alphanumeric"
+                )
+        if len(set(self.projected_step_ids)) != len(self.projected_step_ids):
+            raise ValueError(
+                f"narrative step {self.step_number} has duplicate projected_step_ids"
+            )
+        # Realizations must cover exactly the projected_step_ids.
+        # model_construct may not set realizations; skip check if absent.
+        if self.realizations:
+            realization_ids_list = [r.projected_step_id for r in self.realizations]
+            projected_ids = set(self.projected_step_ids)
+            if len(set(realization_ids_list)) != len(realization_ids_list):
+                raise ValueError(
+                    f"narrative step {self.step_number} has duplicate "
+                    f"realization records (same projected_step_id appears "
+                    f"more than once)"
+                )
+            if len(realization_ids_list) != len(projected_ids):
+                raise ValueError(
+                    f"narrative step {self.step_number} has "
+                    f"{len(realization_ids_list)} realization records but "
+                    f"{len(projected_ids)} projected_step_ids — exactly one "
+                    f"record per projected_step_id is required"
+                )
+            realization_ids = set(realization_ids_list)
+            if realization_ids != projected_ids:
+                raise ValueError(
+                    f"narrative step {self.step_number} realization IDs "
+                    f"{realization_ids} do not match projected_step_ids "
+                    f"{projected_ids}"
+                )
+        return self
 
 
 class NarrativeAccessRealization(BaseModel):
@@ -735,6 +805,171 @@ class ValidationBlock(BaseModel):
     )
 
 
+# ---------------------------------------------------------------------------#
+# Structured behavior spec (scenario-forge-422o.4)
+# ---------------------------------------------------------------------------#
+
+
+class BehaviorAction(BaseModel):
+    """A structured behavior spec action tied to projected steps.
+
+    Each behavior action carries the canonical projected step IDs it
+    realizes (controlled many-to-many) and the tree leaf it was derived
+    from, enabling deterministic traceability without Gherkin parsing.
+
+    422o.4 blocker #4: Carries canonical action/executor/boundary
+    metadata so the validator can reconcile per-step semantics at the
+    behavior boundary, not just at the tree boundary.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str = Field(
+        description=(
+            "Stable behavior action identifier, deterministically derived "
+            "from the tree leaf ID (e.g. 'ba-<leaf_id>')."
+        ),
+        min_length=1,
+    )
+    projected_step_ids: tuple[str, ...] = Field(
+        description=(
+            "Canonical projected step IDs this behavior action realizes. "
+            "Controlled many-to-many: one action may realize multiple "
+            "projected steps (combine)."
+        ),
+        min_length=1,
+    )
+    source_leaf_id: str = Field(
+        description="Attack tree leaf node ID this behavior action was derived from.",
+        pattern=r"^n\d+(\.\d+){0,4}$",
+    )
+    gherkin_keyword: Literal["Given", "When", "Then"] = Field(
+        description="Gherkin keyword for this action step.",
+    )
+    text: str = Field(
+        description="Gherkin step text for this action.",
+        min_length=1,
+    )
+    # --- Per-projected-step canonical realization records (422o.4 blocker #3) ---
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
+        min_length=1,
+        description=(
+            "Per-projected-step canonical realization records.  One record "
+            "per projected_step_id.  The validator compares each record "
+            "against the embedded canonical step at the behavior boundary."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_projected_step_ids(self) -> BehaviorAction:
+        for sid in self.projected_step_ids:
+            if not sid or not sid[0].isalnum():
+                raise ValueError(f"projected_step_ids contains invalid ID '{sid}'")
+        if len(set(self.projected_step_ids)) != len(self.projected_step_ids):
+            raise ValueError(
+                f"behavior action '{self.action_id}' has duplicate projected_step_ids"
+            )
+        if self.realizations:
+            realization_ids_list = [r.projected_step_id for r in self.realizations]
+            projected_ids = set(self.projected_step_ids)
+            if len(set(realization_ids_list)) != len(realization_ids_list):
+                raise ValueError(
+                    f"behavior action '{self.action_id}' has duplicate "
+                    f"realization records (same projected_step_id appears "
+                    f"more than once)"
+                )
+            if len(realization_ids_list) != len(projected_ids):
+                raise ValueError(
+                    f"behavior action '{self.action_id}' has "
+                    f"{len(realization_ids_list)} realization records but "
+                    f"{len(projected_ids)} projected_step_ids — exactly one "
+                    f"record per projected_step_id is required"
+                )
+            realization_ids = set(realization_ids_list)
+            if realization_ids != projected_ids:
+                raise ValueError(
+                    f"behavior action '{self.action_id}' realization IDs "
+                    f"{realization_ids} do not match projected_step_ids "
+                    f"{projected_ids}"
+                )
+        return self
+
+
+class BehaviorAssertion(BaseModel):
+    """A structured behavior assertion tied to projected postconditions.
+
+    Assertions map to projected observable postconditions, not to setup
+    steps.  Each assertion carries the canonical postcondition IDs and
+    source step IDs it verifies.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    assertion_id: str = Field(
+        description=(
+            "Stable assertion identifier, deterministically derived "
+            "from the source step and postcondition (e.g. 'assert-<step>-<pc>')."
+        ),
+        min_length=1,
+    )
+    source_step_ids: tuple[str, ...] = Field(
+        description=(
+            "Projected step IDs that own the postconditions this assertion verifies."
+        ),
+        min_length=1,
+    )
+    projected_postcondition_ids: tuple[str, ...] = Field(
+        description="Observable postcondition IDs this assertion verifies.",
+        min_length=1,
+    )
+    gherkin_keyword: Literal["Then"] = Field(
+        default="Then",
+        description="Gherkin keyword for this assertion (always 'Then').",
+    )
+    text: str = Field(
+        description="Gherkin step text for this assertion.",
+        min_length=1,
+    )
+
+    @model_validator(mode="after")
+    def _unique_ids(self) -> BehaviorAssertion:
+        if len(set(self.source_step_ids)) != len(self.source_step_ids):
+            raise ValueError(
+                f"source_step_ids must be unique within assertion '{self.assertion_id}'"
+            )
+        if len(set(self.projected_postcondition_ids)) != len(
+            self.projected_postcondition_ids
+        ):
+            raise ValueError(
+                f"projected_postcondition_ids must be unique within "
+                f"assertion '{self.assertion_id}'"
+            )
+        return self
+
+
+class BehaviorSpec(BaseModel):
+    """Structured behavior specification with projection traceability.
+
+    Carries structured actions and assertions with canonical projected
+    step/postcondition references, plus the rendered Gherkin text.
+    Validation can cross-check the structured elements against the
+    rendered Gherkin and the projection block without parsing Gherkin.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    actions: tuple[BehaviorAction, ...] = Field(
+        description="Structured behavior actions tied to projected steps.",
+    )
+    assertions: tuple[BehaviorAssertion, ...] = Field(
+        description="Structured behavior assertions tied to projected postconditions.",
+    )
+    gherkin_text: str = Field(
+        description="Rendered Gherkin feature text.",
+        min_length=1,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Top-level model
 # ---------------------------------------------------------------------------
@@ -760,7 +995,7 @@ class ScenarioEnvelope(BaseModel):
     )
     candidate_id: str = Field(
         description=(
-            "Stable canonical candidate identity (cand:v1:<128-bit hex>) "
+            "Stable canonical candidate identity (cand:v2:<128-bit hex>) "
             "that produced this scenario.  Separated from the run-specific "
             "scenario_id so the same candidate across runs yields distinct "
             "scenario IDs."
@@ -770,10 +1005,10 @@ class ScenarioEnvelope(BaseModel):
     @field_validator("candidate_id")
     @classmethod
     def _validate_candidate_id_format(cls, v: str) -> str:
-        """Validate that candidate_id follows cand:v1:<32-char lowercase hex> format."""
-        if not v or not v.startswith("cand:v1:"):
-            raise ValueError("candidate_id must follow 'cand:v1:<32-char hex>' format")
-        hex_part = v[len("cand:v1:") :]
+        """Validate that candidate_id follows cand:v2:<32-char lowercase hex> format."""
+        if not v or not v.startswith("cand:v2:"):
+            raise ValueError("candidate_id must follow 'cand:v2:<32-char hex>' format")
+        hex_part = v[len("cand:v2:") :]
         if len(hex_part) != 32:
             raise ValueError(
                 f"candidate_id hex part must be 32 chars, got {len(hex_part)}"
@@ -808,7 +1043,7 @@ class ScenarioEnvelope(BaseModel):
         return v
 
     version: int = Field(
-        default=2,
+        default=3,
         description="Monotonically increasing version number.",
     )
     generated_at: datetime = Field(
@@ -869,6 +1104,18 @@ class ScenarioEnvelope(BaseModel):
         ),
     )
 
+    # --- Canonical Projection (scenario-forge-422o.4) ---
+
+    projection: ProjectionEnvelopeBlock = Field(
+        description=(
+            "Deeply immutable, standalone canonical projection snapshot "
+            "with execution requirements and artifact realization mappings. "
+            "Every generated scenario must embed exactly one projection "
+            "block.  Generated content realizes but never selects, alters, "
+            "omits, reorders, or fabricates projection semantics."
+        ),
+    )
+
     # --- Layer 1: Narrative ---
 
     narrative: NarrativeLayer = Field(
@@ -883,8 +1130,14 @@ class ScenarioEnvelope(BaseModel):
 
     # --- Layer 3: Behavior Specification ---
 
-    behavior_spec: Any = Field(
-        description="Tool-neutral test specification. Stored as dict or Gherkin text.",
+    behavior_spec: BehaviorSpec = Field(
+        description=(
+            "Structured behavior specification with projection-traceable "
+            "actions and assertions.  Every action carries a canonical "
+            "projected step ID; every assertion maps to projected "
+            "observable postconditions.  Pre-alpha: no raw string/dict "
+            "loophole on the authoritative envelope (422o.4)."
+        ),
     )
 
     # --- Layer 4: Faceting Metadata ---

@@ -15,7 +15,8 @@
     "faceting",
     "priority",
     "generation",
-    "initial_entry_point_id"
+    "initial_entry_point_id",
+    "projection"
   ],
   "properties": {
     "scenario_id": {
@@ -26,13 +27,13 @@
     },
     "candidate_id": {
       "type": "string",
-      "pattern": "^cand:v1:[0-9a-f]{32}$",
-      "description": "Stable canonical candidate identity (cand:v1:<128-bit hex>) that produced this scenario."
+      "pattern": "^cand:v2:[0-9a-f]{32}$",
+      "description": "Stable canonical candidate identity (cand:v2:<128-bit hex>) that produced this scenario."
     },
     "version": {
       "type": "integer",
       "minimum": 1,
-      "default": 2
+      "default": 3
     },
     "generated_at": {
       "type": "string",
@@ -90,7 +91,8 @@
       "$ref": "#/$defs/AttackTree"
     },
     "behavior_spec": {
-      "description": "Tool-neutral test specification. Stored as dict or Gherkin text."
+      "$ref": "#/$defs/BehaviorSpec",
+      "description": "Structured behavior specification with projection-traceable actions and assertions. Pre-alpha: no raw string/dict loophole on the authoritative envelope (422o.4)."
     },
     "faceting": {
       "$ref": "#/$defs/FacetingMetadata"
@@ -134,6 +136,10 @@
     "initial_entry_point_id": {
       "type": "string",
       "pattern": "^ep:v1:[0-9a-f]{32}$"
+    },
+    "projection": {
+      "$ref": "#/$defs/ProjectionEnvelopeBlock",
+      "description": "Deeply immutable, standalone canonical projection snapshot with execution requirements and artifact realization mappings. Every generated scenario must embed exactly one projection block."
     }
   },
   "$defs": {
@@ -384,7 +390,9 @@
         "step_number",
         "zone",
         "action",
-        "effect"
+        "effect",
+        "projected_step_ids",
+        "realizations"
       ],
       "properties": {
         "step_number": {
@@ -412,6 +420,23 @@
               "type": "null"
             }
           ]
+        },
+        "projected_step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Canonical projected step IDs that this narrative step realizes. Required (non-empty)."
+        },
+        "realizations": {
+          "description": "Per-projected-step canonical realization records.",
+          "items": {
+            "$ref": "#/$defs/ProjectedStepRealization"
+          },
+          "minItems": 1,
+          "title": "Realizations",
+          "type": "array"
         }
       }
     },
@@ -802,6 +827,22 @@
               "type": "null"
             }
           ]
+        },
+        "projected_step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Canonical projected step IDs that this tree leaf realizes. Controlled many-to-many."
+        },
+        "realizations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProjectedStepRealization"
+          },
+          "default": [],
+          "description": "Per-projected-step canonical realization records. Required (non-empty) when projected_step_ids is non-empty."
         }
       },
       "allOf": [
@@ -1812,6 +1853,2970 @@
           ]
         }
       }
+    },
+    "ProjectionEnvelopeBlock": {
+      "additionalProperties": false,
+      "description": "Deeply immutable, standalone canonical projection persisted on the envelope.\n\nCarries the full immutable projection snapshot, derived execution\nrequirements, projected taxonomy mappings, canonical ingress identity,\nand artifact realization mappings.  Every generated artifact receives\nthe same fixed projection constraints; generated content realizes but\nnever chooses or mutates the projection.",
+      "properties": {
+        "schema_version": {
+          "const": "3",
+          "default": "3",
+          "description": "Schema version.",
+          "enum": [
+            "3"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "projection": {
+          "$ref": "#/$defs/ProjectionSnapshot"
+        },
+        "canonical_ingress": {
+          "$ref": "#/$defs/EntryPointResourceReference"
+        },
+        "ingress_controllability": {
+          "enum": [
+            "direct",
+            "indirect"
+          ],
+          "title": "Ingress Controllability",
+          "type": "string"
+        },
+        "projected_mappings": {
+          "items": {
+            "$ref": "#/$defs/ProjectedMapping"
+          },
+          "title": "Projected Mappings",
+          "type": "array"
+        },
+        "execution_requirements": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "direct_input_control": "#/$defs/DirectInputControlRequirement",
+                "observation": "#/$defs/ObservationRequirement",
+                "security_outcome_assertion": "#/$defs/SecurityOutcomeAssertionRequirement",
+                "state_changing_tool_fixture": "#/$defs/StateChangingToolFixtureRequirement",
+                "upstream_source_influence": "#/$defs/UpstreamSourceInfluenceRequirement"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DirectInputControlRequirement"
+              },
+              {
+                "$ref": "#/$defs/UpstreamSourceInfluenceRequirement"
+              },
+              {
+                "$ref": "#/$defs/StateChangingToolFixtureRequirement"
+              },
+              {
+                "$ref": "#/$defs/ObservationRequirement"
+              },
+              {
+                "$ref": "#/$defs/SecurityOutcomeAssertionRequirement"
+              }
+            ]
+          },
+          "title": "Execution Requirements",
+          "type": "array"
+        },
+        "requirement_derivation_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Requirement Derivation Version",
+          "type": "string"
+        },
+        "execution_requirements_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Execution Requirements Digest",
+          "type": "string"
+        },
+        "derivation_context_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Context Digest",
+          "type": "string"
+        },
+        "narrative_realizations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRealizationMapping"
+          },
+          "title": "Narrative Realizations",
+          "type": "array"
+        },
+        "tree_realizations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRealizationMapping"
+          },
+          "title": "Tree Realizations",
+          "type": "array"
+        },
+        "behavior_realizations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRealizationMapping"
+          },
+          "title": "Behavior Realizations",
+          "type": "array"
+        },
+        "assertion_realizations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssertionRealizationMapping"
+          },
+          "title": "Assertion Realizations",
+          "type": "array"
+        },
+        "capability_snapshot": {
+          "$ref": "#/$defs/CapabilityFactSnapshot",
+          "description": "Full immutable CapabilityFactSnapshot embedded so controllability can be derived from evidence during standalone validation."
+        }
+      },
+      "required": [
+        "projection",
+        "canonical_ingress",
+        "ingress_controllability",
+        "projected_mappings",
+        "execution_requirements",
+        "execution_requirements_digest",
+        "derivation_context_digest",
+        "capability_snapshot"
+      ],
+      "title": "ProjectionEnvelopeBlock",
+      "type": "object"
+    },
+    "ProjectionTraceabilityViolation": {
+      "additionalProperties": false,
+      "description": "A single typed traceability violation attributed to a generated stage.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ProjectionTraceabilityViolationCode"
+        },
+        "stage": {
+          "$ref": "#/$defs/ProjectionTraceabilityStage"
+        },
+        "detail": {
+          "minLength": 1,
+          "title": "Detail",
+          "type": "string"
+        },
+        "element_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Element Id"
+        },
+        "projected_step_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projected Step Id"
+        }
+      },
+      "required": [
+        "code",
+        "stage",
+        "detail"
+      ],
+      "title": "ProjectionTraceabilityViolation",
+      "type": "object"
+    },
+    "ProjectionTraceabilityViolationCode": {
+      "description": "Typed violation codes for projection traceability failures.",
+      "enum": [
+        "omitted_projected_step",
+        "reordered_projected_step",
+        "duplicated_projected_step",
+        "unprojected_security_action",
+        "incomplete_coverage",
+        "incorrect_resource_binding",
+        "incorrect_ingress_binding",
+        "forged_opaque_id",
+        "postcondition_assertion_mismatch",
+        "or_tree_prohibited",
+        "projection_drift",
+        "nested_mutation",
+        "ingress_identity_mismatch",
+        "requirement_drift"
+      ],
+      "title": "ProjectionTraceabilityViolationCode",
+      "type": "string"
+    },
+    "ProjectionTraceabilityStage": {
+      "description": "Earliest responsible generated stage for a traceability violation.",
+      "enum": [
+        "actor_profile",
+        "narrative",
+        "attack_tree",
+        "behavior_spec"
+      ],
+      "title": "ProjectionTraceabilityStage",
+      "type": "string"
+    },
+    "ArtifactRealizationMapping": {
+      "additionalProperties": false,
+      "description": "Map one generated artifact element to one or more projected steps.\n\nControlled many-to-many realization (contract \u00a75): one artifact element\nmay realize multiple projected steps (combine), and one projected step\nmay be realized by multiple artifact elements (split).  The total order\nof projected steps must be preserved across element ordering within the\nsame artifact stage.",
+      "properties": {
+        "artifact_stage": {
+          "$ref": "#/$defs/ArtifactStage"
+        },
+        "element_id": {
+          "description": "Generated artifact element identifier: narrative step number as a string, attack-tree leaf node id, or behavior step reference.",
+          "minLength": 1,
+          "title": "Element Id",
+          "type": "string"
+        },
+        "projected_step_ids": {
+          "description": "One or more projected step IDs from the projection's selected_step_ids.  Must be unique within this mapping.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Projected Step Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "artifact_stage",
+        "element_id",
+        "projected_step_ids"
+      ],
+      "title": "ArtifactRealizationMapping",
+      "type": "object"
+    },
+    "ArtifactStage": {
+      "description": "Generated artifact stage that realizes projected steps.",
+      "enum": [
+        "narrative",
+        "attack_tree",
+        "behavior"
+      ],
+      "title": "ArtifactStage",
+      "type": "string"
+    },
+    "AssertionRealizationMapping": {
+      "additionalProperties": false,
+      "description": "Map a generated behavior assertion to projected observable postconditions.\n\nAssertions map to projected observable postconditions (contract \u00a74), not\nmechanically to setup steps.  Each assertion traces to one or more\npostconditions owned by one or more selected projected steps.",
+      "properties": {
+        "element_id": {
+          "description": "Generated behavior assertion element identifier.",
+          "minLength": 1,
+          "title": "Element Id",
+          "type": "string"
+        },
+        "source_step_ids": {
+          "description": "Projected step IDs that own the postconditions this assertion verifies.  Must be unique within this mapping.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Step Ids",
+          "type": "array"
+        },
+        "projected_postcondition_ids": {
+          "description": "Observable postcondition IDs from the projected steps.  Must be unique within this mapping and resolvable in the source steps.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Projected Postcondition Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "element_id",
+        "source_step_ids",
+        "projected_postcondition_ids"
+      ],
+      "title": "AssertionRealizationMapping",
+      "type": "object"
+    },
+    "NotApplicableMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "const": "not_applicable",
+          "title": "Decision",
+          "type": "string"
+        },
+        "taxonomy": {
+          "enum": [
+            "ATLAS",
+            "LAAF"
+          ],
+          "title": "Taxonomy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "taxonomy"
+      ],
+      "title": "NotApplicableMapping",
+      "type": "object"
+    },
+    "NotCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "not",
+          "title": "Op",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "operand": {
+          "discriminator": {
+            "mapping": {
+              "all": "#/$defs/AllCondition",
+              "any": "#/$defs/AnyCondition",
+              "equality": "#/$defs/EqualityCondition",
+              "existence": "#/$defs/ExistenceCondition",
+              "membership": "#/$defs/MembershipCondition",
+              "not": "#/$defs/NotCondition",
+              "property_match": "#/$defs/PropertyMatchCondition"
+            },
+            "propertyName": "op"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EqualityCondition"
+            },
+            {
+              "$ref": "#/$defs/MembershipCondition"
+            },
+            {
+              "$ref": "#/$defs/ExistenceCondition"
+            },
+            {
+              "$ref": "#/$defs/PropertyMatchCondition"
+            },
+            {
+              "$ref": "#/$defs/AllCondition"
+            },
+            {
+              "$ref": "#/$defs/AnyCondition"
+            },
+            {
+              "$ref": "#/$defs/NotCondition"
+            }
+          ],
+          "title": "Operand"
+        }
+      },
+      "required": [
+        "op",
+        "schema_version",
+        "operand"
+      ],
+      "title": "NotCondition",
+      "type": "object"
+    },
+    "ExistenceCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "existence",
+          "title": "Op",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "fact": {
+          "$ref": "#/$defs/AuthoritativeFactReference"
+        },
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "schema_version",
+        "fact",
+        "exists"
+      ],
+      "title": "ExistenceCondition",
+      "type": "object"
+    },
+    "ArtifactReference": {
+      "additionalProperties": false,
+      "properties": {
+        "ref_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Ref Id",
+          "type": "string"
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer",
+            "boolean",
+            "object",
+            "bytes"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        },
+        "kind": {
+          "const": "artifact",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_id",
+        "value_type",
+        "kind"
+      ],
+      "title": "ArtifactReference",
+      "type": "object"
+    },
+    "ToolResourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool_id": {
+          "pattern": "^tool:v1:[0-9a-f]{32}$",
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "tool_id"
+      ],
+      "title": "ToolResourceReference",
+      "type": "object"
+    },
+    "TaxonomyPin": {
+      "additionalProperties": false,
+      "properties": {
+        "release": {
+          "minLength": 1,
+          "title": "Release",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "release",
+        "digest"
+      ],
+      "title": "TaxonomyPin",
+      "type": "object"
+    },
+    "AllCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "all",
+          "title": "Op",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "operands": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "all": "#/$defs/AllCondition",
+                "any": "#/$defs/AnyCondition",
+                "equality": "#/$defs/EqualityCondition",
+                "existence": "#/$defs/ExistenceCondition",
+                "membership": "#/$defs/MembershipCondition",
+                "not": "#/$defs/NotCondition",
+                "property_match": "#/$defs/PropertyMatchCondition"
+              },
+              "propertyName": "op"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/EqualityCondition"
+              },
+              {
+                "$ref": "#/$defs/MembershipCondition"
+              },
+              {
+                "$ref": "#/$defs/ExistenceCondition"
+              },
+              {
+                "$ref": "#/$defs/PropertyMatchCondition"
+              },
+              {
+                "$ref": "#/$defs/AllCondition"
+              },
+              {
+                "$ref": "#/$defs/AnyCondition"
+              },
+              {
+                "$ref": "#/$defs/NotCondition"
+              }
+            ]
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Operands",
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "schema_version",
+        "operands"
+      ],
+      "title": "AllCondition",
+      "type": "object"
+    },
+    "StateReference": {
+      "additionalProperties": false,
+      "properties": {
+        "ref_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Ref Id",
+          "type": "string"
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer",
+            "boolean",
+            "object",
+            "bytes"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        },
+        "kind": {
+          "const": "state",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_id",
+        "value_type",
+        "kind"
+      ],
+      "title": "StateReference",
+      "type": "object"
+    },
+    "IntegrationResourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "integration",
+          "title": "Kind",
+          "type": "string"
+        },
+        "integration_id": {
+          "pattern": "^int:v1:[0-9a-f]{32}$",
+          "title": "Integration Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "integration_id"
+      ],
+      "title": "IntegrationResourceReference",
+      "type": "object"
+    },
+    "ObservableOutcomeLink": {
+      "additionalProperties": false,
+      "description": "Explicit link from a step's postcondition to an observable outcome.\n\nDeclares that a postcondition is observable through a specific resource\nslot as a specific observation kind.  The derivation consumes this link\nto produce an :class:`ObservationRequirement`.",
+      "properties": {
+        "postcondition_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Postcondition Id",
+          "type": "string"
+        },
+        "observation": {
+          "enum": [
+            "model_context",
+            "tool_invocation",
+            "persistent_state",
+            "rendered_output",
+            "endpoint_receipt",
+            "agent_state"
+          ],
+          "title": "Observation",
+          "type": "string"
+        },
+        "binding_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Binding Slot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "postcondition_id",
+        "observation",
+        "binding_slot_id"
+      ],
+      "title": "ObservableOutcomeLink",
+      "type": "object"
+    },
+    "StepOmission": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "reason": {
+          "const": "condition_false",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_id",
+        "reason"
+      ],
+      "title": "StepOmission",
+      "type": "object"
+    },
+    "ResourceBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "resource_ref": {
+          "discriminator": {
+            "mapping": {
+              "agent_internal": "#/$defs/AgentInternalResourceReference",
+              "entry_point": "#/$defs/EntryPointResourceReference",
+              "integration": "#/$defs/IntegrationResourceReference",
+              "output_surface": "#/$defs/OutputSurfaceResourceReference",
+              "tool": "#/$defs/ToolResourceReference",
+              "trust_boundary": "#/$defs/TrustBoundaryResourceReference"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EntryPointResourceReference"
+            },
+            {
+              "$ref": "#/$defs/ToolResourceReference"
+            },
+            {
+              "$ref": "#/$defs/IntegrationResourceReference"
+            },
+            {
+              "$ref": "#/$defs/TrustBoundaryResourceReference"
+            },
+            {
+              "$ref": "#/$defs/OutputSurfaceResourceReference"
+            },
+            {
+              "$ref": "#/$defs/AgentInternalResourceReference"
+            }
+          ],
+          "title": "Resource Ref"
+        }
+      },
+      "required": [
+        "slot_id",
+        "resource_ref"
+      ],
+      "title": "ResourceBinding",
+      "type": "object"
+    },
+    "DirectInputControlRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "requirement_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "direct_input_control",
+          "title": "Kind",
+          "type": "string"
+        },
+        "entry_point_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Entry Point Slot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "requirement_id",
+        "kind",
+        "entry_point_slot_id"
+      ],
+      "title": "DirectInputControlRequirement",
+      "type": "object"
+    },
+    "ExactMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "const": "exact",
+          "title": "Decision",
+          "type": "string"
+        },
+        "taxonomy": {
+          "enum": [
+            "ATLAS",
+            "LAAF"
+          ],
+          "title": "Taxonomy",
+          "type": "string"
+        },
+        "ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "decision",
+        "taxonomy",
+        "ids"
+      ],
+      "title": "ExactMapping",
+      "type": "object"
+    },
+    "ResourceSlot": {
+      "additionalProperties": false,
+      "properties": {
+        "slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "entry_point",
+            "tool",
+            "integration",
+            "trust_boundary",
+            "output_surface",
+            "agent_internal"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "purpose": {
+          "enum": [
+            "initial_ingress",
+            "intermediate",
+            "target",
+            "supporting"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_id",
+        "kind",
+        "purpose"
+      ],
+      "title": "ResourceSlot",
+      "type": "object"
+    },
+    "EqualityCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "equality",
+          "title": "Op",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "fact": {
+          "$ref": "#/$defs/AuthoritativeFactReference"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "op",
+        "schema_version",
+        "fact",
+        "value"
+      ],
+      "title": "EqualityCondition",
+      "type": "object"
+    },
+    "TaxonomyContext": {
+      "additionalProperties": false,
+      "description": "Pinned taxonomy releases; LAAF is optional and non-authoritative for v1.\n\nAn absent ``laaf`` pin means the context is ATLAS-only: any LAAF mapping\ndecision in the chain then fails closed.  An explicit pin is meaningful\nonly when the qualifying resolver pins the identical context and carries\nauthoritative LAAF membership for every exact id.",
+      "properties": {
+        "atlas": {
+          "$ref": "#/$defs/TaxonomyPin"
+        },
+        "laaf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaxonomyPin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mapping_set_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Mapping Set Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "atlas",
+        "mapping_set_digest"
+      ],
+      "title": "TaxonomyContext",
+      "type": "object"
+    },
+    "ObservationRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "requirement_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "observation",
+          "title": "Kind",
+          "type": "string"
+        },
+        "observation": {
+          "enum": [
+            "model_context",
+            "tool_invocation",
+            "persistent_state",
+            "rendered_output",
+            "endpoint_receipt",
+            "agent_state"
+          ],
+          "title": "Observation",
+          "type": "string"
+        },
+        "binding_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Binding Slot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "requirement_id",
+        "kind",
+        "observation",
+        "binding_slot_id"
+      ],
+      "title": "ObservationRequirement",
+      "type": "object"
+    },
+    "CanonicalAttackChain": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "pattern_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Pattern Id",
+          "type": "string"
+        },
+        "chain_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Chain Id",
+          "type": "string"
+        },
+        "semantic_revision": {
+          "exclusiveMinimum": 0,
+          "title": "Semantic Revision",
+          "type": "integer"
+        },
+        "semantic_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Semantic Digest",
+          "type": "string"
+        },
+        "taxonomy_context": {
+          "$ref": "#/$defs/TaxonomyContext"
+        },
+        "mappings": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "exact": "#/$defs/ExactMapping",
+                "unmapped": "#/$defs/UnmappedMapping"
+              },
+              "propertyName": "decision"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ExactMapping"
+              },
+              {
+                "$ref": "#/$defs/UnmappedMapping"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Mappings",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/CanonicalChainStep"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "earliest_attacker_controlled_step_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Earliest Attacker Controlled Step Id",
+          "type": "string"
+        },
+        "resource_slots": {
+          "items": {
+            "$ref": "#/$defs/ResourceSlot"
+          },
+          "minItems": 1,
+          "title": "Resource Slots",
+          "type": "array"
+        },
+        "initial_ingress_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Initial Ingress Slot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "pattern_id",
+        "chain_id",
+        "semantic_revision",
+        "semantic_digest",
+        "taxonomy_context",
+        "mappings",
+        "steps",
+        "earliest_attacker_controlled_step_id",
+        "resource_slots",
+        "initial_ingress_slot_id"
+      ],
+      "title": "CanonicalAttackChain",
+      "type": "object"
+    },
+    "AnyCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "any",
+          "title": "Op",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "operands": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "all": "#/$defs/AllCondition",
+                "any": "#/$defs/AnyCondition",
+                "equality": "#/$defs/EqualityCondition",
+                "existence": "#/$defs/ExistenceCondition",
+                "membership": "#/$defs/MembershipCondition",
+                "not": "#/$defs/NotCondition",
+                "property_match": "#/$defs/PropertyMatchCondition"
+              },
+              "propertyName": "op"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/EqualityCondition"
+              },
+              {
+                "$ref": "#/$defs/MembershipCondition"
+              },
+              {
+                "$ref": "#/$defs/ExistenceCondition"
+              },
+              {
+                "$ref": "#/$defs/PropertyMatchCondition"
+              },
+              {
+                "$ref": "#/$defs/AllCondition"
+              },
+              {
+                "$ref": "#/$defs/AnyCondition"
+              },
+              {
+                "$ref": "#/$defs/NotCondition"
+              }
+            ]
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Operands",
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "schema_version",
+        "operands"
+      ],
+      "title": "AnyCondition",
+      "type": "object"
+    },
+    "EntryPointResourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "entry_point",
+          "title": "Kind",
+          "type": "string"
+        },
+        "entry_point_id": {
+          "pattern": "^ep:v1:[0-9a-f]{32}$",
+          "title": "Entry Point Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "entry_point_id"
+      ],
+      "title": "EntryPointResourceReference",
+      "type": "object"
+    },
+    "PropertyMatchCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "property_match",
+          "title": "Op",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "fact": {
+          "$ref": "#/$defs/AuthoritativeFactReference"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "op",
+        "schema_version",
+        "fact",
+        "value"
+      ],
+      "title": "PropertyMatchCondition",
+      "type": "object"
+    },
+    "UnmappedMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "const": "unmapped",
+          "title": "Decision",
+          "type": "string"
+        },
+        "taxonomy": {
+          "enum": [
+            "ATLAS",
+            "LAAF"
+          ],
+          "title": "Taxonomy",
+          "type": "string"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "taxonomy",
+        "rationale"
+      ],
+      "title": "UnmappedMapping",
+      "type": "object"
+    },
+    "EvaluatedFactEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "fact": {
+          "$ref": "#/$defs/AuthoritativeFactReference"
+        },
+        "status": {
+          "enum": [
+            "present",
+            "absent",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "fact",
+        "status",
+        "value"
+      ],
+      "title": "EvaluatedFactEvidence",
+      "type": "object"
+    },
+    "CanonicalChainStep": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "requirement": {
+          "enum": [
+            "required",
+            "conditional"
+          ],
+          "title": "Requirement",
+          "type": "string"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "all": "#/$defs/AllCondition",
+                  "any": "#/$defs/AnyCondition",
+                  "equality": "#/$defs/EqualityCondition",
+                  "existence": "#/$defs/ExistenceCondition",
+                  "membership": "#/$defs/MembershipCondition",
+                  "not": "#/$defs/NotCondition",
+                  "property_match": "#/$defs/PropertyMatchCondition"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/EqualityCondition"
+                },
+                {
+                  "$ref": "#/$defs/MembershipCondition"
+                },
+                {
+                  "$ref": "#/$defs/ExistenceCondition"
+                },
+                {
+                  "$ref": "#/$defs/PropertyMatchCondition"
+                },
+                {
+                  "$ref": "#/$defs/AllCondition"
+                },
+                {
+                  "$ref": "#/$defs/AnyCondition"
+                },
+                {
+                  "$ref": "#/$defs/NotCondition"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Condition"
+        },
+        "executor_role": {
+          "enum": [
+            "attacker",
+            "system",
+            "operator"
+          ],
+          "title": "Executor Role",
+          "type": "string"
+        },
+        "boundary_position": {
+          "enum": [
+            "outside",
+            "crossing",
+            "inside"
+          ],
+          "title": "Boundary Position",
+          "type": "string"
+        },
+        "action_kind": {
+          "enum": [
+            "prepare",
+            "deliver",
+            "invoke",
+            "transform",
+            "persist",
+            "observe",
+            "impact"
+          ],
+          "title": "Action Kind",
+          "type": "string"
+        },
+        "consumed": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "artifact": "#/$defs/ArtifactReference",
+                "state": "#/$defs/StateReference"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ArtifactReference"
+              },
+              {
+                "$ref": "#/$defs/StateReference"
+              }
+            ]
+          },
+          "title": "Consumed",
+          "type": "array"
+        },
+        "produced": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "artifact": "#/$defs/ArtifactReference",
+                "effect": "#/$defs/EffectReference",
+                "state": "#/$defs/StateReference"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ArtifactReference"
+              },
+              {
+                "$ref": "#/$defs/StateReference"
+              },
+              {
+                "$ref": "#/$defs/EffectReference"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Produced",
+          "type": "array"
+        },
+        "preconditions": {
+          "items": {
+            "$ref": "#/$defs/StepPrecondition"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "observable_postconditions": {
+          "items": {
+            "$ref": "#/$defs/ObservablePostcondition"
+          },
+          "minItems": 1,
+          "title": "Observable Postconditions",
+          "type": "array"
+        },
+        "resource_links": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/StepResourceLink"
+          },
+          "title": "Resource Links",
+          "type": "array"
+        },
+        "observable_outcome_links": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ObservableOutcomeLink"
+          },
+          "title": "Observable Outcome Links",
+          "type": "array"
+        },
+        "order": {
+          "exclusiveMinimum": 0,
+          "title": "Order",
+          "type": "integer"
+        },
+        "attacker_controlled": {
+          "title": "Attacker Controlled",
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/StepProvenance"
+        },
+        "mappings": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "exact": "#/$defs/ExactMapping",
+                "not_applicable": "#/$defs/NotApplicableMapping",
+                "unmapped": "#/$defs/UnmappedMapping"
+              },
+              "propertyName": "decision"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ExactMapping"
+              },
+              {
+                "$ref": "#/$defs/NotApplicableMapping"
+              },
+              {
+                "$ref": "#/$defs/UnmappedMapping"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Mappings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "step_id",
+        "requirement",
+        "condition",
+        "executor_role",
+        "boundary_position",
+        "action_kind",
+        "consumed",
+        "produced",
+        "preconditions",
+        "observable_postconditions",
+        "order",
+        "attacker_controlled",
+        "provenance",
+        "mappings"
+      ],
+      "title": "CanonicalChainStep",
+      "type": "object"
+    },
+    "StepResourceLink": {
+      "additionalProperties": false,
+      "description": "Explicit link from a step to a required resource slot.\n\nThe ``role`` declares how the slot is used by the step, determining the\nexecution-requirement derivation.  No inference from action kind, name,\nor cardinality is performed by the projection \u2014 the link is the sole\nauthority for requirement derivation.\n\nFor ``source_influence`` links the ``slot_id`` is the upstream source\nslot (an entry point or integration the attacker influences outside the\ntrust boundary), ``trust_boundary_slot_id`` is the boundary the source\ncontent crosses, and ``target_ingress_slot_id`` is the canonical ingress\nentry point the influenced content flows into.  The target-ingress edge\nis explicit: the projection never assumes the chain's initial ingress\nimplicitly supplies this relation.",
+      "properties": {
+        "slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "ingress",
+            "tool_fixture",
+            "source_influence"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "trust_boundary_slot_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trust Boundary Slot Id"
+        },
+        "target_ingress_slot_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Ingress Slot Id"
+        }
+      },
+      "required": [
+        "slot_id",
+        "role"
+      ],
+      "title": "StepResourceLink",
+      "type": "object"
+    },
+    "MembershipCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "membership",
+          "title": "Op",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "fact": {
+          "$ref": "#/$defs/AuthoritativeFactReference"
+        },
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "schema_version",
+        "fact",
+        "values"
+      ],
+      "title": "MembershipCondition",
+      "type": "object"
+    },
+    "StateChangingToolFixtureRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "requirement_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "state_changing_tool_fixture",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Tool Slot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "requirement_id",
+        "kind",
+        "tool_slot_id"
+      ],
+      "title": "StateChangingToolFixtureRequirement",
+      "type": "object"
+    },
+    "ProjectionSnapshot": {
+      "additionalProperties": false,
+      "description": "Local structural/pure semantic parse; use qualification for external facts.",
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_chain": {
+          "$ref": "#/$defs/CanonicalAttackChain"
+        },
+        "selected_step_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Selected Step Ids",
+          "type": "array"
+        },
+        "condition_results": {
+          "items": {
+            "$ref": "#/$defs/ConditionEvaluationResult"
+          },
+          "title": "Condition Results",
+          "type": "array"
+        },
+        "omissions": {
+          "items": {
+            "$ref": "#/$defs/StepOmission"
+          },
+          "title": "Omissions",
+          "type": "array"
+        },
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/ResourceBinding"
+          },
+          "title": "Bindings",
+          "type": "array"
+        },
+        "catalog_pin": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Catalog Pin",
+          "type": "string"
+        },
+        "pattern_pin": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Pattern Pin",
+          "type": "string"
+        },
+        "capability_fact_snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Capability Fact Snapshot Digest",
+          "type": "string"
+        },
+        "projection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Projection Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "source_chain",
+        "selected_step_ids",
+        "condition_results",
+        "omissions",
+        "bindings",
+        "catalog_pin",
+        "pattern_pin",
+        "capability_fact_snapshot_digest",
+        "projection_digest"
+      ],
+      "title": "ProjectionSnapshot",
+      "type": "object"
+    },
+    "ProjectedMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "enum": [
+            "chain",
+            "step"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "step_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Id"
+        },
+        "mapping": {
+          "discriminator": {
+            "mapping": {
+              "exact": "#/$defs/ExactMapping",
+              "not_applicable": "#/$defs/NotApplicableMapping",
+              "unmapped": "#/$defs/UnmappedMapping"
+            },
+            "propertyName": "decision"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactMapping"
+            },
+            {
+              "$ref": "#/$defs/NotApplicableMapping"
+            },
+            {
+              "$ref": "#/$defs/UnmappedMapping"
+            }
+          ],
+          "title": "Mapping"
+        }
+      },
+      "required": [
+        "scope",
+        "mapping"
+      ],
+      "title": "ProjectedMapping",
+      "type": "object"
+    },
+    "TrustBoundaryResourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "trust_boundary",
+          "title": "Kind",
+          "type": "string"
+        },
+        "trust_boundary_id": {
+          "pattern": "^tb:v1:[0-9a-f]{32}$",
+          "title": "Trust Boundary Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "trust_boundary_id"
+      ],
+      "title": "TrustBoundaryResourceReference",
+      "type": "object"
+    },
+    "AgentInternalResourceReference": {
+      "additionalProperties": false,
+      "description": "Canonical reference to agent-internal state.\n\nAgent-internal state is data assembled or transformed within the\nagent's own working context \u2014 neither an external entry point, tool,\nintegration, nor trust boundary.  Capability profiles do not carry\nan authoritative agent-internal-state inventory, so this reference\ntype is **unresolvable** by design: ``contains_resource`` always\nreturns ``False`` and ``_references_for_kind`` always returns an\nempty tuple.  Patterns that require an ``agent_internal`` resource\nslot are therefore typed-infeasible for candidate-v2 projection.",
+      "properties": {
+        "kind": {
+          "const": "agent_internal",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "AgentInternalResourceReference",
+      "type": "object"
+    },
+    "UpstreamSourceInfluenceRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "requirement_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "upstream_source_influence",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Source Slot Id",
+          "type": "string"
+        },
+        "source_identity_kind": {
+          "enum": [
+            "entry_point",
+            "integration"
+          ],
+          "title": "Source Identity Kind",
+          "type": "string"
+        },
+        "trust_boundary_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Trust Boundary Slot Id",
+          "type": "string"
+        },
+        "target_ingress_slot_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Target Ingress Slot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "requirement_id",
+        "kind",
+        "source_slot_id",
+        "source_identity_kind",
+        "trust_boundary_slot_id",
+        "target_ingress_slot_id"
+      ],
+      "title": "UpstreamSourceInfluenceRequirement",
+      "type": "object"
+    },
+    "SecurityOutcomeAssertionRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "requirement_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "security_outcome_assertion",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_step_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Source Step Id",
+          "type": "string"
+        },
+        "postcondition_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Postcondition Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "requirement_id",
+        "kind",
+        "source_step_id",
+        "postcondition_id"
+      ],
+      "title": "SecurityOutcomeAssertionRequirement",
+      "type": "object"
+    },
+    "ProvenanceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "reference_type": {
+          "enum": [
+            "catalog",
+            "publication",
+            "observation",
+            "design_record"
+          ],
+          "title": "Reference Type",
+          "type": "string"
+        },
+        "reference_id": {
+          "minLength": 1,
+          "title": "Reference Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_type",
+        "reference_id"
+      ],
+      "title": "ProvenanceReference",
+      "type": "object"
+    },
+    "EffectReference": {
+      "additionalProperties": false,
+      "properties": {
+        "ref_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Ref Id",
+          "type": "string"
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer",
+            "boolean",
+            "object",
+            "bytes"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        },
+        "kind": {
+          "const": "effect",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_id",
+        "value_type",
+        "kind"
+      ],
+      "title": "EffectReference",
+      "type": "object"
+    },
+    "AuthoritativeFactReference": {
+      "additionalProperties": false,
+      "description": "Reference to a pre-existing authoritative fact (never a generated artifact).",
+      "properties": {
+        "namespace": {
+          "enum": [
+            "system",
+            "profile",
+            "catalog",
+            "runtime_state"
+          ],
+          "title": "Namespace",
+          "type": "string"
+        },
+        "fact_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer",
+            "boolean"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        },
+        "property_path": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Property Path",
+          "type": "array"
+        }
+      },
+      "required": [
+        "namespace",
+        "fact_id",
+        "value_type",
+        "property_path"
+      ],
+      "title": "AuthoritativeFactReference",
+      "type": "object"
+    },
+    "ConditionEvaluationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "condition_step_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Condition Step Id",
+          "type": "string"
+        },
+        "result": {
+          "enum": [
+            "true",
+            "false",
+            "unknown"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/EvaluatedFactEvidence"
+          },
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "condition_step_id",
+        "result",
+        "evidence"
+      ],
+      "title": "ConditionEvaluationResult",
+      "type": "object"
+    },
+    "StepPrecondition": {
+      "additionalProperties": false,
+      "properties": {
+        "condition_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Condition Id",
+          "type": "string"
+        },
+        "condition": {
+          "discriminator": {
+            "mapping": {
+              "all": "#/$defs/AllCondition",
+              "any": "#/$defs/AnyCondition",
+              "equality": "#/$defs/EqualityCondition",
+              "existence": "#/$defs/ExistenceCondition",
+              "membership": "#/$defs/MembershipCondition",
+              "not": "#/$defs/NotCondition",
+              "property_match": "#/$defs/PropertyMatchCondition"
+            },
+            "propertyName": "op"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EqualityCondition"
+            },
+            {
+              "$ref": "#/$defs/MembershipCondition"
+            },
+            {
+              "$ref": "#/$defs/ExistenceCondition"
+            },
+            {
+              "$ref": "#/$defs/PropertyMatchCondition"
+            },
+            {
+              "$ref": "#/$defs/AllCondition"
+            },
+            {
+              "$ref": "#/$defs/AnyCondition"
+            },
+            {
+              "$ref": "#/$defs/NotCondition"
+            }
+          ],
+          "title": "Condition"
+        }
+      },
+      "required": [
+        "condition_id",
+        "condition"
+      ],
+      "title": "StepPrecondition",
+      "type": "object"
+    },
+    "StepProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "tier": {
+          "enum": [
+            "observed",
+            "variant",
+            "inferred",
+            "designed"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/ProvenanceReference"
+          },
+          "minItems": 1,
+          "title": "References",
+          "type": "array"
+        },
+        "confidence": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "integer"
+        },
+        "adaptation_rationale": {
+          "minLength": 1,
+          "title": "Adaptation Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tier",
+        "references",
+        "confidence",
+        "adaptation_rationale"
+      ],
+      "title": "StepProvenance",
+      "type": "object"
+    },
+    "ObservablePostcondition": {
+      "additionalProperties": false,
+      "properties": {
+        "postcondition_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Postcondition Id",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "security_relevant": {
+          "title": "Security Relevant",
+          "type": "boolean"
+        },
+        "terminal": {
+          "title": "Terminal",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "postcondition_id",
+        "description",
+        "security_relevant",
+        "terminal"
+      ],
+      "title": "ObservablePostcondition",
+      "type": "object"
+    },
+    "OutputSurfaceResourceReference": {
+      "additionalProperties": false,
+      "description": "Canonical reference to an output-direction entry point.\n\nAn output surface is the agent's rendered-response surface \u2014 the\nmodel's output that a client renders or fetches.  It is distinct from\nan input entry point (``EntryPointResourceReference``) even though\nboth resolve to an :class:`EntryPoint` in the capability profile:\nonly entry points with ``direction == \"output\"`` qualify as output\nsurfaces.",
+      "properties": {
+        "kind": {
+          "const": "output_surface",
+          "title": "Kind",
+          "type": "string"
+        },
+        "entry_point_id": {
+          "pattern": "^ep:v1:[0-9a-f]{32}$",
+          "title": "Entry Point Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "entry_point_id"
+      ],
+      "title": "OutputSurfaceResourceReference",
+      "type": "object"
+    },
+    "BehaviorAction": {
+      "additionalProperties": false,
+      "description": "A structured behavior spec action tied to a projected step.\n\nEach behavior action carries the canonical projected step ID it\nrealizes and the tree leaf it was derived from, enabling deterministic\ntraceability without Gherkin parsing.\n\n422o.4 blocker #4: Carries canonical action/executor/boundary\nmetadata so the validator can reconcile per-step semantics at the\nbehavior boundary.",
+      "properties": {
+        "action_id": {
+          "description": "Stable behavior action identifier, deterministically derived from the tree leaf ID (e.g. 'ba-<leaf_id>').",
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        },
+        "source_leaf_id": {
+          "description": "Attack tree leaf node ID this behavior action was derived from.",
+          "pattern": "^n\\d+(\\.\\d+){0,4}$",
+          "title": "Source Leaf Id",
+          "type": "string"
+        },
+        "gherkin_keyword": {
+          "description": "Gherkin keyword for this action step.",
+          "enum": [
+            "Given",
+            "When",
+            "Then"
+          ],
+          "title": "Gherkin Keyword",
+          "type": "string"
+        },
+        "text": {
+          "description": "Gherkin step text for this action.",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "projected_step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Canonical projected step IDs this behavior action realizes."
+        },
+        "realizations": {
+          "description": "Per-projected-step canonical realization records.",
+          "items": {
+            "$ref": "#/$defs/ProjectedStepRealization"
+          },
+          "minItems": 1,
+          "title": "Realizations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "action_id",
+        "source_leaf_id",
+        "gherkin_keyword",
+        "text",
+        "projected_step_ids",
+        "realizations"
+      ],
+      "title": "BehaviorAction",
+      "type": "object"
+    },
+    "BehaviorAssertion": {
+      "additionalProperties": false,
+      "description": "A structured behavior assertion tied to projected postconditions.\n\nAssertions map to projected observable postconditions, not to setup\nsteps.  Each assertion carries the canonical postcondition IDs and\nsource step IDs it verifies.",
+      "properties": {
+        "assertion_id": {
+          "description": "Stable assertion identifier, deterministically derived from the source step and postcondition (e.g. 'assert-<step>-<pc>').",
+          "minLength": 1,
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "source_step_ids": {
+          "description": "Projected step IDs that own the postconditions this assertion verifies.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Step Ids",
+          "type": "array"
+        },
+        "projected_postcondition_ids": {
+          "description": "Observable postcondition IDs this assertion verifies.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Projected Postcondition Ids",
+          "type": "array"
+        },
+        "gherkin_keyword": {
+          "const": "Then",
+          "default": "Then",
+          "description": "Gherkin keyword for this assertion (always 'Then').",
+          "title": "Gherkin Keyword",
+          "type": "string"
+        },
+        "text": {
+          "description": "Gherkin step text for this assertion.",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion_id",
+        "source_step_ids",
+        "projected_postcondition_ids",
+        "text"
+      ],
+      "title": "BehaviorAssertion",
+      "type": "object"
+    },
+    "BehaviorSpec": {
+      "additionalProperties": false,
+      "description": "Structured behavior specification with projection traceability.\n\nCarries structured actions and assertions with canonical projected\nstep/postcondition references, plus the rendered Gherkin text.\nValidation can cross-check the structured elements against the\nrendered Gherkin and the projection block without parsing Gherkin.",
+      "properties": {
+        "actions": {
+          "description": "Structured behavior actions tied to projected steps.",
+          "items": {
+            "$ref": "#/$defs/BehaviorAction"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "assertions": {
+          "description": "Structured behavior assertions tied to projected postconditions.",
+          "items": {
+            "$ref": "#/$defs/BehaviorAssertion"
+          },
+          "title": "Assertions",
+          "type": "array"
+        },
+        "gherkin_text": {
+          "description": "Rendered Gherkin feature text.",
+          "minLength": 1,
+          "title": "Gherkin Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actions",
+        "assertions",
+        "gherkin_text"
+      ],
+      "title": "BehaviorSpec",
+      "type": "object"
+    },
+    "AuthMethod": {
+      "description": "Authentication mechanism used by an external integration.",
+      "enum": [
+        "api_key",
+        "oauth",
+        "service_account",
+        "none",
+        "unknown"
+      ],
+      "title": "AuthMethod",
+      "type": "string"
+    },
+    "BoundaryConfidence": {
+      "description": "Whether a trust boundary was explicit, inferred, or hypothesized.",
+      "enum": [
+        "explicit",
+        "inferred",
+        "hypothesized"
+      ],
+      "title": "BoundaryConfidence",
+      "type": "string"
+    },
+    "ConfidenceLevel": {
+      "description": "How well the use-case description supported Stage 1 inferences.",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "ConfidenceLevel",
+      "type": "string"
+    },
+    "DataSensitivity": {
+      "description": "Sensitivity level for data accessible through a tool or integration.",
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "DataSensitivity",
+      "type": "string"
+    },
+    "IntegrationType": {
+      "description": "How the agent connects to an external system.",
+      "enum": [
+        "api",
+        "database",
+        "message_queue",
+        "file_system",
+        "web_service",
+        "other"
+      ],
+      "title": "IntegrationType",
+      "type": "string"
+    },
+    "InventoryCompleteness": {
+      "description": "Evidence/completeness state for entry-point and tool inventories.\n\n``inferred_partial``: inference establishes presence, never absence.\n``operator_confirmed_complete``: only an operator-reviewed profile may\ndeclare this, with explicit evidence sources.  Ordinary LLM output\ncannot self-promote.",
+      "enum": [
+        "inferred_partial",
+        "operator_confirmed_complete"
+      ],
+      "title": "InventoryCompleteness",
+      "type": "string"
+    },
+    "MemoryPersistence": {
+      "description": "How long data persists in a memory mechanism.",
+      "enum": [
+        "session",
+        "short_term",
+        "long_term",
+        "permanent"
+      ],
+      "title": "MemoryPersistence",
+      "type": "string"
+    },
+    "MemoryScope": {
+      "description": "Whether memory is isolated per user, shared, or global.",
+      "enum": [
+        "per_user",
+        "shared",
+        "global"
+      ],
+      "title": "MemoryScope",
+      "type": "string"
+    },
+    "MemoryType": {
+      "description": "Category of memory mechanism.",
+      "enum": [
+        "conversation_history",
+        "vector_store",
+        "key_value_store",
+        "relational_db",
+        "knowledge_graph",
+        "session_cache",
+        "other"
+      ],
+      "title": "MemoryType",
+      "type": "string"
+    },
+    "CapabilityFactSnapshot": {
+      "additionalProperties": false,
+      "description": "One immutable, content-addressed pre-LLM profile/fact reading.",
+      "properties": {
+        "profile": {
+          "$ref": "#/$defs/CapabilityProfile"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/EvaluatedFactEvidence"
+          },
+          "title": "Facts",
+          "type": "array"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile",
+        "facts",
+        "snapshot_digest"
+      ],
+      "title": "CapabilityFactSnapshot",
+      "type": "object"
+    },
+    "CapabilityProfile": {
+      "description": "Capability profile artifact for a system under assessment.\n\nStage 1 fields (required) determine threat scope.\nStage 2 fields (optional) determine scenario specificity.\n\nBoolean capability flags (``has_persistent_memory``, ``multi_agent``,\n``hitl``) are computed properties derived solely from ``kc_subcodes``.\nThey cannot be set directly.  Legacy YAML profiles that include these\nfields will have them silently stripped with a deprecation warning.",
+      "properties": {
+        "zones_active": {
+          "description": "Schneider zones active in the system. Minimum ['input', 'reasoning']. Other zones: 'tool_execution', 'memory', 'inter_agent'.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Zones Active",
+          "type": "array"
+        },
+        "entry_points": {
+          "description": "Attack entry points, each with a name, direction tag, and optional controllability. Direction is one of: input (attacker can send data in), output (system sends data out), bidirectional (both). Controllability is one of: direct (user types input), indirect (attacker influences data source), system (fully system-controlled), or null (inferred later).",
+          "items": {
+            "$ref": "#/$defs/EntryPoint"
+          },
+          "minItems": 1,
+          "title": "Entry Points",
+          "type": "array"
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceLevel"
+        },
+        "kc_subcodes": {
+          "description": "OWASP KC (Key Component) sub-codes identifying the system's granular capabilities. E.g. ['KC1.1', 'KC4.1', 'KC6.1.1']. Must contain at least one code.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Kc Subcodes",
+          "type": "array"
+        },
+        "tool_inventory": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ToolInventoryEntry"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tools and APIs the system can invoke.  Required when 'tool_execution' is in zones_active.  Prevents phantom tool hallucination in downstream scenario generation.",
+          "title": "Tool Inventory"
+        },
+        "entry_point_completeness": {
+          "$ref": "#/$defs/InventoryCompleteness",
+          "default": "inferred_partial",
+          "description": "Evidence/completeness state for the entry-point inventory. Inferred profiles are always 'inferred_partial'. Only operator-reviewed profiles may declare 'operator_confirmed_complete' with entry_point_evidence."
+        },
+        "entry_point_evidence": {
+          "description": "Explicit evidence sources for operator_confirmed_complete entry-point inventory. Required when entry_point_completeness is operator_confirmed_complete.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entry Point Evidence",
+          "type": "array"
+        },
+        "tool_inventory_completeness": {
+          "$ref": "#/$defs/InventoryCompleteness",
+          "default": "inferred_partial",
+          "description": "Evidence/completeness state for the tool inventory. Inferred profiles are always 'inferred_partial'. Only operator-reviewed profiles may declare 'operator_confirmed_complete' with tool_inventory_evidence."
+        },
+        "tool_inventory_evidence": {
+          "description": "Explicit evidence sources for operator_confirmed_complete tool inventory. Required when tool_inventory_completeness is operator_confirmed_complete.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tool Inventory Evidence",
+          "type": "array"
+        },
+        "tool_types": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ToolType"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tools and APIs the system can invoke (populated at moderate/thorough depth).",
+          "title": "Tool Types"
+        },
+        "data_flows": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DataFlow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Data flows between zones and components (populated at moderate/thorough depth).",
+          "title": "Data Flows"
+        },
+        "trust_boundaries": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TrustBoundary"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trust boundaries in the system architecture (populated at thorough depth).",
+          "title": "Trust Boundaries"
+        },
+        "memory_mechanisms": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MemoryMechanism"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Memory and state persistence mechanisms (populated at moderate/thorough depth).",
+          "title": "Memory Mechanisms"
+        },
+        "external_integrations": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ExternalIntegration"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "External systems the agent integrates with (populated at moderate/thorough depth).",
+          "title": "External Integrations"
+        }
+      },
+      "required": [
+        "zones_active",
+        "entry_points",
+        "confidence",
+        "kc_subcodes"
+      ],
+      "title": "CapabilityProfile",
+      "type": "object"
+    },
+    "DataFlow": {
+      "description": "A data flow between zones and components.",
+      "properties": {
+        "source": {
+          "description": "Origin of the data (e.g. 'user input', 'RAG store')",
+          "title": "Source",
+          "type": "string"
+        },
+        "source_zone": {
+          "description": "Schneider zone of the data source",
+          "title": "Source Zone",
+          "type": "string"
+        },
+        "destination": {
+          "description": "Where the data flows to (e.g. 'LLM context', 'tool parameter')",
+          "title": "Destination",
+          "type": "string"
+        },
+        "destination_zone": {
+          "description": "Schneider zone of the destination",
+          "title": "Destination Zone",
+          "type": "string"
+        },
+        "data_type": {
+          "description": "Nature of the data (e.g. 'user query', 'retrieved document')",
+          "title": "Data Type",
+          "type": "string"
+        },
+        "validated": {
+          "description": "Whether the data is validated/sanitized at this boundary",
+          "title": "Validated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source",
+        "source_zone",
+        "destination",
+        "destination_zone",
+        "data_type",
+        "validated"
+      ],
+      "title": "DataFlow",
+      "type": "object"
+    },
+    "EntryPoint": {
+      "description": "An entry point with a direction tag indicating data flow.\n\nDirection controls whether the entry point is considered as attacker\ningress during candidate expansion:\n- ``input``: attacker can send data in (included in candidate cross-product)\n- ``output``: system sends data out only (excluded from candidate cross-product)\n- ``bidirectional``: both input and output (included in candidate cross-product)\n\nControllability (optional) indicates how directly an attacker can\ninfluence data through this entry point:\n- ``direct``: attacker types input directly (e.g. chat prompt)\n- ``indirect``: attacker can influence a data source (e.g. RAG poisoning)\n- ``system``: fully system-controlled, not attacker-accessible\n- ``None``: inferred at runtime by keyword heuristic\n\nThe model is frozen (immutable) so that submitted metadata cannot be\nmutated after the filter protocol has been engaged.",
+      "properties": {
+        "name": {
+          "description": "Entry point description, e.g. 'user prompts via chat widget'.",
+          "title": "Name",
+          "type": "string"
+        },
+        "direction": {
+          "default": "bidirectional",
+          "description": "Data flow direction: 'input' (attacker can send data in), 'output' (system sends data out), or 'bidirectional' (both).",
+          "enum": [
+            "input",
+            "output",
+            "bidirectional"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "controllability": {
+          "anyOf": [
+            {
+              "enum": [
+                "direct",
+                "indirect",
+                "system"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Attacker controllability: 'direct' (user types input), 'indirect' (attacker can influence data source), 'system' (fully system-controlled). When None, inferred by keyword heuristic.",
+          "title": "Controllability"
+        },
+        "ingress_zone": {
+          "anyOf": [
+            {
+              "enum": [
+                "input",
+                "reasoning",
+                "tool_execution",
+                "memory",
+                "inter_agent"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical Schneider zone for initial ingress through this entry point. When None, inferred from direction: input\u2192input, bidirectional\u2192input, output\u2192output. This establishes canonical ingress-zone semantics in typed profile data rather than inferring from labels.",
+          "title": "Ingress Zone"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "EntryPoint",
+      "type": "object"
+    },
+    "ExternalIntegration": {
+      "description": "An external system or service the agent integrates with.\n\nThe ``integration_id`` is a computed canonical identity (deterministic,\nversioned, 128-bit) derived from the canonical name and integration type.\nApplication-assigned \u2014 the LLM never invents IDs.",
+      "properties": {
+        "name": {
+          "description": "Name of the external system (e.g. 'CRM', 'payment gateway')",
+          "title": "Name",
+          "type": "string"
+        },
+        "integration_type": {
+          "$ref": "#/$defs/IntegrationType",
+          "description": "How the agent connects to this system"
+        },
+        "auth_method": {
+          "$ref": "#/$defs/AuthMethod",
+          "description": "Authentication mechanism used"
+        },
+        "data_sensitivity": {
+          "$ref": "#/$defs/DataSensitivity",
+          "description": "Sensitivity of data accessible through this integration"
+        }
+      },
+      "required": [
+        "name",
+        "integration_type",
+        "auth_method",
+        "data_sensitivity"
+      ],
+      "title": "ExternalIntegration",
+      "type": "object"
+    },
+    "MemoryMechanism": {
+      "description": "A memory and state persistence mechanism.",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/MemoryType",
+          "description": "Category of memory mechanism"
+        },
+        "scope": {
+          "$ref": "#/$defs/MemoryScope",
+          "description": "Whether memory is isolated per user, shared, or global"
+        },
+        "persistence": {
+          "$ref": "#/$defs/MemoryPersistence",
+          "description": "How long data persists"
+        },
+        "writable_by_agent": {
+          "description": "Whether the agent can write to this store (vs read-only retrieval)",
+          "title": "Writable By Agent",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "scope",
+        "persistence",
+        "writable_by_agent"
+      ],
+      "title": "MemoryMechanism",
+      "type": "object"
+    },
+    "ToolInventoryEntry": {
+      "description": "A tool in the system's tool inventory (Stage 1).\n\nLightweight description of a tool or API the system can invoke,\nextracted during Stage 1 capability profile inference.  Used to\nground downstream scenario generation \u2014 the LLM may only reference\ntools listed here, preventing phantom tool hallucination.\n\nThe ``tool_id`` is a computed canonical identity (deterministic,\nversioned, 128-bit) derived from the canonical tool name.\nApplication-assigned \u2014 the LLM never invents IDs.",
+      "properties": {
+        "name": {
+          "description": "Tool or API name",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "description": "What the tool does (one line)",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "title": "ToolInventoryEntry",
+      "type": "object"
+    },
+    "ToolType": {
+      "description": "A tool or API the system can invoke, with risk-relevant properties.",
+      "properties": {
+        "name": {
+          "description": "Tool or API name (e.g. 'database_query', 'send_email')",
+          "title": "Name",
+          "type": "string"
+        },
+        "zone": {
+          "description": "Schneider zone where this tool operates (typically 'tool_execution')",
+          "title": "Zone",
+          "type": "string"
+        },
+        "can_modify_state": {
+          "description": "Whether the tool can write/modify external systems",
+          "title": "Can Modify State",
+          "type": "boolean"
+        },
+        "data_sensitivity": {
+          "$ref": "#/$defs/DataSensitivity",
+          "description": "Sensitivity of data the tool can access"
+        },
+        "code_execution": {
+          "description": "Whether the tool can execute arbitrary code",
+          "title": "Code Execution",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "zone",
+        "can_modify_state",
+        "data_sensitivity",
+        "code_execution"
+      ],
+      "title": "ToolType",
+      "type": "object"
+    },
+    "TrustBoundary": {
+      "description": "A trust boundary in the system architecture.",
+      "properties": {
+        "name": {
+          "description": "Descriptive name for the boundary (e.g. 'user-to-LLM')",
+          "title": "Name",
+          "type": "string"
+        },
+        "from_zone": {
+          "description": "Schneider zone on the untrusted side",
+          "title": "From Zone",
+          "type": "string"
+        },
+        "to_zone": {
+          "description": "Schneider zone on the trusted side",
+          "title": "To Zone",
+          "type": "string"
+        },
+        "controls": {
+          "description": "Security controls at this boundary (e.g. 'input validation')",
+          "items": {
+            "type": "string"
+          },
+          "title": "Controls",
+          "type": "array"
+        },
+        "confidence": {
+          "$ref": "#/$defs/BoundaryConfidence",
+          "description": "Whether this boundary was explicit, inferred, or hypothesized"
+        }
+      },
+      "required": [
+        "name",
+        "from_zone",
+        "to_zone",
+        "confidence"
+      ],
+      "title": "TrustBoundary",
+      "type": "object"
+    },
+    "ProjectedStepRealization": {
+      "additionalProperties": false,
+      "description": "Per-projected-step canonical realization record on generated elements.",
+      "properties": {
+        "projected_step_id": {
+          "description": "Canonical projected step ID this record realizes.",
+          "minLength": 1,
+          "title": "Projected Step Id",
+          "type": "string"
+        },
+        "action_kind": {
+          "description": "Canonical action kind from the projected step.",
+          "minLength": 1,
+          "title": "Action Kind",
+          "type": "string"
+        },
+        "executor_role": {
+          "description": "Canonical executor role from the projected step.",
+          "minLength": 1,
+          "title": "Executor Role",
+          "type": "string"
+        },
+        "boundary_position": {
+          "description": "Canonical boundary position from the projected step.",
+          "minLength": 1,
+          "title": "Boundary Position",
+          "type": "string"
+        },
+        "resource_ref_ids": {
+          "description": "Concrete resource reference IDs for this step's resource_links.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource Ref Ids",
+          "type": "array"
+        },
+        "consumed_ref_ids": {
+          "description": "Consumed reference IDs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Consumed Ref Ids",
+          "type": "array"
+        },
+        "produced_ref_ids": {
+          "description": "Produced reference IDs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Produced Ref Ids",
+          "type": "array"
+        },
+        "produced_effect_ids": {
+          "description": "Produced effect IDs (subset of produced where kind == 'effect').",
+          "items": {
+            "type": "string"
+          },
+          "title": "Produced Effect Ids",
+          "type": "array"
+        },
+        "outcome_link_pc_ids": {
+          "description": "Observable outcome link postcondition IDs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Outcome Link Pc Ids",
+          "type": "array"
+        },
+        "postcondition_ids": {
+          "description": "Owned observable postcondition IDs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Postcondition Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "projected_step_id",
+        "action_kind",
+        "executor_role",
+        "boundary_position",
+        "resource_ref_ids",
+        "consumed_ref_ids",
+        "produced_ref_ids",
+        "produced_effect_ids",
+        "outcome_link_pc_ids",
+        "postcondition_ids"
+      ],
+      "title": "ProjectedStepRealization",
+      "type": "object"
     }
   }
 }

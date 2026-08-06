@@ -23,6 +23,8 @@ from scenario_forge.models.capability_profile import (
     compute_tool_id,
 )
 from scenario_forge.prompts import render_prompt
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -383,12 +385,26 @@ class TestPhantomToolValidation:
                     zone="input",
                     action="Inject prompt",
                     effect="Prompt accepted",
+                    projected_step_ids=("step.1",),
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
                 NarrativeStep(
                     step_number=2,
                     zone="tool_execution",
                     action="Invoke tool",
                     effect="Tool executes",
+                    projected_step_ids=("step.2",),
+                    realizations=make_realizations(
+                        ("step.2",),
+                        action_kind="observe",
+                        executor_role="system",
+                        boundary_position="inside",
+                    ),
                 ),
             ],
         )
@@ -438,15 +454,16 @@ class TestPhantomToolValidation:
         )
 
         return ScenarioEnvelope(
+            projection=make_projection_block(),
             scenario_id="scenario:v2:e57506e29f4fc074e28395ca4cfa61d98d4e927d906b3e176611aaead83608c0",
-            candidate_id="cand:v1:7e57c0de000000000000000000000000",
+            candidate_id="cand:v2:7e57c0de000000000000000000000000",
             initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             seed_id="AP-T2-01",
             generated_at=datetime.now(tz=UTC),
             generator_version="0.1.0",
             narrative=narrative,
             attack_tree=tree,
-            behavior_spec="Feature: Test",
+            behavior_spec=make_behavior_spec("Feature: Test"),
             faceting=faceting,
             priority=priority,
             generation=generation,

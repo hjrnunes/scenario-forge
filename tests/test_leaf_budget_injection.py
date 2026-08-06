@@ -16,6 +16,7 @@ from scenario_forge.models.scenario import (
     NarrativeStep,
 )
 from scenario_forge.pipeline.generate import _call_attack_tree
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -65,6 +66,13 @@ def _make_narrative() -> NarrativeLayer:
                 action="Craft malicious input",
                 effect="Input accepted",
                 control_point=None,
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )

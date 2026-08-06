@@ -15,8 +15,10 @@ from pydantic import BaseModel
 
 from scenario_forge.data.loaders import (
     load_attack_goals_taxonomy,
+    load_attack_patterns,
     load_risk_extraction,
 )
+from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
 from scenario_forge.data.validation import validate_risk_card_coherence
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.manifest import (
@@ -54,7 +56,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     is_attacker_accessible_ingress,
 )
-from scenario_forge.models.scenario import ScenarioEnvelope
+from scenario_forge.models.scenario import BehaviorSpec, ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     CandidateFunnel,
     CandidateTriple,
@@ -63,7 +65,6 @@ from scenario_forge.pipeline.candidates import (
     StageRecord,
     apply_rule_based_filter,
     cap_scenarios_per_pattern,
-    compute_candidate_id,
     expand_candidates,
     filter_candidates,
 )
@@ -101,6 +102,12 @@ from scenario_forge.pipeline.io import (
     write_use_case,
 )
 from scenario_forge.pipeline.profile import infer_capability_profile
+from scenario_forge.pipeline.projection import (
+    CapabilityFactSnapshot,
+    ProjectedCandidate,
+    capture_capability_snapshot,
+    project_authoritative_candidates,
+)
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, determine_threat_surface
 from scenario_forge.pipeline.validation import (
@@ -434,6 +441,9 @@ def _remediate_coverage_gaps(
     available_goals: list[dict] | None = None,
     goal_usage: Counter | None = None,
     early_quarantined_sids: set[str] | None = None,
+    *,
+    projected_by_pattern: dict[str, list[ProjectedCandidate]] | None = None,
+    capability_snapshot: CapabilityFactSnapshot | None = None,
 ) -> tuple[list[ScenarioEnvelope], list[str], int, int]:
     """Generate additional scenarios for entry points that received none.
 
@@ -524,9 +534,38 @@ def _remediate_coverage_gaps(
         # using the same canonical technique source as expansion
         # (ATLAS techniques, otherwise LAAF techniques).
         pinned_technique_ids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
-        remediation_candidate_id = compute_candidate_id(
-            seed.seed_id, ep_id or "", pinned_technique_ids
-        )
+
+        # 422o.4: Look up the authoritative projected candidate for
+        # remediation.  If no projection is available, remediation must
+        # remain explicitly unavailable — never fabricate from legacy
+        # seed fields.  Match by exact ingress entry_point_id, not
+        # pc_list[0].  Multiple matches are ambiguous — fail closed.
+        remediation_pc: ProjectedCandidate | None = None
+        if projected_by_pattern is not None and ep_id is not None:
+            pc_list = projected_by_pattern.get(seed.seed_id)
+            if pc_list:
+                matching = [
+                    pc for pc in pc_list if pc.canonical_ingress.entry_point_id == ep_id
+                ]
+                if len(matching) > 1:
+                    raise ScenarioForgeIntegrityError(
+                        f"Ambiguous projected candidates for remediation "
+                        f"pattern '{seed.seed_id}' with ingress "
+                        f"entry_point_id '{ep_id}': {len(matching)} matches. "
+                        f"Aborting run (422o.4: exact ingress must be unique)."
+                    )
+                remediation_pc = matching[0] if matching else None
+        if remediation_pc is None or capability_snapshot is None:
+            note = (
+                f"Remediation skipped for entry point '{ep_name}': "
+                f"no projected candidate for pattern '{seed.seed_id}' "
+                f"(422o.4: no projection, no generation)."
+            )
+            logger.warning("  %s", note)
+            generation_notes.append(note)
+            continue
+
+        remediation_candidate_id = remediation_pc.candidate_id
 
         # Fatal: duplicate candidate admission aborts the run.
         if remediation_candidate_id in attempted_candidate_ids:
@@ -559,6 +598,8 @@ def _remediate_coverage_gaps(
                 attack_goal=selected_goal,
                 run_id=run_id,
                 candidate_id=remediation_candidate_id,
+                projected_candidate=remediation_pc,
+                capability_snapshot=capability_snapshot,
             )
             envelope.candidate_filter = {
                 "candidate_id": remediation_candidate_id,
@@ -733,7 +774,9 @@ def _reconcile_artifacts(
     admitted_behavior_spec: dict[str, bool] = {}
     for s in scenarios:
         admitted_keys.add((s.scenario_id, s.candidate_id))
-        has_bs = s.behavior_spec is not None and isinstance(s.behavior_spec, str)
+        has_bs = s.behavior_spec is not None and isinstance(
+            s.behavior_spec, BehaviorSpec
+        )
         admitted_behavior_spec[s.scenario_id] = has_bs
 
     for receipt in write_receipts:
@@ -1543,10 +1586,81 @@ def run_pipeline(
                     len(filtered_seeds),
                     candidates_capped,
                 )
-        selected_count = len(filtered_seeds)
+        # --- Stage 3.6: Authoritative Projection (422o.4) ---
+        # Project qualified candidate-v2 records from the authoritative
+        # catalog.  Each generated scenario must receive a real
+        # ProjectedCandidate + CapabilityFactSnapshot — never a fabricated
+        # identity from legacy seed fields.
+        logger.info("[Stage 3.6] Projecting authoritative candidates...")
+        attack_pattern_records = list(load_attack_patterns().values())
+        taxonomy_resolver = load_taxonomy_resolver()
+        capability_snapshot = capture_capability_snapshot(profile)
+        projection_batch = project_authoritative_candidates(
+            attack_pattern_records,
+            taxonomy_resolver,
+            capability_snapshot,
+        )
+        # Build lookup: pattern_id → list[ProjectedCandidate]
+        projected_by_pattern: dict[str, list[ProjectedCandidate]] = {}
+        for pc in projection_batch.candidates:
+            projected_by_pattern.setdefault(pc.pattern_id, []).append(pc)
+        logger.info(
+            "  Projected %d candidates (%d infeasible, %d limited)",
+            len(projection_batch.candidates),
+            len(projection_batch.infeasibilities),
+            len(projection_batch.limitations),
+        )
+
+        # 422o.4: Prejoin filtered seeds to exactly one projected candidate
+        # before selected_count.  Seeds with zero exact-ingress matches are
+        # projection-stage rejections — excluded from selected, not silently
+        # skipped mid-loop.  Multiple matches are ambiguous — fatal.
+        projection_rejected_count = 0
+        joined_seeds: list[tuple[FilteredSeed, ProjectedCandidate]] = []
+        for fseed in filtered_seeds:
+            pc_list = projected_by_pattern.get(fseed.seed_id)
+            if not pc_list:
+                projection_rejected_count += 1
+                logger.warning(
+                    "  No projected candidate for pattern '%s' — "
+                    "excluded from selected (422o.4: no projection).",
+                    fseed.seed_id,
+                )
+                continue
+            matching_pcs = [
+                pc
+                for pc in pc_list
+                if pc.canonical_ingress.entry_point_id == fseed.entry_point_id
+            ]
+            if len(matching_pcs) > 1:
+                raise ScenarioForgeIntegrityError(
+                    f"Ambiguous projected candidates for pattern "
+                    f"'{fseed.seed_id}' with ingress "
+                    f"entry_point_id '{fseed.entry_point_id}': "
+                    f"{len(matching_pcs)} matches. "
+                    f"Aborting run (422o.4: exact ingress must be unique)."
+                )
+            if not matching_pcs:
+                projection_rejected_count += 1
+                logger.warning(
+                    "  No projected candidate for pattern '%s' with "
+                    "ingress entry_point_id '%s' — excluded from "
+                    "selected (422o.4: no exact projection match).",
+                    fseed.seed_id,
+                    fseed.entry_point_id,
+                )
+                continue
+            joined_seeds.append((fseed, matching_pcs[0]))
+        selected_count = len(joined_seeds)
+        if projection_rejected_count:
+            logger.info(
+                "  %d filtered seed(s) rejected at projection stage "
+                "(no exact ingress match).",
+                projection_rejected_count,
+            )
 
         # --- Stage 4: Scenario Generation ---
-        logger.info("[Stage 4] Generating %d scenarios...", len(filtered_seeds))
+        logger.info("[Stage 4] Generating %d scenarios...", selected_count)
         scenarios_dir = get_scenarios_dir(run_dir)
 
         # Reject non-empty scenarios directory at setup — at this minimal seam
@@ -1570,7 +1684,7 @@ def run_pipeline(
         write_receipts: list[dict] = []
 
         tracker = DiversityTracker()
-        total_seeds = len(filtered_seeds)
+        total_seeds = selected_count
 
         # Load attack goals taxonomy and filter to system-relevant sub-goals.
         try:
@@ -1595,9 +1709,9 @@ def run_pipeline(
             )
             available_goals = []
 
-        for i, fseed in enumerate(filtered_seeds, 1):
+        for i, (fseed, projected_candidate) in enumerate(joined_seeds, 1):
             label = f"{fseed.seed_id}: {fseed.attack_pattern_name}"
-            logger.info("  [%d/%d] %s...", i, total_seeds, label)
+            logger.info("  [%d/%d] %s...", i, selected_count, label)
 
             hints = tracker.get_diversity_hints(
                 seed_threat_id=fseed.threat_id,
@@ -1608,25 +1722,33 @@ def run_pipeline(
             )
 
             try:
+                # 422o.4: projected_candidate is prejoined before
+                # selected_count.  Its cand:v2 identity is authoritative —
+                # used for attempt, envelope, receipt, admitted, inventory.
+                # The filter candidate_id (fseed.candidate_id) is persisted
+                # separately in candidate_filter for provenance only.
+                authoritative_candidate_id = projected_candidate.candidate_id
+
                 # Fatal: duplicate candidate admission aborts the run.
-                if fseed.candidate_id in attempted_candidate_ids:
+                if authoritative_candidate_id in attempted_candidate_ids:
                     raise ScenarioForgeIntegrityError(
                         f"Duplicate candidate admission: candidate_id "
-                        f"'{fseed.candidate_id}' already attempted. Aborting run."
+                        f"'{authoritative_candidate_id}' already attempted. "
+                        f"Aborting run."
                     )
 
                 # Reserve candidate_id before LLM invocation — one attempt
                 # per candidate.  Record the attempt at reservation so it
                 # exists even if a failure occurs before the normal
                 # finalize site.
-                attempted_candidate_ids.add(fseed.candidate_id)
+                attempted_candidate_ids.add(authoritative_candidate_id)
                 attempted_count += 1
                 expected_scenario_id = compute_scenario_id(
-                    run_id, fseed.candidate_id, 1
+                    run_id, authoritative_candidate_id, 1
                 )
                 attempt_rec = _reserve_attempt(
                     attempts,
-                    candidate_id=fseed.candidate_id,
+                    candidate_id=authoritative_candidate_id,
                     scenario_id=expected_scenario_id,
                     phase=AttemptPhase.MAIN,
                 )
@@ -1648,11 +1770,16 @@ def run_pipeline(
                     prior_titles=tracker.prior_titles if tracker.prior_titles else None,
                     pinned_entry_point_id=fseed.entry_point_id,
                     run_id=run_id,
-                    candidate_id=fseed.candidate_id,
+                    candidate_id=authoritative_candidate_id,
+                    projected_candidate=projected_candidate,
+                    capability_snapshot=capability_snapshot,
                 )
                 # Attach candidate filter provenance data to the envelope.
+                # candidate_id is the authoritative projected candidate ID;
+                # filter_candidate_id preserves the filter-stage identity.
                 envelope.candidate_filter = {
-                    "candidate_id": fseed.candidate_id,
+                    "candidate_id": authoritative_candidate_id,
+                    "filter_candidate_id": fseed.candidate_id,
                     "entry_point_id": fseed.entry_point_id,
                     "pinned_entry_point": fseed.pinned_entry_point,
                     "pinned_technique_ids": list(fseed.pinned_technique_ids),
@@ -1673,13 +1800,15 @@ def run_pipeline(
                 # Pre-write identity verification: the returned envelope must
                 # carry the candidate_id we attempted and a scenario_id that
                 # matches compute_scenario_id(run_id, candidate_id, attempt).
-                if envelope.candidate_id != fseed.candidate_id:
+                if envelope.candidate_id != authoritative_candidate_id:
                     raise ScenarioForgeIntegrityError(
                         f"Returned envelope candidate_id '{envelope.candidate_id}' "
                         f"does not match attempted candidate_id "
-                        f"'{fseed.candidate_id}'. Aborting run."
+                        f"'{authoritative_candidate_id}'. Aborting run."
                     )
-                expected_sid = compute_scenario_id(run_id, fseed.candidate_id, 1)
+                expected_sid = compute_scenario_id(
+                    run_id, authoritative_candidate_id, 1
+                )
                 if envelope.scenario_id != expected_sid:
                     raise ScenarioForgeIntegrityError(
                         f"Returned envelope scenario_id '{envelope.scenario_id}' "
@@ -1704,7 +1833,7 @@ def run_pipeline(
                 # strict-forensic orphans.
                 _provisional_receipt = {
                     "scenario_id": envelope.scenario_id,
-                    "candidate_id": fseed.candidate_id,
+                    "candidate_id": authoritative_candidate_id,
                     "yaml_path": str(yaml_path),
                     "feature_path": str(feature_path) if feature_path else None,
                 }
@@ -1720,7 +1849,7 @@ def run_pipeline(
                         f"scenario '{envelope.scenario_id}': {exc}. Aborting run."
                     ) from exc
 
-                admitted_candidate_ids.add(fseed.candidate_id)
+                admitted_candidate_ids.add(authoritative_candidate_id)
                 admitted_scenario_ids.add(envelope.scenario_id)
                 scenarios.append(envelope)
                 main_admitted_count += 1
@@ -1784,7 +1913,7 @@ def run_pipeline(
         logger.info(
             "  %d/%d scenarios generated successfully",
             len(scenarios),
-            len(filtered_seeds),
+            selected_count,
         )
         if generation_notes:
             logger.info("  %d note(s) recorded", len(generation_notes))
@@ -1821,6 +1950,8 @@ def run_pipeline(
                     available_goals=available_goals,
                     goal_usage=tracker.goal_usage,
                     early_quarantined_sids=early_quarantined_sids,
+                    projected_by_pattern=projected_by_pattern,
+                    capability_snapshot=capability_snapshot,
                 )
             )
             rem_admitted = len(remediation_scenarios)
@@ -2079,6 +2210,7 @@ def run_pipeline(
             filter_submitted=filter_submitted,
             filter_accepted=filter_accepted,
             selected=selected_count,
+            projection_rejected=projection_rejected_count,
             main_attempted=selected_count,
             main_admitted=main_admitted_count,
             generation_failed=failed_count - rem_failed,

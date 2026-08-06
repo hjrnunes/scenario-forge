@@ -19,7 +19,7 @@ from scenario_forge.pipeline.generate import (
     compute_entry_point_affinity,
     get_overused_entry_points,
 )
-
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # compute_entry_point_affinity
@@ -92,7 +92,7 @@ class TestComputeEntryPointAffinity:
         )
         assert len(scores) == 3
         # All should have non-negative scores
-        for ep, score in scores.items():
+        for score in scores.values():
             assert 0.0 <= score <= 1.0
 
     def test_api_entry_point_zones_1_and_3(self):
@@ -274,7 +274,10 @@ class TestNarrativePromptIntegration:
 
     def _make_profile(self):
         """Create a minimal CapabilityProfile for testing."""
-        from scenario_forge.models.capability_profile import CapabilityProfile, ToolInventoryEntry
+        from scenario_forge.models.capability_profile import (
+            CapabilityProfile,
+            ToolInventoryEntry,
+        )
 
         return CapabilityProfile(
             zones_active=["input", "reasoning", "tool_execution"],
@@ -285,7 +288,9 @@ class TestNarrativePromptIntegration:
             ],
             confidence="high",
             kc_subcodes=["KC1.1", "KC6.1.1"],
-            tool_inventory=[ToolInventoryEntry(name="test_tool", description="A test tool")],
+            tool_inventory=[
+                ToolInventoryEntry(name="test_tool", description="A test tool")
+            ],
         )
 
     @patch("scenario_forge.pipeline.generate.LLMClient")
@@ -309,6 +314,13 @@ class TestNarrativePromptIntegration:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -361,6 +373,13 @@ class TestNarrativePromptIntegration:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -412,6 +431,13 @@ class TestNarrativePromptIntegration:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )
@@ -462,6 +488,13 @@ class TestNarrativePromptIntegration:
                     "zone": "input",
                     "action": "test",
                     "effect": "test",
+                    "projected_step_ids": ("step.1",),
+                    "realizations": make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 }
             ],
         )

@@ -17,6 +17,7 @@ from scenario_forge.models.capability_profile import (
     compute_trust_boundary_id,
     is_attacker_accessible_ingress,
 )
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     ACTOR_TYPES,
     ActorAccessProvenance,
@@ -34,6 +35,7 @@ from scenario_forge.pipeline.generate.constants import (
     ALL_ACTOR_TYPES,
 )
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
+from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
 
 
 def _make_entry_point(
@@ -342,7 +344,14 @@ class TestIngressAndDiversity:
         assert rendered_type in feasible
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestRetryRouting:
+    """Tests retry routing; _assemble_envelope is mocked so traceability
+    validation is patched to valid (covered by the dedicated suite)."""
+
     _PATCHES: ClassVar[list[str]] = [
         "scenario_forge.pipeline.generate._assemble_envelope",
         "scenario_forge.pipeline.generate._call_attack_tree",
@@ -375,7 +384,9 @@ class TestRetryRouting:
                 pinned_entry_point=ep.name,
                 pinned_entry_point_id=ep.entry_point_id,
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-                candidate_id="cand:v1:11111111111111111111111111111111",
+                candidate_id="",
+                projected_candidate=get_projected_candidate(),
+                capability_snapshot=get_test_snapshot(),
             )
         return mock_actor, assemble
 
@@ -463,7 +474,9 @@ class TestRetryRouting:
                 pinned_technique_ids=["AML.T0010"],
                 preferred_actor_type="adversarial-user",
                 run_id="20240101T120000_abcdef1234567890abcdef1234567890",
-                candidate_id="cand:v1:11111111111111111111111111111111",
+                candidate_id="",
+                projected_candidate=get_projected_candidate(),
+                capability_snapshot=get_test_snapshot(),
             )
         _, assemble_kwargs = assemble.call_args
         notes = assemble_kwargs.get("notes", [])

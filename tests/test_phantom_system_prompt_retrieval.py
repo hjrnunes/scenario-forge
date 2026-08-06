@@ -47,6 +47,8 @@ from scenario_forge.pipeline.validation import (
     _check_system_prompt_retrieval,
     validate_phantom_capabilities,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -73,6 +75,13 @@ def _make_envelope(
             zone="input",
             action=action,
             effect=step_effects[i],
+            projected_step_ids=(f"step.{i + 1}",),
+            realizations=make_realizations(
+                (f"step.{i + 1}",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         )
         for i, action in enumerate(step_actions)
     ]
@@ -160,14 +169,15 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
-        candidate_id="cand:v1:7e57c0de000000000000000000000000",
+        candidate_id="cand:v2:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec={},
+        behavior_spec=make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,

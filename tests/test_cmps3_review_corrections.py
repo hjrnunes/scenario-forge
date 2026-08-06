@@ -40,12 +40,14 @@ from scenario_forge.models.scenario import (
     ActorProfile,
     ArchitectureMatch,
     AttackComplexity,
+    BehaviorSpec,
     CallMetadata,
     CallName,
     CapabilityProfileRef,
     FacetingMetadata,
     GenerationMetadata,
     LikelihoodLevel,
+    NarrativeAccessRealization,
     NarrativeLayer,
     NarrativeStep,
     Priority,
@@ -57,6 +59,14 @@ from scenario_forge.models.scenario import (
     TaxonomyChain,
     TechniqueMaturity,
 )
+
+
+def _behavior_spec_with_text(gherkin_text: str) -> BehaviorSpec:
+    """Build a BehaviorSpec with explicit gherkin_text for byte-mismatch tests."""
+    return BehaviorSpec(actions=(), assertions=(), gherkin_text=gherkin_text)
+
+
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.pipeline.candidates import (
     CandidateFunnel,
     CandidateOrigin,
@@ -81,6 +91,31 @@ from scenario_forge.pipeline.generate.assembly import (
 )
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.projection_factory import (
+    get_canonical_ingress_id,
+    get_projected_candidate,
+    get_test_snapshot,
+    make_behavior_spec,
+    make_projection_block,
+)
+from tests.helpers.realization_helper import make_realizations
+
+
+@pytest.fixture(autouse=True)
+def _patch_projection_traceability_for_write_tests():
+    """Patch projection traceability validation to valid for this module.
+
+    These tests exercise write/replace atomicity, receipt reconciliation,
+    and remediation funnel equations — not projection traceability.  The
+    dedicated traceability suite covers the writer's fail-closed behaviour
+    on invalid projections.
+    """
+    with patch(
+        "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+        return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
+    ):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -88,18 +123,14 @@ from scenario_forge.pipeline.seeds import ScenarioSeed
 
 _VALID_RUN_ID = "20260101T000000_" + "a" * 32
 _VALID_LEGACY_RUN_ID = "a" * 32
-_VALID_CANDIDATE_ID = "cand:v1:" + "1" * 32
+_VALID_CANDIDATE_ID = "cand:v2:" + "1" * 32
 
 # Canonical entry_point_id for "user prompts (zone 1)" — the first entry
 # point in ``_make_profile()``.  Remediation now resolves entry_point_id
 # against the profile (cmps.9 correction 2), so tests must use the real
 # computed ID rather than a synthetic placeholder.
-_USER_PROMPT_EP_ID = compute_entry_point_id(
-    "user prompts (zone 1)", "bidirectional", None
-)
-_ADMIN_CONSOLE_EP_ID = compute_entry_point_id(
-    "admin console (zone 2)", "bidirectional", None
-)
+_USER_PROMPT_EP_ID = get_canonical_ingress_id()
+_ADMIN_CONSOLE_EP_ID = "ep:v1:22222222222222222222222200000002"
 
 
 def _make_ref(risk_id: str = "risk-1") -> RiskCardRef:
@@ -149,7 +180,7 @@ def _make_profile(
 
 def _make_envelope(
     scenario_id: str = "scenario:v2:8986bff34d530423761ccda45590e6f5c577814b6d647fd4a8001da76dd789b6",
-    behavior_spec: str | None = None,
+    behavior_spec=None,
     candidate_id: str = _VALID_CANDIDATE_ID,
     entry_point_id: str = "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ) -> ScenarioEnvelope:
@@ -187,6 +218,13 @@ def _make_envelope(
                 zone="input",
                 action="I craft a malicious prompt.",
                 effect="The system processes the input.",
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )
@@ -233,6 +271,7 @@ def _make_envelope(
         ],
     )
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
         candidate_id=candidate_id,
         initial_entry_point_id=entry_point_id,
@@ -253,7 +292,9 @@ def _make_envelope(
         ),
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec=behavior_spec if behavior_spec is not None else {},
+        behavior_spec=behavior_spec
+        if behavior_spec is not None
+        else make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,
@@ -301,7 +342,7 @@ class TestSafePairedArtifacts:
         created by this call must be cleaned up — no partial pair."""
         envelope = _make_envelope(
             scenario_id="scenario:v2:1503279b4d55cb662f6bab433d9a79ff2da62bfae1e1f0bf4d87ec7d93ea2a54",
-            behavior_spec="Feature: test\n  Scenario: test\n",
+            behavior_spec=make_behavior_spec("Feature: test\n  Scenario: test\n"),
         )
         original_open = Path.open
         call_count = 0
@@ -329,7 +370,7 @@ class TestSafePairedArtifacts:
         integrity error, and the pre-existing files must not be modified."""
         envelope = _make_envelope(
             scenario_id="scenario:v2:e52d5e8b4a98bf58090d37f04acbb0c9205c8e620edcbe166f1f963714598a54",
-            behavior_spec="Feature: test\n",
+            behavior_spec=make_behavior_spec("Feature: test\n"),
         )
         yaml_path = tmp_path / f"{envelope.scenario_id}.yaml"
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
@@ -373,7 +414,7 @@ class TestSafePairedArtifacts:
         feature_text = "Feature: test\n  Scenario: test\n"
         envelope = _make_envelope(
             scenario_id="scenario:v2:df5fe11e7673ab91f40604a8ced378a81198529cbe47faaec5585dba6388f1c7",
-            behavior_spec=feature_text,
+            behavior_spec=_behavior_spec_with_text(feature_text),
         )
         # Create initial artifacts.
         write_scenario_outputs(envelope, tmp_path)
@@ -382,7 +423,7 @@ class TestSafePairedArtifacts:
 
         # Modify envelope (e.g. add validation metadata) but keep
         # behavior_spec identical — feature bytes must be verified.
-        envelope.behavior_spec = feature_text  # same bytes
+        envelope.behavior_spec = _behavior_spec_with_text(feature_text)  # same bytes
         # Add validation to force YAML change.
         from scenario_forge.models.scenario import ValidationBlock
 
@@ -402,12 +443,12 @@ class TestSafePairedArtifacts:
         feature_text = "Feature: original\n"
         envelope = _make_envelope(
             scenario_id="scenario:v2:90b80a06586b377bafcaa855b16a683e07eff90975cd619e552f40e8aa7c20a0",
-            behavior_spec=feature_text,
+            behavior_spec=_behavior_spec_with_text(feature_text),
         )
         write_scenario_outputs(envelope, tmp_path)
 
         # Change behavior_spec to different bytes.
-        envelope.behavior_spec = "Feature: different\n"
+        envelope.behavior_spec = _behavior_spec_with_text("Feature: different\n")
         with pytest.raises(ScenarioForgeIntegrityError, match="Feature byte mismatch"):
             replace_scenario_outputs(
                 envelope, tmp_path, admitted_scenario_id=envelope.scenario_id
@@ -451,11 +492,14 @@ class TestCandidateIdReservation:
     """The candidate_id must be in attempted_candidate_ids before
     generate_scenario is called."""
 
+    @patch(
+        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
+    )
     @patch("scenario_forge.pipeline.runner.write_call_log")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     def test_candidate_id_reserved_before_llm(
-        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
     ):
         captured_ids = []
 
@@ -498,6 +542,8 @@ class TestCandidateIdReservation:
             admitted_scenario_ids=set(),
             write_receipts=[],
             attempts=[],
+            projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
+            capability_snapshot=get_test_snapshot(),
         )
 
         # The candidate_id passed to generate_scenario must already be
@@ -514,17 +560,18 @@ class TestCandidateIdReservation:
 class TestCallLogFailureAfterArtifact:
     """A call-log write failure after artifact creation must be fatal."""
 
+    @patch(
+        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
+    )
     @patch("scenario_forge.pipeline.runner.write_call_log")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     def test_call_log_failure_aborts(
-        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
     ):
-        # Compute the actual candidate_id that remediation will use.
-        seed = _make_seed(seed_id="AP-T1-01")
+        # Use the authoritative candidate_id that remediation will use.
         ep_id = _USER_PROMPT_EP_ID
-        pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
-        cand_id = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
+        cand_id = get_projected_candidate().candidate_id
         sid = compute_scenario_id(_VALID_RUN_ID, cand_id, 1)
         env = _make_envelope(
             scenario_id=sid,
@@ -559,6 +606,8 @@ class TestCallLogFailureAfterArtifact:
                 admitted_scenario_ids=set(),
                 write_receipts=[],
                 attempts=[],
+                projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
+                capability_snapshot=get_test_snapshot(),
             )
 
 
@@ -570,11 +619,14 @@ class TestCallLogFailureAfterArtifact:
 class TestRemediationFunnelEquations:
     """Remediation must produce exact attempted/admitted/failed counts."""
 
+    @patch(
+        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
+    )
     @patch("scenario_forge.pipeline.runner.write_call_log")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     def test_exact_attempted_admitted_failed(
-        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
     ):
         """2 uncovered EPs: one succeeds, one fails. Verify
         attempted=2, failed=1, admitted=1, write_receipts has 1."""
@@ -588,16 +640,17 @@ class TestRemediationFunnelEquations:
                 raise RuntimeError("LLM timeout")
             cid = kwargs["candidate_id"]
             sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
-            return (
-                _make_envelope(
-                    scenario_id=sid,
-                    candidate_id=cid,
-                    entry_point_id=kwargs.get(
-                        "pinned_entry_point_id", _USER_PROMPT_EP_ID
-                    ),
-                ),
-                [],
+            envelope = _make_envelope(
+                scenario_id=sid,
+                candidate_id=cid,
+                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
             )
+            pinned_ep_id = kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID)
+            envelope.narrative.access_realization = NarrativeAccessRealization(
+                initial_entry_point_id=pinned_ep_id,
+                responsible_step_number=1,
+            )
+            return envelope, []
 
         mock_generate.side_effect = gen
         mock_write.return_value = (tmp_path / "test.yaml", None)
@@ -617,20 +670,33 @@ class TestRemediationFunnelEquations:
         receipts: list[dict] = []
         attempts_list: list[AttemptRecord] = []
 
-        scenarios, _notes, attempted, failed = _remediate_coverage_gaps(
-            gaps,
-            seeds,
-            profile,
-            MagicMock(),
-            "test use case",
-            tmp_path,
-            run_id=_VALID_RUN_ID,
-            attempted_candidate_ids=set(),
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=receipts,
-            attempts=attempts_list,
-        )
+        from tests.helpers.projection_factory import get_second_projected_candidate
+
+        projected_t1 = get_projected_candidate()
+        projected_t2 = get_second_projected_candidate()
+        with patch(
+            "scenario_forge.pipeline.runner._pick_best_seed_for_entry_point",
+            side_effect=seeds,
+        ):
+            scenarios, _notes, attempted, failed = _remediate_coverage_gaps(
+                gaps,
+                seeds,
+                profile,
+                MagicMock(),
+                "test use case",
+                tmp_path,
+                run_id=_VALID_RUN_ID,
+                attempted_candidate_ids=set(),
+                admitted_candidate_ids=set(),
+                admitted_scenario_ids=set(),
+                write_receipts=receipts,
+                attempts=attempts_list,
+                projected_by_pattern={
+                    "AP-T1-01": [projected_t1],
+                    "AP-T2-01": [projected_t2],
+                },
+                capability_snapshot=get_test_snapshot(),
+            )
 
         assert attempted == 2
         assert failed == 1
@@ -957,7 +1023,7 @@ class TestInvalidIdentityInputs:
 
     def test_invalid_candidate_id_short_hex(self):
         with pytest.raises(ValueError, match="candidate_id"):
-            compute_scenario_id(_VALID_RUN_ID, "cand:v1:short", 1)
+            compute_scenario_id(_VALID_RUN_ID, "cand:v2:short", 1)
 
     def test_attempt_zero_rejected(self):
         with pytest.raises(ValueError, match="attempt"):
@@ -991,14 +1057,16 @@ class TestInvalidIdentityInputs:
 
 
 class TestRemediationCandidateId:
-    """The remediation candidate_id must be computed from the actual
-    pinned canonical technique tuple, not an empty set."""
+    """Remediation must preserve the authoritative projected identity."""
 
+    @patch(
+        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
+    )
     @patch("scenario_forge.pipeline.runner.write_call_log")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     def test_candidate_id_matches_pinned_techniques(
-        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
     ):
         captured_candidate_id = []
 
@@ -1027,6 +1095,7 @@ class TestRemediationCandidateId:
         )
         profile = _make_profile()
 
+        projected_candidate = get_projected_candidate()
         _remediate_coverage_gaps(
             gaps,
             [seed],
@@ -1040,10 +1109,11 @@ class TestRemediationCandidateId:
             admitted_scenario_ids=set(),
             write_receipts=[],
             attempts=[],
+            projected_by_pattern={"AP-T1-01": [projected_candidate]},
+            capability_snapshot=get_test_snapshot(),
         )
 
-        expected = compute_candidate_id(seed.seed_id, ep_id, seed.atlas_technique_ids)
-        assert captured_candidate_id[0] == expected
+        assert captured_candidate_id[0] == projected_candidate.candidate_id
 
 
 # ---------------------------------------------------------------------------
@@ -1145,7 +1215,7 @@ class TestWriteFailureAfterCreation:
         """If feature write() fails after both files are opened, both
         current-call files must be cleaned up."""
         envelope = _make_envelope(
-            behavior_spec="Feature: test\n  Scenario: test\n",
+            behavior_spec=make_behavior_spec("Feature: test\n  Scenario: test\n"),
         )
         original_open = Path.open
         call_count = [0]
@@ -1191,7 +1261,7 @@ class TestRaceTimeFileExistsConversion:
             write_scenario_outputs(envelope, tmp_path)
 
     def test_feature_race_file_exists_is_fatal(self, tmp_path: Path):
-        envelope = _make_envelope(behavior_spec="Feature: test\n")
+        envelope = _make_envelope(behavior_spec=make_behavior_spec("Feature: test\n"))
         feature_path = tmp_path / f"{envelope.scenario_id}.feature"
         # Pre-create only the feature file to trigger FileExistsError
         # on the second open('x') call.
@@ -1210,7 +1280,7 @@ class TestCleanupFailureFatal:
     """If cleanup of a current-call file fails, raise fatal integrity."""
 
     def test_cleanup_unlink_failure_is_fatal(self, tmp_path: Path):
-        envelope = _make_envelope(behavior_spec="Feature: test\n")
+        envelope = _make_envelope(behavior_spec=make_behavior_spec("Feature: test\n"))
         original_open = Path.open
 
         call_count = [0]
@@ -1337,11 +1407,14 @@ class TestRemediationLaafFallback:
     """Remediation must use ATLAS techniques, otherwise LAAF techniques,
     and pin exactly that tuple in the candidate_id."""
 
+    @patch(
+        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
+    )
     @patch("scenario_forge.pipeline.runner.write_call_log")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     def test_laaf_fallback_when_no_atlas(
-        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
     ):
         """When seed has no ATLAS techniques but has LAAF techniques,
         the candidate_id must be computed from LAAF techniques."""
@@ -1362,7 +1435,7 @@ class TestRemediationLaafFallback:
         mock_write.return_value = (tmp_path / "test.yaml", None)
 
         # Seed with no ATLAS but LAAF techniques.
-        seed = _make_seed(seed_id="AP-T3-01", technique_ids=())
+        seed = _make_seed(seed_id="AP-T1-01", technique_ids=())
         seed.laaf_technique_ids = ["LAAF.T001", "LAAF.T002"]
         seed.atlas_technique_ids = []
 
@@ -1375,6 +1448,7 @@ class TestRemediationLaafFallback:
         )
         profile = _make_profile()
 
+        projected_candidate = get_projected_candidate()
         _remediate_coverage_gaps(
             gaps,
             [seed],
@@ -1388,10 +1462,11 @@ class TestRemediationLaafFallback:
             admitted_scenario_ids=set(),
             write_receipts=[],
             attempts=[],
+            projected_by_pattern={"AP-T1-01": [projected_candidate]},
+            capability_snapshot=get_test_snapshot(),
         )
 
-        expected = compute_candidate_id(seed.seed_id, ep_id, seed.laaf_technique_ids)
-        assert captured_candidate_id[0] == expected
+        assert captured_candidate_id[0] == projected_candidate.candidate_id
 
 
 # ---------------------------------------------------------------------------#
@@ -1403,19 +1478,21 @@ class TestForgedReturnIdentity:
     """Returned envelope with wrong candidate_id or scenario_id must
     abort the run before writing."""
 
+    @patch(
+        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
+    )
     @patch("scenario_forge.pipeline.runner.write_call_log")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     def test_remediation_forged_candidate_id_fatal(
-        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
     ):
         """Remediation returned envelope with wrong candidate_id must
         raise ScenarioForgeIntegrityError, not write."""
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
         ep_id = _USER_PROMPT_EP_ID
-        pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
-        correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
-        wrong_cid = "cand:v1:22222222222222222222222222222222"
+        correct_cid = get_projected_candidate().candidate_id
+        wrong_cid = "cand:v2:22222222222222222222222222222222"
         correct_sid = compute_scenario_id(_VALID_RUN_ID, correct_cid, 1)
 
         mock_generate.return_value = (
@@ -1445,21 +1522,25 @@ class TestForgedReturnIdentity:
                 admitted_scenario_ids=set(),
                 write_receipts=[],
                 attempts=[],
+                projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
+                capability_snapshot=get_test_snapshot(),
             )
         mock_write.assert_not_called()
 
+    @patch(
+        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
+    )
     @patch("scenario_forge.pipeline.runner.write_call_log")
     @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
     @patch("scenario_forge.pipeline.runner.generate_scenario")
     def test_remediation_forged_scenario_id_fatal(
-        self, mock_generate, mock_write, mock_write_log, tmp_path: Path
+        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
     ):
         """Remediation returned envelope with wrong scenario_id must
         raise ScenarioForgeIntegrityError, not write."""
         seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
         ep_id = _USER_PROMPT_EP_ID
-        pinned_tids = seed.atlas_technique_ids or seed.laaf_technique_ids or []
-        correct_cid = compute_candidate_id(seed.seed_id, ep_id, pinned_tids)
+        correct_cid = get_projected_candidate().candidate_id
         wrong_sid = "scenario:v2:" + "f" * 64
 
         mock_generate.return_value = (
@@ -1489,6 +1570,8 @@ class TestForgedReturnIdentity:
                 admitted_scenario_ids=set(),
                 write_receipts=[],
                 attempts=[],
+                projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
+                capability_snapshot=get_test_snapshot(),
             )
         mock_write.assert_not_called()
 
@@ -1725,7 +1808,7 @@ class TestReceiptAdmissionExactness:
 
         sid = compute_scenario_id(_VALID_RUN_ID, _VALID_CANDIDATE_ID, 1)
         env = _make_envelope(scenario_id=sid, candidate_id=_VALID_CANDIDATE_ID)
-        wrong_cid = "cand:v1:22222222222222222222222222222222"
+        wrong_cid = "cand:v2:22222222222222222222222222222222"
         receipts = [
             {
                 "scenario_id": sid,
@@ -1773,12 +1856,14 @@ class TestReceiptAdmissionExactness:
         wrong_dir.mkdir()
         yaml_path = wrong_dir / f"{sid}.yaml"
         yaml_path.write_text("dummy", encoding="utf-8")
+        feature_path = wrong_dir / f"{sid}.feature"
+        feature_path.write_text("Feature: dummy\n", encoding="utf-8")
         receipts = [
             {
                 "scenario_id": sid,
                 "candidate_id": _VALID_CANDIDATE_ID,
                 "yaml_path": str(yaml_path),
-                "feature_path": None,
+                "feature_path": str(feature_path),
             }
         ]
         with pytest.raises(SIE, match="does not match canonical path"):
@@ -1801,12 +1886,14 @@ class TestReceiptAdmissionExactness:
         scenarios_dir.mkdir()
         wrong_path = scenarios_dir / f"{sid}.txt"
         wrong_path.write_text("dummy", encoding="utf-8")
+        feature_path = scenarios_dir / f"{sid}.feature"
+        feature_path.write_text("Feature: dummy\n", encoding="utf-8")
         receipts = [
             {
                 "scenario_id": sid,
                 "candidate_id": _VALID_CANDIDATE_ID,
                 "yaml_path": str(wrong_path),
-                "feature_path": None,
+                "feature_path": str(feature_path),
             }
         ]
         with pytest.raises(SIE, match="does not match canonical path"):
@@ -1838,7 +1925,7 @@ class TestLowercaseIdentityConsistency:
     def test_uppercase_candidate_id_rejected_by_assembly(self):
         from scenario_forge.pipeline.generate.assembly import _validate_candidate_id
 
-        upper = "cand:v1:" + "A" * 32
+        upper = "cand:v2:" + "A" * 32
         with pytest.raises(ValueError, match="lowercase"):
             _validate_candidate_id(upper)
 
@@ -1846,7 +1933,7 @@ class TestLowercaseIdentityConsistency:
         with pytest.raises(ValueError, match="lowercase"):
             compute_scenario_id(
                 _VALID_RUN_ID,
-                "cand:v1:" + "A" * 32,
+                "cand:v2:" + "A" * 32,
                 1,
             )
 
@@ -1862,7 +1949,7 @@ class TestLowercaseIdentityConsistency:
             ScenarioEnvelope.model_validate(
                 {
                     **_make_envelope().model_dump(mode="json"),
-                    "candidate_id": "cand:v1:" + "A" * 32,
+                    "candidate_id": "cand:v2:" + "A" * 32,
                 }
             )
 
@@ -1917,7 +2004,7 @@ class TestLowercaseIdentityConsistency:
 
         env = _make_envelope()
         env_dict = env.model_dump(mode="json")
-        env_dict["candidate_id"] = "cand:v1:" + "A" * 32
+        env_dict["candidate_id"] = "cand:v2:" + "A" * 32
 
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(env_dict, schema)
@@ -1938,7 +2025,7 @@ class TestCanonicalizeSingletonOrigins:
         identical serialized origins after canonicalization."""
         # Build two identical candidates with origins in reversed order.
         origin_forward = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0051", "AML.T0052", "AML.T0053"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0052", "AML.T0053"),
@@ -1958,7 +2045,7 @@ class TestCanonicalizeSingletonOrigins:
             transform_stage="rule_pruning",
         )
         origin_reverse = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0053", "AML.T0052", "AML.T0051"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0053", "AML.T0052"),
@@ -2010,7 +2097,7 @@ class TestCanonicalizeSingletonOrigins:
         """Two decisions with the same technique_id but different rules
         must sort by (technique_id, rule, reason), not technique_id alone."""
         origin_a = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0051", "AML.T0052"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0051",),
@@ -2030,7 +2117,7 @@ class TestCanonicalizeSingletonOrigins:
             transform_stage="rule_pruning",
         )
         origin_b = CandidateOrigin(
-            source_candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            source_candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             original_technique_ids=("AML.T0051", "AML.T0052"),
             applied_rule="_rule_a",
             removed_technique_ids=("AML.T0051",),

@@ -1,4 +1,4 @@
-You are a security analyst formalizing an attack narrative into a structured AND/OR attack tree. The narrative uses a five-zone model that divides an AI system into architectural layers: input surfaces, planning & reasoning, tool execution, memory & state, and inter-agent communication.
+You are a security analyst formalizing an attack narrative into a structured AND attack tree (scenario-forge-422o.4: OR nodes are prohibited in v1 — one concrete execution only). The narrative uses a five-zone model that divides an AI system into architectural layers: input surfaces, planning & reasoning, tool execution, memory & state, and inter-agent communication.
 
 ## Output Format
 Produce a YAML document with this structure:
@@ -10,7 +10,7 @@ goal: <concrete attacker objective contextualized to the use case>
 root:
   id: n1
   label: <action-oriented label, max 120 chars>
-  gate: AND|OR
+  gate: AND
   zone: <input|reasoning|tool_execution|memory|inter_agent>
   children:
     - id: n1.1
@@ -21,8 +21,10 @@ root:
 - Root node id must be "n1", children "n1.1", "n1.2", etc., grandchildren "n1.1.1", "n1.1.2", etc.
 - When `pinned_entry_point_id` is provided, every `initial_ingress` action MUST use that exact entry_point_id. Never invent, substitute, or select a different entry-point ID.
 - Tree depth: 2-5 levels.
-- Each node needs: id, label (action-oriented, max 120 chars), gate (AND/OR/LEAF), zone (one of: input, reasoning, tool_execution, memory, inter_agent).
-- LEAF nodes must have NO children. AND/OR nodes must have >= 2 children.
+- Each node needs: id, label (action-oriented, max 120 chars), gate (AND/LEAF — OR is prohibited in v1), zone (one of: input, reasoning, tool_execution, memory, inter_agent).
+- **Every LEAF node MUST include `projected_step_ids`** — a list of exact canonical projected step IDs from the Projection Constraints section below.  Use the opaque IDs verbatim; never invent, omit, or reorder them.  External precondition leaves may have an empty list.  Internal AND nodes MUST NOT have `projected_step_ids`.
+- **Every security-bearing LEAF node (non-empty `projected_step_ids`) MUST include `realizations`** — a list of per-step canonical realization records, one per `projected_step_id`.  Each record must echo the canonical `action_kind`, `executor_role`, `boundary_position`, `resource_ref_ids`, `consumed_ref_ids`, `produced_ref_ids`, `produced_effect_ids`, `outcome_link_pc_ids`, and `postcondition_ids` from the Projection Constraints for that step.  Copy these fields verbatim — never alter, omit, or fabricate them.  External precondition leaves have an empty `realizations` list.
+- LEAF nodes must have NO children. AND nodes must have >= 2 children. OR nodes are PROHIBITED in v1 — use AND for all internal decomposition.
 - Add optional fields where appropriate:
   - threat_id: OWASP Agentic Threat ID. Use ONLY these values:
       T1:  Memory Poisoning — corrupting short/long-term agent memory across sessions
@@ -51,7 +53,7 @@ root:
     to T1 for prompt injection — prompt injection that alters agent goals is T6, not T1.
     T1 is strictly about corrupting the agent's persistent or session memory stores.
   - technique_id: see Technique ID Constraint above
-  - tactic: MITRE ATLAS tactic phase ID (format: AML.TAnnnn). Assign when the node represents an action that aligns with a recognized ATLAS tactic phase. Optional for intermediate logical nodes (AND/OR gates representing conditions rather than actions). Valid values:
+  - tactic: MITRE ATLAS tactic phase ID (format: AML.TAnnnn). Assign when the node represents an action that aligns with a recognized ATLAS tactic phase. Optional for intermediate logical nodes (AND gates representing conditions rather than actions). Valid values:
       AML.TA0000: AI Model Access
       AML.TA0001: AI Attack Staging
       AML.TA0002: Reconnaissance
@@ -111,7 +113,7 @@ Assign technique_id from the pinned set to LEAF nodes where the technique's mech
 - Leaf nodes should describe concrete attacker actions, not system responses or observation steps.
 
 ### Gate-Type Semantics (INVARIANT)
-Use AND gates for nodes whose children are sequential prerequisites — all must succeed for the parent to succeed. Use OR gates for nodes whose children are alternative approaches — any one suffices. When the narrative describes steps that must happen in sequence (step A enables step B), the parent node MUST use AND. When the narrative describes alternative methods to achieve the same goal, the parent node MUST use OR.
+Use AND gates for all internal nodes — every child must succeed (sequential prerequisites). OR gates are PROHIBITED in v1 because the authoritative scenario tree represents one concrete execution only. When the narrative describes alternative methods, choose the one that matches the projection's total order and decompose it with AND.
 
 {% include '_tool_inventory.j2' %}
 {% if tool_inventory or external_integrations %}
@@ -140,7 +142,7 @@ The pinned entry point ID is `{{ pinned_entry_point_id }}`. Every `initial_ingre
 {% endif %}
 
 ### Typed Leaf Actions (INVARIANT — cmps.9)
-Every LEAF node MUST carry exactly one `action` field with a `kind` discriminator. Internal (AND/OR) nodes MUST NOT have an action. The action kind determines the node's zone requirements — labels are display prose only.
+Every LEAF node MUST carry exactly one `action` field with a `kind` discriminator. Internal AND nodes MUST NOT have an action. The action kind determines the node's zone requirements — labels are display prose only.
 
 Action kinds and their rules:
 1. `initial_ingress`: Attacker gains initial access. Required field: `entry_point_id` (from the Entry Points list above). Zone must be a valid Schneider zone reflecting entry-point semantics.
@@ -157,6 +159,18 @@ Example LEAF node YAML:
   gate: LEAF
   zone: input
   technique_id: AML.T0051
+  projected_step_ids: ["step.1"]
+  realizations:
+    - projected_step_id: "step.1"
+      action_kind: deliver
+      executor_role: attacker
+      boundary_position: crossing
+      resource_ref_ids: ["ep:v1:abc123..."]
+      consumed_ref_ids: []
+      produced_ref_ids: ["prompt_payload"]
+      produced_effect_ids: []
+      outcome_link_pc_ids: []
+      postcondition_ids: []
   action:
     kind: ai_system_action
 ```
@@ -168,6 +182,18 @@ Example tool invocation LEAF:
   gate: LEAF
   zone: tool_execution
   technique_id: AML.T0053
+  projected_step_ids: ["step.2"]
+  realizations:
+    - projected_step_id: "step.2"
+      action_kind: invoke
+      executor_role: system
+      boundary_position: inside
+      resource_ref_ids: ["tool:v1:def456..."]
+      consumed_ref_ids: ["prompt_payload"]
+      produced_ref_ids: ["db_records"]
+      produced_effect_ids: []
+      outcome_link_pc_ids: ["pc.2.1"]
+      postcondition_ids: ["pc.2.1"]
   action:
     kind: tool_invocation
     tool_id: tool:v1:abc123...
@@ -179,6 +205,8 @@ Example external precondition LEAF (no zone!):
   label: "Host phishing page on attacker infrastructure"
   gate: LEAF
   technique_id: AML.T0043
+  projected_step_ids: []
+  realizations: []
   action:
     kind: external_precondition
     access_provenance: phishing
@@ -194,7 +222,7 @@ The attack tree must be consistent with the upstream narrative and with the down
 
 ### Tree Complexity Calibration (PREFERENCE)
 Match tree depth and branching to the actual complexity of the attack:
-- Simple, direct attacks: depth 2-3, 3-5 nodes. Single OR gate at root with a few alternative approaches.
-- Multi-step attacks: depth 3-4, 5-8 nodes. Mix of AND (required steps) and OR (alternative paths) gates.
-- Sophisticated campaigns: depth 4-5, 8-12 nodes. Deep AND chains with OR alternatives at key decision points.
+- Simple, direct attacks: depth 2-3, 3-5 nodes. Single AND gate at root with a few sequential steps.
+- Multi-step attacks: depth 3-4, 5-8 nodes. AND gates throughout for sequential steps.
+- Sophisticated campaigns: depth 4-5, 8-12 nodes. Deep AND chains for multi-phase execution.
 Do NOT default to the same depth for every scenario.

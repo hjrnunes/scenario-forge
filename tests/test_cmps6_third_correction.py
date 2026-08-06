@@ -18,6 +18,7 @@ from scenario_forge.models.capability_profile import (
     compute_trust_boundary_id,
     deduplicate_trust_boundaries,
 )
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     ActorAccessProvenance,
     ActorProfile,
@@ -40,6 +41,8 @@ from scenario_forge.pipeline.generate.narrative import (
 from scenario_forge.pipeline.runner import _remediate_coverage_gaps, run_pipeline
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
+from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
+from tests.helpers.realization_helper import make_realizations
 from tests.test_actor_entry_point_validation import (
     _make_envelope,
     _make_indirect_profile,
@@ -151,7 +154,19 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
         entry_point=ep.name,
         zone_sequence=["input", "reasoning"],
         steps=[
-            NarrativeStep(step_number=1, zone="input", action="Inject", effect="Parse")
+            NarrativeStep(
+                step_number=1,
+                zone="input",
+                action="Inject",
+                effect="Parse",
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
+            )
         ],
         access_realization=NarrativeAccessRealization(
             initial_entry_point_id=ep.entry_point_id,
@@ -163,7 +178,7 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
     )
     template = _make_envelope(entry_point_id=ep.entry_point_id, access=access)
     template.actor_profile = actor
-    candidate_id = "cand:v1:11111111111111111111111111111111"
+    candidate_id = "cand:v2:11111111111111111111111111111111"
 
     def assemble(*args, narrative, **kwargs) -> ScenarioEnvelope:
         envelope = template.model_copy(deep=True)
@@ -212,6 +227,10 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
         patch(
             "scenario_forge.pipeline.generate._assemble_envelope", side_effect=assemble
         ),
+        patch(
+            "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+            return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
+        ),
     ):
         envelope, _ = generate_scenario(
             _seed(),
@@ -222,7 +241,9 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
             pinned_entry_point=ep.name,
             prior_titles=["Already Used"],
             run_id=RUN_ID,
-            candidate_id=candidate_id,
+            candidate_id="",
+            projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
     assert narrative_call.call_count >= 3
@@ -235,12 +256,18 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
 
 
 def test_remediation_ownership_gate_precedes_artifact_admission(tmp_path: Path) -> None:
-    profile = _make_profile()
+    # Use a "chat" entry point so its entry_point_id matches the
+    # projected candidate's canonical ingress — the runner now requires
+    # an exact ingress match before calling generate_scenario.
+    profile = _make_profile(
+        entry_points=[
+            EntryPoint(name="chat", direction="input", controllability="direct")
+        ]
+    )
     ep = profile.entry_points[0]
     seed = _seed()
-    candidate_id = __import__(
-        "scenario_forge.pipeline.candidates", fromlist=["compute_candidate_id"]
-    ).compute_candidate_id(seed.seed_id, ep.entry_point_id, [])
+    projected_candidate = get_projected_candidate()
+    candidate_id = projected_candidate.candidate_id
     envelope = _make_envelope(
         entry_point_id=ep.entry_point_id,
         access=ActorAccessProvenance(
@@ -279,6 +306,8 @@ def test_remediation_ownership_gate_precedes_artifact_admission(tmp_path: Path) 
             admitted_scenarios,
             receipts,
             [],
+            projected_by_pattern={"AP-T1-01": [projected_candidate]},
+            capability_snapshot=get_test_snapshot(),
         )
 
     write_outputs.assert_not_called()
@@ -295,17 +324,41 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
     profile: CapabilityProfile = _make_profile(entry_points=[first, second])
     seed = _seed()
 
-    def filtered(ep: EntryPoint, digit: str) -> FilteredSeed:
+    def filtered(source_seed: ScenarioSeed, ep: EntryPoint, digit: str) -> FilteredSeed:
         return FilteredSeed(
-            **seed.model_dump(),
+            **source_seed.model_dump(),
             pinned_entry_point=ep.name,
             pinned_technique_ids=("AML.T0051.000",),
             pinned_technique_names=("Prompt Injection",),
             entry_point_id=ep.entry_point_id,
-            candidate_id=f"cand:v1:{digit * 32}",
+            candidate_id=f"cand:v2:{digit * 32}",
         )
 
-    valid_seed, invalid_seed = filtered(first, "1"), filtered(second, "2")
+    second_seed = seed.model_copy(update={"seed_id": "AP-T2-01"})
+    valid_seed = filtered(seed, first, "1")
+    invalid_seed = filtered(second_seed, second, "2")
+    from scenario_forge.models.attack_pattern import EntryPointResourceReference
+
+    projected_t1 = get_projected_candidate().model_copy(
+        update={"candidate_id": valid_seed.candidate_id}
+    )
+    # projected_t2 must have a canonical ingress matching the "API"
+    # entry point so the runner's exact-ingress selection finds it.
+    projected_t2 = get_projected_candidate().model_copy(
+        update={
+            "pattern_id": "AP-T2-01",
+            "candidate_id": invalid_seed.candidate_id,
+            "canonical_ingress": EntryPointResourceReference(
+                kind="entry_point",
+                entry_point_id=second.entry_point_id,
+            ),
+        }
+    )
+    projection_batch = MagicMock(
+        candidates=[projected_t1, projected_t2],
+        infeasibilities=[],
+        limitations=[],
+    )
 
     def generate(fseed, *args, **kwargs):
         invalid = fseed is invalid_seed
@@ -399,6 +452,14 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
         ),
         patch("scenario_forge.pipeline.runner.generate_scenario", side_effect=generate),
         patch(
+            "scenario_forge.pipeline.runner.project_authoritative_candidates",
+            return_value=projection_batch,
+        ),
+        patch(
+            "scenario_forge.pipeline.runner.capture_capability_snapshot",
+            return_value=get_test_snapshot(),
+        ),
+        patch(
             "scenario_forge.pipeline.runner.analyze_coverage_gaps", side_effect=coverage
         ),
         patch(
@@ -416,6 +477,10 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
         patch(
             "scenario_forge.report.generator.generate_report",
             side_effect=lambda data, out_dir: Path(out_dir) / "report.html",
+        ),
+        patch(
+            "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+            return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
         ),
     ):
         result = run_pipeline("test", risk_path, mapping, tmp_path / "runs")

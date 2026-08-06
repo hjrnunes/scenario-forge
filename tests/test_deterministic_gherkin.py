@@ -9,7 +9,10 @@ Covers:
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
 
 from scenario_forge.models.attack_tree import (
     AiSystemAction,
@@ -25,7 +28,12 @@ from scenario_forge.models.capability_profile import (
     ToolInventoryEntry,
     compute_tool_id,
 )
-from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep, RiskCardRef
+from scenario_forge.models.scenario import (
+    BehaviorSpec,
+    NarrativeLayer,
+    NarrativeStep,
+    RiskCardRef,
+)
 from scenario_forge.pipeline.generate import (
     _ASSERTIONS_MARKER,
     THREAT_VIOLATION_CATEGORY,
@@ -34,7 +42,18 @@ from scenario_forge.pipeline.generate import (
     _collect_leaf_nodes_dfs,
     _enumerate_paths,
 )
+from scenario_forge.pipeline.generate.assembly import _build_projection_context
+from scenario_forge.pipeline.generate.gherkin import (
+    Call3Action,
+    Call3Assertion,
+    Call3Response,
+)
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.projection_factory import (
+    get_projected_candidate,
+    make_step_realizations,
+)
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -99,12 +118,26 @@ def _make_narrative() -> NarrativeLayer:
                 zone="input",
                 action="Submit crafted prompt",
                 effect="Prompt accepted by input handler",
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
                 zone="reasoning",
                 action="Exploit reasoning engine",
                 effect="Model generates deceptive output",
+                projected_step_ids=("step.2",),
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ],
     )
@@ -115,14 +148,20 @@ def _make_leaf(
     label: str,
     zone: str,
     technique_id: str | None = None,
+    *,
+    projected_step_ids: tuple[str, ...] = (),
+    realizations: tuple[Any, ...] = (),
+    action: Any = None,
 ) -> AttackTreeNode:
     return AttackTreeNode(
         id=node_id,
         label=label,
         gate=GateType.LEAF,
         zone=zone,
-        action=AiSystemAction(),
+        action=action or AiSystemAction(),
         technique_id=technique_id,
+        projected_step_ids=projected_step_ids,
+        realizations=realizations,
     )
 
 
@@ -600,6 +639,13 @@ class TestBuildGherkinTemplate:
                     zone="input",
                     action="Submit query",
                     effect="Query accepted",
+                    projected_step_ids=("step.1",),
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 ),
             ],
         )
@@ -689,170 +735,249 @@ class TestBuildGherkinTemplate:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Helper: projection-aligned Call 3 fixtures (422o.4)
+# ---------------------------------------------------------------------------
+
+
+def _make_projection_context():
+    """Build a projection context from the shared test projected candidate."""
+    return _build_projection_context(get_projected_candidate())
+
+
+def _make_tree_for_projection():
+    """Build a tree with leaves matching the projection's selected steps."""
+    candidate = get_projected_candidate()
+    selected = candidate.projection.selected_step_ids
+    leaves = [
+        _make_leaf(
+            f"n1.{i + 1}",
+            f"Action for {sid}",
+            "input" if i == 0 else "reasoning",
+            "AML.T0001" if i == 0 else None,
+            projected_step_ids=(sid,),
+            realizations=make_step_realizations((sid,)),
+        )
+        for i, sid in enumerate(selected)
+    ]
+    return AttackTree(
+        id="tree-AP-T1-01",
+        seed_id="AP-T1-01",
+        goal="Test attack",
+        root=AttackTreeNode(
+            id="n1",
+            label="Root",
+            gate=GateType.AND,
+            zone="input",
+            children=leaves,
+        ),
+    )
+
+
+def _make_call3_response():
+    """Build a valid Call3Response matching the projection."""
+    candidate = get_projected_candidate()
+    selected = candidate.projection.selected_step_ids
+    chain = candidate.projection.source_chain
+
+    actions = [
+        Call3Action(
+            action_id=f"ba-n1.{i + 1}",
+            projected_step_ids=(sid,),
+            source_leaf_id=f"n1.{i + 1}",
+            gherkin_keyword="When",
+            text=f"Perform action for {sid}",
+            realizations=make_step_realizations((sid,)),
+        )
+        for i, sid in enumerate(selected)
+    ]
+
+    assertions: list[Call3Assertion] = []
+    for step in chain.steps:
+        if step.step_id in set(selected):
+            for pc in step.observable_postconditions:
+                if pc.security_relevant:
+                    assertions.append(
+                        Call3Assertion(
+                            assertion_id=f"assert-{step.step_id}-{pc.postcondition_id}",
+                            source_step_ids=(step.step_id,),
+                            projected_postcondition_ids=(pc.postcondition_id,),
+                            text=f"Verify {pc.postcondition_id}",
+                        )
+                    )
+
+    return Call3Response(actions=actions, assertions=assertions)
+
+
+def _make_mock_client_call3(response: Call3Response | None = None) -> MagicMock:
+    """Create a mock LLM client that returns a Call3Response."""
+    result = MagicMock()
+    result.content = response or _make_call3_response()
+    result.prompt_tokens = 100
+    result.completion_tokens = 50
+    result.duration_ms = 1000
+    result.system_prompt = "test"
+    result.user_prompt = "test"
+    client = MagicMock()
+    client.complete.return_value = result
+    return client
+
+
+# ---------------------------------------------------------------------------
+
+
 class TestCallBehaviorSpecIntegration:
-    def test_splicing_produces_valid_gherkin(self):
-        """Template + LLM assertion block produces complete Gherkin."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = (
-            "Then the model generates deceptive outputs\n"
-            "But no content filter is triggered\n"
-            "* Misleading information appears in user responses\n"
-            "* Factual accuracy drops below baseline"
-        )
-        mock_result.prompt_tokens = 100
-        mock_result.completion_tokens = 50
-        mock_result.duration_ms = 1000
-        mock_result.system_prompt = "test"
-        mock_result.user_prompt = "test"
-        mock_client.complete.return_value = mock_result
+    """Test the structured Call 3 flow (422o.4: Call3Response → BehaviorSpec)."""
 
-        gherkin, _result = _call_behavior_spec(
+    def test_structured_response_produces_valid_behavior_spec(self):
+        """A valid Call3Response produces a BehaviorSpec with Gherkin text."""
+        client = _make_mock_client_call3()
+        spec, _result = _call_behavior_spec(
             seed=_make_seed(),
             narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
+            attack_tree=_make_tree_for_projection(),
             profile=_make_profile(),
-            client=mock_client,
-            use_case="Test chatbot system",
-            scenario_tag="abc123",
-        )
-
-        # Verify complete structure
-        assert "@id:abc123" in gherkin
-        assert "@misaligned-and-deceptive-behavior" in gherkin
-        assert "Feature: Deceptive Response Generation" in gherkin
-        assert "Background: Preconditions" in gherkin
-        assert "When Inject crafted prompt [AML.T0051] (input)" in gherkin
-        assert "And Exploit reasoning bias [AML.T0054] (reasoning)" in gherkin
-        assert "Then the model generates deceptive outputs" in gherkin
-        assert "But no content filter is triggered" in gherkin
-        assert "* Misleading information appears in user responses" in gherkin
-
-    def test_assertion_marker_is_replaced(self):
-        """The {ASSERTIONS} marker is fully replaced in the output."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "Then test assertion\nBut test but"
-        mock_result.prompt_tokens = 50
-        mock_result.completion_tokens = 20
-        mock_result.duration_ms = 500
-        mock_result.system_prompt = "test"
-        mock_result.user_prompt = "test"
-        mock_client.complete.return_value = mock_result
-
-        gherkin, _ = _call_behavior_spec(
-            seed=_make_seed(),
-            narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
-            profile=_make_profile(),
-            client=mock_client,
+            client=client,
             use_case="Test system",
             scenario_tag="abc123",
+            projection_context=_make_projection_context(),
         )
+        assert isinstance(spec, BehaviorSpec)
+        assert len(spec.actions) > 0
+        assert spec.gherkin_text
+        assert "Feature:" in spec.gherkin_text
 
-        assert _ASSERTIONS_MARKER not in gherkin
-
-    def test_returns_tuple_of_str_and_result(self):
-        """Return type contract: (str, LLMResult)."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "Then success\nBut no defense"
-        mock_result.prompt_tokens = 50
-        mock_result.completion_tokens = 20
-        mock_result.duration_ms = 500
-        mock_client.complete.return_value = mock_result
-
+    def test_returns_tuple_of_behavior_spec_and_result(self):
+        """Return type contract: (BehaviorSpec, LLMResult)."""
+        client = _make_mock_client_call3()
         result = _call_behavior_spec(
             seed=_make_seed(),
             narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
+            attack_tree=_make_tree_for_projection(),
             profile=_make_profile(),
-            client=mock_client,
+            client=client,
             use_case="Test",
             scenario_tag="abc123",
+            projection_context=_make_projection_context(),
         )
-
         assert isinstance(result, tuple)
         assert len(result) == 2
-        assert isinstance(result[0], str)
+        assert isinstance(result[0], BehaviorSpec)
 
-    def test_markdown_fence_stripped_from_llm_output(self):
-        """Code fences in LLM output are stripped before splicing."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = (
-            "```gherkin\nThen success criterion\nBut defense fails\n```"
-        )
-        mock_result.prompt_tokens = 50
-        mock_result.completion_tokens = 20
-        mock_result.duration_ms = 500
-        mock_client.complete.return_value = mock_result
-
-        gherkin, _ = _call_behavior_spec(
-            seed=_make_seed(),
-            narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
-            profile=_make_profile(),
-            client=mock_client,
-            use_case="Test",
-            scenario_tag="abc123",
-        )
-
-        assert "```" not in gherkin
-        assert "Then success criterion" in gherkin
-        assert "But defense fails" in gherkin
-
-    def test_empty_content_raises_value_error(self):
-        """Empty LLM output raises ValueError."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = ""
-        mock_client.complete.return_value = mock_result
-
-        try:
+    def test_missing_projection_context_raises(self):
+        """Call 3 without projection context raises ValueError."""
+        client = _make_mock_client_call3()
+        with pytest.raises(ValueError, match="projection context"):
             _call_behavior_spec(
                 seed=_make_seed(),
                 narrative=_make_narrative(),
-                attack_tree=_make_tree_simple(),
+                attack_tree=_make_tree_for_projection(),
                 profile=_make_profile(),
-                client=mock_client,
+                client=client,
                 use_case="Test",
                 scenario_tag="abc123",
             )
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "empty content" in str(e)
 
-    def test_llm_receives_skeleton_in_prompt(self):
-        """The LLM call receives the Gherkin skeleton in the user prompt."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "Then test\nBut test"
-        mock_result.prompt_tokens = 50
-        mock_result.completion_tokens = 20
-        mock_result.duration_ms = 500
-        mock_client.complete.return_value = mock_result
+    def test_altered_call3_action_rejected(self):
+        """422o.4: altering the Call3Response action to reference an
+        unprojected step is rejected.  The exact-ownership check catches
+        the mismatch before the global unprojected-step check."""
+        response = _make_call3_response()
+        # Corrupt: reference an unprojected step ID
+        # Use model_copy to bypass the model validator since we're
+        # testing the validation function, not the model constructor.
+        response.actions[0] = response.actions[0].model_copy(
+            update={"projected_step_ids": ("nonexistent.step",)}
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="do not exactly match source leaf"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
 
+    def test_nonexistent_leaf_id_rejected(self):
+        """422o.4: Call3Response with nonexistent tree leaf ID is rejected."""
+        response = _make_call3_response()
+        response.actions[0] = Call3Action(
+            action_id="ba-n9.9",
+            projected_step_ids=response.actions[0].projected_step_ids,
+            source_leaf_id="n9.9",
+            gherkin_keyword=response.actions[0].gherkin_keyword,
+            text=response.actions[0].text,
+            realizations=response.actions[0].realizations,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="nonexistent tree leaf"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_incomplete_step_coverage_rejected(self):
+        """422o.4: Call3Response that doesn't cover all projected steps is rejected.
+        The missing-mapped-leaf check fires before the global coverage check."""
+        response = _make_call3_response()
+        # Remove the last action to leave a step uncovered
+        response.actions = response.actions[:-1]
+        client = _make_mock_client_call3(response)
+        with pytest.raises(
+            ValueError, match="does not provide actions for mapped leaves"
+        ):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_llm_receives_projection_context_in_prompt(self):
+        """The LLM call receives projection context in the user prompt."""
+        client = _make_mock_client_call3()
         _call_behavior_spec(
             seed=_make_seed(),
             narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
+            attack_tree=_make_tree_for_projection(),
             profile=_make_profile(),
-            client=mock_client,
+            client=client,
             use_case="Test",
             scenario_tag="abc123",
+            projection_context=_make_projection_context(),
+        )
+        call_args = mock_client_complete_user_prompt(client)
+        assert (
+            "projection" in call_args.lower()
+            or "projected" in call_args.lower()
+            or "step" in call_args.lower()
         )
 
-        # Verify the LLM was called with the skeleton in the user prompt
-        call_args = mock_client.complete.call_args
-        user_prompt = call_args.kwargs.get(
-            "user_prompt", call_args[1] if len(call_args) > 1 else ""
-        )
-        if not user_prompt:
-            # Try positional args
-            user_prompt = call_args[1][1] if len(call_args[1]) > 1 else ""
-        # The user prompt should contain skeleton elements
-        assert "Feature:" in user_prompt or "Gherkin" in user_prompt
+
+def mock_client_complete_user_prompt(client: MagicMock) -> str:
+    """Extract the user_prompt from the client.complete call."""
+    call_args = client.complete.call_args
+    user_prompt = call_args.kwargs.get("user_prompt", "")
+    if not user_prompt:
+        # Try positional args
+        args = call_args[0]
+        if len(args) > 1:
+            user_prompt = args[1]
+    return user_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -860,72 +985,43 @@ class TestCallBehaviorSpecIntegration:
 # ---------------------------------------------------------------------------
 
 
-class TestAssertionIndentation:
-    """Verify that Then/But/* lines spliced into the Gherkin are 4-space indented."""
+class TestBehaviorSpecRendering:
+    """Verify that BehaviorSpec rendered from Call3Response has proper structure."""
 
-    def test_then_but_star_lines_indented(self):
-        """All Then/But/* assertion lines should be at 4-space indent."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = (
-            "Then the model generates deceptive outputs\n"
-            "But no content filter is triggered\n"
-            "* Misleading information appears in user responses\n"
-            "* Factual accuracy drops below baseline"
-        )
-        mock_result.prompt_tokens = 100
-        mock_result.completion_tokens = 50
-        mock_result.duration_ms = 1000
-        mock_result.system_prompt = "test"
-        mock_result.user_prompt = "test"
-        mock_client.complete.return_value = mock_result
-
-        gherkin, _ = _call_behavior_spec(
+    def test_rendered_gherkin_has_feature_and_steps(self):
+        """Gherkin rendered from BehaviorSpec contains Feature and step lines."""
+        client = _make_mock_client_call3()
+        spec, _ = _call_behavior_spec(
             seed=_make_seed(),
             narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
+            attack_tree=_make_tree_for_projection(),
             profile=_make_profile(),
-            client=mock_client,
-            use_case="Test chatbot system",
-            scenario_tag="abc123",
-        )
-
-        for line in gherkin.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith(("Then ", "But ", "* ")):
-                assert line.startswith("    "), (
-                    f"Assertion line not 4-space indented: {line!r}"
-                )
-
-    def test_but_star_not_at_column_zero(self):
-        """But and * continuation lines must not be at column 0."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = (
-            "Then attack succeeds\nBut defense is bypassed\n* Data exfiltrated"
-        )
-        mock_result.prompt_tokens = 50
-        mock_result.completion_tokens = 20
-        mock_result.duration_ms = 500
-        mock_result.system_prompt = "test"
-        mock_result.user_prompt = "test"
-        mock_client.complete.return_value = mock_result
-
-        gherkin, _ = _call_behavior_spec(
-            seed=_make_seed(),
-            narrative=_make_narrative(),
-            attack_tree=_make_tree_simple(),
-            profile=_make_profile(),
-            client=mock_client,
+            client=client,
             use_case="Test",
             scenario_tag="abc123",
+            projection_context=_make_projection_context(),
         )
+        assert "Feature:" in spec.gherkin_text
+        # Each action should appear in the rendered Gherkin
+        for action in spec.actions:
+            assert action.text in spec.gherkin_text
 
-        lines = gherkin.split("\n")
-        for line in lines:
-            if line.strip().startswith("But ") or line.strip().startswith("* "):
-                assert not line.startswith("But "), f"'But' at column 0: {line!r}"
-                assert not line.startswith("* "), f"'*' at column 0: {line!r}"
+    def test_assertions_use_then_keyword(self):
+        """Assertions in the BehaviorSpec use the 'Then' keyword."""
+        client = _make_mock_client_call3()
+        spec, _ = _call_behavior_spec(
+            seed=_make_seed(),
+            narrative=_make_narrative(),
+            attack_tree=_make_tree_for_projection(),
+            profile=_make_profile(),
+            client=client,
+            use_case="Test",
+            scenario_tag="abc123",
+            projection_context=_make_projection_context(),
+        )
+        for assertion in spec.assertions:
+            assert assertion.gherkin_keyword == "Then"
+            assert assertion.text in spec.gherkin_text
 
 
 # ---------------------------------------------------------------------------
@@ -1342,32 +1438,372 @@ class TestBuildGherkinTemplateOrGates:
 # ---------------------------------------------------------------------------
 
 
-class TestCallBehaviorSpecOrGates:
-    def test_all_assertion_markers_replaced_with_or_gates(self):
-        """All {ASSERTIONS} markers are replaced when tree has OR gates."""
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "Then the attack succeeds\nBut defenses fail"
-        mock_result.prompt_tokens = 100
-        mock_result.completion_tokens = 50
-        mock_result.duration_ms = 1000
-        mock_result.system_prompt = "test"
-        mock_result.user_prompt = "test"
-        mock_client.complete.return_value = mock_result
+class TestCallBehaviorSpecValidation:
+    """422o.4: Test Call 3 structured validation edge cases."""
 
-        gherkin, _ = _call_behavior_spec(
-            seed=_make_seed(),
-            narrative=_make_narrative(),
-            attack_tree=_make_tree_with_or_gate(),
-            profile=_make_profile(),
-            client=mock_client,
-            use_case="Test system",
-            scenario_tag="abc123",
+    def test_duplicate_action_id_rejected(self):
+        """Duplicate action IDs in Call3Response are rejected."""
+        response = _make_call3_response()
+        response.actions[1] = Call3Action(
+            action_id=response.actions[0].action_id,
+            projected_step_ids=response.actions[1].projected_step_ids,
+            source_leaf_id=response.actions[1].source_leaf_id,
+            gherkin_keyword=response.actions[1].gherkin_keyword,
+            text=response.actions[1].text,
+            realizations=response.actions[1].realizations,
         )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="Duplicate behavior action ID"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
 
-        assert _ASSERTIONS_MARKER not in gherkin
-        # Assertions should appear in both scenarios
-        import re
+    def test_assertion_unknown_postcondition_rejected(self):
+        """Assertion referencing an unknown postcondition is rejected."""
+        response = _make_call3_response()
+        if response.assertions:
+            response.assertions[0] = Call3Assertion(
+                assertion_id=response.assertions[0].assertion_id,
+                source_step_ids=response.assertions[0].source_step_ids,
+                projected_postcondition_ids=("nonexistent.pc",),
+                text=response.assertions[0].text,
+            )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="unknown postcondition"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
 
-        then_count = len(re.findall(r"Then the attack succeeds", gherkin))
-        assert then_count == 2, f"Expected 2 Then blocks, got {then_count}"
+
+# ---------------------------------------------------------------------------#
+# 422o.4 Review blocker #3: Call 3 exact ownership adversarial tests
+# ---------------------------------------------------------------------------#
+
+
+class TestCall3ExactOwnershipAdversarial:
+    """Adversarial tests for exact leaf ownership, deterministic IDs,
+    keywords, and realization equality in Call 3 validation."""
+
+    def test_reused_source_leaf_id_rejected(self):
+        """Two actions sourcing the same leaf must fail.
+        The duplicate action ID check fires first because both must use
+        the same deterministic ba-<leaf_id> ID."""
+        response = _make_call3_response()
+        # Copy first action's source_leaf_id to second action
+        first_source = response.actions[0].source_leaf_id
+        response.actions[1] = Call3Action(
+            action_id=f"ba-{first_source}",
+            projected_step_ids=response.actions[1].projected_step_ids,
+            source_leaf_id=first_source,
+            gherkin_keyword=response.actions[1].gherkin_keyword,
+            text=response.actions[1].text,
+            realizations=response.actions[1].realizations,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="Duplicate behavior action ID"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_arbitrary_action_id_rejected(self):
+        """Action ID not matching ba-<leaf_id> must fail."""
+        response = _make_call3_response()
+        response.actions[0] = Call3Action(
+            action_id="arbitrary-id",
+            projected_step_ids=response.actions[0].projected_step_ids,
+            source_leaf_id=response.actions[0].source_leaf_id,
+            gherkin_keyword=response.actions[0].gherkin_keyword,
+            text=response.actions[0].text,
+            realizations=response.actions[0].realizations,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(
+            ValueError, match="does not match deterministic expected ID"
+        ):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_wrong_keyword_rejected(self):
+        """Action with wrong Gherkin keyword for its leaf kind must fail."""
+        response = _make_call3_response()
+        # All leaves are AiSystemAction → "When"; try "Given"
+        response.actions[0] = Call3Action(
+            action_id=response.actions[0].action_id,
+            projected_step_ids=response.actions[0].projected_step_ids,
+            source_leaf_id=response.actions[0].source_leaf_id,
+            gherkin_keyword="Given",  # wrong — should be "When"
+            text=response.actions[0].text,
+            realizations=response.actions[0].realizations,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="does not match eligible keyword"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_wrong_owner_postcondition_rejected(self):
+        """Assertion with globally valid postcondition but wrong source step
+        must fail."""
+        response = _make_call3_response()
+        if response.assertions:
+            # Change source_step_ids to a different step
+            response.assertions[0] = Call3Assertion(
+                assertion_id=response.assertions[0].assertion_id,
+                source_step_ids=("step.1",),  # wrong owner
+                projected_postcondition_ids=response.assertions[
+                    0
+                ].projected_postcondition_ids,
+                text=response.assertions[0].text,
+            )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(
+            ValueError,
+            match="source_step_ids must exactly equal the postcondition owner",
+        ):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_cleared_realization_tuple_rejected(self):
+        """Clearing realization tuple fields must fail."""
+        response = _make_call3_response()
+        cleared = (
+            response.actions[0]
+            .realizations[0]
+            .model_copy(update={"produced_ref_ids": ()})
+        )
+        response.actions[0] = Call3Action(
+            action_id=response.actions[0].action_id,
+            projected_step_ids=response.actions[0].projected_step_ids,
+            source_leaf_id=response.actions[0].source_leaf_id,
+            gherkin_keyword=response.actions[0].gherkin_keyword,
+            text=response.actions[0].text,
+            realizations=(cleared,),
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="produced_ref_ids"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_duplicate_realization_record_rejected(self):
+        """Duplicate realization records in a Call3Action must fail."""
+        response = _make_call3_response()
+        reals = response.actions[0].realizations
+        # Use model_copy to bypass model validator; the validation
+        # function also checks for duplicate realization records.
+        response.actions[0] = response.actions[0].model_copy(
+            update={"realizations": reals + reals}
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="duplicate"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+
+# ---------------------------------------------------------------------------#
+# Adversarial tests for 422o.4 review blocker #3: exact tuple/ownership
+# ---------------------------------------------------------------------------#
+
+
+class TestCall3TupleOwnershipAdversarial:
+    """Adversarial tests for exact tuple equality and assertion identity."""
+
+    def test_reversed_action_projected_ids_rejected(self):
+        """Action with reversed multi-step projected_step_ids must fail.
+
+        Uses model_copy to bypass the leaf lookup, then swaps the order
+        of a two-step leaf's projected IDs so the tuple is reversed.
+        """
+        candidate = get_projected_candidate()
+        selected = list(candidate.projection.selected_step_ids)
+        if len(selected) < 2:
+            pytest.skip("Need ≥2 projected steps for reversal test")
+        # Build a leaf that maps to two steps
+        leaf = _make_leaf(
+            "n1.99",
+            "Multi-step leaf",
+            "input",
+            None,
+            projected_step_ids=(selected[0], selected[1]),
+            realizations=make_step_realizations((selected[0], selected[1])),
+        )
+        # Build a tree with this leaf plus a regular leaf (AND needs ≥2)
+        regular_leaf = _make_leaf(
+            "n1.1",
+            "Regular",
+            "input",
+            projected_step_ids=(selected[0],),
+            realizations=make_step_realizations((selected[0],)),
+        )
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="Test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                zone="input",
+                children=[regular_leaf, leaf],
+            ),
+        )
+        # Build response with reversed IDs
+        action = Call3Action(
+            action_id="ba-n1.99",
+            projected_step_ids=(selected[1], selected[0]),  # reversed
+            source_leaf_id="n1.99",
+            gherkin_keyword="When",
+            text="Reversed action",
+            realizations=make_step_realizations((selected[1], selected[0])),
+        )
+        response = Call3Response(
+            actions=[action],
+            assertions=[],
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="do not exactly match source leaf"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=tree,
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_arbitrary_assertion_id_rejected(self):
+        """Assertion ID not matching assert-<step>-<postcondition> must fail."""
+        response = _make_call3_response()
+        if not response.assertions:
+            pytest.skip("No assertions in test fixture")
+        # Keep valid source/postcondition but use arbitrary ID
+        a = response.assertions[0]
+        response.assertions[0] = Call3Assertion(
+            assertion_id="arbitrary-assert",
+            source_step_ids=a.source_step_ids,
+            projected_postcondition_ids=a.projected_postcondition_ids,
+            text=a.text,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(
+            ValueError, match="does not match deterministic expected ID"
+        ):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_extra_unrelated_source_step_rejected(self):
+        """Assertion with valid postcondition plus extra unrelated source
+        step must fail — source_step_ids must have exactly one element."""
+        response = _make_call3_response()
+        if not response.assertions:
+            pytest.skip("No assertions in test fixture")
+        a = response.assertions[0]
+        # Add an extra unrelated source step (two elements instead of one)
+        extra_step = "step.1" if a.source_step_ids[0] != "step.1" else "step.2"
+        response.assertions[0] = Call3Assertion(
+            assertion_id=a.assertion_id,
+            source_step_ids=(a.source_step_ids[0], extra_step),
+            projected_postcondition_ids=a.projected_postcondition_ids,
+            text=a.text,
+        )
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="exactly one.*owning step.*is required"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )
+
+    def test_omitted_assertion_coverage_rejected(self):
+        """Missing a security-relevant postcondition assertion must fail."""
+        response = _make_call3_response()
+        if not response.assertions:
+            pytest.skip("No assertions in test fixture")
+        # Remove all assertions
+        response.assertions = []
+        client = _make_mock_client_call3(response)
+        with pytest.raises(ValueError, match="does not cover security-relevant"):
+            _call_behavior_spec(
+                seed=_make_seed(),
+                narrative=_make_narrative(),
+                attack_tree=_make_tree_for_projection(),
+                profile=_make_profile(),
+                client=client,
+                use_case="Test",
+                scenario_tag="abc123",
+                projection_context=_make_projection_context(),
+            )

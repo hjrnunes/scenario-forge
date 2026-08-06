@@ -32,8 +32,8 @@ from scenario_forge.models.scenario import RiskCardRef
 from scenario_forge.pipeline.candidates import (
     BatchFilterResponse,
     CandidateTriple,
-    FilterProtocolError,
     FilteredSeed,
+    FilterProtocolError,
     FilterVerdict,
     _reconcile_filter_response,
     apply_rule_based_filter,
@@ -41,7 +41,6 @@ from scenario_forge.pipeline.candidates import (
     filter_candidates,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -321,9 +320,9 @@ class TestCandidateIdStability:
         assert id1 != id2
 
     def test_id_format(self):
-        """ID follows the cand:v1:<32 hex> format (128-bit digest)."""
+        """ID follows the cand:v2:<32 hex> format (128-bit digest)."""
         cid = compute_candidate_id("AP-T7-01", "ep:v1:abc123", ("AML.T0051",))
-        assert cid.startswith("cand:v1:")
+        assert cid.startswith("cand:v2:")
         hex_part = cid.split(":")[2]
         assert len(hex_part) == 32
         int(hex_part, 16)  # valid hex
@@ -339,7 +338,7 @@ class TestReconciliation:
     """_reconcile_filter_response validates against the exact submitted ID set."""
 
     def _make_submitted_ids(self) -> set[str]:
-        return {"cand:v1:aaa111", "cand:v1:bbb222", "cand:v1:ccc333"}
+        return {"cand:v2:aaa111", "cand:v2:bbb222", "cand:v2:ccc333"}
 
     def test_valid_response_accepted(self):
         """A correct response with all IDs passes reconciliation."""
@@ -347,13 +346,13 @@ class TestReconciliation:
             seed_id="AP-T7-01",
             verdicts=[
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:aaa111", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:bbb222", verdict="reject", rationale="no"
+                    candidate_id="cand:v2:bbb222", verdict="reject", rationale="no"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:ccc333", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:ccc333", verdict="accept", rationale="ok"
                 ),
             ],
         )
@@ -369,13 +368,13 @@ class TestReconciliation:
             seed_id="AP-T7-01",
             verdicts=[
                 FilterVerdict(
-                    candidate_id="cand:v1:ccc333", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:ccc333", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:aaa111", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:bbb222", verdict="reject", rationale="no"
+                    candidate_id="cand:v2:bbb222", verdict="reject", rationale="no"
                 ),
             ],
         )
@@ -391,13 +390,13 @@ class TestReconciliation:
             seed_id="AP-T7-99",
             verdicts=[
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:aaa111", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:bbb222", verdict="reject", rationale="no"
+                    candidate_id="cand:v2:bbb222", verdict="reject", rationale="no"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:ccc333", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:ccc333", verdict="accept", rationale="ok"
                 ),
             ],
         )
@@ -413,16 +412,16 @@ class TestReconciliation:
             seed_id="AP-T7-01",
             verdicts=[
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:aaa111", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:bbb222", verdict="reject", rationale="no"
+                    candidate_id="cand:v2:bbb222", verdict="reject", rationale="no"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:ccc333", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:ccc333", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:zzz999", verdict="accept", rationale="unknown"
+                    candidate_id="cand:v2:zzz999", verdict="accept", rationale="unknown"
                 ),
             ],
         )
@@ -438,16 +437,16 @@ class TestReconciliation:
             seed_id="AP-T7-01",
             verdicts=[
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:aaa111", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="reject", rationale="dup"
+                    candidate_id="cand:v2:aaa111", verdict="reject", rationale="dup"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:bbb222", verdict="reject", rationale="no"
+                    candidate_id="cand:v2:bbb222", verdict="reject", rationale="no"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:ccc333", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:ccc333", verdict="accept", rationale="ok"
                 ),
             ],
         )
@@ -463,10 +462,10 @@ class TestReconciliation:
             seed_id="AP-T7-01",
             verdicts=[
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:aaa111", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:bbb222", verdict="reject", rationale="no"
+                    candidate_id="cand:v2:bbb222", verdict="reject", rationale="no"
                 ),
             ],
         )
@@ -482,16 +481,16 @@ class TestReconciliation:
             seed_id="AP-T7-01",
             verdicts=[
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:aaa111", verdict="accept", rationale="ok"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:aaa111", verdict="reject", rationale="dup"
+                    candidate_id="cand:v2:aaa111", verdict="reject", rationale="dup"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:bbb222", verdict="reject", rationale="no"
+                    candidate_id="cand:v2:bbb222", verdict="reject", rationale="no"
                 ),
                 FilterVerdict(
-                    candidate_id="cand:v1:ccc333", verdict="accept", rationale="ok"
+                    candidate_id="cand:v2:ccc333", verdict="accept", rationale="ok"
                 ),
             ],
         )
@@ -538,7 +537,7 @@ class TestMetadataImmutability:
         """FilterVerdict with extra='forbid' rejects legacy entry_point field."""
         with pytest.raises(ValidationError):
             FilterVerdict(
-                candidate_id="cand:v1:abc",
+                candidate_id="cand:v2:abc",
                 verdict="accept",
                 rationale="ok",
                 entry_point="user prompts",
@@ -1198,7 +1197,7 @@ class TestImmutabilityAndIdValidation:
     def test_inconsistent_candidate_id_rejected(self):
         """Supplied candidate_id that doesn't match recomputation is rejected."""
         ep_id = compute_entry_point_id("user prompts", "input", None)
-        wrong_cand_id = "cand:v1:00000000000000000000000000000000"
+        wrong_cand_id = "cand:v2:00000000000000000000000000000000"
         with pytest.raises(ValidationError, match="candidate_id"):
             CandidateTriple(
                 seed_id="AP-T7-01",
@@ -1442,7 +1441,7 @@ class TestForgedModelCopyAndSnapshot:
         )
         # Forge a candidate with a wrong candidate_id via model_copy.
         forged = c.model_copy(
-            update={"candidate_id": "cand:v1:forged00000000000000000000"}
+            update={"candidate_id": "cand:v2:forged00000000000000000000"}
         )
         # The forged candidate has the wrong ID — model_validate should reject it.
         with pytest.raises(ValidationError, match="candidate_id"):
@@ -1476,7 +1475,7 @@ class TestForgedModelCopyAndSnapshot:
             technique_descs=("Desc 1", "Desc 2"),
         )
         profile = _make_profile()
-        passed, rejected, verdicts = apply_rule_based_filter([c], profile)
+        passed, rejected, _verdicts = apply_rule_based_filter([c], profile)
         # Supply chain technique should be pruned, candidate survives.
         assert len(passed) == 1
         assert len(rejected) == 0

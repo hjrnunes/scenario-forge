@@ -48,6 +48,8 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.validation import (
     validate_phantom_capabilities,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures: helpers to build minimal valid objects
@@ -76,6 +78,13 @@ def _make_envelope(
             zone="input",
             action=action,
             effect=step_effects[i],
+            projected_step_ids=(f"step.{i + 1}",),
+            realizations=make_realizations(
+                (f"step.{i + 1}",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         )
         for i, action in enumerate(step_actions)
     ]
@@ -167,14 +176,15 @@ def _make_envelope(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
-        candidate_id="cand:v1:11111111111111111111111111111111",
+        candidate_id="cand:v2:11111111111111111111111111111111",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec={},
+        behavior_spec=make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,
@@ -2155,11 +2165,12 @@ class TestV18CodeGenPatterns:
         )
 
     def test_gherkin_not_checked_when_none(self) -> None:
-        """No error when behavior_spec is None."""
+        """No phantom violation when behavior_spec gherkin_text is clean."""
         scenario = _make_envelope(
             step_actions=["I send a benign prompt."],
         )
-        scenario.behavior_spec = None
+        # behavior_spec is now always a BehaviorSpec; verify clean text
+        # does not trigger phantom violations.
         profile = _make_profile()
         result = validate_phantom_capabilities([scenario], profile)
 
@@ -2167,11 +2178,17 @@ class TestV18CodeGenPatterns:
         assert result.flagged_count == 0
 
     def test_gherkin_not_checked_when_dict(self) -> None:
-        """behavior_spec as dict is not string-scanned (opaque)."""
+        """BehaviorSpec gherkin_text without phantom patterns passes."""
+        from scenario_forge.models.scenario import BehaviorSpec as _BS
+
         scenario = _make_envelope(
             step_actions=["I send a benign prompt."],
         )
-        scenario.behavior_spec = {"steps": ["exploit code assembly"]}
+        scenario.behavior_spec = _BS(
+            actions=(),
+            assertions=(),
+            gherkin_text="Feature: benign\n  Scenario: benign\n    Given a benign step\n",
+        )
         profile = _make_profile()
         result = validate_phantom_capabilities([scenario], profile)
 

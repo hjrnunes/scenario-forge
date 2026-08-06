@@ -12,11 +12,21 @@ from typing import Any
 import yaml
 
 from scenario_forge.llm.client import LLMClient, LLMResult
-from scenario_forge.models.attack_tree import AttackTree
+from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode, GateType
 from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.projection_envelope import (
+    ArtifactRealizationMapping,
+    ArtifactStage,
+    AssertionRealizationMapping,
+    ProjectionEnvelopeBlock,
+    ProjectionTraceabilityResult,
+)
 from scenario_forge.models.scenario import (
     ActorProfile,
     ArchitectureMatch,
+    BehaviorAction,
+    BehaviorAssertion,
+    BehaviorSpec,
     CallMetadata,
     CallName,
     CapabilityProfileRef,
@@ -40,6 +50,11 @@ from scenario_forge.pipeline.generate.priority import (
 )
 from scenario_forge.pipeline.generate.tree import (
     _check_consistency,
+)
+from scenario_forge.pipeline.projection import (
+    CapabilityFactSnapshot,
+    ProjectedCandidate,
+    compute_derivation_context_digest,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.validation import (
@@ -89,13 +104,45 @@ class ScenarioForgeIntegrityError(Exception):
     """
 
 
+class ProjectionTraceabilityError(GenerationError):
+    """Typed fail-closed error for projection traceability violations.
+
+    Raised on the production generation path when
+    :func:`validate_projection_traceability` finds violations.  Carries
+    the typed :class:`ProjectionTraceabilityResult` for cmps.5 to
+    consume (retry/quarantine routing).  Generation does not retry
+    here; cmps.5 owns the retry/quarantine state machine.
+
+    This is a *recoverable* error (subclass of GenerationError): the
+    runner catches it per-scenario and continues to the next candidate.
+    """
+
+    def __init__(
+        self,
+        result: ProjectionTraceabilityResult,
+        scenario_id: str,
+        call_log_entries: list[dict] | None = None,
+        seed_id: str = "",
+    ) -> None:
+        detail = "; ".join(
+            f"[{v.stage.value}:{v.code.value}] {v.detail}" for v in result.violations
+        )
+        super().__init__(
+            f"Projection traceability violations for {scenario_id}: {detail}",
+            call_log_entries=call_log_entries,
+            seed_id=seed_id,
+        )
+        self.result = result
+        self.scenario_id = scenario_id
+
+
 # ---------------------------------------------------------------------------
 # Run identity and scenario ID
 # ---------------------------------------------------------------------------
 
 _SCENARIO_ID_VERSION = "v2"
 _RUN_ID_LEN = 48  # YYYYMMDDTHHMMSS_<32hex> = 128-bit entropy suffix
-_CANDIDATE_ID_PREFIX = "cand:v1:"
+_CANDIDATE_ID_PREFIX = "cand:v2:"
 _CANDIDATE_ID_HEX_LEN = 32
 
 
@@ -126,7 +173,7 @@ def _validate_run_id(run_id: str) -> None:
 
 
 def _validate_candidate_id(candidate_id: str) -> None:
-    """Validate that candidate_id follows cand:v1:<32-char lowercase hex> format."""
+    """Validate that candidate_id follows cand:v2:<32-char lowercase hex> format."""
     if not candidate_id or not candidate_id.startswith(_CANDIDATE_ID_PREFIX):
         raise ValueError(
             f"candidate_id must follow '{_CANDIDATE_ID_PREFIX}<32-char hex>'"
@@ -256,6 +303,397 @@ def _call_log_entry_error(
     }
 
 
+# ---------------------------------------------------------------------------#
+# Projection block construction from actual artifacts (422o.4)
+# ---------------------------------------------------------------------------#
+
+
+def _iter_leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
+    """Yield all leaf nodes in deterministic DFS order."""
+    if node.gate == GateType.LEAF:
+        return [node]
+    leaves: list[AttackTreeNode] = []
+    for child in node.children or []:
+        leaves.extend(_iter_leaves(child))
+    return leaves
+
+
+def build_behavior_spec_from_tree(
+    attack_tree: AttackTree,
+    block: ProjectionEnvelopeBlock,
+    gherkin_text: str | None = None,
+) -> BehaviorSpec:
+    """Construct a structured BehaviorSpec from tree leaves and projection.
+
+    Structured behavior actions are deterministically derived from
+    validated tree leaves (which carry ``projected_step_ids``), with stable
+    IDs of the form ``ba-<leaf_id>``.  Structured assertions are derived
+    from security-relevant postconditions of the projected steps, with
+    stable IDs of the form ``assert-<step_id>-<postcondition_id>``.
+
+    The Gherkin feature text is **deterministically rendered** from the
+    structured actions and assertions — not from an independently authored
+    LLM output.  This proves exact correspondence: every action/assertion
+    ID in the structure appears in the rendered Gherkin in the correct
+    order.  The LLM Call 3 output (``gherkin_text``) is cross-checked
+    against the deterministic rendering to ensure the LLM did not omit,
+    add, reorder, or fabricate actions/assertions.
+
+    Validation cross-checks the structured elements against the projection
+    block and the rendered Gherkin.
+    """
+    chain = block.projection.source_chain
+    selected = set(block.projection.selected_step_ids)
+
+    actions: list[BehaviorAction] = []
+    step_by_id = {s.step_id: s for s in chain.steps}
+    for leaf in _iter_leaves(attack_tree.root):
+        if not leaf.projected_step_ids:
+            continue
+        if not all(sid in selected for sid in leaf.projected_step_ids):
+            continue
+        # Derive text from the tree leaf's label/description.
+        text = leaf.label or leaf.id
+        if leaf.description:
+            text = leaf.description
+        # Get canonical semantics from the first mapped projected step.
+        first_step = step_by_id.get(leaf.projected_step_ids[0])
+        actions.append(
+            BehaviorAction(
+                action_id=f"ba-{leaf.id}",
+                projected_step_ids=leaf.projected_step_ids,
+                source_leaf_id=leaf.id,
+                gherkin_keyword="When",
+                text=text,
+                canonical_action_kind=(
+                    first_step.action_kind if first_step else "observe"
+                ),
+                canonical_executor_role=(
+                    first_step.executor_role if first_step else "system"
+                ),
+                canonical_boundary_position=(
+                    first_step.boundary_position if first_step else "inside"
+                ),
+            )
+        )
+
+    # Build assertions from security-relevant postconditions.
+    assertions: list[BehaviorAssertion] = []
+    sec_pcs = block.security_relevant_postconditions()
+    for step_id in block.projection.selected_step_ids:
+        pc_ids = sec_pcs.get(step_id, [])
+        if not pc_ids:
+            continue
+        # Get postcondition descriptions for assertion text.
+        step_obj = next((s for s in chain.steps if s.step_id == step_id), None)
+        pc_descs: list[str] = []
+        for pc_id in pc_ids:
+            pc = next(
+                (
+                    p
+                    for p in (step_obj.observable_postconditions if step_obj else [])
+                    if p.postcondition_id == pc_id
+                ),
+                None,
+            )
+            if pc is not None:
+                pc_descs.append(pc.description)
+            else:
+                pc_descs.append(pc_id)
+        assertion_text = "; ".join(pc_descs) if pc_descs else f"Verify {step_id}"
+        assertions.append(
+            BehaviorAssertion(
+                assertion_id=f"assert-{step_id}-{'-'.join(pc_ids)}",
+                source_step_ids=(step_id,),
+                projected_postcondition_ids=tuple(pc_ids),
+                gherkin_keyword="Then",
+                text=assertion_text,
+            )
+        )
+
+    # Build zone map from tree leaves for Gherkin zone annotations.
+    zone_map: dict[str, str] = {}
+    for leaf in _iter_leaves(attack_tree.root):
+        if leaf.projected_step_ids and leaf.zone is not None:
+            zone_map[f"ba-{leaf.id}"] = leaf.zone
+
+    rendered = render_gherkin_from_behavior_spec(actions, assertions, zone_map=zone_map)
+    return BehaviorSpec(
+        actions=tuple(actions),
+        assertions=tuple(assertions),
+        gherkin_text=rendered,
+    )
+
+
+def render_gherkin_from_behavior_spec(
+    actions: list[BehaviorAction],
+    assertions: list[BehaviorAssertion],
+    *,
+    zone_map: dict[str, str] | None = None,
+) -> str:
+    """Deterministically render Gherkin feature text from structured behavior.
+
+    This is the authoritative rendering: the structured actions and
+    assertions are the source of truth, and the Gherkin text is derived
+    from them.  This proves exact correspondence — every action/assertion
+    ID appears in the rendered text in the correct order.
+
+    When ``zone_map`` is supplied (mapping ``action_id`` → zone name),
+    zone annotations are included in the Gherkin step text as
+    ``(zone_name)`` suffixes, enabling zone-omission validation.
+    """
+    lines: list[str] = ["Feature: Projected scenario behavior", ""]
+
+    # Background with projection context (informational).
+    lines.append("  Background:")
+    lines.append("    Given a target AI system with projected attack steps")
+    lines.append("")
+
+    # Scenario outline with structured actions.
+    lines.append("  Scenario: Projected attack realization")
+    lines.append("")
+
+    # Render actions in order (Given/When steps).
+    for i, action in enumerate(actions):
+        zone_suffix = ""
+        if zone_map and action.action_id in zone_map:
+            zone_suffix = f" ({zone_map[action.action_id]})"
+        if i == 0:
+            lines.append(f"    {action.gherkin_keyword} {action.text}{zone_suffix}")
+        else:
+            lines.append(f"    And {action.text}{zone_suffix}")
+
+    # Render assertions (Then steps).
+    for assertion in assertions:
+        lines.append(f"    {assertion.gherkin_keyword} {assertion.text}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _build_projection_block(
+    candidate: ProjectedCandidate,
+    narrative: NarrativeLayer,
+    attack_tree: AttackTree | None,
+    behavior_spec: BehaviorSpec | str | None,
+    capability_snapshot: CapabilityFactSnapshot,
+) -> ProjectionEnvelopeBlock:
+    """Build a ProjectionEnvelopeBlock from a ProjectedCandidate and actual artifacts.
+
+    Realization mappings are derived deterministically from the actual
+    artifact fields (projected_step_ids on narrative steps and tree leaves,
+    structured behavior actions/assertions) — never from an independently
+    authored sidecar table.
+    """
+    # Build narrative realizations from actual narrative.steps
+    narrative_realizations: list[ArtifactRealizationMapping] = []
+    for step in narrative.steps:
+        if step.projected_step_ids:
+            narrative_realizations.append(
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.narrative,
+                    element_id=str(step.step_number),
+                    projected_step_ids=step.projected_step_ids,
+                )
+            )
+
+    # Build tree realizations from actual tree leaf projected_step_ids fields
+    tree_realizations: list[ArtifactRealizationMapping] = []
+    if attack_tree is not None:
+        for leaf in _iter_leaves(attack_tree.root):
+            if leaf.projected_step_ids:
+                tree_realizations.append(
+                    ArtifactRealizationMapping(
+                        artifact_stage=ArtifactStage.attack_tree,
+                        element_id=leaf.id,
+                        projected_step_ids=leaf.projected_step_ids,
+                    )
+                )
+
+    # Build behavior/assertion realizations from structured BehaviorSpec
+    behavior_realizations: list[ArtifactRealizationMapping] = []
+    assertion_realizations: list[AssertionRealizationMapping] = []
+    if isinstance(behavior_spec, BehaviorSpec):
+        for action in behavior_spec.actions:
+            behavior_realizations.append(
+                ArtifactRealizationMapping(
+                    artifact_stage=ArtifactStage.behavior,
+                    element_id=action.action_id,
+                    projected_step_ids=action.projected_step_ids,
+                )
+            )
+        for assertion in behavior_spec.assertions:
+            assertion_realizations.append(
+                AssertionRealizationMapping(
+                    element_id=assertion.assertion_id,
+                    source_step_ids=assertion.source_step_ids,
+                    projected_postcondition_ids=assertion.projected_postcondition_ids,
+                )
+            )
+
+    return ProjectionEnvelopeBlock(
+        projection=candidate.projection,
+        canonical_ingress=candidate.canonical_ingress,
+        ingress_controllability=candidate.ingress_controllability,
+        projected_mappings=candidate.projected_mappings,
+        capability_snapshot=capability_snapshot,
+        execution_requirements=candidate.execution_requirements,
+        requirement_derivation_version=candidate.requirement_derivation_version,
+        execution_requirements_digest=candidate.execution_requirements_digest,
+        derivation_context_digest=compute_derivation_context_digest(
+            candidate.projection.projection_digest,
+            candidate.projection.source_chain.pattern_id,
+            candidate.ingress_controllability,
+        ),
+        narrative_realizations=tuple(narrative_realizations),
+        tree_realizations=tuple(tree_realizations),
+        behavior_realizations=tuple(behavior_realizations),
+        assertion_realizations=tuple(assertion_realizations),
+    )
+
+
+def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
+    """Build the immutable projection constraints passed to every Call 0–3.
+
+    Each call receives the same full ordered selected steps, omissions/
+    condition decisions, execution requirements, bindings (with concrete
+    resource_ref values), exact opaque IDs, mappings, and canonical
+    ingress constraints—not another partial tuple of strings.
+    """
+    from scenario_forge.models.realization import (
+        derive_step_realization,
+        extract_resource_id,
+    )
+
+    chain = candidate.projection.source_chain
+    selected_step_ids = set(candidate.projection.selected_step_ids)
+    selected_steps = [step for step in chain.steps if step.step_id in selected_step_ids]
+
+    # Serialize concrete resource bindings with their resource_ref values.
+    bindings_by_slot = {b.slot_id: b for b in candidate.projection.bindings}
+    binding_by_slot = {b.slot_id: b.resource_ref for b in candidate.projection.bindings}
+
+    # Build canonical realization records per step — serialized as a nested
+    # "realization" field so validators can use ProjectedStepRealization.
+    # model_validate() instead of manually reconstructing fields.
+    step_realizations: dict[str, dict[str, Any]] = {}
+    for step in selected_steps:
+        r = derive_step_realization(step, binding_by_slot)
+        step_realizations[step.step_id] = r.model_dump(mode="json")
+
+    return {
+        "selected_steps": [
+            {
+                "step_id": step.step_id,
+                "order": step.order,
+                "action_kind": step.action_kind,
+                "executor_role": step.executor_role,
+                "boundary_position": step.boundary_position,
+                "attacker_controlled": step.attacker_controlled,
+                "requirement": step.requirement,
+                "resource_links": [
+                    {
+                        "slot_id": link.slot_id,
+                        "role": link.role,
+                        "trust_boundary_slot_id": link.trust_boundary_slot_id,
+                        "target_ingress_slot_id": link.target_ingress_slot_id,
+                        # Include the concrete resource_ref for this slot.
+                        "resource_ref": (
+                            bindings_by_slot[link.slot_id].resource_ref.model_dump(
+                                mode="json"
+                            )
+                            if link.slot_id in bindings_by_slot
+                            else None
+                        ),
+                        # Include the opaque resource ID for quick comparison.
+                        "resource_ref_id": (
+                            extract_resource_id(binding_by_slot[link.slot_id])
+                            if link.slot_id in binding_by_slot
+                            else ""
+                        ),
+                    }
+                    for link in step.resource_links
+                ],
+                "observable_postconditions": [
+                    {
+                        "postcondition_id": pc.postcondition_id,
+                        "description": pc.description,
+                        "security_relevant": pc.security_relevant,
+                        "terminal": pc.terminal,
+                    }
+                    for pc in step.observable_postconditions
+                ],
+                "observable_outcome_links": [
+                    {
+                        "postcondition_id": ol.postcondition_id,
+                        "observation": ol.observation,
+                        "binding_slot_id": ol.binding_slot_id,
+                    }
+                    for ol in step.observable_outcome_links
+                ],
+                "produced": [p.model_dump(mode="json") for p in step.produced],
+                "consumed": [c.model_dump(mode="json") for c in step.consumed],
+                # Canonical realization record (nested, for exact validation).
+                "realization": step_realizations.get(step.step_id, {}),
+            }
+            for step in selected_steps
+        ],
+        "selected_step_ids": list(candidate.projection.selected_step_ids),
+        "omitted_step_ids": [o.step_id for o in candidate.projection.omissions],
+        # Use projection.condition_results (full condition evaluations with
+        # evidence), not candidate.precondition_results (precondition-only).
+        "condition_results": [
+            {
+                "condition_step_id": cr.condition_step_id,
+                "result": cr.result,
+                "evidence": [e.model_dump(mode="json") for e in cr.evidence],
+            }
+            for cr in candidate.projection.condition_results
+        ],
+        "condition_evaluations": [
+            {
+                "step_id": pr.step_id,
+                "condition_id": pr.condition_id,
+                "result": pr.result,
+            }
+            for pr in candidate.precondition_results
+        ],
+        "execution_requirements": [
+            req.model_dump(mode="json") for req in candidate.execution_requirements
+        ],
+        "projected_mappings": [
+            m.model_dump(mode="json") for m in candidate.projected_mappings
+        ],
+        "canonical_ingress": candidate.canonical_ingress.model_dump(mode="json"),
+        "ingress_controllability": candidate.ingress_controllability,
+        "resource_slots": [
+            {
+                "slot_id": slot.slot_id,
+                "kind": slot.kind,
+                "purpose": slot.purpose,
+                # Include the concrete resource_ref for each slot.
+                "resource_ref": (
+                    bindings_by_slot[slot.slot_id].resource_ref.model_dump(mode="json")
+                    if slot.slot_id in bindings_by_slot
+                    else None
+                ),
+            }
+            for slot in chain.resource_slots
+        ],
+        "bindings": [
+            {
+                "slot_id": b.slot_id,
+                "resource_ref": b.resource_ref.model_dump(mode="json"),
+            }
+            for b in candidate.projection.bindings
+        ],
+        "projection_digest": candidate.projection.projection_digest,
+        "pattern_id": chain.pattern_id,
+        "chain_id": chain.chain_id,
+        "chain_semantic_revision": chain.semantic_revision,
+        "chain_semantic_digest": chain.semantic_digest,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Envelope assembly
 # ---------------------------------------------------------------------------
@@ -266,20 +704,31 @@ def _assemble_envelope(
     profile: CapabilityProfile,
     narrative: NarrativeLayer,
     attack_tree: AttackTree | None,
-    behavior_spec: str | None,
+    behavior_spec: str | BehaviorSpec | None,
     call_metadata_list: list[CallMetadata],
     model_name: str,
     use_case: str,
     notes: list[str],
     pinned_entry_point_id: str,
+    *,
     actor_profile: ActorProfile | None = None,
     pinned_technique_ids: list[str] | None = None,
     pinned_entry_point: str | None = None,
     run_id: str = "",
     candidate_id: str = "",
     attempt: int = 1,
+    projected_candidate: ProjectedCandidate,
+    capability_snapshot: CapabilityFactSnapshot,
 ) -> ScenarioEnvelope:
     _validate_run_id(run_id)
+    # Derive candidate_id from projected candidate if not supplied.
+    if not candidate_id:
+        candidate_id = projected_candidate.candidate_id
+    elif candidate_id != projected_candidate.candidate_id:
+        raise ValueError(
+            f"candidate_id '{candidate_id}' does not match projected "
+            f"candidate identity '{projected_candidate.candidate_id}'"
+        )
     _validate_candidate_id(candidate_id)
     if attempt < 1:
         raise ValueError(f"attempt must be >= 1, got {attempt}")
@@ -344,16 +793,41 @@ def _assemble_envelope(
         "atlas_provenance_ids": seed.atlas_provenance_ids,
     }
 
+    # Build the immutable projection block from the ProjectedCandidate
+    # and actual generated artifacts (422o.4).
+    # projected_candidate is required (enforced by type signature).
+
+    # Call 3 now returns a structured BehaviorSpec directly (422o.4 blocker #5).
+    # The BehaviorSpec is validated against the projection in _call_behavior_spec
+    # and carried through to the envelope.  No deterministic replacement.
+    if not isinstance(behavior_spec, BehaviorSpec):
+        raise GenerationError(
+            "Call 3 must return a structured BehaviorSpec (422o.4). "
+            "Raw text behavior specs are no longer accepted."
+        )
+
+    projection_block = _build_projection_block(
+        projected_candidate,
+        narrative,
+        attack_tree,
+        behavior_spec,
+        capability_snapshot,
+    )
+
+    # Use the canonical ingress ID from the projection.
+    effective_entry_point_id = projected_candidate.canonical_ingress.entry_point_id
+
     return ScenarioEnvelope(
         scenario_id=scenario_id,
         candidate_id=candidate_id,
-        version=1,
+        version=3,
         generated_at=datetime.now(UTC),
         generator_version=_GENERATOR_VERSION,
         scenario_seed_metadata=scenario_seed_metadata,
         legitimate_task=use_case,
         actor_profile=actor_profile,
-        initial_entry_point_id=pinned_entry_point_id,
+        initial_entry_point_id=effective_entry_point_id,
+        projection=projection_block,
         narrative=narrative,
         attack_tree=attack_tree,
         behavior_spec=behavior_spec,
@@ -374,6 +848,7 @@ def generate_scenario(
     client: LLMClient,
     use_case: str,
     pinned_entry_point_id: str,
+    *,
     preferred_entry_point: str | None = None,
     excluded_entry_points: list[str] | None = None,
     excluded_patterns: list[str] | None = None,
@@ -389,6 +864,8 @@ def generate_scenario(
     run_id: str = "",
     candidate_id: str = "",
     attempt: int = 1,
+    projected_candidate: ProjectedCandidate,
+    capability_snapshot: CapabilityFactSnapshot,
 ) -> tuple[ScenarioEnvelope, list[dict]]:
     """Generate a complete ScenarioEnvelope from a single seed.
 
@@ -431,10 +908,14 @@ def generate_scenario(
             the Call 1 diversity section so the LLM avoids duplicate titles.
         run_id: Per-invocation collision-safe run ID (128-bit hex). Required
             for collision-safe scenario identity.
-        candidate_id: Stable canonical candidate identity (cand:v1:<128-bit hex>).
-            Required for collision-safe scenario identity.
+        candidate_id: Stable canonical candidate identity (cand:v2:<128-bit hex>).
+            Derived from the projected candidate when available; must match
+            the projected candidate's identity for collision-safe scenario identity.
         attempt: Generation attempt number (default 1). Incorporated into
             scenario_id so distinct generation attempts are not the same scenario.
+        projected_candidate: Qualified candidate-v2 projection (required).
+            Generation is paused during the projection migration; legacy
+            seed-only generation is no longer supported.
     """
     # Late imports: these names are looked up from the package namespace
     # so that unittest.mock.patch("scenario_forge.pipeline.generate.X")
@@ -446,17 +927,33 @@ def generate_scenario(
     _call_narrative = _gen._call_narrative
     _call_attack_tree = _gen._call_attack_tree
     _call_behavior_spec = _gen._call_behavior_spec
-    _strip_non_skeleton_techniques = _gen._strip_non_skeleton_techniques
-    _validate_technique_zone_compat = _gen._validate_technique_zone_compatibility
     _warn_dominant_threat_id_crossref_fn = _gen._warn_dominant_threat_id_crossref
     _assemble_envelope_fn = _gen._assemble_envelope
     _validate_realization = _gen.narrative.validate_narrative_access_realization
+
+    # Derive candidate identity from the projected candidate (422o.4).
+    # The projected candidate's cand:v2 identity is the authoritative
+    # identity; the caller-supplied candidate_id must match or be empty
+    # (in which case we use the projected candidate's identity).
+    if not candidate_id:
+        candidate_id = projected_candidate.candidate_id
+    elif candidate_id != projected_candidate.candidate_id:
+        raise ValueError(
+            f"candidate_id '{candidate_id}' does not match projected "
+            f"candidate identity '{projected_candidate.candidate_id}'"
+        )
 
     # Enforce identity inputs at the generation boundary.
     _validate_run_id(run_id)
     _validate_candidate_id(candidate_id)
     if attempt < 1:
         raise ValueError(f"attempt must be >= 1, got {attempt}")
+
+    # Build the immutable projection context that every Call 0–3 receives
+    # (422o.4).  All calls get the same full ordered selected steps,
+    # omissions/condition decisions, execution requirements, bindings,
+    # exact opaque IDs, mappings, and canonical ingress constraints.
+    projection_context = _build_projection_context(projected_candidate)
 
     call_metas: list[CallMetadata] = []
     scenario_id = compute_scenario_id(run_id, candidate_id, attempt)
@@ -497,6 +994,7 @@ def generate_scenario(
             pinned_technique_ids=pinned_technique_ids,
             pinned_entry_point=pinned_entry_point,
             pinned_entry_point_id=pinned_entry_point_id,
+            projection_context=projection_context,
         )
         if _div_limitation:
             _diversity_notes.append(
@@ -538,6 +1036,7 @@ def generate_scenario(
                 forced_actor_type=corrected_type,
                 pinned_entry_point=pinned_entry_point,
                 pinned_entry_point_id=pinned_entry_point_id,
+                projection_context=projection_context,
             )
             if _div_limitation:
                 _diversity_notes.append(
@@ -623,6 +1122,7 @@ def generate_scenario(
                 pinned_entry_point=pinned_entry_point,
                 pinned_entry_point_id=pinned_entry_point_id,
                 access_feedback=_access_feedback,
+                projection_context=projection_context,
             )
             if _div_limitation:
                 _diversity_notes.append(
@@ -676,6 +1176,7 @@ def generate_scenario(
             pinned_technique_ids=pinned_technique_ids,
             prior_titles=prior_titles,
             pinned_entry_point_id=pinned_entry_point_id,
+            projection_context=projection_context,
         )
     except Exception as exc:
         call_log_entries.append(
@@ -759,10 +1260,18 @@ def generate_scenario(
                 realization_feedback=(
                     _realization_feedback if _realization_violations else None
                 ),
+                projection_context=projection_context,
             )
             if pinned_entry_point and narrative.entry_point != pinned_entry_point:
-                narrative = narrative.model_copy(
-                    update={"entry_point": pinned_entry_point},
+                # On candidate-v2 paths (422o.4), entry-point overwrite is
+                # semantic repair and is prohibited.  The mismatch becomes
+                # a typed violation for cmps.5 to route.
+                logger.warning(
+                    "Narrative entry point '%s' does not match pinned '%s' "
+                    "for %s — not overwriting on candidate-v2 path (422o.4).",
+                    narrative.entry_point,
+                    pinned_entry_point,
+                    partial_scenario_id,
                 )
         except Exception as exc:  # noqa: BLE001 - retry must catch all
             logger.warning(
@@ -821,15 +1330,17 @@ def generate_scenario(
     # deferred to cmps.5 (lifecycle ownership).
 
     # --- Post-Call-1: pin narrative entry_point by construction ---
+    # On candidate-v2 paths (422o.4), entry-point overwrite is semantic
+    # repair and is prohibited.  The mismatch becomes a typed violation
+    # for cmps.5 to route.
     if pinned_entry_point and narrative.entry_point != pinned_entry_point:
-        logger.info(
-            "Entry-point override for %s: '%s' -> '%s'",
-            partial_scenario_id,
+        logger.warning(
+            "Narrative entry point '%s' does not match pinned '%s' "
+            "for %s — not overwriting on candidate-v2 path (422o.4). "
+            "Mismatch will be reported as a typed violation.",
             narrative.entry_point,
             pinned_entry_point,
-        )
-        narrative = narrative.model_copy(
-            update={"entry_point": pinned_entry_point},
+            partial_scenario_id,
         )
 
     # --- Call 2: Attack Tree (with consistency enforcement retries) ---
@@ -851,6 +1362,7 @@ def generate_scenario(
             pinned_technique_ids=pinned_technique_ids,
             pinned_technique_names=pinned_technique_names,
             pinned_entry_point_id=pinned_entry_point_id,
+            projection_context=projection_context,
         )
     except Exception as exc:
         call_log_entries.append(
@@ -864,9 +1376,13 @@ def generate_scenario(
     skeleton_ids = set(pinned_technique_ids) if pinned_technique_ids else set()
 
     def _strip_and_check(atree: AttackTree) -> list[str]:
-        """Strip invalid technique_ids, then run consistency checks."""
-        _strip_non_skeleton_techniques(atree, skeleton_ids)
-        _validate_technique_zone_compat(atree)
+        """Run consistency checks without semantic repair.
+
+        On candidate-v2 paths (422o.4), technique stripping and zone
+        compatibility stripping are semantic repair and are prohibited.
+        Invalid technique IDs become typed violations for cmps.5 to route.
+        Only consistency checks are run — no mutation of the tree.
+        """
         return _check_consistency(
             atree,
             narrative,
@@ -904,6 +1420,7 @@ def generate_scenario(
                 pinned_technique_names=pinned_technique_names,
                 consistency_feedback=feedback,
                 pinned_entry_point_id=pinned_entry_point_id,
+                projection_context=projection_context,
             )
         except Exception as exc:  # noqa: BLE001 - retry must catch all to log and break
             logger.warning(
@@ -946,6 +1463,7 @@ def generate_scenario(
             use_case,
             scenario_id,
             pinned_technique_ids=pinned_technique_ids,
+            projection_context=projection_context,
         )
     except Exception as exc:
         call_log_entries.append(
@@ -978,7 +1496,28 @@ def generate_scenario(
         run_id=run_id,
         candidate_id=candidate_id,
         attempt=attempt,
+        projected_candidate=projected_candidate,
+        capability_snapshot=capability_snapshot,
     )
+
+    # Run projection traceability validation on the production path (422o.4).
+    # The result is transient — not persisted on the envelope.  Violations
+    # are raised as a typed ProjectionTraceabilityError for cmps.5 to
+    # consume (retry/quarantine routing).  Generation does not retry here;
+    # cmps.5 owns the retry/quarantine state machine.  Fail-closed: an
+    # invalid scenario is never returned or persisted.
+    from scenario_forge.pipeline.projection_validation import (
+        validate_projection_traceability,
+    )
+
+    traceability_result = validate_projection_traceability(envelope)
+    if not traceability_result.valid:
+        raise ProjectionTraceabilityError(
+            result=traceability_result,
+            scenario_id=envelope.scenario_id,
+            call_log_entries=call_log_entries,
+            seed_id=seed.seed_id,
+        )
 
     # Update call log entries with the final scenario_id (replacing partial).
     for entry in call_log_entries:
@@ -1019,19 +1558,36 @@ def write_scenario_outputs(
     this call on ordinary failure so no partial pair is left behind.
     Pre-existing or orphan state is a fatal integrity error.
 
+    Validates projection traceability before writing so callers cannot
+    bypass generation validation (422o.4).
+
     Returns:
         Tuple of (envelope_path, feature_path_or_none).
 
     Raises:
         ScenarioForgeIntegrityError: If either path already exists, or
             a stem mismatch / orphan feature is detected.
+        ProjectionTraceabilityError: If projection traceability
+            validation fails.
     """
+    # Validate projection traceability before writing (422o.4 fail-closed).
+    from scenario_forge.pipeline.projection_validation import (
+        validate_projection_traceability,
+    )
+
+    traceability_result = validate_projection_traceability(envelope)
+    if not traceability_result.valid:
+        raise ProjectionTraceabilityError(
+            result=traceability_result,
+            scenario_id=envelope.scenario_id,
+        )
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     envelope_path = output_dir / f"{envelope.scenario_id}.yaml"
     feature_path: Path | None = None
     has_behavior_spec = envelope.behavior_spec is not None and isinstance(
-        envelope.behavior_spec, str
+        envelope.behavior_spec, BehaviorSpec
     )
     if has_behavior_spec:
         feature_path = output_dir / f"{envelope.scenario_id}.feature"
@@ -1061,7 +1617,7 @@ def write_scenario_outputs(
     )
     feature_text: str | None = None
     if has_behavior_spec:
-        feature_text = envelope.behavior_spec  # type: ignore[assignment]
+        feature_text = envelope.behavior_spec.gherkin_text  # type: ignore[union-attr]
 
     # Track files created by this call for cleanup on failure.
     # A path is registered as current-call-owned immediately after the
@@ -1144,7 +1700,7 @@ def replace_scenario_outputs(
         )
 
     has_behavior_spec = envelope.behavior_spec is not None and isinstance(
-        envelope.behavior_spec, str
+        envelope.behavior_spec, BehaviorSpec
     )
 
     if has_behavior_spec:
@@ -1154,7 +1710,7 @@ def replace_scenario_outputs(
             )
         # Verify feature bytes are unchanged — we must not rewrite feature.
         existing_feature_bytes = feature_path.read_bytes()
-        expected_feature_text = envelope.behavior_spec  # type: ignore[assignment]
+        expected_feature_text = envelope.behavior_spec.gherkin_text  # type: ignore[union-attr]
         if existing_feature_bytes != expected_feature_text.encode("utf-8"):
             raise ScenarioForgeIntegrityError(
                 f"Feature byte mismatch in guarded replace for "

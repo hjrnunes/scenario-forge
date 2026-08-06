@@ -7,8 +7,14 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from scenario_forge.llm.client import LLMResult
-from scenario_forge.manifest import AttemptDisposition, RunStatus, load_manifest
-from scenario_forge.models.capability_profile import ConfidenceLevel
+from scenario_forge.manifest import (
+    ArtifactRole,
+    AttemptDisposition,
+    RunStatus,
+    load_manifest,
+)
+from scenario_forge.models.capability_profile import ConfidenceLevel, EntryPoint
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import ActorAccessProvenance
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
 from scenario_forge.pipeline.coverage import CoverageGaps
@@ -16,6 +22,11 @@ from scenario_forge.pipeline.generate import compute_scenario_id
 from scenario_forge.pipeline.runner import run_pipeline
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
+from tests.helpers.projection_factory import (
+    get_canonical_ingress_id,
+    get_projected_candidate,
+    get_test_snapshot,
+)
 from tests.test_actor_entry_point_validation import _make_envelope, _make_profile
 
 
@@ -23,6 +34,11 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
     """Only admitted scenarios may cross the runner's eval/report boundary."""
     profile = _make_profile()
     profile.confidence = ConfidenceLevel.high
+    # Add a "chat" entry point matching the projected candidate's ingress
+    # so the early access gate can resolve the entry_point_id.
+    profile.entry_points.append(
+        EntryPoint(name="chat", direction="input", controllability="direct")
+    )
     entry_point = profile.entry_points[0]
 
     risk_ref = _make_envelope().faceting.risk_card
@@ -37,30 +53,45 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
         agentic_threat_ids=["T1"],
     )
 
-    def filtered(candidate_id: str) -> FilteredSeed:
+    def filtered(source_seed: ScenarioSeed, candidate_id: str) -> FilteredSeed:
         return FilteredSeed(
-            **seed.model_dump(),
+            **source_seed.model_dump(),
             pinned_entry_point=entry_point.name,
             pinned_technique_ids=("AML.T0051.000",),
             pinned_technique_names=("Prompt Injection",),
-            entry_point_id=entry_point.entry_point_id,
+            entry_point_id=get_canonical_ingress_id(),
             candidate_id=candidate_id,
         )
 
-    valid_seed = filtered("cand:v1:11111111111111111111111111111111")
-    invalid_seed = filtered("cand:v1:22222222222222222222222222222222")
+    second_seed = seed.model_copy(update={"seed_id": "AP-T2-01"})
+    valid_seed = filtered(seed, "cand:v2:11111111111111111111111111111111")
+    invalid_seed = filtered(second_seed, "cand:v2:22222222222222222222222222222222")
+    projected_t1 = get_projected_candidate().model_copy(
+        update={"candidate_id": valid_seed.candidate_id}
+    )
+    projected_t2 = get_projected_candidate().model_copy(
+        update={
+            "pattern_id": "AP-T2-01",
+            "candidate_id": invalid_seed.candidate_id,
+        }
+    )
+    projection_batch = MagicMock(
+        candidates=[projected_t1, projected_t2],
+        infeasibilities=[],
+        limitations=[],
+    )
 
     from scenario_forge.models.scenario import NarrativeAccessRealization
 
     valid_access = ActorAccessProvenance(
-        initial_entry_point_id=entry_point.entry_point_id,
+        initial_entry_point_id=get_canonical_ingress_id(),
         ingress_mode="direct",
         access_class="public",
     )
     # This is structurally well-formed and ownership-consistent, but Rule 12
     # rejects supply-chain access paired with direct ingress.
     invalid_access = ActorAccessProvenance(
-        initial_entry_point_id=entry_point.entry_point_id,
+        initial_entry_point_id=get_canonical_ingress_id(),
         ingress_mode="direct",
         access_class="supply_chain",
     )
@@ -68,14 +99,14 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
     def generate(fseed, *args, **kwargs):
         access = valid_access if fseed is valid_seed else invalid_access
         envelope = _make_envelope(
-            entry_point_id=entry_point.entry_point_id,
+            entry_point_id=get_canonical_ingress_id(),
             access=deepcopy(access),
         )
         # Valid scenario must carry a matching access_realization so it
         # passes the cmps.6 narrative realization semantic check.
         if fseed is valid_seed:
             envelope.narrative.access_realization = NarrativeAccessRealization(
-                initial_entry_point_id=entry_point.entry_point_id,
+                initial_entry_point_id=get_canonical_ingress_id(),
                 responsible_step_number=1,
             )
         envelope.candidate_id = fseed.candidate_id
@@ -123,7 +154,7 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
         eval_scenario_ids.extend(
             item.scenario_id
             for item in resolver.manifest.inventory
-            if item.scenario_id is not None
+            if item.role is ArtifactRole.SCENARIO_YAML
         )
         return {"metrics": {}}
 
@@ -170,6 +201,14 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
         ),
         patch("scenario_forge.pipeline.runner.generate_scenario", side_effect=generate),
         patch(
+            "scenario_forge.pipeline.runner.project_authoritative_candidates",
+            return_value=projection_batch,
+        ),
+        patch(
+            "scenario_forge.pipeline.runner.capture_capability_snapshot",
+            return_value=get_test_snapshot(),
+        ),
+        patch(
             "scenario_forge.pipeline.runner.analyze_coverage_gaps",
             return_value=gaps,
         ),
@@ -179,6 +218,10 @@ def test_runner_quarantines_semantically_invalid_scenario(tmp_path: Path) -> Non
         ),
         patch("scenario_forge.eval.runner.run_evaluation", side_effect=evaluate),
         patch("scenario_forge.report.generator.generate_report", side_effect=report),
+        patch(
+            "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+            return_value=ProjectionTraceabilityResult(valid=True, violations=[]),
+        ),
     ):
         result = run_pipeline(
             use_case="A chatbot with a direct user prompt entry point.",

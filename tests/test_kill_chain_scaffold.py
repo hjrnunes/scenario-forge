@@ -23,7 +23,7 @@ from scenario_forge.pipeline.generate.tree import build_call2_context
 from scenario_forge.pipeline.seeds import ScenarioSeed, expand_seeds
 from scenario_forge.pipeline.threats import ThreatSurface, ThreatSurfaceEntry
 from scenario_forge.prompts import render_prompt
-
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -172,6 +172,13 @@ def _make_narrative() -> NarrativeLayer:
                 action="Craft malicious input",
                 effect="Input accepted",
                 control_point=None,
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )
@@ -226,7 +233,10 @@ class TestExpandSeedsKillChain:
     def test_kill_chain_populated_when_present(self) -> None:
         """expand_seeds() should populate kill_chain from pattern data."""
         entry = _make_entry(
-            "risk-a", ["LLM01"], ["T7"], ["AP-T7-01"],
+            "risk-a",
+            ["LLM01"],
+            ["T7"],
+            ["AP-T7-01"],
         )
         seeds = _run_expand([entry], _FAKE_PATTERNS_WITH_KC)
         seed = next(s for s in seeds if s.seed_id == "AP-T7-01")
@@ -235,7 +245,10 @@ class TestExpandSeedsKillChain:
     def test_kill_chain_none_when_absent(self) -> None:
         """expand_seeds() should leave kill_chain as None when pattern lacks it."""
         entry = _make_entry(
-            "risk-a", ["LLM01"], ["T7"], ["AP-T7-01"],
+            "risk-a",
+            ["LLM01"],
+            ["T7"],
+            ["AP-T7-01"],
         )
         seeds = _run_expand([entry], _FAKE_PATTERNS_WITHOUT_KC)
         seed = next(s for s in seeds if s.seed_id == "AP-T7-01")

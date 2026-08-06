@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -36,6 +37,7 @@ from scenario_forge.models.capability_profile import (
     EntryPoint,
     compute_entry_point_id,
 )
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     ArchitectureMatch,
     AttackComplexity,
@@ -77,6 +79,8 @@ from scenario_forge.pipeline.generate import (
     write_scenario_outputs,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -163,7 +167,7 @@ def _make_candidate(
 
 def _make_envelope(
     scenario_id: str = "scenario:v2:e0092602f437ae7806250ef92489227d6bffcd802ce4643e09dc5b3517e856fa",
-    behavior_spec: str | None = None,
+    behavior_spec=None,
 ) -> ScenarioEnvelope:
     root = AttackTreeNode(
         id="n1",
@@ -197,6 +201,13 @@ def _make_envelope(
                 zone="input",
                 action="I craft a malicious prompt.",
                 effect="The system processes the input.",
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )
@@ -251,14 +262,17 @@ def _make_envelope(
         ],
     )
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id=scenario_id,
-        candidate_id="cand:v1:7e57c0de000000000000000000000000",
+        candidate_id="cand:v2:7e57c0de000000000000000000000000",
         initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
         narrative=narrative,
         attack_tree=attack_tree,
-        behavior_spec=behavior_spec if behavior_spec is not None else {},
+        behavior_spec=behavior_spec
+        if behavior_spec is not None
+        else make_behavior_spec(),
         faceting=faceting,
         priority=priority,
         generation=generation,
@@ -326,7 +340,7 @@ class TestOrderingIndependentCollapse:
             technique_ids=("AML.T0051", "AML.T0054"),
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:src1",
+                    source_candidate_id="cand:v2:src1",
                     original_technique_ids=("AML.T0051", "AML.T0054"),
                     transform_stage="expansion",
                 ),
@@ -336,7 +350,7 @@ class TestOrderingIndependentCollapse:
             technique_ids=("AML.T0054", "AML.T0051"),
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:src2",
+                    source_candidate_id="cand:v2:src2",
                     original_technique_ids=("AML.T0054", "AML.T0051"),
                     transform_stage="expansion",
                 ),
@@ -362,7 +376,7 @@ class TestConvergenceWithOrigins:
         c = _make_candidate(
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:abc",
+                    source_candidate_id="cand:v2:abc",
                     original_technique_ids=("AML.T0051",),
                     transform_stage="expansion",
                 ),
@@ -371,7 +385,7 @@ class TestConvergenceWithOrigins:
         result = canonicalize_and_dedup([c], stage="test")
         assert len(result) == 1
         assert len(result[0].origins) == 1
-        assert result[0].origins[0].source_candidate_id == "cand:v1:abc"
+        assert result[0].origins[0].source_candidate_id == "cand:v2:abc"
 
     def test_pruned_multi_technique_convergence_retains_both_origins(self):
         """A singleton and a pruned multi-technique candidate that converge
@@ -439,7 +453,7 @@ class TestCompleteMergedOrigins:
             c = _make_candidate(
                 origins=(
                     CandidateOrigin(
-                        source_candidate_id=f"cand:v1:src{i}",
+                        source_candidate_id=f"cand:v2:src{i}",
                         original_technique_ids=("AML.T0051",),
                         transform_stage="expansion",
                     ),
@@ -451,7 +465,7 @@ class TestCompleteMergedOrigins:
         assert len(result) == 1
         assert len(result[0].origins) == 3
         source_ids = {o.source_candidate_id for o in result[0].origins}
-        assert source_ids == {"cand:v1:src0", "cand:v1:src1", "cand:v1:src2"}
+        assert source_ids == {"cand:v2:src0", "cand:v2:src1", "cand:v2:src2"}
 
     def test_no_duplicate_origins_after_double_dedup(self):
         """Deduplicating an already-deduplicated list does not create
@@ -459,7 +473,7 @@ class TestCompleteMergedOrigins:
         c1 = _make_candidate(
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:a",
+                    source_candidate_id="cand:v2:a",
                     original_technique_ids=("AML.T0051",),
                     transform_stage="expansion",
                 ),
@@ -468,7 +482,7 @@ class TestCompleteMergedOrigins:
         c2 = _make_candidate(
             origins=(
                 CandidateOrigin(
-                    source_candidate_id="cand:v1:b",
+                    source_candidate_id="cand:v2:b",
                     original_technique_ids=("AML.T0051",),
                     transform_stage="expansion",
                 ),
@@ -508,10 +522,10 @@ class TestStableCandidateIds:
         assert id1 != id2
 
     def test_candidate_id_format(self):
-        """Candidate ID follows cand:v1:<32-char hex> format."""
+        """Candidate ID follows cand:v2:<32-char hex> format."""
         cid = compute_candidate_id("AP-T7-01", "ep1", ("AML.T0051",))
-        assert cid.startswith("cand:v1:")
-        hex_part = cid.split("cand:v1:")[1]
+        assert cid.startswith("cand:v2:")
+        hex_part = cid.split("cand:v2:")[1]
         assert len(hex_part) == 32
         int(hex_part, 16)  # Valid hex
 
@@ -529,7 +543,7 @@ class TestScenarioIdCollisionSafety:
         resistance (64 hex chars = 256 bits)."""
         sid = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         assert sid.startswith("scenario:v2:")
@@ -541,12 +555,12 @@ class TestScenarioIdCollisionSafety:
         """Same candidate+attempt but different run → different scenario ID."""
         sid1 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
             "20240101T120001_bbcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         assert sid1 != sid2
@@ -555,12 +569,12 @@ class TestScenarioIdCollisionSafety:
         """Same run+candidate but different attempt → different scenario ID."""
         sid1 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             2,
         )
         assert sid1 != sid2
@@ -569,12 +583,12 @@ class TestScenarioIdCollisionSafety:
         """Same run+attempt but different candidate → different scenario ID."""
         sid1 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:11111111111111111111111111111111",
+            "cand:v2:11111111111111111111111111111111",
             1,
         )
         sid2 = compute_scenario_id(
             "20240101T120000_abcdef1234567890abcdef1234567890",
-            "cand:v1:22222222222222222222222222222222",
+            "cand:v2:22222222222222222222222222222222",
             1,
         )
         assert sid1 != sid2
@@ -606,7 +620,7 @@ class TestCrossRunScenarioIds:
 
     def test_same_candidate_distinct_across_runs(self):
         """Same candidate_id in 5 different runs → 5 distinct scenario IDs."""
-        candidate_id = "cand:v1:11111111111111111111111111111111"
+        candidate_id = "cand:v2:11111111111111111111111111111111"
         run_ids = [generate_run_id() for _ in range(5)]
         scenario_ids = {compute_scenario_id(rid, candidate_id, 1) for rid in run_ids}
         assert len(scenario_ids) == 5
@@ -646,17 +660,29 @@ class TestArtifactHashes:
 # ---------------------------------------------------------------------------
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestExclusiveWriteCreation:
-    """write_scenario_outputs must fail loudly on existing paths."""
+    """write_scenario_outputs must fail loudly on existing paths.
+
+    Traceability validation is patched to valid; the writer's fail-closed
+    behaviour on invalid traceability is covered by the dedicated suite.
+    """
 
     def test_write_succeeds_on_clean_dir(self, tmp_path: Path):
-        """First write to a clean directory succeeds."""
+        """First write to a clean directory succeeds.
+
+        The default envelope now carries a structured BehaviorSpec, so a
+        feature file is always written alongside the YAML.
+        """
         env = _make_envelope(
             scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
         )
         yaml_path, feature_path = write_scenario_outputs(env, tmp_path)
         assert yaml_path.exists()
-        assert feature_path is None  # No behavior_spec
+        assert feature_path is not None and feature_path.exists()
 
     def test_write_fails_on_duplicate_yaml(self, tmp_path: Path):
         """Second write of same scenario_id fails with FileExistsError."""
@@ -671,23 +697,31 @@ class TestExclusiveWriteCreation:
         """Feature file collision is caught in preflight before YAML write."""
         env = _make_envelope(
             scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4",
-            behavior_spec="Feature: Test\n  Scenario: Basic\n    Given something",
+            behavior_spec=make_behavior_spec(
+                "Feature: Test\n  Scenario: Basic\n    Given something"
+            ),
         )
         write_scenario_outputs(env, tmp_path)
         with pytest.raises(ScenarioForgeIntegrityError):
             write_scenario_outputs(env, tmp_path)
 
     def test_stem_mismatch_feature_without_behavior_spec(self, tmp_path: Path):
-        """Writing YAML without behavior_spec when a feature file exists
-        for the same stem (but no YAML yet) raises ValueError."""
+        """An orphan feature file (no YAML) is a fatal integrity error.
+
+        With the structured BehaviorSpec model, every envelope carries a
+        behavior_spec, so the writer always attempts to create the feature
+        file.  A pre-existing orphan feature triggers a fatal
+        ``already exists`` error rather than a silent stem mismatch.
+        """
         # Manually create a .feature file without a .yaml
         sid = "scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4"
         feature_path = tmp_path / f"{sid}.feature"
         feature_path.write_text("Feature: Orphan\n", encoding="utf-8")
 
-        # Now try to write a YAML without behavior_spec
+        # Writing an envelope (which now always has a behavior_spec) into
+        # the orphan-feature slot is a fatal collision.
         env = _make_envelope(scenario_id=sid)
-        with pytest.raises(ScenarioForgeIntegrityError, match="Stem mismatch"):
+        with pytest.raises(ScenarioForgeIntegrityError, match="already exists"):
             write_scenario_outputs(env, tmp_path)
 
 
@@ -696,8 +730,16 @@ class TestExclusiveWriteCreation:
 # ---------------------------------------------------------------------------
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestGuardedReplacement:
-    """replace_scenario_outputs proves same scenario/stem before overwriting."""
+    """replace_scenario_outputs proves same scenario/stem before overwriting.
+
+    Traceability validation is patched to valid (covered by the dedicated
+    suite).
+    """
 
     def test_replace_succeeds_for_same_scenario(self, tmp_path: Path):
         """Replacing an existing scenario with the same ID succeeds."""
@@ -742,10 +784,12 @@ class TestGuardedReplacement:
         """Replacing a scenario YAML preserves feature bytes (not rewritten)."""
         env = _make_envelope(
             scenario_id="scenario:v2:cc3d950b1cfe022ac78dbf60571250a376745d456144fb0f9a1651d783e314a4",
-            behavior_spec="Feature: Test\n  Scenario: Basic\n    Given something",
+            behavior_spec=make_behavior_spec(
+                "Feature: Test\n  Scenario: Basic\n    Given something"
+            ),
         )
         write_scenario_outputs(env, tmp_path)
-        original_feature = env.behavior_spec
+        original_feature = env.behavior_spec.gherkin_text
 
         # Modify only the YAML (narrative title) — feature must be unchanged.
         env.narrative.title = "Updated Title"
@@ -1054,8 +1098,16 @@ class TestOneGenerationAttempt:
 # ---------------------------------------------------------------------------
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestDuplicateAdmissionCollisions:
-    """Duplicate scenario IDs and path collisions must fail loudly."""
+    """Duplicate scenario IDs and path collisions must fail loudly.
+
+    Traceability validation is patched to valid (covered by the dedicated
+    suite).
+    """
 
     def test_duplicate_scenario_id_yields_path_collision(self, tmp_path: Path):
         """Two envelopes with the same scenario_id cannot both be written

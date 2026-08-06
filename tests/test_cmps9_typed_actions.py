@@ -45,6 +45,7 @@ from scenario_forge.pipeline.generate.tree import (
     resolve_action_ids,
 )
 from scenario_forge.report.template import _build_attack_tree_node
+from tests.helpers.realization_helper import make_realizations
 
 TOOL_ID = compute_tool_id("test_tool", "A test tool")
 UNKNOWN_TOOL_ID = "tool:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -1162,6 +1163,13 @@ class TestGherkinOrBranchPreconditions:
                     zone="input",
                     action="Test action",
                     effect="Test effect",
+                    projected_step_ids=("step.1",),
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 )
             ],
         )

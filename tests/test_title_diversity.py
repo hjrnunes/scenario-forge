@@ -18,7 +18,7 @@ from scenario_forge.models.capability_profile import (
     EntryPoint,
     ToolInventoryEntry,
 )
-from scenario_forge.models.scenario import RiskCardRef
+from scenario_forge.models.scenario import ProjectedStepRealization, RiskCardRef
 from scenario_forge.pipeline.generate import _call_narrative
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.prompts import render_prompt
@@ -104,6 +104,21 @@ def _make_mock_client(title: str = "Test Title") -> MagicMock:
     step.action = "Craft adversarial prompt"
     step.effect = "Agent compromised"
     step.control_point = None
+    step.projected_step_ids = ("step.1",)
+    step.realizations = (
+        ProjectedStepRealization(
+            projected_step_id="step.1",
+            action_kind="prepare",
+            executor_role="attacker",
+            boundary_position="crossing",
+            resource_ref_ids=(),
+            consumed_ref_ids=(),
+            produced_ref_ids=(),
+            produced_effect_ids=(),
+            outcome_link_pc_ids=(),
+            postcondition_ids=(),
+        ),
+    )
     mock_response.steps = [step]
     mock_response.access_realization = None
 

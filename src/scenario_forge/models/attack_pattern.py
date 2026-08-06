@@ -293,7 +293,7 @@ def _check_condition(condition: Condition) -> None:
 class EvaluatedFactEvidence(ContractModel):
     fact: AuthoritativeFactReference
     status: Literal["present", "absent", "unknown"]
-    value: Scalar | None
+    value: Scalar | None = None
 
     @model_validator(mode="after")
     def coherent(self) -> EvaluatedFactEvidence:
@@ -583,7 +583,7 @@ def evaluate_condition(
 class CanonicalChainStep(ContractModel):
     step_id: Identifier
     requirement: Literal["required", "conditional"]
-    condition: Condition | None
+    condition: Condition | None = None
     executor_role: Literal["attacker", "system", "operator"]
     boundary_position: Literal["outside", "crossing", "inside"]
     action_kind: Literal[

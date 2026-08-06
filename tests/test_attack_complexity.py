@@ -70,6 +70,13 @@ from scenario_forge.pipeline.projection import (
     project_authoritative_candidates,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.projection_factory import (
+    get_projected_candidate,
+    get_test_snapshot,
+    make_behavior_spec,
+    make_projection_block,
+)
+from tests.helpers.realization_helper import make_realizations
 
 ZERO = "0" * 64
 
@@ -1283,13 +1290,43 @@ def _three_zone_narrative() -> Any:
         zone_sequence=["input", "reasoning", "memory"],
         steps=[
             NarrativeStep(
-                step_number=1, zone="input", action="Craft prompt", effect="Enters"
+                step_number=1,
+                zone="input",
+                action="Craft prompt",
+                effect="Enters",
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
-                step_number=2, zone="reasoning", action="Trick", effect="Reasons"
+                step_number=2,
+                zone="reasoning",
+                action="Trick",
+                effect="Reasons",
+                projected_step_ids=("step.2",),
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
             NarrativeStep(
-                step_number=3, zone="memory", action="Read", effect="Recalls"
+                step_number=3,
+                zone="memory",
+                action="Read",
+                effect="Recalls",
+                projected_step_ids=("step.3",),
+                realizations=make_realizations(
+                    ("step.3",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ],
     )
@@ -1339,28 +1376,36 @@ class TestNoviceGuardRemoved:
         mock_validate.side_effect = lambda profile: profile
         mock_call1.return_value = (_three_zone_narrative(), _llm_result({}))
         mock_call2.return_value = (_small_tree(), _llm_result({}))
-        mock_call3.return_value = ("Feature: Test", _llm_result({}))
+        mock_call3.return_value = (make_behavior_spec(), _llm_result({}))
 
         client = MagicMock()
         client.model = "test-model"
-        envelope, _ = generate_scenario(
-            seed=_make_seed(),
-            profile=CapabilityProfile(
-                zones_active=["input", "reasoning", "memory"],
-                entry_points=["user prompts (input)"],
-                kc_subcodes=["KC1.1"],
-                confidence=ConfidenceLevel.high,
-            ),
-            client=client,
-            use_case="Test system",
-            pinned_entry_point_id="ep:v1:" + "cd" * 16,
-            run_id=generate_sortable_run_id(),
-            candidate_id="cand:v1:" + "ab" * 16,
+        # The mock LLM responses don't include projected_step_id on
+        # narrative steps or tree leaves, so projection traceability
+        # validation correctly fails closed (422o.4).  The test verifies
+        # that the novice actor is not relabeled — the traceability
+        # error is expected, not the focus of this test.
+        from scenario_forge.pipeline.generate.assembly import (
+            ProjectionTraceabilityError,
         )
-        assert envelope.actor_profile is not None
-        assert envelope.actor_profile.capability_level == "novice"
-        # Multi-zone realization is preserved as-is; no relabel occurred.
-        assert len(set(envelope.narrative.zone_sequence)) == 3
+
+        with pytest.raises(ProjectionTraceabilityError):
+            generate_scenario(
+                seed=_make_seed(),
+                profile=CapabilityProfile(
+                    zones_active=["input", "reasoning", "memory"],
+                    entry_points=["user prompts (input)"],
+                    kc_subcodes=["KC1.1"],
+                    confidence=ConfidenceLevel.high,
+                ),
+                client=client,
+                use_case="Test system",
+                pinned_entry_point_id="ep:v1:" + "cd" * 16,
+                run_id=generate_sortable_run_id(),
+                candidate_id="",
+                projected_candidate=get_projected_candidate(),
+                capability_snapshot=get_test_snapshot(),
+            )
 
     def test_no_post_call0_capability_assignment_survives(self) -> None:
         """Prove no post-Call-0 mutation/relabel path remains in src/."""
@@ -1408,8 +1453,9 @@ def _envelope_with_assessment(
     )
 
     return ScenarioEnvelope(
+        projection=make_projection_block(),
         scenario_id="scenario:v2:" + "a1" * 32,
-        candidate_id="cand:v1:" + "b2" * 16,
+        candidate_id="cand:v2:" + "b2" * 16,
         initial_entry_point_id="ep:v1:" + "cd" * 16,
         generated_at=datetime.now(tz=UTC),
         generator_version="0.1.0",
@@ -1420,12 +1466,22 @@ def _envelope_with_assessment(
             zone_sequence=["input"],
             steps=[
                 NarrativeStep(
-                    step_number=1, zone="input", action="Act", effect="Effect"
+                    step_number=1,
+                    zone="input",
+                    action="Act",
+                    effect="Effect",
+                    projected_step_ids=("step.1",),
+                    realizations=make_realizations(
+                        ("step.1",),
+                        action_kind="prepare",
+                        executor_role="attacker",
+                        boundary_position="crossing",
+                    ),
                 )
             ],
         ),
         attack_tree=_small_tree(),
-        behavior_spec="Feature: Test",
+        behavior_spec=make_behavior_spec("Feature: Test"),
         actor_profile=_actor(capability_level="novice"),
         attack_complexity_assessment=assessment,
         faceting=FacetingMetadata(

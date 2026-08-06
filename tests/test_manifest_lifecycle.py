@@ -56,6 +56,8 @@ from scenario_forge.manifest import (
     write_failed_manifest,
     write_manifest_sentinel,
 )
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 from tests.manifest_helpers import build_test_run_dir
 
 # --------------------------------------------------------------------------- #
@@ -65,7 +67,7 @@ from tests.manifest_helpers import build_test_run_dir
 _VALID_RUN_ID = "20260101T000000_abcdef0123456789abcdef0123456789"
 
 
-def _make_scenario(scenario_id: str = "s1", candidate_id: str = "cand:v1:abc") -> dict:
+def _make_scenario(scenario_id: str = "s1", candidate_id: str = "cand:v2:abc") -> dict:
     return {
         "scenario_id": scenario_id,
         "candidate_id": candidate_id,
@@ -225,7 +227,7 @@ class TestManifestSentinel:
             timestamp_start=ts,
             attempts=[
                 AttemptRecord(
-                    candidate_id="cand:v1:abc",
+                    candidate_id="cand:v2:abc",
                     scenario_id="20240101T120000_abcdef1234567890abcdef1234567890",
                     disposition=AttemptDisposition.FAILED,
                     failure_evidence="boom",
@@ -529,7 +531,7 @@ class TestInventoryIntegrity:
             yaml.dump(
                 {
                     "scenario_id": "s1",
-                    "candidate_id": "cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "candidate_id": "cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 }
             )
         )
@@ -541,7 +543,7 @@ class TestInventoryIntegrity:
             sha256=compute_file_sha256(run_dir / "scenarios" / "s1.yaml"),
             media_type="application/yaml",
             scenario_id="s1",
-            candidate_id="cand:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            candidate_id="cand:v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
         manifest = RunManifest(
             status=RunStatus.COMPLETED,
@@ -568,7 +570,7 @@ class TestInventoryIntegrity:
             sha256=compute_file_sha256(run_dir / "scenarios" / "orphan.feature"),
             media_type="text/plain",
             scenario_id="orphan",
-            candidate_id="cand:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            candidate_id="cand:v2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         )
         manifest = RunManifest(
             status=RunStatus.COMPLETED,
@@ -602,7 +604,7 @@ class TestInventoryIntegrity:
                     sha256=compute_file_sha256(run_dir / "scenarios" / "s1.yaml"),
                     media_type="application/yaml",
                     scenario_id="s2",
-                    candidate_id="cand:v1:cccccccccccccccccccccccccccccccc",
+                    candidate_id="cand:v2:cccccccccccccccccccccccccccccccc",
                 ),
                 ArtifactEntry(
                     role=ArtifactRole.SCENARIO_FEATURE,
@@ -610,7 +612,7 @@ class TestInventoryIntegrity:
                     sha256=compute_file_sha256(run_dir / "scenarios" / "s1.feature"),
                     media_type="text/plain",
                     scenario_id="s2",
-                    candidate_id="cand:v1:cccccccccccccccccccccccccccccccc",
+                    candidate_id="cand:v2:cccccccccccccccccccccccccccccccc",
                 ),
             ],
         )
@@ -1051,7 +1053,7 @@ class TestAttemptRecords:
 
     def test_admitted_attempt(self):
         rec = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.ADMITTED,
         )
@@ -1060,7 +1062,7 @@ class TestAttemptRecords:
 
     def test_failed_attempt_with_evidence(self):
         rec = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.FAILED,
             failure_evidence="LLM timeout",
@@ -1070,7 +1072,7 @@ class TestAttemptRecords:
 
     def test_quarantined_attempt_with_evidence(self):
         rec = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.QUARANTINED,
             failure_evidence="phantom capability",
@@ -1749,7 +1751,7 @@ class TestFailedEvidenceRetention:
                     "scenarios/s1.yaml",
                     yaml.safe_dump(_make_scenario("s1")),
                     "s1",
-                    "cand:v1:abc",
+                    "cand:v2:abc",
                 ),
             ],
         )
@@ -1766,14 +1768,14 @@ class TestFailedEvidenceRetention:
                     "scenarios/s1.yaml",
                     yaml.safe_dump(_make_scenario("s1")),
                     "s1",
-                    "cand:v1:abc",
+                    "cand:v2:abc",
                 ),
                 (
                     ArtifactRole.SCENARIO_FEATURE,
                     "scenarios/s1.feature",
                     _make_feature("s1"),
                     "s1",
-                    "cand:v1:abc",
+                    "cand:v2:abc",
                 ),
                 (ArtifactRole.PIPELINE_CALL_LOG, "calls.jsonl", "{}\n", None, None),
                 (ArtifactRole.PIPELINE_LOG, "pipeline.log", "failed\n", None, None),
@@ -2455,7 +2457,7 @@ class TestThirdReviewSerializedIdentity:
         self,
         tmp_path,
         sid="s1",
-        cid="cand:v1:abc",
+        cid="cand:v2:abc",
         yaml_content=None,
         yaml_path="scenarios/s1.yaml",
         feat_path="scenarios/s1.feature",
@@ -2498,7 +2500,7 @@ class TestThirdReviewSerializedIdentity:
     def test_missing_serialized_scenario_id_rejected(self, tmp_path: Path):
         run_dir, _manifest = self._make_run_with_scenario(
             tmp_path,
-            yaml_content=yaml.dump({"candidate_id": "cand:v1:abc"}),
+            yaml_content=yaml.dump({"candidate_id": "cand:v2:abc"}),
         )
         with pytest.raises(
             ManifestIntegrityError, match="missing serialized scenario_id"
@@ -2519,7 +2521,7 @@ class TestThirdReviewSerializedIdentity:
         run_dir, _manifest = self._make_run_with_scenario(
             tmp_path,
             yaml_content=yaml.dump(
-                {"scenario_id": "wrong", "candidate_id": "cand:v1:abc"}
+                {"scenario_id": "wrong", "candidate_id": "cand:v2:abc"}
             ),
         )
         with pytest.raises(ManifestIntegrityError, match="Scenario ID mismatch"):
@@ -2539,7 +2541,7 @@ class TestThirdReviewSerializedIdentity:
         (run_dir / "wrong_dir").mkdir()
         (run_dir / "scenarios").mkdir()
         (run_dir / "wrong_dir" / "s1.yaml").write_text(
-            yaml.dump({"scenario_id": "s1", "candidate_id": "cand:v1:abc"})
+            yaml.dump({"scenario_id": "s1", "candidate_id": "cand:v2:abc"})
         )
         (run_dir / "scenarios" / "s1.feature").write_text("Feature: s1\n")
         entries = [
@@ -2548,14 +2550,14 @@ class TestThirdReviewSerializedIdentity:
                 run_dir,
                 "wrong_dir/s1.yaml",
                 scenario_id="s1",
-                candidate_id="cand:v1:abc",
+                candidate_id="cand:v2:abc",
             ),
             build_artifact_entry(
                 ArtifactRole.SCENARIO_FEATURE,
                 run_dir,
                 "scenarios/s1.feature",
                 scenario_id="s1",
-                candidate_id="cand:v1:abc",
+                candidate_id="cand:v2:abc",
             ),
         ]
         manifest = RunManifest(
@@ -2577,7 +2579,7 @@ class TestThirdReviewSerializedIdentity:
         (run_dir / "wrong_dir").mkdir()
         (run_dir / "scenarios").mkdir()
         (run_dir / "scenarios" / "s1.yaml").write_text(
-            yaml.dump({"scenario_id": "s1", "candidate_id": "cand:v1:abc"})
+            yaml.dump({"scenario_id": "s1", "candidate_id": "cand:v2:abc"})
         )
         (run_dir / "wrong_dir" / "s1.feature").write_text("Feature: s1\n")
         entries = [
@@ -2586,14 +2588,14 @@ class TestThirdReviewSerializedIdentity:
                 run_dir,
                 "scenarios/s1.yaml",
                 scenario_id="s1",
-                candidate_id="cand:v1:abc",
+                candidate_id="cand:v2:abc",
             ),
             build_artifact_entry(
                 ArtifactRole.SCENARIO_FEATURE,
                 run_dir,
                 "wrong_dir/s1.feature",
                 scenario_id="s1",
-                candidate_id="cand:v1:abc",
+                candidate_id="cand:v2:abc",
             ),
         ]
         manifest = RunManifest(
@@ -2799,6 +2801,7 @@ class TestThirdReviewCallLogFailure:
             expected_sid = compute_scenario_id(run_id, cid, 1)
 
             envelope = ScenarioEnvelope(
+                projection=make_projection_block(),
                 scenario_id=expected_sid,
                 candidate_id=cid,
                 initial_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -2815,6 +2818,13 @@ class TestThirdReviewCallLogFailure:
                             zone="input",
                             action="Test action",
                             effect="Test effect",
+                            projected_step_ids=("step.1",),
+                            realizations=make_realizations(
+                                ("step.1",),
+                                action_kind="prepare",
+                                executor_role="attacker",
+                                boundary_position="crossing",
+                            ),
                         ),
                     ],
                 ),
@@ -2846,7 +2856,9 @@ class TestThirdReviewCallLogFailure:
                         ],
                     ),
                 ),
-                behavior_spec="Feature: Test\n  Scenario: Test\n    Given x\n",
+                behavior_spec=make_behavior_spec(
+                    "Feature: Test\n  Scenario: Test\n    Given x\n"
+                ),
                 faceting=FacetingMetadata(
                     risk_card=RiskCardRef(
                         risk_id="test-risk",
@@ -3414,7 +3426,7 @@ class TestFourthReviewEmptyEvidence:
         from scenario_forge.pipeline.runner import _finalize_attempt
 
         attempt = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.ADMITTED,
             phase=AttemptPhase.MAIN,
@@ -3441,7 +3453,7 @@ class TestFourthReviewEmptyEvidence:
         from scenario_forge.pipeline.runner import _finalize_attempt
 
         attempt = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.ADMITTED,
             phase=AttemptPhase.REMEDIATION,
@@ -3465,7 +3477,7 @@ class TestFourthReviewEmptyEvidence:
         from scenario_forge.pipeline.runner import _finalize_attempt
 
         attempt = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.ADMITTED,
             phase=AttemptPhase.MAIN,
@@ -3487,7 +3499,7 @@ class TestFourthReviewEmptyEvidence:
         with blank evidence even if it was mutated in-place after
         construction (bypassing the Pydantic model validator)."""
         attempt = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.ADMITTED,
             phase=AttemptPhase.MAIN,
@@ -3527,7 +3539,7 @@ class TestFourthReviewEmptyEvidence:
         from scenario_forge.pipeline.runner import _finalize_attempt
 
         attempt = AttemptRecord(
-            candidate_id="cand:v1:abc",
+            candidate_id="cand:v2:abc",
             scenario_id="scenario:v2:def",
             disposition=AttemptDisposition.ADMITTED,
             phase=AttemptPhase.MAIN,

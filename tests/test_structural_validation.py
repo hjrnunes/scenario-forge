@@ -41,6 +41,8 @@ from scenario_forge.models.scenario import (
     ValidationBlock,
 )
 from scenario_forge.pipeline.validation import validate_scenario_structure
+from tests.helpers.projection_factory import make_behavior_spec, make_projection_block
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,6 +57,13 @@ def _make_envelope(**overrides) -> ScenarioEnvelope:
             zone="input",
             action="I craft a malicious prompt.",
             effect="The system processes the input.",
+            projected_step_ids=("step.1",),
+            realizations=make_realizations(
+                ("step.1",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         ),
     ]
     narrative = NarrativeLayer(
@@ -136,14 +145,15 @@ def _make_envelope(**overrides) -> ScenarioEnvelope:
     )
 
     kwargs = {
+        "projection": make_projection_block(),
         "scenario_id": "scenario:v2:a256ecf6c638de0ed6ff44547cd446eaa418965387655808c3c791fc1d3fd1d0",
-        "candidate_id": "cand:v1:7e57c0de000000000000000000000000",
+        "candidate_id": "cand:v2:7e57c0de000000000000000000000000",
         "initial_entry_point_id": "ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "generated_at": datetime.now(tz=UTC),
         "generator_version": "0.1.0",
         "narrative": narrative,
         "attack_tree": attack_tree,
-        "behavior_spec": {},
+        "behavior_spec": make_behavior_spec(),
         "faceting": faceting,
         "priority": priority,
         "generation": generation,
@@ -216,7 +226,9 @@ class TestStructuralValidationEdgeCases:
     def test_envelope_with_behavior_spec_string(self):
         """Envelope with behavior_spec as a Gherkin string passes."""
         envelope = _make_envelope(
-            behavior_spec="Feature: Test\n  Scenario: Attack\n    Given the system is running"
+            behavior_spec=make_behavior_spec(
+                "Feature: Test\n  Scenario: Attack\n    Given the system is running"
+            )
         )
         validate_scenario_structure([envelope])
         assert envelope.validation is not None

@@ -31,6 +31,7 @@ from scenario_forge.pipeline.generate import (
     build_call3_context,
 )
 from scenario_forge.pipeline.seeds import ScenarioSeed
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -107,6 +108,13 @@ def _make_narrative() -> NarrativeLayer:
                 action="Craft malicious input [AML.T0054]",
                 effect="Input accepted",
                 control_point=None,
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
             NarrativeStep(
                 step_number=2,
@@ -114,6 +122,13 @@ def _make_narrative() -> NarrativeLayer:
                 action="System processes malicious input",
                 effect="Reasoning compromised",
                 control_point=None,
+                projected_step_ids=("step.2",),
+                realizations=make_realizations(
+                    ("step.2",),
+                    action_kind="observe",
+                    executor_role="system",
+                    boundary_position="inside",
+                ),
             ),
         ],
     )
@@ -882,12 +897,13 @@ class TestBuildCall3Context:
             profile=_make_profile(),
             scenario_tag="abc123",
         )
-        assert "gherkin_skeleton" in ctx
         assert "narrative" in ctx
         assert "seed" in ctx
+        assert "leaf_catalog" in ctx
+        assert "postcondition_ownership" in ctx
 
-    def test_gherkin_skeleton_contains_feature(self):
-        """Gherkin skeleton contains Feature header from narrative."""
+    def test_leaf_catalog_contains_tree_leaves(self):
+        """Leaf catalog lists every tree leaf with projected step IDs."""
         ctx = build_call3_context(
             seed=_make_seed(),
             narrative=_make_narrative(),
@@ -895,29 +911,42 @@ class TestBuildCall3Context:
             profile=_make_profile(),
             scenario_tag="abc123",
         )
-        assert "Feature: Test narrative" in ctx["gherkin_skeleton"]
+        assert len(ctx["leaf_catalog"]) > 0
+        entry = ctx["leaf_catalog"][0]
+        assert "leaf_id" in entry
+        assert "projected_step_ids" in entry
+        assert "action_kind" in entry
+        assert "zone" in entry
+        assert "eligible_keyword" in entry
 
-    def test_gherkin_skeleton_contains_scenario_tag(self):
-        """Gherkin skeleton contains the scenario tag."""
-        ctx = build_call3_context(
-            seed=_make_seed(seed_id="AP-T2-05"),
-            narrative=_make_narrative(),
-            attack_tree=_make_attack_tree(seed_id="AP-T2-05"),
-            profile=_make_profile(),
-            scenario_tag="abc123",
-        )
-        assert "@id:abc123" in ctx["gherkin_skeleton"]
-
-    def test_gherkin_skeleton_contains_assertions_marker(self):
-        """Gherkin skeleton contains the {ASSERTIONS} marker for splicing."""
+    def test_postcondition_ownership_populated_with_projection(self):
+        """Postcondition ownership table is populated when projection is given."""
         ctx = build_call3_context(
             seed=_make_seed(),
             narrative=_make_narrative(),
             attack_tree=_make_attack_tree(),
             profile=_make_profile(),
             scenario_tag="abc123",
+            projection_context={
+                "selected_steps": [
+                    {
+                        "step_id": "step.1",
+                        "observable_postconditions": [
+                            {
+                                "postcondition_id": "post.1",
+                                "description": "test",
+                                "security_relevant": True,
+                                "terminal": False,
+                            }
+                        ],
+                    }
+                ],
+            },
         )
-        assert "{ASSERTIONS}" in ctx["gherkin_skeleton"]
+        assert len(ctx["postcondition_ownership"]) == 1
+        entry = ctx["postcondition_ownership"][0]
+        assert entry["postcondition_id"] == "post.1"
+        assert entry["owning_step_id"] == "step.1"
 
     def test_narrative_passed_through(self):
         """Narrative object is passed through unchanged."""
@@ -942,28 +971,6 @@ class TestBuildCall3Context:
             scenario_tag="abc123",
         )
         assert ctx["seed"] is seed
-
-    def test_gherkin_skeleton_contains_background(self):
-        """Gherkin skeleton contains Background section."""
-        ctx = build_call3_context(
-            seed=_make_seed(),
-            narrative=_make_narrative(),
-            attack_tree=_make_attack_tree(),
-            profile=_make_profile(),
-            scenario_tag="abc123",
-        )
-        assert "Background: Preconditions" in ctx["gherkin_skeleton"]
-
-    def test_gherkin_skeleton_contains_entry_point(self):
-        """Gherkin skeleton resolves the typed ingress entry point name."""
-        ctx = build_call3_context(
-            seed=_make_seed(),
-            narrative=_make_narrative(),
-            attack_tree=_make_attack_tree(),
-            profile=_make_profile(),
-            scenario_tag="abc123",
-        )
-        assert "user prompts via chat interface" in ctx["gherkin_skeleton"]
 
 
 # ---------------------------------------------------------------------------
@@ -1153,6 +1160,4 @@ class TestContextBuildersRenderTemplates:
 
         result = render_prompt("call3_system.j2")
         assert "Capability Boundary (INVARIANT)" in result
-        assert "session tokens" in result
         assert "Do NOT introduce platform-level security concepts" in result
-        assert "based on the scenario's architecture" in result

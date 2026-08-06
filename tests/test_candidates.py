@@ -197,7 +197,7 @@ class TestFilterVerdict:
     def test_filter_verdict_accept(self):
         """FilterVerdict with verdict='accept' and a rationale."""
         v = FilterVerdict(
-            candidate_id="cand:v1:abc123",
+            candidate_id="cand:v2:abc123",
             verdict="accept",
             rationale="Entry point directly exposes the LLM to user-crafted input.",
         )
@@ -205,23 +205,23 @@ class TestFilterVerdict:
         assert (
             v.rationale == "Entry point directly exposes the LLM to user-crafted input."
         )
-        assert v.candidate_id == "cand:v1:abc123"
+        assert v.candidate_id == "cand:v2:abc123"
 
     def test_filter_verdict_reject(self):
         """FilterVerdict with verdict='reject' and a rationale."""
         v = FilterVerdict(
-            candidate_id="cand:v1:def456",
+            candidate_id="cand:v2:def456",
             verdict="reject",
             rationale="No plausible path from this entry point to the technique.",
         )
         assert v.verdict == "reject"
-        assert v.candidate_id == "cand:v1:def456"
+        assert v.candidate_id == "cand:v2:def456"
 
     def test_filter_verdict_invalid_verdict(self):
         """verdict must be 'accept' or 'reject', not 'maybe'."""
         with pytest.raises(ValidationError) as exc_info:
             FilterVerdict(
-                candidate_id="cand:v1:abc123",
+                candidate_id="cand:v2:abc123",
                 verdict="maybe",
                 rationale="Uncertain.",
             )
@@ -234,7 +234,7 @@ class TestFilterVerdict:
         """FilterVerdict uses extra='forbid' — legacy metadata is rejected."""
         with pytest.raises(ValidationError):
             FilterVerdict(
-                candidate_id="cand:v1:abc123",
+                candidate_id="cand:v2:abc123",
                 verdict="accept",
                 rationale="Direct exposure.",
                 entry_point="user prompts (input)",
@@ -244,12 +244,12 @@ class TestFilterVerdict:
     def test_filter_verdict_multi_technique(self):
         """FilterVerdict with a multi-technique combo (still just candidate_id)."""
         v = FilterVerdict(
-            candidate_id="cand:v1:abc123",
+            candidate_id="cand:v2:abc123",
             verdict="accept",
             rationale="Both techniques are plausible in combination.",
         )
         assert v.verdict == "accept"
-        assert v.candidate_id == "cand:v1:abc123"
+        assert v.candidate_id == "cand:v2:abc123"
 
 
 class TestBatchFilterResponse:
@@ -258,12 +258,12 @@ class TestBatchFilterResponse:
     def test_batch_filter_response(self):
         """BatchFilterResponse with seed_id and list of verdicts."""
         v1 = FilterVerdict(
-            candidate_id="cand:v1:abc123",
+            candidate_id="cand:v2:abc123",
             verdict="accept",
             rationale="Direct exposure.",
         )
         v2 = FilterVerdict(
-            candidate_id="cand:v1:def456",
+            candidate_id="cand:v2:def456",
             verdict="reject",
             rationale="No path.",
         )

@@ -25,6 +25,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scenario_forge.models.realization import ProjectedStepRealization
+
 logger = logging.getLogger(__name__)
 
 
@@ -310,6 +312,28 @@ class AttackTreeNode(BaseModel):
         default=None,
         description="Child nodes. Required for AND/OR gates; must be absent/empty for LEAF.",
     )
+    projected_step_ids: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Canonical projected step IDs (from ProjectionEnvelopeBlock) "
+            "that this tree leaf realizes.  Controlled many-to-many: "
+            "a leaf may realize multiple projected steps (combine) and "
+            "a projected step may be realized by multiple leaves (split). "
+            "Required (non-empty) on security-bearing leaves in scenarios "
+            "with a projection block; the LLM receives the IDs as opaque "
+            "constraints.  Empty on external_precondition leaves."
+        ),
+    )
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
+        default=(),
+        description=(
+            "Per-projected-step canonical realization records.  One record "
+            "per projected_step_id.  Required (non-empty) when "
+            "projected_step_ids is non-empty; empty on external_precondition "
+            "leaves.  The validator compares each record against the embedded "
+            "canonical step at the tree boundary."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_gate_children_action(self) -> AttackTreeNode:
@@ -350,6 +374,40 @@ class AttackTreeNode(BaseModel):
         # --- Conditional zone validation for leaf actions ---
         if self.gate == GateType.LEAF and self.action is not None:
             self._validate_action_zone()
+
+        # --- Realization coverage check (422o.4) ---
+        # Enforced unconditionally on ALL LEAF nodes, not just when
+        # projected_step_ids is truthy.  This closes the external_precondition
+        # bypass where empty IDs + arbitrary realizations would pass.
+        if self.gate == GateType.LEAF:
+            real_ids_list = [r.projected_step_id for r in self.realizations]
+            projected_ids = set(self.projected_step_ids)
+
+            # Duplicate realization records are always invalid.
+            if len(set(real_ids_list)) != len(real_ids_list):
+                raise ValueError(
+                    f"LEAF node '{self.id}' has duplicate realization "
+                    f"records (same projected_step_id appears more than once)"
+                )
+
+            # Count/uniqueness: exactly one realization per projected ID.
+            if len(real_ids_list) != len(projected_ids):
+                raise ValueError(
+                    f"LEAF node '{self.id}' has {len(real_ids_list)} "
+                    f"realization records but {len(projected_ids)} "
+                    f"projected_step_ids — exactly one record per "
+                    f"projected_step_id is required"
+                )
+
+            # ID set equality (catches empty IDs + nonempty realizations
+            # and vice versa).
+            realization_ids = set(real_ids_list)
+            if realization_ids != projected_ids:
+                raise ValueError(
+                    f"LEAF node '{self.id}' realization IDs "
+                    f"{realization_ids} do not match projected_step_ids "
+                    f"{projected_ids}"
+                )
 
         return self
 

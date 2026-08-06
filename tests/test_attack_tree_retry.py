@@ -19,6 +19,7 @@ from scenario_forge.models.scenario import (
     NarrativeStep,
 )
 from scenario_forge.pipeline.generate import _call_attack_tree
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -67,6 +68,13 @@ def _make_narrative() -> NarrativeLayer:
                 action="Craft malicious input",
                 effect="Input accepted",
                 control_point=None,
+                projected_step_ids=("step.1",),
+                realizations=make_realizations(
+                    ("step.1",),
+                    action_kind="prepare",
+                    executor_role="attacker",
+                    boundary_position="crossing",
+                ),
             ),
         ],
     )
@@ -158,7 +166,7 @@ class TestAttackTreeRetry:
         retry_user_prompt = retry_call_args.kwargs.get(
             "user_prompt", retry_call_args[1] if len(retry_call_args[1]) > 1 else ""
         )
-        assert "not valid YAML" in retry_user_prompt
+        assert "rejected" in retry_user_prompt or "not valid YAML" in retry_user_prompt
 
     def test_both_attempts_fail_raises_original_error(self) -> None:
         """When both attempts fail, the original error is raised."""
@@ -212,7 +220,7 @@ class TestAttackTreeRetry:
             )
 
         assert any(
-            "Attack tree YAML parse failed, retrying" in record.message
+            "Attack tree first attempt failed, retrying" in record.message
             for record in caplog.records
         )
 
@@ -352,3 +360,433 @@ class TestSingleChildGateRejection:
                 _SINGLE_CHILD_AND_YAML,
                 MagicMock(seed_id="AP-T2-05"),
             )
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 Review blocker #2: Projection validation participates in retry
+# ---------------------------------------------------------------------------#
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 Review blocker #2: Projection validation participates in retry
+# ---------------------------------------------------------------------------#
+
+
+class TestCall2ProjectionRetry:
+    """Call 2 retry must fire on projection validation failures, not only
+    YAML parse errors.  The original projection-rich user prompt must
+    survive the retry, with feedback appended only.
+    """
+
+    @staticmethod
+    def _make_projection_context() -> dict:
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from tests.helpers.projection_factory import get_projected_candidate
+
+        candidate = get_projected_candidate()
+        return _build_projection_context(candidate)
+
+    @staticmethod
+    def _get_ingress_id() -> str:
+        from tests.helpers.projection_factory import get_projected_candidate
+
+        return get_projected_candidate().canonical_ingress.entry_point_id
+
+    @staticmethod
+    def _make_profile():
+        from tests.helpers.projection_factory import get_test_profile
+
+        return get_test_profile()
+
+    @staticmethod
+    def _make_valid_tree_yaml(ctx: dict) -> str:
+        """Build a YAML tree that passes both parse and projection validation."""
+        import yaml as _yaml
+
+        from scenario_forge.models.attack_tree import (
+            AiSystemAction,
+            AttackTree,
+            AttackTreeNode,
+            GateType,
+            ImpactAction,
+            InitialIngressAction,
+        )
+        from tests.helpers.projection_factory import (
+            get_projected_candidate,
+            make_step_realizations,
+        )
+
+        candidate = get_projected_candidate()
+        ingress_id = candidate.canonical_ingress.entry_point_id
+        selected = candidate.projection.selected_step_ids
+
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="Ingress",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(entry_point_id=ingress_id),
+                        projected_step_ids=(selected[0],),
+                        realizations=make_step_realizations((selected[0],)),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="Observe",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                        projected_step_ids=(selected[1],),
+                        realizations=make_step_realizations((selected[1],)),
+                    ),
+                    AttackTreeNode(
+                        id="n1.3",
+                        label="Impact",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=ImpactAction(boundary="internal", target="integrity"),
+                        projected_step_ids=(selected[2],),
+                        realizations=make_step_realizations((selected[2],)),
+                    ),
+                ],
+            ),
+        )
+        data = tree.model_dump(mode="json")
+        return _yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    def _make_projectionless_tree_yaml(self) -> str:
+        """A valid YAML tree with a security leaf missing projected_step_ids."""
+        ingress_id = self._get_ingress_id()
+        return (
+            "id: tree-AP-T1-01\n"
+            "seed_id: AP-T1-01\n"
+            "goal: test\n"
+            "root:\n"
+            "  id: n1\n"
+            "  label: Root\n"
+            "  gate: AND\n"
+            "  children:\n"
+            "    - id: n1.1\n"
+            "      label: Ingress\n"
+            "      gate: LEAF\n"
+            "      zone: input\n"
+            "      action:\n"
+            f"        kind: initial_ingress\n"
+            f"        entry_point_id: {ingress_id}\n"
+            "    - id: n1.2\n"
+            "      label: No projection\n"
+            "      gate: LEAF\n"
+            "      zone: reasoning\n"
+            "      action:\n"
+            "        kind: ai_system_action\n"
+        )
+
+    def test_projection_invalid_first_response_triggers_retry(self) -> None:
+        """A syntactically valid but projection-invalid first response
+        triggers the retry, and the retry with valid output succeeds."""
+        ctx = self._make_projection_context()
+        valid_yaml = self._make_valid_tree_yaml(ctx)
+        projectionless_yaml = self._make_projectionless_tree_yaml()
+        ingress_id = self._get_ingress_id()
+
+        seed = _make_seed("AP-T1-01")
+        narrative = _make_narrative()
+
+        first_result = _make_llm_result(projectionless_yaml)
+        retry_result = _make_llm_result(valid_yaml)
+
+        client = MagicMock()
+        client.complete.side_effect = [first_result, retry_result]
+
+        tree, result = _call_attack_tree(
+            seed=seed,
+            narrative=narrative,
+            client=client,
+            use_case="A test use case",
+            profile=self._make_profile(),
+            pinned_entry_point_id=ingress_id,
+            projection_context=ctx,
+        )
+
+        # Retry was used
+        assert client.complete.call_count == 2
+        assert result is retry_result
+        # Tree from retry output
+        assert tree.root.id == "n1"
+
+    def test_retry_preserves_full_projection_context(self) -> None:
+        """The retry user prompt must contain the original projection
+        digest, selected step IDs, bindings/resource refs, conditions/
+        evidence, and original context — not just parse feedback."""
+        ctx = self._make_projection_context()
+        valid_yaml = self._make_valid_tree_yaml(ctx)
+        projectionless_yaml = self._make_projectionless_tree_yaml()
+        ingress_id = self._get_ingress_id()
+
+        seed = _make_seed("AP-T1-01")
+        narrative = _make_narrative()
+
+        first_result = _make_llm_result(projectionless_yaml)
+        retry_result = _make_llm_result(valid_yaml)
+
+        client = MagicMock()
+        client.complete.side_effect = [first_result, retry_result]
+
+        _call_attack_tree(
+            seed=seed,
+            narrative=narrative,
+            client=client,
+            use_case="A test use case",
+            profile=self._make_profile(),
+            pinned_entry_point_id=ingress_id,
+            projection_context=ctx,
+        )
+
+        assert client.complete.call_count == 2
+        retry_call = client.complete.call_args_list[1]
+        retry_prompt = retry_call.kwargs.get("user_prompt", "")
+
+        # Original projection context survives in the retry prompt
+        assert ctx["projection_digest"] in retry_prompt
+        assert "step.1" in retry_prompt
+        # Bindings / resource refs present
+        assert any(b["slot_id"] in retry_prompt for b in ctx["bindings"]), (
+            "Retry prompt should contain binding slot IDs"
+        )
+        # Feedback appended (not replacing original prompt)
+        assert "Feedback" in retry_prompt
+
+    def test_both_projection_invalid_raises(self) -> None:
+        """When both outputs are projection-invalid, the first error is raised."""
+        ctx = self._make_projection_context()
+        projectionless_yaml = self._make_projectionless_tree_yaml()
+        ingress_id = self._get_ingress_id()
+
+        seed = _make_seed("AP-T1-01")
+        narrative = _make_narrative()
+
+        first_result = _make_llm_result(projectionless_yaml)
+        retry_result = _make_llm_result(projectionless_yaml)
+
+        client = MagicMock()
+        client.complete.side_effect = [first_result, retry_result]
+
+        with pytest.raises(Exception) as exc_info:
+            _call_attack_tree(
+                seed=seed,
+                narrative=narrative,
+                client=client,
+                use_case="A test use case",
+                profile=self._make_profile(),
+                pinned_entry_point_id=ingress_id,
+                projection_context=ctx,
+            )
+
+        assert client.complete.call_count == 2
+        # Should be the original projection validation error
+        assert "no projected_step_ids" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 review blocker #2: external_precondition retry test
+# ---------------------------------------------------------------------------#
+
+
+class TestCall2ExternalPreconditionRetry:
+    """External precondition with nonempty realizations must trigger retry."""
+
+    @staticmethod
+    def _make_projection_context() -> dict:
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from tests.helpers.projection_factory import get_projected_candidate
+
+        candidate = get_projected_candidate()
+        return _build_projection_context(candidate)
+
+    @staticmethod
+    def _get_ingress_id() -> str:
+        from tests.helpers.projection_factory import get_projected_candidate
+
+        return get_projected_candidate().canonical_ingress.entry_point_id
+
+    @staticmethod
+    def _make_profile():
+        from tests.helpers.projection_factory import get_test_profile
+
+        return get_test_profile()
+
+    @staticmethod
+    def _make_valid_tree_yaml(ctx: dict) -> str:
+        """Build a YAML tree that passes both parse and projection validation."""
+        import yaml as _yaml
+
+        from scenario_forge.models.attack_tree import (
+            AiSystemAction,
+            AttackTree,
+            AttackTreeNode,
+            GateType,
+            ImpactAction,
+            InitialIngressAction,
+        )
+        from tests.helpers.projection_factory import (
+            get_projected_candidate,
+            make_step_realizations,
+        )
+
+        candidate = get_projected_candidate()
+        ingress_id = candidate.canonical_ingress.entry_point_id
+        selected = candidate.projection.selected_step_ids
+
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="Ingress",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(entry_point_id=ingress_id),
+                        projected_step_ids=(selected[0],),
+                        realizations=make_step_realizations((selected[0],)),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="Observe",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                        projected_step_ids=(selected[1],),
+                        realizations=make_step_realizations((selected[1],)),
+                    ),
+                    AttackTreeNode(
+                        id="n1.3",
+                        label="Impact",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=ImpactAction(boundary="internal", target="integrity"),
+                        projected_step_ids=(selected[2],),
+                        realizations=make_step_realizations((selected[2],)),
+                    ),
+                ],
+            ),
+        )
+        data = tree.model_dump(mode="json")
+        return _yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    def _make_external_precondition_with_realizations_yaml(self) -> str:
+        """A YAML tree with an external_precondition leaf that has nonempty
+        realizations — must be rejected by the model validator."""
+        ingress_id = self._get_ingress_id()
+        return (
+            "id: tree-AP-T1-01\n"
+            "seed_id: AP-T1-01\n"
+            "goal: test\n"
+            "root:\n"
+            "  id: n1\n"
+            "  label: Root\n"
+            "  gate: AND\n"
+            "  children:\n"
+            "    - id: n1.1\n"
+            "      label: Ingress\n"
+            "      gate: LEAF\n"
+            "      zone: input\n"
+            "      action:\n"
+            "        kind: initial_ingress\n"
+            f"        entry_point_id: {ingress_id}\n"
+            "      projected_step_ids:\n"
+            "        - step.1\n"
+            "      realizations:\n"
+            "        - projected_step_id: step.1\n"
+            "          action_kind: deliver\n"
+            "          executor_role: attacker\n"
+            "          boundary_position: crossing\n"
+            "          resource_ref_ids: []\n"
+            "          consumed_ref_ids: []\n"
+            "          produced_ref_ids: []\n"
+            "          produced_effect_ids: []\n"
+            "          outcome_link_pc_ids: []\n"
+            "          postcondition_ids: []\n"
+            "    - id: n1.2\n"
+            "      label: System\n"
+            "      gate: LEAF\n"
+            "      zone: reasoning\n"
+            "      action:\n"
+            "        kind: ai_system_action\n"
+            "      projected_step_ids:\n"
+            "        - step.2\n"
+            "      realizations:\n"
+            "        - projected_step_id: step.2\n"
+            "          action_kind: transform\n"
+            "          executor_role: system\n"
+            "          boundary_position: inside\n"
+            "          resource_ref_ids: []\n"
+            "          consumed_ref_ids: []\n"
+            "          produced_ref_ids: []\n"
+            "          produced_effect_ids: []\n"
+            "          outcome_link_pc_ids: []\n"
+            "          postcondition_ids: []\n"
+            "    - id: n1.3\n"
+            "      label: External\n"
+            "      gate: LEAF\n"
+            "      action:\n"
+            "        kind: external_precondition\n"
+            "        access_provenance: phishing\n"
+            "      projected_step_ids: []\n"
+            "      realizations:\n"
+            "        - projected_step_id: step.1\n"
+            "          action_kind: prepare\n"
+            "          executor_role: attacker\n"
+            "          boundary_position: outside\n"
+            "          resource_ref_ids: []\n"
+            "          consumed_ref_ids: []\n"
+            "          produced_ref_ids: []\n"
+            "          produced_effect_ids: []\n"
+            "          outcome_link_pc_ids: []\n"
+            "          postcondition_ids: []\n"
+        )
+
+    def test_external_precondition_with_realizations_triggers_retry(self) -> None:
+        """First attempt with external_precondition + nonempty realizations
+        triggers retry; retry with valid tree succeeds."""
+        ctx = self._make_projection_context()
+        valid_yaml = self._make_valid_tree_yaml(ctx)
+        bad_yaml = self._make_external_precondition_with_realizations_yaml()
+        ingress_id = self._get_ingress_id()
+
+        seed = _make_seed("AP-T1-01")
+        narrative = _make_narrative()
+
+        first_result = _make_llm_result(bad_yaml)
+        retry_result = _make_llm_result(valid_yaml)
+
+        client = MagicMock()
+        client.complete.side_effect = [first_result, retry_result]
+
+        tree, result = _call_attack_tree(
+            seed=seed,
+            narrative=narrative,
+            client=client,
+            use_case="A test use case",
+            profile=self._make_profile(),
+            pinned_entry_point_id=ingress_id,
+            projection_context=ctx,
+        )
+
+        # Retry was used
+        assert client.complete.call_count == 2
+        assert result is retry_result
+        assert tree.root.id == "n1"

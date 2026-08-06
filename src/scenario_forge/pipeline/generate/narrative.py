@@ -8,10 +8,11 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.realization import ProjectedStepRealization
 from scenario_forge.models.scenario import (
     ActorProfile,
     NarrativeAccessRealization,
@@ -46,6 +47,49 @@ class Call1Step(BaseModel):
     action: str
     effect: str
     control_point: str | None = None
+    # --- Projection traceability fields (422o.4) ---
+    # Required on every step; the LLM receives the IDs as opaque
+    # constraints and must echo them back.  No defaults -- a missing
+    # field is a typed violation, not an acceptable empty value.
+    projected_step_ids: tuple[str, ...] = Field(
+        min_length=1,
+        description=(
+            "Canonical projected step IDs that this narrative step realizes. "
+            "Must be echoed from the projection context constraints."
+        ),
+    )
+    realizations: tuple[ProjectedStepRealization, ...] = Field(
+        min_length=1,
+        description=(
+            "Per-projected-step canonical realization records.  Each record "
+            "carries action_kind, executor_role, boundary_position, concrete "
+            "resources, consumed/produced refs/effects, outcome links, and "
+            "owned postconditions.  Echo verbatim from the Projection Constraints."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_realization_ids(self) -> Call1Step:
+        """Exactly one realization per projected_step_id, no duplicates."""
+        realization_ids = [r.projected_step_id for r in self.realizations]
+        if len(set(realization_ids)) != len(realization_ids):
+            raise ValueError(
+                f"Call1Step {self.step_number} has duplicate realization "
+                f"records (same projected_step_id appears more than once)"
+            )
+        if len(realization_ids) != len(self.projected_step_ids):
+            raise ValueError(
+                f"Call1Step {self.step_number} has {len(realization_ids)} "
+                f"realization records but {len(self.projected_step_ids)} "
+                f"projected_step_ids — exactly one per ID required"
+            )
+        if set(realization_ids) != set(self.projected_step_ids):
+            raise ValueError(
+                f"Call1Step {self.step_number} realization IDs "
+                f"{set(realization_ids)} do not match projected_step_ids "
+                f"{set(self.projected_step_ids)}"
+            )
+        return self
 
 
 class Call1Response(BaseModel):
@@ -109,6 +153,10 @@ def _sanitize_narrative(narrative: NarrativeLayer) -> NarrativeLayer:
 
     Logs a warning when sanitization modifies any field.
     Returns a (possibly modified) copy of the narrative.
+
+    Uses model_copy(update=...) to preserve projection metadata fields
+    (projected_step_ids, canonical_action_kind, etc.) — only prose text
+    fields are sanitized (422o.4 blocker #4: no semantic repair).
     """
     changed = False
     title = _sanitize_non_latin(narrative.title)
@@ -123,28 +171,24 @@ def _sanitize_narrative(narrative: NarrativeLayer) -> NarrativeLayer:
         effect = _sanitize_non_latin(step.effect)
         if action != step.action or effect != step.effect:
             changed = True
-        new_steps.append(
-            NarrativeStep(
-                step_number=step.step_number,
-                zone=step.zone,
-                action=action,
-                effect=effect,
-                control_point=step.control_point,
+            # Use model_copy to preserve all projection metadata fields.
+            new_steps.append(
+                step.model_copy(update={"action": action, "effect": effect})
             )
-        )
+        else:
+            new_steps.append(step)
 
     if changed:
         logger.warning(
             "Sanitized non-Latin characters from narrative fields "
             "(CJK/Cyrillic/Arabic leak from LLM output)"
         )
-        return NarrativeLayer(
-            title=title,
-            summary=summary,
-            entry_point=narrative.entry_point,
-            zone_sequence=narrative.zone_sequence,
-            steps=new_steps,
-            access_realization=narrative.access_realization,
+        return narrative.model_copy(
+            update={
+                "title": title,
+                "summary": summary,
+                "steps": new_steps,
+            }
         )
     return narrative
 
@@ -182,6 +226,8 @@ def _map_call1_to_narrative(resp: Call1Response) -> NarrativeLayer:
             action=s.action,
             effect=s.effect,
             control_point=s.control_point,
+            projected_step_ids=s.projected_step_ids,
+            realizations=s.realizations,
         )
         for s in resp.steps
     ]
@@ -353,6 +399,7 @@ def build_call1_context(
     pinned_entry_point_id: str | None = None,
     access_feedback: str | None = None,
     realization_feedback: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build prompt template variables for Call 1 (Narrative).
 
@@ -556,6 +603,7 @@ def build_call1_context(
         "kill_chain": seed.kill_chain,
         "access_feedback": access_feedback or "",
         "realization_feedback": realization_feedback or "",
+        "projection_context": projection_context,
     }
 
 
@@ -575,6 +623,7 @@ def _call_narrative(
     pinned_entry_point_id: str | None = None,
     access_feedback: str | None = None,
     realization_feedback: str | None = None,
+    projection_context: dict[str, Any] | None = None,
 ) -> tuple[NarrativeLayer, LLMResult]:
     """Generate an attack narrative for a scenario seed (Call 1).
 
@@ -599,6 +648,7 @@ def _call_narrative(
         pinned_entry_point_id=pinned_entry_point_id,
         access_feedback=access_feedback,
         realization_feedback=realization_feedback,
+        projection_context=projection_context,
     )
 
     result = client.complete(

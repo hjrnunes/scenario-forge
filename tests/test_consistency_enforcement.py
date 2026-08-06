@@ -21,6 +21,7 @@ from scenario_forge.models.attack_tree import (
     ToolInvocationAction,
 )
 from scenario_forge.models.capability_profile import compute_tool_id
+from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import (
     NarrativeLayer,
     NarrativeStep,
@@ -30,6 +31,8 @@ from scenario_forge.pipeline.generate import (
     _check_non_actionable_leaves,
     _count_leaves,
 )
+from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
+from tests.helpers.realization_helper import make_realizations
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -74,6 +77,13 @@ def _make_narrative(
             zone=zone_sequence[i % len(zone_sequence)],
             action=f"Step {i + 1} action.",
             effect=f"Step {i + 1} effect.",
+            projected_step_ids=(f"step.{i + 1}",),
+            realizations=make_realizations(
+                (f"step.{i + 1}",),
+                action_kind="prepare",
+                executor_role="attacker",
+                boundary_position="crossing",
+            ),
         )
         for i in range(step_count)
     ]
@@ -430,8 +440,16 @@ class TestCheckConsistencyIntegration:
 # ---------------------------------------------------------------------------
 
 
+@patch(
+    "scenario_forge.pipeline.projection_validation.validate_projection_traceability",
+    new=MagicMock(return_value=ProjectionTraceabilityResult(valid=True, violations=[])),
+)
 class TestConsistencyRetryLoop:
-    """Verify the retry loop re-invokes Call 2 on consistency violations."""
+    """Verify the retry loop re-invokes Call 2 on consistency violations.
+
+    _assemble_envelope is mocked; traceability validation is patched to
+    valid (covered by the dedicated traceability suite).
+    """
 
     def _make_call_attack_tree_result(
         self,
@@ -540,8 +558,10 @@ class TestConsistencyRetryLoop:
             use_case="Test system",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            candidate_id="cand:v1:" + "1" * 32,
+            candidate_id="",
             pinned_technique_ids=["AML.T0051"],
+            projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # Call 2 should have been invoked twice (initial + 1 retry)
@@ -617,8 +637,10 @@ class TestConsistencyRetryLoop:
             use_case="Test system",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            candidate_id="cand:v1:" + "1" * 32,
+            candidate_id="",
             pinned_technique_ids=["AML.T0051"],
+            projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # Call 2 should have been invoked only once
@@ -693,8 +715,10 @@ class TestConsistencyRetryLoop:
             use_case="Test system",
             pinned_entry_point_id="ep:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            candidate_id="cand:v1:" + "1" * 32,
+            candidate_id="",
             pinned_technique_ids=["AML.T0051"],
+            projected_candidate=get_projected_candidate(),
+            capability_snapshot=get_test_snapshot(),
         )
 
         # 1 initial + 2 retries = 3

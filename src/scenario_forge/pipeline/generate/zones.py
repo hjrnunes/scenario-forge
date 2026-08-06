@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from scenario_forge.models.attack_tree import AttackTree, AttackTreeNode
-from scenario_forge.models.scenario import NarrativeLayer, NarrativeStep
+from scenario_forge.models.scenario import NarrativeLayer
 
 logger = logging.getLogger(__name__)
 
@@ -21,68 +21,44 @@ def _enforce_zones_narrative(
     narrative: NarrativeLayer,
     zones_active: list[str] | None = None,
 ) -> NarrativeLayer:
-    """Strip zones/steps not in *zones_active* from a narrative.
+    """Validate zone membership of narrative steps against *zones_active*.
 
-    When *zones_active* is ``None`` the narrative is returned unchanged.
-    If any zones or steps are removed a warning is logged.  If the
-    ``zone_sequence`` would become empty after filtering, a warning is
-    logged but the (now-empty) result is still returned so the caller
-    can decide how to handle it.
+    On candidate-v2 paths (422o.4), zone filtering/renumbering is semantic
+    repair and is prohibited.  This function now **validates** zones and
+    raises ``ValueError`` when any step has a disallowed zone — it never
+    deletes, filters, or renumbers steps.  The caller must retry or reject.
+
+    When *zones_active* is ``None`` the narrative is returned unchanged
+    (no validation possible).
     """
     if zones_active is None:
         return narrative
 
     allowed = set(zones_active)
+    violations: list[str] = []
 
-    # --- zone_sequence ---
-    filtered_zs = [z for z in narrative.zone_sequence if z in allowed]
-    removed_zs = set(narrative.zone_sequence) - allowed
+    for step in narrative.steps:
+        if step.zone not in allowed:
+            violations.append(
+                f"disallowed-zone: narrative step {step.step_number} "
+                f"has zone '{step.zone}' which is not in "
+                f"zones_active={sorted(allowed)}."
+            )
 
-    # --- steps ---
-    filtered_steps = [s for s in narrative.steps if s.zone in allowed]
-    removed_step_zones = {s.zone for s in narrative.steps if s.zone not in allowed}
+    for z in narrative.zone_sequence:
+        if z not in allowed:
+            violations.append(
+                f"disallowed-zone: zone_sequence contains '{z}' "
+                f"which is not in zones_active={sorted(allowed)}."
+            )
 
-    removed_all = removed_zs | removed_step_zones
-    if removed_all:
-        logger.warning(
-            "Stripped disallowed zones from narrative: %s (zones_active=%s)",
-            sorted(removed_all),
-            zones_active,
+    if violations:
+        raise ValueError(
+            "Narrative has disallowed zones (422o.4: no semantic repair): "
+            + "; ".join(violations)
         )
 
-    if not removed_all:
-        return narrative
-
-    if not filtered_zs or not filtered_steps:
-        logger.warning(
-            "Zone enforcement would leave narrative with empty %s; "
-            "keeping original narrative unchanged (zones_active=%s)",
-            "zone_sequence and steps"
-            if (not filtered_zs and not filtered_steps)
-            else ("zone_sequence" if not filtered_zs else "steps"),
-            zones_active,
-        )
-        return narrative
-
-    # Re-number surviving steps sequentially
-    renumbered_steps = [
-        NarrativeStep(
-            step_number=i + 1,
-            zone=s.zone,
-            action=s.action,
-            effect=s.effect,
-            control_point=s.control_point,
-        )
-        for i, s in enumerate(filtered_steps)
-    ]
-
-    return NarrativeLayer(
-        title=narrative.title,
-        summary=narrative.summary,
-        entry_point=narrative.entry_point,
-        zone_sequence=filtered_zs,
-        steps=renumbered_steps,
-    )
+    return narrative
 
 
 def _collect_zones_from_tree(node: AttackTreeNode) -> set[str]:
