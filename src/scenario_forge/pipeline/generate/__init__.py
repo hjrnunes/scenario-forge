@@ -163,6 +163,7 @@ from scenario_forge.pipeline.generate.tree import (
     _validate_mandatory_leaves,
     _validate_technique_zone_compatibility,
     _validate_technique_zone_node,
+    _validate_tree_against_projection,
     _warn_dominant_threat_id_crossref,
     build_call2_context,
 )
@@ -268,6 +269,7 @@ __all__ = [
     "_validate_mandatory_leaves",
     "_validate_technique_zone_compatibility",
     "_validate_technique_zone_node",
+    "_validate_tree_against_projection",
     "_warn_dominant_threat_id_crossref",
     "assign_entry_point",
     "build_actor_access_provenance",

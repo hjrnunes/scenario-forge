@@ -559,12 +559,34 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
     resource_ref values), exact opaque IDs, mappings, and canonical
     ingress constraints—not another partial tuple of strings.
     """
+    from scenario_forge.pipeline.projection_validation import (
+        _extract_resource_id,
+        derive_step_realization,
+    )
+
     chain = candidate.projection.source_chain
     selected_step_ids = set(candidate.projection.selected_step_ids)
     selected_steps = [step for step in chain.steps if step.step_id in selected_step_ids]
 
     # Serialize concrete resource bindings with their resource_ref values.
     bindings_by_slot = {b.slot_id: b for b in candidate.projection.bindings}
+    binding_by_slot = {b.slot_id: b.resource_ref for b in candidate.projection.bindings}
+
+    # Build canonical realization records per step for exact comparison.
+    step_realizations: dict[str, dict[str, Any]] = {}
+    for step in selected_steps:
+        r = derive_step_realization(step, binding_by_slot)
+        step_realizations[step.step_id] = {
+            "action_kind": r.action_kind,
+            "executor_role": r.executor_role,
+            "boundary_position": r.boundary_position,
+            "resource_ref_ids": list(r.resource_ref_ids),
+            "consumed_ref_ids": list(r.consumed_ref_ids),
+            "produced_ref_ids": list(r.produced_ref_ids),
+            "produced_effect_ids": list(r.produced_effect_ids),
+            "outcome_link_pc_ids": list(r.outcome_link_pc_ids),
+            "postcondition_ids": list(r.postcondition_ids),
+        }
 
     return {
         "selected_steps": [
@@ -590,6 +612,12 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
                             if link.slot_id in bindings_by_slot
                             else None
                         ),
+                        # Include the opaque resource ID for quick comparison.
+                        "resource_ref_id": (
+                            _extract_resource_id(binding_by_slot[link.slot_id])
+                            if link.slot_id in binding_by_slot
+                            else ""
+                        ),
                     }
                     for link in step.resource_links
                 ],
@@ -612,6 +640,8 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
                 ],
                 "produced": [p.model_dump(mode="json") for p in step.produced],
                 "consumed": [c.model_dump(mode="json") for c in step.consumed],
+                # Canonical realization fields for exact comparison (422o.4).
+                **step_realizations.get(step.step_id, {}),
             }
             for step in selected_steps
         ],

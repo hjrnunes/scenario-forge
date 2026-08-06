@@ -8,7 +8,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
@@ -67,6 +67,29 @@ class Call1Step(BaseModel):
             "owned postconditions.  Echo verbatim from the Projection Constraints."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_realization_ids(self) -> Call1Step:
+        """Exactly one realization per projected_step_id, no duplicates."""
+        realization_ids = [r.projected_step_id for r in self.realizations]
+        if len(set(realization_ids)) != len(realization_ids):
+            raise ValueError(
+                f"Call1Step {self.step_number} has duplicate realization "
+                f"records (same projected_step_id appears more than once)"
+            )
+        if len(realization_ids) != len(self.projected_step_ids):
+            raise ValueError(
+                f"Call1Step {self.step_number} has {len(realization_ids)} "
+                f"realization records but {len(self.projected_step_ids)} "
+                f"projected_step_ids — exactly one per ID required"
+            )
+        if set(realization_ids) != set(self.projected_step_ids):
+            raise ValueError(
+                f"Call1Step {self.step_number} realization IDs "
+                f"{set(realization_ids)} do not match projected_step_ids "
+                f"{set(self.projected_step_ids)}"
+            )
+        return self
 
 
 class Call1Response(BaseModel):

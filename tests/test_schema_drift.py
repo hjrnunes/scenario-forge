@@ -409,3 +409,108 @@ class TestNestedRequirednessParity:
         assert "projection" in hand_req, (
             "projection must be required in hand JSON schema"
         )
+
+    def test_projected_step_realization_required_parity(
+        self, pydantic_schema, hand_schema
+    ):
+        """ProjectedStepRealization all 10 fields required in all schemas."""
+        pyd_req = _json_schema_required(
+            pydantic_schema.get("$defs", {}), "ProjectedStepRealization"
+        )
+        hand_req = _json_schema_required(
+            hand_schema.get("$defs", {}), "ProjectedStepRealization"
+        )
+        yaml_req = _yaml_required_fields("ProjectedStepRealization")
+        all_fields = {
+            "projected_step_id",
+            "action_kind",
+            "executor_role",
+            "boundary_position",
+            "resource_ref_ids",
+            "consumed_ref_ids",
+            "produced_ref_ids",
+            "produced_effect_ids",
+            "outcome_link_pc_ids",
+            "postcondition_ids",
+        }
+        for field in all_fields:
+            assert field in pyd_req, (
+                f"ProjectedStepRealization.{field} must be required in Pydantic, "
+                f"got {sorted(pyd_req)}"
+            )
+            assert field in hand_req, (
+                f"ProjectedStepRealization.{field} must be required in hand JSON, "
+                f"got {sorted(hand_req)}"
+            )
+            assert field in yaml_req, (
+                f"ProjectedStepRealization.{field} must be required in YAML, "
+                f"got {sorted(yaml_req)}"
+            )
+
+    def test_attack_tree_node_required_parity(self, pydantic_schema, hand_schema):
+        """AttackTreeNode required fields match across all schemas."""
+        pyd_req = _json_schema_required(
+            pydantic_schema.get("$defs", {}), "AttackTreeNode"
+        )
+        hand_req = _json_schema_required(hand_schema.get("$defs", {}), "AttackTreeNode")
+        yaml_req = _yaml_required_fields("AttackTreeNode")
+        # Core required fields (always required in model)
+        core_fields = {"id", "label", "gate"}
+        for field in core_fields:
+            assert field in pyd_req, (
+                f"AttackTreeNode.{field} must be required in Pydantic, "
+                f"got {sorted(pyd_req)}"
+            )
+            assert field in hand_req, (
+                f"AttackTreeNode.{field} must be required in hand JSON, "
+                f"got {sorted(hand_req)}"
+            )
+            assert field in yaml_req, (
+                f"AttackTreeNode.{field} must be required in YAML, "
+                f"got {sorted(yaml_req)}"
+            )
+        # Projection fields must be required in YAML
+        for field in ("projected_step_ids", "realizations"):
+            assert field in yaml_req, (
+                f"AttackTreeNode.{field} must be required in YAML, "
+                f"got {sorted(yaml_req)}"
+            )
+
+    def test_behavior_action_realizations_required_parity(
+        self, pydantic_schema, hand_schema
+    ):
+        """BehaviorAction.realizations is required in all schemas."""
+        pyd_req = _json_schema_required(
+            pydantic_schema.get("$defs", {}), "BehaviorAction"
+        )
+        hand_req = _json_schema_required(hand_schema.get("$defs", {}), "BehaviorAction")
+        yaml_req = _yaml_required_fields("BehaviorAction")
+        assert "realizations" in pyd_req, (
+            f"BehaviorAction.realizations must be required in Pydantic, "
+            f"got {sorted(pyd_req)}"
+        )
+        assert "realizations" in hand_req, (
+            f"BehaviorAction.realizations must be required in hand JSON, "
+            f"got {sorted(hand_req)}"
+        )
+        assert "realizations" in yaml_req, (
+            f"BehaviorAction.realizations must be required in YAML, "
+            f"got {sorted(yaml_req)}"
+        )
+
+    def test_yaml_attack_tree_not_opaque(self):
+        """YAML attack_tree must have structured fields, not be opaque."""
+        yaml_req = _yaml_required_fields("attack_tree")
+        assert "id" in yaml_req, "attack_tree.id must be required in YAML"
+        assert "root" in yaml_req, "attack_tree.root must be required in YAML"
+
+    def test_yaml_behavior_spec_not_opaque(self):
+        """YAML behavior_spec must have structured fields, not be opaque."""
+        yaml_req = _yaml_required_fields("BehaviorSpec")
+        assert "actions" in yaml_req, "BehaviorSpec.actions must be required in YAML"
+        assert "assertions" in yaml_req, (
+            "BehaviorSpec.assertions must be required in YAML"
+        )
+        assert "gherkin_text" in yaml_req, (
+            "BehaviorSpec.gherkin_text must be required in YAML"
+        )

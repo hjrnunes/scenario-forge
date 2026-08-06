@@ -384,8 +384,21 @@ class AttackTreeNode(BaseModel):
                     f"Security-bearing leaves must carry one realization "
                     f"record per projected_step_id."
                 )
-            realization_ids = {r.projected_step_id for r in self.realizations}
+            realization_ids_list = [r.projected_step_id for r in self.realizations]
             projected_ids = set(self.projected_step_ids)
+            if len(set(realization_ids_list)) != len(realization_ids_list):
+                raise ValueError(
+                    f"LEAF node '{self.id}' has duplicate realization "
+                    f"records (same projected_step_id appears more than once)"
+                )
+            if len(realization_ids_list) != len(projected_ids):
+                raise ValueError(
+                    f"LEAF node '{self.id}' has {len(realization_ids_list)} "
+                    f"realization records but {len(projected_ids)} "
+                    f"projected_step_ids — exactly one record per "
+                    f"projected_step_id is required"
+                )
+            realization_ids = set(realization_ids_list)
             if realization_ids != projected_ids:
                 raise ValueError(
                     f"LEAF node '{self.id}' realization IDs "

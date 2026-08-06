@@ -62,6 +62,11 @@ from scenario_forge.models.scenario import (
     NarrativeStep,
     ScenarioEnvelope,
 )
+from scenario_forge.pipeline.generate.gherkin import (
+    Call3Action,
+    Call3Assertion,
+    Call3Response,
+)
 from scenario_forge.pipeline.projection import (
     ProjectionBudget,
     capture_capability_snapshot,
@@ -129,7 +134,11 @@ def _step(step_id: str, order: int, *, conditional: bool = False) -> dict[str, A
         "executor_role": "attacker" if attacker else "system",
         "boundary_position": "crossing" if attacker else "inside",
         "action_kind": "prepare" if attacker else "impact" if final else "observe",
-        "consumed": [],
+        "consumed": (
+            [{"kind": "state", "ref_id": "state.1", "value_type": "boolean"}]
+            if order == 2
+            else []
+        ),
         "produced": [
             {"kind": "effect", "ref_id": f"effect.{order}", "value_type": "boolean"}
         ],
@@ -3016,6 +3025,9 @@ class TestNarrativeCanonicalMetadata:
         chain = block.projection.source_chain
         step1 = next(s for s in chain.steps if s.step_id == selected[0])
         wrong_kind = "impact" if step1.action_kind != "impact" else "prepare"
+        # Build canonical realizations then corrupt step 1's action_kind
+        reals = make_realizations((selected[0],))
+        wrong_real = reals[0].model_copy(update={"action_kind": wrong_kind})
         narrative = NarrativeLayer(
             title="Wrong kind",
             summary="Adversarial summary",
@@ -3028,12 +3040,7 @@ class TestNarrativeCanonicalMetadata:
                     action="gain access",
                     effect="entry",
                     projected_step_ids=(selected[0],),
-                    realizations=make_realizations(
-                        (selected[0],),
-                        action_kind=wrong_kind,
-                        executor_role="attacker",
-                        boundary_position="crossing",
-                    ),
+                    realizations=(wrong_real,),
                 ),
                 NarrativeStep(
                     step_number=2,
@@ -3041,12 +3048,7 @@ class TestNarrativeCanonicalMetadata:
                     action="exploit",
                     effect="control",
                     projected_step_ids=(selected[1],),
-                    realizations=make_realizations(
-                        (selected[1],),
-                        action_kind="observe",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
+                    realizations=make_realizations((selected[1],)),
                 ),
                 NarrativeStep(
                     step_number=3,
@@ -3054,12 +3056,7 @@ class TestNarrativeCanonicalMetadata:
                     action="impact",
                     effect="damage",
                     projected_step_ids=(selected[2],),
-                    realizations=make_realizations(
-                        (selected[2],),
-                        action_kind="impact",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
+                    realizations=make_realizations((selected[2],)),
                 ),
             ],
             access_realization=NarrativeAccessRealization(
@@ -3154,11 +3151,69 @@ class TestNarrativeCanonicalMetadata:
 class TestAlteredCall3Output:
     """Altered/omitted/extra Call 3 structured output must be rejected."""
 
+    @staticmethod
+    def _make_call3_ctx(selected: list[str]) -> dict:
+        """Build a projection context with full realization fields."""
+        from scenario_forge.pipeline.generate.assembly import (
+            _build_projection_context,
+        )
+
+        candidate = get_projected_candidate()
+        return _build_projection_context(candidate)
+
+    @staticmethod
+    def _make_valid_call3_response(selected: list[str]) -> Call3Response:
+        """Build a valid Call3Response matching the tree's leaf IDs and kinds."""
+        # Build assertions for security-relevant postconditions
+        candidate = get_projected_candidate()
+        chain = candidate.projection.source_chain
+        assertions: list[Call3Assertion] = []
+        for step in chain.steps:
+            if step.step_id in set(selected):
+                for pc in step.observable_postconditions:
+                    if pc.security_relevant:
+                        assertions.append(
+                            Call3Assertion(
+                                assertion_id=f"assert-{step.step_id}-{pc.postcondition_id}",
+                                source_step_ids=(step.step_id,),
+                                projected_postcondition_ids=(pc.postcondition_id,),
+                                text=f"Verify {pc.postcondition_id}",
+                            )
+                        )
+
+        return Call3Response(
+            actions=[
+                Call3Action(
+                    action_id="ba-n1.1",
+                    projected_step_ids=(selected[0],),
+                    source_leaf_id="n1.1",
+                    gherkin_keyword="When",  # initial_ingress → When
+                    text="Inject input",
+                    realizations=make_step_realizations((selected[0],)),
+                ),
+                Call3Action(
+                    action_id="ba-n1.2",
+                    projected_step_ids=(selected[1],),
+                    source_leaf_id="n1.2",
+                    gherkin_keyword="When",  # ai_system_action → When
+                    text="System processes",
+                    realizations=make_step_realizations((selected[1],)),
+                ),
+                Call3Action(
+                    action_id="ba-n1.3",
+                    projected_step_ids=(selected[2],),
+                    source_leaf_id="n1.3",
+                    gherkin_keyword="Then",  # impact → Then
+                    text="Impact achieved",
+                    realizations=make_step_realizations((selected[2],)),
+                ),
+            ],
+            assertions=assertions,
+        )
+
     def test_altered_call3_action_id_rejected(self):
-        """Changing a Call3Response action_id after validation must fail."""
+        """Removing an action from a valid Call3Response must fail."""
         from scenario_forge.pipeline.generate.gherkin import (
-            Call3Action,
-            Call3Response,
             _validate_call3_response,
         )
 
@@ -3166,80 +3221,24 @@ class TestAlteredCall3Output:
         ingress_id = block.canonical_ingress.entry_point_id
         tree = _make_tree(ingress_id)
         selected = list(block.projection.selected_step_ids)
+        ctx = self._make_call3_ctx(selected)
 
-        ctx = {
-            "selected_step_ids": selected,
-            "selected_steps": [
-                {
-                    "step_id": sid,
-                    "observable_postconditions": [
-                        {"postcondition_id": f"post.{i + 1}"}
-                    ],
-                }
-                for i, sid in enumerate(selected)
-            ],
-        }
-
-        valid_response = Call3Response(
-            actions=[
-                Call3Action(
-                    action_id="ba-1",
-                    projected_step_ids=(selected[0],),
-                    source_leaf_id="n1.1",
-                    gherkin_keyword="Given",
-                    text="Inject input",
-                    realizations=make_realizations(
-                        (selected[0],),
-                        action_kind="prepare",
-                        executor_role="attacker",
-                        boundary_position="crossing",
-                    ),
-                ),
-                Call3Action(
-                    action_id="ba-2",
-                    projected_step_ids=(selected[1],),
-                    source_leaf_id="n1.2",
-                    gherkin_keyword="When",
-                    text="System processes",
-                    realizations=make_realizations(
-                        (selected[1],),
-                        action_kind="observe",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
-                ),
-                Call3Action(
-                    action_id="ba-3",
-                    projected_step_ids=(selected[2],),
-                    source_leaf_id="n1.3",
-                    gherkin_keyword="Then",
-                    text="Impact achieved",
-                    realizations=make_realizations(
-                        (selected[2],),
-                        action_kind="impact",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
-                ),
-            ],
-            assertions=[],
-        )
-
+        valid_response = self._make_valid_call3_response(selected)
         # Should pass with correct response.
         _validate_call3_response(valid_response, tree, ctx)
 
-        # Alter: remove one action → incomplete coverage.
+        # Alter: remove one action → missing mapped leaf + incomplete coverage.
         altered = valid_response.model_copy(
             update={"actions": valid_response.actions[:2]}
         )
-        with pytest.raises(ValueError, match="does not cover projected steps"):
+        with pytest.raises(
+            ValueError, match="does not provide actions for mapped leaves"
+        ):
             _validate_call3_response(altered, tree, ctx)
 
     def test_call3_nonexistent_leaf_id_rejected(self):
         """A Call3Response with a nonexistent leaf ID must fail."""
         from scenario_forge.pipeline.generate.gherkin import (
-            Call3Action,
-            Call3Response,
             _validate_call3_response,
         )
 
@@ -3247,71 +3246,26 @@ class TestAlteredCall3Output:
         ingress_id = block.canonical_ingress.entry_point_id
         tree = _make_tree(ingress_id)
         selected = list(block.projection.selected_step_ids)
+        ctx = self._make_call3_ctx(selected)
 
-        ctx = {
-            "selected_step_ids": selected,
-            "selected_steps": [
-                {
-                    "step_id": sid,
-                    "observable_postconditions": [
-                        {"postcondition_id": f"post.{i + 1}"}
-                    ],
-                }
-                for i, sid in enumerate(selected)
-            ],
-        }
-
-        response = Call3Response(
-            actions=[
-                Call3Action(
-                    action_id="ba-1",
-                    projected_step_ids=(selected[0],),
-                    source_leaf_id="n9.9",  # nonexistent
-                    gherkin_keyword="Given",
-                    text="Inject",
-                    realizations=make_realizations(
-                        (selected[0],),
-                        action_kind="prepare",
-                        executor_role="attacker",
-                        boundary_position="crossing",
-                    ),
-                ),
-                Call3Action(
-                    action_id="ba-2",
-                    projected_step_ids=(selected[1],),
-                    source_leaf_id="n1.2",
-                    gherkin_keyword="When",
-                    text="Process",
-                    realizations=make_realizations(
-                        (selected[1],),
-                        action_kind="observe",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
-                ),
-                Call3Action(
-                    action_id="ba-3",
-                    projected_step_ids=(selected[2],),
-                    source_leaf_id="n1.3",
-                    gherkin_keyword="Then",
-                    text="Impact",
-                    realizations=make_realizations(
-                        (selected[2],),
-                        action_kind="impact",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
-                ),
-            ],
+        response = self._make_valid_call3_response(selected)
+        # Corrupt: use a nonexistent leaf ID with matching deterministic action ID
+        response.actions[0] = Call3Action(
+            action_id="ba-n9.9",
+            projected_step_ids=(selected[0],),
+            source_leaf_id="n9.9",  # nonexistent
+            gherkin_keyword="When",
+            text="Inject",
+            realizations=make_step_realizations((selected[0],)),
         )
         with pytest.raises(ValueError, match="nonexistent tree leaf"):
             _validate_call3_response(response, tree, ctx)
 
     def test_call3_unprojected_step_rejected(self):
-        """A Call3Response referencing an unprojected step must fail."""
+        """A Call3Response referencing an unprojected step must fail.
+        The exact-ownership check catches the mismatch before the global
+        unprojected-step check."""
         from scenario_forge.pipeline.generate.gherkin import (
-            Call3Action,
-            Call3Response,
             _validate_call3_response,
         )
 
@@ -3319,64 +3273,18 @@ class TestAlteredCall3Output:
         ingress_id = block.canonical_ingress.entry_point_id
         tree = _make_tree(ingress_id)
         selected = list(block.projection.selected_step_ids)
+        ctx = self._make_call3_ctx(selected)
 
-        ctx = {
-            "selected_step_ids": selected,
-            "selected_steps": [
-                {
-                    "step_id": sid,
-                    "observable_postconditions": [
-                        {"postcondition_id": f"post.{i + 1}"}
-                    ],
-                }
-                for i, sid in enumerate(selected)
-            ],
-        }
-
-        response = Call3Response(
-            actions=[
-                Call3Action(
-                    action_id="ba-1",
-                    projected_step_ids=(selected[0],),
-                    source_leaf_id="n1.1",
-                    gherkin_keyword="Given",
-                    text="Inject",
-                    realizations=make_realizations(
-                        (selected[0],),
-                        action_kind="prepare",
-                        executor_role="attacker",
-                        boundary_position="crossing",
-                    ),
-                ),
-                Call3Action(
-                    action_id="ba-2",
-                    projected_step_ids=("step.99",),  # unprojected
-                    source_leaf_id="n1.2",
-                    gherkin_keyword="When",
-                    text="Process",
-                    realizations=make_realizations(
-                        ("step.99",),
-                        action_kind="observe",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
-                ),
-                Call3Action(
-                    action_id="ba-3",
-                    projected_step_ids=(selected[2],),
-                    source_leaf_id="n1.3",
-                    gherkin_keyword="Then",
-                    text="Impact",
-                    realizations=make_realizations(
-                        (selected[2],),
-                        action_kind="impact",
-                        executor_role="system",
-                        boundary_position="inside",
-                    ),
-                ),
-            ],
+        response = self._make_valid_call3_response(selected)
+        # Corrupt: action for n1.2 references an unprojected step ID.
+        # The leaf n1.2 has projected_step_ids=(selected[1],), so the
+        # exact-ownership check fires first.
+        # Use model_copy to bypass the model validator since we're
+        # testing the validation function, not the model constructor.
+        response.actions[1] = response.actions[1].model_copy(
+            update={"projected_step_ids": ("step.99",)}
         )
-        with pytest.raises(ValueError, match="unprojected step"):
+        with pytest.raises(ValueError, match="do not exactly match source leaf"):
             _validate_call3_response(response, tree, ctx)
 
 
@@ -4000,3 +3908,396 @@ class TestTreeRealizationRecordMutations:
         assert any("action_kind" in d for d in details), (
             f"Forged tree action_kind should fail, got {details}"
         )
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 Review blocker #1: Unconditional realization comparison
+# ---------------------------------------------------------------------------#
+
+
+class TestUnconditionalRealizationComparison:
+    """Clearing any realization tuple field must not suppress validation."""
+
+    def test_clear_resource_ref_ids_fails(self):
+        """Clearing resource_ref_ids on a step with resources must fail."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        # step.1 has resource_ref_ids=('ep:v1:...',)
+        step0 = narrative.steps[0]
+        cleared = step0.realizations[0].model_copy(update={"resource_ref_ids": ()})
+        step0 = step0.model_copy(update={"realizations": (cleared,)})
+        steps = list(narrative.steps)
+        steps[0] = step0
+        narrative = narrative.model_copy(update={"steps": steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("resource_ref_ids" in d for d in details), (
+            f"Cleared resource_ref_ids should fail, got {details}"
+        )
+
+    def test_clear_produced_ref_ids_fails(self):
+        """Clearing produced_ref_ids on a step with produced must fail."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        # step.1 has produced_ref_ids=('effect.1',)
+        step0 = narrative.steps[0]
+        cleared = step0.realizations[0].model_copy(update={"produced_ref_ids": ()})
+        step0 = step0.model_copy(update={"realizations": (cleared,)})
+        steps = list(narrative.steps)
+        steps[0] = step0
+        narrative = narrative.model_copy(update={"steps": steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("produced_ref_ids" in d for d in details), (
+            f"Cleared produced_ref_ids should fail, got {details}"
+        )
+
+    def test_clear_produced_effect_ids_fails(self):
+        """Clearing produced_effect_ids on a step with effects must fail."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        step0 = narrative.steps[0]
+        cleared = step0.realizations[0].model_copy(update={"produced_effect_ids": ()})
+        step0 = step0.model_copy(update={"realizations": (cleared,)})
+        steps = list(narrative.steps)
+        steps[0] = step0
+        narrative = narrative.model_copy(update={"steps": steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("produced_effect_ids" in d for d in details), (
+            f"Cleared produced_effect_ids should fail, got {details}"
+        )
+
+    def test_clear_postcondition_ids_fails(self):
+        """Clearing postcondition_ids on a step with postconditions must fail."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        # step.3 has postcondition_ids=('post.3',)
+        step2 = narrative.steps[2]
+        cleared = step2.realizations[0].model_copy(update={"postcondition_ids": ()})
+        step2 = step2.model_copy(update={"realizations": (cleared,)})
+        steps = list(narrative.steps)
+        steps[2] = step2
+        narrative = narrative.model_copy(update={"steps": steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("postcondition_ids" in d for d in details), (
+            f"Cleared postcondition_ids should fail, got {details}"
+        )
+
+    def test_clear_outcome_link_pc_ids_fails(self):
+        """Clearing outcome_link_pc_ids on a step with outcome links must fail."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        # step.3 has outcome_link_pc_ids=('post.3',)
+        step2 = narrative.steps[2]
+        cleared = step2.realizations[0].model_copy(update={"outcome_link_pc_ids": ()})
+        step2 = step2.model_copy(update={"realizations": (cleared,)})
+        steps = list(narrative.steps)
+        steps[2] = step2
+        narrative = narrative.model_copy(update={"steps": steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("outcome_link_pc_ids" in d for d in details), (
+            f"Cleared outcome_link_pc_ids should fail, got {details}"
+        )
+
+    def test_clear_consumed_ref_ids_fails(self):
+        """Clearing consumed_ref_ids on a step with consumed must fail."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        narrative = _make_narrative(ingress_id)
+        # step.2 has consumed_ref_ids=('effect.1',)
+        step1 = narrative.steps[1]
+        cleared = step1.realizations[0].model_copy(update={"consumed_ref_ids": ()})
+        step1 = step1.model_copy(update={"realizations": (cleared,)})
+        steps = list(narrative.steps)
+        steps[1] = step1
+        narrative = narrative.model_copy(update={"steps": steps})
+        envelope = _make_envelope(block, narrative=narrative)
+        result = validate_projection_traceability(envelope)
+        details = [v.detail for v in result.violations]
+        assert any("consumed_ref_ids" in d for d in details), (
+            f"Cleared consumed_ref_ids should fail, got {details}"
+        )
+
+
+class TestDuplicateRealizationRecords:
+    """Duplicate realization records (same projected_step_id) must fail."""
+
+    def test_narrative_duplicate_realization_fails(self):
+        """NarrativeStep with duplicate realization records must fail."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        reals = make_step_realizations((selected[0],))
+        # Duplicate the realization
+        dup_reals = reals + reals
+        with pytest.raises(ValueError, match="duplicate realization"):
+            NarrativeStep(
+                step_number=1,
+                zone="input",
+                action="test",
+                effect="test",
+                projected_step_ids=(selected[0],),
+                realizations=dup_reals,
+            )
+
+    def test_tree_duplicate_realization_fails(self):
+        """AttackTreeNode with duplicate realization records must fail."""
+        block = _make_block()
+        ingress_id = block.canonical_ingress.entry_point_id
+        selected = block.selected_step_ids
+        reals = make_step_realizations((selected[0],))
+        with pytest.raises(ValueError, match="duplicate realization"):
+            AttackTreeNode(
+                id="n1.1",
+                label="test",
+                gate=GateType.LEAF,
+                zone="input",
+                action=InitialIngressAction(entry_point_id=ingress_id),
+                projected_step_ids=(selected[0],),
+                realizations=reals + reals,
+            )
+
+    def test_behavior_action_duplicate_realization_fails(self):
+        """BehaviorAction with duplicate realization records must fail."""
+        block = _make_block()
+        selected = block.selected_step_ids
+        reals = make_step_realizations((selected[0],))
+        with pytest.raises(ValueError, match="duplicate realization"):
+            BehaviorAction(
+                action_id="ba-n1.1",
+                projected_step_ids=(selected[0],),
+                source_leaf_id="n1.1",
+                gherkin_keyword="When",
+                text="test",
+                realizations=reals + reals,
+            )
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 Review blocker: Candidate-ID mismatch
+# ---------------------------------------------------------------------------#
+
+
+class TestCandidateIDMismatch:
+    """Standalone traceability must recompute projected candidate ID and
+    compare envelope.candidate_id."""
+
+    def test_candidate_id_mismatch_fails(self):
+        """Envelope with candidate_id changed to filter-stage ID must fail."""
+        block = _make_block()
+        narrative = _make_narrative(block.canonical_ingress.entry_point_id)
+        envelope = _make_envelope(block, narrative=narrative)
+        # Mutate candidate_id to a different value
+        wrong_id = "cand:v2:00000000000000000000000000000000"
+        mutated = envelope.model_copy(update={"candidate_id": wrong_id})
+        result = validate_projection_traceability(mutated)
+        # Should produce a candidate identity drift violation
+        assert len(result.violations) > 0, (
+            "Candidate ID mismatch should produce violations"
+        )
+
+
+# ---------------------------------------------------------------------------#
+# 422o.4 Review blocker #2: Call 2 projection validation
+# ---------------------------------------------------------------------------#
+
+
+class TestCall2ProjectionValidation:
+    """Call 2 parsed tree must be validated against the projection context."""
+
+    def test_projectionless_security_leaf_rejected(self):
+        """A non-external_precondition leaf without projected_step_ids must fail."""
+        from scenario_forge.models.attack_tree import (
+            AiSystemAction,
+            AttackTree,
+            AttackTreeNode,
+            GateType,
+        )
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from scenario_forge.pipeline.generate.tree import (
+            _validate_tree_against_projection,
+        )
+
+        candidate = get_projected_candidate()
+        ctx = _build_projection_context(candidate)
+
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="No projection",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=AiSystemAction(),
+                        # Missing projected_step_ids and realizations
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="Valid leaf",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                        projected_step_ids=("step.2",),
+                        realizations=make_step_realizations(("step.2",)),
+                    ),
+                ],
+            ),
+        )
+        with pytest.raises(ValueError, match="no projected_step_ids"):
+            _validate_tree_against_projection(tree, ctx)
+
+    def test_external_precondition_with_projection_rejected(self):
+        """An external_precondition leaf with projected_step_ids must fail."""
+        from scenario_forge.models.attack_tree import (
+            AttackTree,
+            AttackTreeNode,
+            ExternalPreconditionAction,
+            GateType,
+        )
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from scenario_forge.pipeline.generate.tree import (
+            _validate_tree_against_projection,
+        )
+
+        candidate = get_projected_candidate()
+        ctx = _build_projection_context(candidate)
+        selected = candidate.projection.selected_step_ids
+
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.AND,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="External with projection",
+                        gate=GateType.LEAF,
+                        action=ExternalPreconditionAction(access_provenance="phishing"),
+                        projected_step_ids=(selected[0],),
+                        realizations=make_step_realizations((selected[0],)),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="Valid leaf",
+                        gate=GateType.LEAF,
+                        zone="reasoning",
+                        action=AiSystemAction(),
+                        projected_step_ids=("step.2",),
+                        realizations=make_step_realizations(("step.2",)),
+                    ),
+                ],
+            ),
+        )
+        with pytest.raises(ValueError, match="external preconditions must be unmapped"):
+            _validate_tree_against_projection(tree, ctx)
+
+    def test_or_gate_rejected(self):
+        """OR gates must be rejected by projection validation."""
+        from scenario_forge.models.attack_tree import (
+            AttackTree,
+            AttackTreeNode,
+            GateType,
+        )
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from scenario_forge.pipeline.generate.tree import (
+            _validate_tree_against_projection,
+        )
+
+        candidate = get_projected_candidate()
+        ctx = _build_projection_context(candidate)
+
+        tree = AttackTree(
+            id="tree-AP-T1-01",
+            seed_id="AP-T1-01",
+            goal="test",
+            root=AttackTreeNode(
+                id="n1",
+                label="Root",
+                gate=GateType.OR,
+                children=[
+                    AttackTreeNode(
+                        id="n1.1",
+                        label="A",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(
+                            entry_point_id=candidate.canonical_ingress.entry_point_id
+                        ),
+                        projected_step_ids=("step.1",),
+                        realizations=make_step_realizations(("step.1",)),
+                    ),
+                    AttackTreeNode(
+                        id="n1.2",
+                        label="B",
+                        gate=GateType.LEAF,
+                        zone="input",
+                        action=InitialIngressAction(
+                            entry_point_id=candidate.canonical_ingress.entry_point_id
+                        ),
+                        projected_step_ids=("step.2",),
+                        realizations=make_step_realizations(("step.2",)),
+                    ),
+                ],
+            ),
+        )
+        with pytest.raises(ValueError, match="OR is prohibited"):
+            _validate_tree_against_projection(tree, ctx)
+
+    def test_altered_realization_rejected(self):
+        """A leaf with realization not matching projection context must fail."""
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from scenario_forge.pipeline.generate.tree import (
+            _validate_tree_against_projection,
+        )
+
+        candidate = get_projected_candidate()
+        ctx = _build_projection_context(candidate)
+        ingress_id = candidate.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+
+        # Corrupt the first leaf's realization
+        leaf = _collect_all_leaves(tree.root)[0]
+        wrong = leaf.realizations[0].model_copy(update={"action_kind": "impact"})
+        leaf = leaf.model_copy(update={"realizations": (wrong,)})
+        tree = _replace_leaf(tree, leaf)
+
+        with pytest.raises(ValueError, match="does not match canonical projection"):
+            _validate_tree_against_projection(tree, ctx)
+
+    def test_valid_tree_passes(self):
+        """A valid tree with correct projection metadata passes validation."""
+        from scenario_forge.pipeline.generate.assembly import _build_projection_context
+        from scenario_forge.pipeline.generate.tree import (
+            _validate_tree_against_projection,
+        )
+
+        candidate = get_projected_candidate()
+        ctx = _build_projection_context(candidate)
+        ingress_id = candidate.canonical_ingress.entry_point_id
+        tree = _make_tree(ingress_id)
+
+        # Should not raise
+        _validate_tree_against_projection(tree, ctx)

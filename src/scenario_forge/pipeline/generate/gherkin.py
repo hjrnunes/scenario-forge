@@ -20,7 +20,7 @@ import logging
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from scenario_forge.data.atlas import ATLAS_TECHNIQUE_NAMES
 from scenario_forge.llm.client import LLMClient, LLMResult
@@ -66,6 +66,29 @@ class Call3Action(BaseModel):
     text: str = Field(min_length=1)
     # 422o.4 blocker #3: per-step canonical realization records.
     realizations: tuple[ProjectedStepRealization, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_realization_ids(self) -> Call3Action:
+        """Exactly one realization per projected_step_id, no duplicates."""
+        realization_ids = [r.projected_step_id for r in self.realizations]
+        if len(set(realization_ids)) != len(realization_ids):
+            raise ValueError(
+                f"Call3Action {self.action_id} has duplicate realization "
+                f"records (same projected_step_id appears more than once)"
+            )
+        if len(realization_ids) != len(self.projected_step_ids):
+            raise ValueError(
+                f"Call3Action {self.action_id} has {len(realization_ids)} "
+                f"realization records but {len(self.projected_step_ids)} "
+                f"projected_step_ids — exactly one per ID required"
+            )
+        if set(realization_ids) != set(self.projected_step_ids):
+            raise ValueError(
+                f"Call3Action {self.action_id} realization IDs "
+                f"{set(realization_ids)} do not match projected_step_ids "
+                f"{set(self.projected_step_ids)}"
+            )
+        return self
 
 
 class Call3Assertion(BaseModel):
@@ -392,6 +415,23 @@ def _collect_control_points(node: AttackTreeNode) -> list[str]:
     return sorted(points)
 
 
+def _extract_resource_id_from_dict(ref: Any) -> str:
+    """Extract the opaque ID from a JSON-serialized resource reference dict.
+
+    Handles the dict form produced by ``model_dump(mode="json")`` on
+    ``CanonicalResourceReference`` subtypes.
+    """
+    if ref is None:
+        return ""
+    if isinstance(ref, dict):
+        for key in ("entry_point_id", "tool_id", "integration_id", "trust_boundary_id"):
+            if key in ref:
+                return str(ref[key])
+        if ref.get("kind") == "agent_internal":
+            return "agent_internal"
+    return str(ref)
+
+
 def build_call3_context(
     seed: ScenarioSeed,
     narrative: NarrativeLayer,
@@ -471,7 +511,7 @@ def build_call3_context(
                                 for pc in sd.get("observable_postconditions", [])
                             ],
                             "resource_ref_ids": [
-                                str(link.get("resource_ref", ""))
+                                _extract_resource_id_from_dict(link.get("resource_ref"))
                                 for link in sd.get("resource_links", [])
                                 if link.get("resource_ref")
                             ],
@@ -559,20 +599,61 @@ def _validate_call3_response(
     attack_tree: AttackTree,
     projection_context: dict[str, Any] | None,
 ) -> None:
-    """Validate a Call3Response against the projection and attack tree."""
+    """Validate a Call3Response against the projection and attack tree.
+
+    422o.4 blocker #3: Validates exact ownership, not just global membership.
+    - action.projected_step_ids must exactly equal source leaf's projected_step_ids
+    - one action per required mapped leaf (every leaf with non-empty projected_step_ids)
+    - unique source_leaf_id
+    - deterministic action ID (ba-<leaf_id>)
+    - exact eligible keyword
+    - complete exact realization equality (unconditional)
+    - assertion deterministic IDs
+    - every postcondition owned by its stated source steps
+    - full security-relevant postcondition coverage
+    - reject action sourcing an empty/unmapped external leaf
+    """
     if projection_context is None:
         raise ValueError("Call 3 requires projection context (422o.4)")
 
     selected_step_ids = set(projection_context.get("selected_step_ids", []))
-    valid_leaf_ids = {leaf.id for leaf in _collect_leaf_nodes_dfs(attack_tree.root)}
+    all_leaves = _collect_leaf_nodes_dfs(attack_tree.root)
+    leaf_by_id = {leaf.id: leaf for leaf in all_leaves}
+    valid_leaf_ids = set(leaf_by_id)
 
-    valid_pc_ids: set[str] = set()
+    # Build postcondition ownership: pc_id → owning step_id
+    pc_ownership: dict[str, str] = {}
+    security_relevant_pcs: set[str] = set()
     for step_data in projection_context.get("selected_steps", []):
+        sid = step_data["step_id"]
         for pc in step_data.get("observable_postconditions", []):
-            valid_pc_ids.add(pc["postcondition_id"])
+            pc_ownership[pc["postcondition_id"]] = sid
+            if pc.get("security_relevant"):
+                security_relevant_pcs.add(pc["postcondition_id"])
 
+    # Build eligible keyword map from tree leaf action kinds directly
+    eligible_keywords: dict[str, str] = {}
+    for leaf in all_leaves:
+        step_kind = _leaf_step_kind(leaf)
+        eligible_keywords[leaf.id] = (
+            "Given"
+            if step_kind == _STEP_KIND_GIVEN
+            else "Then"
+            if step_kind == _STEP_KIND_THEN
+            else "When"
+        )
+
+    # Build step data lookup for realization equality checking (422o.4)
+    step_by_id = {
+        sd["step_id"]: sd for sd in projection_context.get("selected_steps", [])
+    }
+
+    # --- Action validation ---
     action_ids: set[str] = set()
+    seen_source_leaf_ids: set[str] = set()
     covered_steps: set[str] = set()
+    required_mapped_leaves = {leaf.id for leaf in all_leaves if leaf.projected_step_ids}
+
     for action in response.actions:
         if action.action_id in action_ids:
             raise ValueError(
@@ -580,10 +661,54 @@ def _validate_call3_response(
             )
         action_ids.add(action.action_id)
 
+        # Deterministic action ID: ba-<leaf_id>
+        expected_id = f"ba-{action.source_leaf_id}"
+        if action.action_id != expected_id:
+            raise ValueError(
+                f"Behavior action ID '{action.action_id}' does not match "
+                f"deterministic expected ID '{expected_id}' (ba-<leaf_id>)"
+            )
+
         if action.source_leaf_id not in valid_leaf_ids:
             raise ValueError(
                 f"Behavior action '{action.action_id}' references "
                 f"nonexistent tree leaf '{action.source_leaf_id}'"
+            )
+
+        # Reject action sourcing an empty/unmapped external leaf
+        leaf = leaf_by_id[action.source_leaf_id]
+        if not leaf.projected_step_ids:
+            raise ValueError(
+                f"Behavior action '{action.action_id}' sources leaf "
+                f"'{action.source_leaf_id}' which has no projected_step_ids "
+                f"(external/unmapped leaf — cannot source behavior actions)"
+            )
+
+        # Unique source_leaf_id
+        if action.source_leaf_id in seen_source_leaf_ids:
+            raise ValueError(
+                f"Behavior action '{action.action_id}' reuses source_leaf_id "
+                f"'{action.source_leaf_id}' — each leaf must have exactly one action"
+            )
+        seen_source_leaf_ids.add(action.source_leaf_id)
+
+        # Duplicate realization records (defense in depth — model validator
+        # also catches this, but model_copy can bypass it).
+        realization_ids = [r.projected_step_id for r in action.realizations]
+        if len(set(realization_ids)) != len(realization_ids):
+            raise ValueError(
+                f"Behavior action '{action.action_id}' has duplicate "
+                f"realization records (same projected_step_id appears "
+                f"more than once)"
+            )
+
+        # Exact projected_step_ids match: action IDs must equal leaf IDs
+        if set(action.projected_step_ids) != set(leaf.projected_step_ids):
+            raise ValueError(
+                f"Behavior action '{action.action_id}' projected_step_ids "
+                f"{list(action.projected_step_ids)} do not exactly match "
+                f"source leaf '{action.source_leaf_id}' projected_step_ids "
+                f"{list(leaf.projected_step_ids)}"
             )
 
         for sid in action.projected_step_ids:
@@ -594,13 +719,67 @@ def _validate_call3_response(
                 )
             covered_steps.add(sid)
 
+        # Exact eligible keyword
+        expected_kw = eligible_keywords.get(action.source_leaf_id)
+        if expected_kw and action.gherkin_keyword != expected_kw:
+            raise ValueError(
+                f"Behavior action '{action.action_id}' keyword "
+                f"'{action.gherkin_keyword}' does not match eligible "
+                f"keyword '{expected_kw}' for leaf '{action.source_leaf_id}'"
+            )
+
+        # Complete exact realization equality (422o.4 blocker #3)
+        for r in action.realizations:
+            sd = step_by_id.get(r.projected_step_id)
+            if sd is None:
+                raise ValueError(
+                    f"Behavior action '{action.action_id}' realization "
+                    f"for step '{r.projected_step_id}' not found in "
+                    f"projection context"
+                )
+            expected_r = ProjectedStepRealization(
+                projected_step_id=r.projected_step_id,
+                action_kind=sd.get("action_kind", ""),
+                executor_role=sd.get("executor_role", ""),
+                boundary_position=sd.get("boundary_position", ""),
+                resource_ref_ids=tuple(sd.get("resource_ref_ids", ())),
+                consumed_ref_ids=tuple(sd.get("consumed_ref_ids", ())),
+                produced_ref_ids=tuple(sd.get("produced_ref_ids", ())),
+                produced_effect_ids=tuple(sd.get("produced_effect_ids", ())),
+                outcome_link_pc_ids=tuple(sd.get("outcome_link_pc_ids", ())),
+                postcondition_ids=tuple(sd.get("postcondition_ids", ())),
+            )
+            if r != expected_r:
+                raise ValueError(
+                    f"Behavior action '{action.action_id}' realization "
+                    f"for step '{r.projected_step_id}' does not match "
+                    f"canonical projection context: "
+                    f"got action_kind={r.action_kind}, "
+                    f"expected={expected_r.action_kind}; "
+                    f"got resource_ref_ids={r.resource_ref_ids}, "
+                    f"expected={expected_r.resource_ref_ids}; "
+                    f"got produced_ref_ids={r.produced_ref_ids}, "
+                    f"expected={expected_r.produced_ref_ids}"
+                )
+
+    # One action per required mapped leaf
+    missing_leaves = required_mapped_leaves - seen_source_leaf_ids
+    if missing_leaves:
+        raise ValueError(
+            f"Call 3 response does not provide actions for mapped leaves: "
+            f"{sorted(missing_leaves)}"
+        )
+
+    # Full step coverage
     uncovered = selected_step_ids - covered_steps
     if uncovered:
         raise ValueError(
             f"Call 3 response does not cover projected steps: {sorted(uncovered)}"
         )
 
+    # --- Assertion validation ---
     assertion_ids: set[str] = set()
+    covered_security_pcs: set[str] = set()
     for assertion in response.assertions:
         if assertion.assertion_id in assertion_ids:
             raise ValueError(
@@ -616,11 +795,30 @@ def _validate_call3_response(
                 )
 
         for pc_id in assertion.projected_postcondition_ids:
-            if pc_id not in valid_pc_ids:
+            if pc_id not in pc_ownership:
                 raise ValueError(
                     f"Assertion '{assertion.assertion_id}' references "
                     f"unknown postcondition '{pc_id}'"
                 )
+            # Every postcondition must be owned by one of the stated source steps
+            owning_step = pc_ownership[pc_id]
+            if owning_step not in assertion.source_step_ids:
+                raise ValueError(
+                    f"Assertion '{assertion.assertion_id}' references "
+                    f"postcondition '{pc_id}' owned by step '{owning_step}' "
+                    f"but owning step is not in source_step_ids "
+                    f"{list(assertion.source_step_ids)}"
+                )
+            if pc_id in security_relevant_pcs:
+                covered_security_pcs.add(pc_id)
+
+    # Full security-relevant postcondition coverage
+    uncovered_security_pcs = security_relevant_pcs - covered_security_pcs
+    if uncovered_security_pcs:
+        raise ValueError(
+            f"Call 3 response does not cover security-relevant "
+            f"postconditions: {sorted(uncovered_security_pcs)}"
+        )
 
 
 def _call3_response_to_behavior_spec(

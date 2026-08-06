@@ -338,6 +338,141 @@ def _collect_all_leaves(node: AttackTreeNode) -> list[AttackTreeNode]:
     return leaves
 
 
+def _validate_tree_against_projection(
+    tree: AttackTree,
+    projection_context: dict[str, Any] | None,
+) -> None:
+    """Validate parsed attack tree against the immutable projection context.
+
+    422o.4 blocker #2: On candidate-v2 paths, every non-external_precondition
+    security leaf MUST have nonempty projected_step_ids, exactly one complete
+    canonical realization per projected ID, and exact realization equality
+    to the canonical projection context.  OR nodes are prohibited.
+
+    Raises ``ValueError`` on any violation — no semantic repair.
+    """
+    if projection_context is None:
+        return
+
+    selected_step_ids = set(projection_context.get("selected_step_ids", []))
+
+    # Build canonical realization records from projection context.
+    from scenario_forge.models.realization import ProjectedStepRealization
+
+    # The projection context carries serialized step data; we need the
+    # canonical step objects and bindings to derive realizations.  When
+    # available, use the embedded chain.  Otherwise, compare against the
+    # serialized realization fields in the context.
+    step_realizations: dict[str, ProjectedStepRealization] = {}
+    for sd in projection_context.get("selected_steps", []):
+        sid = sd["step_id"]
+        step_realizations[sid] = ProjectedStepRealization(
+            projected_step_id=sid,
+            action_kind=sd.get("action_kind", ""),
+            executor_role=sd.get("executor_role", ""),
+            boundary_position=sd.get("boundary_position", ""),
+            resource_ref_ids=tuple(sd.get("resource_ref_ids", ())),
+            consumed_ref_ids=tuple(sd.get("consumed_ref_ids", ())),
+            produced_ref_ids=tuple(sd.get("produced_ref_ids", ())),
+            produced_effect_ids=tuple(sd.get("produced_effect_ids", ())),
+            outcome_link_pc_ids=tuple(sd.get("outcome_link_pc_ids", ())),
+            postcondition_ids=tuple(sd.get("postcondition_ids", ())),
+        )
+
+    def _check_node(node: AttackTreeNode) -> None:
+        # OR nodes are prohibited in v1.
+        if node.gate == GateType.OR:
+            raise ValueError(
+                f"Attack tree node '{node.id}' uses OR gate — OR is "
+                f"prohibited in v1 (one concrete execution only)"
+            )
+        if node.gate == GateType.LEAF:
+            action_kind = node.action.kind if node.action else ""
+            is_external = action_kind == "external_precondition"
+
+            if is_external:
+                # External preconditions must remain unmapped.
+                if node.projected_step_ids:
+                    raise ValueError(
+                        f"External precondition leaf '{node.id}' has "
+                        f"projected_step_ids {list(node.projected_step_ids)} "
+                        f"— external preconditions must be unmapped"
+                    )
+            else:
+                # Every non-external leaf must have nonempty projected IDs.
+                if not node.projected_step_ids:
+                    raise ValueError(
+                        f"Security-bearing leaf '{node.id}' has no "
+                        f"projected_step_ids — every non-external_precondition "
+                        f"leaf must map to projected steps"
+                    )
+                # All IDs must be in the selected set.
+                for sid in node.projected_step_ids:
+                    if sid not in selected_step_ids:
+                        raise ValueError(
+                            f"Tree leaf '{node.id}' references unprojected "
+                            f"step '{sid}' — not in selected_step_ids"
+                        )
+                # Must have exactly one realization per projected ID.
+                if not node.realizations:
+                    raise ValueError(
+                        f"Security-bearing leaf '{node.id}' has "
+                        f"projected_step_ids but no realizations"
+                    )
+                real_ids = [r.projected_step_id for r in node.realizations]
+                if len(set(real_ids)) != len(real_ids):
+                    raise ValueError(
+                        f"Leaf '{node.id}' has duplicate realization records"
+                    )
+                if len(real_ids) != len(node.projected_step_ids):
+                    raise ValueError(
+                        f"Leaf '{node.id}' has {len(real_ids)} realization "
+                        f"records but {len(node.projected_step_ids)} "
+                        f"projected_step_ids — exactly one per ID required"
+                    )
+                if set(real_ids) != set(node.projected_step_ids):
+                    raise ValueError(
+                        f"Leaf '{node.id}' realization IDs {sorted(set(real_ids))} "
+                        f"do not match projected_step_ids "
+                        f"{sorted(set(node.projected_step_ids))}"
+                    )
+                # Exact realization equality to canonical projection context.
+                for r in node.realizations:
+                    expected = step_realizations.get(r.projected_step_id)
+                    if expected is None:
+                        raise ValueError(
+                            f"Leaf '{node.id}' realization for step "
+                            f"'{r.projected_step_id}' not found in projection "
+                            f"context"
+                        )
+                    if r != expected:
+                        raise ValueError(
+                            f"Leaf '{node.id}' realization for step "
+                            f"'{r.projected_step_id}' does not match "
+                            f"canonical projection context: "
+                            f"got action_kind={r.action_kind}, "
+                            f"expected={expected.action_kind}; "
+                            f"got resource_ref_ids={r.resource_ref_ids}, "
+                            f"expected={expected.resource_ref_ids}; "
+                            f"got consumed={r.consumed_ref_ids}, "
+                            f"expected={expected.consumed_ref_ids}; "
+                            f"got produced={r.produced_ref_ids}, "
+                            f"expected={expected.produced_ref_ids}; "
+                            f"got effects={r.produced_effect_ids}, "
+                            f"expected={expected.produced_effect_ids}; "
+                            f"got outcome_links={r.outcome_link_pc_ids}, "
+                            f"expected={expected.outcome_link_pc_ids}; "
+                            f"got postconditions={r.postcondition_ids}, "
+                            f"expected={expected.postcondition_ids}"
+                        )
+
+        if node.children:
+            for child in node.children:
+                _check_node(child)
+
+    _check_node(tree.root)
+
+
 def _validate_pinned_ingress(
     tree: AttackTree,
     pinned_entry_point_id: str | None,
@@ -626,6 +761,41 @@ def build_call2_context(
     }
 
 
+def _validate_and_postprocess_tree(
+    tree: AttackTree,
+    profile: CapabilityProfile | None,
+    pinned_entry_point_id: str | None,
+    skeleton: list[dict[str, str]],
+    seed: ScenarioSeed,
+    projection_context: dict[str, Any] | None,
+) -> AttackTree:
+    """Run all post-parse validations and zone enforcement on *tree*.
+
+    Raises ``ValueError`` on any violation — no semantic repair.
+    Called on both first-attempt and retry outputs so that projection
+    validation failures participate in the single retry (422o.4 blocker #2).
+    """
+    if profile is not None:
+        id_violations = resolve_action_ids(tree, profile)
+        if id_violations:
+            raise ValueError(
+                "Unresolved typed action IDs in attack tree: "
+                + "; ".join(id_violations)
+            )
+    tree = _enforce_zones_attack_tree(
+        tree,
+        profile.zones_active if profile else None,
+    )
+    ingress_violations = _validate_pinned_ingress(tree, pinned_entry_point_id, profile)
+    if ingress_violations:
+        raise ValueError(
+            "Invalid initial ingress in attack tree: " + "; ".join(ingress_violations)
+        )
+    _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
+    _validate_tree_against_projection(tree, projection_context)
+    return tree
+
+
 def _call_attack_tree(
     seed: ScenarioSeed,
     narrative: NarrativeLayer,
@@ -642,8 +812,11 @@ def _call_attack_tree(
     """Generate an attack tree for a scenario seed (Call 2).
 
     Delegates context building to :func:`build_call2_context`, then renders
-    templates, calls the LLM (with one retry on YAML parse failure), and
-    post-processes the tree.
+    templates, calls the LLM (with one retry on parse **or** validation
+    failure), and post-processes the tree.
+
+    The retry preserves the original projection-rich user prompt and appends
+    feedback only (422o.4 blocker #2).
 
     Returns:
         Tuple of (AttackTree, LLMResult).
@@ -671,29 +844,32 @@ def _call_attack_tree(
         entry_points=ctx["entry_points"],
     )
 
+    original_user_prompt = render_prompt("call2_user.j2", **ctx)
+
     result = client.complete(
         system_prompt=call2_system,
-        user_prompt=render_prompt("call2_user.j2", **ctx),
+        user_prompt=original_user_prompt,
         response_format=None,
     )
 
+    # First attempt: parse + validate.  Both YAML parse errors and
+    # projection/validation failures trigger the single retry.
     try:
         tree = _parse_attack_tree_yaml(result.content, seed)
+        tree = _validate_and_postprocess_tree(
+            tree, profile, pinned_entry_point_id, skeleton, seed, projection_context
+        )
     except Exception as first_error:  # noqa: BLE001
-        # One retry with error feedback — Call 2 produces unstructured YAML
-        # which is the most fragile output format in the pipeline.
-        # Preserve the original projection-rich prompt and append parse
-        # feedback only (422o.4 blocker #2).
-        logger.warning("Attack tree YAML parse failed, retrying: %s", first_error)
+        logger.warning("Attack tree first attempt failed, retrying: %s", first_error)
 
-        original_user_prompt = render_prompt("call2_user.j2", **ctx)
         retry_user_prompt = (
-            original_user_prompt + "\n\n## Parse Feedback\n"
-            f"Your previous output was not valid YAML. The error was:\n"
+            original_user_prompt + "\n\n## Feedback\n"
+            f"Your previous output was rejected. The error was:\n"
             f"  {first_error}\n\n"
             "Please produce valid YAML following the same structure "
-            "described above. Use the same seed_id, goal, and narrative "
-            "context from the original request.\n\n"
+            "and projection constraints described above. Use the same "
+            "seed_id, goal, and narrative context from the original "
+            "request.\n\n"
             f'seed_id={seed.seed_id}, tree id="tree-{seed.seed_id}".'
         )
 
@@ -705,48 +881,19 @@ def _call_attack_tree(
 
         try:
             tree = _parse_attack_tree_yaml(retry_result.content, seed)
+            tree = _validate_and_postprocess_tree(
+                tree,
+                profile,
+                pinned_entry_point_id,
+                skeleton,
+                seed,
+                projection_context,
+            )
         except Exception:  # noqa: BLE001
             raise first_error
 
-        if profile is not None:
-            id_violations = resolve_action_ids(tree, profile)
-            if id_violations:
-                raise ValueError(
-                    "Unresolved typed action IDs in attack tree: "
-                    + "; ".join(id_violations)
-                )
-        tree = _enforce_zones_attack_tree(
-            tree,
-            profile.zones_active if profile else None,
-        )
-        ingress_violations = _validate_pinned_ingress(
-            tree, pinned_entry_point_id, profile
-        )
-        if ingress_violations:
-            raise ValueError(
-                "Invalid initial ingress in attack tree: "
-                + "; ".join(ingress_violations)
-            )
-        _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
         return tree, retry_result
 
-    if profile is not None:
-        id_violations = resolve_action_ids(tree, profile)
-        if id_violations:
-            raise ValueError(
-                "Unresolved typed action IDs in attack tree: "
-                + "; ".join(id_violations)
-            )
-    tree = _enforce_zones_attack_tree(
-        tree,
-        profile.zones_active if profile else None,
-    )
-    ingress_violations = _validate_pinned_ingress(tree, pinned_entry_point_id, profile)
-    if ingress_violations:
-        raise ValueError(
-            "Invalid initial ingress in attack tree: " + "; ".join(ingress_violations)
-        )
-    _validate_mandatory_leaves(tree, skeleton, seed.seed_id)
     return tree, result
 
 

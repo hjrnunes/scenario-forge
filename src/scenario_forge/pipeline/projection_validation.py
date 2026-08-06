@@ -47,7 +47,11 @@ from typing import TYPE_CHECKING, Any
 from scenario_forge.models.attack_pattern import (
     AttackPattern,
     EntryPointResourceReference,
+    IntegrationResourceReference,
+    OutputSurfaceResourceReference,
     TaxonomyResolver,
+    ToolResourceReference,
+    TrustBoundaryResourceReference,
     validate_attack_pattern,
 )
 from scenario_forge.models.attack_tree import (
@@ -67,6 +71,7 @@ from scenario_forge.models.projection_envelope import (
     ProjectionTraceabilityViolation,
     ProjectionTraceabilityViolationCode,
 )
+from scenario_forge.models.realization import ProjectedStepRealization
 from scenario_forge.pipeline.projection import (
     CapabilityFactSnapshot,
     _candidate_v2_id,
@@ -1276,6 +1281,71 @@ _STEP_ACTION_KIND_TO_GHERKIN: dict[str, set[str]] = {
 }
 
 
+# ---------------------------------------------------------------------------#
+# Canonical resource-ID extraction and step-realization derivation
+# ---------------------------------------------------------------------------#
+
+
+def _extract_resource_id(ref: Any) -> str:
+    """Extract the typed opaque resource ID from a CanonicalResourceReference.
+
+    Returns the canonical ID string (e.g. ``ep:v1:...``, ``tool:v1:...``,
+    ``int:v1:...``) for any discriminated resource reference.  For
+    ``AgentInternalResourceReference`` (which has no ID field), returns
+    ``"agent_internal"``.
+    """
+    if isinstance(ref, EntryPointResourceReference):
+        return ref.entry_point_id
+    if isinstance(ref, ToolResourceReference):
+        return ref.tool_id
+    if isinstance(ref, IntegrationResourceReference):
+        return ref.integration_id
+    if isinstance(ref, TrustBoundaryResourceReference):
+        return ref.trust_boundary_id
+    if isinstance(ref, OutputSurfaceResourceReference):
+        return ref.entry_point_id
+    # AgentInternalResourceReference has no ID field.
+    return "agent_internal"
+
+
+def derive_step_realization(
+    step: Any,
+    binding_by_slot: dict[str, Any],
+) -> ProjectedStepRealization:
+    """Build the canonical ``ProjectedStepRealization`` for *step*.
+
+    Uses typed opaque resource-ID extraction so that the same canonical
+    ID string is produced regardless of whether the caller holds a
+    Pydantic model, a JSON dict, or a serialized form.
+
+    This is the single source of truth for what a correct realization
+    record looks like — validators and test helpers both use it.
+    """
+    resource_ref_ids = tuple(
+        _extract_resource_id(binding_by_slot[link.slot_id])
+        for link in step.resource_links
+        if link.slot_id in binding_by_slot
+    )
+    return ProjectedStepRealization(
+        projected_step_id=step.step_id,
+        action_kind=step.action_kind,
+        executor_role=step.executor_role,
+        boundary_position=step.boundary_position,
+        resource_ref_ids=resource_ref_ids,
+        consumed_ref_ids=tuple(c.ref_id for c in step.consumed),
+        produced_ref_ids=tuple(p.ref_id for p in step.produced),
+        produced_effect_ids=tuple(
+            p.ref_id for p in step.produced if p.kind == "effect"
+        ),
+        outcome_link_pc_ids=tuple(
+            ol.postcondition_id for ol in step.observable_outcome_links
+        ),
+        postcondition_ids=tuple(
+            pc.postcondition_id for pc in step.observable_postconditions
+        ),
+    )
+
+
 def _compare_realization_to_step(
     realization: Any,
     step: Any,
@@ -1285,15 +1355,36 @@ def _compare_realization_to_step(
 ) -> list[ProjectionTraceabilityViolation]:
     """Compare a ProjectedStepRealization record against a canonical step.
 
-    Checks action_kind, executor_role, boundary_position always.
-    Checks resource_ref_ids, consumed_ref_ids, produced_ref_ids,
-    produced_effect_ids, outcome_link_pc_ids, postcondition_ids
-    when non-empty in the realization record.
+    422o.4: ALL fields are compared **unconditionally** — including
+    expected empty tuples.  Clearing a canonically non-empty tuple
+    suppresses nothing.  Tuples are compared by sorted value (not sets)
+    so that duplicates and exact membership are both caught.
 
     Returns violations for any mismatch.
     """
     violations: list[ProjectionTraceabilityViolation] = []
     _code = ProjectionTraceabilityViolationCode.incorrect_resource_binding
+
+    def _check_tuple(
+        field_name: str,
+        actual: tuple[str, ...],
+        expected: tuple[str, ...],
+    ) -> None:
+        if sorted(actual) != sorted(expected):
+            violations.append(
+                ProjectionTraceabilityViolation(
+                    code=_code,
+                    stage=stage,
+                    detail=(
+                        f"element '{element_id}' {field_name} "
+                        f"{sorted(actual)} do not match "
+                        f"projected step '{step.step_id}' "
+                        f"{field_name} {sorted(expected)}"
+                    ),
+                    element_id=element_id,
+                    projected_step_id=step.step_id,
+                )
+            )
 
     # --- Core fields (always checked) ---
     if realization.action_kind != step.action_kind:
@@ -1342,120 +1433,47 @@ def _compare_realization_to_step(
             )
         )
 
-    # --- Additional fields (checked when non-empty in realization) ---
-    if realization.consumed_ref_ids:
-        step_consumed_ids = {c.ref_id for c in step.consumed}
-        if set(realization.consumed_ref_ids) != step_consumed_ids:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=_code,
-                    stage=stage,
-                    detail=(
-                        f"element '{element_id}' consumed_ref_ids "
-                        f"{sorted(realization.consumed_ref_ids)} do not match "
-                        f"projected step '{step.step_id}' consumed "
-                        f"{sorted(step_consumed_ids)}"
-                    ),
-                    element_id=element_id,
-                    projected_step_id=step.step_id,
-                )
-            )
+    # --- Tuple fields (ALL checked unconditionally, 422o.4 blocker #1) ---
+    _check_tuple(
+        "consumed_ref_ids",
+        realization.consumed_ref_ids,
+        tuple(c.ref_id for c in step.consumed),
+    )
+    _check_tuple(
+        "produced_ref_ids",
+        realization.produced_ref_ids,
+        tuple(p.ref_id for p in step.produced),
+    )
+    _check_tuple(
+        "produced_effect_ids",
+        realization.produced_effect_ids,
+        tuple(p.ref_id for p in step.produced if p.kind == "effect"),
+    )
+    _check_tuple(
+        "outcome_link_pc_ids",
+        realization.outcome_link_pc_ids,
+        tuple(ol.postcondition_id for ol in step.observable_outcome_links),
+    )
+    _check_tuple(
+        "postcondition_ids",
+        realization.postcondition_ids,
+        tuple(pc.postcondition_id for pc in step.observable_postconditions),
+    )
 
-    if realization.produced_ref_ids:
-        step_produced_ids = {p.ref_id for p in step.produced}
-        if set(realization.produced_ref_ids) != step_produced_ids:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=_code,
-                    stage=stage,
-                    detail=(
-                        f"element '{element_id}' produced_ref_ids "
-                        f"{sorted(realization.produced_ref_ids)} do not match "
-                        f"projected step '{step.step_id}' produced "
-                        f"{sorted(step_produced_ids)}"
-                    ),
-                    element_id=element_id,
-                    projected_step_id=step.step_id,
-                )
-            )
-
-    if realization.produced_effect_ids:
-        step_effect_ids = {p.ref_id for p in step.produced if p.kind == "effect"}
-        if set(realization.produced_effect_ids) != step_effect_ids:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=_code,
-                    stage=stage,
-                    detail=(
-                        f"element '{element_id}' produced_effect_ids "
-                        f"{sorted(realization.produced_effect_ids)} do not match "
-                        f"projected step '{step.step_id}' effects "
-                        f"{sorted(step_effect_ids)}"
-                    ),
-                    element_id=element_id,
-                    projected_step_id=step.step_id,
-                )
-            )
-
-    if realization.outcome_link_pc_ids:
-        step_outcome_pc_ids = {
-            ol.postcondition_id for ol in step.observable_outcome_links
-        }
-        if set(realization.outcome_link_pc_ids) != step_outcome_pc_ids:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=_code,
-                    stage=stage,
-                    detail=(
-                        f"element '{element_id}' outcome_link_pc_ids "
-                        f"{sorted(realization.outcome_link_pc_ids)} do not match "
-                        f"projected step '{step.step_id}' outcome links "
-                        f"{sorted(step_outcome_pc_ids)}"
-                    ),
-                    element_id=element_id,
-                    projected_step_id=step.step_id,
-                )
-            )
-
-    if realization.postcondition_ids:
-        step_pc_ids = {pc.postcondition_id for pc in step.observable_postconditions}
-        if set(realization.postcondition_ids) != step_pc_ids:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=_code,
-                    stage=stage,
-                    detail=(
-                        f"element '{element_id}' postcondition_ids "
-                        f"{sorted(realization.postcondition_ids)} do not match "
-                        f"projected step '{step.step_id}' postconditions "
-                        f"{sorted(step_pc_ids)}"
-                    ),
-                    element_id=element_id,
-                    projected_step_id=step.step_id,
-                )
-            )
-
-    if realization.resource_ref_ids and binding_by_slot is not None:
-        step_resource_refs = set()
-        for link in step.resource_links:
-            ref = binding_by_slot.get(link.slot_id)
-            if ref is not None:
-                step_resource_refs.add(str(ref))
-        if set(realization.resource_ref_ids) != step_resource_refs:
-            violations.append(
-                ProjectionTraceabilityViolation(
-                    code=_code,
-                    stage=stage,
-                    detail=(
-                        f"element '{element_id}' resource_ref_ids "
-                        f"{sorted(realization.resource_ref_ids)} do not match "
-                        f"projected step '{step.step_id}' resource bindings "
-                        f"{sorted(step_resource_refs)}"
-                    ),
-                    element_id=element_id,
-                    projected_step_id=step.step_id,
-                )
-            )
+    # --- Resource ref IDs (unconditional, canonical extraction) ---
+    if binding_by_slot is not None:
+        step_resource_refs = tuple(
+            _extract_resource_id(binding_by_slot[link.slot_id])
+            for link in step.resource_links
+            if link.slot_id in binding_by_slot
+        )
+    else:
+        step_resource_refs = ()
+    _check_tuple(
+        "resource_ref_ids",
+        realization.resource_ref_ids,
+        step_resource_refs,
+    )
 
     return violations
 

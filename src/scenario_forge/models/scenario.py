@@ -157,8 +157,22 @@ class NarrativeStep(BaseModel):
         # Realizations must cover exactly the projected_step_ids.
         # model_construct may not set realizations; skip check if absent.
         if self.realizations:
-            realization_ids = {r.projected_step_id for r in self.realizations}
+            realization_ids_list = [r.projected_step_id for r in self.realizations]
             projected_ids = set(self.projected_step_ids)
+            if len(set(realization_ids_list)) != len(realization_ids_list):
+                raise ValueError(
+                    f"narrative step {self.step_number} has duplicate "
+                    f"realization records (same projected_step_id appears "
+                    f"more than once)"
+                )
+            if len(realization_ids_list) != len(projected_ids):
+                raise ValueError(
+                    f"narrative step {self.step_number} has "
+                    f"{len(realization_ids_list)} realization records but "
+                    f"{len(projected_ids)} projected_step_ids — exactly one "
+                    f"record per projected_step_id is required"
+                )
+            realization_ids = set(realization_ids_list)
             if realization_ids != projected_ids:
                 raise ValueError(
                     f"narrative step {self.step_number} realization IDs "
@@ -856,8 +870,22 @@ class BehaviorAction(BaseModel):
                 f"behavior action '{self.action_id}' has duplicate projected_step_ids"
             )
         if self.realizations:
-            realization_ids = {r.projected_step_id for r in self.realizations}
+            realization_ids_list = [r.projected_step_id for r in self.realizations]
             projected_ids = set(self.projected_step_ids)
+            if len(set(realization_ids_list)) != len(realization_ids_list):
+                raise ValueError(
+                    f"behavior action '{self.action_id}' has duplicate "
+                    f"realization records (same projected_step_id appears "
+                    f"more than once)"
+                )
+            if len(realization_ids_list) != len(projected_ids):
+                raise ValueError(
+                    f"behavior action '{self.action_id}' has "
+                    f"{len(realization_ids_list)} realization records but "
+                    f"{len(projected_ids)} projected_step_ids — exactly one "
+                    f"record per projected_step_id is required"
+                )
+            realization_ids = set(realization_ids_list)
             if realization_ids != projected_ids:
                 raise ValueError(
                     f"behavior action '{self.action_id}' realization IDs "

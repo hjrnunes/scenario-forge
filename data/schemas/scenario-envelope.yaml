@@ -247,7 +247,7 @@ fields:
           narrative step realizes. Controlled many-to-many. Required (non-empty)
           on every narrative action step.
       realizations:
-        type: list[object]
+        type: list[ProjectedStepRealization]
         required: true
         description: >
           Per-projected-step canonical realization records. One record per
@@ -256,37 +256,47 @@ fields:
           produced_ref_ids, produced_effect_ids, outcome_link_pc_ids,
           and postcondition_ids. The validator compares each record against
           the embedded canonical step at the narrative boundary.
-        items:
-          projected_step_id:
-            type: str
-            required: true
-          action_kind:
-            type: str
-            required: true
-          executor_role:
-            type: str
-            required: true
-          boundary_position:
-            type: str
-            required: true
-          resource_ref_ids:
-            type: list[str]
-            required: false
-          consumed_ref_ids:
-            type: list[str]
-            required: false
-          produced_ref_ids:
-            type: list[str]
-            required: false
-          produced_effect_ids:
-            type: list[str]
-            required: false
-          outcome_link_pc_ids:
-            type: list[str]
-            required: false
-          postcondition_ids:
-            type: list[str]
-            required: false
+
+  # -- ProjectedStepRealization sub-schema (422o.4) --
+
+  ProjectedStepRealization:
+    type: object
+    description: >
+      Per-projected-step canonical realization record on generated elements.
+      One record per projected_step_id.  All fields are required — clearing
+      any field suppresses nothing because the validator compares
+      unconditionally.
+    fields:
+      projected_step_id:
+        type: str
+        required: true
+      action_kind:
+        type: str
+        required: true
+      executor_role:
+        type: str
+        required: true
+      boundary_position:
+        type: str
+        required: true
+      resource_ref_ids:
+        type: list[str]
+        required: true
+      consumed_ref_ids:
+        type: list[str]
+        required: true
+      produced_ref_ids:
+        type: list[str]
+        required: true
+      produced_effect_ids:
+        type: list[str]
+        required: true
+      outcome_link_pc_ids:
+        type: list[str]
+        required: true
+      postcondition_ids:
+        type: list[str]
+        required: true
 
   # ===================================================================
   # Layer 2: Attack Tree
@@ -296,23 +306,111 @@ fields:
     type: object
     required: true
     description: >
-      AND/OR decomposition of the attack with zone annotations, control points,
-      and taxonomy references per node. Internal structure defined by the attack
-      tree schema (scenario-forge-13k). Treated as an opaque sub-document here.
-      Produced by LLM Call 2.
+      AND-only decomposition of the attack with zone annotations, control
+      points, and taxonomy references per node (scenario-forge-422o.4: OR
+      nodes prohibited in v1).  Internal structure defined by AttackTreeNode
+      sub-schema below.  Produced by LLM Call 2.
 
       Nodes carry optional zone annotation, threat/technique IDs, MAESTRO layer,
       control point, structural exposure type, and evidence level per the design
       doc (section 9.1). LEAF nodes also carry a typed action discriminated by
-      action.kind; AND/OR nodes never carry an action. External preconditions
+      action.kind; AND nodes never carry an action. External preconditions
       and external impacts omit zone.
+
+      422o.4: Security-bearing LEAF nodes carry projected_step_ids and
+      realizations (one ProjectedStepRealization per projected step).
+
+    fields:
+      id:
+        type: str
+        required: true
+      seed_id:
+        type: str
+        required: true
+      goal:
+        type: str
+        required: true
+      root:
+        type: AttackTreeNode
+        required: true
+
+  AttackTreeNode:
+    type: object
+    description: >
+      A node in the AND/LEAF attack tree (OR prohibited in v1).
+      Internal AND nodes carry only logical composition and children.
+      Leaf nodes carry exactly one discriminated typed action.
+    fields:
+      id:
+        type: str
+        required: true
+      label:
+        type: str
+        required: true
+      gate:
+        type: str
+        required: true
+        enum: [AND, LEAF]
+      zone:
+        type: str
+        required: false
+        enum: [input, reasoning, tool_execution, memory, inter_agent]
+      action:
+        type: object
+        required: false
+        description: >
+          Discriminated typed action for LEAF nodes.  Required for LEAF,
+          forbidden for AND.  The action.kind discriminator determines
+          zone requirements.
+      threat_id:
+        type: str
+        required: false
+      technique_id:
+        type: str
+        required: false
+      tactic:
+        type: str
+        required: false
+      maestro_layer:
+        type: int
+        required: false
+      control_point:
+        type: str
+        required: false
+      structural_exposure:
+        type: str
+        required: false
+      evidence_level:
+        type: str
+        required: false
+      description:
+        type: str
+        required: false
+      children:
+        type: list[AttackTreeNode]
+        required: false
+        description: >
+          Child nodes.  Required for AND gates (>= 2); absent for LEAF.
+      projected_step_ids:
+        type: list[str]
+        required: true
+        description: >
+          Canonical projected step IDs.  Non-empty on security-bearing
+          leaves; empty on external_precondition leaves.  Default empty.
+      realizations:
+        type: list[ProjectedStepRealization]
+        required: true
+        description: >
+          Per-projected-step canonical realization records.  Required
+          (non-empty) when projected_step_ids is non-empty; empty on
+          external_precondition leaves.
 
   # ===================================================================
   # Layer 3: Behavior Specification
   # ===================================================================
 
   behavior_spec:
-    type: object
+    type: BehaviorSpec
     required: true
     description: >
       Structured behavior specification with projection-traceable actions
@@ -321,16 +419,83 @@ fields:
       observable postconditions.  Pre-alpha: no raw string/dict loophole
       on the authoritative envelope.
 
-      Contains:
-      - actions: list of BehaviorAction, each with action_id,
-        projected_step_ids (non-empty), source_leaf_id (tree leaf),
-        gherkin_keyword (Given/When/Then), and text.
-      - assertions: list of BehaviorAssertion, each with assertion_id,
-        source_step_ids (non-empty), projected_postcondition_ids
-        (non-empty), gherkin_keyword (always Then), and text.
-      - gherkin_text: rendered Gherkin feature text (non-empty),
-        deterministically rendered from the structured actions and
-        assertions.
+  BehaviorSpec:
+    type: object
+    description: >
+      Structured behavior specification with projection traceability.
+      Contains structured actions and assertions with canonical projected
+      step/postcondition references, plus the rendered Gherkin text.
+    fields:
+      actions:
+        type: list[BehaviorAction]
+        required: true
+      assertions:
+        type: list[BehaviorAssertion]
+        required: true
+      gherkin_text:
+        type: str
+        required: true
+
+  BehaviorAction:
+    type: object
+    description: >
+      A structured behavior spec action tied to projected steps.
+      Carries canonical action/executor/boundary metadata via
+      ProjectedStepRealization records so the validator can reconcile
+      per-step semantics at the behavior boundary.
+    fields:
+      action_id:
+        type: str
+        required: true
+        description: "Stable behavior action ID (ba-<leaf_id>)."
+      projected_step_ids:
+        type: list[str]
+        required: true
+        description: "Canonical projected step IDs (non-empty, unique)."
+      source_leaf_id:
+        type: str
+        required: true
+        description: "Attack tree leaf node ID this action was derived from."
+      gherkin_keyword:
+        type: str
+        required: true
+        enum: [Given, When, Then]
+      text:
+        type: str
+        required: true
+      realizations:
+        type: list[ProjectedStepRealization]
+        required: true
+        description: >
+          Per-projected-step canonical realization records (non-empty,
+          one per projected_step_id).
+
+  BehaviorAssertion:
+    type: object
+    description: >
+      A structured behavior assertion tied to projected postconditions.
+      Assertions map to projected observable postconditions, not to setup
+      steps.  Each assertion carries the canonical postcondition IDs and
+      source step IDs it verifies.
+    fields:
+      assertion_id:
+        type: str
+        required: true
+      source_step_ids:
+        type: list[str]
+        required: true
+        description: "Projected step IDs that own the postconditions (non-empty)."
+      projected_postcondition_ids:
+        type: list[str]
+        required: true
+        description: "Observable postcondition IDs (non-empty)."
+      gherkin_keyword:
+        type: str
+        required: true
+        enum: [Then]
+      text:
+        type: str
+        required: true
 
   # ===================================================================
   # Layer 4: Faceting Metadata

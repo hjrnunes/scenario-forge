@@ -278,3 +278,24 @@ def test_remediation_rejects_candidate_already_attempted_by_main(
     with stack, pytest.raises(ScenarioForgeIntegrityError, match="already attempted"):
         run_pipeline(**args)
     assert generate.call_count == 1
+
+
+def test_runner_uses_unmodified_derived_projected_candidate(tmp_path: Path) -> None:
+    """The runner must use the unmodified ProjectedCandidate returned by
+    projection — not a copied or manually altered object."""
+    projected = get_projected_candidate()  # unmodified
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    generate.side_effect = _successful_generation(projected)
+    with stack:
+        run_pipeline(**args)
+    # generate_scenario must have been called with the exact projected candidate
+    assert generate.call_count == 1
+    call_kwargs = generate.call_args.kwargs
+    assert call_kwargs["projected_candidate"] is projected
+    # Check via the mock's return value
+    call_result = generate.call_args
+    assert call_result.kwargs["projected_candidate"] is projected
