@@ -15,6 +15,7 @@ Covers the acceptance contract:
 
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import UTC
 from pathlib import Path
@@ -415,6 +416,155 @@ class TestInventoryIntegrity:
         )
         with pytest.raises(ManifestIntegrityError, match="not a regular file"):
             load_strict_resolver(run_dir)
+
+    def test_intermediate_symlink_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        artifact = outside / "s1.feature"
+        artifact.write_text("Feature: outside")
+        os.symlink(outside, run_dir / "scenarios")
+        entry = ArtifactEntry(
+            role=ArtifactRole.SCENARIO_FEATURE,
+            path="scenarios/s1.feature",
+            sha256=compute_file_sha256(artifact),
+            media_type="text/plain",
+            scenario_id="s1",
+            candidate_id="cand-1",
+        )
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=[entry],
+        )
+
+        with pytest.raises(ManifestIntegrityError, match="symlink"):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=False)
+
+    def test_parent_exchange_after_traversal_reads_opened_directory(
+        self, tmp_path: Path
+    ):
+        run_dir = tmp_path / "run"
+        parent = run_dir / "scenarios"
+        parent.mkdir(parents=True)
+        original = b"Feature: verified\n"
+        (parent / "s1.feature").write_bytes(original)
+        decoy = run_dir / "decoy"
+        decoy.mkdir()
+        (decoy / "s1.feature").write_bytes(b"Feature: attacker\n")
+        entry = ArtifactEntry(
+            role=ArtifactRole.SCENARIO_FEATURE,
+            path="scenarios/s1.feature",
+            sha256=hashlib.sha256(original).hexdigest(),
+            media_type="text/plain",
+            scenario_id="s1",
+            candidate_id="cand-1",
+        )
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=[entry],
+        )
+
+        def exchange_parent() -> None:
+            parent.rename(run_dir / "original")
+            decoy.rename(parent)
+
+        with patch(
+            "scenario_forge.manifest._before_artifact_leaf_open",
+            side_effect=exchange_parent,
+        ):
+            resolver = ManifestInventoryResolver(run_dir, manifest, check_orphans=False)
+
+        assert resolver.read_bytes(entry) == original
+
+    def test_root_exchange_between_entries_uses_one_pinned_directory(
+        self, tmp_path: Path
+    ):
+        run_dir = tmp_path / "run"
+        scenarios = run_dir / "scenarios"
+        scenarios.mkdir(parents=True)
+        originals = {
+            "s1": b"Feature: verified one\n",
+            "s2": b"Feature: verified two\n",
+        }
+        for scenario_id, content in originals.items():
+            (scenarios / f"{scenario_id}.feature").write_bytes(content)
+        decoy = tmp_path / "decoy"
+        (decoy / "scenarios").mkdir(parents=True)
+        for scenario_id in originals:
+            (decoy / f"scenarios/{scenario_id}.feature").write_bytes(
+                b"Feature: attacker\n"
+            )
+        entries = [
+            ArtifactEntry(
+                role=ArtifactRole.SCENARIO_FEATURE,
+                path=f"scenarios/{scenario_id}.feature",
+                sha256=hashlib.sha256(content).hexdigest(),
+                media_type="text/plain",
+                scenario_id=scenario_id,
+                candidate_id=f"cand-{scenario_id}",
+            )
+            for scenario_id, content in originals.items()
+        ]
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=entries,
+        )
+        exchanged = False
+
+        def exchange_root() -> None:
+            nonlocal exchanged
+            if exchanged:
+                return
+            exchanged = True
+            run_dir.rename(tmp_path / "original")
+            decoy.rename(run_dir)
+
+        with patch(
+            "scenario_forge.manifest._before_artifact_leaf_open",
+            side_effect=exchange_root,
+        ):
+            resolver = ManifestInventoryResolver(run_dir, manifest, check_orphans=False)
+
+        assert [resolver.read_bytes(entry) for entry in entries] == list(
+            originals.values()
+        )
+
+    def test_hardlinked_inventory_entries_rejected(self, tmp_path: Path):
+        run_dir = tmp_path / "run"
+        scenarios = run_dir / "scenarios"
+        scenarios.mkdir(parents=True)
+        first = scenarios / "s1.feature"
+        second = scenarios / "s2.feature"
+        first.write_text("Feature: shared")
+        os.link(first, second)
+        digest = compute_file_sha256(first)
+        entries = [
+            ArtifactEntry(
+                role=ArtifactRole.SCENARIO_FEATURE,
+                path=f"scenarios/s{number}.feature",
+                sha256=digest,
+                media_type="text/plain",
+                scenario_id=f"s{number}",
+                candidate_id=f"cand-{number}",
+            )
+            for number in (1, 2)
+        ]
+        manifest = RunManifest(
+            status=RunStatus.FAILED,
+            run_id=_VALID_RUN_ID,
+            timestamp_start="2026-01-01T00:00:00+00:00",
+            inventory=entries,
+        )
+
+        with pytest.raises(ManifestIntegrityError, match="device/inode"):
+            ManifestInventoryResolver(run_dir, manifest, check_orphans=False)
 
     def test_malformed_hash_rejected(self, tmp_path: Path):
         run_dir = tmp_path / "run"
