@@ -4580,6 +4580,52 @@ class TestExternalPreconditionBypass:
                 f"got: {[v.detail for v in result.violations]}"
             )
 
+    def test_final_validation_rejects_external_precondition_with_projected_ids_only(
+        self,
+    ):
+        """Final projection validation must report violations for
+        external_precondition leaves with nonempty projected_step_ids even
+        when realizations is empty (the bypass from the surgical fix)."""
+        from scenario_forge.models.attack_tree import ExternalPreconditionAction
+
+        block = _make_block()
+        narrative = _make_narrative(block.canonical_ingress.entry_point_id)
+        envelope = _make_envelope(block, narrative=narrative)
+
+        bad_leaf = AttackTreeNode.model_construct(
+            id="n1.99",
+            label="External",
+            gate=GateType.LEAF,
+            zone=None,
+            action=ExternalPreconditionAction(access_provenance="phishing"),
+            projected_step_ids=("step.1",),
+            realizations=(),
+        )
+        # Replace tree with one containing the bad leaf
+        if envelope.attack_tree is not None:
+            new_root = envelope.attack_tree.root.model_copy(
+                update={
+                    "children": list(envelope.attack_tree.root.children or [])
+                    + [bad_leaf]
+                }
+            )
+            mutated = envelope.model_copy(
+                update={
+                    "attack_tree": envelope.attack_tree.model_copy(
+                        update={"root": new_root}
+                    )
+                }
+            )
+            result = validate_projection_traceability(mutated)
+            assert any(
+                "external precondition" in v.detail.lower()
+                and "projected_step_ids" in v.detail.lower()
+                for v in result.violations
+            ), (
+                f"Expected external_precondition projected_step_ids violation, "
+                f"got: {[v.detail for v in result.violations]}"
+            )
+
 
 def _make_tree_leaf(candidate, index):
     """Helper: make a valid tree leaf for a selected step."""

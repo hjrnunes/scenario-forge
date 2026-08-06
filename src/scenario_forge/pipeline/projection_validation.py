@@ -1359,7 +1359,7 @@ def _check_step_semantic_compatibility(
             if (
                 action is not None
                 and action.kind == "external_precondition"
-                and leaf.realizations
+                and (leaf.projected_step_ids or leaf.realizations)
             ):
                 violations.append(
                     ProjectionTraceabilityViolation(
@@ -1367,9 +1367,10 @@ def _check_step_semantic_compatibility(
                         stage=ProjectionTraceabilityStage.attack_tree,
                         detail=(
                             f"external precondition leaf '{leaf.id}' has "
-                            f"{len(leaf.realizations)} realization records "
+                            f"{len(leaf.projected_step_ids)} projected_step_ids "
+                            f"and {len(leaf.realizations)} realization records "
                             f"— external preconditions must have empty "
-                            f"realizations"
+                            f"projected_step_ids and empty realizations"
                         ),
                         element_id=leaf.id,
                         projected_step_id="",
