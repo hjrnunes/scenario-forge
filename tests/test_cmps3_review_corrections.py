@@ -4,26 +4,21 @@ Covers:
   - Safe paired artifact operations (second-file failure cleanup, pre-existing
     fatal, missing-pair fatal, guarded replacement verifies feature bytes).
   - Fatal integrity errors escape recoverable generation handling.
-  - Candidate ID reserved before LLM invocation.
-  - Call-log failure after artifact creation aborts run.
-  - End-to-end remediation funnel equations.
   - CandidateFunnel rejects negative / inconsistent equations.
   - rule_transformed counts transformed source identities pre-collapse.
   - Conflicting per-technique name/description metadata rejected.
   - Multiple techniques removed by different rules retain individual decisions.
   - Invalid run IDs / candidate IDs / attempt 0 rejected.
-  - Remediation candidate ID matches the actual pinned canonical technique tuple.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from scenario_forge.manifest import AttemptRecord
 from scenario_forge.models.attack_tree import (
     AiSystemAction,
     AttackTree,
@@ -47,7 +42,6 @@ from scenario_forge.models.scenario import (
     FacetingMetadata,
     GenerationMetadata,
     LikelihoodLevel,
-    NarrativeAccessRealization,
     NarrativeLayer,
     NarrativeStep,
     Priority,
@@ -77,7 +71,6 @@ from scenario_forge.pipeline.candidates import (
     canonicalize_and_dedup,
     compute_candidate_id,
 )
-from scenario_forge.pipeline.coverage import CoverageGaps, EntryPointGap
 from scenario_forge.pipeline.generate import (
     GenerationError,
     ScenarioForgeIntegrityError,
@@ -89,12 +82,7 @@ from scenario_forge.pipeline.generate.assembly import (
     _validate_candidate_id,
     _validate_run_id,
 )
-from scenario_forge.pipeline.runner import _remediate_coverage_gaps
-from scenario_forge.pipeline.seeds import ScenarioSeed
 from tests.helpers.projection_factory import (
-    get_canonical_ingress_id,
-    get_projected_candidate,
-    get_test_snapshot,
     make_behavior_spec,
     make_projection_block,
 )
@@ -106,7 +94,7 @@ def _patch_projection_traceability_for_write_tests():
     """Patch projection traceability validation to valid for this module.
 
     These tests exercise write/replace atomicity, receipt reconciliation,
-    and remediation funnel equations — not projection traceability.  The
+    and funnel equations — not projection traceability.  The
     dedicated traceability suite covers the writer's fail-closed behaviour
     on invalid projections.
     """
@@ -122,15 +110,7 @@ def _patch_projection_traceability_for_write_tests():
 # ---------------------------------------------------------------------------
 
 _VALID_RUN_ID = "20260101T000000_" + "a" * 32
-_VALID_LEGACY_RUN_ID = "a" * 32
 _VALID_CANDIDATE_ID = "cand:v2:" + "1" * 32
-
-# Canonical entry_point_id for "user prompts (zone 1)" — the first entry
-# point in ``_make_profile()``.  Remediation now resolves entry_point_id
-# against the profile (cmps.9 correction 2), so tests must use the real
-# computed ID rather than a synthetic placeholder.
-_USER_PROMPT_EP_ID = get_canonical_ingress_id()
-_ADMIN_CONSOLE_EP_ID = "ep:v1:22222222222222222222222200000002"
 
 
 def _make_ref(risk_id: str = "risk-1") -> RiskCardRef:
@@ -141,24 +121,6 @@ def _make_ref(risk_id: str = "risk-1") -> RiskCardRef:
         taxonomy="ibm-risk-atlas",
         confidence=0.9,
         grounding_confidence=ConfidenceLevel.high,
-    )
-
-
-def _make_seed(
-    seed_id: str = "AP-T7-01",
-    technique_ids: tuple[str, ...] = ("AML.T0051",),
-    threat_id: str = "T7",
-) -> ScenarioSeed:
-    return ScenarioSeed(
-        seed_id=seed_id,
-        threat_id=threat_id,
-        threat_name=f"Threat {threat_id}",
-        attack_pattern_name=f"Pattern {seed_id}",
-        attack_pattern_description=f"Description for {seed_id}",
-        risk_card_ref=_make_ref(),
-        owasp_llm_ids=["LLM01"],
-        agentic_threat_ids=[threat_id],
-        atlas_technique_ids=list(technique_ids),
     )
 
 
@@ -484,229 +446,6 @@ class TestFatalIntegrityErrors:
 
 
 # ---------------------------------------------------------------------------
-# C. Candidate ID reserved before LLM invocation
-# ---------------------------------------------------------------------------
-
-
-class TestCandidateIdReservation:
-    """The candidate_id must be in attempted_candidate_ids before
-    generate_scenario is called."""
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    def test_candidate_id_reserved_before_llm(
-        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
-    ):
-        captured_ids = []
-
-        def capture_candidate_id(*args, **kwargs):
-            # At this point, the candidate_id should already be reserved.
-            captured_ids.append(kwargs.get("candidate_id"))
-            cid = kwargs.get("candidate_id", _VALID_CANDIDATE_ID)
-            sid = compute_scenario_id(kwargs.get("run_id", _VALID_RUN_ID), cid, 1)
-            env = _make_envelope(
-                scenario_id=sid,
-                candidate_id=cid,
-                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
-            )
-            return env, []
-
-        mock_generate.side_effect = capture_candidate_id
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
-                ),
-            ]
-        )
-        seeds = [_make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))]
-        profile = _make_profile()
-        attempted = set()
-
-        _remediate_coverage_gaps(
-            gaps,
-            seeds,
-            profile,
-            MagicMock(),
-            "test use case",
-            tmp_path,
-            run_id=_VALID_RUN_ID,
-            attempted_candidate_ids=attempted,
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=[],
-            attempts=[],
-            projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
-            capability_snapshot=get_test_snapshot(),
-        )
-
-        # The candidate_id passed to generate_scenario must already be
-        # in attempted_candidate_ids.
-        assert len(captured_ids) == 1
-        assert captured_ids[0] in attempted
-
-
-# ---------------------------------------------------------------------------
-# D. Call-log failure after artifact creation aborts run
-# ---------------------------------------------------------------------------
-
-
-class TestCallLogFailureAfterArtifact:
-    """A call-log write failure after artifact creation must be fatal."""
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    def test_call_log_failure_aborts(
-        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
-    ):
-        # Use the authoritative candidate_id that remediation will use.
-        ep_id = _USER_PROMPT_EP_ID
-        cand_id = get_projected_candidate().candidate_id
-        sid = compute_scenario_id(_VALID_RUN_ID, cand_id, 1)
-        env = _make_envelope(
-            scenario_id=sid,
-            candidate_id=cand_id,
-            entry_point_id=ep_id,
-        )
-        mock_generate.return_value = (env, [])
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-        mock_write_log.side_effect = OSError("disk full")
-
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
-                ),
-            ]
-        )
-        seeds = [_make_seed(seed_id="AP-T1-01")]
-        profile = _make_profile()
-
-        with pytest.raises(ScenarioForgeIntegrityError, match="call-log"):
-            _remediate_coverage_gaps(
-                gaps,
-                seeds,
-                profile,
-                MagicMock(),
-                "test use case",
-                tmp_path,
-                run_id=_VALID_RUN_ID,
-                attempted_candidate_ids=set(),
-                admitted_candidate_ids=set(),
-                admitted_scenario_ids=set(),
-                write_receipts=[],
-                attempts=[],
-                projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
-                capability_snapshot=get_test_snapshot(),
-            )
-
-
-# ---------------------------------------------------------------------------
-# E. End-to-end remediation funnel equations
-# ---------------------------------------------------------------------------
-
-
-class TestRemediationFunnelEquations:
-    """Remediation must produce exact attempted/admitted/failed counts."""
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    def test_exact_attempted_admitted_failed(
-        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
-    ):
-        """2 uncovered EPs: one succeeds, one fails. Verify
-        attempted=2, failed=1, admitted=1, write_receipts has 1."""
-        # Use a side_effect that derives IDs from the kwargs so the
-        # pre-write identity verification passes.  Second call raises.
-        call_count = [0]
-
-        def gen(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 2:
-                raise RuntimeError("LLM timeout")
-            cid = kwargs["candidate_id"]
-            sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
-            envelope = _make_envelope(
-                scenario_id=sid,
-                candidate_id=cid,
-                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
-            )
-            pinned_ep_id = kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID)
-            envelope.narrative.access_realization = NarrativeAccessRealization(
-                initial_entry_point_id=pinned_ep_id,
-                responsible_step_number=1,
-            )
-            return envelope, []
-
-        mock_generate.side_effect = gen
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id=_USER_PROMPT_EP_ID, name="user prompts (zone 1)"
-                ),
-                EntryPointGap(
-                    entry_point_id=_ADMIN_CONSOLE_EP_ID, name="admin console (zone 2)"
-                ),
-            ]
-        )
-        seeds = [_make_seed(seed_id="AP-T1-01"), _make_seed(seed_id="AP-T2-01")]
-        profile = _make_profile()
-        receipts: list[dict] = []
-        attempts_list: list[AttemptRecord] = []
-
-        from tests.helpers.projection_factory import get_second_projected_candidate
-
-        projected_t1 = get_projected_candidate()
-        projected_t2 = get_second_projected_candidate()
-        with patch(
-            "scenario_forge.pipeline.runner._pick_best_seed_for_entry_point",
-            side_effect=seeds,
-        ):
-            scenarios, _notes, attempted, failed = _remediate_coverage_gaps(
-                gaps,
-                seeds,
-                profile,
-                MagicMock(),
-                "test use case",
-                tmp_path,
-                run_id=_VALID_RUN_ID,
-                attempted_candidate_ids=set(),
-                admitted_candidate_ids=set(),
-                admitted_scenario_ids=set(),
-                write_receipts=receipts,
-                attempts=attempts_list,
-                projected_by_pattern={
-                    "AP-T1-01": [projected_t1],
-                    "AP-T2-01": [projected_t2],
-                },
-                capability_snapshot=get_test_snapshot(),
-            )
-
-        assert attempted == 2
-        assert failed == 1
-        assert len(scenarios) == 1
-        assert len(receipts) == 1
-        # Reconciliation: attempted - failed == admitted
-        assert attempted - failed == len(scenarios)
-
-
-# ---------------------------------------------------------------------------
 # F. CandidateFunnel validation
 # ---------------------------------------------------------------------------
 
@@ -723,6 +462,7 @@ class TestCandidateFunnelValidation:
             "post_rule_collapsed": 1,
             "filter_submitted": 5,
             "filter_accepted": 3,
+            "qualified": 3,
             "selected": 3,
             "main_attempted": 3,
             "main_admitted": 2,
@@ -796,13 +536,31 @@ class TestCandidateFunnelValidation:
         with pytest.raises(ValueError, match="filter_accepted.*filter_submitted"):
             CandidateFunnel(**kw)
 
-    def test_rejects_selected_gt_filter_accepted(self):
+    def test_rejects_selected_gt_qualified(self):
+        """cmps.4: selected may exceed filter_accepted (fan-out) but not qualified."""
         kw = self._valid_funnel_kwargs()
         kw["selected"] = 10
+        kw["qualified"] = 5
         kw["main_attempted"] = 10
         kw["attempted"] = 10
-        with pytest.raises(ValueError, match="selected.*filter_accepted"):
+        with pytest.raises(ValueError, match="selected.*qualified"):
             CandidateFunnel(**kw)
+
+    def test_selected_gt_filter_accepted_allowed_with_fanout(self):
+        """cmps.4: selected can exceed filter_accepted when qualified >= selected."""
+        kw = self._valid_funnel_kwargs()
+        kw["filter_accepted"] = 3
+        kw["selected"] = 5
+        kw["qualified"] = 5
+        kw["main_attempted"] = 5
+        kw["attempted"] = 5
+        kw["main_admitted"] = 4
+        kw["generation_failed"] = 1
+        kw["admitted"] = 4
+        kw["persisted_artifacts"] = 4
+        # Should NOT raise — fan-out allows selected > filter_accepted.
+        f = CandidateFunnel(**kw)
+        assert f.selected == 5
 
     def test_rejects_quarantined_gt_admitted(self):
         kw = self._valid_funnel_kwargs()
@@ -1049,71 +807,6 @@ class TestInvalidIdentityInputs:
         _validate_candidate_id(_VALID_CANDIDATE_ID)  # no exception
         with pytest.raises(ValueError):
             _validate_candidate_id("")
-
-
-# ---------------------------------------------------------------------------
-# K. Remediation candidate ID matches pinned canonical technique tuple
-# ---------------------------------------------------------------------------
-
-
-class TestRemediationCandidateId:
-    """Remediation must preserve the authoritative projected identity."""
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    def test_candidate_id_matches_pinned_techniques(
-        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
-    ):
-        captured_candidate_id = []
-
-        def capture(*args, **kwargs):
-            captured_candidate_id.append(kwargs.get("candidate_id"))
-            cid = kwargs.get("candidate_id", _VALID_CANDIDATE_ID)
-            sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
-            env = _make_envelope(
-                scenario_id=sid,
-                candidate_id=cid,
-                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
-            )
-            return env, []
-
-        mock_generate.side_effect = capture
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        ep_name = "user prompts (zone 1)"
-        ep_id = _USER_PROMPT_EP_ID
-        seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051", "AML.T0052"))
-
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(entry_point_id=ep_id, name=ep_name),
-            ]
-        )
-        profile = _make_profile()
-
-        projected_candidate = get_projected_candidate()
-        _remediate_coverage_gaps(
-            gaps,
-            [seed],
-            profile,
-            MagicMock(),
-            "test use case",
-            tmp_path,
-            run_id=_VALID_RUN_ID,
-            attempted_candidate_ids=set(),
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=[],
-            attempts=[],
-            projected_by_pattern={"AP-T1-01": [projected_candidate]},
-            capability_snapshot=get_test_snapshot(),
-        )
-
-        assert captured_candidate_id[0] == projected_candidate.candidate_id
 
 
 # ---------------------------------------------------------------------------
@@ -1396,184 +1089,6 @@ class TestScenarioIdValidation:
 
         # Should not raise.
         jsonschema.validate(env_dict, schema)
-
-
-# ---------------------------------------------------------------------------#
-# Q. Second-review: remediation LAAF fallback pins LAAF tuple
-# ---------------------------------------------------------------------------#
-
-
-class TestRemediationLaafFallback:
-    """Remediation must use ATLAS techniques, otherwise LAAF techniques,
-    and pin exactly that tuple in the candidate_id."""
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    def test_laaf_fallback_when_no_atlas(
-        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
-    ):
-        """When seed has no ATLAS techniques but has LAAF techniques,
-        the candidate_id must be computed from LAAF techniques."""
-        captured_candidate_id = []
-
-        def capture(*args, **kwargs):
-            captured_candidate_id.append(kwargs.get("candidate_id"))
-            cid = kwargs.get("candidate_id", _VALID_CANDIDATE_ID)
-            sid = compute_scenario_id(_VALID_RUN_ID, cid, 1)
-            env = _make_envelope(
-                scenario_id=sid,
-                candidate_id=cid,
-                entry_point_id=kwargs.get("pinned_entry_point_id", _USER_PROMPT_EP_ID),
-            )
-            return env, []
-
-        mock_generate.side_effect = capture
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        # Seed with no ATLAS but LAAF techniques.
-        seed = _make_seed(seed_id="AP-T1-01", technique_ids=())
-        seed.laaf_technique_ids = ["LAAF.T001", "LAAF.T002"]
-        seed.atlas_technique_ids = []
-
-        ep_name = "user prompts (zone 1)"
-        ep_id = _USER_PROMPT_EP_ID
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(entry_point_id=ep_id, name=ep_name),
-            ]
-        )
-        profile = _make_profile()
-
-        projected_candidate = get_projected_candidate()
-        _remediate_coverage_gaps(
-            gaps,
-            [seed],
-            profile,
-            MagicMock(),
-            "test use case",
-            tmp_path,
-            run_id=_VALID_RUN_ID,
-            attempted_candidate_ids=set(),
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=[],
-            attempts=[],
-            projected_by_pattern={"AP-T1-01": [projected_candidate]},
-            capability_snapshot=get_test_snapshot(),
-        )
-
-        assert captured_candidate_id[0] == projected_candidate.candidate_id
-
-
-# ---------------------------------------------------------------------------#
-# R. Second-review: forged returned identity fatal before write
-# ---------------------------------------------------------------------------#
-
-
-class TestForgedReturnIdentity:
-    """Returned envelope with wrong candidate_id or scenario_id must
-    abort the run before writing."""
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    def test_remediation_forged_candidate_id_fatal(
-        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
-    ):
-        """Remediation returned envelope with wrong candidate_id must
-        raise ScenarioForgeIntegrityError, not write."""
-        seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
-        ep_id = _USER_PROMPT_EP_ID
-        correct_cid = get_projected_candidate().candidate_id
-        wrong_cid = "cand:v2:22222222222222222222222222222222"
-        correct_sid = compute_scenario_id(_VALID_RUN_ID, correct_cid, 1)
-
-        mock_generate.return_value = (
-            _make_envelope(scenario_id=correct_sid, candidate_id=wrong_cid),
-            [],
-        )
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(entry_point_id=ep_id, name="user prompts (zone 1)"),
-            ]
-        )
-        with pytest.raises(
-            ScenarioForgeIntegrityError, match="candidate_id.*does not match"
-        ):
-            _remediate_coverage_gaps(
-                gaps,
-                [seed],
-                _make_profile(),
-                MagicMock(),
-                "test use case",
-                tmp_path,
-                run_id=_VALID_RUN_ID,
-                attempted_candidate_ids=set(),
-                admitted_candidate_ids=set(),
-                admitted_scenario_ids=set(),
-                write_receipts=[],
-                attempts=[],
-                projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
-                capability_snapshot=get_test_snapshot(),
-            )
-        mock_write.assert_not_called()
-
-    @patch(
-        "scenario_forge.pipeline.runner._is_gap_attacker_accessible", return_value=True
-    )
-    @patch("scenario_forge.pipeline.runner.write_call_log")
-    @patch("scenario_forge.pipeline.runner.write_scenario_outputs")
-    @patch("scenario_forge.pipeline.runner.generate_scenario")
-    def test_remediation_forged_scenario_id_fatal(
-        self, mock_generate, mock_write, mock_write_log, mock_accessible, tmp_path: Path
-    ):
-        """Remediation returned envelope with wrong scenario_id must
-        raise ScenarioForgeIntegrityError, not write."""
-        seed = _make_seed(seed_id="AP-T1-01", technique_ids=("AML.T0051",))
-        ep_id = _USER_PROMPT_EP_ID
-        correct_cid = get_projected_candidate().candidate_id
-        wrong_sid = "scenario:v2:" + "f" * 64
-
-        mock_generate.return_value = (
-            _make_envelope(scenario_id=wrong_sid, candidate_id=correct_cid),
-            [],
-        )
-        mock_write.return_value = (tmp_path / "test.yaml", None)
-
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(entry_point_id=ep_id, name="user prompts (zone 1)"),
-            ]
-        )
-        with pytest.raises(
-            ScenarioForgeIntegrityError, match="scenario_id.*does not match"
-        ):
-            _remediate_coverage_gaps(
-                gaps,
-                [seed],
-                _make_profile(),
-                MagicMock(),
-                "test use case",
-                tmp_path,
-                run_id=_VALID_RUN_ID,
-                attempted_candidate_ids=set(),
-                admitted_candidate_ids=set(),
-                admitted_scenario_ids=set(),
-                write_receipts=[],
-                attempts=[],
-                projected_by_pattern={"AP-T1-01": [get_projected_candidate()]},
-                capability_snapshot=get_test_snapshot(),
-            )
-        mock_write.assert_not_called()
 
 
 # ---------------------------------------------------------------------------#

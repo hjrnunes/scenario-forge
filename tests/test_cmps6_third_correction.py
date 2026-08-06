@@ -30,7 +30,6 @@ from scenario_forge.models.scenario import (
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
 from scenario_forge.pipeline.coverage import CoverageGaps, EntryPointGap
 from scenario_forge.pipeline.generate import (
-    ScenarioForgeIntegrityError,
     compute_scenario_id,
     generate_scenario,
 )
@@ -38,7 +37,7 @@ from scenario_forge.pipeline.generate.actor import build_call0_context
 from scenario_forge.pipeline.generate.narrative import (
     validate_narrative_access_realization,
 )
-from scenario_forge.pipeline.runner import _remediate_coverage_gaps, run_pipeline
+from scenario_forge.pipeline.runner import run_pipeline
 from scenario_forge.pipeline.seeds import RiskCardRef, ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
 from tests.helpers.projection_factory import get_projected_candidate, get_test_snapshot
@@ -255,67 +254,6 @@ def test_title_retry_cannot_bypass_realization_enforcement() -> None:
     }
 
 
-def test_remediation_ownership_gate_precedes_artifact_admission(tmp_path: Path) -> None:
-    # Use a "chat" entry point so its entry_point_id matches the
-    # projected candidate's canonical ingress — the runner now requires
-    # an exact ingress match before calling generate_scenario.
-    profile = _make_profile(
-        entry_points=[
-            EntryPoint(name="chat", direction="input", controllability="direct")
-        ]
-    )
-    ep = profile.entry_points[0]
-    seed = _seed()
-    projected_candidate = get_projected_candidate()
-    candidate_id = projected_candidate.candidate_id
-    envelope = _make_envelope(
-        entry_point_id=ep.entry_point_id,
-        access=ActorAccessProvenance(
-            initial_entry_point_id=ep.entry_point_id,
-            ingress_mode="direct",
-            access_class="public",
-        ),
-    )
-    envelope.candidate_id = candidate_id
-    envelope.scenario_id = compute_scenario_id(RUN_ID, candidate_id)
-    envelope.initial_entry_point_id = "ep:v1:" + "b" * 32
-    receipts: list[dict] = []
-    admitted_candidates: set[str] = set()
-    admitted_scenarios: set[str] = set()
-
-    with (
-        patch(
-            "scenario_forge.pipeline.runner.generate_scenario",
-            return_value=(envelope, []),
-        ),
-        patch("scenario_forge.pipeline.runner.write_scenario_outputs") as write_outputs,
-        pytest.raises(ScenarioForgeIntegrityError, match="does not match candidate"),
-    ):
-        _remediate_coverage_gaps(
-            CoverageGaps(
-                uncovered_entry_points=[EntryPointGap(ep.entry_point_id, ep.name)]
-            ),
-            [seed],
-            profile,
-            MagicMock(),
-            "test",
-            tmp_path,
-            RUN_ID,
-            set(),
-            admitted_candidates,
-            admitted_scenarios,
-            receipts,
-            [],
-            projected_by_pattern={"AP-T1-01": [projected_candidate]},
-            capability_snapshot=get_test_snapshot(),
-        )
-
-    write_outputs.assert_not_called()
-    assert receipts == []
-    assert admitted_candidates == set()
-    assert admitted_scenarios == set()
-
-
 def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversity(
     tmp_path: Path,
 ) -> None:
@@ -392,12 +330,6 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
             )
         return CoverageGaps()
 
-    remediation_gaps: list[CoverageGaps] = []
-
-    def remediate(gaps, *args, **kwargs):
-        remediation_gaps.append(gaps)
-        return [], [], 0, 0
-
     def expand(*args, stage_records, **kwargs):
         stage_records.append(
             StageRecord(
@@ -448,7 +380,7 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
         ),
         patch(
             "scenario_forge.pipeline.runner.filter_candidates",
-            return_value=([valid_seed, invalid_seed], []),
+            return_value=([valid_seed, invalid_seed], [], []),
         ),
         patch("scenario_forge.pipeline.runner.generate_scenario", side_effect=generate),
         patch(
@@ -461,10 +393,6 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
         ),
         patch(
             "scenario_forge.pipeline.runner.analyze_coverage_gaps", side_effect=coverage
-        ),
-        patch(
-            "scenario_forge.pipeline.runner._remediate_coverage_gaps",
-            side_effect=remediate,
         ),
         patch("scenario_forge.pipeline.runner.DiversityTracker.update", tracker_update),
         patch(
@@ -487,9 +415,5 @@ def test_early_access_gate_excludes_invalid_candidate_from_coverage_and_diversit
 
     invalid_sid = compute_scenario_id(result.run_id, invalid_seed.candidate_id)
     assert invalid_sid not in coverage_inputs[0]
-    assert (
-        remediation_gaps[0].uncovered_entry_points[0].entry_point_id
-        == second.entry_point_id
-    )
     updated_ids = [call.args[0].scenario_id for call in tracker_update.call_args_list]
     assert invalid_sid not in updated_ids

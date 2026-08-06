@@ -1807,8 +1807,7 @@ class TestRunnerIntegration:
         assert hasattr(runner, "validate_phantom_capabilities")
 
     def test_validation_called_in_pipeline(self) -> None:
-        """validate_phantom_capabilities is called after generation
-        and after coverage remediation in run_pipeline()."""
+        """validate_phantom_capabilities is called after generation."""
         import inspect
 
         from scenario_forge.pipeline import runner
@@ -1816,13 +1815,10 @@ class TestRunnerIntegration:
         source = inspect.getsource(runner.run_pipeline)
         # Validation call should appear in the source
         assert "validate_phantom_capabilities" in source
-        # Remediation now runs before validation so remediation scenarios
-        # pass through all validation passes.
-        cov_pos = source.index("Coverage Remediation Pass")
+        generation_pos = source.index("generate_scenario")
         val_pos = source.index("validate_phantom_capabilities")
-        assert cov_pos < val_pos, (
-            "Coverage remediation should run before validation so "
-            "remediation scenarios are validated"
+        assert generation_pos < val_pos, (
+            "Scenario generation should run before phantom capability validation"
         )
 
 

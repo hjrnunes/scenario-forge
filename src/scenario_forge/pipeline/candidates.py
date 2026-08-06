@@ -132,7 +132,19 @@ class CandidateFunnel(BaseModel):
         description="Candidates accepted by the LLM filter.",
     )
     selected: int = Field(
-        description="Candidates remaining after capping/selection and projection prejoin.",
+        description=(
+            "Qualified projected candidates selected for generation after "
+            "coverage-aware selection.  May exceed filter_accepted because "
+            "one filtered seed can fan out to multiple projected candidates "
+            "with distinct concrete bindings (cmps.4)."
+        ),
+    )
+    qualified: int = Field(
+        default=0,
+        description=(
+            "Total qualified projected candidates after fan-out and "
+            "deduplication by candidate_id (cmps.4).  Selected <= qualified."
+        ),
     )
     projection_rejected: int = Field(
         default=0,
@@ -205,18 +217,20 @@ class CandidateFunnel(BaseModel):
                 f"filter_accepted ({self.filter_accepted}) must be <= "
                 f"filter_submitted ({self.filter_submitted})"
             )
-        if self.selected > self.filter_accepted:
+        # cmps.4: With fan-out, one filtered seed can map to multiple
+        # projected candidates with distinct bindings, so selected may
+        # exceed filter_accepted.  The invariant is selected <= qualified
+        # (selection cannot admit more than were qualified).  Enforced
+        # unconditionally — qualified defaults to 0, so selected > 0
+        # with qualified = 0 is a violation (cmps.4 blocker 5).
+        if self.selected > self.qualified:
             raise ValueError(
-                f"selected ({self.selected}) must be <= "
-                f"filter_accepted ({self.filter_accepted})"
+                f"selected ({self.selected}) must be <= qualified ({self.qualified})"
             )
-        # Projection rejections are a subset of filter_accepted - selected.
-        # After capping and projection prejoin: selected + projection_rejected
-        # must not exceed filter_accepted (capping may further reduce).
-        if self.selected + self.projection_rejected > self.filter_accepted:
+        # Projection rejections are a subset of filter_accepted.
+        if self.projection_rejected > self.filter_accepted:
             raise ValueError(
-                f"selected ({self.selected}) + projection_rejected "
-                f"({self.projection_rejected}) must be <= "
+                f"projection_rejected ({self.projection_rejected}) must be <= "
                 f"filter_accepted ({self.filter_accepted})"
             )
         # Main lifecycle: selected candidates each get one attempt.
@@ -556,6 +570,14 @@ class FilteredSeed(ScenarioSeed):
     rejection_rationales: list[RejectionRecord] = Field(
         default_factory=list,
         description="Sibling candidates that were rejected (for provenance tab).",
+    )
+    accepted_rationale: str = Field(
+        default="",
+        description=(
+            "LLM filter acceptance rationale for this candidate (cmps.4). "
+            "Preserves the accepted FilterVerdict rationale as first-class "
+            "typed evidence alongside the rejected sibling rationales."
+        ),
     )
 
 
@@ -1189,7 +1211,7 @@ def filter_candidates(
     client: LLMClient,
     use_case: str,
     profile: CapabilityProfile,
-) -> tuple[list[FilteredSeed], list[dict]]:
+) -> tuple[list[FilteredSeed], list[dict], list[FilterVerdict]]:
     """Filter candidates via one LLM call per seed (with retry-on-malformed).
 
     Groups candidates by ``seed_id``, renders a batch prompt for each seed
@@ -1215,7 +1237,10 @@ def filter_candidates(
         profile: Capability profile of the system under assessment.
 
     Returns:
-        Tuple of (filtered_seeds, call_log_entries).
+        Tuple of (filtered_seeds, call_log_entries, rejected_verdicts).
+        ``rejected_verdicts`` carries typed :class:`FilterVerdict` records
+        for every LLM-rejected candidate, preserving the rationale and
+        filter candidate ID for stage-ledger evidence.
 
     Raises:
         FilterProtocolError: If a seed's response cannot be reconciled
@@ -1223,7 +1248,7 @@ def filter_candidates(
     """
     if not candidates:
         logger.info("Filter: no candidates to filter")
-        return [], []
+        return [], [], []
 
     # Build seed lookup for constructing FilteredSeed with full fields
     seed_lookup: dict[str, ScenarioSeed] = {s.seed_id: s for s in seeds}
@@ -1243,10 +1268,11 @@ def filter_candidates(
     def _filter_one_seed(
         seed_id: str,
         seed_candidates: list[CandidateTriple],
-    ) -> tuple[list[FilteredSeed], int, int, list[dict]]:
+    ) -> tuple[list[FilteredSeed], int, int, list[dict], list[FilterVerdict]]:
         """Filter candidates for a single seed.
 
-        Returns (accepted, n_accepted, n_rejected, call_log_entries).
+        Returns (accepted, n_accepted, n_rejected, call_log_entries,
+        rejected_verdicts).
         Raises FilterProtocolError on irreconcilable response.
         """
         # Reject duplicate candidate IDs in the submitted input — this
@@ -1437,7 +1463,7 @@ def filter_candidates(
                     seed_id,
                     len(accepted_verdicts),
                 )
-                return [], 0, len(seed_candidates), seed_call_logs
+                return [], 0, len(seed_candidates), seed_call_logs, rejected_verdicts
 
             seed_results: list[FilteredSeed] = []
             for verdict in accepted_verdicts:
@@ -1459,6 +1485,7 @@ def filter_candidates(
                         candidate_id=cand.candidate_id,
                         origins=list(cand.origins),
                         rejection_rationales=rejection_records,
+                        accepted_rationale=verdict.rationale,
                     )
                 )
 
@@ -1475,6 +1502,7 @@ def filter_candidates(
                 seed_accepted,
                 seed_total - seed_accepted,
                 seed_call_logs,
+                rejected_verdicts,
             )
         except Exception as exc:
             raise FilterProtocolError(
@@ -1486,6 +1514,7 @@ def filter_candidates(
     total_rejected = 0
     results: list[FilteredSeed] = []
     call_log_entries: list[dict] = []
+    all_rejected_verdicts: list[FilterVerdict] = []
     protocol_errors: list[FilterProtocolError] = []
 
     max_workers = min(8, len(groups))
@@ -1497,11 +1526,12 @@ def filter_candidates(
         for future in as_completed(futures):
             seed_id = futures[future]
             try:
-                seed_results, n_acc, n_rej, seed_logs = future.result()
+                seed_results, n_acc, n_rej, seed_logs, seed_rejected = future.result()
                 results.extend(seed_results)
                 total_accepted += n_acc
                 total_rejected += n_rej
                 call_log_entries.extend(seed_logs)
+                all_rejected_verdicts.extend(seed_rejected)
             except FilterProtocolError as exc:
                 logger.error("Filter protocol failure for seed %s: %s", seed_id, exc)
                 protocol_errors.append(exc)
@@ -1538,7 +1568,7 @@ def filter_candidates(
         total_rejected,
     )
 
-    return results, call_log_entries
+    return results, call_log_entries, all_rejected_verdicts
 
 
 # ---------------------------------------------------------------------------

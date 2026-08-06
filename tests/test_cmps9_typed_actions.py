@@ -2919,43 +2919,25 @@ class TestAttackerAccessibleIngressPredicate:
             assert c.entry_point != "system alerts"
             assert c.entry_point != "admin console"
 
-    def test_inaccessible_ep_not_remediated(self):
-        """Inaccessible EPs cannot be remediation targets, even if a
-        fabricated gap is passed to remediation."""
-        from scenario_forge.pipeline.coverage import CoverageGaps, EntryPointGap
-        from scenario_forge.pipeline.runner import _remediate_coverage_gaps
+    def test_inaccessible_ep_excluded_from_coverage_universe(self):
+        """Inaccessible EPs are excluded from the coverage universe."""
+        from scenario_forge.pipeline.coverage_planning import (
+            CoverageExclusionReason,
+            build_coverage_universe,
+        )
 
         profile = self._make_profile_with_mixed_entry_points()
         system_ep = next(ep for ep in profile.entry_points if ep.name == "backend API")
-        gaps = CoverageGaps(
-            uncovered_entry_points=[
-                EntryPointGap(
-                    entry_point_id=system_ep.entry_point_id,
-                    name=system_ep.name,
-                )
-            ]
-        )
-        import tempfile
-        from pathlib import Path
-        from unittest.mock import MagicMock
 
-        scenarios, _notes, attempted, failed = _remediate_coverage_gaps(
-            gaps,
-            [],
-            profile,
-            MagicMock(),
-            "test",
-            Path(tempfile.mkdtemp()),
-            run_id="20260101T000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            attempted_candidate_ids=set(),
-            admitted_candidate_ids=set(),
-            admitted_scenario_ids=set(),
-            write_receipts=[],
-            attempts=[],
+        universe = build_coverage_universe(profile)
+
+        excluded = next(
+            target
+            for target in universe.excluded_targets
+            if target.entry_point_id == system_ep.entry_point_id
         )
-        assert scenarios == []
-        assert attempted == 0
-        assert failed == 0
+        assert excluded.reason is CoverageExclusionReason.SYSTEM_CONTROLLED
+        assert system_ep.entry_point_id not in universe.feasible_target_ids
 
     def test_inaccessible_ep_not_in_eval_denominator(self):
         """Inaccessible EPs do not count in eval expected-entry-point denominator."""

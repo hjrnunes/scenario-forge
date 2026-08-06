@@ -3488,6 +3488,13 @@ def _coverage_status(count: int) -> tuple[str, str]:
 
 # Human-readable labels for pipeline funnel-stage attribution codes.
 _GAP_REASON_LABELS: dict[str, str] = {
+    "deterministic_rule_rejection": "rejected by deterministic rules",
+    "filter_rejection": "filtered out by LLM filter",
+    "projection_rejection": "no compatible projection",
+    "selection_limitation": "cap overflow (coverage preserved)",
+    "generation_exhaustion": "generation exhausted",
+    "admission_failure": "admission failure",
+    "projection_limitation": "projection budget limit",
     "no_seed": "no seed generated",
     "no_candidate": "no candidate expanded",
     "rejected": "filtered out",
@@ -3516,11 +3523,10 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     uncovered_zones = gaps.get("uncovered_zones", [])
     uncovered_threats = gaps.get("uncovered_threats", [])
     uncovered_aps = gaps.get("uncovered_attack_patterns", [])
+    universe_data = coverage_data.get("coverage_universe", {})
+    completeness = universe_data.get("completeness", "not_applicable")
     attributions = gaps.get("gap_attributions", {})
     ep_attributions = attributions.get("entry_points", {})
-    zone_attributions = attributions.get("zones", {})
-    threat_attributions = attributions.get("threats", {})
-    ap_attributions = attributions.get("attack_patterns", {})
 
     total_gaps = (
         len(uncovered_eps)
@@ -3547,16 +3553,20 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
         ep_items = "".join(ep_items_parts)
         ep_body = f'<ul class="coverage-list">{ep_items}</ul>'
     else:
-        ep_body = (
-            '<div class="coverage-empty">All entry points have scenario coverage.</div>'
-        )
+        if completeness == "confirmed_complete":
+            ep_message = "All confirmed entry points have scenario coverage."
+        else:
+            ep_message = (
+                "All identified feasible entry points have scenario coverage; "
+                "inventory completeness is not confirmed."
+            )
+        ep_body = f'<div class="coverage-empty">{ep_message}</div>'
 
     # Zones card
     z_cls, z_label = _coverage_status(len(uncovered_zones))
     if uncovered_zones:
         z_items = "".join(
-            f"<li>{_esc(ZONE_DISPLAY_NAMES.get(_normalize_zone(z), str(z)))}"
-            f"{_attribution_span(zone_attributions[z]) if z in zone_attributions else ''}</li>"
+            f"<li>{_esc(ZONE_DISPLAY_NAMES.get(_normalize_zone(z), str(z)))}</li>"
             for z in uncovered_zones
         )
         z_body = f'<ul class="coverage-list">{z_items}</ul>'
@@ -3566,10 +3576,7 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     # Threats card
     t_cls, t_label = _coverage_status(len(uncovered_threats))
     if uncovered_threats:
-        t_items = "".join(
-            f"<li>{_esc(t)}{_attribution_span(threat_attributions[t]) if t in threat_attributions else ''}</li>"
-            for t in uncovered_threats
-        )
+        t_items = "".join(f"<li>{_esc(t)}</li>" for t in uncovered_threats)
         t_body = f'<ul class="coverage-list">{t_items}</ul>'
     else:
         t_body = '<div class="coverage-empty">All in-scope threats have scenario coverage.</div>'
@@ -3577,19 +3584,216 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
     # Attack patterns card
     ap_cls, ap_label = _coverage_status(len(uncovered_aps))
     if uncovered_aps:
-        ap_items = "".join(
-            f"<li>{_esc(ap)}{_attribution_span(ap_attributions[ap]) if ap in ap_attributions else ''}</li>"
-            for ap in uncovered_aps
-        )
+        ap_items = "".join(f"<li>{_esc(ap)}</li>" for ap in uncovered_aps)
         ap_body = f'<ul class="coverage-list">{ap_items}</ul>'
     else:
         ap_body = '<div class="coverage-empty">All in-scope attack patterns have scenario coverage.</div>'
 
     # Overall status badge
     if total_gaps == 0:
-        badge_text = "Full Coverage"
+        badge_text = (
+            "Full Coverage"
+            if completeness == "confirmed_complete"
+            else "Known Targets Covered"
+        )
     else:
         badge_text = f"{total_gaps} gap{'s' if total_gaps != 1 else ''}"
+
+    # --- cmps.4: Categorized coverage summary (blocker 3) ---
+    summary = coverage_data.get("coverage_summary", {})
+    summary_html = ""
+    if summary:
+        covered = summary.get("covered_feasible", [])
+        policy_exc = summary.get("policy_exclusions", [])
+        struct_gaps = summary.get("structural_gaps", [])
+        sel_lims = summary.get("selection_limitations", [])
+        runtime_gaps = summary.get("runtime_generation_gaps", [])
+        quarantine_fails = summary.get("quarantine_admission_failures", [])
+        proj_lims = summary.get("projection_limitations", [])
+
+        def _cat_card(title: str, items: list, css_cls: str = "") -> str:
+            if not items:
+                return ""
+            parts = []
+            for item in items:
+                if isinstance(item, dict):
+                    primary = (
+                        item.get("entry_point_name")
+                        or item.get("name")
+                        or item.get("entry_point_id")
+                        or ""
+                    )
+                    reason = item.get("reason")
+                    reason_span = _attribution_span(reason) if reason else ""
+                    detail = item.get("detail")
+                    detail_span = (
+                        f' <span class="coverage-reason">{_esc(detail)}</span>'
+                        if detail
+                        else ""
+                    )
+                    candidate_ids = item.get("candidate_ids") or []
+                    cand_span = (
+                        f' <code class="candidate-id">{_esc(", ".join(candidate_ids))}</code>'
+                        if candidate_ids
+                        else ""
+                    )
+                    parts.append(
+                        f"<li>{_esc(primary)}{reason_span}{detail_span}{cand_span}</li>"
+                    )
+                else:
+                    parts.append(f"<li>{_esc(str(item))}</li>")
+            return (
+                f'<div class="coverage-card">'
+                f'<div class="coverage-card-header">'
+                f'<span class="coverage-card-title">{_esc(title)}</span>'
+                f'<span class="coverage-status {css_cls}">{len(items)}</span>'
+                f'</div><ul class="coverage-list">{"".join(parts)}</ul></div>'
+            )
+
+        cat_cards = []
+        if covered:
+            cat_cards.append(
+                f'<div class="coverage-card">'
+                f'<div class="coverage-card-header">'
+                f'<span class="coverage-card-title">Covered Feasible Targets</span>'
+                f'<span class="coverage-status coverage-status-green">{len(covered)}</span>'
+                f'</div><ul class="coverage-list">'
+                + "".join(f"<li>{_esc(t)}</li>" for t in covered)
+                + "</ul></div>"
+            )
+        if policy_exc:
+            cat_cards.append(_cat_card("Policy Exclusions", policy_exc))
+        if struct_gaps:
+            cat_cards.append(
+                _cat_card(
+                    "Structural / Projection Gaps", struct_gaps, "coverage-status-red"
+                )
+            )
+        if sel_lims:
+            cat_cards.append(
+                _cat_card("Selection Limitations", sel_lims, "coverage-status-amber")
+            )
+        if runtime_gaps:
+            cat_cards.append(
+                _cat_card(
+                    "Runtime Generation Gaps", runtime_gaps, "coverage-status-red"
+                )
+            )
+        if quarantine_fails:
+            cat_cards.append(
+                _cat_card(
+                    "Quarantine / Admission Failures",
+                    quarantine_fails,
+                    "coverage-status-red",
+                )
+            )
+        if proj_lims:
+            cat_cards.append(
+                _cat_card("Projection Limitations", proj_lims, "coverage-status-amber")
+            )
+
+        if cat_cards:
+            summary_html = (
+                '<div class="coverage-grid" style="margin-top:1rem">'
+                + "".join(cat_cards)
+                + "</div>"
+            )
+
+    # --- cmps.4: Coverage plan (blocker 2) ---
+    plan = coverage_data.get("coverage_plan", {})
+    plan_html = ""
+    if plan and plan.get("targets"):
+        plan_rows = []
+        for entry in plan["targets"]:
+            ep_id = entry.get("entry_point_id", "")
+            ep_name = entry.get("entry_point_name", "")
+            primary = entry.get("primary_candidate_id") or "—"
+            state = entry.get("primary_state", "—")
+            fb_count = len(entry.get("fallback_available", []))
+            choices = entry.get("ordered_choices", [])
+            choice_ids = [c.get("candidate_id", "") for c in choices]
+            plan_rows.append(
+                f"<tr><td>{_esc(ep_name)}</td><td>{_esc(primary)}</td>"
+                f"<td>{_esc(state)}</td>"
+                f"<td>{_esc(', '.join(choice_ids))}</td>"
+                f"<td>{fb_count}</td></tr>"
+            )
+        plan_html = (
+            '<div style="margin-top:1rem">'
+            "<h3>Coverage Plan (schema v"
+            + _esc(str(plan.get("schema_version", "")))
+            + ")</h3>"
+            '<table class="data-table"><thead><tr>'
+            "<th>Target</th><th>Primary Candidate</th><th>State</th>"
+            "<th>Ordered Choices</th><th>Fallback Available</th>"
+            "</tr></thead><tbody>" + "".join(plan_rows) + "</tbody></table></div>"
+        )
+
+    # --- cmps.4 blocker 4: Coverage universe completeness and bounded set ---
+    universe_html = ""
+    if universe_data:
+        evidence_refs = universe_data.get("evidence_refs", [])
+        feasible_targets = universe_data.get("feasible_targets", [])
+        excluded_targets = universe_data.get("excluded_targets", [])
+
+        completeness_label = (
+            "Confirmed Complete"
+            if completeness == "confirmed_complete"
+            else "Not Applicable (Inferred Partial)"
+        )
+        completeness_cls = (
+            "coverage-status-green"
+            if completeness == "confirmed_complete"
+            else "coverage-status-amber"
+        )
+
+        # Bounded canonical target set.
+        target_items = "".join(
+            f"<li>{_esc(t.get('name', t.get('entry_point_id', '')))}"
+            f" <code>{_esc(t.get('entry_point_id', ''))}</code>"
+            f" <span class='coverage-status coverage-status-green'>"
+            f"{_esc(t.get('direction', ''))}/{_esc(t.get('controllability', ''))}"
+            f"</span></li>"
+            for t in feasible_targets
+        )
+        excluded_items = "".join(
+            f"<li>{_esc(e.get('name', e.get('entry_point_id', '')))}"
+            f" <span class='coverage-status coverage-status-red'>"
+            f"{_esc(e.get('reason', ''))}</span></li>"
+            for e in excluded_targets
+        )
+        evidence_html = (
+            "<div class='coverage-empty'>Evidence: "
+            + ", ".join(_esc(e) for e in evidence_refs)
+            + "</div>"
+            if evidence_refs
+            else "<div class='coverage-empty'>No operator-confirmed evidence</div>"
+        )
+
+        universe_html = (
+            '<div style="margin-top:1rem">'
+            "<h3>Coverage Universe</h3>"
+            '<div class="coverage-card">'
+            '<div class="coverage-card-header">'
+            '<span class="coverage-card-title">Inventory Completeness</span>'
+            f'<span class="coverage-status {completeness_cls}">'
+            f"{_esc(completeness_label)}</span>"
+            "</div>"
+            f"{evidence_html}"
+            "</div>"
+            '<div class="coverage-grid" style="margin-top:0.5rem">'
+            f'<div class="coverage-card">'
+            '<div class="coverage-card-header">'
+            f'<span class="coverage-card-title">'
+            f"Feasible Targets ({len(feasible_targets)})</span>"
+            '</div><ul class="coverage-list">' + target_items + "</ul></div>"
+            f'<div class="coverage-card">'
+            '<div class="coverage-card-header">'
+            f'<span class="coverage-card-title">'
+            f"Excluded Targets ({len(excluded_targets)})</span>"
+            '</div><ul class="coverage-list">' + excluded_items + "</ul></div>"
+            "</div></div>"
+        )
 
     return f"""
     <div id="sec-coverage" class="section">
@@ -3631,6 +3835,9 @@ def build_coverage_section(coverage_data: dict[str, Any]) -> str:
           {ap_body}
         </div>
       </div>
+      {summary_html}
+      {universe_html}
+      {plan_html}
     </div>
     """
 

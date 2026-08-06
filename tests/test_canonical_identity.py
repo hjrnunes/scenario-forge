@@ -651,7 +651,7 @@ class TestFilterRetryExhaustion:
             _make_llm_result(valid_resp),
         ]
 
-        results, logs = filter_candidates(candidates, seeds, client, "test", profile)
+        results, logs, _ = filter_candidates(candidates, seeds, client, "test", profile)
         assert len(results) == 1
         assert results[0].candidate_id == candidates[0].candidate_id
         assert len(logs) == 2  # two attempts logged
@@ -712,7 +712,7 @@ class TestFilterRetryExhaustion:
         client = MagicMock()
         client.complete.return_value = _make_llm_result(valid_resp)
 
-        results, _ = filter_candidates(candidates, seeds, client, "test", profile)
+        results, _, _ = filter_candidates(candidates, seeds, client, "test", profile)
         assert len(results) == 1
         # The accepted candidate's entry_point and technique_ids come from
         # the CandidateTriple, not from the LLM response.
@@ -731,7 +731,7 @@ class TestFilterRetryExhaustion:
         client = MagicMock()
         client.complete.return_value = _make_llm_result(valid_resp)
 
-        results, _ = filter_candidates(candidates, seeds, client, "test", profile)
+        results, _, _ = filter_candidates(candidates, seeds, client, "test", profile)
         assert len(results) == 1
         # The rejected candidate's metadata should be in rejection_rationales.
         assert len(results[0].rejection_rationales) == 1
@@ -880,7 +880,7 @@ class TestFilterRetryInfrastructure:
             _make_llm_result(valid_resp),
         ]
 
-        results, logs = filter_candidates(candidates, seeds, client, "test", profile)
+        results, logs, _ = filter_candidates(candidates, seeds, client, "test", profile)
         assert len(results) == 1
         assert len(logs) == 2  # two attempts logged
         # First log should be a synthetic error entry.
@@ -936,7 +936,7 @@ class TestFilterRetryInfrastructure:
             _make_llm_result(valid_resp),
         ]
 
-        results, logs = filter_candidates(candidates, seeds, client, "test", profile)
+        results, logs, _ = filter_candidates(candidates, seeds, client, "test", profile)
         assert len(results) == 1
         assert len(logs) == 2
 
@@ -1247,7 +1247,7 @@ class TestImmutabilityAndIdValidation:
         client = MagicMock()
         client.complete.return_value = _make_llm_result(valid_resp)
 
-        results, _ = filter_candidates(candidates, seeds, client, "test", profile)
+        results, _, _ = filter_candidates(candidates, seeds, client, "test", profile)
         assert len(results) == 1
         # Result metadata comes from the frozen candidate, not from any
         # mutable copy.
@@ -1380,7 +1380,7 @@ class TestWrongContentTypeRetry:
             _make_llm_result(valid_resp),
         ]
 
-        results, logs = filter_candidates(candidates, seeds, client, "test", profile)
+        results, logs, _ = filter_candidates(candidates, seeds, client, "test", profile)
         assert len(results) == 1
         assert len(logs) == 2  # two attempts logged
 
