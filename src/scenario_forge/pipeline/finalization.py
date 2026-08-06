@@ -1,276 +1,429 @@
-"""The single finalization/admission lifecycle for projected candidates.
+"""Target-scoped finalization/admission lifecycle for cmps.5 phases 1--2.
 
-This module deliberately keeps generation and persistence at explicit
-boundaries.  A caller supplies the existing Call 0--3 generators and the
-existing validators; this state machine owns retry routing, admission,
-quarantine, and the durable forensic record.
+This controller is deliberately not wired into the production runner.  It
+owns candidate choice, targeted retry routing, and admission sequencing while
+all generation, validation, finalization, admission, and persistence effects
+remain dependency-injected ports.  Hard gates, Call 3 cutover, manifest v3,
+quarantine persistence, and runner integration belong to later phases.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from scenario_forge.models.projection_envelope import (
-    ProjectionTraceabilityResult,
-    ProjectionTraceabilityStage,
-)
 from scenario_forge.pipeline.coverage_planning import (
     CoveragePlan,
+    CoveragePlanEntry,
     deserialize_qualified_candidate,
     revalidate_qualified_candidate,
 )
 
-FINALIZATION_SCHEMA_VERSION = "1"
-MAX_TARGETED_RETRIES = 2
+MAX_OWNER_RETRIES = 2
+MAX_TARGETED_RETRIES = MAX_OWNER_RETRIES  # Compatibility name.
+MAX_TARGET_CHOICES = 3
 
 
-class LifecycleStage(str, Enum):
+class GeneratedStage(str, Enum):
+    """Only stages that own generated artifacts and retry budgets."""
+
     actor = "actor"
     narrative = "narrative"
     tree = "tree"
     behavior = "behavior"
-    admission = "admission"
-    quarantine = "quarantine"
+
+
+GENERATION_ORDER: tuple[GeneratedStage, ...] = (
+    GeneratedStage.actor,
+    GeneratedStage.narrative,
+    GeneratedStage.tree,
+    GeneratedStage.behavior,
+)
 
 
 class LifecycleState(str, Enum):
     pending = "pending"
+    revalidating_candidate = "revalidating_candidate"
     generating_actor = "generating_actor"
     generating_narrative = "generating_narrative"
     generating_tree = "generating_tree"
+    finalizing_prebehavior = "finalizing_prebehavior"
     generating_behavior = "generating_behavior"
-    verifying = "verifying"
+    admitting = "admitting"
     admitted = "admitted"
-    quarantined = "quarantined"
+    exhausted = "exhausted"
 
 
-_TRACE_STAGE_OWNER = {
-    ProjectionTraceabilityStage.actor_profile: LifecycleStage.actor,
-    ProjectionTraceabilityStage.narrative: LifecycleStage.narrative,
-    ProjectionTraceabilityStage.attack_tree: LifecycleStage.tree,
-    ProjectionTraceabilityStage.behavior_spec: LifecycleStage.behavior,
-}
+@dataclass(frozen=True, slots=True)
+class LifecycleViolation:
+    """Typed lifecycle failure; ``owner=None`` is candidate/projection-owned."""
 
-
-class AttemptLog(BaseModel):
-    """One forensic call or verification attempt, persisted in order."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    candidate_id: str
-    stage: LifecycleStage
-    retry_number: int = Field(ge=0, le=MAX_TARGETED_RETRIES)
-    prompt: str | None = None
-    call: dict[str, Any] = Field(default_factory=dict)
-    result: dict[str, Any] = Field(default_factory=dict)
-    failure: dict[str, Any] | None = None
-
-
-class RepairProvenance(BaseModel):
-    """A deterministic pre-projection repair, never a semantic rewrite."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: str
-    before_digest: str
-    after_digest: str
     detail: str
+    owner: GeneratedStage | None = None
+    code: str = "invalid"
+    retryable: bool = True
+
+    @property
+    def can_retry_generation(self) -> bool:
+        return self.retryable and self.owner is not None
 
 
-class AdmissionResult(BaseModel):
-    """Versioned durable outcome for one candidate."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: str = FINALIZATION_SCHEMA_VERSION
-    candidate_id: str
-    entry_point_id: str
-    state: LifecycleState
-    violations: list[dict[str, Any]] = Field(default_factory=list)
-    attempts: list[AttemptLog] = Field(default_factory=list)
-    repairs: list[RepairProvenance] = Field(default_factory=list)
-
-
-@dataclass
+@dataclass(slots=True)
 class GeneratedArtifacts:
-    """Mutable only until behavior is generated; tree is then fingerprinted."""
-
     actor: Any | None = None
     narrative: Any | None = None
     tree: Any | None = None
     behavior: Any | None = None
-    tree_digest: str | None = None
+
+    def get(self, stage: GeneratedStage) -> Any | None:
+        return getattr(self, stage.value)
+
+    def set(self, stage: GeneratedStage, value: Any) -> None:
+        setattr(self, stage.value, value)
+
+    def invalidate_from(self, owner: GeneratedStage) -> None:
+        start = GENERATION_ORDER.index(owner)
+        for stage in GENERATION_ORDER[start:]:
+            self.set(stage, None)
 
 
-Generator = Callable[[LifecycleStage, GeneratedArtifacts], tuple[Any, dict[str, Any]]]
-Verifier = Callable[[GeneratedArtifacts], ProjectionTraceabilityResult]
-Gate = Callable[[GeneratedArtifacts], Sequence[dict[str, Any]]]
-Repair = Callable[
-    [GeneratedArtifacts], tuple[GeneratedArtifacts, RepairProvenance | None]
+@runtime_checkable
+class FinalTreeSnapshot(Protocol):
+    """Immutable finalized-tree view consumed by future Call 3/gate wiring.
+
+    Phase 2 defines this boundary only.  The production immutable snapshot,
+    hard gates, parsimony checks, and assertions-only Call 3 contract are not
+    implemented here.
+    """
+
+    @property
+    def tree(self) -> Any: ...
+
+    @property
+    def digest(self) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateValidation:
+    candidate: Any | None
+    violations: tuple[LifecycleViolation, ...] = ()
+
+    @property
+    def valid(self) -> bool:
+        return self.candidate is not None and not self.violations
+
+
+@dataclass(frozen=True, slots=True)
+class StageInvocation:
+    candidate_id: str
+    stage: GeneratedStage
+    invocation_index: int
+    owner_retry_index: int
+    artifacts: GeneratedArtifacts
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedStageResult:
+    artifact: Any | None
+    evidence: Any = None
+    violations: tuple[LifecycleViolation, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PrebehaviorFinalizationResult:
+    snapshot: FinalTreeSnapshot | None
+    violations: tuple[LifecycleViolation, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionDecision:
+    admitted: bool
+    violations: tuple[LifecycleViolation, ...] = ()
+    value: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleTransition:
+    previous: LifecycleState
+    current: LifecycleState
+    candidate_id: str | None
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class TargetFinalizationResult:
+    state: LifecycleState
+    candidate_id: str | None
+    admission: AdmissionDecision | None
+    attempted_candidate_ids: tuple[str, ...]
+    violations: tuple[LifecycleViolation, ...]
+    transitions: tuple[LifecycleTransition, ...]
+
+
+StageCallback = Callable[[Any, StageInvocation], GeneratedStageResult]
+CandidateRevalidator = Callable[[dict[str, Any]], CandidateValidation]
+PrebehaviorFinalizer = Callable[
+    [Any, GeneratedArtifacts], PrebehaviorFinalizationResult
+]
+AdmissionCallback = Callable[
+    [Any, GeneratedArtifacts, FinalTreeSnapshot], AdmissionDecision
 ]
 
 
-def _digest(value: Any) -> str:
-    if hasattr(value, "model_dump"):
-        value = value.model_dump(mode="json")
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, default=str, separators=(",", ":")).encode()
-    ).hexdigest()
+class FinalizationPersistencePort(Protocol):
+    """Effect boundary; manifest-v3/quarantine implementations are deferred."""
+
+    def record_transition(self, transition: LifecycleTransition) -> None: ...
+
+    def record_stage_result(
+        self, invocation: StageInvocation, result: GeneratedStageResult
+    ) -> None: ...
+
+    def record_candidate_result(
+        self, candidate_id: str, decision: AdmissionDecision | None
+    ) -> None: ...
 
 
-def earliest_retry_owner(result: ProjectionTraceabilityResult) -> LifecycleStage:
-    """Return the earliest producer responsible for traceability failure."""
-    if not result.violations:
-        raise ValueError("a valid traceability result has no retry owner")
-    owners = {_TRACE_STAGE_OWNER[v.stage] for v in result.violations}
-    return min(owners, key=lambda stage: list(LifecycleStage).index(stage))
+def earliest_generated_owner(
+    violations: Sequence[LifecycleViolation],
+) -> GeneratedStage | None:
+    """Choose the earliest retryable generated owner across all violations.
+
+    Any candidate/projection-owned violation is nonretryable regardless of
+    generated-stage failures present in the same aggregate.
+    """
+    if any(not violation.can_retry_generation for violation in violations):
+        return None
+    owners = {violation.owner for violation in violations}
+    return next((stage for stage in GENERATION_ORDER if stage in owners), None)
+
+
+def _candidate_id(candidate: Any, ref: dict[str, Any]) -> str:
+    value = getattr(candidate, "candidate_id", None) if candidate is not None else None
+    if isinstance(value, str):
+        return value
+    ref_value = ref.get("candidate_id")
+    if not isinstance(ref_value, str):
+        raise ValueError("candidate revalidator must return a candidate_id")
+    return ref_value
+
+
+def ordered_target_choice_refs(entry: CoveragePlanEntry) -> tuple[dict[str, Any], ...]:
+    """Primary first, then persisted fallback availability, bounded and unique."""
+    all_refs = [*entry.ordered_choices, *entry.fallback_available]
+    primary = next(
+        (
+            ref
+            for ref in all_refs
+            if ref.get("candidate_id") == entry.primary_candidate_id
+        ),
+        None,
+    )
+    ordered = ([primary] if primary is not None else []) + list(
+        entry.fallback_available
+    )
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for ref in ordered:
+        candidate_id = ref.get("candidate_id")
+        if not isinstance(candidate_id, str) or candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        result.append(ref)
+        if len(result) == MAX_TARGET_CHOICES:
+            break
+    return tuple(result)
 
 
 @dataclass
-class FinalizationAdmissionMachine:
-    """Explicit finite-state lifecycle for exactly one projected candidate.
+class TargetFinalizationMachine:
+    """Lifecycle controller for one coverage target and up to three choices."""
 
-    ``generator`` must use the pre-existing Call 0--3 contract.  No callback
-    is permitted to mutate an upstream artifact: retries delete all downstream
-    values and invoke the earliest responsible producer again.
-    """
-
-    candidate_id: str
-    entry_point_id: str
-    generator: Generator
-    verifier: Verifier
-    hard_gate: Gate
-    repair: Repair | None = None
+    entry: CoveragePlanEntry
+    stage_callbacks: Mapping[GeneratedStage, StageCallback]
+    candidate_revalidator: CandidateRevalidator
+    prebehavior_finalizer: PrebehaviorFinalizer
+    admission_callback: AdmissionCallback
+    persistence: FinalizationPersistencePort
+    attempted_candidate_ids: set[str]
     state: LifecycleState = LifecycleState.pending
     artifacts: GeneratedArtifacts = field(default_factory=GeneratedArtifacts)
-    attempts: list[AttemptLog] = field(default_factory=list)
-    repairs: list[RepairProvenance] = field(default_factory=list)
-    retry_counts: dict[LifecycleStage, int] = field(default_factory=dict)
+    invocation_counts: dict[GeneratedStage, int] = field(default_factory=dict)
+    owner_retry_counts: dict[GeneratedStage, int] = field(default_factory=dict)
+    transitions: list[LifecycleTransition] = field(default_factory=list)
+    violations: list[LifecycleViolation] = field(default_factory=list)
 
-    def _discard_downstream(self, owner: LifecycleStage) -> None:
-        stages = list(LifecycleStage)[:4]
-        start = stages.index(owner)
-        for stage in stages[start:]:
-            setattr(self.artifacts, stage.value, None)
-        if owner in (
-            LifecycleStage.actor,
-            LifecycleStage.narrative,
-            LifecycleStage.tree,
-        ):
-            self.artifacts.tree_digest = None
-
-    def _generate_from(self, owner: LifecycleStage) -> None:
-        stages = list(LifecycleStage)[:4]
-        for stage in stages[stages.index(owner) :]:
-            self.state = LifecycleState(f"generating_{stage.value}")
-            retry_number = self.retry_counts.get(stage, 0)
-            try:
-                artifact, call = self.generator(stage, self.artifacts)
-                setattr(self.artifacts, stage.value, artifact)
-                self.attempts.append(
-                    AttemptLog(
-                        candidate_id=self.candidate_id,
-                        stage=stage,
-                        retry_number=retry_number,
-                        prompt=call.get("prompt"),
-                        call=call,
-                        result={"status": "ok"},
-                    )
-                )
-                if stage is LifecycleStage.tree:
-                    self.artifacts.tree_digest = _digest(artifact)
-                if (
-                    stage is LifecycleStage.behavior
-                    and self.artifacts.tree_digest != _digest(self.artifacts.tree)
-                ):
-                    raise ValueError("tree changed after behavior projection")
-            except Exception as exc:  # noqa: BLE001 - preserve every LLM failure
-                self.attempts.append(
-                    AttemptLog(
-                        candidate_id=self.candidate_id,
-                        stage=stage,
-                        retry_number=retry_number,
-                        result={"status": "failed"},
-                        failure={"type": type(exc).__name__, "detail": str(exc)},
-                    )
-                )
-                owner = (
-                    LifecycleStage.tree
-                    if stage is LifecycleStage.behavior
-                    and self.artifacts.tree_digest != _digest(self.artifacts.tree)
-                    else stage
-                )
-                self._retry_or_quarantine(
-                    owner, [{"stage": owner.value, "detail": str(exc)}]
-                )
-                return
-
-    def _retry_or_quarantine(
-        self, owner: LifecycleStage, violations: list[dict[str, Any]]
+    def _transition(
+        self, state: LifecycleState, candidate_id: str | None, reason: str
     ) -> None:
-        used = self.retry_counts.get(owner, 0)
-        if used >= MAX_TARGETED_RETRIES:
-            self.state = LifecycleState.quarantined
-            self._terminal_violations = violations
-            return
-        self.retry_counts[owner] = used + 1
-        self._discard_downstream(owner)
-        self._generate_from(owner)
+        transition = LifecycleTransition(self.state, state, candidate_id, reason)
+        self.state = state
+        self.transitions.append(transition)
+        self.persistence.record_transition(transition)
 
-    def run(self) -> AdmissionResult:
-        self._terminal_violations: list[dict[str, Any]] = []
-        self._generate_from(LifecycleStage.actor)
-        while self.state not in (LifecycleState.admitted, LifecycleState.quarantined):
-            self.state = LifecycleState.verifying
-            # Repairs may run only before behavior exists; semantic repair is
-            # rejected by requiring a provenance record and unchanged tree/projection.
-            if self.repair is not None and self.artifacts.behavior is None:
-                repaired, provenance = self.repair(self.artifacts)
-                if provenance is not None:
-                    self.artifacts = repaired
-                    self.repairs.append(provenance)
-            trace = self.verifier(self.artifacts)
-            if not trace.valid:
-                owner = earliest_retry_owner(trace)
-                violations = [v.model_dump(mode="json") for v in trace.violations]
-                self.attempts.append(
-                    AttemptLog(
-                        candidate_id=self.candidate_id,
-                        stage=owner,
-                        retry_number=self.retry_counts.get(owner, 0),
-                        result={"status": "traceability_failed"},
-                        failure={"violations": violations},
+    def _invoke_stage(
+        self, candidate: Any, candidate_id: str, stage: GeneratedStage
+    ) -> tuple[LifecycleViolation, ...]:
+        self._transition(
+            LifecycleState(f"generating_{stage.value}"), candidate_id, "invoke stage"
+        )
+        invocation_index = self.invocation_counts.get(stage, 0)
+        self.invocation_counts[stage] = invocation_index + 1
+        invocation = StageInvocation(
+            candidate_id=candidate_id,
+            stage=stage,
+            invocation_index=invocation_index,
+            owner_retry_index=self.owner_retry_counts.get(stage, 0),
+            artifacts=self.artifacts,
+        )
+        try:
+            result = self.stage_callbacks[stage](candidate, invocation)
+        except Exception as exc:  # noqa: BLE001 - callback failure is lifecycle data
+            result = GeneratedStageResult(
+                artifact=None,
+                violations=(
+                    LifecycleViolation(
+                        owner=stage,
+                        code="stage_exception",
+                        detail=f"{type(exc).__name__}: {exc}",
+                    ),
+                ),
+            )
+        self.persistence.record_stage_result(invocation, result)
+        if not result.violations:
+            self.artifacts.set(stage, result.artifact)
+        return result.violations
+
+    def _route_violations(
+        self, violations: Sequence[LifecycleViolation]
+    ) -> GeneratedStage | None:
+        self.violations.extend(violations)
+        owner = earliest_generated_owner(violations)
+        if owner is None:
+            return None
+        used = self.owner_retry_counts.get(owner, 0)
+        if used >= MAX_OWNER_RETRIES:
+            return None
+        self.owner_retry_counts[owner] = used + 1
+        self.artifacts.invalidate_from(owner)
+        return owner
+
+    def _run_candidate(
+        self, candidate: Any, candidate_id: str
+    ) -> AdmissionDecision | None:
+        next_stage = GeneratedStage.actor
+        snapshot: FinalTreeSnapshot | None = None
+        while True:
+            for stage in GENERATION_ORDER[GENERATION_ORDER.index(next_stage) :]:
+                if stage is GeneratedStage.behavior:
+                    if snapshot is None:
+                        self._transition(
+                            LifecycleState.finalizing_prebehavior,
+                            candidate_id,
+                            "tree complete",
+                        )
+                        finalized = self.prebehavior_finalizer(
+                            candidate, self.artifacts
+                        )
+                        if finalized.violations:
+                            owner = self._route_violations(finalized.violations)
+                            if owner is None:
+                                return None
+                            next_stage = owner
+                            break
+                        if finalized.snapshot is None:
+                            self.violations.append(
+                                LifecycleViolation(
+                                    code="missing_final_tree_snapshot",
+                                    detail="prebehavior finalizer returned no snapshot",
+                                    retryable=False,
+                                )
+                            )
+                            return None
+                        snapshot = finalized.snapshot
+
+                stage_violations = self._invoke_stage(candidate, candidate_id, stage)
+                if stage_violations:
+                    owner = self._route_violations(stage_violations)
+                    if owner is None:
+                        return None
+                    if owner is not GeneratedStage.behavior:
+                        snapshot = None
+                    next_stage = owner
+                    break
+            else:
+                if snapshot is None:
+                    raise RuntimeError(
+                        "behavior completed without finalized tree snapshot"
                     )
+                self._transition(
+                    LifecycleState.admitting, candidate_id, "stages complete"
                 )
-                self._retry_or_quarantine(owner, violations)
+                decision = self.admission_callback(candidate, self.artifacts, snapshot)
+                if decision.admitted:
+                    self.persistence.record_candidate_result(candidate_id, decision)
+                    self._transition(LifecycleState.admitted, candidate_id, "admitted")
+                    return decision
+                owner = self._route_violations(decision.violations)
+                if owner is None:
+                    self.persistence.record_candidate_result(candidate_id, decision)
+                    return None
+                if owner is not GeneratedStage.behavior:
+                    snapshot = None
+                next_stage = owner
                 continue
-            violations = list(self.hard_gate(self.artifacts))
-            if violations:
-                # Hard gates are verify-only after behavior.  They never mutate;
-                # their owner is explicit in evidence, defaulting to tree.
-                owner = LifecycleStage(violations[0].get("owner", "tree"))
-                self._retry_or_quarantine(owner, violations)
+            continue
+
+    def run(self) -> TargetFinalizationResult:
+        for ref in ordered_target_choice_refs(self.entry):
+            ref_id = ref["candidate_id"]
+            if ref_id in self.attempted_candidate_ids:
                 continue
-            if self.artifacts.tree_digest != _digest(self.artifacts.tree):
-                self._retry_or_quarantine(
-                    LifecycleStage.tree, [{"detail": "post-projection tree mutation"}]
+            # Mark before authoritative validation so a failed choice cannot be
+            # reused by another target in the same run.
+            self.attempted_candidate_ids.add(ref_id)
+            self._transition(
+                LifecycleState.revalidating_candidate,
+                ref_id,
+                "authoritative revalidation",
+            )
+            validation = self.candidate_revalidator(ref)
+            candidate_id = _candidate_id(validation.candidate, ref)
+            if validation.violations or not validation.valid:
+                violations = validation.violations or (
+                    LifecycleViolation(
+                        code="candidate_revalidation_failed",
+                        detail="authoritative candidate revalidation failed",
+                        retryable=False,
+                    ),
                 )
+                self.violations.extend(violations)
+                self.persistence.record_candidate_result(candidate_id, None)
                 continue
-            self.state = LifecycleState.admitted
-        return AdmissionResult(
-            candidate_id=self.candidate_id,
-            entry_point_id=self.entry_point_id,
+
+            self.artifacts = GeneratedArtifacts()
+            self.owner_retry_counts = {}
+            admission = self._run_candidate(validation.candidate, candidate_id)
+            if admission is not None and admission.admitted:
+                return TargetFinalizationResult(
+                    state=self.state,
+                    candidate_id=candidate_id,
+                    admission=admission,
+                    attempted_candidate_ids=tuple(sorted(self.attempted_candidate_ids)),
+                    violations=tuple(self.violations),
+                    transitions=tuple(self.transitions),
+                )
+
+        self._transition(LifecycleState.exhausted, None, "candidate choices exhausted")
+        return TargetFinalizationResult(
             state=self.state,
-            violations=self._terminal_violations,
-            attempts=self.attempts,
-            repairs=self.repairs,
+            candidate_id=None,
+            admission=None,
+            attempted_candidate_ids=tuple(sorted(self.attempted_candidate_ids)),
+            violations=tuple(self.violations),
+            transitions=tuple(self.transitions),
         )
 
 
@@ -283,25 +436,24 @@ def fallback_candidates_for_target(
     trusted_catalog: Sequence[dict[str, Any]],
     attempted_candidate_ids: set[str],
 ) -> list[Any]:
-    """Revalidate persisted primary/fallback candidates, never reusing one.
-
-    The coverage plan is bounded upstream to three choices; this function
-    enforces that bound again when loading untrusted persisted data.
-    """
+    """Compatibility loader with primary-first authoritative revalidation."""
     entry = next(
         (item for item in plan.targets if item.entry_point_id == entry_point_id), None
     )
     if entry is None:
         return []
-    refs = entry.ordered_choices[:3]
-    candidates = []
-    for ref in refs:
+    candidates: list[Any] = []
+    for ref in ordered_target_choice_refs(entry):
         candidate = deserialize_qualified_candidate(ref)
         if candidate.candidate_id in attempted_candidate_ids:
             continue
-        # The merged API is deliberately invoked for every persisted choice.
+        attempted_candidate_ids.add(candidate.candidate_id)
         revalidate_qualified_candidate(
             ref, taxonomy_resolver, snapshot, trusted_catalog
         )
         candidates.append(candidate)
     return candidates
+
+
+# Compatibility alias for callers that used the checkpoint's stage name.
+LifecycleStage = GeneratedStage
