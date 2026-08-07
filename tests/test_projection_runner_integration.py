@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import ExitStack
 from pathlib import Path
@@ -47,6 +48,7 @@ from scenario_forge.pipeline.persistence import (
     canonical_sha256,
     read_coverage_plan,
     read_finalization_inventory,
+    read_planning_checkpoint_bytes,
 )
 from scenario_forge.pipeline.projection import canonical_json_bytes
 from scenario_forge.pipeline.runner import resume_pipeline, run_pipeline
@@ -340,6 +342,131 @@ def test_exact_projection_match_uses_authoritative_identity(tmp_path: Path) -> N
     assert manifest.manifest_version == "3"
     assert manifest.attempts == []
     assert manifest.funnel == {}
+    assert manifest.provenance is not None
+    assert "qualification_facts_path" not in manifest.provenance.command.options
+    planning_entry = next(
+        item
+        for item in manifest.inventory
+        if item.role is ArtifactRole.PLANNING_CHECKPOINT
+    )
+    planning_bytes = ManifestInventoryResolver(
+        result.run_dir, manifest, check_orphans=True
+    ).read_bytes(planning_entry)
+    assert b"qualification_facts" not in planning_bytes
+
+
+def _write_qualification_facts(path: Path) -> bytes:
+    content = yaml.safe_dump(
+        {
+            "schema_version": "1",
+            "facts": [
+                item.model_dump(mode="json") for item in get_test_snapshot().facts
+            ],
+        },
+        sort_keys=False,
+    ).encode()
+    path.write_bytes(content)
+    return content
+
+
+def test_runner_binds_nonempty_qualification_facts_to_v3_planning(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, patches, _, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    facts_path = tmp_path / "qualification-facts.yaml"
+    source = _write_qualification_facts(facts_path)
+
+    with stack:
+        result = run_pipeline(**args, qualification_facts_path=facts_path)
+
+    manifest = load_manifest(result.run_dir)
+    assert manifest.provenance is not None
+    assert (
+        manifest.provenance.input_hashes.qualification_facts_hash
+        == hashlib.sha256(source).hexdigest()
+    )
+    planning_entry = next(
+        item
+        for item in manifest.inventory
+        if item.role is ArtifactRole.PLANNING_CHECKPOINT
+    )
+    planning = read_planning_checkpoint_bytes(
+        ManifestInventoryResolver(
+            result.run_dir, manifest, check_orphans=True
+        ).read_bytes(planning_entry)
+    )
+    assert planning.qualification_facts_source == source.decode()
+    assert planning.qualification_facts_sha256 == hashlib.sha256(source).hexdigest()
+    assert (
+        patches["capture_capability_snapshot"].call_args.args[1]
+        == get_test_snapshot().facts
+    )
+    scenario_entry = next(
+        item for item in manifest.inventory if item.role is ArtifactRole.SCENARIO_YAML
+    )
+    scenario = yaml.safe_load((result.run_dir / scenario_entry.path).read_text())
+    assert scenario["projection"]["capability_snapshot"]["facts"]
+
+
+def test_resume_reconstructs_exact_qualification_facts_and_rejects_source_drift(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, patches, _, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    facts_path = tmp_path / "qualification-facts.yaml"
+    source = _write_qualification_facts(facts_path)
+    actor = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_actor_stage",
+            side_effect=KeyboardInterrupt("interrupt after planning"),
+        )
+    )
+
+    with stack:
+        with pytest.raises(KeyboardInterrupt):
+            run_pipeline(**args, qualification_facts_path=facts_path)
+        run_dir = next(args["output_dir"].iterdir())
+        facts_path.write_bytes(source + b"\n")
+        with pytest.raises(ManifestIntegrityError, match="qualification_facts_hash"):
+            resume_pipeline(run_dir)
+        facts_path.write_bytes(source)
+        actor.side_effect = None
+        actor.return_value = ActorStageResult(
+            _make_valid_envelope().actor_profile,
+            StageCallEvidence(
+                CallName.actor_profile,
+                LLMResult(
+                    content="mock",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                    system_prompt="mock",
+                    user_prompt="mock",
+                ),
+                CallMetadata(
+                    call=CallName.actor_profile,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                ),
+            ),
+        )
+        resume_pipeline(run_dir)
+
+    assert patches["capture_capability_snapshot"].call_count >= 2
+    assert all(
+        call.args[1] == get_test_snapshot().facts
+        for call in patches["capture_capability_snapshot"].call_args_list
+    )
 
 
 def test_strict_resolver_rejects_noncanonical_admitted_gate_evidence(

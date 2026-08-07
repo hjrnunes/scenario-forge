@@ -71,6 +71,10 @@ def generate(
         "--profile",
         help="Path to a capability-profile.yaml (skips Stage 1 inference).",
     ),
+    qualification_facts: Path | None = typer.Option(
+        None,
+        help="Path to explicit authoritative qualification fact readings YAML.",
+    ),
     base_url: str | None = typer.Option(
         None,
         help="LLM endpoint base URL (overrides SCENARIO_FORGE_MODEL_BASE_URL).",
@@ -126,6 +130,8 @@ def generate(
         _validate_file(threats_path, "agentic threats file")
     if profile_path is not None:
         _validate_file(profile_path, "capability profile file")
+    if qualification_facts is not None:
+        _validate_file(qualification_facts, "qualification facts file")
 
     try:
         from scenario_forge.pipeline.runner import run_pipeline
@@ -138,6 +144,7 @@ def generate(
             cross_taxonomy_path=cross_taxonomy,
             threats_path=threats_path,
             profile_path=profile_path,
+            qualification_facts_path=qualification_facts,
             base_url=base_url,
             api_key=api_key,
             model=model,
@@ -362,6 +369,50 @@ def profile(
         if exc.__cause__:
             msg += f"\n  Caused by: {exc.__cause__}"
         typer.echo(msg, err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="qualify-catalog")
+def qualify_catalog(
+    matrix: Path = typer.Argument(..., help="Reviewed qualification matrix YAML."),
+    campaign: Path | None = typer.Option(None, help="Optional campaign manifest YAML."),
+) -> None:
+    """Preflight a catalog matrix or aggregate an explicit read-only campaign."""
+    try:
+        from scenario_forge.catalog_qualification import (
+            aggregate_campaign,
+            preflight_matrix,
+        )
+
+        report = (
+            aggregate_campaign(matrix, campaign)
+            if campaign is not None
+            else preflight_matrix(matrix)
+        )
+        typer.echo(json.dumps(report.model_dump(mode="json"), indent=2))
+    except Exception as exc:  # noqa: BLE001 - CLI validation boundary
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="validate-catalog-qualification")
+def validate_catalog_qualification(
+    artifact: Path = typer.Argument(..., help="Persisted matrix, campaign, or report."),
+    contract: str = typer.Option(
+        ..., help="Contract type: matrix, campaign, or report."
+    ),
+) -> None:
+    """Validate one persisted qualification contract without executing a campaign."""
+    if contract not in {"matrix", "campaign", "report"}:
+        typer.echo("Error: contract must be matrix, campaign, or report", err=True)
+        raise typer.Exit(code=1)
+    try:
+        from scenario_forge.catalog_qualification import validate_persisted_contract
+
+        validated = validate_persisted_contract(artifact, contract)  # type: ignore[arg-type]
+        typer.echo(json.dumps(validated.model_dump(mode="json"), indent=2))
+    except Exception as exc:  # noqa: BLE001 - CLI validation boundary
+        typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
 
 

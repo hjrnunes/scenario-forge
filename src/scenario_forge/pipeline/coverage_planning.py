@@ -1397,6 +1397,8 @@ def revalidate_qualified_candidate(
     taxonomy_resolver: Any,
     snapshot: Any,
     trusted_catalog: Sequence[dict[str, Any]],
+    *,
+    expected_catalog_pin: str | None = None,
 ) -> DeserializedPlanRef:
     """Deserialize AND authoritatively revalidate a plan ref.
 
@@ -1446,9 +1448,10 @@ def revalidate_qualified_candidate(
             f"in trusted catalog"
         )
 
-    expected_catalog_pin = compute_authoritative_catalog_pin(
-        trusted_catalog, taxonomy_resolver
-    )
+    if expected_catalog_pin is None:
+        expected_catalog_pin = compute_authoritative_catalog_pin(
+            trusted_catalog, taxonomy_resolver
+        )
     validated = validate_projected_candidate(
         deserialized.projected.model_dump(mode="json"),
         snapshot,

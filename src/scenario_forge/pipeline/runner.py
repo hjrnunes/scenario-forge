@@ -7,13 +7,15 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from scenario_forge.data.loaders import (
     load_attack_patterns,
     load_risk_extraction,
+    load_yaml_strict,
 )
 from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
 from scenario_forge.data.validation import validate_risk_card_coherence
@@ -52,6 +54,7 @@ from scenario_forge.models.capability_profile import (
     ZONE_NAMES,
     CapabilityProfile,
 )
+from scenario_forge.models.attack_pattern import EvaluatedFactEvidence
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     FilteredSeed,
@@ -94,6 +97,7 @@ from scenario_forge.pipeline.profile import infer_capability_profile
 from scenario_forge.pipeline.projection import (
     ProjectedCandidate,
     ProjectionBudget,
+    canonical_json_bytes,
     capture_capability_snapshot,
     project_authoritative_candidates,
 )
@@ -122,6 +126,31 @@ class PipelineResult(BaseModel):
     generation_notes: list[str]
     run_dir: Path | None = None
     run_id: str | None = None
+
+
+class QualificationFactsV1(BaseModel):
+    """Explicit authoritative fact readings supplied for qualification runs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1"] = "1"
+    facts: tuple[EvaluatedFactEvidence, ...]
+
+    @model_validator(mode="after")
+    def canonical_facts(self) -> QualificationFactsV1:
+        keys = [canonical_json_bytes(item.fact) for item in self.facts]
+        if keys != sorted(set(keys)):
+            raise ValueError("qualification facts must be sorted and unique")
+        return self
+
+
+def _parse_qualification_facts(content: bytes) -> QualificationFactsV1:
+    """Parse exact UTF-8 source bytes through the strict typed boundary."""
+    try:
+        text = content.decode("utf-8")
+        return QualificationFactsV1.model_validate(load_yaml_strict(text))
+    except Exception as exc:
+        raise ValueError(f"invalid qualification facts input: {exc}") from exc
 
 
 def _load_admitted_scenarios(
@@ -583,6 +612,11 @@ def resume_pipeline(
         Path(options["cross_taxonomy_path"]),
         Path(options["threats_path"]),
         Path(options["profile_path"]) if options.get("profile_path") else None,
+        (
+            Path(options["qualification_facts_path"])
+            if options.get("qualification_facts_path")
+            else None
+        ),
     )
     persisted_hashes = provenance.input_hashes
     for field in (
@@ -591,6 +625,7 @@ def resume_pipeline(
         "cross_taxonomy_hash",
         "threats_hash",
         "source_profile_hash",
+        "qualification_facts_hash",
         "attack_patterns_hash",
         "attack_patterns_sssom_hash",
         "attack_goals_taxonomy_hash",
@@ -602,7 +637,33 @@ def resume_pipeline(
             raise ManifestIntegrityError(f"resume input provenance drift: {field}")
 
     taxonomy_resolver = load_taxonomy_resolver()
-    capability_snapshot = capture_capability_snapshot(profile)
+    facts_path = options.get("qualification_facts_path")
+    if facts_path is None:
+        if (
+            planning.qualification_facts_source is not None
+            or planning.qualification_facts_sha256 is not None
+            or persisted_hashes.qualification_facts_hash is not None
+        ):
+            raise ManifestIntegrityError(
+                "resume qualification facts provenance is inconsistent"
+            )
+        qualification_facts: tuple[EvaluatedFactEvidence, ...] = ()
+    else:
+        if planning.qualification_facts_source is None:
+            raise ManifestIntegrityError(
+                "resume planning checkpoint lacks qualification facts source"
+            )
+        source_bytes = planning.qualification_facts_source.encode("utf-8")
+        if (
+            compute_bytes_sha256(source_bytes)
+            != persisted_hashes.qualification_facts_hash
+        ):
+            raise ManifestIntegrityError("resume qualification facts provenance drift")
+        try:
+            qualification_facts = _parse_qualification_facts(source_bytes).facts
+        except ValueError as exc:
+            raise ManifestIntegrityError(str(exc)) from exc
+    capability_snapshot = capture_capability_snapshot(profile, qualification_facts)
     trusted_catalog = list(load_attack_patterns().values())
     durable_plan = read_coverage_plan(supplied)
     validate_planning_checkpoint(planning, durable_plan)
@@ -709,6 +770,9 @@ def _capture_input_hashes(
     ct_path: Path,
     threats_path: Path | None,
     profile_path: Path | None,
+    qualification_facts_path: Path | None = None,
+    *,
+    qualification_facts_bytes: bytes | None = None,
 ) -> InputHashes:
     """Capture SHA-256 hashes of all effective inputs at run start.
 
@@ -756,6 +820,12 @@ def _capture_input_hashes(
     )
     if profile_path is not None:
         hashes.source_profile_hash = compute_file_sha256(profile_path)
+    if qualification_facts_bytes is not None:
+        hashes.qualification_facts_hash = compute_bytes_sha256(
+            qualification_facts_bytes
+        )
+    elif qualification_facts_path is not None:
+        hashes.qualification_facts_hash = compute_file_sha256(qualification_facts_path)
     if attack_patterns_yaml.exists():
         hashes.attack_patterns_hash = compute_file_sha256(attack_patterns_yaml)
     if attack_patterns_sssom.exists():
@@ -898,6 +968,7 @@ def run_pipeline(
     cross_taxonomy_path: Path | None = None,
     threats_path: Path | None = None,
     profile_path: Path | None = None,
+    qualification_facts_path: Path | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
@@ -919,6 +990,7 @@ def run_pipeline(
         cross_taxonomy_path: Path to cross-taxonomy-mappings.yaml (defaults to bundled).
         threats_path: Path to OWASP agentic threats YAML (defaults to bundled).
         profile_path: Path to a pre-built capability-profile.yaml (skips Stage 1 inference).
+        qualification_facts_path: Optional explicit authoritative fact readings YAML.
         base_url: LLM endpoint URL override.
         api_key: LLM API key override.
         model: LLM model name override.
@@ -952,6 +1024,11 @@ def run_pipeline(
     partial_manifest: RunManifest | None = None
 
     try:
+        qualification_facts_bytes = (
+            qualification_facts_path.read_bytes()
+            if qualification_facts_path is not None
+            else None
+        )
         # --- Capture input hashes at run start (before inputs can change) ---
         input_hashes = _capture_input_hashes(
             use_case,
@@ -960,7 +1037,16 @@ def run_pipeline(
             ct_path,
             threats_path,
             profile_path,
+            qualification_facts_path,
+            qualification_facts_bytes=qualification_facts_bytes,
         )
+        qualification_facts_source: str | None = None
+        qualification_facts: tuple[EvaluatedFactEvidence, ...] = ()
+        if qualification_facts_bytes is not None:
+            qualification_facts_source = qualification_facts_bytes.decode("utf-8")
+            qualification_facts = _parse_qualification_facts(
+                qualification_facts_bytes
+            ).facts
 
         # --- Client construction (after sentinel) ---
         client = LLMClient(base_url=base_url, api_key=api_key, model=model)
@@ -1003,6 +1089,10 @@ def run_pipeline(
             "zones": effective_zones,
             "eval": eval,
         }
+        if qualification_facts_path is not None:
+            effective_options["qualification_facts_path"] = str(
+                qualification_facts_path.resolve()
+            )
         config_digest = compute_config_digest(effective_options)
         provenance = capture_provenance(
             run_id=run_id,
@@ -1239,7 +1329,7 @@ def run_pipeline(
         logger.info("[Stage 3.6] Projecting authoritative candidates...")
         attack_pattern_records = list(load_attack_patterns().values())
         taxonomy_resolver = load_taxonomy_resolver()
-        capability_snapshot = capture_capability_snapshot(profile)
+        capability_snapshot = capture_capability_snapshot(profile, qualification_facts)
 
         # Build coverage universe before projection (cmps.4 blocker 5).
         coverage_universe = build_coverage_universe(profile)
@@ -1541,6 +1631,8 @@ def run_pipeline(
             coverage_universe, fallback_queues, selection_result
         )
         planning_checkpoint = PlanningCheckpointV1(
+            qualification_facts_source=qualification_facts_source,
+            qualification_facts_sha256=input_hashes.qualification_facts_hash,
             stage_events=[event.to_dict() for event in stage_ledger.events],
             projection_limitation_target_ids=sorted(projection_limitation_target_ids),
             selected_candidate_ids=[
