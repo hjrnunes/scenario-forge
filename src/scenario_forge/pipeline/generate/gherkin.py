@@ -478,11 +478,20 @@ def build_call3_context(
                     }
                 )
 
+    # Humanize projection context for the template (Phase 3)
+    from scenario_forge.pipeline.generate.names import humanize_projection_context
+
+    humanized_projection = (
+        humanize_projection_context(projection_context, profile)
+        if projection_context is not None
+        else projection_context
+    )
+
     return {
         "narrative": narrative,
         "seed": seed,
         "control_points": control_points,
-        "projection_context": projection_context,
+        "projection_context": humanized_projection,
         "leaf_catalog": leaf_catalog,
         "postcondition_ownership": postcondition_ownership,
     }

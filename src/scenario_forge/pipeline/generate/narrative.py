@@ -456,31 +456,23 @@ def build_call1_context(
             + f"- Resources: {resources_str}\n"
         )
 
-    # Build structured access provenance block (cmps.6)
+    # Build structured access provenance block (cmps.6) — using names (Phase 3)
     access_provenance_block = ""
     if actor_profile is not None and actor_profile.access is not None:
-        _a = actor_profile.access
-        access_provenance_block = (
-            "\n## Actor Access Provenance (AUTHORITATIVE — cmps.6)\n"
-            "This structured block is authoritative over any advisory "
-            "kill-chain wording. The narrative must be consistent with "
-            "this evidence.\n"
-            f"- initial_entry_point_id: {_a.initial_entry_point_id}\n"
-            f"- ingress_mode: {_a.ingress_mode}\n"
-            f"- access_class: {_a.access_class}\n"
+        from scenario_forge.pipeline.generate.names import (
+            access_provenance_block_with_names,
         )
-        if _a.influence_source:
-            access_provenance_block += f"- influence_source: {_a.influence_source}\n"
-        if _a.influence_mechanism:
-            access_provenance_block += (
-                f"- influence_mechanism: {_a.influence_mechanism}\n"
-            )
-        if _a.trust_boundary_id:
-            access_provenance_block += f"- trust_boundary_id: {_a.trust_boundary_id}\n"
-        if _a.material_insider_advantage:
-            access_provenance_block += (
-                f"- material_insider_advantage: {_a.material_insider_advantage}\n"
-            )
+
+        access_provenance_block = access_provenance_block_with_names(
+            actor_profile.access,
+            profile,
+            header=(
+                "\n## Actor Access Provenance (AUTHORITATIVE — cmps.6)\n"
+                "This structured block is authoritative over any advisory "
+                "kill-chain wording. The narrative must be consistent with "
+                "this evidence.\n"
+            ),
+        )
 
     # Build goal category section for narrative grounding
     goal_section = ""
@@ -558,6 +550,15 @@ def build_call1_context(
         entry_point_controllability=pinned_entry_point_controllability,
     )
 
+    # Humanize projection context for the template (Phase 3)
+    from scenario_forge.pipeline.generate.names import humanize_projection_context
+
+    humanized_projection = (
+        humanize_projection_context(projection_context, profile)
+        if projection_context is not None
+        else projection_context
+    )
+
     return {
         "use_case": use_case,
         "seed": seed,
@@ -579,7 +580,7 @@ def build_call1_context(
         "kill_chain": seed.kill_chain,
         "access_feedback": access_feedback or "",
         "realization_feedback": realization_feedback or "",
-        "projection_context": projection_context,
+        "projection_context": humanized_projection,
     }
 
 
@@ -689,4 +690,28 @@ def _call_narrative(
     narrative = _map_call1_to_narrative(result.content)
     narrative = _sanitize_narrative(narrative)
     narrative = _enforce_zones_narrative(narrative, profile.zones_active)
+
+    # Phase 3: resolve human-readable names to canonical hex IDs in
+    # the narrative's access_realization.
+    if narrative.access_realization is not None:
+        from scenario_forge.pipeline.generate.names import (
+            resolve_name_to_entry_point_id,
+            resolve_name_to_trust_boundary_id,
+        )
+
+        ar = narrative.access_realization
+        resolved_ep = resolve_name_to_entry_point_id(ar.initial_entry_point_id, profile)
+        if resolved_ep is not None:
+            ar.initial_entry_point_id = resolved_ep
+        if ar.influence_source is not None:
+            resolved_src = resolve_name_to_entry_point_id(ar.influence_source, profile)
+            if resolved_src is not None:
+                ar.influence_source = resolved_src
+        if ar.trust_boundary_id is not None:
+            resolved_tb = resolve_name_to_trust_boundary_id(
+                ar.trust_boundary_id, profile
+            )
+            if resolved_tb is not None:
+                ar.trust_boundary_id = resolved_tb
+
     return narrative, result

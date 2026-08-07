@@ -6,7 +6,7 @@ Every generated artifact (narrative, attack tree, behavior spec) must
 trace back to these exact projected steps and resource bindings.
 
 ### Canonical Ingress
-- entry_point_id: {{ projection_context.canonical_ingress.entry_point_id }}
+- entry_point: {{ projection_context.canonical_ingress_name | default(projection_context.canonical_ingress.entry_point_id) }}
 - ingress_controllability: {{ projection_context.ingress_controllability }}
 
 ### Selected Projected Steps (ordered — preserve this total order)

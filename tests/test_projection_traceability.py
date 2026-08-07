@@ -2590,7 +2590,12 @@ class TestProjectionConstraintsInPrompts:
         assert "Canonical Projection Constraints" in rendered
         # projection_digest removed in Phase 2
         assert "projection_digest" not in ctx
-        assert ctx["canonical_ingress"]["entry_point_id"] in rendered
+        # Phase 3: canonical_ingress_name is preferred; falls back to hex ID
+        # when humanization hasn't been applied (e.g. direct template tests).
+        ingress_ref = ctx.get(
+            "canonical_ingress_name", ctx["canonical_ingress"]["entry_point_id"]
+        )
+        assert ingress_ref in rendered
         for sid in ctx["selected_step_ids"]:
             assert sid in rendered
         # Execution requirements present
