@@ -23,10 +23,19 @@ from scenario_forge.pipeline.finalization import (
     GeneratedStage,
 )
 from scenario_forge.pipeline.finalization_gates import (
+    DIAGNOSTIC_BACKED_EVIDENCE_IDS,
+    EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
+    AdmissionEvidenceId,
     GateCode,
     GateResult,
     GateViolation,
     check_tree_parsimony,
+)
+from scenario_forge.pipeline.complexity import (
+    assess_candidate_complexity,
+    assess_final_complexity,
+    evaluate_capability_admission,
 )
 from scenario_forge.pipeline.generate.gherkin import (
     _collect_leaf_nodes_dfs,
@@ -50,6 +59,9 @@ _SEMANTIC_DIAGNOSTIC_RULES = {
     "zone_omission_tree",
     "zone_omission_gherkin",
 }
+_TOOL_RULES = frozenset(
+    {"untyped-tool-execution", "phantom_tool", "unknown_integration_id"}
+)
 _TRACE_OWNER_BY_STAGE = {
     ProjectionTraceabilityStage.actor_profile: GeneratedStage.actor,
     ProjectionTraceabilityStage.narrative: GeneratedStage.narrative,
@@ -66,6 +78,8 @@ _TRACE_OWNER_OVERRIDES: dict[
             ProjectionTraceabilityViolationCode.nested_mutation,
             ProjectionTraceabilityViolationCode.projection_drift,
             ProjectionTraceabilityViolationCode.requirement_drift,
+            ProjectionTraceabilityViolationCode.authoritative_pattern_pin_mismatch,
+            ProjectionTraceabilityViolationCode.authoritative_catalog_pin_mismatch,
         )
         for stage in ProjectionTraceabilityStage
     },
@@ -114,6 +128,51 @@ _SEMANTIC_OWNER_BY_RULE: dict[str, GeneratedStage | None] = {
     "realization_step_not_found": GeneratedStage.narrative,
     "direct_realization_has_indirect_ref": GeneratedStage.narrative,
 }
+_DATA_ACCESS_RULES = frozenset(
+    {
+        "unknown_entry_point_id",
+        "inaccessible_ingress_entry_point",
+        "missing_access_provenance",
+        "unresolved_entry_point_id",
+        "ineligible_ingress_entry_point",
+        "system_entry_point_as_ingress",
+        "ingress_mode_controllability_mismatch",
+        "unresolved_influence_source",
+        "self_relation_influence_source",
+        "output_influence_source",
+        "system_influence_source",
+        "unresolved_trust_boundary",
+        "trust_boundary_target_zone_mismatch",
+        "trust_boundary_source_zone_mismatch",
+        "external_boundary_source_not_indirect",
+        "access_class_ingress_mode_incompatible",
+        "incomplete_indirect_evidence",
+        "missing_insider_advantage",
+        "missing_access_realization",
+        "realization_entry_point_mismatch",
+        "realization_influence_source_mismatch",
+        "realization_trust_boundary_mismatch",
+        "realization_step_not_found",
+        "direct_realization_has_indirect_ref",
+    }
+)
+_CAPABILITY_RULES = frozenset(
+    {
+        "technique_exists",
+        "threat_id_range",
+        "narrative_technique_orphan",
+        "zone_in_profile",
+        "zone_coverage_dropout",
+        "seed_technique_provenance",
+        "goal_actor_mismatch",
+        "goal_mechanism_mismatch",
+    }
+)
+_CLASSIFIED_SEMANTIC_RULES = (
+    _TOOL_RULES | _DATA_ACCESS_RULES | _CAPABILITY_RULES | _SEMANTIC_DIAGNOSTIC_RULES
+)
+if _CLASSIFIED_SEMANTIC_RULES != frozenset(_SEMANTIC_OWNER_BY_RULE):
+    raise RuntimeError("hard semantic admission rule taxonomy is not exhaustive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +181,24 @@ class PostbehaviorAdmissionReport:
 
     envelope: Any
     gate_results: tuple[GateResult, ...]
+
+    def __post_init__(self) -> None:
+        evidence_ids = tuple(result.evidence_id for result in self.gate_results)
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("postbehavior admission evidence IDs must be unique")
+        exceptional = set(evidence_ids) & EXCEPTIONAL_ADMISSION_EVIDENCE_IDS
+        if exceptional and (len(evidence_ids) != 1 or self.envelope is not None):
+            raise ValueError("exceptional admission evidence must be a singleton")
+        authoritative = tuple(
+            violation for result in self.gate_results for violation in result.violations
+        )
+        if any(
+            diagnostic not in authoritative
+            for result in self.gate_results
+            if result.evidence_id in DIAGNOSTIC_BACKED_EVIDENCE_IDS
+            for diagnostic in result.diagnostics
+        ):
+            raise ValueError("category diagnostic must copy an authoritative violation")
 
     @property
     def diagnostics(self) -> tuple[GateViolation, ...]:
@@ -209,7 +286,11 @@ class PostbehaviorAdmissionPort:
                 (violation.lifecycle(),),
                 value=PostbehaviorAdmissionReport(
                     envelope=None,
-                    gate_results=(GateResult((violation,)),),
+                    gate_results=(
+                        GateResult(
+                            AdmissionEvidenceId.snapshot_integrity, (violation,)
+                        ),
+                    ),
                 ),
             )
 
@@ -230,8 +311,6 @@ class PostbehaviorAdmissionPort:
                     None,
                 )
             )
-        gate_results.append(GateResult(tuple(identity)))
-
         authoritative_pin = compute_authoritative_catalog_pin(
             self.trusted_catalog, self.taxonomy_resolver
         )
@@ -248,7 +327,11 @@ class PostbehaviorAdmissionPort:
                     None,
                 )
             )
-        gate_results.append(GateResult(tuple(trusted_context)))
+        gate_results.append(
+            GateResult(
+                AdmissionEvidenceId.identity, tuple((*identity, *trusted_context))
+            )
+        )
 
         pattern = next(
             (
@@ -258,16 +341,25 @@ class PostbehaviorAdmissionPort:
             ),
             None,
         )
+        trace_data_access: tuple[GateViolation, ...] = ()
+        identifier_diagnostics: tuple[GateViolation, ...] = tuple(identity)
         if pattern is None:
+            missing_pattern = _gate(
+                GateCode.candidate_identity,
+                f"pattern '{candidate.pattern_id}' is absent from trusted catalog",
+                None,
+            )
             gate_results.append(
                 GateResult(
-                    (
-                        _gate(
-                            GateCode.candidate_identity,
-                            f"pattern '{candidate.pattern_id}' is absent from trusted catalog",
-                            None,
-                        ),
-                    )
+                    AdmissionEvidenceId.projection_traceability,
+                    (missing_pattern,),
+                )
+            )
+            gate_results.append(
+                GateResult(
+                    AdmissionEvidenceId.catalog_taxonomy_pin_validity,
+                    diagnostics=(missing_pattern,),
+                    outcome=False,
                 )
             )
         else:
@@ -278,22 +370,80 @@ class PostbehaviorAdmissionPort:
                 capability_snapshot=self.capability_snapshot,
                 expected_catalog_pin=authoritative_pin,
             )
+            trace_categories = (
+                (
+                    AdmissionEvidenceId.resource_binding_validity,
+                    {
+                        ProjectionTraceabilityViolationCode.incorrect_resource_binding,
+                        ProjectionTraceabilityViolationCode.incorrect_ingress_binding,
+                    },
+                ),
+                (
+                    AdmissionEvidenceId.execution_requirement_drift,
+                    {ProjectionTraceabilityViolationCode.requirement_drift},
+                ),
+                (
+                    AdmissionEvidenceId.catalog_taxonomy_pin_validity,
+                    {
+                        ProjectionTraceabilityViolationCode.invalid_technique_mapping,
+                        ProjectionTraceabilityViolationCode.authoritative_pattern_pin_mismatch,
+                        ProjectionTraceabilityViolationCode.authoritative_catalog_pin_mismatch,
+                    },
+                ),
+            )
+            identifier_diagnostics = (
+                *identifier_diagnostics,
+                *(
+                    _gate(GateCode.traceability, item.detail, _owner_for_trace(item))
+                    for item in trace.violations
+                    if item.code is ProjectionTraceabilityViolationCode.forged_opaque_id
+                ),
+            )
+            for evidence_id, codes in trace_categories:
+                category_violations = tuple(
+                    _gate(GateCode.traceability, item.detail, _owner_for_trace(item))
+                    for item in trace.violations
+                    if item.code in codes
+                )
+                gate_results.append(
+                    GateResult(
+                        evidence_id,
+                        diagnostics=category_violations,
+                        outcome=not category_violations,
+                    )
+                )
+            trace_data_access = tuple(
+                _gate(GateCode.traceability, item.detail, _owner_for_trace(item))
+                for item in trace.violations
+                if item.code
+                is ProjectionTraceabilityViolationCode.ingress_identity_mismatch
+            )
             gate_results.append(
                 GateResult(
+                    AdmissionEvidenceId.projection_traceability,
                     tuple(
                         _gate(
                             GateCode.traceability, item.detail, _owner_for_trace(item)
                         )
                         for item in trace.violations
-                    )
+                    ),
                 )
             )
+
+        gate_results.append(
+            GateResult(
+                AdmissionEvidenceId.identifier_validity,
+                diagnostics=identifier_diagnostics,
+                outcome=not identifier_diagnostics,
+            )
+        )
 
         structural_copy = envelope.model_copy(deep=True)
         validate_scenario_structure([structural_copy])
         structural = structural_copy.validation.structural
         gate_results.append(
             GateResult(
+                AdmissionEvidenceId.structural_validity,
                 tuple(
                     _gate(
                         GateCode.structural,
@@ -301,7 +451,7 @@ class PostbehaviorAdmissionPort:
                         _owner_for_structural(detail),
                     )
                     for detail in structural.violations
-                )
+                ),
             )
         )
 
@@ -318,10 +468,12 @@ class PostbehaviorAdmissionPort:
                     else GeneratedStage.narrative
                 )
                 phantom_violations.append(_gate(GateCode.phantom, item.reason, owner))
-        gate_results.append(GateResult(tuple(phantom_violations)))
+        gate_results.append(
+            GateResult(AdmissionEvidenceId.phantom_validity, tuple(phantom_violations))
+        )
 
         semantic = check_scenario_semantics(envelope, self.profile)
-        semantic_hard: list[GateViolation] = []
+        semantic_hard: list[tuple[str, GateViolation]] = []
         semantic_diagnostics: list[GateViolation] = []
         for item in semantic.violations:
             # Traceability emits source-qualified evidence for this overloaded
@@ -333,9 +485,63 @@ class PostbehaviorAdmissionPort:
             if item.rule in _SEMANTIC_DIAGNOSTIC_RULES:
                 semantic_diagnostics.append(violation)
             else:
-                semantic_hard.append(violation)
+                semantic_hard.append((item.rule, violation))
+        for evidence_id, rules in (
+            (AdmissionEvidenceId.tool_integration_grounding, _TOOL_RULES),
+            (AdmissionEvidenceId.data_access_grounding, _DATA_ACCESS_RULES),
+            (AdmissionEvidenceId.capability_grounding, _CAPABILITY_RULES),
+        ):
+            selected = tuple(
+                violation for rule, violation in semantic_hard if rule in rules
+            )
+            if evidence_id is AdmissionEvidenceId.data_access_grounding:
+                selected = (*trace_data_access, *selected)
+            # Category outcomes are exact evidence; the hard semantic stream
+            # remains in source order in one authoritative gate.
+            gate_results.append(
+                GateResult(
+                    evidence_id,
+                    diagnostics=selected,
+                    outcome=not selected,
+                    applicable=(
+                        self.profile.is_tool_inventory_complete
+                        if evidence_id is AdmissionEvidenceId.tool_integration_grounding
+                        else self.profile.is_entry_point_inventory_complete
+                        if evidence_id is AdmissionEvidenceId.data_access_grounding
+                        else True
+                    ),
+                )
+            )
         gate_results.append(
-            GateResult(tuple(semantic_hard), tuple(semantic_diagnostics))
+            GateResult(
+                AdmissionEvidenceId.semantic_validity,
+                tuple(v for _, v in semantic_hard),
+                tuple(semantic_diagnostics),
+            )
+        )
+
+        all_leaves = tuple(_collect_leaf_nodes_dfs(tree.root))
+        complexity = assess_final_complexity(
+            assess_candidate_complexity(candidate), all_leaves, artifacts.actor.access
+        )
+        complexity_decision = evaluate_capability_admission(
+            artifacts.actor.capability_level, complexity, phase="final"
+        )
+        complexity_violations: tuple[GateViolation, ...] = ()
+        if not complexity_decision.admitted:
+            routing = complexity_decision.violation.routing
+            owner = (
+                GeneratedStage.actor
+                if routing.stage == "call0_actor_generation"
+                else GeneratedStage.tree
+            )
+            complexity_violations = (
+                _gate(GateCode.capability_complexity, routing.feedback, owner),
+            )
+        gate_results.append(
+            GateResult(
+                AdmissionEvidenceId.actor_attack_complexity, complexity_violations
+            )
         )
 
         behavior_result = self._check_behavior(
@@ -370,22 +576,27 @@ class PostbehaviorAdmissionPort:
                         GeneratedStage.tree,
                     )
                 )
-        gate_results.append(GateResult(diagnostics=tuple(diagnostics)))
+        gate_results.append(
+            GateResult(
+                AdmissionEvidenceId.narrative_tree_diagnostics,
+                diagnostics=tuple(diagnostics),
+            )
+        )
 
         parsimony = check_tree_parsimony(tree)
         gate_results.append(parsimony)
+        or_violations: tuple[GateViolation, ...] = ()
         if any(node.gate is GateType.OR for node in _nodes(tree.root)):
-            gate_results.append(
-                GateResult(
-                    (
-                        _gate(
-                            GateCode.or_tree,
-                            "final tree contains an OR gate",
-                            GeneratedStage.tree,
-                        ),
-                    )
-                )
+            or_violations = (
+                _gate(
+                    GateCode.or_tree,
+                    "final tree contains an OR gate",
+                    GeneratedStage.tree,
+                ),
             )
+        gate_results.append(
+            GateResult(AdmissionEvidenceId.or_tree_prohibition, or_violations)
+        )
 
         violations = tuple(
             violation.lifecycle()
@@ -395,6 +606,10 @@ class PostbehaviorAdmissionPort:
         report = PostbehaviorAdmissionReport(envelope, tuple(gate_results))
         if violations:
             return AdmissionDecision(False, violations, value=report)
+        if {result.evidence_id for result in report.gate_results} != set(
+            NORMAL_POSTBEHAVIOR_EVIDENCE_IDS
+        ):
+            raise RuntimeError("successful admission requires canonical gate evidence")
         return AdmissionDecision(
             True,
             value=report,
@@ -531,7 +746,10 @@ class PostbehaviorAdmissionPort:
                     GeneratedStage.behavior,
                 )
             )
-        return GateResult(tuple(dict.fromkeys(violations)))
+        return GateResult(
+            AdmissionEvidenceId.behavior_correspondence,
+            tuple(dict.fromkeys(violations)),
+        )
 
 
 def _nodes(node: Any):

@@ -172,6 +172,8 @@ class ProjectionTraceabilityViolationCode(str, Enum):
     ingress_identity_mismatch = "ingress_identity_mismatch"
     requirement_drift = "requirement_drift"
     invalid_technique_mapping = "invalid_technique_mapping"
+    authoritative_pattern_pin_mismatch = "authoritative_pattern_pin_mismatch"
+    authoritative_catalog_pin_mismatch = "authoritative_catalog_pin_mismatch"
 
 
 class ProjectionTraceabilityViolation(BaseModel):

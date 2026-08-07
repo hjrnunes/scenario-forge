@@ -462,7 +462,7 @@ def _recompute_and_compare(
     if projection.pattern_pin != pattern_pin:
         violations.append(
             ProjectionTraceabilityViolation(
-                code=ProjectionTraceabilityViolationCode.projection_drift,
+                code=ProjectionTraceabilityViolationCode.authoritative_pattern_pin_mismatch,
                 stage=ProjectionTraceabilityStage.actor_profile,
                 detail="persisted pattern_pin does not match authoritative pattern",
             )
@@ -470,7 +470,7 @@ def _recompute_and_compare(
     if projection.catalog_pin != expected_catalog_pin:
         violations.append(
             ProjectionTraceabilityViolation(
-                code=ProjectionTraceabilityViolationCode.projection_drift,
+                code=ProjectionTraceabilityViolationCode.authoritative_catalog_pin_mismatch,
                 stage=ProjectionTraceabilityStage.actor_profile,
                 detail="persisted catalog_pin does not match trusted catalog",
             )

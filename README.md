@@ -4,6 +4,15 @@ LLM-driven red-teaming scenario generator for AI and agentic systems. scenario-f
 
 > **Status:** Pre-alpha prototype. Interfaces will change without notice.
 
+### Finalization inventory cutover
+
+The pre-alpha `finalization-inventory` schema remains version `1`, but its
+admission gate contract was strictly replaced: `gate_results[].gate` is now a
+closed stable evidence identifier rather than `admission_gate_<index>`.
+Inventories produced before this cutover are intentionally rejected and must
+be regenerated; evaluation never translates positional labels or infers a
+passing category from absent violation codes.
+
 ## Installation
 
 Requires Python 3.11+. Install with [uv](https://docs.astral.sh/uv/):

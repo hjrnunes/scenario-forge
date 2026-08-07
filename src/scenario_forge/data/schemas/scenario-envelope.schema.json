@@ -2052,7 +2052,10 @@
         "projection_drift",
         "nested_mutation",
         "ingress_identity_mismatch",
-        "requirement_drift"
+        "requirement_drift",
+        "invalid_technique_mapping",
+        "authoritative_pattern_pin_mismatch",
+        "authoritative_catalog_pin_mismatch"
       ],
       "title": "ProjectionTraceabilityViolationCode",
       "type": "string"

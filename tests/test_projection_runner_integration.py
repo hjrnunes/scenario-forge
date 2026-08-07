@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from scenario_forge.llm.client import LLMResult
 from scenario_forge.manifest import (
@@ -20,12 +22,20 @@ from scenario_forge.manifest import (
     validate_completed_inventory,
 )
 from scenario_forge.models.attack_pattern import AttackPattern
-from scenario_forge.models.capability_profile import ConfidenceLevel, EntryPoint
+from scenario_forge.models.capability_profile import (
+    ConfidenceLevel,
+    EntryPoint,
+    InventoryCompleteness,
+)
 from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import CallMetadata, CallName
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
 from scenario_forge.pipeline.coverage import CoverageGaps
-from scenario_forge.pipeline.finalization_gates import FinalTreeSemanticSnapshot
+from scenario_forge.pipeline.finalization_gates import (
+    EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
+    FinalTreeSemanticSnapshot,
+)
 from scenario_forge.pipeline.generate.stages import (
     ActorStageResult,
     BehaviorStageResult,
@@ -34,6 +44,7 @@ from scenario_forge.pipeline.generate.stages import (
     TreeStageResult,
 )
 from scenario_forge.pipeline.persistence import (
+    canonical_sha256,
     read_coverage_plan,
     read_finalization_inventory,
 )
@@ -329,6 +340,168 @@ def test_exact_projection_match_uses_authoritative_identity(tmp_path: Path) -> N
     assert manifest.manifest_version == "3"
     assert manifest.attempts == []
     assert manifest.funnel == {}
+
+
+def test_strict_resolver_rejects_noncanonical_admitted_gate_evidence(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    with stack:
+        result = run_pipeline(**args)
+
+    manifest = load_manifest(result.run_dir)
+    final_entry = next(
+        entry
+        for entry in manifest.inventory
+        if entry.role is ArtifactRole.FINALIZATION_INVENTORY
+    )
+    final_path = result.run_dir / final_entry.path
+    original = json.loads(final_path.read_text())
+    admitted_index = next(
+        index
+        for index, decision in enumerate(original["admission_decisions"])
+        if decision["admitted"]
+    )
+    original_gates = original["admission_decisions"][admitted_index]["gate_results"]
+    mutations: list[list[dict]] = [
+        [gate for gate in original_gates if gate["gate"] != missing.value]
+        for missing in NORMAL_POSTBEHAVIOR_EVIDENCE_IDS
+    ]
+    mutations.append([*original_gates, original_gates[0]])
+    mutations.extend(
+        [
+            *original_gates,
+            {
+                "gate": exceptional.value,
+                "passed": True,
+                "violations": [],
+                "diagnostics": [],
+                "applicable": True,
+            },
+        ]
+        for exceptional in EXCEPTIONAL_ADMISSION_EVIDENCE_IDS
+    )
+
+    for gate_results in mutations:
+        mutated = json.loads(json.dumps(original))
+        mutated["admission_decisions"][admitted_index]["gate_results"] = gate_results
+        final_path.write_bytes(canonical_json_bytes(mutated))
+        final_entry.sha256 = compute_file_sha256(final_path)
+        with pytest.raises(
+            ManifestIntegrityError, match="Invalid manifest v3 persistence model"
+        ):
+            ManifestInventoryResolver(result.run_dir, manifest, check_orphans=False)
+
+
+def test_strict_resolver_binds_conditional_applicability_to_profile(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    with stack:
+        result = run_pipeline(**args)
+
+    manifest = load_manifest(result.run_dir)
+    final_entry = next(
+        entry
+        for entry in manifest.inventory
+        if entry.role is ArtifactRole.FINALIZATION_INVENTORY
+    )
+    profile_entry = next(
+        entry
+        for entry in manifest.inventory
+        if entry.role is ArtifactRole.CAPABILITY_PROFILE
+    )
+    final_path = result.run_dir / final_entry.path
+    profile_path = result.run_dir / profile_entry.path
+    original_final = json.loads(final_path.read_text())
+    original_profile = yaml.safe_load(profile_path.read_text())
+    admitted_index = next(
+        index
+        for index, decision in enumerate(original_final["admission_decisions"])
+        if decision["admitted"]
+    )
+
+    def write_final(document: dict) -> None:
+        decision = document["admission_decisions"][admitted_index]
+        payload = {
+            "candidate_id": decision["candidate_id"],
+            "status": decision["status"],
+            "violations": decision["violations"],
+            "gate_results": decision["gate_results"],
+            "snapshots": {
+                key: decision[key]
+                for key in (
+                    "candidate_snapshot_sha256",
+                    "actor_snapshot_sha256",
+                    "narrative_snapshot_sha256",
+                    "final_tree_snapshot_sha256",
+                )
+            },
+            "terminal_receipts": [
+                {
+                    key: receipt[key]
+                    for key in ("role", "path", "candidate_id", "scenario_id", "sha256")
+                }
+                for receipt in sorted(
+                    decision["terminal_receipts"],
+                    key=lambda item: (item["role"], item["path"]),
+                )
+            ],
+        }
+        decision["payload_sha256"] = canonical_sha256(payload)
+        final_path.write_bytes(canonical_json_bytes(document))
+        final_entry.sha256 = compute_file_sha256(final_path)
+
+    bindings = (
+        (
+            "tool_integration_grounding",
+            "tool_inventory_completeness",
+            "tool_inventory_evidence",
+        ),
+        (
+            "data_access_grounding",
+            "entry_point_completeness",
+            "entry_point_evidence",
+        ),
+    )
+    for evidence_id, completeness_field, evidence_field in bindings:
+        partial_forgery = json.loads(json.dumps(original_final))
+        gate = next(
+            gate
+            for gate in partial_forgery["admission_decisions"][admitted_index][
+                "gate_results"
+            ]
+            if gate["gate"] == evidence_id
+        )
+        assert gate["applicable"] is False
+        gate["applicable"] = True
+        write_final(partial_forgery)
+        with pytest.raises(ManifestIntegrityError, match="applicability"):
+            ManifestInventoryResolver(result.run_dir, manifest, check_orphans=False)
+
+        write_final(json.loads(json.dumps(original_final)))
+        confirmed_profile = json.loads(json.dumps(original_profile))
+        confirmed_profile[completeness_field] = (
+            InventoryCompleteness.operator_confirmed_complete.value
+        )
+        confirmed_profile[evidence_field] = ["operator-review:test"]
+        profile_path.write_text(yaml.safe_dump(confirmed_profile, sort_keys=False))
+        profile_entry.sha256 = compute_file_sha256(profile_path)
+        with pytest.raises(ManifestIntegrityError, match="applicability"):
+            ManifestInventoryResolver(result.run_dir, manifest, check_orphans=False)
+
+        profile_path.write_text(yaml.safe_dump(original_profile, sort_keys=False))
+        profile_entry.sha256 = compute_file_sha256(profile_path)
 
 
 def test_completion_recomputes_scorecard_and_report_from_strict_inventory(
@@ -1331,6 +1504,7 @@ def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
         PostbehaviorAdmissionReport,
     )
     from scenario_forge.pipeline.finalization_gates import (
+        AdmissionEvidenceId,
         GateCode,
         GateResult,
         GateViolation,
@@ -1421,7 +1595,12 @@ def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
                     (violation,),
                     value=PostbehaviorAdmissionReport(
                         envelope=None,
-                        gate_results=(GateResult((gate_violation,)),),
+                        gate_results=(
+                            GateResult(
+                                AdmissionEvidenceId.semantic_validity,
+                                (gate_violation,),
+                            ),
+                        ),
                     ),
                 )
             return admitted(candidate, artifacts, snapshot)
@@ -1516,6 +1695,14 @@ def _run_and_get_coverage_report(tmp_path: Path, *, confirmed: bool) -> dict:
                 "unittest.mock",
                 fromlist=["patch"],
             ).patch("scenario_forge.pipeline.runner.infer_capability_profile")
+        )
+        from scenario_forge.pipeline.projection import capture_capability_snapshot
+
+        stack.enter_context(
+            patch(
+                "scenario_forge.pipeline.runner.capture_capability_snapshot",
+                return_value=capture_capability_snapshot(profile),
+            )
         )
         from scenario_forge.llm.client import LLMResult
 

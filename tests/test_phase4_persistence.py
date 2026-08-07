@@ -48,6 +48,11 @@ from scenario_forge.pipeline.finalization import (
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.finalization_gates import (
+    CONDITIONALLY_APPLICABLE_EVIDENCE_IDS,
+    DIAGNOSTIC_BACKED_EVIDENCE_IDS,
+    EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
+    AdmissionEvidenceId,
     GateCode,
     GateResult,
     GateViolation,
@@ -63,6 +68,7 @@ from scenario_forge.pipeline.persistence import (
     CoveragePlanV2,
     CoverageTargetEntry,
     FinalizationInventoryV1,
+    GateResultRecord,
     PlanningCheckpointV1,
     QualifiedCandidateRef,
     QuarantineBundleV1,
@@ -255,6 +261,15 @@ def test_models_reject_extra_missing_and_wrong_version():
     raw["schema_version"] = "1"
     with pytest.raises(ValidationError, match="schema_version"):
         CoveragePlanV2.model_validate(raw)
+
+    with pytest.raises(ValidationError, match="outcome must match diagnostics"):
+        GateResultRecord(
+            gate=AdmissionEvidenceId.capability_grounding,
+            passed=False,
+            violations=[],
+            diagnostics=[],
+            applicable=True,
+        )
 
 
 def test_planning_checkpoint_is_immutable_and_idempotent(tmp_path: Path):
@@ -1079,6 +1094,18 @@ def _stage_evidence(stage: GeneratedStage) -> StageCallEvidence:
     )
 
 
+def _passing_normal_gate_results() -> tuple[GateResult, ...]:
+    return tuple(
+        GateResult(
+            evidence_id,
+            outcome=True if evidence_id in DIAGNOSTIC_BACKED_EVIDENCE_IDS else None,
+        )
+        for evidence_id in sorted(
+            NORMAL_POSTBEHAVIOR_EVIDENCE_IDS, key=lambda item: item.value
+        )
+    )
+
+
 def test_real_machine_adapter_primary_rejection_then_fallback_admission(
     tmp_path: Path,
 ):
@@ -1140,7 +1167,8 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
             True,
             value=AdmittedTerminalPayload(
                 report=PostbehaviorAdmissionReport(
-                    envelope=object(), gate_results=(GateResult(),)
+                    envelope=object(),
+                    gate_results=_passing_normal_gate_results(),
                 ),
                 publication=AdmittedArtifactPublication(
                     candidate_id=candidate.candidate_id,
@@ -1174,6 +1202,65 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
     assert (tmp_path / "scenarios/scenario-admitted.yaml").is_file()
     assert (tmp_path / "scenarios/scenario-admitted.feature").is_file()
     assert len(inventory.admitted_inventory) == 2
+
+    admitted = next(item for item in inventory.admission_decisions if item.admitted)
+    assert {gate.gate for gate in admitted.gate_results} == set(
+        NORMAL_POSTBEHAVIOR_EVIDENCE_IDS
+    )
+    admitted_raw = admitted.model_dump(mode="json")
+    identity_only = dict(admitted_raw)
+    identity_only["gate_results"] = [
+        gate
+        for gate in admitted_raw["gate_results"]
+        if gate["gate"] == AdmissionEvidenceId.identity.value
+    ]
+    with pytest.raises(ValidationError, match="canonical gate evidence"):
+        AdmissionDecisionRecord.model_validate(identity_only)
+
+    for missing_id in NORMAL_POSTBEHAVIOR_EVIDENCE_IDS:
+        mutated = dict(admitted_raw)
+        mutated["gate_results"] = [
+            gate
+            for gate in admitted_raw["gate_results"]
+            if gate["gate"] != missing_id.value
+        ]
+        with pytest.raises(ValidationError, match="canonical gate evidence"):
+            AdmissionDecisionRecord.model_validate(mutated)
+
+    for intrinsic_id in (
+        NORMAL_POSTBEHAVIOR_EVIDENCE_IDS - CONDITIONALLY_APPLICABLE_EVIDENCE_IDS
+    ):
+        mutated = json.loads(json.dumps(admitted_raw))
+        next(
+            gate
+            for gate in mutated["gate_results"]
+            if gate["gate"] == intrinsic_id.value
+        )["applicable"] = False
+        with pytest.raises(ValidationError, match="intrinsic.*must be applicable"):
+            AdmissionDecisionRecord.model_validate(mutated)
+
+    duplicated = dict(admitted_raw)
+    duplicated["gate_results"] = [
+        *admitted_raw["gate_results"],
+        admitted_raw["gate_results"][0],
+    ]
+    with pytest.raises(ValidationError, match="must be unique"):
+        AdmissionDecisionRecord.model_validate(duplicated)
+
+    for exceptional_id in EXCEPTIONAL_ADMISSION_EVIDENCE_IDS:
+        exceptional = dict(admitted_raw)
+        exceptional["gate_results"] = [
+            *admitted_raw["gate_results"],
+            {
+                "gate": exceptional_id.value,
+                "passed": True,
+                "violations": [],
+                "diagnostics": [],
+                "applicable": True,
+            },
+        ]
+        with pytest.raises(ValidationError, match="exceptional admission evidence"):
+            AdmissionDecisionRecord.model_validate(exceptional)
 
     restarted = make_finalization_persistence_adapter(
         tmp_path, run_id=RUN_ID, coverage_plan=current_plan
@@ -1390,7 +1477,11 @@ def test_malformed_admitted_report_is_rejected(tmp_path: Path):
                     value=AdmittedTerminalPayload(
                         report=PostbehaviorAdmissionReport(
                             envelope=object(),
-                            gate_results=(GateResult((failed_gate,)),),
+                            gate_results=(
+                                GateResult(
+                                    AdmissionEvidenceId.identity, (failed_gate,)
+                                ),
+                            ),
                         ),
                         publication=publication,
                     ),
@@ -1446,7 +1537,13 @@ def test_machine_adapter_persists_complete_postbehavior_rejection_report(
     )
     report = PostbehaviorAdmissionReport(
         envelope=object(),
-        gate_results=(GateResult((violation,), (diagnostic,)),),
+        gate_results=(
+            GateResult(
+                AdmissionEvidenceId.semantic_validity,
+                (violation,),
+                (diagnostic,),
+            ),
+        ),
     )
 
     def admit(candidate, artifacts, snapshot):

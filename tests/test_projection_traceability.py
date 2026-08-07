@@ -1347,7 +1347,10 @@ class TestRecomputationDrift:
             expected_catalog_pin="0" * 64,
         )
         codes = {v.code for v in result.violations}
-        assert ProjectionTraceabilityViolationCode.projection_drift in codes
+        assert (
+            ProjectionTraceabilityViolationCode.authoritative_pattern_pin_mismatch
+            in codes
+        )
 
     def test_no_drift_when_authoritative_inputs_match(self):
         """When authoritative inputs match, no drift violations."""
@@ -1579,6 +1582,8 @@ class TestProjectionEnvelopeBlockSchemaParity:
             "ingress_identity_mismatch",
             "requirement_drift",
             "invalid_technique_mapping",
+            "authoritative_pattern_pin_mismatch",
+            "authoritative_catalog_pin_mismatch",
         }
         actual = {c.value for c in ProjectionTraceabilityViolationCode}
         assert actual == expected_codes

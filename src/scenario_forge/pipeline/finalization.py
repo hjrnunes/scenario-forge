@@ -700,6 +700,7 @@ class TargetFinalizationMachine:
                                     PostbehaviorAdmissionReport,
                                 )
                                 from scenario_forge.pipeline.finalization_gates import (
+                                    AdmissionEvidenceId,
                                     GateCode,
                                     GateResult,
                                     GateViolation,
@@ -716,7 +717,12 @@ class TargetFinalizationMachine:
                                     (violation,),
                                     value=PostbehaviorAdmissionReport(
                                         envelope=None,
-                                        gate_results=(GateResult((gate_violation,)),),
+                                        gate_results=(
+                                            GateResult(
+                                                AdmissionEvidenceId.admission_exception,
+                                                (gate_violation,),
+                                            ),
+                                        ),
                                     ),
                                 )
                                 terminal_status = CandidateTerminalStatus.rejected

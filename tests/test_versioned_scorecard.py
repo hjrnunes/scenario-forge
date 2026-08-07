@@ -19,6 +19,8 @@ from scenario_forge.eval.scorecard import (
     ratio_metric,
 )
 from scenario_forge.eval.versioned_metrics import (
+    _admission_evidence_metric,
+    _admission_gate_failure_metrics,
     canonical_entry_point_sets,
     evaluate_v3_scorecard,
     inventory_identity_mismatches,
@@ -31,7 +33,12 @@ from scenario_forge.models.capability_profile import (
     EntryPoint,
     InventoryCompleteness,
 )
-from scenario_forge.pipeline.persistence import CoveragePlanV2, FinalizationInventoryV1
+from scenario_forge.pipeline.finalization_gates import AdmissionEvidenceId
+from scenario_forge.pipeline.persistence import (
+    CoveragePlanV2,
+    FinalizationInventoryV1,
+    GateResultRecord,
+)
 from scenario_forge.report.template import build_scorecard_section
 from tests.manifest_helpers import build_test_run_dir
 
@@ -335,8 +342,14 @@ def test_scorecard_rejects_forged_qualification_aggregate() -> None:
         ),
         (
             "capability_grounding",
-            {"status": "pass", "numerator": 0},
-            "must be N/A",
+            {
+                "status": "pass",
+                "numerator": 1,
+                "denominator": 1,
+                "value": 1.0,
+                "threshold": 0.5,
+            },
+            "requires threshold 1",
         ),
     ],
 )
@@ -387,6 +400,110 @@ def test_missing_gate_evidence_never_becomes_category_pass() -> None:
             "data_access_grounding",
         }
     )
+
+
+def test_persisted_gate_identifier_rejects_arbitrary_strings() -> None:
+    with pytest.raises(ValueError):
+        GateResultRecord(
+            gate="admission_gate_0",
+            passed=True,
+            violations=[],
+            diagnostics=[],
+            applicable=True,
+        )
+
+
+def test_admission_evidence_taxonomy_covers_every_cmps8_category() -> None:
+    assert {
+        AdmissionEvidenceId.actor_attack_complexity,
+        AdmissionEvidenceId.capability_grounding,
+        AdmissionEvidenceId.tool_integration_grounding,
+        AdmissionEvidenceId.data_access_grounding,
+        AdmissionEvidenceId.catalog_taxonomy_pin_validity,
+        AdmissionEvidenceId.resource_binding_validity,
+        AdmissionEvidenceId.execution_requirement_drift,
+        AdmissionEvidenceId.identifier_validity,
+    } <= set(AdmissionEvidenceId)
+
+
+@pytest.mark.parametrize(
+    ("records", "expected"),
+    [
+        ([True], MetricStatus.PASS),
+        ([False], MetricStatus.FAIL),
+        ([], MetricStatus.NOT_APPLICABLE),
+        ([True, True], MetricStatus.NOT_APPLICABLE),
+    ],
+)
+def test_category_metrics_require_one_exact_non_vacuous_outcome(
+    records: list[bool], expected: MetricStatus
+) -> None:
+    gates = [
+        GateResultRecord(
+            gate=AdmissionEvidenceId.actor_attack_complexity,
+            passed=passed,
+            applicable=True,
+            violations=[]
+            if passed
+            else [
+                {
+                    "code": "capability_complexity",
+                    "detail": "failed",
+                    "owner": "tree",
+                    "retryable": True,
+                }
+            ],
+            diagnostics=[],
+        )
+        for passed in records
+    ]
+    final = SimpleNamespace(
+        admission_decisions=[
+            SimpleNamespace(
+                # A failed gate is a rejected postbehavior decision; missing
+                # and duplicate evidence exercise malformed persistence-like
+                # records without inventing an admitted+failed state.
+                admitted=all(records),
+                candidate_id="candidate-1",
+                gate_results=gates,
+            )
+        ]
+    )
+    metric = _admission_evidence_metric(  # type: ignore[arg-type]
+        final,
+        (AdmissionEvidenceId.actor_attack_complexity,),
+        evidence=["test"],
+    )
+    assert metric.status is expected
+
+
+def test_admission_gate_failure_rate_counts_outcomes_in_both_units() -> None:
+    failed_gate = GateResultRecord(
+        gate=AdmissionEvidenceId.actor_attack_complexity,
+        passed=False,
+        applicable=True,
+        violations=[
+            {
+                "code": "capability_complexity",
+                "detail": "failed",
+                "owner": "tree",
+                "retryable": True,
+            }
+        ],
+        diagnostics=[],
+    )
+    final = SimpleNamespace(
+        admission_decisions=[
+            SimpleNamespace(candidate_id=candidate_id, gate_results=[failed_gate])
+            for candidate_id in ("candidate-1", "candidate-2")
+        ]
+    )
+    metric = _admission_gate_failure_metrics(final)[  # type: ignore[arg-type]
+        "admission_gate_failure_rate:actor_attack_complexity"
+    ]
+    assert metric.numerator == 2
+    assert metric.denominator == 2
+    assert metric.affected_ids == ["candidate-1", "candidate-2"]
 
 
 def test_checked_in_schema_has_exact_generated_parity() -> None:

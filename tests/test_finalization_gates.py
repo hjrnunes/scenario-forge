@@ -48,9 +48,12 @@ from scenario_forge.pipeline.finalization_admission import (
     make_postbehavior_admission,
 )
 from scenario_forge.pipeline.finalization_gates import (
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
+    AdmissionEvidenceId,
     ActorSemanticSnapshot,
     FinalTreeSemanticSnapshot,
     GateCode,
+    GateResult,
     GateViolation,
     NarrativeSemanticSnapshot,
     ProjectionSemanticSnapshot,
@@ -1048,6 +1051,20 @@ def test_positive_complete_postbehavior_admission_is_verify_only() -> None:
     assert decision.admitted
     assert isinstance(decision.value, PostbehaviorAdmissionReport)
     assert all(result.valid for result in decision.value.gate_results)
+    evidence_ids = [result.evidence_id for result in decision.value.gate_results]
+    assert len(evidence_ids) == len(set(evidence_ids))
+    assert set(evidence_ids) == set(NORMAL_POSTBEHAVIOR_EVIDENCE_IDS)
+
+
+def test_postbehavior_report_rejects_duplicate_evidence_ids() -> None:
+    with pytest.raises(ValueError, match="must be unique"):
+        PostbehaviorAdmissionReport(
+            envelope=object(),
+            gate_results=(
+                GateResult(AdmissionEvidenceId.identity),
+                GateResult(AdmissionEvidenceId.identity),
+            ),
+        )
 
 
 def test_supplied_and_embedded_forged_catalog_pin_cannot_bypass_trusted_pin() -> None:
@@ -1083,6 +1100,13 @@ def test_supplied_and_embedded_forged_catalog_pin_cannot_bypass_trusted_pin() ->
     ]
     assert trusted
     assert all(not violation.retryable for violation in trusted)
+    catalog_evidence = next(
+        result
+        for result in decision.value.gate_results
+        if result.evidence_id is AdmissionEvidenceId.catalog_taxonomy_pin_validity
+    )
+    assert not catalog_evidence.passed
+    assert catalog_evidence.diagnostics
 
 
 def test_absent_pattern_still_recomputes_and_checks_supplied_catalog_pin() -> None:
