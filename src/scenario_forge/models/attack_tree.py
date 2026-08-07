@@ -122,8 +122,7 @@ class InitialIngressAction(BaseModel):
 
     kind: Literal["initial_ingress"] = "initial_ingress"
     entry_point_id: str = Field(
-        description="Canonical entry_point_id from the capability profile.",
-        pattern=r"^ep:v1:[0-9a-f]{32}$",
+        description="Canonical entry-point name from the capability profile.",
     )
 
 
@@ -169,13 +168,11 @@ class ToolInvocationAction(BaseModel):
 
     kind: Literal["tool_invocation"] = "tool_invocation"
     tool_id: str = Field(
-        description="Canonical tool_id from the capability profile.",
-        pattern=r"^tool:v1:[0-9a-f]{32}$",
+        description="Canonical tool name from the capability profile.",
     )
     integration_id: str | None = Field(
         default=None,
-        description="Optional canonical integration_id for a downstream system.",
-        pattern=r"^int:v1:[0-9a-f]{32}$",
+        description="Optional canonical integration name for a downstream system.",
     )
 
 
@@ -191,8 +188,7 @@ class IntegrationInteractionAction(BaseModel):
 
     kind: Literal["integration_interaction"] = "integration_interaction"
     integration_id: str = Field(
-        description="Canonical integration_id from the capability profile.",
-        pattern=r"^int:v1:[0-9a-f]{32}$",
+        description="Canonical integration name from the capability profile.",
     )
 
 

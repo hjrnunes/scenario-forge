@@ -33,7 +33,7 @@ Align the attack tree structure with this tactical progression. Each kill chain 
 Title: {{ narrative.title }}
 Summary: {{ narrative.summary }}
 Entry point: {{ narrative.entry_point }}
-{% if pinned_entry_point_id is defined and pinned_entry_point_id %}Pinned entry_point_id (INVARIANT — use exactly for initial_ingress): {{ pinned_entry_point_id }}
+{% if pinned_entry_point_name is defined and pinned_entry_point_name %}Pinned entry point (INVARIANT — use exactly for initial_ingress): {{ pinned_entry_point_name }}
 {% endif %}
 Zone sequence: {{ narrative.zone_sequence }}
 
@@ -50,7 +50,7 @@ This scenario has {{ technique_count }} technique(s). Your attack tree MUST have
 ## Your Task
 Produce the attack tree YAML for seed_id={{ seed.seed_id }}. The tree id must be "tree-{{ seed.seed_id }}".
 
-Every LEAF node MUST carry an `action` field with a `kind` discriminator. A `tool_invocation` action MUST use a `tool_id` from the Tool Inventory, and an `initial_ingress` action MUST use an `entry_point_id` from the Entry Points list. An `external_precondition` action MUST NOT have a zone.
+Every LEAF node MUST carry an `action` field with a `kind` discriminator. A `tool_invocation` action MUST use a `tool_id` matching a tool name from the Tool Inventory, and an `initial_ingress` action MUST use an `entry_point_id` matching an entry point name from the Entry Points list. An `external_precondition` action MUST NOT have a zone.
 {% if consistency_feedback is defined and consistency_feedback %}
 
 ## Consistency Corrections Required

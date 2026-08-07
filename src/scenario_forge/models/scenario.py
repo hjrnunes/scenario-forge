@@ -195,26 +195,23 @@ class NarrativeAccessRealization(BaseModel):
 
     initial_entry_point_id: str = Field(
         description=(
-            "Canonical entry_point_id (ep:v1:…) of the initial ingress "
+            "Canonical entry-point name of the initial ingress "
             "this narrative realizes.  Must match actor access provenance."
         ),
-        pattern=r"^ep:v1:[0-9a-f]{32}$",
     )
     influence_source: str | None = Field(
         default=None,
         description=(
-            "Canonical entry_point_id of the upstream influence source, "
+            "Canonical entry-point name of the upstream influence source, "
             "if indirect.  Must match actor access provenance."
         ),
-        pattern=r"^ep:v1:[0-9a-f]{32}$",
     )
     trust_boundary_id: str | None = Field(
         default=None,
         description=(
-            "Canonical trust_boundary_id (tb:v1:…) of the boundary crossed, "
+            "Canonical trust boundary name of the boundary crossed, "
             "if indirect.  Must match actor access provenance."
         ),
-        pattern=r"^tb:v1:[0-9a-f]{32}$",
     )
     responsible_step_number: int = Field(
         description=(
@@ -308,10 +305,9 @@ class ActorAccessProvenance(BaseModel):
 
     initial_entry_point_id: str = Field(
         description=(
-            "Canonical entry_point_id (ep:v1:…) inherited from the initial "
+            "Canonical entry-point ID inherited from the initial "
             "ingress.  The scenario must inherit exactly one."
         ),
-        pattern=r"^ep:v1:[0-9a-f]{32}$",
     )
     ingress_mode: Literal["direct", "indirect"] = Field(
         description=(
@@ -334,11 +330,10 @@ class ActorAccessProvenance(BaseModel):
     influence_source: str | None = Field(
         default=None,
         description=(
-            "Canonical entry_point_id (ep:v1:…) of the upstream data source "
+            "Canonical entry-point ID of the upstream data source "
             "the actor influences (required for indirect ingress mode). "
             "Must resolve in the capability profile."
         ),
-        pattern=r"^ep:v1:[0-9a-f]{32}$",
     )
     influence_mechanism: str | None = Field(
         default=None,
@@ -350,12 +345,11 @@ class ActorAccessProvenance(BaseModel):
     trust_boundary_id: str | None = Field(
         default=None,
         description=(
-            "Canonical trust_boundary_id (tb:v1:…) referencing a "
+            "Canonical trust boundary ID referencing a "
             "TrustBoundary declared in the capability profile (required "
             "for indirect ingress mode).  The boundary's to_zone must "
             "match the pinned entry point's effective_ingress_zone."
         ),
-        pattern=r"^tb:v1:[0-9a-f]{32}$",
     )
     material_insider_advantage: str | None = Field(
         default=None,

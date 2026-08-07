@@ -621,32 +621,21 @@ def build_call2_context(
             f"- Capability level: {actor_profile.capability_level}\n"
         )
 
-    # Build structured access provenance block (cmps.6)
+    # Build structured access provenance block (cmps.6) — using names (Phase 3)
     access_provenance_block = ""
     if actor_profile is not None and actor_profile.access is not None:
-        _a = actor_profile.access
-        access_provenance_block = (
-            "\n## Actor Access Provenance (AUTHORITATIVE — cmps.6)\n"
-            "This structured block is authoritative over any advisory "
-            "kill-chain wording. The attack tree's initial_ingress action "
-            "must use exactly this entry_point_id and be consistent with "
-            "this evidence.\n"
-            f"- initial_entry_point_id: {_a.initial_entry_point_id}\n"
-            f"- ingress_mode: {_a.ingress_mode}\n"
-            f"- access_class: {_a.access_class}\n"
+        from scenario_forge.pipeline.generate.names import (
+            access_provenance_block_with_names,
         )
-        if _a.influence_source:
-            access_provenance_block += f"- influence_source: {_a.influence_source}\n"
-        if _a.influence_mechanism:
-            access_provenance_block += (
-                f"- influence_mechanism: {_a.influence_mechanism}\n"
+
+        access_provenance_block = (
+            access_provenance_block_with_names(
+                actor_profile.access,
+                profile,
             )
-        if _a.trust_boundary_id:
-            access_provenance_block += f"- trust_boundary_id: {_a.trust_boundary_id}\n"
-        if _a.material_insider_advantage:
-            access_provenance_block += (
-                f"- material_insider_advantage: {_a.material_insider_advantage}\n"
-            )
+            if profile is not None
+            else ""
+        )
 
     # Compute concrete leaf budget so the LLM sees the exact number
     technique_count = len(tech_ids_for_tree) if tech_ids_for_tree else 0
@@ -701,6 +690,23 @@ def build_call2_context(
                     f"inactive ingress zone)."
                 )
 
+    # Convert pinned_entry_point_id to name for the template (Phase 3)
+    from scenario_forge.pipeline.generate.names import (
+        humanize_projection_context,
+        pinned_entry_point_name_from_id,
+    )
+
+    pinned_entry_point_name = pinned_entry_point_name_from_id(
+        pinned_entry_point_id, profile
+    )
+
+    # Humanize projection context for the template (Phase 3)
+    humanized_projection = (
+        humanize_projection_context(projection_context, profile)
+        if projection_context is not None and profile is not None
+        else projection_context
+    )
+
     return {
         "seed": seed,
         "use_case": use_case,
@@ -718,12 +724,12 @@ def build_call2_context(
         "external_integrations": (profile.external_integrations if profile else None)
         or [],
         "entry_points": entry_points,
-        "pinned_entry_point_id": pinned_entry_point_id,
+        "pinned_entry_point_name": pinned_entry_point_name,
         "kill_chain": seed.kill_chain,
         "consistency_feedback": consistency_feedback,
         # Non-template data for post-generation validation
         "skeleton": skeleton,
-        "projection_context": projection_context,
+        "projection_context": humanized_projection,
     }
 
 
@@ -856,6 +862,7 @@ def _call_attack_tree_once(
         tool_inventory=ctx["tool_inventory"],
         external_integrations=ctx["external_integrations"],
         entry_points=ctx["entry_points"],
+        pinned_entry_point_name=ctx.get("pinned_entry_point_name"),
     )
     user_prompt = render_prompt("call2_user.j2", **ctx)
     try:
@@ -938,6 +945,7 @@ def _call_attack_tree(
         tool_inventory=ctx["tool_inventory"],
         external_integrations=ctx["external_integrations"],
         entry_points=ctx["entry_points"],
+        pinned_entry_point_name=ctx.get("pinned_entry_point_name"),
     )
 
     original_user_prompt = render_prompt("call2_user.j2", **ctx)
@@ -1303,16 +1311,30 @@ def _resolve_action_ids_node(
     profile: CapabilityProfile,
     violations: list[str],
 ) -> None:
-    """Recursively verify that all typed action IDs resolve to profile resources.
+    """Resolve human-readable names to canonical hex IDs, then validate.
 
-    Unknown/ambiguous IDs are generation/admission violations.  Never fuzzy-join
-    names or auto-add resources.
+    Phase 3: The LLM outputs names (e.g. "process_refund") instead of
+    hex IDs (e.g. "tool:v1:abc123...").  This function resolves names
+    to canonical IDs in place, then validates that all IDs resolve to
+    profile resources.  If a name doesn't match any resource, it's
+    recorded as a violation.
     """
+    from scenario_forge.pipeline.generate.names import (
+        resolve_name_to_entry_point_id,
+        resolve_name_to_integration_id,
+        resolve_name_to_tool_id,
+    )
+
     if node.gate == GateType.LEAF and node.action is not None:
         action = node.action
         kind = action.kind
 
         if kind == "initial_ingress":
+            # Resolve name → hex ID
+            resolved_id = resolve_name_to_entry_point_id(action.entry_point_id, profile)
+            if resolved_id is not None:
+                action.entry_point_id = resolved_id
+            # Validate
             ep = profile.resolve_entry_point(action.entry_point_id)
             if ep is None:
                 violations.append(
@@ -1323,6 +1345,11 @@ def _resolve_action_ids_node(
                 )
 
         elif kind == "tool_invocation":
+            # Resolve name → hex ID
+            resolved_tool = resolve_name_to_tool_id(action.tool_id, profile)
+            if resolved_tool is not None:
+                action.tool_id = resolved_tool
+            # Validate
             tool = profile.resolve_tool(action.tool_id)
             if tool is None:
                 violations.append(
@@ -1332,6 +1359,11 @@ def _resolve_action_ids_node(
                     f"any tool in the capability profile."
                 )
             if action.integration_id is not None:
+                resolved_int = resolve_name_to_integration_id(
+                    action.integration_id, profile
+                )
+                if resolved_int is not None:
+                    action.integration_id = resolved_int
                 integ = profile.resolve_integration(action.integration_id)
                 if integ is None:
                     violations.append(
@@ -1342,6 +1374,13 @@ def _resolve_action_ids_node(
                     )
 
         elif kind == "integration_interaction":
+            # Resolve name → hex ID
+            resolved_int = resolve_name_to_integration_id(
+                action.integration_id, profile
+            )
+            if resolved_int is not None:
+                action.integration_id = resolved_int
+            # Validate
             integ = profile.resolve_integration(action.integration_id)
             if integ is None:
                 violations.append(
@@ -1360,10 +1399,11 @@ def resolve_action_ids(
     tree: AttackTree,
     profile: CapabilityProfile,
 ) -> list[str]:
-    """Verify that all typed action IDs in the tree resolve to profile resources.
+    """Resolve names to IDs and verify all typed action IDs in the tree.
 
+    Phase 3: First resolves human-readable names to canonical hex IDs,
+    then validates that all IDs resolve to profile resources.
     Returns a list of violation descriptions (empty if all IDs resolve).
-    Unknown/ambiguous IDs are fatal generation/admission violations.
     """
     violations: list[str] = []
     _resolve_action_ids_node(tree.root, profile, violations)

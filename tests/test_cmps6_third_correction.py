@@ -116,9 +116,10 @@ def test_boundary_identity_collision_guard_and_call0_context() -> None:
         pinned_entry_point_id=target.entry_point_id,
     )
     section = context["access_provenance_section"]
-    assert upstream.entry_point_id in section
-    assert profile.trust_boundaries[0].trust_boundary_id in section
-    assert "Valid influence_source entry-point IDs" in section
+    # Phase 3: prompts now show human-readable names, not hex IDs
+    assert upstream.name in section
+    assert profile.trust_boundaries[0].name in section
+    assert "Valid influence_source entry-point names" in section
     assert "Valid trust_boundary_id values" in section
 
 

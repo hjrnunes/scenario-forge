@@ -232,8 +232,9 @@ class TestToolInventoryPromptRendering:
             tool_inventory=tools,
         )
         assert "Tool Inventory (INVARIANT)" in rendered
-        assert "name: query_db | description: Query the database" in rendered
-        assert "name: send_email | description: Send email" in rendered
+        # Phase 3: tool inventory now shows name: description (no hex IDs)
+        assert "query_db: Query the database" in rendered
+        assert "send_email: Send email" in rendered
         assert (
             "Do NOT reference any tool, API, or capability not in this list" in rendered
         )
@@ -264,7 +265,8 @@ class TestToolInventoryPromptRendering:
             entry_points=[],
         )
         assert "Tool Inventory (INVARIANT)" in rendered
-        assert "name: process_refund | description: Process refunds" in rendered
+        # Phase 3: tool inventory now shows name: description (no hex IDs)
+        assert "process_refund: Process refunds" in rendered
 
     def test_call2_system_without_tool_inventory(self) -> None:
         """call2_system.j2 omits tool inventory section when list is empty."""

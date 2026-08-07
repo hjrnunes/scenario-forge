@@ -339,6 +339,7 @@ def build_actor_access_provenance(
     ep_controllability: str | None,
     actor_type: str,
     resp: Call0Response,
+    profile: CapabilityProfile | None = None,
 ) -> ActorAccessProvenance:
     """Construct an :class:`ActorAccessProvenance` from canonical EP identity
     and LLM-generated evidence.
@@ -346,6 +347,11 @@ def build_actor_access_provenance(
     ``ingress_mode`` is derived from the entry point's canonical
     ``effective_controllability`` — never LLM-inferred.  ``access_class``
     and the evidence fields are taken from the LLM response.
+
+    Phase 3: The LLM now outputs human-readable names for
+    ``influence_source`` and ``trust_boundary_id``.  When *profile* is
+    supplied, these names are resolved to canonical hex IDs before
+    constructing the provenance object.
 
     Unresolved/system controllability raises ``ValueError`` — system entry
     points are not eligible ingress and must never default to direct.
@@ -357,13 +363,31 @@ def build_actor_access_provenance(
             f"'{ep_controllability}' — not eligible ingress (system/unknown)."
         )
 
+    # Phase 3: resolve LLM-output names to canonical hex IDs
+    influence_source = resp.influence_source
+    trust_boundary_id = resp.trust_boundary_id
+    if profile is not None:
+        from scenario_forge.pipeline.generate.names import (
+            resolve_name_to_entry_point_id,
+            resolve_name_to_trust_boundary_id,
+        )
+
+        if influence_source:
+            resolved = resolve_name_to_entry_point_id(influence_source, profile)
+            if resolved is not None:
+                influence_source = resolved
+        if trust_boundary_id:
+            resolved_tb = resolve_name_to_trust_boundary_id(trust_boundary_id, profile)
+            if resolved_tb is not None:
+                trust_boundary_id = resolved_tb
+
     return ActorAccessProvenance(
         initial_entry_point_id=entry_point_id,
         ingress_mode=ingress_mode,
         access_class=resp.access_class,
-        influence_source=resp.influence_source,
+        influence_source=influence_source,
         influence_mechanism=resp.influence_mechanism,
-        trust_boundary_id=resp.trust_boundary_id,
+        trust_boundary_id=trust_boundary_id,
         material_insider_advantage=resp.material_insider_advantage,
     )
 
@@ -918,16 +942,15 @@ def build_call0_context(
             pinned_entry_point_controllability
         )
         if ingress_mode == "indirect":
-            # Build explicit lists of valid trust-boundary IDs and upstream
-            # entry-point IDs so the LLM can choose a valid source→boundary→
-            # ingress path without inventing opaque hashes (cmps.6).
+            # Build explicit lists of valid trust-boundary names and upstream
+            # entry-point names so the LLM can choose a valid source→boundary→
+            # ingress path using human-readable names (cmps.6, Phase 3).
             _boundaries_ctx = ""
             if profile.trust_boundaries:
                 _boundary_lines = []
                 for tb in profile.trust_boundaries:
                     _boundary_lines.append(
-                        f"  - `{tb.trust_boundary_id}`: "
-                        f"{tb.name} ({tb.from_zone}→{tb.to_zone})"
+                        f"  - {tb.name} ({tb.from_zone}→{tb.to_zone})"
                     )
                 _boundaries_ctx = (
                     "\nValid trust_boundary_id values (choose one that "
@@ -949,13 +972,13 @@ def build_call0_context(
                     _up_lines = []
                     for ep in _upstream_eps:
                         _up_lines.append(
-                            f"  - `{ep.entry_point_id}`: {ep.name} "
+                            f"  - {ep.name} "
                             f"(direction={ep.direction}, "
                             f"controllability={ep.effective_controllability}, "
                             f"zone={ep.effective_ingress_zone})"
                         )
                     _upstream_eps_ctx = (
-                        "\nValid influence_source entry-point IDs "
+                        "\nValid influence_source entry-point names "
                         "(the upstream data source the actor influences):\n"
                         + "\n".join(_up_lines)
                         + "\n"
@@ -969,13 +992,12 @@ def build_call0_context(
                 "- `access_class`: one of `public`, `authenticated`, "
                 "`privileged`, `supply_chain` — the actor's relationship to "
                 "the system\n"
-                "- `influence_source`: the canonical entry-point ID of the "
-                "data source or channel the actor influences\n"
+                "- `influence_source`: the name of the upstream entry point "
+                "(data source or channel) the actor influences\n"
                 "- `influence_mechanism`: how the actor exerts influence "
                 "(e.g. 'document poisoning', 'supply-chain staging')\n"
-                "- `trust_boundary_id`: a canonical `tb:v1:…` ID "
-                "referencing a TrustBoundary declared in the capability "
-                "profile\n"
+                "- `trust_boundary_id`: the name of a TrustBoundary "
+                "declared in the capability profile\n"
                 f"{_upstream_eps_ctx}"
                 f"{_boundaries_ctx}"
             )
@@ -1012,6 +1034,15 @@ def build_call0_context(
                     "`privileged` — the actor's relationship to the system\n"
                 )
 
+    # Humanize projection context for the template (Phase 3)
+    from scenario_forge.pipeline.generate.names import humanize_projection_context
+
+    humanized_projection = (
+        humanize_projection_context(projection_context, profile)
+        if projection_context is not None
+        else projection_context
+    )
+
     return {
         # System prompt variables
         "minimum_capability_level": minimum_capability_level,
@@ -1034,7 +1065,7 @@ def build_call0_context(
         "kc_definitions": kc_definitions,
         "ontology_context": ontology_context,
         "tool_inventory": profile.tool_inventory or [],
-        "projection_context": projection_context,
+        "projection_context": humanized_projection,
     }
 
 
@@ -1148,6 +1179,7 @@ def _call_actor_profile(
             ep_controllability=ep_controllability,
             actor_type=actor_type,
             resp=resp,
+            profile=profile,
         )
 
     return actor_profile, result, ctx.get("diversity_limitation")
