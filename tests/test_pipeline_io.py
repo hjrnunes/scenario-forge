@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scenario_forge.eval.versioned_metrics import evaluate_v3_scorecard
 from scenario_forge.manifest import (
     ArtifactRole,
     ManifestIntegrityError,
@@ -218,7 +219,9 @@ class TestStrictManifestResolver:
 
 class TestWriteEvalScorecard:
     def test_writes_yaml_file(self, run_dir: Path) -> None:
-        scorecard = {"overall_score": 0.85, "metrics": {"consistency": 0.9}}
+        from tests.test_versioned_scorecard import _Resolver
+
+        scorecard = evaluate_v3_scorecard(_Resolver()).model_dump(mode="json")  # type: ignore[arg-type]
 
         path = write_eval_scorecard(scorecard, run_dir)
 

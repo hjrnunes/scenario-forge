@@ -249,6 +249,7 @@ def _complete_v3_run(
         (run_dir / stale_name).unlink(missing_ok=True)
 
     eval_success = False
+    qualification_passed = False
     eval_manifest = RunManifest(
         manifest_version=MANIFEST_VERSION,
         status=RunStatus.STARTED,
@@ -270,6 +271,7 @@ def _complete_v3_run(
             )
             write_eval_scorecard(scorecard, run_dir)
             eval_success = True
+            qualification_passed = scorecard["qualification"]["status"] == "pass"
         except Exception as exc:  # noqa: BLE001 - non-authoritative output
             (run_dir / "eval-scorecard.yaml").unlink(missing_ok=True)
             logger.warning("Eval scorecard generation failed: %s", exc)
@@ -281,15 +283,6 @@ def _complete_v3_run(
         target.target_state.value in {"admitted", "exhausted"}
         for target in finalization.coverage_plan.targets
     )
-    intended_status = (
-        RunStatus.COMPLETED
-        if terminal_processing_succeeded
-        and not had_quarantine
-        and eval_enabled
-        and eval_success
-        else RunStatus.COMPLETED_WITH_ERRORS
-    )
-
     report_success = False
     try:
         from scenario_forge.report.data import load_report_data
@@ -315,15 +308,89 @@ def _complete_v3_run(
         (run_dir / "report.html").unlink(missing_ok=True)
         logger.warning("Report generation failed: %s", exc)
 
-    final_status = (
-        intended_status if report_success else RunStatus.COMPLETED_WITH_ERRORS
-    )
+    # Close the pipeline log before hashing the complete candidate inventory.
+    # The first eval/report products above are deliberately provisional: they
+    # break the scorecard/report inventory cycle but cannot authorize a run.
     sf_logger = logging.getLogger("scenario_forge")
     for handler in sf_logger.handlers[:]:
         if isinstance(handler, logging.FileHandler):
             handler.flush()
             handler.close()
             sf_logger.removeHandler(handler)
+
+    # Authoritative second pass. The complete provisional inventory is first
+    # reconciled with orphan checking enabled. Evaluation is then recomputed
+    # from that strict resolver, the scorecard hash is rebuilt, and the report
+    # is regenerated from the final scorecard before final hashes/validation.
+    if eval_success and report_success:
+        try:
+            from scenario_forge.eval.runner import run_evaluation
+            from scenario_forge.report.data import load_report_data
+            from scenario_forge.report.generator import generate_report
+
+            candidate_manifest = RunManifest(
+                manifest_version=MANIFEST_VERSION,
+                status=RunStatus.STARTED,
+                run_id=run_id,
+                timestamp_start=timestamp_start,
+                package_version=importlib.metadata.version("scenario-forge"),
+                provenance=provenance,
+                inventory=build_v3_inventory(
+                    run_dir,
+                    final_inventory_doc,
+                    include_eval=True,
+                    include_report=True,
+                    include_log=True,
+                ),
+            )
+            strict_eval_resolver = ManifestInventoryResolver(
+                run_dir, candidate_manifest, check_orphans=True
+            )
+            scorecard = run_evaluation(
+                resolver=strict_eval_resolver,
+                threats_path=threats_path,
+            )
+            write_eval_scorecard(scorecard, run_dir)
+            qualification_passed = scorecard["qualification"]["status"] == "pass"
+
+            report_manifest = RunManifest(
+                manifest_version=MANIFEST_VERSION,
+                status=RunStatus.STARTED,
+                run_id=run_id,
+                timestamp_start=timestamp_start,
+                package_version=importlib.metadata.version("scenario-forge"),
+                provenance=provenance,
+                inventory=build_v3_inventory(
+                    run_dir,
+                    final_inventory_doc,
+                    include_eval=True,
+                    include_report=True,
+                    include_log=True,
+                ),
+            )
+            strict_report_resolver = ManifestInventoryResolver(
+                run_dir, report_manifest, check_orphans=True
+            )
+            report_data = load_report_data(resolver=strict_report_resolver)
+            generate_report(report_data, run_dir)
+        except Exception as exc:  # noqa: BLE001 - run remains non-authoritative
+            eval_success = False
+            report_success = False
+            qualification_passed = False
+            (run_dir / "eval-scorecard.yaml").unlink(missing_ok=True)
+            (run_dir / "report.html").unlink(missing_ok=True)
+            logger.warning("Authoritative eval/report finalization failed: %s", exc)
+
+    final_status = (
+        RunStatus.COMPLETED
+        if terminal_processing_succeeded
+        and not had_quarantine
+        and eval_enabled
+        and eval_success
+        and report_success
+        and qualification_passed
+        else RunStatus.COMPLETED_WITH_ERRORS
+    )
     inventory = build_v3_inventory(
         run_dir,
         final_inventory_doc,

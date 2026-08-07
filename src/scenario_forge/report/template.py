@@ -7401,6 +7401,79 @@ def _build_outliers_panel(
     )
 
 
+def _build_versioned_scorecard_section(scorecard_data: dict[str, Any]) -> str:
+    """Render strict typed metrics without inferring meaning from missing values."""
+    labels = (
+        ("presence_coverage", "Presence / Coverage"),
+        ("validity_grounding", "Validity / Grounding"),
+        ("cross_artifact_agreement", "Cross-artifact Agreement"),
+        ("semantic_quality_diagnostics", "Semantic Quality / Diagnostics"),
+        ("release_qualification", "Release Qualification"),
+    )
+    groups = ""
+    for key, label in labels:
+        metrics = scorecard_data.get(key, {}).get("metrics", {})
+        rows = ""
+        for metric_id, metric in metrics.items():
+            status = str(metric.get("status", "error"))
+            css = {
+                "pass": "scorecard-badge-green",
+                "fail": "scorecard-badge-red",
+                "not_applicable": "scorecard-badge-yellow",
+                "error": "scorecard-badge-red",
+            }.get(status, "scorecard-badge-red")
+            numerator = metric.get("numerator")
+            denominator = metric.get("denominator")
+            fraction = "—"
+            if numerator is not None:
+                fraction = str(numerator)
+                if denominator is not None:
+                    fraction += f" / {denominator}"
+            value = metric.get("value")
+            rendered_value = "—" if value is None else f"{float(value):.4f}"
+            evidence = "; ".join(str(item) for item in metric.get("evidence", []))
+            affected = ", ".join(str(item) for item in metric.get("affected_ids", []))
+            rows += (
+                "<tr>"
+                f"<td>{_esc(metric_id)}</td>"
+                f'<td><span class="scorecard-badge {css}">{_esc(status)}</span></td>'
+                f"<td>{_esc(fraction)}</td><td>{_esc(rendered_value)}</td>"
+                f"<td>{_esc(evidence)}</td><td>{_esc(affected) or '—'}</td>"
+                "</tr>"
+            )
+        groups += f"""
+        <div class="scorecard-group">
+          <div class="scorecard-group-title">{_esc(label)}</div>
+          <table class="scorecard-detail-table">
+            <thead><tr><th>Metric</th><th>Status</th><th>Numerator / Denominator</th>
+            <th>Bounded Value</th><th>Evidence</th><th>Affected IDs</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>"""
+    qualification = scorecard_data.get("qualification", {})
+    qualification_status = str(qualification.get("status", "error"))
+    failures = qualification.get("failed_gate_ids", [])
+    errors = qualification.get("error_gate_ids", [])
+    not_applicable = qualification.get("not_applicable_gate_ids", [])
+    return f"""
+    <div id="sec-scorecard" class="section">
+      <div class="section-header"><h2>Versioned Eval Scorecard</h2>
+        <span class="badge">Schema v{_esc(scorecard_data.get("schema_version", ""))}</span>
+      </div>
+      <div class="card">
+        <div class="scorecard-summary">
+          <div class="scorecard-stat"><div class="scorecard-stat-value">{scorecard_data.get("scenario_count", 0)}</div><div class="scorecard-stat-label">Admitted Scenarios</div></div>
+          <div class="scorecard-stat"><div class="scorecard-stat-value">{scorecard_data.get("feature_file_count", 0)}</div><div class="scorecard-stat-label">Verified Features</div></div>
+          <div class="scorecard-stat"><div class="scorecard-stat-value">{_esc(qualification_status)}</div><div class="scorecard-stat-label">Qualification</div></div>
+        </div>
+        <p><strong>Qualification failures:</strong> {_esc(", ".join(failures)) or "none"}</p>
+        <p><strong>Qualification errors:</strong> {_esc(", ".join(errors)) or "none"}</p>
+        <p><strong>Not applicable (excluded):</strong> {_esc(", ".join(not_applicable)) or "none"}</p>
+        {groups}
+      </div>
+    </div>"""
+
+
 def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
     """Build the Eval Scorecard HTML section from parsed YAML data.
 
@@ -7412,6 +7485,9 @@ def build_scorecard_section(scorecard_data: dict[str, Any]) -> str:
     """
     if not scorecard_data:
         return ""
+
+    if scorecard_data.get("schema_version") == "1":
+        return _build_versioned_scorecard_section(scorecard_data)
 
     ev = scorecard_data.get("evaluation", {})
     if not ev:

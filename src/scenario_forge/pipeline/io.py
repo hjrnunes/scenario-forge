@@ -113,10 +113,13 @@ def write_eval_scorecard(scorecard: dict, run_dir: Path) -> Path:
     Returns:
         Path to the written file.
     """
+    from scenario_forge.eval.scorecard import ScorecardV1
+
+    validated = ScorecardV1.model_validate(scorecard)
     scorecard_path = run_dir / "eval-scorecard.yaml"
     scorecard_path.write_text(
         yaml.dump(
-            scorecard,
+            validated.model_dump(mode="json"),
             default_flow_style=False,
             sort_keys=False,
             allow_unicode=True,

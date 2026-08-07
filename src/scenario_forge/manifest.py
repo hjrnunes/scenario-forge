@@ -1256,6 +1256,7 @@ class ManifestInventoryResolver:
             from scenario_forge.pipeline.persistence import validate_v3_inventories
 
             validate_v3_inventories(self)
+            _validate_v3_scorecard_binding(self.manifest, self)
 
         # --- 12. Orphan detection ---
         if self.check_orphans:
@@ -1396,6 +1397,49 @@ class ManifestInventoryResolver:
             if e.scenario_id == scenario_id:
                 return e
         return None
+
+
+def _validate_v3_scorecard_binding(
+    manifest: RunManifest, resolver: ManifestInventoryResolver
+) -> None:
+    """Validate any persisted final v3 scorecard at the resolver boundary."""
+    entry = resolver.entry_by_role(ArtifactRole.EVAL_SCORECARD)
+    if entry is None:
+        return
+
+    from scenario_forge.eval.scorecard import ScorecardV1
+
+    try:
+        scorecard = ScorecardV1.model_validate(resolver.read_yaml(entry))
+    except Exception as exc:
+        raise ManifestIntegrityError(
+            f"Scorecard violates strict v1 schema: {exc}"
+        ) from exc
+    if scorecard.run_id != manifest.run_id:
+        raise ManifestIntegrityError(
+            f"Scorecard run_id={scorecard.run_id!r} does not match "
+            f"manifest run_id={manifest.run_id!r}"
+        )
+
+    scenario_count = len(resolver.entries_by_role(ArtifactRole.SCENARIO_YAML))
+    feature_count = len(resolver.entries_by_role(ArtifactRole.SCENARIO_FEATURE))
+    if scorecard.scenario_count != scenario_count:
+        raise ManifestIntegrityError(
+            f"Scorecard scenario_count={scorecard.scenario_count} "
+            f"does not match inventory count={scenario_count}"
+        )
+    if scorecard.feature_file_count != feature_count:
+        raise ManifestIntegrityError(
+            f"Scorecard feature_file_count={scorecard.feature_file_count} "
+            f"does not match inventory count={feature_count}"
+        )
+    if (
+        manifest.status is RunStatus.COMPLETED
+        and scorecard.qualification.status.value != "pass"
+    ):
+        raise ManifestIntegrityError(
+            "completed manifest requires passing scorecard qualification"
+        )
 
 
 def load_manifest(
@@ -2044,13 +2088,37 @@ def validate_completed_inventory(
                 sc_data = _resolver.read_yaml(sc_entry)
                 if not isinstance(sc_data, dict):
                     raise ManifestIntegrityError("Scorecard root is not a dict")
-                eval_data = sc_data.get("evaluation")
-                if not isinstance(eval_data, dict):
-                    raise ManifestIntegrityError(
-                        "Scorecard 'evaluation' section is not a dict"
-                    )
-                sc_scenario_count = eval_data.get("scenario_count")
-                sc_feature_count = eval_data.get("feature_file_count")
+                if manifest.manifest_version == MANIFEST_V3:
+                    from scenario_forge.eval.scorecard import ScorecardV1
+
+                    try:
+                        scorecard = ScorecardV1.model_validate(sc_data)
+                    except Exception as exc:
+                        raise ManifestIntegrityError(
+                            f"Scorecard violates strict v1 schema: {exc}"
+                        ) from exc
+                    if scorecard.run_id != manifest.run_id:
+                        raise ManifestIntegrityError(
+                            f"Scorecard run_id={scorecard.run_id!r} does not match "
+                            f"manifest run_id={manifest.run_id!r}"
+                        )
+                    if (
+                        manifest.status is RunStatus.COMPLETED
+                        and scorecard.qualification.status.value != "pass"
+                    ):
+                        raise ManifestIntegrityError(
+                            "completed manifest requires passing scorecard qualification"
+                        )
+                    sc_scenario_count = scorecard.scenario_count
+                    sc_feature_count = scorecard.feature_file_count
+                else:
+                    eval_data = sc_data.get("evaluation")
+                    if not isinstance(eval_data, dict):
+                        raise ManifestIntegrityError(
+                            "Scorecard 'evaluation' section is not a dict"
+                        )
+                    sc_scenario_count = eval_data.get("scenario_count")
+                    sc_feature_count = eval_data.get("feature_file_count")
                 # Require both counts
                 if sc_scenario_count is None:
                     raise ManifestIntegrityError("Scorecard missing scenario_count")

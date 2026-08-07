@@ -2941,7 +2941,9 @@ class TestAttackerAccessibleIngressPredicate:
 
     def test_inaccessible_ep_not_in_eval_denominator(self):
         """Inaccessible EPs do not count in eval expected-entry-point denominator."""
-        from scenario_forge.eval.runner import is_attacker_accessible_ingress
+        from scenario_forge.models.capability_profile import (
+            is_attacker_accessible_ingress,
+        )
 
         profile = self._make_profile_with_mixed_entry_points()
         active_zones = set(profile.zones_active)

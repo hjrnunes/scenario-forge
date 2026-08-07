@@ -12,10 +12,12 @@ import pytest
 from scenario_forge.llm.client import LLMResult
 from scenario_forge.manifest import (
     ArtifactRole,
+    compute_file_sha256,
     ManifestIntegrityError,
     ManifestInventoryResolver,
     RunStatus,
     load_manifest,
+    validate_completed_inventory,
 )
 from scenario_forge.models.attack_pattern import AttackPattern
 from scenario_forge.models.capability_profile import ConfidenceLevel, EntryPoint
@@ -327,6 +329,197 @@ def test_exact_projection_match_uses_authoritative_identity(tmp_path: Path) -> N
     assert manifest.manifest_version == "3"
     assert manifest.attempts == []
     assert manifest.funnel == {}
+
+
+def test_completion_recomputes_scorecard_and_report_from_strict_inventory(
+    tmp_path: Path,
+) -> None:
+    import yaml
+
+    from scenario_forge.eval.runner import run_evaluation as actual_evaluation
+    from scenario_forge.eval.scorecard import (
+        MetricResult,
+        QUALIFICATION_GATE_PATHS,
+        REQUIRED_QUALIFICATION_GATE_IDS,
+        ScorecardV1,
+        aggregate_qualification,
+        ratio_metric,
+        zero_gate,
+    )
+
+    projected = get_projected_candidate()
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+
+    def qualifying_evaluation(**kwargs):
+        scorecard = actual_evaluation(**kwargs)
+        scorecard["cross_artifact_agreement"]["metrics"]["pinned_technique_recall"] = (
+            ratio_metric(
+                1,
+                1,
+                evidence=["test fixture supplies qualifying pinned-technique evidence"],
+            ).model_dump(mode="json")
+        )
+        gates = {
+            gate_id: MetricResult.model_validate(
+                scorecard[section]["metrics"][metric_id]
+            )
+            for gate_id, (section, metric_id) in QUALIFICATION_GATE_PATHS.items()
+        }
+        scorecard["qualification"] = aggregate_qualification(
+            gates, required_gate_ids=REQUIRED_QUALIFICATION_GATE_IDS
+        ).model_dump(mode="json")
+        return ScorecardV1.model_validate(scorecard).model_dump(mode="json")
+
+    stack.enter_context(
+        patch(
+            "scenario_forge.eval.runner.run_evaluation",
+            side_effect=qualifying_evaluation,
+        )
+    )
+    rendered_statuses: list[str] = []
+
+    def report(data, out_dir):
+        status = data.scorecard_data["qualification"]["status"]
+        rendered_statuses.append(status)
+        path = Path(out_dir) / "report.html"
+        path.write_text(f"<html>{status}</html>", encoding="utf-8")
+        return path
+
+    stack.enter_context(
+        patch("scenario_forge.report.generator.generate_report", side_effect=report)
+    )
+
+    with stack:
+        result = run_pipeline(**args)
+
+    manifest = load_manifest(result.run_dir)
+    scorecard = yaml.safe_load((result.run_dir / "eval-scorecard.yaml").read_text())
+    presence = scorecard["presence_coverage"]["metrics"]
+    assert manifest.status is RunStatus.COMPLETED
+    assert scorecard["qualification"]["status"] == "pass"
+    assert presence["stale_or_orphan_artifact_count"]["status"] == "pass"
+    assert presence["unmanifested_artifact_count"]["status"] == "pass"
+    assert rendered_statuses == ["fail", "pass"]
+    assert (result.run_dir / "report.html").read_text() == "<html>pass</html>"
+
+    authoritative_bytes = {
+        path.relative_to(result.run_dir): path.read_bytes()
+        for path in result.run_dir.rglob("*")
+        if path.is_file()
+    }
+    actual_evaluation(result.run_dir)
+    assert authoritative_bytes == {
+        path.relative_to(result.run_dir): path.read_bytes()
+        for path in result.run_dir.rglob("*")
+        if path.is_file()
+    }
+
+    manifest_path = result.run_dir / "run-manifest.yaml"
+    authoritative_manifest_bytes = manifest_path.read_bytes()
+    forensic_manifest = yaml.safe_load(authoritative_manifest_bytes)
+    forensic_manifest["status"] = RunStatus.COMPLETED_WITH_ERRORS.value
+    manifest_path.write_text(yaml.safe_dump(forensic_manifest, sort_keys=False))
+    forensic_bytes = {
+        path.relative_to(result.run_dir): path.read_bytes()
+        for path in result.run_dir.rglob("*")
+        if path.is_file()
+    }
+    with pytest.raises(ManifestIntegrityError, match="not authoritative"):
+        actual_evaluation(result.run_dir)
+    actual_evaluation(result.run_dir, allow_non_authoritative=True)
+    assert forensic_bytes == {
+        path.relative_to(result.run_dir): path.read_bytes()
+        for path in result.run_dir.rglob("*")
+        if path.is_file()
+    }
+    manifest_path.write_bytes(authoritative_manifest_bytes)
+
+    scorecard_path = result.run_dir / "eval-scorecard.yaml"
+    scorecard["run_id"] = "forged-run-id"
+    scorecard_path.write_text(yaml.safe_dump(scorecard, sort_keys=False))
+    scorecard_entry = next(
+        entry
+        for entry in manifest.inventory
+        if entry.role is ArtifactRole.EVAL_SCORECARD
+    )
+    scorecard_entry.sha256 = compute_file_sha256(scorecard_path)
+    with pytest.raises(ManifestIntegrityError, match="does not match manifest run_id"):
+        validate_completed_inventory(
+            manifest, eval_enabled=True, run_dir=result.run_dir
+        )
+    manifest.status = RunStatus.COMPLETED_WITH_ERRORS
+    with pytest.raises(ManifestIntegrityError, match="does not match manifest run_id"):
+        ManifestInventoryResolver(result.run_dir, manifest, check_orphans=True)
+    manifest.status = RunStatus.COMPLETED
+
+    scorecard["run_id"] = manifest.run_id
+    scorecard["presence_coverage"]["metrics"]["nonempty_admitted_inventory"] = (
+        zero_gate(
+            1,
+            evidence=["forged failing required gate"],
+            affected_ids=[manifest.run_id],
+        ).model_dump(mode="json")
+    )
+    gates = {
+        gate_id: MetricResult.model_validate(scorecard[section]["metrics"][metric_id])
+        for gate_id, (section, metric_id) in QUALIFICATION_GATE_PATHS.items()
+    }
+    scorecard["qualification"] = aggregate_qualification(
+        gates, required_gate_ids=REQUIRED_QUALIFICATION_GATE_IDS
+    ).model_dump(mode="json")
+    failing_scorecard = ScorecardV1.model_validate(scorecard).model_dump(mode="json")
+    scorecard_path.write_text(yaml.safe_dump(failing_scorecard, sort_keys=False))
+    scorecard_entry.sha256 = compute_file_sha256(scorecard_path)
+    with pytest.raises(ManifestIntegrityError, match="requires passing scorecard"):
+        validate_completed_inventory(
+            manifest, eval_enabled=True, run_dir=result.run_dir
+        )
+
+    manifest.status = RunStatus.COMPLETED_WITH_ERRORS
+    ManifestInventoryResolver(result.run_dir, manifest, check_orphans=True)
+    validate_completed_inventory(manifest, eval_enabled=True, run_dir=result.run_dir)
+
+
+def test_orphan_injected_before_strict_completion_blocks_completed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from scenario_forge.eval.runner import run_evaluation as actual_evaluation
+
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[get_projected_candidate()],
+    )
+    stack.enter_context(
+        patch(
+            "scenario_forge.eval.runner.run_evaluation",
+            side_effect=actual_evaluation,
+        )
+    )
+
+    def report(data, out_dir):
+        path = Path(out_dir) / "report.html"
+        path.write_text("<html>provisional</html>", encoding="utf-8")
+        (Path(out_dir) / "orphan.txt").write_text("injected", encoding="utf-8")
+        return path
+
+    stack.enter_context(
+        patch("scenario_forge.report.generator.generate_report", side_effect=report)
+    )
+
+    with stack, pytest.raises(ManifestIntegrityError, match="orphan"):
+        run_pipeline(**args)
+
+    [run_dir] = (tmp_path / "runs").iterdir()
+    manifest = load_manifest(run_dir)
+    assert manifest.status is RunStatus.FAILED
+    assert not (run_dir / "eval-scorecard.yaml").exists()
+    assert not (run_dir / "report.html").exists()
+    assert "orphan" in caplog.text
 
 
 def test_tree_is_immutable_through_admission_persistence_and_evaluation(

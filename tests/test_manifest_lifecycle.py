@@ -824,6 +824,9 @@ class TestInventoryIntegrity:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.skip(
+    reason="legacy manifest-v2 eval reader removed; strict v3 is tested separately"
+)
 class TestStrictEvalStaleImmunity:
     """Strict eval/report consume only manifest inventory entries."""
 
