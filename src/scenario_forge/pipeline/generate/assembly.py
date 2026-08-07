@@ -561,12 +561,24 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
 
     Each call receives the same full ordered selected steps, omissions/
     condition decisions, execution requirements, bindings (with concrete
-    resource_ref values), exact opaque IDs, mappings, and canonical
-    ingress constraints—not another partial tuple of strings.
+    resource_ref values), mappings, and canonical ingress constraints—not
+    another partial tuple of strings.
+
+    Note: per-step realization echo fields (consumed, produced,
+    observable_outcome_links) and the projection_digest are omitted
+    from the context — the prompt templates no longer render them.
+    Realizations are derived deterministically in post-processing
+    (Phase 1).
+
+    ``observable_postconditions`` is retained because Call 3
+    validation (``gherkin.py``) reads it to build postcondition
+    ownership tables.
+
+    The ``"realization"`` key on each step dict is retained because
+    ``_fill_tree_realizations`` reads it during post-processing.
     """
     from scenario_forge.models.realization import (
         derive_step_realization,
-        extract_resource_id,
     )
 
     chain = candidate.projection.source_chain
@@ -577,9 +589,8 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
     bindings_by_slot = {b.slot_id: b for b in candidate.projection.bindings}
     binding_by_slot = {b.slot_id: b.resource_ref for b in candidate.projection.bindings}
 
-    # Build canonical realization records per step — serialized as a nested
-    # "realization" field so validators can use ProjectedStepRealization.
-    # model_validate() instead of manually reconstructing fields.
+    # Build canonical realization records per step — retained for
+    # post-processing (_fill_tree_realizations) but not rendered in prompts.
     step_realizations: dict[str, dict[str, Any]] = {}
     for step in selected_steps:
         r = derive_step_realization(step, binding_by_slot)
@@ -609,15 +620,11 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
                             if link.slot_id in bindings_by_slot
                             else None
                         ),
-                        # Include the opaque resource ID for quick comparison.
-                        "resource_ref_id": (
-                            extract_resource_id(binding_by_slot[link.slot_id])
-                            if link.slot_id in binding_by_slot
-                            else ""
-                        ),
                     }
                     for link in step.resource_links
                 ],
+                # Postconditions are retained for Call 3 validation
+                # (gherkin.py builds postcondition ownership tables).
                 "observable_postconditions": [
                     {
                         "postcondition_id": pc.postcondition_id,
@@ -627,17 +634,8 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
                     }
                     for pc in step.observable_postconditions
                 ],
-                "observable_outcome_links": [
-                    {
-                        "postcondition_id": ol.postcondition_id,
-                        "observation": ol.observation,
-                        "binding_slot_id": ol.binding_slot_id,
-                    }
-                    for ol in step.observable_outcome_links
-                ],
-                "produced": [p.model_dump(mode="json") for p in step.produced],
-                "consumed": [c.model_dump(mode="json") for c in step.consumed],
-                # Canonical realization record (nested, for exact validation).
+                # Canonical realization record — used by post-processing
+                # (_fill_tree_realizations), not rendered in prompts.
                 "realization": step_realizations.get(step.step_id, {}),
             }
             for step in selected_steps
@@ -691,7 +689,6 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
             }
             for b in candidate.projection.bindings
         ],
-        "projection_digest": candidate.projection.projection_digest,
         "pattern_id": chain.pattern_id,
         "chain_id": chain.chain_id,
         "chain_semantic_revision": chain.semantic_revision,

@@ -556,8 +556,8 @@ class TestCall2ProjectionRetry:
 
     def test_retry_preserves_full_projection_context(self) -> None:
         """The retry user prompt must contain the original projection
-        digest, selected step IDs, bindings/resource refs, conditions/
-        evidence, and original context — not just parse feedback."""
+        selected step IDs, bindings/resource refs, conditions/evidence,
+        and original context — not just parse feedback."""
         ctx = self._make_projection_context()
         valid_yaml = self._make_valid_tree_yaml(ctx)
         projectionless_yaml = self._make_projectionless_tree_yaml()
@@ -587,7 +587,7 @@ class TestCall2ProjectionRetry:
         retry_prompt = retry_call.kwargs.get("user_prompt", "")
 
         # Original projection context survives in the retry prompt
-        assert ctx["projection_digest"] in retry_prompt
+        # (projection_digest removed in Phase 2 — check step IDs instead)
         assert "step.1" in retry_prompt
         # Bindings / resource refs present
         assert any(b["slot_id"] in retry_prompt for b in ctx["bindings"]), (
