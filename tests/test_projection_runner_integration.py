@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scenario_forge.llm.client import LLMResult
-from scenario_forge.manifest import ArtifactRole, RunStatus, load_manifest
+from scenario_forge.manifest import (
+    ArtifactRole,
+    ManifestIntegrityError,
+    RunStatus,
+    load_manifest,
+)
 from scenario_forge.models.attack_pattern import AttackPattern
 from scenario_forge.models.capability_profile import ConfidenceLevel, EntryPoint
 from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
@@ -252,6 +258,13 @@ def _arrange(tmp_path: Path, *, entry_point_id: str, projected_candidates: list)
 
     def evaluate(*, resolver, threats_path=None):
         inventory = resolver.manifest.inventory
+        assert not any(
+            item.role is ArtifactRole.QUARANTINE_BUNDLE for item in inventory
+        )
+        assert {item.role for item in inventory if item.scenario_id is not None} <= {
+            ArtifactRole.SCENARIO_YAML,
+            ArtifactRole.SCENARIO_FEATURE,
+        }
         return {
             "evaluation": {
                 "scenario_count": sum(
@@ -534,6 +547,7 @@ def test_production_primary_quarantine_then_fallback_admits(tmp_path: Path) -> N
                     ].candidate_id
                 },
                 attempted_candidate_ids={projected[0].candidate_id},
+                per_pattern_counts={projected[0].pattern_id: 1},
             ),
         )
     )
@@ -644,6 +658,7 @@ def test_public_resume_terminalizes_unknown_actor_without_reissue(
                     ].candidate_id
                 },
                 attempted_candidate_ids={projected[0].candidate_id},
+                per_pattern_counts={projected[0].pattern_id: 1},
             ),
         )
     )
@@ -663,6 +678,7 @@ def test_public_resume_terminalizes_unknown_actor_without_reissue(
             ArtifactRole.USE_CASE,
             ArtifactRole.CAPABILITY_PROFILE,
             ArtifactRole.THREAT_SURFACE,
+            ArtifactRole.PLANNING_CHECKPOINT,
         }
         before = read_finalization_inventory(run_dir)
         assert len(before.transitions) >= 2
@@ -702,6 +718,256 @@ def test_public_resume_terminalizes_unknown_actor_without_reissue(
     assert [item.code for item in unknown.violations] == ["unknown_invocation_outcome"]
     assert unknown.terminal_receipts[0].role is ArtifactRole.QUARANTINE_BUNDLE
     assert load_manifest(run_dir).status is RunStatus.COMPLETED_WITH_ERRORS
+
+
+def test_resume_preserves_persisted_no_eval_policy(tmp_path: Path) -> None:
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    actor = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_actor_stage",
+            side_effect=KeyboardInterrupt("interrupt finalization"),
+        )
+    )
+    evaluator = MagicMock(side_effect=AssertionError("evaluation must stay disabled"))
+    stack.enter_context(patch("scenario_forge.eval.runner.run_evaluation", evaluator))
+
+    with stack:
+        with pytest.raises(KeyboardInterrupt):
+            run_pipeline(**args, eval=False)
+        run_dir = next(args["output_dir"].iterdir())
+        actor.side_effect = None
+        envelope = _make_valid_envelope()
+        envelope.attack_tree.root.threat_id = "T1"
+        actor.return_value = ActorStageResult(
+            envelope.actor_profile,
+            StageCallEvidence(
+                CallName.actor_profile,
+                LLMResult(
+                    content="mock",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                    system_prompt="mock",
+                    user_prompt="mock",
+                ),
+                CallMetadata(
+                    call=CallName.actor_profile,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                ),
+            ),
+        )
+        resumed = resume_pipeline(run_dir)
+
+    generate.assert_not_called()
+    evaluator.assert_not_called()
+    assert resumed.run_dir == run_dir
+    assert load_manifest(run_dir).status is RunStatus.COMPLETED_WITH_ERRORS
+
+
+def test_resume_rejects_conflicting_eval_before_candidate_generation(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, _, generate, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    actor = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_actor_stage",
+            side_effect=KeyboardInterrupt("interrupt finalization"),
+        )
+    )
+
+    with stack:
+        with pytest.raises(KeyboardInterrupt):
+            run_pipeline(**args, eval=False)
+        run_dir = next(args["output_dir"].iterdir())
+        with pytest.raises(ManifestIntegrityError, match="eval override conflicts"):
+            resume_pipeline(run_dir, eval=True)
+
+    generate.assert_not_called()
+    assert actor.call_count == 1
+
+
+def test_resume_passes_persisted_custom_threats_path_to_evaluator(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    custom_threats = tmp_path / "custom-threats.yaml"
+    custom_threats.write_text("threats: []\n", encoding="utf-8")
+    actor = stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_actor_stage",
+            side_effect=KeyboardInterrupt("interrupt finalization"),
+        )
+    )
+    seen_paths: list[Path | None] = []
+
+    def evaluate(*, resolver, threats_path=None):
+        seen_paths.append(threats_path)
+        return {"evaluation": {}, "metrics": {}}
+
+    stack.enter_context(
+        patch("scenario_forge.eval.runner.run_evaluation", side_effect=evaluate)
+    )
+
+    with stack:
+        with pytest.raises(KeyboardInterrupt):
+            run_pipeline(**args, threats_path=custom_threats)
+        run_dir = next(args["output_dir"].iterdir())
+        actor.side_effect = None
+        actor.return_value = ActorStageResult(
+            _make_valid_envelope().actor_profile,
+            StageCallEvidence(
+                CallName.actor_profile,
+                LLMResult(
+                    content="mock",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                    system_prompt="mock",
+                    user_prompt="mock",
+                ),
+                CallMetadata(
+                    call=CallName.actor_profile,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                ),
+            ),
+        )
+        resume_pipeline(run_dir)
+
+    assert seen_paths == [custom_threats]
+
+
+def test_resume_hydrates_production_planning_checkpoint_attribution(
+    tmp_path: Path,
+) -> None:
+    """The resumed completion tail receives the exact production evidence."""
+    from scenario_forge.pipeline.coverage_planning import (
+        build_coverage_universe,
+        emit_quality_gaps,
+    )
+
+    rejected_id = "cand:v2:" + "f" * 32
+    arranged_profile = _make_profile()
+    arranged_profile.confidence = ConfidenceLevel.high
+    arranged_profile.entry_points.append(
+        EntryPoint(name="chat", direction="input", controllability="direct")
+    )
+    feasible_ids = sorted(build_coverage_universe(arranged_profile).feasible_target_ids)
+    rejected_target, limited_target = feasible_ids
+    stack, patches, _, args = _arrange(
+        tmp_path,
+        entry_point_id=rejected_target,
+        projected_candidates=[],
+    )
+    patches["project_authoritative_candidates"].return_value = SimpleNamespace(
+        candidates=[],
+        infeasibilities=[],
+        limitations=[],
+        unreserved_coverage_targets=[limited_target],
+        infeasible_coverage_targets=[],
+    )
+    completion_inputs: list[dict] = []
+
+    def interrupt_then_capture(**kwargs):
+        completion_inputs.append(kwargs)
+        if len(completion_inputs) == 1:
+            raise KeyboardInterrupt("interrupt completion tail")
+        return MagicMock(run_dir=kwargs["run_dir"], scenarios=[])
+
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner._complete_v3_run",
+            side_effect=interrupt_then_capture,
+        )
+    )
+
+    with stack:
+        with pytest.raises(KeyboardInterrupt):
+            run_pipeline(**args)
+        run_dir = next(args["output_dir"].iterdir())
+        resume_pipeline(run_dir)
+
+    fresh, resumed = completion_inputs
+    fresh_events = [event.to_dict() for event in fresh["stage_ledger"].events]
+    resumed_events = [event.to_dict() for event in resumed["stage_ledger"].events]
+    assert resumed_events == fresh_events
+    assert resumed["projection_limitation_target_ids"] == {limited_target}
+    rejection = next(
+        event for event in resumed_events if event["reason"] == "no_projection"
+    )
+    assert rejection["candidate_id"] == rejected_id
+
+    fresh_gaps, fresh_summary = emit_quality_gaps(
+        fresh["coverage_universe"],
+        fresh["stage_ledger"],
+        fresh["selection_result"],
+        fresh["fallback_queues"],
+        projection_limitation_target_ids=fresh["projection_limitation_target_ids"],
+    )
+    resumed_gaps, resumed_summary = emit_quality_gaps(
+        resumed["coverage_universe"],
+        resumed["stage_ledger"],
+        resumed["selection_result"],
+        resumed["fallback_queues"],
+        projection_limitation_target_ids=resumed["projection_limitation_target_ids"],
+    )
+    assert resumed_summary.to_dict() == fresh_summary.to_dict()
+    assert [gap.to_dict() for gap in resumed_gaps] == [
+        gap.to_dict() for gap in fresh_gaps
+    ]
+    projection_gap = next(
+        gap
+        for gap in fresh_summary.structural_gaps
+        if gap["reason"] == "projection_rejection"
+    )
+    assert projection_gap["candidate_ids"] == [rejected_id]
+    assert fresh_summary.projection_limitations[0]["reason"] == "projection_limitation"
+
+
+def test_failed_run_inventories_published_planning_checkpoint(tmp_path: Path) -> None:
+    from scenario_forge.manifest import ManifestInventoryResolver
+
+    projected = get_projected_candidate()
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.run_target_finalization",
+            side_effect=RuntimeError("finalization failed after planning checkpoint"),
+        )
+    )
+
+    with stack, pytest.raises(RuntimeError, match="finalization failed"):
+        run_pipeline(**args)
+
+    run_dir = next(args["output_dir"].iterdir())
+    manifest = load_manifest(run_dir)
+    assert manifest.status is RunStatus.FAILED
+    assert any(
+        item.role is ArtifactRole.PLANNING_CHECKPOINT for item in manifest.inventory
+    )
+    ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
 
 
 @pytest.mark.parametrize(

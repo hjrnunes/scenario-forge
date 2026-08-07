@@ -215,6 +215,10 @@ def _complete_v3_run(
     from scenario_forge.pipeline.persistence import read_finalization_inventory
     from scenario_forge.pipeline.runner_finalization import build_v3_inventory
 
+    started_manifest = load_manifest(run_dir, requested_version=MANIFEST_VERSION)
+    if started_manifest.status is not RunStatus.STARTED:
+        raise ManifestIntegrityError("v3 completion tail requires STARTED manifest")
+    ManifestInventoryResolver(run_dir, started_manifest, check_orphans=False)
     final_inventory_doc = read_finalization_inventory(run_dir)
     admitted_scenarios = _load_admitted_scenarios(
         run_dir, run_id, timestamp_start, provenance, final_inventory_doc
@@ -398,23 +402,86 @@ def _complete_v3_run(
     )
 
 
+def _hydrate_planning_inputs(
+    planning: object, durable_plan: object
+) -> tuple[object, dict]:
+    """Rebuild the exact typed selection inputs persisted before finalization."""
+    from scenario_forge.pipeline.coverage_planning import (
+        QualifiedCandidate,
+        SelectionResult,
+        TargetFallbackQueue,
+        deserialize_qualified_candidate,
+    )
+
+    hydrated_by_id: dict[str, QualifiedCandidate] = {}
+    fallback_queues: dict[str, TargetFallbackQueue] = {}
+    for target in durable_plan.targets:
+        choices: list[QualifiedCandidate] = []
+        for ref in target.ordered_choices:
+            hydrated = deserialize_qualified_candidate(ref.model_dump(mode="json"))
+            candidate = QualifiedCandidate(
+                projected=hydrated.projected,
+                accepted_filters=hydrated.accepted_filters,
+                rank=hydrated.rank,
+            )
+            choices.append(candidate)
+            hydrated_by_id[candidate.candidate_id] = candidate
+        fallback_queues[target.entry_point_id] = TargetFallbackQueue(
+            entry_point_id=target.entry_point_id,
+            choices=choices,
+        )
+    try:
+        selected = [
+            QualifiedCandidate(
+                projected=hydrated_by_id[item].projected,
+                accepted_filters=hydrated_by_id[item].accepted_filters,
+                rank=rank,
+            )
+            for rank, item in enumerate(planning.selected_candidate_ids)
+        ]
+    except KeyError as exc:
+        raise ManifestIntegrityError(
+            "planning checkpoint selected candidate is absent from plan"
+        ) from exc
+    actual_pattern_counts: dict[str, int] = {}
+    for candidate in selected:
+        actual_pattern_counts[candidate.pattern_id] = (
+            actual_pattern_counts.get(candidate.pattern_id, 0) + 1
+        )
+    if actual_pattern_counts != planning.per_pattern_counts:
+        raise ManifestIntegrityError("planning checkpoint pattern counts mismatch")
+
+    selection_result = SelectionResult(
+        selected=selected,
+        capped_count=planning.capped_count,
+        uncovered_target_ids=list(planning.uncovered_target_ids),
+        per_pattern_counts=dict(planning.per_pattern_counts),
+        primary_candidate_ids=dict(planning.primary_candidate_ids),
+        attempted_candidate_ids=set(planning.attempted_candidate_ids),
+        selection_limitation_target_ids=list(planning.selection_limitation_target_ids),
+    )
+    return selection_result, fallback_queues
+
+
 def resume_pipeline(
     run_dir: Path,
     *,
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
-    eval: bool = True,
+    eval: bool | None = None,
     log_level: str = "INFO",
     structured: bool = False,
 ) -> PipelineResult:
     """Resume exactly one interrupted manifest-v3 run in place."""
     from scenario_forge.log_config import setup_logging
-    from scenario_forge.pipeline.coverage_planning import CoveragePlan, SelectionResult
+    from scenario_forge.pipeline.coverage_planning import CoveragePlan
     from scenario_forge.pipeline.persistence import (
         read_coverage_plan,
         read_finalization_inventory,
+        read_planning_checkpoint_bytes,
         recover_finalization_journal,
+        validate_planning_checkpoint,
     )
     from scenario_forge.pipeline.runner_finalization import run_target_finalization
 
@@ -437,16 +504,18 @@ def resume_pipeline(
         raise ManifestIntegrityError("manifest run_id does not match run directory")
     if manifest.provenance is None or manifest.provenance.run_id != manifest.run_id:
         raise ManifestIntegrityError("manifest provenance run_id mismatch")
-    recover_finalization_journal(supplied, expected_run_id=manifest.run_id)
     support = ManifestInventoryResolver(supplied, manifest, check_orphans=False)
     use_entry = support.entry_by_role(ArtifactRole.USE_CASE)
     profile_entry = support.entry_by_role(ArtifactRole.CAPABILITY_PROFILE)
     threat_entry = support.entry_by_role(ArtifactRole.THREAT_SURFACE)
-    if not all((use_entry, profile_entry, threat_entry)):
+    planning_entry = support.entry_by_role(ArtifactRole.PLANNING_CHECKPOINT)
+    if not all((use_entry, profile_entry, threat_entry, planning_entry)):
         raise ManifestIntegrityError("started manifest support inventory is incomplete")
     use_case = support.read_text(use_entry)  # type: ignore[arg-type]
     profile = CapabilityProfile.model_validate(support.read_yaml(profile_entry))  # type: ignore[arg-type]
     threat_surface = ThreatSurface.model_validate(support.read_yaml(threat_entry))  # type: ignore[arg-type]
+    planning = read_planning_checkpoint_bytes(support.read_bytes(planning_entry))  # type: ignore[arg-type]
+    recover_finalization_journal(supplied, expected_run_id=manifest.run_id)
     inventory = read_finalization_inventory(supplied)
     if inventory.run_id != manifest.run_id:
         raise ManifestIntegrityError("finalization inventory run_id mismatch")
@@ -470,6 +539,11 @@ def resume_pipeline(
     }
     if not required_paths.issubset(options):
         raise ManifestIntegrityError("resume command provenance is incomplete")
+    persisted_eval = options.get("eval")
+    if not isinstance(persisted_eval, bool):
+        raise ManifestIntegrityError("resume eval provenance must be boolean")
+    if eval is not None and eval is not persisted_eval:
+        raise ManifestIntegrityError("resume eval override conflicts with provenance")
     current_hashes = _capture_input_hashes(
         use_case,
         Path(options["risk_extraction_path"]),
@@ -499,6 +573,7 @@ def resume_pipeline(
     capability_snapshot = capture_capability_snapshot(profile)
     trusted_catalog = list(load_attack_patterns().values())
     durable_plan = read_coverage_plan(supplied)
+    validate_planning_checkpoint(planning, durable_plan)
     from scenario_forge.pipeline.coverage_planning import revalidate_qualified_candidate
 
     try:
@@ -514,6 +589,7 @@ def resume_pipeline(
         raise ManifestIntegrityError(
             f"resume durable candidate provenance drift: {exc}"
         ) from exc
+    selection_result, fallback_queues = _hydrate_planning_inputs(planning, durable_plan)
 
     setup_logging(log_level=log_level, output_dir=supplied, structured=structured)
     persisted_model = provenance.model_config_provenance
@@ -553,25 +629,13 @@ def resume_pipeline(
         trusted_catalog=trusted_catalog,
     )
     durable_plan = finalization.coverage_plan
-    selection_result = SelectionResult(
-        uncovered_target_ids=[
-            target.entry_point_id
-            for target in durable_plan.targets
-            if not target.ordered_choices
-        ],
-        primary_candidate_ids={
-            target.entry_point_id: target.primary_candidate_id
-            for target in durable_plan.targets
-            if target.primary_candidate_id is not None
-        },
-        attempted_candidate_ids={
-            candidate_id
-            for target in durable_plan.targets
-            for candidate_id in target.attempted_candidate_ids
-        },
-        selection_limitation_target_ids=list(
-            durable_plan.selection_limitation_target_ids
-        ),
+    from scenario_forge.pipeline.coverage_planning import StageEvent
+
+    stage_ledger = StageLedger(
+        events=[
+            StageEvent(**item.model_dump(mode="python"))
+            for item in planning.stage_events
+        ]
     )
     return _complete_v3_run(
         run_dir=supplied,
@@ -582,12 +646,12 @@ def resume_pipeline(
         threat_surface=threat_surface,
         finalization=finalization,
         coverage_universe=build_coverage_universe(profile),
-        stage_ledger=StageLedger(),
+        stage_ledger=stage_ledger,
         selection_result=selection_result,
-        fallback_queues={},
-        projection_limitation_target_ids=set(),
-        threats_path=None,
-        eval_enabled=eval,
+        fallback_queues=fallback_queues,
+        projection_limitation_target_ids=set(planning.projection_limitation_target_ids),
+        threats_path=Path(options["threats_path"]),
+        eval_enabled=persisted_eval,
         seeds=[],
         filtered_seeds=None,
         governance_count=len(threat_surface.governance_only),
@@ -1147,6 +1211,7 @@ def _build_failed_evidence_inventory(
     _add_if_exists(ArtifactRole.USE_CASE, "use-case.txt")
     _add_if_exists(ArtifactRole.CAPABILITY_PROFILE, "capability-profile.yaml")
     _add_if_exists(ArtifactRole.THREAT_SURFACE, "threat-surface.yaml")
+    _add_if_exists(ArtifactRole.PLANNING_CHECKPOINT, "planning-checkpoint.json")
     _add_if_exists(ArtifactRole.COVERAGE_REPORT, "coverage-gaps.json")
     _add_if_exists(ArtifactRole.PIPELINE_CALL_LOG, "calls.jsonl")
     _add_if_exists(ArtifactRole.EVAL_SCORECARD, "eval-scorecard.yaml")
@@ -1977,7 +2042,9 @@ def run_pipeline(
         # candidate callback.  Everything below this return is intentionally
         # retained as the v2 implementation for Phase 6 removal only.
         from scenario_forge.pipeline.persistence import (
+            PlanningCheckpointV1,
             make_finalization_persistence_adapter,
+            write_planning_checkpoint,
         )
         from scenario_forge.pipeline.runner_finalization import (
             run_target_finalization,
@@ -1987,6 +2054,30 @@ def run_pipeline(
         initial_plan = build_coverage_plan(
             coverage_universe, fallback_queues, selection_result
         )
+        planning_checkpoint = PlanningCheckpointV1(
+            stage_events=[event.to_dict() for event in stage_ledger.events],
+            projection_limitation_target_ids=sorted(projection_limitation_target_ids),
+            selected_candidate_ids=[
+                candidate.candidate_id for candidate in selection_result.selected
+            ],
+            capped_count=selection_result.capped_count,
+            uncovered_target_ids=sorted(selection_result.uncovered_target_ids),
+            per_pattern_counts=dict(
+                sorted(selection_result.per_pattern_counts.items())
+            ),
+            primary_candidate_ids=dict(
+                sorted(selection_result.primary_candidate_ids.items())
+            ),
+            attempted_candidate_ids=sorted(selection_result.attempted_candidate_ids),
+            selection_limitation_target_ids=sorted(
+                selection_result.selection_limitation_target_ids
+            ),
+            fallback_candidate_ids={
+                target_id: queue.candidate_ids()
+                for target_id, queue in sorted(fallback_queues.items())
+            },
+        )
+        write_planning_checkpoint(run_dir, planning_checkpoint)
         # Atomically replace the sentinel with a hash-bound inventory of
         # immutable resume support before publishing mutable lifecycle state.
         # This keeps a crash immediately after plan persistence resumable.
@@ -1996,6 +2087,7 @@ def run_pipeline(
                 (ArtifactRole.USE_CASE, "use-case.txt"),
                 (ArtifactRole.CAPABILITY_PROFILE, "capability-profile.yaml"),
                 (ArtifactRole.THREAT_SURFACE, "threat-surface.yaml"),
+                (ArtifactRole.PLANNING_CHECKPOINT, "planning-checkpoint.json"),
             )
         ]
         write_started_manifest(run_dir, partial_manifest)
@@ -3061,7 +3153,40 @@ def run_pipeline(
                     recover_finalization_journal,
                 )
 
-                recover_finalization_journal(run_dir, expected_run_id=run_id)
+                immutable_roles = {
+                    ArtifactRole.USE_CASE,
+                    ArtifactRole.CAPABILITY_PROFILE,
+                    ArtifactRole.THREAT_SURFACE,
+                    ArtifactRole.PLANNING_CHECKPOINT,
+                }
+                try:
+                    started_manifest = load_manifest(
+                        run_dir, requested_version=MANIFEST_VERSION
+                    )
+                except Exception:  # noqa: BLE001 - early failures may predate sentinel
+                    started_manifest = None
+                immutable_entries = (
+                    [
+                        item
+                        for item in started_manifest.inventory
+                        if item.role in immutable_roles
+                    ]
+                    if started_manifest is not None
+                    else []
+                )
+                support_valid = True
+                if started_manifest is not None:
+                    try:
+                        ManifestInventoryResolver(
+                            run_dir, started_manifest, check_orphans=False
+                        )
+                    except ManifestIntegrityError as support_exc:
+                        support_valid = False
+                        failed_manifest.error = (
+                            f"{exc}; immutable support validation failed: {support_exc}"
+                        )
+                if support_valid:
+                    recover_finalization_journal(run_dir, expected_run_id=run_id)
                 failed_manifest.attempts = []
                 failed_manifest.funnel = {}
                 failed_manifest.stage_records = []
@@ -3074,9 +3199,12 @@ def run_pipeline(
                 failed_manifest.parsimony = {}
                 failed_manifest.scenarios_generated = 0
                 failed_manifest.scenarios_failed = 0
-                failed_manifest.inventory = _build_failed_evidence_inventory(
-                    run_dir, []
-                )
+                evidence_inventory = _build_failed_evidence_inventory(run_dir, [])
+                failed_manifest.inventory = [
+                    item
+                    for item in evidence_inventory
+                    if item.role not in immutable_roles
+                ] + immutable_entries
                 write_failed_manifest(run_dir, failed_manifest)
                 raise
             # Include any accumulated attempts

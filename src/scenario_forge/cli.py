@@ -170,7 +170,6 @@ def resume(
     base_url: str | None = typer.Option(None),
     api_key: str | None = typer.Option(None),
     model: str | None = typer.Option(None),
-    eval: bool = typer.Option(True, "--eval/--no-eval"),
     log_level: str = typer.Option("INFO", case_sensitive=False),
     structured: bool = typer.Option(False),
 ) -> None:
@@ -186,7 +185,6 @@ def resume(
             base_url=base_url,
             api_key=api_key,
             model=model,
-            eval=eval,
             log_level=log_level,
             structured=structured,
         )

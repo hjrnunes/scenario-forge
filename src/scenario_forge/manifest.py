@@ -95,6 +95,7 @@ class ArtifactRole(str, Enum):
     EVAL_SCORECARD = "eval_scorecard"
     REPORT = "report"
     PIPELINE_LOG = "pipeline_log"
+    PLANNING_CHECKPOINT = "planning_checkpoint"
     COVERAGE_PLAN = "coverage_plan"
     FINALIZATION_INVENTORY = "finalization_inventory"
     QUARANTINE_BUNDLE = "quarantine_bundle"
@@ -188,6 +189,12 @@ _ROLE_METADATA: dict[ArtifactRole, dict[str, Any]] = {
         "schema_versions": ["1"],
         "singleton_path": "pipeline.log",
     },
+    ArtifactRole.PLANNING_CHECKPOINT: {
+        "extension": ".json",
+        "media_type": "application/json",
+        "schema_versions": ["1"],
+        "singleton_path": "planning-checkpoint.json",
+    },
     ArtifactRole.COVERAGE_PLAN: {
         "extension": ".json",
         "media_type": "application/json",
@@ -220,6 +227,7 @@ SINGLETON_ROLES: frozenset[ArtifactRole] = frozenset(
         ArtifactRole.PIPELINE_LOG,
         ArtifactRole.PIPELINE_CALL_LOG,
         ArtifactRole.SCENARIO_CALL_LOG,
+        ArtifactRole.PLANNING_CHECKPOINT,
         ArtifactRole.COVERAGE_PLAN,
         ArtifactRole.FINALIZATION_INVENTORY,
     }
@@ -883,6 +891,7 @@ class ManifestInventoryResolver:
                 ) from None
 
             if self.manifest.manifest_version == LEGACY_MANIFEST_VERSION and role in {
+                ArtifactRole.PLANNING_CHECKPOINT,
                 ArtifactRole.COVERAGE_PLAN,
                 ArtifactRole.FINALIZATION_INVENTORY,
                 ArtifactRole.QUARANTINE_BUNDLE,

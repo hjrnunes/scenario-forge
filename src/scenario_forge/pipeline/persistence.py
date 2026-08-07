@@ -55,6 +55,7 @@ from scenario_forge.pipeline.projection import canonical_json_bytes
 COVERAGE_PLAN_VERSION = "2"
 FINALIZATION_INVENTORY_VERSION = "1"
 QUARANTINE_BUNDLE_VERSION = "1"
+PLANNING_CHECKPOINT_VERSION = "1"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 MAX_TARGET_CHOICES = 3
 
@@ -63,6 +64,54 @@ class StrictModel(BaseModel):
     """Persistence base: unknown fields are never silently accepted."""
 
     model_config = {"extra": "forbid", "use_enum_values": False}
+
+
+class PlanningStageEventV1(StrictModel):
+    # Global projection evidence and target-level budget evidence legitimately
+    # have no candidate identity (and global issues have no target identity).
+    entry_point_id: str
+    candidate_id: str
+    stage: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    detail: str = ""
+    payload: JsonValue | None = None
+
+
+class PlanningCheckpointV1(StrictModel):
+    """Immutable pre-finalization evidence needed by the completion tail."""
+
+    schema_version: Literal["1"] = "1"
+    stage_events: list[PlanningStageEventV1]
+    projection_limitation_target_ids: list[str]
+    selected_candidate_ids: list[str]
+    capped_count: int = Field(ge=0)
+    uncovered_target_ids: list[str]
+    per_pattern_counts: dict[str, int]
+    primary_candidate_ids: dict[str, str]
+    attempted_candidate_ids: list[str]
+    selection_limitation_target_ids: list[str]
+    fallback_candidate_ids: dict[str, list[str]]
+
+    @model_validator(mode="after")
+    def canonical_collections(self) -> PlanningCheckpointV1:
+        ordered_lists = (
+            self.projection_limitation_target_ids,
+            self.uncovered_target_ids,
+            self.attempted_candidate_ids,
+            self.selection_limitation_target_ids,
+        )
+        if any(values != sorted(set(values)) for values in ordered_lists):
+            raise ValueError("planning checkpoint ID lists must be sorted and unique")
+        if self.selected_candidate_ids != list(
+            dict.fromkeys(self.selected_candidate_ids)
+        ):
+            raise ValueError("selected candidate IDs must be ordered and unique")
+        if any(
+            ids != list(dict.fromkeys(ids))
+            for ids in self.fallback_candidate_ids.values()
+        ):
+            raise ValueError("fallback candidate IDs must be ordered and unique")
+        return self
 
 
 class TargetState(str, Enum):
@@ -1381,6 +1430,67 @@ def write_quarantine_bundle(run_dir: Path, bundle: QuarantineBundleV1) -> Artifa
     )
 
 
+def write_planning_checkpoint(run_dir: Path, checkpoint: PlanningCheckpointV1) -> Path:
+    checkpoint = PlanningCheckpointV1.model_validate(
+        checkpoint.model_dump(mode="python")
+    )
+    _exclusive_create(
+        run_dir, "planning-checkpoint.json", canonical_json_bytes(checkpoint)
+    )
+    return run_dir / "planning-checkpoint.json"
+
+
+def read_planning_checkpoint_bytes(content: bytes) -> PlanningCheckpointV1:
+    try:
+        return PlanningCheckpointV1.model_validate_json(content)
+    except Exception as exc:
+        raise ManifestIntegrityError(f"Invalid planning checkpoint: {exc}") from exc
+
+
+def validate_planning_checkpoint(
+    checkpoint: PlanningCheckpointV1, plan: CoveragePlanV2
+) -> None:
+    """Bind immutable completion-tail evidence to the durable target plan."""
+    expected_fallbacks = {
+        target.entry_point_id: [
+            choice.candidate_id for choice in target.ordered_choices
+        ]
+        for target in plan.targets
+    }
+    expected_primaries = {
+        target.entry_point_id: target.primary_candidate_id
+        for target in plan.targets
+        if target.primary_candidate_id is not None
+    }
+    if checkpoint.fallback_candidate_ids != expected_fallbacks:
+        raise ManifestIntegrityError(
+            "planning checkpoint fallback queues mismatch plan"
+        )
+    if checkpoint.primary_candidate_ids != expected_primaries:
+        raise ManifestIntegrityError("planning checkpoint primaries mismatch plan")
+    if sorted(checkpoint.selected_candidate_ids) != sorted(expected_primaries.values()):
+        raise ManifestIntegrityError("planning checkpoint selection mismatch plan")
+    if checkpoint.attempted_candidate_ids != sorted(checkpoint.selected_candidate_ids):
+        raise ManifestIntegrityError("planning checkpoint attempted selection mismatch")
+    if checkpoint.uncovered_target_ids != sorted(
+        target.entry_point_id for target in plan.targets if not target.ordered_choices
+    ):
+        raise ManifestIntegrityError(
+            "planning checkpoint uncovered targets mismatch plan"
+        )
+    plan_target_ids = {target.entry_point_id for target in plan.targets}
+    if not set(checkpoint.projection_limitation_target_ids) <= plan_target_ids:
+        raise ManifestIntegrityError(
+            "planning checkpoint projection limitations are absent from plan"
+        )
+    if checkpoint.selection_limitation_target_ids != sorted(
+        plan.selection_limitation_target_ids
+    ):
+        raise ManifestIntegrityError(
+            "planning checkpoint selection limitations mismatch plan"
+        )
+
+
 def read_quarantine_bundle(run_dir: Path, entry: ArtifactEntry) -> QuarantineBundleV1:
     expected = PurePosixPath(entry.path)
     if (
@@ -1487,6 +1597,10 @@ def validate_v3_inventories(resolver: Any) -> None:
         raise ManifestIntegrityError(
             f"Invalid manifest v3 persistence model: {exc}"
         ) from exc
+    planning_entry = resolver.entry_by_role(ArtifactRole.PLANNING_CHECKPOINT)
+    if planning_entry is not None:
+        checkpoint = read_planning_checkpoint_bytes(resolver.read_bytes(planning_entry))
+        validate_planning_checkpoint(checkpoint, coverage)
     if final.run_id != resolver.manifest.run_id:
         raise ManifestIntegrityError("Finalization inventory run_id mismatch")
     if final.coverage_plan_sha256 != coverage_entry.sha256:

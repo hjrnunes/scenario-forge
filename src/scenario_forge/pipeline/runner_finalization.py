@@ -149,6 +149,7 @@ def build_v3_inventory(
     add(ArtifactRole.USE_CASE, "use-case.txt")
     add(ArtifactRole.CAPABILITY_PROFILE, "capability-profile.yaml")
     add(ArtifactRole.THREAT_SURFACE, "threat-surface.yaml")
+    add(ArtifactRole.PLANNING_CHECKPOINT, "planning-checkpoint.json")
     if include_coverage:
         add(ArtifactRole.COVERAGE_REPORT, "coverage-gaps.json")
     add(ArtifactRole.COVERAGE_PLAN, "coverage-plan.json")
