@@ -128,6 +128,22 @@ def _count_metric(count: int, evidence: list[str], affected: list[str]) -> Metri
     )
 
 
+def _resolver_orphan_fact(
+    resolver: ManifestInventoryResolver, *, evidence: str
+) -> MetricResult:
+    if not getattr(resolver, "check_orphans", False):
+        return MetricResult(
+            status=MetricStatus.NOT_APPLICABLE,
+            numerator=0,
+            evidence=[
+                evidence,
+                "in-progress resolver does not own final orphan reconciliation",
+            ],
+            affected_ids=[],
+        )
+    return zero_gate(0, evidence=[evidence])
+
+
 def _gate_for_codes(
     codes: set[str],
     failures: dict[str, set[str]],
@@ -229,9 +245,8 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             evidence=["coverage-plan.json:targets", "scenario.initial_entry_point_id"],
             affected_ids=sorted(unknown_targets),
         ),
-        "stale_or_orphan_artifact_count": zero_gate(
-            0,
-            evidence=["strict manifest resolver inventory validation"],
+        "stale_or_orphan_artifact_count": _resolver_orphan_fact(
+            resolver, evidence="strict finalized resolver orphan check"
         ),
         "missing_pair_count": zero_gate(
             len(bad_pairs) + len(count_mismatch_ids),
@@ -247,12 +262,10 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
                 "strict resolver canonical-path, inode, identity, and hash checks"
             ],
         ),
-        "unmanifested_artifact_count": zero_gate(
-            0,
-            evidence=["strict finalized resolver orphan check"],
+        "unmanifested_artifact_count": _resolver_orphan_fact(
+            resolver, evidence="strict finalized resolver orphan check"
         ),
     }
-
     failures: dict[str, set[str]] = {}
     diagnostic_failures: dict[str, set[str]] = {}
     for decision in final.admission_decisions:
