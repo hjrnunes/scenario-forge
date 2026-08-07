@@ -249,6 +249,7 @@ def _complete_v3_run(
         (run_dir / stale_name).unlink(missing_ok=True)
 
     eval_success = False
+    qualification_passed = False
     eval_manifest = RunManifest(
         manifest_version=MANIFEST_VERSION,
         status=RunStatus.STARTED,
@@ -270,6 +271,7 @@ def _complete_v3_run(
             )
             write_eval_scorecard(scorecard, run_dir)
             eval_success = True
+            qualification_passed = scorecard["qualification"]["status"] == "pass"
         except Exception as exc:  # noqa: BLE001 - non-authoritative output
             (run_dir / "eval-scorecard.yaml").unlink(missing_ok=True)
             logger.warning("Eval scorecard generation failed: %s", exc)
@@ -287,6 +289,7 @@ def _complete_v3_run(
         and not had_quarantine
         and eval_enabled
         and eval_success
+        and qualification_passed
         else RunStatus.COMPLETED_WITH_ERRORS
     )
 

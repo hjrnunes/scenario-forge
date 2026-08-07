@@ -2044,13 +2044,25 @@ def validate_completed_inventory(
                 sc_data = _resolver.read_yaml(sc_entry)
                 if not isinstance(sc_data, dict):
                     raise ManifestIntegrityError("Scorecard root is not a dict")
-                eval_data = sc_data.get("evaluation")
-                if not isinstance(eval_data, dict):
-                    raise ManifestIntegrityError(
-                        "Scorecard 'evaluation' section is not a dict"
-                    )
-                sc_scenario_count = eval_data.get("scenario_count")
-                sc_feature_count = eval_data.get("feature_file_count")
+                if manifest.manifest_version == MANIFEST_V3:
+                    from scenario_forge.eval.scorecard import ScorecardV1
+
+                    try:
+                        scorecard = ScorecardV1.model_validate(sc_data)
+                    except Exception as exc:
+                        raise ManifestIntegrityError(
+                            f"Scorecard violates strict v1 schema: {exc}"
+                        ) from exc
+                    sc_scenario_count = scorecard.scenario_count
+                    sc_feature_count = scorecard.feature_file_count
+                else:
+                    eval_data = sc_data.get("evaluation")
+                    if not isinstance(eval_data, dict):
+                        raise ManifestIntegrityError(
+                            "Scorecard 'evaluation' section is not a dict"
+                        )
+                    sc_scenario_count = eval_data.get("scenario_count")
+                    sc_feature_count = eval_data.get("feature_file_count")
                 # Require both counts
                 if sc_scenario_count is None:
                     raise ManifestIntegrityError("Scorecard missing scenario_count")

@@ -8,6 +8,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scenario_forge.eval.scorecard import (
+    MetricSection,
+    ScorecardV1,
+    aggregate_qualification,
+)
 from scenario_forge.manifest import (
     ArtifactRole,
     ManifestIntegrityError,
@@ -218,7 +223,18 @@ class TestStrictManifestResolver:
 
 class TestWriteEvalScorecard:
     def test_writes_yaml_file(self, run_dir: Path) -> None:
-        scorecard = {"overall_score": 0.85, "metrics": {"consistency": 0.9}}
+        empty = MetricSection(metrics={})
+        scorecard = ScorecardV1(
+            run_id="20260101T000000_abcdef0123456789abcdef0123456789",
+            scenario_count=0,
+            feature_file_count=0,
+            presence_coverage=empty,
+            validity_grounding=empty,
+            cross_artifact_agreement=empty,
+            semantic_quality_diagnostics=empty,
+            release_qualification=empty,
+            qualification=aggregate_qualification({}),
+        ).model_dump(mode="json")
 
         path = write_eval_scorecard(scorecard, run_dir)
 
