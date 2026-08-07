@@ -248,14 +248,12 @@ fields:
           on every narrative action step.
       realizations:
         type: list[ProjectedStepRealization]
-        required: true
+        required: false
+        default: []
         description: >
           Per-projected-step canonical realization records. One record per
-          projected_step_id. Each record carries action_kind, executor_role,
-          boundary_position, resource_ref_ids, consumed_ref_ids,
-          produced_ref_ids, produced_effect_ids, outcome_link_pc_ids,
-          and postcondition_ids. The validator compares each record against
-          the embedded canonical step at the narrative boundary.
+          projected_step_id. Derived deterministically in post-processing
+          from the projection context.
 
   # -- ProjectedStepRealization sub-schema (422o.4) --
 

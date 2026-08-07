@@ -356,16 +356,10 @@ def _validate_tree_against_projection(
 
     selected_step_ids = set(projection_context.get("selected_step_ids", []))
 
-    # Build canonical realization records from projection context using
-    # the single domain model constructor — no manual field-by-field.
-    from scenario_forge.models.realization import ProjectedStepRealization
-
-    step_realizations: dict[str, ProjectedStepRealization] = {}
-    for sd in projection_context.get("selected_steps", []):
-        sid = sd["step_id"]
-        step_realizations[sid] = ProjectedStepRealization.model_validate(
-            sd["realization"]
-        )
+    # Realization records are now derived in post-processing by
+    # _fill_tree_realizations() — no need to rebuild them here for
+    # equality comparison.  We still validate projected_step_id
+    # validity and realization coverage.
 
     def _check_node(node: AttackTreeNode) -> None:
         # OR nodes are prohibited in v1.
@@ -432,35 +426,11 @@ def _validate_tree_against_projection(
                         f"do not match projected_step_ids "
                         f"{sorted(set(node.projected_step_ids))}"
                     )
-                # Exact realization equality to canonical projection context.
-                for r in node.realizations:
-                    expected = step_realizations.get(r.projected_step_id)
-                    if expected is None:
-                        raise ValueError(
-                            f"Leaf '{node.id}' realization for step "
-                            f"'{r.projected_step_id}' not found in projection "
-                            f"context"
-                        )
-                    if r != expected:
-                        raise ValueError(
-                            f"Leaf '{node.id}' realization for step "
-                            f"'{r.projected_step_id}' does not match "
-                            f"canonical projection context: "
-                            f"got action_kind={r.action_kind}, "
-                            f"expected={expected.action_kind}; "
-                            f"got resource_ref_ids={r.resource_ref_ids}, "
-                            f"expected={expected.resource_ref_ids}; "
-                            f"got consumed={r.consumed_ref_ids}, "
-                            f"expected={expected.consumed_ref_ids}; "
-                            f"got produced={r.produced_ref_ids}, "
-                            f"expected={expected.produced_ref_ids}; "
-                            f"got effects={r.produced_effect_ids}, "
-                            f"expected={expected.produced_effect_ids}; "
-                            f"got outcome_links={r.outcome_link_pc_ids}, "
-                            f"expected={expected.outcome_link_pc_ids}; "
-                            f"got postconditions={r.postcondition_ids}, "
-                            f"expected={expected.postcondition_ids}"
-                        )
+                # Realization equality check is now a no-op sanity check:
+                # post-processing derives realizations from the same
+                # projection context, so both sides are computed by
+                # derive_step_realization().  We keep the projected_step_id
+                # validity and coverage checks above.
 
         if node.children:
             for child in node.children:
@@ -757,6 +727,60 @@ def build_call2_context(
     }
 
 
+# ---------------------------------------------------------------------------
+# Post-processing: deterministic realization derivation for tree leaves
+# ---------------------------------------------------------------------------
+
+
+def _fill_tree_realizations(
+    tree: AttackTree,
+    projection_context: dict[str, Any] | None,
+) -> None:
+    """Derive realizations deterministically and set them on each tree leaf.
+
+    Ignores whatever the LLM returned for realizations.  For each
+    security-bearing leaf (non-external_precondition with projected_step_ids),
+    looks up the canonical realization record from the projection context.
+
+    Mutates tree nodes in place.
+    """
+    if projection_context is None:
+        return
+
+    from scenario_forge.models.realization import ProjectedStepRealization
+
+    step_data_by_id: dict[str, dict[str, Any]] = {
+        sd["step_id"]: sd for sd in projection_context.get("selected_steps", [])
+    }
+
+    def _fill_node(node: AttackTreeNode) -> None:
+        if node.gate == GateType.LEAF:
+            if not node.projected_step_ids:
+                # External preconditions and unmapped leaves stay empty.
+                node.realizations = ()
+                return
+            realizations: list[ProjectedStepRealization] = []
+            for psid in node.projected_step_ids:
+                sd = step_data_by_id.get(psid)
+                if sd is None:
+                    logger.warning(
+                        "Tree leaf '%s' references unknown projected step "
+                        "'%s' — cannot derive realization",
+                        node.id,
+                        psid,
+                    )
+                    continue
+                realizations.append(
+                    ProjectedStepRealization.model_validate(sd["realization"])
+                )
+            node.realizations = tuple(realizations)
+        elif node.children:
+            for child in node.children:
+                _fill_node(child)
+
+    _fill_node(tree.root)
+
+
 def _validate_and_postprocess_tree(
     tree: AttackTree,
     profile: CapabilityProfile | None,
@@ -771,6 +795,9 @@ def _validate_and_postprocess_tree(
     Called on both first-attempt and retry outputs so that projection
     validation failures participate in the single retry (422o.4 blocker #2).
     """
+    # Post-processing: derive realizations deterministically from the
+    # projection context, ignoring whatever the LLM returned.
+    _fill_tree_realizations(tree, projection_context)
     if profile is not None:
         id_violations = resolve_action_ids(tree, profile)
         if id_violations:

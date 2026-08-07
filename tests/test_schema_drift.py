@@ -295,19 +295,20 @@ class TestNestedRequirednessParity:
     """
 
     def test_narrative_step_required_parity(self, pydantic_schema, hand_schema):
-        """NarrativeStep projection fields are required in all schemas."""
+        """NarrativeStep projection fields are required in all schemas.
+
+        ``projected_step_ids`` is required everywhere.
+        ``realizations`` has a default (derived in post-processing) so it
+        is NOT required in any schema — parity is that all three agree.
+        """
         pyd_req = _json_schema_required(
             pydantic_schema.get("$defs", {}), "NarrativeStep"
         )
         hand_req = _json_schema_required(hand_schema.get("$defs", {}), "NarrativeStep")
         yaml_req = _yaml_required_fields("NarrativeStep")
 
-        # Projection traceability fields must be required everywhere.
-        projection_fields = {
-            "projected_step_ids",
-            "realizations",
-        }
-        for field in projection_fields:
+        # projected_step_ids must be required everywhere.
+        for field in ("projected_step_ids",):
             assert field in pyd_req, (
                 f"NarrativeStep.{field} must be required in Pydantic schema, "
                 f"got required={sorted(pyd_req)}"
@@ -320,6 +321,20 @@ class TestNestedRequirednessParity:
                 f"NarrativeStep.{field} must be required in YAML schema, "
                 f"got required={sorted(yaml_req)}"
             )
+
+        # realizations has a default (post-processing derived) — NOT required.
+        assert "realizations" not in pyd_req, (
+            "NarrativeStep.realizations must NOT be required in Pydantic "
+            "(has default=())"
+        )
+        assert "realizations" not in hand_req, (
+            "NarrativeStep.realizations must NOT be required in hand JSON "
+            "(has default)"
+        )
+        assert "realizations" not in yaml_req, (
+            "NarrativeStep.realizations must NOT be required in YAML "
+            "(has default)"
+        )
 
     def test_narrative_step_no_empty_default_projected_step_ids(self):
         """YAML schema must not give projected_step_ids an empty default."""

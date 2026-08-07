@@ -8,7 +8,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from scenario_forge.llm.client import LLMClient, LLMResult
 from scenario_forge.models.capability_profile import CapabilityProfile
@@ -59,37 +59,13 @@ class Call1Step(BaseModel):
         ),
     )
     realizations: tuple[ProjectedStepRealization, ...] = Field(
-        min_length=1,
+        default=(),
         description=(
-            "Per-projected-step canonical realization records.  Each record "
-            "carries action_kind, executor_role, boundary_position, concrete "
-            "resources, consumed/produced refs/effects, outcome links, and "
-            "owned postconditions.  Echo verbatim from the Projection Constraints."
+            "Per-projected-step canonical realization records.  Ignored "
+            "from LLM output — post-processing derives these "
+            "deterministically from the projection context."
         ),
     )
-
-    @model_validator(mode="after")
-    def _validate_realization_ids(self) -> Call1Step:
-        """Exactly one realization per projected_step_id, no duplicates."""
-        realization_ids = [r.projected_step_id for r in self.realizations]
-        if len(set(realization_ids)) != len(realization_ids):
-            raise ValueError(
-                f"Call1Step {self.step_number} has duplicate realization "
-                f"records (same projected_step_id appears more than once)"
-            )
-        if len(realization_ids) != len(self.projected_step_ids):
-            raise ValueError(
-                f"Call1Step {self.step_number} has {len(realization_ids)} "
-                f"realization records but {len(self.projected_step_ids)} "
-                f"projected_step_ids — exactly one per ID required"
-            )
-        if set(realization_ids) != set(self.projected_step_ids):
-            raise ValueError(
-                f"Call1Step {self.step_number} realization IDs "
-                f"{set(realization_ids)} do not match projected_step_ids "
-                f"{set(self.projected_step_ids)}"
-            )
-        return self
 
 
 class Call1Response(BaseModel):
@@ -607,6 +583,49 @@ def build_call1_context(
     }
 
 
+# ---------------------------------------------------------------------------
+# Post-processing: deterministic realization derivation
+# ---------------------------------------------------------------------------
+
+
+def _fill_call1_realizations(
+    response: Call1Response,
+    projection_context: dict[str, Any] | None,
+) -> None:
+    """Derive realizations deterministically and set them on each Call1Step.
+
+    Ignores whatever the LLM returned for realizations.  For each step,
+    looks up the canonical realization record from the projection context
+    (which was built by ``_build_projection_context`` using
+    ``derive_step_realization``).
+
+    Mutates ``response.steps`` in place.
+    """
+    if projection_context is None:
+        return
+
+    step_data_by_id: dict[str, dict[str, Any]] = {
+        sd["step_id"]: sd for sd in projection_context.get("selected_steps", [])
+    }
+
+    for step in response.steps:
+        realizations: list[ProjectedStepRealization] = []
+        for psid in step.projected_step_ids:
+            sd = step_data_by_id.get(psid)
+            if sd is None:
+                logger.warning(
+                    "Call1Step %d references unknown projected step '%s' "
+                    "— cannot derive realization",
+                    step.step_number,
+                    psid,
+                )
+                continue
+            realizations.append(
+                ProjectedStepRealization.model_validate(sd["realization"])
+            )
+        step.realizations = tuple(realizations)
+
+
 def _call_narrative(
     seed: ScenarioSeed,
     profile: CapabilityProfile,
@@ -664,6 +683,9 @@ def _call_narrative(
         user_prompt=render_prompt("call1_user.j2", **ctx),
         response_format=Call1Response,
     )
+    # Post-processing: derive realizations deterministically from
+    # the projection context, ignoring whatever the LLM returned.
+    _fill_call1_realizations(result.content, projection_context)
     narrative = _map_call1_to_narrative(result.content)
     narrative = _sanitize_narrative(narrative)
     narrative = _enforce_zones_narrative(narrative, profile.zones_active)

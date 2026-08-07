@@ -4133,10 +4133,19 @@ class TestCall2ProjectionValidation:
         with pytest.raises(ValueError, match="OR is prohibited"):
             _validate_tree_against_projection(tree, ctx)
 
-    def test_altered_realization_rejected(self):
-        """A leaf with realization not matching projection context must fail."""
+    def test_altered_realization_overwritten_by_postprocessing(self):
+        """Post-processing overwrites corrupted realizations with canonical ones.
+
+        Since realizations are now derived deterministically in
+        ``_fill_tree_realizations`` (post-processing realization engine),
+        a corrupted realization on a leaf is silently overwritten with the
+        correct canonical realization.  ``_validate_tree_against_projection``
+        no longer checks realization equality (it's tautological after
+        post-processing).
+        """
         from scenario_forge.pipeline.generate.assembly import _build_projection_context
         from scenario_forge.pipeline.generate.tree import (
+            _fill_tree_realizations,
             _validate_tree_against_projection,
         )
 
@@ -4151,8 +4160,15 @@ class TestCall2ProjectionValidation:
         leaf = leaf.model_copy(update={"realizations": (wrong,)})
         tree = _replace_leaf(tree, leaf)
 
-        with pytest.raises(ValueError, match="does not match canonical projection"):
-            _validate_tree_against_projection(tree, ctx)
+        # Post-processing overwrites the corrupted realization
+        _fill_tree_realizations(tree, ctx)
+
+        # Validation now passes because realizations were overwritten
+        _validate_tree_against_projection(tree, ctx)
+
+        # Verify the realization was actually corrected
+        corrected_leaf = _collect_all_leaves(tree.root)[0]
+        assert corrected_leaf.realizations[0].action_kind != "impact"
 
     def test_valid_tree_passes(self):
         """A valid tree with correct projection metadata passes validation."""

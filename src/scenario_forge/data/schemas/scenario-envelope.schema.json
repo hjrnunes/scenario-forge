@@ -391,8 +391,7 @@
         "zone",
         "action",
         "effect",
-        "projected_step_ids",
-        "realizations"
+        "projected_step_ids"
       ],
       "properties": {
         "step_number": {
@@ -430,11 +429,11 @@
           "description": "Canonical projected step IDs that this narrative step realizes. Required (non-empty)."
         },
         "realizations": {
-          "description": "Per-projected-step canonical realization records.",
+          "description": "Per-projected-step canonical realization records. Derived in post-processing.",
           "items": {
             "$ref": "#/$defs/ProjectedStepRealization"
           },
-          "minItems": 1,
+          "default": [],
           "title": "Realizations",
           "type": "array"
         }
