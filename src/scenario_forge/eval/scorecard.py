@@ -116,11 +116,6 @@ QUALIFICATION_RATIO_GATE_IDS: frozenset[str] = frozenset(
         "projected_step_recall",
         "pinned_technique_recall",
         "tree_behavior_correspondence",
-    }
-)
-
-UNSUPPORTED_QUALIFICATION_GATE_IDS: frozenset[str] = frozenset(
-    {
         "actor_attack_complexity",
         "capability_grounding",
         "tool_integration_grounding",
@@ -131,6 +126,8 @@ UNSUPPORTED_QUALIFICATION_GATE_IDS: frozenset[str] = frozenset(
         "schema_identifier_phantom_parsimony",
     }
 )
+
+UNSUPPORTED_QUALIFICATION_GATE_IDS: frozenset[str] = frozenset()
 
 QUALIFICATION_ZERO_GATE_IDS: frozenset[str] = (
     frozenset(QUALIFICATION_GATE_PATHS)
@@ -356,6 +353,16 @@ def validate_qualification_gate_semantics(
 
     for gate_id in QUALIFICATION_RATIO_GATE_IDS:
         metric = gates[gate_id]
+        if metric.status is MetricStatus.NOT_APPLICABLE and all(
+            value is None
+            for value in (
+                metric.threshold,
+                metric.numerator,
+                metric.denominator,
+                metric.value,
+            )
+        ):
+            continue
         if metric.status is MetricStatus.ERROR:
             if any(
                 value is not None

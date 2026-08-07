@@ -81,6 +81,43 @@ class GateCode(str, Enum):
     trusted_context = "trusted_context"
 
 
+class AdmissionEvidenceId(str, Enum):
+    """Closed, durable identifiers for authoritative admission evidence."""
+
+    admission_exception = "admission_exception"
+    snapshot_integrity = "snapshot_integrity"
+    identity = "identity"
+    actor_attack_complexity = "actor_attack_complexity"
+    capability_grounding = "capability_grounding"
+    tool_integration_grounding = "tool_integration_grounding"
+    data_access_grounding = "data_access_grounding"
+    catalog_taxonomy_pin_validity = "catalog_taxonomy_pin_validity"
+    resource_binding_validity = "resource_binding_validity"
+    execution_requirement_drift = "execution_requirement_drift"
+    projection_traceability = "projection_traceability"
+    structural_validity = "structural_validity"
+    identifier_validity = "identifier_validity"
+    phantom_validity = "phantom_validity"
+    semantic_validity = "semantic_validity"
+    behavior_correspondence = "behavior_correspondence"
+    narrative_tree_diagnostics = "narrative_tree_diagnostics"
+    tree_parsimony = "tree_parsimony"
+    or_tree_prohibition = "or_tree_prohibition"
+
+
+DIAGNOSTIC_BACKED_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = frozenset(
+    {
+        AdmissionEvidenceId.tool_integration_grounding,
+        AdmissionEvidenceId.data_access_grounding,
+        AdmissionEvidenceId.capability_grounding,
+        AdmissionEvidenceId.catalog_taxonomy_pin_validity,
+        AdmissionEvidenceId.resource_binding_validity,
+        AdmissionEvidenceId.execution_requirement_drift,
+        AdmissionEvidenceId.identifier_validity,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class GateViolation:
     code: GateCode
@@ -102,12 +139,26 @@ class GateViolation:
 
 @dataclass(frozen=True, slots=True)
 class GateResult:
+    evidence_id: AdmissionEvidenceId
     violations: tuple[GateViolation, ...] = ()
     diagnostics: tuple[GateViolation, ...] = ()
+    outcome: bool | None = None
+    applicable: bool = True
+
+    def __post_init__(self) -> None:
+        if self.evidence_id in DIAGNOSTIC_BACKED_EVIDENCE_IDS:
+            if self.violations:
+                raise ValueError("diagnostic-backed category forbids hard violations")
+            if self.outcome is None or self.outcome != (not self.diagnostics):
+                raise ValueError(
+                    "diagnostic-backed category outcome must match diagnostics"
+                )
+        elif self.outcome is not None:
+            raise ValueError("ordinary gate outcome is derived from hard violations")
 
     @property
     def valid(self) -> bool:
-        return not self.violations
+        return not self.violations if self.outcome is None else self.outcome
 
     @property
     def passed(self) -> bool:
@@ -209,15 +260,16 @@ def check_tree_parsimony(tree: AttackTree, *, budget: int | None = None) -> Gate
     if budget is None:
         budget = compute_leaf_budget(len(set(tree.collect_technique_ids())))
     if len(leaves) <= budget:
-        return GateResult()
+        return GateResult(AdmissionEvidenceId.tree_parsimony)
     return GateResult(
+        AdmissionEvidenceId.tree_parsimony,
         (
             GateViolation(
                 GateCode.parsimony,
                 f"{len(leaves)} leaves exceed budget {budget}",
                 GeneratedStage.tree,
             ),
-        )
+        ),
     )
 
 
@@ -363,13 +415,14 @@ def run_prebehavior_gates(
         )
     except (TypeError, ValueError, AttributeError) as exc:
         return GateResult(
+            AdmissionEvidenceId.structural_validity,
             (
                 GateViolation(
                     GateCode.candidate_identity,
                     f"candidate/projection qualification failed: {exc}",
                     None,
                 ),
-            )
+            ),
         )
     selected_step_ids = set(candidate.projection.selected_step_ids)
     postcondition_owners: dict[str, str] = {}
@@ -380,6 +433,7 @@ def run_prebehavior_gates(
             existing_owner = postcondition_owners.get(postcondition.postcondition_id)
             if existing_owner is not None and existing_owner != step.step_id:
                 return GateResult(
+                    AdmissionEvidenceId.structural_validity,
                     (
                         GateViolation(
                             GateCode.candidate_identity,
@@ -388,36 +442,39 @@ def run_prebehavior_gates(
                             f"'{step.step_id}'",
                             None,
                         ),
-                    )
+                    ),
                 )
             postcondition_owners[postcondition.postcondition_id] = step.step_id
     for step in narrative.steps:
         if len(step.projected_step_ids) != len(set(step.projected_step_ids)):
             return GateResult(
+                AdmissionEvidenceId.structural_validity,
                 (
                     GateViolation(
                         GateCode.narrative_realization,
                         f"narrative step '{step.step_number}' duplicates a projected step",
                         GeneratedStage.narrative,
                     ),
-                )
+                ),
             )
     for node in _nodes(tree.root):
         if len(node.projected_step_ids) != len(set(node.projected_step_ids)):
             return GateResult(
+                AdmissionEvidenceId.structural_validity,
                 (
                     GateViolation(
                         GateCode.tree_realization,
                         f"tree node '{node.id}' duplicates a projected step",
                         GeneratedStage.tree,
                     ),
-                )
+                ),
             )
         realization_ids = tuple(
             realization.projected_step_id for realization in node.realizations
         )
         if realization_ids != tuple(node.projected_step_ids):
             return GateResult(
+                AdmissionEvidenceId.structural_validity,
                 (
                     GateViolation(
                         GateCode.tree_realization,
@@ -425,19 +482,20 @@ def run_prebehavior_gates(
                         "projected_step_ids",
                         GeneratedStage.tree,
                     ),
-                )
+                ),
             )
     try:
         block = _block(candidate, narrative, tree, capability_snapshot)
     except (TypeError, ValueError, AttributeError) as exc:
         return GateResult(
+            AdmissionEvidenceId.structural_validity,
             (
                 GateViolation(
                     GateCode.tree_realization,
                     f"generated realization qualification failed: {exc}",
                     GeneratedStage.tree,
                 ),
-            )
+            ),
         )
     profile = capability_snapshot.profile
     envelope = type(
@@ -591,7 +649,9 @@ def run_prebehavior_gates(
     unique = tuple(
         sorted(dict.fromkeys(violations), key=lambda item: owner_order[item.owner])
     )
-    return GateResult(unique, tuple(diagnostics))
+    return GateResult(
+        AdmissionEvidenceId.structural_validity, unique, tuple(diagnostics)
+    )
 
 
 class PrebehaviorFinalizerPort:

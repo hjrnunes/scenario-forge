@@ -23,6 +23,7 @@ from scenario_forge.manifest import ArtifactRole, ManifestInventoryResolver
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.persistence import CoveragePlanV2, FinalizationInventoryV1
+from scenario_forge.pipeline.finalization_gates import AdmissionEvidenceId
 
 _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _NEAR_TITLE_THRESHOLD = 0.6
@@ -151,11 +152,58 @@ def _resolver_orphan_fact(
     return zero_gate(0, evidence=[evidence])
 
 
-def _unsupported_gate(reason: str) -> MetricResult:
-    return MetricResult(
-        status=MetricStatus.NOT_APPLICABLE,
-        evidence=[reason],
-        affected_ids=[],
+def _admission_evidence_metric(
+    final: FinalizationInventoryV1,
+    evidence_ids: tuple[AdmissionEvidenceId, ...],
+    *,
+    expected_applicable: bool | None = None,
+    evidence: list[str],
+) -> MetricResult:
+    """Evaluate exact, once-per-decision evidence without absence inference."""
+    malformed: list[str] = []
+    failed: list[str] = []
+    exact_admitted_passes: list[str] = []
+    for decision in final.admission_decisions:
+        records = {
+            evidence_id: [
+                gate for gate in decision.gate_results if gate.gate is evidence_id
+            ]
+            for evidence_id in evidence_ids
+        }
+        if any(len(items) != 1 for items in records.values()):
+            malformed.append(decision.candidate_id)
+            continue
+        if expected_applicable is not None and any(
+            items[0].applicable is not expected_applicable for items in records.values()
+        ):
+            malformed.append(decision.candidate_id)
+            continue
+        if any(not items[0].applicable for items in records.values()):
+            malformed.append(decision.candidate_id)
+            continue
+        if any(not items[0].passed for items in records.values()):
+            failed.append(decision.candidate_id)
+        elif decision.admitted:
+            exact_admitted_passes.append(decision.candidate_id)
+    if failed:
+        return ratio_metric(
+            0,
+            1,
+            threshold=1.0,
+            evidence=evidence,
+            affected_ids=sorted(set(failed)),
+        )
+    if malformed or not exact_admitted_passes:
+        return MetricResult(
+            status=MetricStatus.NOT_APPLICABLE,
+            evidence=[*evidence, "no exact passed admitted outcome"],
+            affected_ids=sorted(malformed),
+        )
+    return ratio_metric(
+        1,
+        1,
+        threshold=1.0,
+        evidence=evidence,
     )
 
 
@@ -304,6 +352,28 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             affected_ids=affected,
             applicable=False,
         )
+    gate_failures: dict[AdmissionEvidenceId, set[str]] = {}
+    gate_runs: Counter[AdmissionEvidenceId] = Counter()
+    for decision in final.admission_decisions:
+        for gate in decision.gate_results:
+            gate_runs[gate.gate] += 1
+            if not gate.passed:
+                gate_failures.setdefault(gate.gate, set()).add(decision.candidate_id)
+    for evidence_id, run_count in sorted(
+        gate_runs.items(), key=lambda item: item[0].value
+    ):
+        affected = sorted(gate_failures.get(evidence_id, set()))
+        validity[f"admission_gate_failure_rate:{evidence_id.value}"] = ratio_metric(
+            len(affected),
+            run_count,
+            threshold=0.0,
+            evidence=[
+                f"typed admission evidence_id={evidence_id.value}",
+                f"denominator=gate outcomes ({run_count})",
+            ],
+            affected_ids=affected,
+            applicable=False,
+        )
     quarantine_reasons: dict[str, set[str]] = {}
     for decision in final.admission_decisions:
         if decision.admitted:
@@ -340,6 +410,11 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
     tree_behavior_problem_ids: list[str] = []
     pinned_problem_ids: list[str] = []
     projected_problem_ids: list[str] = []
+    conditional_total = 0
+    conditional_decided = 0
+    conditional_problem_ids: list[str] = []
+    zone_difference_ids: list[str] = []
+    zone_difference_sizes: Counter[int] = Counter()
     titles: dict[str, str] = {}
     structures: dict[str, tuple[str, ...]] = {}
 
@@ -353,6 +428,21 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
         narrative_ids = _projected_ids(raw.get("narrative", {}).get("steps", []))
         projection = raw.get("projection", {}).get("projection", {})
         selected = {str(value) for value in projection.get("selected_step_ids", [])}
+        source_steps = projection.get("source_chain", {}).get("steps", [])
+        conditional_ids = {
+            str(step.get("step_id"))
+            for step in source_steps
+            if step.get("requirement") == "conditional" and step.get("step_id")
+        }
+        condition_results = {
+            str(item.get("condition_step_id"))
+            for item in projection.get("condition_results", [])
+            if item.get("condition_step_id")
+        }
+        conditional_total += len(conditional_ids)
+        conditional_decided += len(conditional_ids & condition_results)
+        if conditional_ids != condition_results:
+            conditional_problem_ids.append(scenario_id)
         projected_total += len(selected)
         common = selected & narrative_ids & tree_ids & behavior_ids
         projected_all_found += len(common)
@@ -382,6 +472,20 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
         title = str(raw.get("narrative", {}).get("title", ""))
         titles[scenario_id] = title
         structures[scenario_id] = tuple(sorted(selected))
+        narrative_zones = {
+            str(step["zone"])
+            for step in raw.get("narrative", {}).get("steps", [])
+            if step.get("zone") is not None
+        }
+        tree_zones = {
+            str(leaf["zone"])
+            for leaf in _tree_leaves(raw.get("attack_tree", {}).get("root", {}))
+            if leaf.get("zone") is not None
+        }
+        difference_size = len(narrative_zones ^ tree_zones)
+        zone_difference_sizes[difference_size] += 1
+        if difference_size:
+            zone_difference_ids.append(scenario_id)
 
     agreement = {
         "pinned_technique_recall": ratio_metric(
@@ -418,12 +522,13 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             vacuous_agreement_ids,
         ),
         "projection_conditional_decision_coverage": ratio_metric(
-            projected_all_found,
-            projected_total,
+            conditional_decided,
+            conditional_total,
             evidence=[
-                "selected canonical projected steps, including conditional steps"
+                "projection source_chain conditional steps",
+                "projection condition_results; denominator=conditional source steps",
             ],
-            affected_ids=projected_problem_ids,
+            affected_ids=conditional_problem_ids,
         ),
         "projection_mapping_coverage": ratio_metric(
             projection_mappings["exact"],
@@ -491,7 +596,26 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             affected_ids=structural_affected,
             applicable=False,
         ),
+        "narrative_tree_zone_difference_rate": ratio_metric(
+            len(zone_difference_ids),
+            len(scenario_items),
+            threshold=0.0,
+            evidence=["typed narrative.step.zone versus attack_tree leaf.zone sets"],
+            affected_ids=zone_difference_ids,
+            applicable=False,
+        ),
     }
+    for size, count in sorted(zone_difference_sizes.items()):
+        diagnostics[f"narrative_tree_zone_difference_size:{size}"] = ratio_metric(
+            count,
+            len(scenario_items),
+            threshold=0.0,
+            evidence=[
+                "symmetric zone-set difference size distribution",
+                "denominator=admitted scenario artifacts",
+            ],
+            applicable=False,
+        )
 
     quarantine_ids = sorted(
         receipt.candidate_id for receipt in final.quarantine_inventory
@@ -507,10 +631,13 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
         if decision.admitted
     }
     admission_mismatch_ids = sorted(evaluated_candidate_ids ^ admitted_decision_ids)
-    unsupported_positional = (
-        "cmps.5 persists positional gate names and aggregate violation codes; "
-        "absence of a category code does not prove that category gate ran"
+    entry_complete = (
+        profile.entry_point_completeness.value == "operator_confirmed_complete"
     )
+    tool_complete = (
+        profile.tool_inventory_completeness.value == "operator_confirmed_complete"
+    )
+    exact_evidence = "finalization-inventory.json:typed admission gate outcomes"
     release = {
         "zero_quarantine": zero_gate(
             len(quarantine_ids),
@@ -524,24 +651,58 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             ],
             affected_ids=admission_mismatch_ids,
         ),
-        "actor_attack_complexity": _unsupported_gate(unsupported_positional),
-        "capability_grounding": _unsupported_gate(
-            f"{unsupported_positional}; "
-            f"entry_point_completeness={profile.entry_point_completeness.value}"
+        "actor_attack_complexity": _admission_evidence_metric(
+            final,
+            (AdmissionEvidenceId.actor_attack_complexity,),
+            evidence=[exact_evidence],
         ),
-        "tool_integration_grounding": _unsupported_gate(
-            f"{unsupported_positional}; "
-            f"tool_inventory_completeness={profile.tool_inventory_completeness.value}"
+        "capability_grounding": _admission_evidence_metric(
+            final,
+            (AdmissionEvidenceId.capability_grounding,),
+            evidence=[exact_evidence, "explicit capability semantic-rule category"],
         ),
-        "data_access_grounding": _unsupported_gate(
-            f"{unsupported_positional}; "
-            f"entry_point_completeness={profile.entry_point_completeness.value}"
+        "tool_integration_grounding": _admission_evidence_metric(
+            final,
+            (AdmissionEvidenceId.tool_integration_grounding,),
+            expected_applicable=tool_complete,
+            evidence=[
+                exact_evidence,
+                f"tool_inventory_completeness={profile.tool_inventory_completeness.value}",
+            ],
         ),
-        "catalog_taxonomy_pin_validity": _unsupported_gate(unsupported_positional),
-        "resource_binding_validity": _unsupported_gate(unsupported_positional),
-        "execution_requirement_drift": _unsupported_gate(unsupported_positional),
-        "zero_schema_identifier_phantom_parsimony_failures": _unsupported_gate(
-            unsupported_positional
+        "data_access_grounding": _admission_evidence_metric(
+            final,
+            (AdmissionEvidenceId.data_access_grounding,),
+            expected_applicable=entry_complete,
+            evidence=[
+                exact_evidence,
+                f"entry_point_completeness={profile.entry_point_completeness.value}",
+            ],
+        ),
+        "catalog_taxonomy_pin_validity": _admission_evidence_metric(
+            final,
+            (AdmissionEvidenceId.catalog_taxonomy_pin_validity,),
+            evidence=[exact_evidence],
+        ),
+        "resource_binding_validity": _admission_evidence_metric(
+            final,
+            (AdmissionEvidenceId.resource_binding_validity,),
+            evidence=[exact_evidence],
+        ),
+        "execution_requirement_drift": _admission_evidence_metric(
+            final,
+            (AdmissionEvidenceId.execution_requirement_drift,),
+            evidence=[exact_evidence],
+        ),
+        "zero_schema_identifier_phantom_parsimony_failures": _admission_evidence_metric(
+            final,
+            (
+                AdmissionEvidenceId.structural_validity,
+                AdmissionEvidenceId.identifier_validity,
+                AdmissionEvidenceId.phantom_validity,
+                AdmissionEvidenceId.tree_parsimony,
+            ),
+            evidence=[exact_evidence],
         ),
         "kill_chain_quarantine_reasons": zero_gate(
             len(quarantine_ids),

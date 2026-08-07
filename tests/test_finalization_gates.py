@@ -48,6 +48,7 @@ from scenario_forge.pipeline.finalization_admission import (
     make_postbehavior_admission,
 )
 from scenario_forge.pipeline.finalization_gates import (
+    AdmissionEvidenceId,
     ActorSemanticSnapshot,
     FinalTreeSemanticSnapshot,
     GateCode,
@@ -1048,6 +1049,21 @@ def test_positive_complete_postbehavior_admission_is_verify_only() -> None:
     assert decision.admitted
     assert isinstance(decision.value, PostbehaviorAdmissionReport)
     assert all(result.valid for result in decision.value.gate_results)
+    evidence_ids = [result.evidence_id for result in decision.value.gate_results]
+    assert len(evidence_ids) == len(set(evidence_ids))
+    assert {
+        AdmissionEvidenceId.actor_attack_complexity,
+        AdmissionEvidenceId.capability_grounding,
+        AdmissionEvidenceId.tool_integration_grounding,
+        AdmissionEvidenceId.data_access_grounding,
+        AdmissionEvidenceId.catalog_taxonomy_pin_validity,
+        AdmissionEvidenceId.resource_binding_validity,
+        AdmissionEvidenceId.execution_requirement_drift,
+        AdmissionEvidenceId.structural_validity,
+        AdmissionEvidenceId.phantom_validity,
+        AdmissionEvidenceId.tree_parsimony,
+        AdmissionEvidenceId.or_tree_prohibition,
+    } <= set(evidence_ids)
 
 
 def test_supplied_and_embedded_forged_catalog_pin_cannot_bypass_trusted_pin() -> None:
@@ -1083,6 +1099,13 @@ def test_supplied_and_embedded_forged_catalog_pin_cannot_bypass_trusted_pin() ->
     ]
     assert trusted
     assert all(not violation.retryable for violation in trusted)
+    catalog_evidence = next(
+        result
+        for result in decision.value.gate_results
+        if result.evidence_id is AdmissionEvidenceId.catalog_taxonomy_pin_validity
+    )
+    assert not catalog_evidence.passed
+    assert catalog_evidence.diagnostics
 
 
 def test_absent_pattern_still_recomputes_and_checks_supplied_catalog_pin() -> None:

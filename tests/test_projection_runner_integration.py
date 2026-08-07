@@ -1331,6 +1331,7 @@ def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
         PostbehaviorAdmissionReport,
     )
     from scenario_forge.pipeline.finalization_gates import (
+        AdmissionEvidenceId,
         GateCode,
         GateResult,
         GateViolation,
@@ -1421,7 +1422,12 @@ def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
                     (violation,),
                     value=PostbehaviorAdmissionReport(
                         envelope=None,
-                        gate_results=(GateResult((gate_violation,)),),
+                        gate_results=(
+                            GateResult(
+                                AdmissionEvidenceId.semantic_validity,
+                                (gate_violation,),
+                            ),
+                        ),
                     ),
                 )
             return admitted(candidate, artifacts, snapshot)

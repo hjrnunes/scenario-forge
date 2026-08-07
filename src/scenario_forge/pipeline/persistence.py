@@ -46,6 +46,10 @@ from scenario_forge.pipeline.finalization import (
     StageInvocation,
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
+from scenario_forge.pipeline.finalization_gates import (
+    DIAGNOSTIC_BACKED_EVIDENCE_IDS,
+    AdmissionEvidenceId,
+)
 from scenario_forge.pipeline.generate.stages import (
     StageAttemptFailure,
     StageCallEvidence,
@@ -406,15 +410,19 @@ class ParsimonyRepairRecord(StrictModel):
 
 
 class GateResultRecord(StrictModel):
-    gate: str = Field(min_length=1)
+    gate: AdmissionEvidenceId
     passed: bool
     violations: list[ViolationRecord]
     diagnostics: list[ViolationRecord]
+    applicable: bool
 
     @model_validator(mode="after")
     def _passed_matches_violations(self) -> GateResultRecord:
-        if self.passed == bool(self.violations):
-            raise ValueError("gate passed flag must be the inverse of violations")
+        if self.gate in DIAGNOSTIC_BACKED_EVIDENCE_IDS:
+            if self.violations or self.passed != (not self.diagnostics):
+                raise ValueError("diagnostic-backed outcome must match diagnostics")
+        elif self.passed != (not self.violations):
+            raise ValueError("ordinary gate outcome must match hard violations")
         return self
 
 
@@ -472,6 +480,16 @@ class AdmissionDecisionRecord(StrictModel):
     def _status_matches_admission(self) -> AdmissionDecisionRecord:
         if self.admitted != (self.status is CandidateTerminalStatus.admitted):
             raise ValueError("admitted flag must match terminal candidate status")
+        authoritative = [
+            violation for gate in self.gate_results for violation in gate.violations
+        ]
+        if any(
+            diagnostic not in authoritative
+            for gate in self.gate_results
+            if gate.gate in DIAGNOSTIC_BACKED_EVIDENCE_IDS
+            for diagnostic in gate.diagnostics
+        ):
+            raise ValueError("category diagnostic must copy an authoritative violation")
         snapshots = (
             self.candidate_snapshot_sha256,
             self.actor_snapshot_sha256,
@@ -2037,8 +2055,9 @@ def _gate_report_records(
         raise TypeError("admission persistence requires PostbehaviorAdmissionReport")
     return [
         GateResultRecord(
-            gate=f"admission_gate_{index}",
+            gate=gate.evidence_id,
             passed=gate.passed,
+            applicable=gate.applicable,
             violations=[
                 ViolationRecord(
                     code=violation.code.value,
@@ -2058,7 +2077,7 @@ def _gate_report_records(
                 for diagnostic in gate.diagnostics
             ],
         )
-        for index, gate in enumerate(report.gate_results)
+        for gate in report.gate_results
     ]
 
 

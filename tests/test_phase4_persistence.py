@@ -48,6 +48,7 @@ from scenario_forge.pipeline.finalization import (
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.finalization_gates import (
+    AdmissionEvidenceId,
     GateCode,
     GateResult,
     GateViolation,
@@ -63,6 +64,7 @@ from scenario_forge.pipeline.persistence import (
     CoveragePlanV2,
     CoverageTargetEntry,
     FinalizationInventoryV1,
+    GateResultRecord,
     PlanningCheckpointV1,
     QualifiedCandidateRef,
     QuarantineBundleV1,
@@ -255,6 +257,15 @@ def test_models_reject_extra_missing_and_wrong_version():
     raw["schema_version"] = "1"
     with pytest.raises(ValidationError, match="schema_version"):
         CoveragePlanV2.model_validate(raw)
+
+    with pytest.raises(ValidationError, match="outcome must match diagnostics"):
+        GateResultRecord(
+            gate=AdmissionEvidenceId.capability_grounding,
+            passed=False,
+            violations=[],
+            diagnostics=[],
+            applicable=True,
+        )
 
 
 def test_planning_checkpoint_is_immutable_and_idempotent(tmp_path: Path):
@@ -1140,7 +1151,8 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
             True,
             value=AdmittedTerminalPayload(
                 report=PostbehaviorAdmissionReport(
-                    envelope=object(), gate_results=(GateResult(),)
+                    envelope=object(),
+                    gate_results=(GateResult(AdmissionEvidenceId.identity),),
                 ),
                 publication=AdmittedArtifactPublication(
                     candidate_id=candidate.candidate_id,
@@ -1390,7 +1402,11 @@ def test_malformed_admitted_report_is_rejected(tmp_path: Path):
                     value=AdmittedTerminalPayload(
                         report=PostbehaviorAdmissionReport(
                             envelope=object(),
-                            gate_results=(GateResult((failed_gate,)),),
+                            gate_results=(
+                                GateResult(
+                                    AdmissionEvidenceId.identity, (failed_gate,)
+                                ),
+                            ),
                         ),
                         publication=publication,
                     ),
@@ -1446,7 +1462,13 @@ def test_machine_adapter_persists_complete_postbehavior_rejection_report(
     )
     report = PostbehaviorAdmissionReport(
         envelope=object(),
-        gate_results=(GateResult((violation,), (diagnostic,)),),
+        gate_results=(
+            GateResult(
+                AdmissionEvidenceId.semantic_validity,
+                (violation,),
+                (diagnostic,),
+            ),
+        ),
     )
 
     def admit(candidate, artifacts, snapshot):
