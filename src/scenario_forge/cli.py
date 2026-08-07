@@ -71,6 +71,10 @@ def generate(
         "--profile",
         help="Path to a capability-profile.yaml (skips Stage 1 inference).",
     ),
+    qualification_facts: Path | None = typer.Option(
+        None,
+        help="Path to explicit authoritative qualification fact readings YAML.",
+    ),
     base_url: str | None = typer.Option(
         None,
         help="LLM endpoint base URL (overrides SCENARIO_FORGE_MODEL_BASE_URL).",
@@ -126,6 +130,8 @@ def generate(
         _validate_file(threats_path, "agentic threats file")
     if profile_path is not None:
         _validate_file(profile_path, "capability profile file")
+    if qualification_facts is not None:
+        _validate_file(qualification_facts, "qualification facts file")
 
     try:
         from scenario_forge.pipeline.runner import run_pipeline
@@ -138,6 +144,7 @@ def generate(
             cross_taxonomy_path=cross_taxonomy,
             threats_path=threats_path,
             profile_path=profile_path,
+            qualification_facts_path=qualification_facts,
             base_url=base_url,
             api_key=api_key,
             model=model,

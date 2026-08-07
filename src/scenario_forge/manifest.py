@@ -336,6 +336,7 @@ class InputHashes(BaseModel):
     cross_taxonomy_hash: str | None = None
     threats_hash: str | None = None
     source_profile_hash: str | None = None
+    qualification_facts_hash: str | None = None
     effective_profile_hash: str | None = None
     attack_patterns_hash: str | None = None
     attack_patterns_sssom_hash: str | None = None

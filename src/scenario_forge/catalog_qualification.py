@@ -9,12 +9,12 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from scenario_forge.data.loaders import load_attack_patterns
+from scenario_forge.data.loaders import load_attack_patterns, load_yaml_strict
 from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
 from scenario_forge.eval.scorecard import ScorecardV1, scorecard_qualification_gates
+from scenario_forge.eval.versioned_metrics import evaluate_v3_scorecard
 from scenario_forge.manifest import (
     ArtifactRole,
     ManifestIntegrityError,
@@ -39,6 +39,16 @@ from scenario_forge.pipeline.projection import (
 
 class _Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+_CANONICAL_PROFILE_IDS = (
+    "direct-conversational",
+    "influenceable-retrieval",
+    "multi-agent-delegation",
+    "state-changing-tools",
+    "training-tool-supply-chain",
+    "writable-persistent-state",
+)
 
 
 def _sorted_unique(values: tuple[str, ...], label: str) -> tuple[str, ...]:
@@ -75,16 +85,8 @@ class ReviewedProfileMatrixV1(_Contract):
 
     @model_validator(mode="after")
     def validate_profiles(self) -> ReviewedProfileMatrixV1:
-        ids = [item.profile_id for item in self.profiles]
-        expected = [
-            "direct-conversational",
-            "influenceable-retrieval",
-            "multi-agent-delegation",
-            "state-changing-tools",
-            "training-tool-supply-chain",
-            "writable-persistent-state",
-        ]
-        if ids != expected:
+        ids = tuple(item.profile_id for item in self.profiles)
+        if ids != _CANONICAL_PROFILE_IDS:
             raise ValueError("v1 matrix requires the six canonical focused profiles")
         assignments = [
             pattern_id
@@ -154,28 +156,115 @@ class CampaignManifestV1(_Contract):
 
 
 class ProfilePreflight(_Contract):
-    profile_id: str
+    profile_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     reviewed_pattern_ids: tuple[str, ...]
     projected_pattern_ids: tuple[str, ...]
     missing_pattern_ids: tuple[str, ...]
     issues: tuple[ProjectionIssue, ...]
 
+    @model_validator(mode="after")
+    def validate_accounting(self) -> ProfilePreflight:
+        reviewed = set(
+            _sorted_unique(self.reviewed_pattern_ids, "reviewed_pattern_ids")
+        )
+        projected = set(
+            _sorted_unique(self.projected_pattern_ids, "projected_pattern_ids")
+        )
+        missing = set(_sorted_unique(self.missing_pattern_ids, "missing_pattern_ids"))
+        if not projected <= reviewed:
+            raise ValueError("projected pattern IDs must be reviewed")
+        if missing != reviewed - projected:
+            raise ValueError(
+                "profile missing pattern IDs must equal reviewed minus projected"
+            )
+        return self
+
 
 class ForensicHistoryEntry(_Contract):
-    profile_id: str
+    profile_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     path: str
     status: Literal["completed_with_errors", "failed"]
+
+    @field_validator("path")
+    @classmethod
+    def canonical_path(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if (
+            path.is_absolute()
+            or path.as_posix() != value
+            or ".." in path.parts
+            or "." in path.parts
+            or "\\" in value
+            or path.name != "run-manifest.yaml"
+        ):
+            raise ValueError("forensic path must be a canonical run manifest path")
+        return value
 
 
 class QualificationReportV1(_Contract):
     schema_version: Literal["1"] = "1"
+    kind: Literal["preflight", "campaign"]
     catalog_sha256: Digest
-    catalog_denominator: int
+    catalog_denominator: int = Field(gt=0)
     matrix_sha256: Digest
+    campaign_manifest_sha256: Digest | None = None
     preflight: tuple[ProfilePreflight, ...]
     missing_pattern_ids: tuple[str, ...]
     qualified_pattern_ids: tuple[str, ...] = ()
     forensic_history: tuple[ForensicHistoryEntry, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_report(self) -> QualificationReportV1:
+        profile_ids = tuple(item.profile_id for item in self.preflight)
+        if profile_ids != _CANONICAL_PROFILE_IDS:
+            raise ValueError("report requires the six canonical profiles in order")
+        reviewed_ids = [
+            pattern_id
+            for profile in self.preflight
+            for pattern_id in profile.reviewed_pattern_ids
+        ]
+        reviewed = set(reviewed_ids)
+        if len(reviewed_ids) != len(reviewed):
+            raise ValueError("report reviewed pattern ownership must be disjoint")
+        if len(reviewed) != self.catalog_denominator:
+            raise ValueError("catalog denominator must equal the reviewed universe")
+        projected = {
+            pattern_id
+            for profile in self.preflight
+            for pattern_id in profile.projected_pattern_ids
+        }
+        missing = set(_sorted_unique(self.missing_pattern_ids, "missing_pattern_ids"))
+        qualified = set(
+            _sorted_unique(self.qualified_pattern_ids, "qualified_pattern_ids")
+        )
+        if not qualified <= projected:
+            raise ValueError("qualified pattern IDs must be projected")
+        forensic_keys = [
+            (item.profile_id, item.path, item.status) for item in self.forensic_history
+        ]
+        if forensic_keys != sorted(set(forensic_keys)):
+            raise ValueError("forensic history must be canonical and unique")
+        forensic_paths = [item.path for item in self.forensic_history]
+        if len(forensic_paths) != len(set(forensic_paths)):
+            raise ValueError("forensic history paths must be unique")
+        if any(
+            item.profile_id not in _CANONICAL_PROFILE_IDS
+            for item in self.forensic_history
+        ):
+            raise ValueError("forensic history profile_id is not canonical")
+        if self.kind == "preflight":
+            if self.campaign_manifest_sha256 is not None:
+                raise ValueError("preflight report cannot bind a campaign manifest")
+            if qualified or self.forensic_history:
+                raise ValueError("preflight report cannot contain campaign results")
+            expected_missing = reviewed - projected
+        else:
+            if self.campaign_manifest_sha256 is None:
+                raise ValueError("campaign report requires campaign manifest SHA-256")
+            expected_missing = reviewed - qualified
+        if missing != expected_missing:
+            raise ValueError("top-level missing pattern IDs do not match report kind")
+        return self
 
 
 PersistedContract = ReviewedProfileMatrixV1 | CampaignManifestV1 | QualificationReportV1
@@ -190,7 +279,7 @@ def validate_persisted_contract(
         "campaign": CampaignManifestV1,
         "report": QualificationReportV1,
     }
-    return models[contract].model_validate(yaml.safe_load(path.read_bytes()))
+    return models[contract].model_validate(load_yaml_strict(path.read_bytes()))
 
 
 def _bytes(path: Path) -> bytes:
@@ -202,7 +291,7 @@ def _sha(data: bytes) -> str:
 
 
 def load_matrix(path: Path) -> ReviewedProfileMatrixV1:
-    return ReviewedProfileMatrixV1.model_validate(yaml.safe_load(_bytes(path)))
+    return ReviewedProfileMatrixV1.model_validate(load_yaml_strict(_bytes(path)))
 
 
 def _fact_key(value: dict) -> str:
@@ -232,12 +321,17 @@ def _required_fact_keys(records: list[dict]) -> set[str]:
 
 
 def _preflight_matrix(
-    matrix: ReviewedProfileMatrixV1, raw_bytes: bytes
+    matrix: ReviewedProfileMatrixV1,
+    raw_bytes: bytes,
+    *,
+    catalog: dict[str, dict] | None = None,
+    resolver: object | None = None,
+    catalog_pin: str | None = None,
 ) -> QualificationReportV1:
-    catalog = load_attack_patterns()
+    catalog = catalog or load_attack_patterns()
     records = list(catalog.values())
-    resolver = load_taxonomy_resolver()
-    pin = compute_authoritative_catalog_pin(records, resolver)
+    resolver = resolver or load_taxonomy_resolver()
+    pin = catalog_pin or compute_authoritative_catalog_pin(records, resolver)
     if (matrix.catalog_sha256, matrix.catalog_denominator) != (pin, len(catalog)):
         raise ValueError(
             "matrix catalog pin/denominator does not match the live qualified catalog"
@@ -302,6 +396,7 @@ def _preflight_matrix(
             )
         )
     return QualificationReportV1(
+        kind="preflight",
         catalog_sha256=pin,
         catalog_denominator=len(catalog),
         matrix_sha256=_sha(raw_bytes),
@@ -312,7 +407,7 @@ def _preflight_matrix(
 
 def preflight_matrix(path: Path) -> QualificationReportV1:
     raw_bytes = _bytes(path)
-    matrix = ReviewedProfileMatrixV1.model_validate(yaml.safe_load(raw_bytes))
+    matrix = ReviewedProfileMatrixV1.model_validate(load_yaml_strict(raw_bytes))
     return _preflight_matrix(matrix, raw_bytes)
 
 
@@ -369,7 +464,7 @@ def _resolve_campaign_run(
     if _sha(content) != ref.manifest_sha256:
         raise ValueError(f"manifest hash mismatch: {ref.run_manifest_path}")
     try:
-        manifest = RunManifest.model_validate(yaml.safe_load(content))
+        manifest = RunManifest.model_validate(load_yaml_strict(content))
     except Exception as exc:
         raise ManifestIntegrityError(
             f"invalid pinned run manifest {ref.run_manifest_path}: {exc}"
@@ -395,9 +490,20 @@ def _resolve_campaign_run(
 
 def aggregate_campaign(matrix_path: Path, campaign_path: Path) -> QualificationReportV1:
     matrix_bytes = _bytes(matrix_path)
-    matrix = ReviewedProfileMatrixV1.model_validate(yaml.safe_load(matrix_bytes))
-    preflight = _preflight_matrix(matrix, matrix_bytes)
-    campaign = CampaignManifestV1.model_validate(yaml.safe_load(_bytes(campaign_path)))
+    matrix = ReviewedProfileMatrixV1.model_validate(load_yaml_strict(matrix_bytes))
+    catalog = load_attack_patterns()
+    catalog_records = list(catalog.values())
+    taxonomy_resolver = load_taxonomy_resolver()
+    catalog_pin = compute_authoritative_catalog_pin(catalog_records, taxonomy_resolver)
+    preflight = _preflight_matrix(
+        matrix,
+        matrix_bytes,
+        catalog=catalog,
+        resolver=taxonomy_resolver,
+        catalog_pin=catalog_pin,
+    )
+    campaign_bytes = _bytes(campaign_path)
+    campaign = CampaignManifestV1.model_validate(load_yaml_strict(campaign_bytes))
     if (
         campaign.catalog_sha256,
         campaign.catalog_denominator,
@@ -414,8 +520,6 @@ def aggregate_campaign(matrix_path: Path, campaign_path: Path) -> QualificationR
     projected_by_profile = {
         item.profile_id: set(item.projected_pattern_ids) for item in preflight.preflight
     }
-    catalog_records = list(load_attack_patterns().values())
-    taxonomy_resolver = load_taxonomy_resolver()
     qualified: set[str] = set()
     forensic: list[ForensicHistoryEntry] = []
     base = campaign_path.parent
@@ -442,8 +546,13 @@ def aggregate_campaign(matrix_path: Path, campaign_path: Path) -> QualificationR
             )
         assert score_entry and final_entry and profile_entry and plan_entry
         score = ScorecardV1.model_validate(
-            yaml.safe_load(resolver.read_text(score_entry))
+            load_yaml_strict(resolver.read_text(score_entry))
         )
+        recomputed_score = evaluate_v3_scorecard(resolver)
+        if score != recomputed_score:
+            raise ValueError(
+                "qualification scorecard does not equal canonical resolver evaluation"
+            )
         if score.qualification.status.value != "pass":
             raise ValueError("qualification scorecard does not pass canonical gates")
         nonpassing_gates = sorted(
@@ -467,7 +576,7 @@ def aggregate_campaign(matrix_path: Path, campaign_path: Path) -> QualificationR
             )
         expected = profiles[ref.profile_id]
         run_profile = CapabilityProfile.model_validate(
-            yaml.safe_load(resolver.read_text(profile_entry))
+            load_yaml_strict(resolver.read_text(profile_entry))
         )
         if run_profile != expected.profile:
             raise ValueError("run capability profile does not match matrix profile")
@@ -479,7 +588,7 @@ def aggregate_campaign(matrix_path: Path, campaign_path: Path) -> QualificationR
         }
         for entry in resolver.entries_by_role(ArtifactRole.SCENARIO_YAML):
             scenario = ScenarioEnvelope.model_validate(
-                yaml.safe_load(resolver.read_text(entry))
+                load_yaml_strict(resolver.read_text(entry))
             )
             block = scenario.projection
             if block.capability_snapshot != expected.snapshot():
@@ -507,6 +616,7 @@ def aggregate_campaign(matrix_path: Path, campaign_path: Path) -> QualificationR
                 taxonomy_resolver,
                 expected.snapshot(),
                 catalog_records,
+                expected_catalog_pin=campaign.catalog_sha256,
             ).projected
             if (
                 revalidated.candidate_id != scenario.candidate_id
@@ -540,15 +650,19 @@ def aggregate_campaign(matrix_path: Path, campaign_path: Path) -> QualificationR
                 status=resolver.manifest.status.value,
             )
         )
-    return preflight.model_copy(
-        update={
-            "qualified_pattern_ids": tuple(sorted(qualified)),
-            "missing_pattern_ids": tuple(
-                sorted(
-                    {pid for p in matrix.profiles for pid in p.applicable_pattern_ids}
-                    - qualified
-                )
-            ),
-            "forensic_history": tuple(forensic),
-        }
+    return QualificationReportV1(
+        kind="campaign",
+        catalog_sha256=preflight.catalog_sha256,
+        catalog_denominator=preflight.catalog_denominator,
+        matrix_sha256=preflight.matrix_sha256,
+        campaign_manifest_sha256=_sha(campaign_bytes),
+        preflight=preflight.preflight,
+        qualified_pattern_ids=tuple(sorted(qualified)),
+        missing_pattern_ids=tuple(
+            sorted(
+                {pid for p in matrix.profiles for pid in p.applicable_pattern_ids}
+                - qualified
+            )
+        ),
+        forensic_history=tuple(forensic),
     )

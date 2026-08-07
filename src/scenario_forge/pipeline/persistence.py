@@ -92,6 +92,8 @@ class PlanningCheckpointV1(StrictModel):
     """Immutable pre-finalization evidence needed by the completion tail."""
 
     schema_version: Literal["1"] = "1"
+    qualification_facts_source: str | None = None
+    qualification_facts_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
     stage_events: list[PlanningStageEventV1]
     projection_limitation_target_ids: list[str]
     selected_candidate_ids: list[str]
@@ -105,6 +107,18 @@ class PlanningCheckpointV1(StrictModel):
 
     @model_validator(mode="after")
     def canonical_collections(self) -> PlanningCheckpointV1:
+        if (self.qualification_facts_source is None) != (
+            self.qualification_facts_sha256 is None
+        ):
+            raise ValueError(
+                "qualification facts source and SHA-256 must be present together"
+            )
+        if self.qualification_facts_source is not None:
+            source_sha256 = hashlib.sha256(
+                self.qualification_facts_source.encode("utf-8")
+            ).hexdigest()
+            if source_sha256 != self.qualification_facts_sha256:
+                raise ValueError("qualification facts source SHA-256 mismatch")
         ordered_lists = (
             self.projection_limitation_target_ids,
             self.uncovered_target_ids,
@@ -1474,7 +1488,9 @@ def write_planning_checkpoint(run_dir: Path, checkpoint: PlanningCheckpointV1) -
         checkpoint.model_dump(mode="python")
     )
     _exclusive_create(
-        run_dir, "planning-checkpoint.json", canonical_json_bytes(checkpoint)
+        run_dir,
+        "planning-checkpoint.json",
+        canonical_json_bytes(checkpoint.model_dump(mode="json", exclude_none=True)),
     )
     return run_dir / "planning-checkpoint.json"
 
