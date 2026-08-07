@@ -1074,6 +1074,7 @@ def _call_actor_profile(
         ),
         user_prompt=render_prompt("call0_user.j2", **ctx),
         response_format=Call0Response,
+        max_completion_tokens=4096,
     )
 
     resp = result.content
