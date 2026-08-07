@@ -2507,6 +2507,79 @@ class FinalizationPersistenceAdapter:
             )
             next_inventory.stage_attempts.append(record)
             candidate_attempt.stage_attempt_ids.append(attempt_id)
+
+            # Build a simple dict entry from the available data for calls.jsonl
+            entry: dict[str, Any] = {
+                "call": result.evidence.call_name.value,
+                "candidate_id": invocation.candidate_id,
+                "stage": invocation.stage.value,
+                "attempt_id": attempt_id,
+            }
+
+            if isinstance(result.evidence, StageCallEvidence):
+                evidence = result.evidence
+                llm_result = evidence.result
+                raw_content = llm_result.content
+                if raw_content is None:
+                    response = None
+                elif hasattr(raw_content, "model_dump"):
+                    response = raw_content.model_dump(mode="json")
+                elif not isinstance(raw_content, str):
+                    response = str(raw_content)
+                else:
+                    response = raw_content
+
+                entry.update(
+                    {
+                        "system_prompt": llm_result.system_prompt,
+                        "user_prompt": llm_result.user_prompt,
+                        "response": response,
+                        "prompt_tokens": llm_result.prompt_tokens,
+                        "completion_tokens": llm_result.completion_tokens,
+                        "duration_ms": llm_result.duration_ms,
+                    }
+                )
+            elif isinstance(result.evidence, StageAttemptFailure):
+                evidence = result.evidence
+                if evidence.result is not None:
+                    llm_result = evidence.result
+                    raw_content = llm_result.content
+                    if raw_content is None:
+                        response = None
+                    elif hasattr(raw_content, "model_dump"):
+                        response = raw_content.model_dump(mode="json")
+                    elif not isinstance(raw_content, str):
+                        response = str(raw_content)
+                    else:
+                        response = raw_content
+
+                    entry.update(
+                        {
+                            "system_prompt": llm_result.system_prompt,
+                            "user_prompt": llm_result.user_prompt,
+                            "response": response,
+                            "prompt_tokens": llm_result.prompt_tokens,
+                            "completion_tokens": llm_result.completion_tokens,
+                            "duration_ms": llm_result.duration_ms,
+                        }
+                    )
+                else:
+                    entry.update(
+                        {
+                            "system_prompt": evidence.system_prompt,
+                            "user_prompt": evidence.user_prompt,
+                            "response": None,
+                            "prompt_tokens": None,
+                            "completion_tokens": None,
+                            "duration_ms": None,
+                        }
+                    )
+                entry["error"] = f"{evidence.exception_type}: {evidence.detail}"
+
+            from scenario_forge.pipeline.io import write_pipeline_call_log
+
+            write_pipeline_call_log([entry], self.run_dir)
+
             self._commit(next_inventory)
 
     def record_candidate_result(

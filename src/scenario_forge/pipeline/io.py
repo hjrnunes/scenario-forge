@@ -80,9 +80,10 @@ def write_threat_surface(threat_surface: ThreatSurface, run_dir: Path) -> Path:
 def write_pipeline_call_log(entries: list[dict], run_dir: Path) -> None:
     """Append call-log entries to the top-level ``calls.jsonl`` in *run_dir*.
 
-    This file records non-scenario LLM calls (capability-profile inference,
-    candidate filtering) in the same JSON-per-line format used by
-    ``scenarios/calls.jsonl``.
+    This file records all LLM calls: pipeline-level calls (capability-profile
+    inference, candidate filtering) and scenario-level generation calls
+    (actor, narrative, tree, behavior).  Scenario calls are also written to
+    ``scenarios/calls.jsonl`` by :func:`assembly.write_call_log`.
     """
     if not entries:
         return

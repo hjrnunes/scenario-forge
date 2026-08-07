@@ -3209,3 +3209,148 @@ class TestFourthReviewEmptyEvidence:
 
         with pytest.raises(ManifestIntegrityError, match="blank failure_evidence"):
             validate_attempt_equations(manifest)
+
+
+def test_record_stage_result_writes_to_calls_jsonl(tmp_path):
+    import json
+    from unittest.mock import MagicMock
+    from pathlib import Path
+    from scenario_forge.pipeline.persistence import FinalizationPersistenceAdapter
+    from scenario_forge.pipeline.finalization import (
+        StageInvocation,
+        GeneratedStage,
+        GeneratedStageResult,
+    )
+    from scenario_forge.pipeline.generate.stages import (
+        StageCallEvidence,
+        StageAttemptFailure,
+    )
+    from scenario_forge.llm.client import LLMResult
+    from scenario_forge.models.scenario import CallName
+
+    # 1. Setup mocks
+    inventory = MagicMock()
+    inventory.candidate_attempts = []
+    inventory.stage_attempts = []
+    inventory.transitions = []
+    inventory.repairs = []
+    inventory.admission_decisions = []
+    inventory.model_copy.return_value = inventory
+
+    coverage_plan = MagicMock()
+    coverage_plan.targets = []
+
+    run_dir = tmp_path / "run_dir"
+    run_dir.mkdir()
+
+    adapter = FinalizationPersistenceAdapter(
+        run_dir=run_dir,
+        inventory=inventory,
+        coverage_plan=coverage_plan,
+    )
+    adapter._candidate_attempt = MagicMock()
+    adapter._replayed = MagicMock(return_value=False)
+    adapter._commit = MagicMock()
+    adapter._sequence = MagicMock(return_value=1)
+
+    # 2. Test successful stage result
+    invocation = StageInvocation(
+        candidate_id="cand:v2:abc123_success",
+        stage=GeneratedStage.actor,
+        invocation_index=0,
+        owner_retry_index=0,
+        artifacts={},
+        candidate_snapshot={"some": "data"},
+    )
+
+    llm_result = LLMResult(
+        content="mock response content",
+        prompt_tokens=10,
+        completion_tokens=20,
+        duration_ms=100,
+        system_prompt="system prompt success",
+        user_prompt="user prompt success",
+    )
+
+    from scenario_forge.models.scenario import CallMetadata
+
+    metadata = CallMetadata(
+        call=CallName.actor_profile,
+        prompt_tokens=10,
+        completion_tokens=20,
+        duration_ms=100,
+    )
+
+    evidence = StageCallEvidence(
+        call_name=CallName.actor_profile,
+        result=llm_result,
+        metadata=metadata,
+    )
+
+    result = GeneratedStageResult(
+        artifact={"some": "artifact"},
+        evidence=evidence,
+        violations=(),
+    )
+
+    adapter.record_stage_result(invocation, result)
+
+    # 3. Test failed stage result
+    invocation_fail = StageInvocation(
+        candidate_id="cand:v2:abc123_fail",
+        stage=GeneratedStage.narrative,
+        invocation_index=1,
+        owner_retry_index=0,
+        artifacts={},
+        candidate_snapshot={"some": "data"},
+    )
+
+    failure_evidence = StageAttemptFailure(
+        call_name=CallName.narrative,
+        exception=ValueError("Something went wrong"),
+        phase="invocation",
+        invoked=True,
+        system_prompt="system prompt fail",
+        user_prompt="user prompt fail",
+    )
+
+    result_fail = GeneratedStageResult(
+        artifact=None,
+        evidence=failure_evidence,
+        violations=(),
+    )
+
+    adapter.record_stage_result(invocation_fail, result_fail)
+
+    # 4. Verify calls.jsonl content
+    calls_file = run_dir / "calls.jsonl"
+    assert calls_file.exists()
+
+    lines = calls_file.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+
+    entry_success = json.loads(lines[0])
+    assert entry_success["call"] == "actor_profile"
+    assert entry_success["candidate_id"] == "cand:v2:abc123_success"
+    assert entry_success["stage"] == "actor"
+    assert entry_success["attempt_id"] == "cand:v2:abc123_success:actor:0"
+    assert entry_success["system_prompt"] == "system prompt success"
+    assert entry_success["user_prompt"] == "user prompt success"
+    assert entry_success["response"] == "mock response content"
+    assert entry_success["prompt_tokens"] == 10
+    assert entry_success["completion_tokens"] == 20
+    assert entry_success["duration_ms"] == 100
+    assert "error" not in entry_success
+
+    entry_fail = json.loads(lines[1])
+    assert entry_fail["call"] == "narrative"
+    assert entry_fail["candidate_id"] == "cand:v2:abc123_fail"
+    assert entry_fail["stage"] == "narrative"
+    assert entry_fail["attempt_id"] == "cand:v2:abc123_fail:narrative:1"
+    assert entry_fail["system_prompt"] == "system prompt fail"
+    assert entry_fail["user_prompt"] == "user prompt fail"
+    assert entry_fail["response"] is None
+    assert entry_fail["prompt_tokens"] is None
+    assert entry_fail["completion_tokens"] is None
+    assert entry_fail["duration_ms"] is None
+    assert entry_fail["error"] == "ValueError: Something went wrong"
