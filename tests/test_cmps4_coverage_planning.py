@@ -618,19 +618,20 @@ class TestNoRawSeedGeneration:
     def test_run_pipeline_uses_coverage_aware_planning_without_remediation(
         self,
     ) -> None:
-        from scenario_forge.pipeline.runner import run_pipeline
+        from scenario_forge.pipeline.runner import _complete_v3_run, run_pipeline
 
-        source = inspect.getsource(run_pipeline)
+        planning_source = inspect.getsource(run_pipeline)
         for call in (
             "build_coverage_universe(",
             "build_qualified_candidates(",
             "build_fallback_queues(",
             "select_with_coverage_priority(",
             "build_coverage_plan(",
-            "emit_quality_gaps(",
         ):
-            assert call in source
-        assert "_remediate_coverage_gaps(" not in source
+            assert call in planning_source
+        completion_source = inspect.getsource(_complete_v3_run)
+        assert "emit_quality_gaps(" in completion_source
+        assert "_remediate_coverage_gaps(" not in planning_source + completion_source
 
 
 class TestProjectionBudgetAllocation:

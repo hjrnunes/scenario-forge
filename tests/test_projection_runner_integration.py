@@ -13,6 +13,7 @@ from scenario_forge.llm.client import LLMResult
 from scenario_forge.manifest import (
     ArtifactRole,
     ManifestIntegrityError,
+    ManifestInventoryResolver,
     RunStatus,
     load_manifest,
 )
@@ -22,6 +23,7 @@ from scenario_forge.models.projection_envelope import ProjectionTraceabilityResu
 from scenario_forge.models.scenario import CallMetadata, CallName
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
 from scenario_forge.pipeline.coverage import CoverageGaps
+from scenario_forge.pipeline.finalization_gates import FinalTreeSemanticSnapshot
 from scenario_forge.pipeline.generate.stages import (
     ActorStageResult,
     BehaviorStageResult,
@@ -33,6 +35,7 @@ from scenario_forge.pipeline.persistence import (
     read_coverage_plan,
     read_finalization_inventory,
 )
+from scenario_forge.pipeline.projection import canonical_json_bytes
 from scenario_forge.pipeline.runner import resume_pipeline, run_pipeline
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
@@ -160,7 +163,6 @@ def _arrange(tmp_path: Path, *, entry_point_id: str, projected_candidates: list)
         )
         return candidates, [], []
 
-    generate = MagicMock()
     stack = ExitStack()
     pattern = _pattern()
     validated_pattern = AttackPattern.model_validate(pattern)
@@ -184,7 +186,6 @@ def _arrange(tmp_path: Path, *, entry_point_id: str, projected_candidates: list)
                 validated_pattern.canonical_chain.taxonomy_context
             )
         ),
-        "generate_scenario": generate,
         "project_authoritative_candidates": MagicMock(
             return_value=MagicMock(
                 candidates=projected_candidates, infeasibilities=[], limitations=[]
@@ -301,12 +302,14 @@ def _arrange(tmp_path: Path, *, entry_point_id: str, projected_candidates: list)
         "sssom_path": sssom_path,
         "output_dir": tmp_path / "runs",
     }
-    return stack, patches, generate, args
+    # Preserve the fixture's established tuple shape without patching any
+    # removed runner generation symbol. Generation is owned by the v3 stages.
+    return stack, patches, object(), args
 
 
 def test_exact_projection_match_uses_authoritative_identity(tmp_path: Path) -> None:
     projected = get_projected_candidate()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=get_canonical_ingress_id(),
         projected_candidates=[projected],
@@ -314,7 +317,6 @@ def test_exact_projection_match_uses_authoritative_identity(tmp_path: Path) -> N
     with stack:
         result = run_pipeline(**args)
 
-    generate.assert_not_called()
     assert result.scenarios[0].candidate_id == projected.candidate_id
     manifest = load_manifest(result.run_dir)
     scenario_inventory = [item for item in manifest.inventory if item.scenario_id]
@@ -327,10 +329,110 @@ def test_exact_projection_match_uses_authoritative_identity(tmp_path: Path) -> N
     assert manifest.funnel == {}
 
 
+def test_tree_is_immutable_through_admission_persistence_and_evaluation(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    envelope = _make_valid_envelope()
+    envelope.attack_tree.root.threat_id = "T1"
+    envelope.behavior_spec = _phase3b_behavior(projected, envelope.attack_tree)
+    original_tree = envelope.attack_tree
+    original_snapshot = FinalTreeSemanticSnapshot.capture(original_tree)
+    llm_result = LLMResult(
+        content="mock",
+        prompt_tokens=0,
+        completion_tokens=0,
+        duration_ms=0,
+        system_prompt="mock",
+        user_prompt="mock",
+    )
+
+    def evidence(call: CallName) -> StageCallEvidence:
+        return StageCallEvidence(
+            call,
+            llm_result,
+            CallMetadata(
+                call=call, prompt_tokens=0, completion_tokens=0, duration_ms=0
+            ),
+        )
+
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.runner_finalization.generate_tree_stage",
+            return_value=TreeStageResult(original_tree, evidence(CallName.attack_tree)),
+        )
+    )
+    behavior_observations: list[tuple[bytes, str]] = []
+
+    def observe_behavior(_prepared, _narrative, tree, _retry=None):
+        observed = FinalTreeSemanticSnapshot.capture(tree)
+        behavior_observations.append((observed.canonical_bytes, observed.digest))
+        return BehaviorStageResult(
+            envelope.behavior_spec, evidence(CallName.behavior_spec)
+        )
+
+    stack.enter_context(
+        patch(
+            "scenario_forge.pipeline.generate.stages.generate_behavior_stage",
+            side_effect=observe_behavior,
+        )
+    )
+    evaluated_trees: list[dict] = []
+
+    def evaluate(*, resolver, threats_path=None):
+        del threats_path
+        scenario_entries = resolver.entries_by_role(ArtifactRole.SCENARIO_YAML)
+        scenario_ids = {
+            item.scenario_id
+            for item in resolver.manifest.inventory
+            if item.scenario_id is not None
+        }
+        assert len(scenario_entries) == 1
+        assert scenario_ids == {scenario_entries[0].scenario_id}
+        assert not resolver.entries_by_role(ArtifactRole.QUARANTINE_BUNDLE)
+        persisted = resolver.read_yaml(scenario_entries[0])
+        evaluated_trees.append(persisted["attack_tree"])
+        assert canonical_json_bytes(persisted["attack_tree"]) == (
+            original_snapshot.canonical_bytes
+        )
+        return {
+            "evaluation": {"scenario_count": 1, "feature_file_count": 1},
+            "metrics": {},
+        }
+
+    stack.enter_context(
+        patch("scenario_forge.eval.runner.run_evaluation", side_effect=evaluate)
+    )
+
+    with stack:
+        result = run_pipeline(**args)
+
+    original_snapshot.verify_digest()
+    assert FinalTreeSemanticSnapshot.capture(original_tree).digest == (
+        original_snapshot.digest
+    )
+    assert behavior_observations == [
+        (original_snapshot.canonical_bytes, original_snapshot.digest)
+    ]
+    manifest = load_manifest(result.run_dir)
+    resolver = ManifestInventoryResolver(result.run_dir, manifest)
+    admitted = resolver.entries_by_role(ArtifactRole.SCENARIO_YAML)
+    assert len(admitted) == 1
+    assert evaluated_trees == [resolver.read_yaml(admitted[0])["attack_tree"]]
+    assert [scenario.scenario_id for scenario in result.scenarios] == [
+        admitted[0].scenario_id
+    ]
+
+
 def test_zero_exact_projection_match_completes_without_generation(
     tmp_path: Path,
 ) -> None:
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id="ep:v1:" + "0" * 32,
         projected_candidates=[get_projected_candidate()],
@@ -338,7 +440,6 @@ def test_zero_exact_projection_match_completes_without_generation(
     with stack:
         result = run_pipeline(**args)
     assert result.run_dir is not None
-    generate.assert_not_called()
     manifest = load_manifest(result.run_dir)
     assert manifest.funnel == {}
     assert read_finalization_inventory(result.run_dir).candidate_attempts == []
@@ -438,7 +539,7 @@ def test_multiple_exact_projection_matches_fan_out(tmp_path: Path) -> None:
 
     # Arrange the runner with both projected candidates.  The filtered seed
     # matches the shared ingress; the runner fans out all matches.
-    stack, _, _generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=first.canonical_ingress.entry_point_id,
         projected_candidates=[first, second],
@@ -460,21 +561,20 @@ def test_runner_uses_unmodified_derived_projected_candidate(tmp_path: Path) -> N
     """The runner must use the unmodified ProjectedCandidate returned by
     projection — not a copied or manually altered object."""
     projected = get_projected_candidate()  # unmodified
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=projected.canonical_ingress.entry_point_id,
         projected_candidates=[projected],
     )
     with stack:
         result = run_pipeline(**args)
-    generate.assert_not_called()
     attempts = read_finalization_inventory(result.run_dir).candidate_attempts
     assert [item.candidate_id for item in attempts] == [projected.candidate_id]
 
 
 def test_attempt_is_reserved_before_failed_actor_stage(tmp_path: Path) -> None:
     projected = get_projected_candidate()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=get_canonical_ingress_id(),
         projected_candidates=[projected],
@@ -488,7 +588,6 @@ def test_attempt_is_reserved_before_failed_actor_stage(tmp_path: Path) -> None:
     with stack:
         result = run_pipeline(**args)
 
-    generate.assert_not_called()
     inventory = read_finalization_inventory(result.run_dir)
     assert [item.candidate_id for item in inventory.candidate_attempts] == [
         projected.candidate_id
@@ -499,7 +598,7 @@ def test_attempt_is_reserved_before_failed_actor_stage(tmp_path: Path) -> None:
 
 def test_production_primary_quarantine_then_fallback_admits(tmp_path: Path) -> None:
     profile, snapshot, projected = _same_snapshot_fallbacks()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=projected[0].canonical_ingress.entry_point_id,
         projected_candidates=projected,
@@ -584,22 +683,9 @@ def test_production_primary_quarantine_then_fallback_admits(tmp_path: Path) -> N
             ],
         )
     )
-    for legacy_name in (
-        "write_scenario_outputs",
-        "replace_scenario_outputs",
-        "validate_phantom_capabilities",
-        "enforce_parsimony",
-    ):
-        stack.enter_context(
-            patch(
-                f"scenario_forge.pipeline.runner.{legacy_name}",
-                side_effect=AssertionError(f"legacy path reached: {legacy_name}"),
-            )
-        )
     with stack:
         result = run_pipeline(**args)
 
-    generate.assert_not_called()
     assert actor.call_count == 4
     inventory = read_finalization_inventory(result.run_dir)
     assert [item.admitted for item in inventory.admission_decisions] == [False, True]
@@ -610,7 +696,7 @@ def test_public_resume_terminalizes_unknown_actor_without_reissue(
     tmp_path: Path,
 ) -> None:
     profile, snapshot, projected = _same_snapshot_fallbacks()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=projected[0].canonical_ingress.entry_point_id,
         projected_candidates=projected,
@@ -709,7 +795,6 @@ def test_public_resume_terminalizes_unknown_actor_without_reissue(
         )
         resumed = resume_pipeline(run_dir)
 
-    generate.assert_not_called()
     assert resumed.run_dir == run_dir
     assert actor.call_count == 2  # crashed primary call plus fallback only
     inventory = read_finalization_inventory(run_dir)
@@ -722,7 +807,7 @@ def test_public_resume_terminalizes_unknown_actor_without_reissue(
 
 def test_resume_preserves_persisted_no_eval_policy(tmp_path: Path) -> None:
     projected = get_projected_candidate()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=projected.canonical_ingress.entry_point_id,
         projected_candidates=[projected],
@@ -765,7 +850,6 @@ def test_resume_preserves_persisted_no_eval_policy(tmp_path: Path) -> None:
         )
         resumed = resume_pipeline(run_dir)
 
-    generate.assert_not_called()
     evaluator.assert_not_called()
     assert resumed.run_dir == run_dir
     assert load_manifest(run_dir).status is RunStatus.COMPLETED_WITH_ERRORS
@@ -775,7 +859,7 @@ def test_resume_rejects_conflicting_eval_before_candidate_generation(
     tmp_path: Path,
 ) -> None:
     projected = get_projected_candidate()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=projected.canonical_ingress.entry_point_id,
         projected_candidates=[projected],
@@ -794,7 +878,6 @@ def test_resume_rejects_conflicting_eval_before_candidate_generation(
         with pytest.raises(ManifestIntegrityError, match="eval override conflicts"):
             resume_pipeline(run_dir, eval=True)
 
-    generate.assert_not_called()
     assert actor.call_count == 1
 
 
@@ -1067,7 +1150,7 @@ def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
     owner = GeneratedStage(retry_owner)
 
     projected = get_projected_candidate()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=projected.canonical_ingress.entry_point_id,
         projected_candidates=[projected],
@@ -1185,7 +1268,6 @@ def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
         run_dir = next(args["output_dir"].iterdir())
         resume_pipeline(run_dir)
 
-    generate.assert_not_called()
     assert (
         actor.call_count,
         narrative.call_count,
@@ -1194,17 +1276,17 @@ def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
     ) == expected_calls
     inventory = read_finalization_inventory(run_dir)
     assert inventory.admission_decisions[-1].admitted is True
-    owner_retry = [
+    owner_retry = next(
         item
         for item in inventory.stage_attempts
         if item.stage is owner and item.invocation_index == 1
-    ][0]
+    )
     downstream = tuple(GeneratedStage)[tuple(GeneratedStage).index(owner) + 1]
-    resumed_downstream = [
+    resumed_downstream = next(
         item
         for item in inventory.stage_attempts
         if item.stage is downstream and item.invocation_index == 1
-    ][0]
+    )
     assert resumed_downstream.input.visible_artifacts[owner.value] == owner_retry.result
 
 
@@ -1215,7 +1297,7 @@ def _run_and_get_coverage_report(tmp_path: Path, *, confirmed: bool) -> dict:
     from scenario_forge.models.capability_profile import InventoryCompleteness
 
     projected = get_projected_candidate()
-    stack, _, generate, args = _arrange(
+    stack, _, _, args = _arrange(
         tmp_path,
         entry_point_id=get_canonical_ingress_id(),
         projected_candidates=[projected],

@@ -1793,36 +1793,6 @@ class TestV17FalsePositiveGuards:
 
 
 # ---------------------------------------------------------------------------
-# Tests: runner.py integration
-# ---------------------------------------------------------------------------
-
-
-class TestRunnerIntegration:
-    """Verify that validate_phantom_capabilities is wired into runner.py."""
-
-    def test_validation_import_exists(self) -> None:
-        """The runner imports validate_phantom_capabilities."""
-        from scenario_forge.pipeline import runner
-
-        assert hasattr(runner, "validate_phantom_capabilities")
-
-    def test_validation_called_in_pipeline(self) -> None:
-        """validate_phantom_capabilities is called after generation."""
-        import inspect
-
-        from scenario_forge.pipeline import runner
-
-        source = inspect.getsource(runner.run_pipeline)
-        # Validation call should appear in the source
-        assert "validate_phantom_capabilities" in source
-        generation_pos = source.index("generate_scenario")
-        val_pos = source.index("validate_phantom_capabilities")
-        assert generation_pos < val_pos, (
-            "Scenario generation should run before phantom capability validation"
-        )
-
-
-# ---------------------------------------------------------------------------
 # Tests: v18 expanded code generation patterns
 # ---------------------------------------------------------------------------
 

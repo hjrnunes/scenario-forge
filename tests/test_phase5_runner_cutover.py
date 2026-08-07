@@ -1,4 +1,4 @@
-"""Focused production-wiring regressions for cmps.5 Phase 5."""
+"""Production source and lifecycle regressions for cmps.5 Phase 6."""
 
 from __future__ import annotations
 
@@ -71,20 +71,50 @@ def test_strict_v3_plan_marks_structural_empty_target_exhausted() -> None:
     assert target.fallback_available == []
 
 
-def test_v3_production_branch_returns_before_legacy_mutation_calls() -> None:
+def test_v3_runner_contains_no_legacy_generation_or_mutation_lifecycle() -> None:
     source = inspect.getsource(run_pipeline)
-    v3_branch = source.split(
-        "# --- Manifest v3: target-scoped finalization is the sole lifecycle ---",
-        maxsplit=1,
-    )[1].split("# cmps.4 blocker 5: Capture actual qualified", maxsplit=1)[0]
 
-    assert "run_target_finalization(" in v3_branch
-    assert "return _complete_v3_run(" in v3_branch
+    assert "run_target_finalization(" in source
+    assert "return _complete_v3_run(" in source
     for forbidden in (
         "generate_scenario(",
         "write_scenario_outputs(",
         "replace_scenario_outputs(",
+        "write_call_log(",
         "validate_phantom_capabilities(",
         "enforce_parsimony(",
+        "_iter_leaves(",
+        "_assert_entry_point_ownership(",
+        "_run_early_access_gate(",
+        "_compute_gap_attributions(",
+        "_reconcile_artifacts(",
+        "_reserve_attempt(",
+        "_finalize_attempt(",
+        "_build_run_inventory(",
+        "compute_artifact_hash(",
     ):
-        assert forbidden not in v3_branch
+        assert forbidden not in source
+
+    # V3 records lifecycle in the finalization inventory. The runner must not
+    # reconstruct or publish the retired v2 manifest mirrors.
+    for legacy_write in (
+        "failed_manifest.attempts =",
+        "failed_manifest.funnel =",
+        "failed_manifest.stage_records =",
+        "failed_manifest.rule_verdicts =",
+        "failed_manifest.artifacts =",
+        "failed_manifest.phantom_validation =",
+        "failed_manifest.structural_validation =",
+        "failed_manifest.semantic_validation =",
+        "failed_manifest.leaf_technique_provenance =",
+        "failed_manifest.parsimony =",
+        "failed_manifest.scenarios_generated =",
+        "failed_manifest.scenarios_failed =",
+        "derive_funnel_from_attempts(",
+        "validate_attempt_equations(",
+        '"phantom_validation":',
+        '"structural_validation":',
+        '"semantic_validation":',
+        '"parsimony":',
+    ):
+        assert legacy_write not in source
