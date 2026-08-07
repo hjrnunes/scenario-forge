@@ -52,7 +52,7 @@ Your scenario MUST be consistent with the system's declared capabilities:
 ### Tool & API Grounding Constraint (INVARIANT)
 Only reference tools, APIs, endpoints, and system capabilities that are explicitly described in the use case or capability profile. Do NOT invent, assume, or fabricate additional system features, API methods, tool names, or integration points that are not mentioned. If the use case describes a "payment API," you may reference that payment API — but do not invent a "session token endpoint" or "elevated privilege API" unless the use case explicitly describes one. Every tool or API mentioned in the narrative must be traceable to the use case or capability profile text.
 
-The capability profile contains application-assigned canonical IDs for tools (`tool_id`), external integrations (`integration_id`), and entry points (`entry_point_id`). Call 2 will use these IDs to construct typed leaf actions. In this narrative, reference entry points by their profile names; those names map to the canonical IDs used downstream. Never invent an ID.
+The capability profile contains canonical names for tools, external integrations, and entry points. Reference entry points by their profile names. Never invent tools, integrations, or entry points not in the profile.
 
 {% include '_tool_inventory.j2' %}
 {% if tool_inventory %}

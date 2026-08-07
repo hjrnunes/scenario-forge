@@ -2562,11 +2562,15 @@ class TestProductionProjectionPersistence:
 
 class TestProjectionConstraintsInPrompts:
     """Every rendered Call 0–3 prompt embeds the same immutable projection
-    constraints — digest, opaque IDs, ingress, requirements, mappings.
+    constraints — opaque IDs, ingress, requirements, mappings.
 
-    The LLM may realize but never choose or mutate the projection.  These
+    The LLM may follow but never choose or mutate the projection.  These
     tests prove the production prompt path threads the qualified
     ProjectedCandidate through every call context builder.
+
+    Note: projection_digest was removed from prompts in Phase 2 (the LLM
+    cannot use a 64-char SHA-256 hex string).  Realizations are derived
+    in post-processing.
     """
 
     @staticmethod
@@ -2578,13 +2582,14 @@ class TestProjectionConstraintsInPrompts:
         return _build_projection_context(get_projected_candidate())
 
     def test_partial_renders_all_constraints(self):
-        """The _projection_constraints partial renders digest, IDs, ingress."""
+        """The _projection_constraints partial renders IDs, ingress."""
         from scenario_forge.prompts import render_prompt
 
         ctx = self._projection_context()
         rendered = render_prompt("_projection_constraints.j2", projection_context=ctx)
         assert "Canonical Projection Constraints" in rendered
-        assert ctx["projection_digest"] in rendered
+        # projection_digest removed in Phase 2
+        assert "projection_digest" not in ctx
         assert ctx["canonical_ingress"]["entry_point_id"] in rendered
         for sid in ctx["selected_step_ids"]:
             assert sid in rendered
@@ -2607,7 +2612,6 @@ class TestProjectionConstraintsInPrompts:
         prompt = render_prompt("call0_user.j2", **ctx)
         pc = self._projection_context()
         assert "Canonical Projection Constraints" in prompt
-        assert pc["projection_digest"] in prompt
         for sid in pc["selected_step_ids"]:
             assert sid in prompt
 
@@ -2641,20 +2645,18 @@ class TestProjectionConstraintsInPrompts:
         }
         prompt = render_prompt("call3_user.j2", **ctx)
         assert "Canonical Projection Constraints" in prompt
-        assert pc["projection_digest"] in prompt
         for sid in pc["selected_step_ids"]:
             assert sid in prompt
 
-    def test_all_calls_share_identical_digest_and_ids(self):
+    def test_all_calls_share_identical_ids(self):
         """Every call template that includes the partial embeds the same
-        projection digest and the same set of opaque step IDs."""
+        set of opaque step IDs."""
         from scenario_forge.prompts import render_prompt
         from tests.test_actor_type_compatible_set import (
             TestActorTypePromptConstraint,
         )
 
         pc = self._projection_context()
-        digest = pc["projection_digest"]
         ids = set(pc["selected_step_ids"])
 
         # call0
@@ -2678,9 +2680,7 @@ class TestProjectionConstraintsInPrompts:
         }
         p3 = render_prompt("call3_user.j2", **ctx3)
 
-        # Both prompts contain the identical digest and all opaque IDs.
-        assert digest in p0
-        assert digest in p3
+        # Both prompts contain all opaque step IDs.
         for sid in ids:
             assert sid in p0
             assert sid in p3

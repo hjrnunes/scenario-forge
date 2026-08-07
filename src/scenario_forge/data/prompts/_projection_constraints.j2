@@ -1,12 +1,9 @@
 {% if projection_context is defined and projection_context %}
 ## Canonical Projection Constraints (INVARIANT — scenario-forge-422o.4)
-You MUST realize but NEVER select, alter, omit, reorder, or fabricate the
+You MUST follow but NEVER alter, omit, reorder, or fabricate the
 projection semantics below.  These constraints are fixed and immutable.
 Every generated artifact (narrative, attack tree, behavior spec) must
-trace back to these exact projected steps, IDs, and resource bindings.
-
-### Projection Digest
-{{ projection_context.projection_digest }}
+trace back to these exact projected steps and resource bindings.
 
 ### Canonical Ingress
 - entry_point_id: {{ projection_context.canonical_ingress.entry_point_id }}
@@ -22,18 +19,6 @@ trace back to these exact projected steps, IDs, and resource bindings.
    - requirement: {{ step.requirement }}
    - resource_links:
    {% for link in step.resource_links %}     - slot_id: {{ link.slot_id }}, role: {{ link.role }}{% if link.trust_boundary_slot_id %}, trust_boundary: {{ link.trust_boundary_slot_id }}{% endif %}{% if link.target_ingress_slot_id %}, target_ingress: {{ link.target_ingress_slot_id }}{% endif %}{% if link.resource_ref %}, resource_ref: {{ link.resource_ref | tojson }}{% endif %}
-   {% endfor %}   - consumed:
-   {% for c in step.consumed %}     - kind={{ c.kind }}, ref_id={{ c.ref_id }}, value_type={{ c.value_type }}
-   {% else %}     (none)
-   {% endfor %}   - produced:
-   {% for p in step.produced %}     - kind={{ p.kind }}, ref_id={{ p.ref_id }}, value_type={{ p.value_type }}
-   {% else %}     (none)
-   {% endfor %}   - observable_postconditions:
-   {% for pc in step.observable_postconditions %}     - {{ pc.postcondition_id }}: {{ pc.description }} (security_relevant: {{ pc.security_relevant }}, terminal: {{ pc.terminal }})
-   {% else %}     (none)
-   {% endfor %}   - observable_outcome_links:
-   {% for ol in step.observable_outcome_links %}     - postcondition_id: {{ ol.postcondition_id }}, observation: {{ ol.observation }}, binding_slot_id: {{ ol.binding_slot_id }}
-   {% else %}     (none)
    {% endfor %}
 {% endfor %}
 
@@ -53,7 +38,7 @@ trace back to these exact projected steps, IDs, and resource bindings.
 {% else %}(none)
 {% endfor %}
 
-### Execution Requirements (adapter-neutral — realize exactly)
+### Execution Requirements (adapter-neutral)
 {% for req in projection_context.execution_requirements %}- {{ req.requirement_id }}: kind={{ req.kind }}
    {{ req | tojson }}
 {% else %}(none)
@@ -72,10 +57,6 @@ trace back to these exact projected steps, IDs, and resource bindings.
 ### Concrete Resource Bindings
 {% for b in projection_context.bindings %}- slot_id: {{ b.slot_id }}, resource_ref: {{ b.resource_ref | tojson }}
 {% else %}(none)
-{% endfor %}
-
-### Exact Opaque IDs (use these EXACT IDs — do not invent or modify)
-{% for sid in projection_context.selected_step_ids %}- {{ sid }}
 {% endfor %}
 
 {% endif %}
