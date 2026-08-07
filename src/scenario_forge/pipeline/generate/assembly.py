@@ -559,16 +559,29 @@ def _build_projection_block(
 def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
     """Build the immutable projection constraints passed to every Call 0–3.
 
-    Each call receives the same full ordered selected steps, omissions/
-    condition decisions, execution requirements, bindings (with concrete
-    resource_ref values), mappings, and canonical ingress constraints—not
-    another partial tuple of strings.
+    The context contains only creative-guidance data that the LLM needs
+    to follow the projection:
 
-    Note: per-step realization echo fields (consumed, produced,
-    observable_outcome_links) and the projection_digest are omitted
-    from the context — the prompt templates no longer render them.
-    Realizations are derived deterministically in post-processing
-    (Phase 1).
+    * **selected_steps** — ordered step list with action_kind,
+      executor_role, boundary_position, requirement, and simplified
+      resource_links (role + humanized resource name).
+    * **selected_step_ids** / **omitted_step_ids** — which steps are
+      active vs skipped.
+    * **canonical_ingress** / **ingress_controllability** — the
+      mandatory entry point.
+
+    Infrastructure-only fields removed in Phase 4 (they provided zero
+    creative guidance to the LLM):
+
+    * ``condition_results`` — internal precondition evaluation records
+    * ``condition_evaluations`` — precondition summary
+    * ``execution_requirements`` — adapter-neutral requirement records
+    * ``projected_mappings`` — step-to-taxonomy mappings (already in
+      ontology context)
+    * ``resource_slots`` — slot abstraction (resources visible by name
+      in tool inventory and step resource_links)
+    * ``bindings`` — slot-to-resource mappings (redundant after Phase 3
+      humanization)
 
     ``observable_postconditions`` is retained because Call 3
     validation (``gherkin.py``) reads it to build postcondition
@@ -608,11 +621,9 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
                 "requirement": step.requirement,
                 "resource_links": [
                     {
-                        "slot_id": link.slot_id,
                         "role": link.role,
-                        "trust_boundary_slot_id": link.trust_boundary_slot_id,
-                        "target_ingress_slot_id": link.target_ingress_slot_id,
-                        # Include the concrete resource_ref for this slot.
+                        # Include the concrete resource_ref for this slot
+                        # (humanized to names by Phase 3 before rendering).
                         "resource_ref": (
                             bindings_by_slot[link.slot_id].resource_ref.model_dump(
                                 mode="json"
@@ -642,53 +653,8 @@ def _build_projection_context(candidate: ProjectedCandidate) -> dict[str, Any]:
         ],
         "selected_step_ids": list(candidate.projection.selected_step_ids),
         "omitted_step_ids": [o.step_id for o in candidate.projection.omissions],
-        # Use projection.condition_results (full condition evaluations with
-        # evidence), not candidate.precondition_results (precondition-only).
-        "condition_results": [
-            {
-                "condition_step_id": cr.condition_step_id,
-                "result": cr.result,
-                "evidence": [e.model_dump(mode="json") for e in cr.evidence],
-            }
-            for cr in candidate.projection.condition_results
-        ],
-        "condition_evaluations": [
-            {
-                "step_id": pr.step_id,
-                "condition_id": pr.condition_id,
-                "result": pr.result,
-            }
-            for pr in candidate.precondition_results
-        ],
-        "execution_requirements": [
-            req.model_dump(mode="json") for req in candidate.execution_requirements
-        ],
-        "projected_mappings": [
-            m.model_dump(mode="json") for m in candidate.projected_mappings
-        ],
         "canonical_ingress": candidate.canonical_ingress.model_dump(mode="json"),
         "ingress_controllability": candidate.ingress_controllability,
-        "resource_slots": [
-            {
-                "slot_id": slot.slot_id,
-                "kind": slot.kind,
-                "purpose": slot.purpose,
-                # Include the concrete resource_ref for each slot.
-                "resource_ref": (
-                    bindings_by_slot[slot.slot_id].resource_ref.model_dump(mode="json")
-                    if slot.slot_id in bindings_by_slot
-                    else None
-                ),
-            }
-            for slot in chain.resource_slots
-        ],
-        "bindings": [
-            {
-                "slot_id": b.slot_id,
-                "resource_ref": b.resource_ref.model_dump(mode="json"),
-            }
-            for b in candidate.projection.bindings
-        ],
         "pattern_id": chain.pattern_id,
         "chain_id": chain.chain_id,
         "chain_semantic_revision": chain.semantic_revision,

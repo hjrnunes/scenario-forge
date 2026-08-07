@@ -160,25 +160,8 @@ def humanize_projection_context(
         humanized_steps.append(h_step)
     result["selected_steps"] = humanized_steps
 
-    # Convert resource_ref values in resource_slots
-    humanized_slots = []
-    for slot in projection_context.get("resource_slots", []):
-        h_slot = dict(slot)
-        h_slot["resource_ref"] = humanize_resource_ref(
-            slot.get("resource_ref"), profile
-        )
-        humanized_slots.append(h_slot)
-    result["resource_slots"] = humanized_slots
-
-    # Convert resource_ref values in bindings
-    humanized_bindings = []
-    for binding in projection_context.get("bindings", []):
-        h_binding = dict(binding)
-        h_binding["resource_ref"] = humanize_resource_ref(
-            binding.get("resource_ref"), profile
-        )
-        humanized_bindings.append(h_binding)
-    result["bindings"] = humanized_bindings
+    # Note: resource_slots and bindings were removed from the projection
+    # context in Phase 4 — they are no longer rendered in prompts.
 
     return result
 
