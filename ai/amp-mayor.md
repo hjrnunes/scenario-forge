@@ -40,8 +40,8 @@ template when the Mayor or worker is running in Amp:
 
 - Use an Amp orb by default when the job can be completed from the configured
   remote project. Proactively use a local runner when the job requires
-  local-only state. If orb creation fails before a usable thread exists, fall
-  back to a runner.
+  local-only state or the project is not configured for a permitted orb size.
+  If orb creation fails before a usable thread exists, fall back to a runner.
 - Do not install a recurring Mayor heartbeat. Work advances when a worker
   replies or the operator asks for a Mayor pass.
 - The Mayor owns all Beads mutations: claim, notes, dependencies, follow-up
@@ -65,12 +65,29 @@ worker threads in Amp Low mode by default. Pass `agent_mode: low` explicitly on
 every worker-thread creation; do not rely on Amp's default mode. A fallback from
 an orb to a runner preserves the approved mode.
 
+Use only Amp's built-in modes (`low`, `medium`, `high`, or `ultra`). Kimi K3 and
+all other plugin or third-party agent modes are prohibited for Mayor-dispatched
+workers, reviewers, audits, and QA threads. Do not call `list_agent_modes` to
+select a substitute plugin mode.
+
 Use another mode only when the operator explicitly requests it or approves the
 Mayor's recommendation. If a Low-mode worker fails, diagnose the brief and task
 boundary first. Prefer tightening or splitting the bead over automatically
 rerunning it at a higher mode.
 
 The Mayor thread's mode is independent of this worker default.
+
+## Orb Size
+
+Orb size is a project setting, not a per-thread `create_thread` parameter. Any
+orb the Mayor dispatches, including worker, audit, reviewer, and QA parent
+threads, must use a project configured for either `a0.tiny` or `a0.small`.
+`a0.medium` and `a0.large` are prohibited for Mayor-dispatched work.
+
+Before orb dispatch, establish that the selected project's configured size is
+`a0.tiny` or `a0.small`. If the project uses another size, or an allowed size
+cannot be established, skip orb creation and follow the existing local-runner
+workflow. Do not invent or pass an orb-size argument to `create_thread`.
 
 ## One Mayor Pass
 
@@ -120,14 +137,15 @@ For each worker, the Mayor first completes these shared prerequisites:
    the Mayor checkout. The explicitly bounded read-only QA exception below is
    unchanged.
 
-For a remotely complete job, call `create_thread` with the repository project,
-`executor: orb`, and the approved explicit mode (`agent_mode: low` by default).
-Put the complete dispatch contract in the initial prompt and explicitly ask the
-worker to reply to the Mayor when it finishes. Do not both request a reply and
-synchronously wait or poll for the thread. Record the executor, assigned
-surface, branch, Amp thread URL, and state in the bead notes and dashboard. Orb
-isolation replaces local worktree setup; do not supply a Mayor-checkout path,
-worktree, runner ID, or runner process ID.
+For a remotely complete job whose project uses a permitted orb size, call
+`create_thread` with the repository project, `executor: orb`, and the approved
+explicit mode (`agent_mode: low` by default). Orb size is inherited from the
+project and is not passed to `create_thread`. Put the complete dispatch contract
+in the initial prompt and explicitly ask the worker to reply to the Mayor when
+it finishes. Do not both request a reply and synchronously wait or poll for the
+thread. Record the executor, assigned surface, branch, Amp thread URL, and state
+in the bead notes and dashboard. Orb isolation replaces local worktree setup;
+do not supply a Mayor-checkout path, worktree, runner ID, or runner process ID.
 
 If orb creation fails before a usable thread exists, follow the local runner
 path below. A later failure in an existing orb must be reviewed before retrying
