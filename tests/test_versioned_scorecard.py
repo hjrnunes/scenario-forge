@@ -17,6 +17,7 @@ from scenario_forge.eval.scorecard import (
     ratio_metric,
 )
 from scenario_forge.eval.versioned_metrics import (
+    canonical_entry_point_sets,
     evaluate_v3_scorecard,
     title_duplicate_components,
 )
@@ -165,6 +166,24 @@ def test_components_are_deterministic_across_input_order() -> None:
     }
     second = dict(reversed(list(first.items())))
     assert title_duplicate_components(first) == title_duplicate_components(second)
+
+
+def test_entry_point_coverage_uses_canonical_identity_only() -> None:
+    covered, unknown = canonical_entry_point_sets(
+        [
+            {
+                "initial_entry_point_id": "ep:v1:11111111111111111111111111111111",
+                "narrative": {"entry_point": "misleading display name"},
+            },
+            {
+                "initial_entry_point_id": "ep:v1:99999999999999999999999999999999",
+                "narrative": {"entry_point": "known display name"},
+            },
+        ],
+        {"ep:v1:11111111111111111111111111111111"},
+    )
+    assert covered == {"ep:v1:11111111111111111111111111111111"}
+    assert unknown == {"ep:v1:99999999999999999999999999999999"}
 
 
 def test_profile_completeness_controls_closed_world_gates() -> None:

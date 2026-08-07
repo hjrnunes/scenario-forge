@@ -12,6 +12,8 @@ B. classify_entry_point() must downgrade 'system' controllability to 'indirect'
 
 from __future__ import annotations
 
+import pytest
+
 from scenario_forge.eval.diversity import entry_point_entropy
 from scenario_forge.pipeline.candidates import classify_entry_point
 
@@ -65,6 +67,9 @@ class TestCoverageDenominatorExcludesOutput:
         assert result["entry_point_coverage"] == 0.5
 
 
+@pytest.mark.skip(
+    reason="legacy manifest-v2 eval runner removed; v3 uses planned canonical IDs"
+)
 class TestRunnerCoverageDenominator:
     """Integration test: eval runner filters output EPs from the denominator."""
 

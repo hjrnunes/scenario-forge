@@ -107,6 +107,18 @@ def title_duplicate_components(
     return exact_groups, _components(ids, title_edges)
 
 
+def canonical_entry_point_sets(
+    scenarios: list[dict[str, Any]], expected_ids: set[str]
+) -> tuple[set[str], set[str]]:
+    """Return covered and unknown IDs using only canonical envelope identity."""
+    used_ids = {
+        str(scenario["initial_entry_point_id"])
+        for scenario in scenarios
+        if scenario.get("initial_entry_point_id")
+    }
+    return used_ids & expected_ids, used_ids - expected_ids
+
+
 def _count_metric(count: int, evidence: list[str], affected: list[str]) -> MetricResult:
     return MetricResult(
         status=MetricStatus.PASS,
@@ -169,13 +181,9 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
     scenario_ids = [scenario_id for scenario_id, _ in scenario_items]
     feature_ids = [entry.scenario_id or entry.path for entry in feature_entries]
     plan_targets = {target.entry_point_id for target in plan.targets}
-    used_targets = {
-        str(raw.get("initial_entry_point_id"))
-        for _, raw in scenario_items
-        if raw.get("initial_entry_point_id")
-    }
-    unknown_targets = used_targets - plan_targets
-    covered_targets = used_targets & plan_targets
+    covered_targets, unknown_targets = canonical_entry_point_sets(
+        [raw for _, raw in scenario_items], plan_targets
+    )
     admitted_receipts = [
         receipt
         for receipt in final.admitted_inventory

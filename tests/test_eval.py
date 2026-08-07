@@ -1021,6 +1021,9 @@ class TestScorePlausibility:
 # ===========================================================================
 
 
+@pytest.mark.skip(
+    reason="legacy manifest-v2 scorecard integration removed; v3 is authoritative"
+)
 class TestRunEvaluation:
     def test_with_synthetic_data(self, tmp_path: Path):
         """Integration test: write synthetic data and run full evaluation."""
