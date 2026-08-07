@@ -30,7 +30,11 @@ from scenario_forge.models.capability_profile import (
 )
 from scenario_forge.models.projection_envelope import ProjectionTraceabilityResult
 from scenario_forge.models.scenario import CallMetadata, CallName
-from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
+from scenario_forge.pipeline.candidates import (
+    FilteredSeed,
+    RemovalDecision,
+    StageRecord,
+)
 from scenario_forge.pipeline.coverage import CoverageGaps
 from scenario_forge.pipeline.finalization_gates import (
     EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
@@ -51,7 +55,11 @@ from scenario_forge.pipeline.persistence import (
     read_planning_checkpoint_bytes,
 )
 from scenario_forge.pipeline.projection import canonical_json_bytes
-from scenario_forge.pipeline.runner import resume_pipeline, run_pipeline
+from scenario_forge.pipeline.runner import (
+    _removal_decision_summary,
+    resume_pipeline,
+    run_pipeline,
+)
 from scenario_forge.pipeline.seeds import ScenarioSeed
 from scenario_forge.pipeline.threats import ThreatSurface
 from tests.helpers.projection_factory import (
@@ -71,6 +79,18 @@ from tests.test_actor_entry_point_validation import (
 )
 from tests.test_finalization_gates import _phase3b_behavior
 from tests.test_projection_traceability import _make_envelope as _make_valid_envelope
+
+
+def test_rule_rejection_summary_uses_typed_removal_decision_fields() -> None:
+    decision = RemovalDecision(
+        technique_id="AML.T0001",
+        rule="zone_compatibility",
+        reason="Technique requires a tool-execution zone.",
+    )
+
+    assert _removal_decision_summary(decision) == (
+        "zone_compatibility: Technique requires a tool-execution zone."
+    )
 
 
 def _same_snapshot_fallbacks():

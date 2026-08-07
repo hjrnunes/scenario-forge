@@ -59,6 +59,7 @@ from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.candidates import (
     FilteredSeed,
     FilterProtocolError,
+    RemovalDecision,
     StageRecord,
     apply_rule_based_filter,
     expand_candidates,
@@ -114,6 +115,11 @@ _DEFAULT_CROSS_TAXONOMY_PATH = (
     / "mappings"
     / "cross-taxonomy-mappings.yaml"
 )
+
+
+def _removal_decision_summary(decision: RemovalDecision) -> str:
+    """Render the typed rule and reason carried by a removal decision."""
+    return f"{decision.rule}: {decision.reason}"
 
 
 class PipelineResult(BaseModel):
@@ -1370,7 +1376,7 @@ def run_pipeline(
             ]
             if matching_verdicts:
                 removals = [
-                    f"{d.rule_name}: {d.rationale}"
+                    _removal_decision_summary(d)
                     for v in matching_verdicts
                     for d in v.removal_decisions
                 ]
