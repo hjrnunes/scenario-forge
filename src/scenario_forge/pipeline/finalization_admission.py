@@ -17,7 +17,6 @@ from scenario_forge.models.projection_envelope import (
     ProjectionTraceabilityStage,
     ProjectionTraceabilityViolationCode,
 )
-from scenario_forge.models.scenario import CorpusClaimCategory, CorpusClaimStatus
 from scenario_forge.pipeline.finalization import (
     AdmissionDecision,
     GeneratedArtifacts,
@@ -474,10 +473,6 @@ class PostbehaviorAdmissionPort:
         )
 
         semantic = check_scenario_semantics(envelope, self.profile)
-        applicability = {
-            claim.category: claim.status is CorpusClaimStatus.applicable
-            for claim in semantic.corpus_claim_applicability
-        }
         semantic_hard: list[tuple[str, GateViolation]] = []
         semantic_diagnostics: list[GateViolation] = []
         for item in semantic.violations:
@@ -509,9 +504,9 @@ class PostbehaviorAdmissionPort:
                     diagnostics=selected,
                     outcome=not selected,
                     applicable=(
-                        applicability[CorpusClaimCategory.tool_inventory]
+                        self.profile.is_tool_inventory_complete
                         if evidence_id is AdmissionEvidenceId.tool_integration_grounding
-                        else applicability[CorpusClaimCategory.entry_points]
+                        else self.profile.is_entry_point_inventory_complete
                         if evidence_id is AdmissionEvidenceId.data_access_grounding
                         else True
                     ),

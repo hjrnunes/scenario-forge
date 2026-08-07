@@ -114,6 +114,12 @@ EXCEPTIONAL_ADMISSION_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = frozenset(
 NORMAL_POSTBEHAVIOR_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = (
     frozenset(AdmissionEvidenceId) - EXCEPTIONAL_ADMISSION_EVIDENCE_IDS
 )
+CONDITIONALLY_APPLICABLE_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = frozenset(
+    {
+        AdmissionEvidenceId.tool_integration_grounding,
+        AdmissionEvidenceId.data_access_grounding,
+    }
+)
 
 
 DIAGNOSTIC_BACKED_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = frozenset(

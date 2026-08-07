@@ -30,6 +30,10 @@ from scenario_forge.manifest import (
     atomic_write_text,
     build_artifact_entry,
 )
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    InventoryCompleteness,
+)
 from scenario_forge.pipeline.coverage_planning import (
     QualifiedCandidate,
     deserialize_qualified_candidate,
@@ -47,6 +51,7 @@ from scenario_forge.pipeline.finalization import (
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.finalization_gates import (
+    CONDITIONALLY_APPLICABLE_EVIDENCE_IDS,
     DIAGNOSTIC_BACKED_EVIDENCE_IDS,
     EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
     NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
@@ -490,6 +495,12 @@ class AdmissionDecisionRecord(StrictModel):
             raise ValueError("exceptional admission evidence must be a singleton")
         if self.admitted and set(evidence_ids) != set(NORMAL_POSTBEHAVIOR_EVIDENCE_IDS):
             raise ValueError("admitted decision requires canonical gate evidence")
+        if self.admitted and any(
+            not gate.applicable
+            for gate in self.gate_results
+            if gate.gate not in CONDITIONALLY_APPLICABLE_EVIDENCE_IDS
+        ):
+            raise ValueError("intrinsic admitted evidence must be applicable")
         authoritative = [
             violation for gate in self.gate_results for violation in gate.violations
         ]
@@ -1632,6 +1643,41 @@ def validate_v3_inventories(resolver: Any) -> None:
         raise ManifestIntegrityError("Finalization inventory run_id mismatch")
     if final.coverage_plan_sha256 != coverage_entry.sha256:
         raise ManifestIntegrityError("Finalization coverage plan hash mismatch")
+    admitted_decisions = [
+        decision for decision in final.admission_decisions if decision.admitted
+    ]
+    if admitted_decisions:
+        profile_entry = resolver.entry_by_role(ArtifactRole.CAPABILITY_PROFILE)
+        if profile_entry is None:
+            raise ManifestIntegrityError(
+                "Admitted inventory requires capability profile"
+            )
+        try:
+            profile = CapabilityProfile.model_validate(
+                resolver.read_yaml(profile_entry)
+            )
+        except Exception as exc:
+            raise ManifestIntegrityError(f"Invalid capability profile: {exc}") from exc
+        expected_applicability = {
+            AdmissionEvidenceId.tool_integration_grounding: (
+                profile.tool_inventory_completeness
+                is InventoryCompleteness.operator_confirmed_complete
+            ),
+            AdmissionEvidenceId.data_access_grounding: (
+                profile.entry_point_completeness
+                is InventoryCompleteness.operator_confirmed_complete
+            ),
+        }
+    for decision in admitted_decisions:
+        gates = {gate.gate: gate for gate in decision.gate_results}
+        if any(
+            gates[evidence_id].applicable is not expected
+            for evidence_id, expected in expected_applicability.items()
+        ):
+            raise ManifestIntegrityError(
+                "Admitted conditional evidence applicability does not match "
+                "the capability profile"
+            )
 
     plan_by_candidate = {
         choice.candidate_id: (target, choice)

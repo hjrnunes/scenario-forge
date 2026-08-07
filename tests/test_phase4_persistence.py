@@ -48,6 +48,7 @@ from scenario_forge.pipeline.finalization import (
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.finalization_gates import (
+    CONDITIONALLY_APPLICABLE_EVIDENCE_IDS,
     DIAGNOSTIC_BACKED_EVIDENCE_IDS,
     EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
     NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
@@ -1224,6 +1225,18 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
             if gate["gate"] != missing_id.value
         ]
         with pytest.raises(ValidationError, match="canonical gate evidence"):
+            AdmissionDecisionRecord.model_validate(mutated)
+
+    for intrinsic_id in (
+        NORMAL_POSTBEHAVIOR_EVIDENCE_IDS - CONDITIONALLY_APPLICABLE_EVIDENCE_IDS
+    ):
+        mutated = json.loads(json.dumps(admitted_raw))
+        next(
+            gate
+            for gate in mutated["gate_results"]
+            if gate["gate"] == intrinsic_id.value
+        )["applicable"] = False
+        with pytest.raises(ValidationError, match="intrinsic.*must be applicable"):
             AdmissionDecisionRecord.model_validate(mutated)
 
     duplicated = dict(admitted_raw)
