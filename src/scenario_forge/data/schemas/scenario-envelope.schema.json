@@ -4627,6 +4627,20 @@
           "title": "Name",
           "type": "string"
         },
+        "entry_point_type": {
+          "default": "other",
+          "description": "Typed ingress mechanism. This is adapter-neutral semantic metadata; it does not derive from the entry-point name.",
+          "enum": [
+            "user_input",
+            "external_content",
+            "configuration_load",
+            "system_event",
+            "inter_agent_message",
+            "other"
+          ],
+          "title": "Entry Point Type",
+          "type": "string"
+        },
         "direction": {
           "default": "bidirectional",
           "description": "Data flow direction: 'input' (attacker can send data in), 'output' (system sends data out), or 'bidirectional' (both).",
