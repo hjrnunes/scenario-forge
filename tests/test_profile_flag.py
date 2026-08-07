@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -93,7 +92,7 @@ def test_profile_flag_skips_inference(
     mock_diversity.return_value = None
 
     # Side effects that actually write files so strict inventory passes.
-    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None, **kwargs):
         (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
 
     def _write_report(data, out_dir):
@@ -192,7 +191,7 @@ def test_profile_written_to_output_dir(
     mock_diversity.return_value = None
 
     # Side effects that actually write files so strict inventory passes.
-    def _write_coverage(cov_gaps, out_dir, attacker_div=None):
+    def _write_coverage(cov_gaps, out_dir, attacker_div=None, **kwargs):
         (Path(out_dir) / "coverage-gaps.json").write_text('{"coverage_gaps":{}}')
 
     def _write_report(data, out_dir):

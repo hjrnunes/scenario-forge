@@ -13,13 +13,14 @@ import os
 import secrets
 import stat
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 import yaml
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from scenario_forge.manifest import (
     ArtifactEntry,
@@ -29,31 +30,32 @@ from scenario_forge.manifest import (
     atomic_write_text,
     build_artifact_entry,
 )
+from scenario_forge.pipeline.coverage_planning import (
+    QualifiedCandidate,
+    deserialize_qualified_candidate,
+)
 from scenario_forge.pipeline.finalization import (
     MAX_OWNER_RETRIES,
     CandidateTerminalResult,
     CandidateTerminalStatus,
+    FinalizationPersistenceError,
     GeneratedStage,
     GeneratedStageResult,
-    FinalizationPersistenceError,
     LifecycleState,
     LifecycleTransition,
     StageInvocation,
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
-from scenario_forge.pipeline.coverage_planning import (
-    QualifiedCandidate,
-    deserialize_qualified_candidate,
-)
-from scenario_forge.pipeline.projection import canonical_json_bytes
 from scenario_forge.pipeline.generate.stages import (
     StageAttemptFailure,
     StageCallEvidence,
 )
+from scenario_forge.pipeline.projection import canonical_json_bytes
 
 COVERAGE_PLAN_VERSION = "2"
 FINALIZATION_INVENTORY_VERSION = "1"
 QUARANTINE_BUNDLE_VERSION = "1"
+PLANNING_CHECKPOINT_VERSION = "1"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 MAX_TARGET_CHOICES = 3
 
@@ -62,6 +64,54 @@ class StrictModel(BaseModel):
     """Persistence base: unknown fields are never silently accepted."""
 
     model_config = {"extra": "forbid", "use_enum_values": False}
+
+
+class PlanningStageEventV1(StrictModel):
+    # Global projection evidence and target-level budget evidence legitimately
+    # have no candidate identity (and global issues have no target identity).
+    entry_point_id: str
+    candidate_id: str
+    stage: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    detail: str = ""
+    payload: JsonValue | None = None
+
+
+class PlanningCheckpointV1(StrictModel):
+    """Immutable pre-finalization evidence needed by the completion tail."""
+
+    schema_version: Literal["1"] = "1"
+    stage_events: list[PlanningStageEventV1]
+    projection_limitation_target_ids: list[str]
+    selected_candidate_ids: list[str]
+    capped_count: int = Field(ge=0)
+    uncovered_target_ids: list[str]
+    per_pattern_counts: dict[str, int]
+    primary_candidate_ids: dict[str, str]
+    attempted_candidate_ids: list[str]
+    selection_limitation_target_ids: list[str]
+    fallback_candidate_ids: dict[str, list[str]]
+
+    @model_validator(mode="after")
+    def canonical_collections(self) -> PlanningCheckpointV1:
+        ordered_lists = (
+            self.projection_limitation_target_ids,
+            self.uncovered_target_ids,
+            self.attempted_candidate_ids,
+            self.selection_limitation_target_ids,
+        )
+        if any(values != sorted(set(values)) for values in ordered_lists):
+            raise ValueError("planning checkpoint ID lists must be sorted and unique")
+        if self.selected_candidate_ids != list(
+            dict.fromkeys(self.selected_candidate_ids)
+        ):
+            raise ValueError("selected candidate IDs must be ordered and unique")
+        if any(
+            ids != list(dict.fromkeys(ids))
+            for ids in self.fallback_candidate_ids.values()
+        ):
+            raise ValueError("fallback candidate IDs must be ordered and unique")
+        return self
 
 
 class TargetState(str, Enum):
@@ -694,9 +744,45 @@ class FinalizationInventoryV1(StrictModel):
                     if item.candidate_id == attempt.candidate_id
                     and item.sequence > unmatched.sequence
                 ]
-                if attempt.candidate_id in terminal_edges or later_candidate_events:
+                decision = next(
+                    (
+                        item
+                        for item in self.admission_decisions
+                        if item.candidate_id == attempt.candidate_id
+                    ),
+                    None,
+                )
+                terminal = terminal_edges.get(attempt.candidate_id)
+                ordered_later = sorted(
+                    later_candidate_events, key=lambda item: item.sequence
+                )
+                exact_unknown_terminal = (
+                    terminal is not None
+                    and decision is not None
+                    and ordered_later == [terminal, decision]
+                    and terminal.previous is unmatched.current
+                    and terminal.sequence == unmatched.sequence + 1
+                    and decision.sequence == terminal.sequence + 1
+                    and decision.status
+                    is CandidateTerminalStatus.generation_or_finalization_failed
+                    and not decision.admitted
+                    and not decision.gate_results
+                    and len(decision.violations) == 1
+                    and decision.violations[0].code == "unknown_invocation_outcome"
+                    and decision.violations[0].owner is None
+                    and not decision.violations[0].retryable
+                    and len(decision.terminal_receipts) == 1
+                    and decision.terminal_receipts[0].role
+                    is ArtifactRole.QUARANTINE_BUNDLE
+                    and not any(
+                        item.sequence > unmatched.sequence
+                        for item in [*self.stage_attempts, *self.repairs]
+                        if item.candidate_id == attempt.candidate_id
+                    )
+                )
+                if later_candidate_events and not exact_unknown_terminal:
                     raise ValueError(
-                        "unmatched generating transition must be the active trace tail"
+                        "unmatched generating transition permits only exact unknown-outcome terminalization"
                     )
             for transition, stage in zip(
                 generating_transitions, ordered_stage_attempts
@@ -793,29 +879,32 @@ class FinalizationInventoryV1(StrictModel):
                 )
             if decision.admitted:
                 candidate_stages.sort(key=lambda item: item.sequence)
-                latest_outputs = {
-                    stage: next(
-                        (
-                            item
-                            for item in reversed(candidate_stages)
-                            if item.stage is stage and item.output_sha256 is not None
-                        ),
-                        None,
-                    )
-                    for stage in GeneratedStage
-                }
-                behavior = latest_outputs[GeneratedStage.behavior]
+                causal = _causal_stage_artifacts(
+                    candidate_stages,
+                    candidate_attempt_id=next(
+                        item.attempt_id
+                        for item in self.candidate_attempts
+                        if item.candidate_id == decision.candidate_id
+                    ),
+                    repairs=[
+                        item
+                        for item in self.repairs
+                        if item.candidate_id == decision.candidate_id
+                    ],
+                )
                 expected_snapshots = (
                     candidate_stages[-1].candidate_snapshot_sha256
                     if candidate_stages
                     else None,
-                    latest_outputs[GeneratedStage.actor].output_sha256
-                    if latest_outputs[GeneratedStage.actor]
+                    canonical_sha256(causal[GeneratedStage.actor])
+                    if GeneratedStage.actor in causal
                     else None,
-                    latest_outputs[GeneratedStage.narrative].output_sha256
-                    if latest_outputs[GeneratedStage.narrative]
+                    canonical_sha256(causal[GeneratedStage.narrative])
+                    if GeneratedStage.narrative in causal
                     else None,
-                    behavior.final_tree_snapshot_sha256 if behavior else None,
+                    canonical_sha256(causal[GeneratedStage.tree])
+                    if GeneratedStage.behavior in causal
+                    else None,
                 )
                 actual_snapshots = (
                     decision.candidate_snapshot_sha256,
@@ -928,6 +1017,65 @@ class FinalizationInventoryV1(StrictModel):
                 ),
             }
             _verify_event(item, "candidate_result", item.candidate_id, payload)
+
+
+def _causal_stage_artifacts(
+    records: list[StageAttemptRecord],
+    *,
+    candidate_attempt_id: str,
+    durable_candidate: JsonValue | None = None,
+    repairs: Sequence[ParsimonyRepairRecord] = (),
+) -> dict[GeneratedStage, JsonValue]:
+    """Reduce stage evidence to one causally contiguous artifact frontier."""
+    frontier: dict[GeneratedStage, JsonValue] = {}
+    order = tuple(GeneratedStage)
+    for record in sorted(records, key=lambda item: item.sequence):
+        if (
+            durable_candidate is not None
+            and record.input.candidate != durable_candidate
+        ):
+            raise ValueError("stage candidate snapshot differs from durable plan")
+        for invalidated in order[order.index(record.stage) :]:
+            frontier.pop(invalidated, None)
+        visible = dict(record.input.visible_artifacts)
+        if record.stage is GeneratedStage.behavior:
+            visible_tree = visible.get(GeneratedStage.tree.value)
+            if (
+                visible_tree is None
+                or record.final_tree_snapshot_sha256 != canonical_sha256(visible_tree)
+            ):
+                raise ValueError(
+                    "behavior evidence is not bound to its final-tree input"
+                )
+            generated_tree = frontier.get(GeneratedStage.tree)
+            if generated_tree is None:
+                raise ValueError("behavior evidence has no causal generated tree")
+            before_digest = canonical_sha256(generated_tree)
+            after_digest = canonical_sha256(visible_tree)
+            if before_digest != after_digest and not any(
+                repair.accepted
+                and repair.candidate_attempt_id == candidate_attempt_id
+                and repair.sequence < record.sequence
+                and repair.before_digest == before_digest
+                and repair.after_digest == after_digest
+                for repair in repairs
+            ):
+                raise ValueError(
+                    "behavior tree is neither generated nor linked by accepted repair"
+                )
+            frontier[GeneratedStage.tree] = visible_tree
+        expected_visible = {
+            stage.value: artifact for stage, artifact in frontier.items()
+        }
+        if visible != expected_visible:
+            raise ValueError("stage evidence is not one contiguous causal frontier")
+        if (
+            record.result is not None
+            and not record.violations
+            and record.call is not None
+        ):
+            frontier[record.stage] = record.result
+    return frontier
 
 
 class PersistenceJournalV1(StrictModel):
@@ -1282,6 +1430,67 @@ def write_quarantine_bundle(run_dir: Path, bundle: QuarantineBundleV1) -> Artifa
     )
 
 
+def write_planning_checkpoint(run_dir: Path, checkpoint: PlanningCheckpointV1) -> Path:
+    checkpoint = PlanningCheckpointV1.model_validate(
+        checkpoint.model_dump(mode="python")
+    )
+    _exclusive_create(
+        run_dir, "planning-checkpoint.json", canonical_json_bytes(checkpoint)
+    )
+    return run_dir / "planning-checkpoint.json"
+
+
+def read_planning_checkpoint_bytes(content: bytes) -> PlanningCheckpointV1:
+    try:
+        return PlanningCheckpointV1.model_validate_json(content)
+    except Exception as exc:
+        raise ManifestIntegrityError(f"Invalid planning checkpoint: {exc}") from exc
+
+
+def validate_planning_checkpoint(
+    checkpoint: PlanningCheckpointV1, plan: CoveragePlanV2
+) -> None:
+    """Bind immutable completion-tail evidence to the durable target plan."""
+    expected_fallbacks = {
+        target.entry_point_id: [
+            choice.candidate_id for choice in target.ordered_choices
+        ]
+        for target in plan.targets
+    }
+    expected_primaries = {
+        target.entry_point_id: target.primary_candidate_id
+        for target in plan.targets
+        if target.primary_candidate_id is not None
+    }
+    if checkpoint.fallback_candidate_ids != expected_fallbacks:
+        raise ManifestIntegrityError(
+            "planning checkpoint fallback queues mismatch plan"
+        )
+    if checkpoint.primary_candidate_ids != expected_primaries:
+        raise ManifestIntegrityError("planning checkpoint primaries mismatch plan")
+    if sorted(checkpoint.selected_candidate_ids) != sorted(expected_primaries.values()):
+        raise ManifestIntegrityError("planning checkpoint selection mismatch plan")
+    if checkpoint.attempted_candidate_ids != sorted(checkpoint.selected_candidate_ids):
+        raise ManifestIntegrityError("planning checkpoint attempted selection mismatch")
+    if checkpoint.uncovered_target_ids != sorted(
+        target.entry_point_id for target in plan.targets if not target.ordered_choices
+    ):
+        raise ManifestIntegrityError(
+            "planning checkpoint uncovered targets mismatch plan"
+        )
+    plan_target_ids = {target.entry_point_id for target in plan.targets}
+    if not set(checkpoint.projection_limitation_target_ids) <= plan_target_ids:
+        raise ManifestIntegrityError(
+            "planning checkpoint projection limitations are absent from plan"
+        )
+    if checkpoint.selection_limitation_target_ids != sorted(
+        plan.selection_limitation_target_ids
+    ):
+        raise ManifestIntegrityError(
+            "planning checkpoint selection limitations mismatch plan"
+        )
+
+
 def read_quarantine_bundle(run_dir: Path, entry: ArtifactEntry) -> QuarantineBundleV1:
     expected = PurePosixPath(entry.path)
     if (
@@ -1296,9 +1505,7 @@ def read_quarantine_bundle(run_dir: Path, entry: ArtifactEntry) -> QuarantineBun
     )
 
 
-def _recover_journal(run_dir: Path) -> CoveragePlanV2 | None:
-    """Complete an interrupted synchronized plan/inventory state replacement."""
-
+def _read_journal(run_dir: Path) -> PersistenceJournalV1 | None:
     journal_path = run_dir / ".finalization-state.json"
     if not journal_path.exists():
         return None
@@ -1310,6 +1517,14 @@ def _recover_journal(run_dir: Path) -> CoveragePlanV2 | None:
         raise ManifestIntegrityError(
             f"Invalid finalization state journal: {exc}"
         ) from exc
+
+    return journal
+
+
+def _publish_journal(run_dir: Path, journal: PersistenceJournalV1) -> CoveragePlanV2:
+    """Complete one already-validated synchronized state replacement."""
+
+    journal_path = run_dir / ".finalization-state.json"
     if journal.quarantine_bundle is not None:
         write_quarantine_bundle(run_dir, journal.quarantine_bundle)
     if journal.admitted_publication is not None:
@@ -1323,6 +1538,21 @@ def _recover_journal(run_dir: Path) -> CoveragePlanV2 | None:
     finally:
         os.close(dir_fd)
     return journal.coverage_plan
+
+
+def recover_finalization_journal(
+    run_dir: Path, *, expected_run_id: str
+) -> CoveragePlanV2 | None:
+    """Complete an interrupted v3 state publication before forensic loading."""
+    run_dir = Path(run_dir)
+    journal = _read_journal(run_dir)
+    if journal is None:
+        return None
+    if journal.finalization_inventory.run_id != expected_run_id:
+        raise ManifestIntegrityError(
+            "finalization state journal run_id does not match resumed run"
+        )
+    return _publish_journal(run_dir, journal)
 
 
 def _read_model(
@@ -1358,7 +1588,8 @@ def validate_v3_inventories(resolver: Any) -> None:
         )
     coverage_entry = resolver.entry_by_role(ArtifactRole.COVERAGE_PLAN)
     final_entry = resolver.entry_by_role(ArtifactRole.FINALIZATION_INVENTORY)
-    if coverage_entry is None or final_entry is None:
+    planning_entry = resolver.entry_by_role(ArtifactRole.PLANNING_CHECKPOINT)
+    if planning_entry is None or coverage_entry is None or final_entry is None:
         raise ManifestIntegrityError("Manifest v3 persistence singletons are missing")
     try:
         coverage = CoveragePlanV2.model_validate(resolver.read_json(coverage_entry))
@@ -1367,6 +1598,8 @@ def validate_v3_inventories(resolver: Any) -> None:
         raise ManifestIntegrityError(
             f"Invalid manifest v3 persistence model: {exc}"
         ) from exc
+    checkpoint = read_planning_checkpoint_bytes(resolver.read_bytes(planning_entry))
+    validate_planning_checkpoint(checkpoint, coverage)
     if final.run_id != resolver.manifest.run_id:
         raise ManifestIntegrityError("Finalization inventory run_id mismatch")
     if final.coverage_plan_sha256 != coverage_entry.sha256:
@@ -1571,6 +1804,24 @@ def validate_v3_inventories(resolver: Any) -> None:
         raise ManifestIntegrityError(
             "Normal scenario inventory must contain admitted candidates only"
         )
+    for candidate_id in admitted:
+        attempt = next(
+            item
+            for item in final.candidate_attempts
+            if item.candidate_id == candidate_id
+        )
+        _causal_stage_artifacts(
+            [
+                item
+                for item in final.stage_attempts
+                if item.candidate_id == candidate_id
+            ],
+            candidate_attempt_id=attempt.attempt_id,
+            durable_candidate=plan_by_candidate[candidate_id][1].projected_candidate,
+            repairs=[
+                item for item in final.repairs if item.candidate_id == candidate_id
+            ],
+        )
     for entry in resolver.entries_by_role(ArtifactRole.QUARANTINE_BUNDLE):
         try:
             bundle = QuarantineBundleV1.model_validate(resolver.read_json(entry))
@@ -1611,29 +1862,37 @@ def validate_v3_inventories(resolver: Any) -> None:
             raise ManifestIntegrityError(
                 f"Quarantine bundle violations mismatch terminal decision: {entry.path}"
             )
+        causal_artifacts = _causal_stage_artifacts(
+            [
+                item
+                for item in final.stage_attempts
+                if item.candidate_id == bundle.candidate_id
+            ],
+            candidate_attempt_id=attempt.attempt_id,
+            durable_candidate=plan_by_candidate[bundle.candidate_id][
+                1
+            ].projected_candidate,
+            repairs=[
+                item
+                for item in final.repairs
+                if item.candidate_id == bundle.candidate_id
+            ],
+        )
         for stage in GeneratedStage:
-            latest = next(
-                (
-                    item
-                    for item in reversed(final.stage_attempts)
-                    if item.candidate_id == bundle.candidate_id
-                    and item.stage is stage
-                    and item.result is not None
-                ),
-                None,
-            )
-            if getattr(bundle, stage.value) != (
-                latest.result if latest is not None else None
-            ):
+            if getattr(bundle, stage.value) != causal_artifacts.get(stage):
                 raise ManifestIntegrityError(
                     f"Quarantine bundle {stage.value} evidence mismatch: {entry.path}"
                 )
-    expected_status = (
-        RunStatus.COMPLETED_WITH_ERRORS if quarantined else RunStatus.COMPLETED
-    )
-    if resolver.manifest.status is not expected_status:
+    if quarantined and resolver.manifest.status is not RunStatus.COMPLETED_WITH_ERRORS:
         raise ManifestIntegrityError(
-            "Manifest v3 completed_with_errors iff quarantine inventory is nonempty"
+            "Manifest v3 quarantine inventory requires completed_with_errors"
+        )
+    if not quarantined and resolver.manifest.status not in {
+        RunStatus.COMPLETED,
+        RunStatus.COMPLETED_WITH_ERRORS,
+    }:
+        raise ManifestIntegrityError(
+            "Manifest v3 inventory requires a completed status"
         )
 
 
@@ -1892,14 +2151,7 @@ class FinalizationPersistenceAdapter:
             if admitted is not None:
                 state = TargetState.admitted
                 fallback: list[QualifiedCandidateRef] = []
-            elif attempted == choice_ids and terminal:
-                state = TargetState.exhausted
-                fallback = []
-            elif not choice_ids and any(
-                item.target_entry_point_id == target.entry_point_id
-                and item.current is LifecycleState.exhausted
-                for item in inventory.transitions
-            ):
+            elif attempted == choice_ids and terminal or not choice_ids:
                 state = TargetState.exhausted
                 fallback = []
             else:
@@ -2255,31 +2507,41 @@ class FinalizationPersistenceAdapter:
                 for item in next_inventory.stage_attempts
                 if item.candidate_id == candidate_id
             ]
-            latest = {stage: None for stage in GeneratedStage}
-            for item in stages:
-                if item.output_sha256 is not None:
-                    latest[item.stage] = item
+            planned_choice = next(
+                choice
+                for target in self.coverage_plan.targets
+                for choice in target.ordered_choices
+                if choice.candidate_id == candidate_id
+            )
+            causal_artifacts = _causal_stage_artifacts(
+                stages,
+                candidate_attempt_id=candidate_attempt.attempt_id,
+                durable_candidate=planned_choice.projected_candidate,
+                repairs=[
+                    item
+                    for item in next_inventory.repairs
+                    if item.candidate_id == candidate_id
+                ],
+            )
             snapshots = {
                 "candidate_snapshot_sha256": stages[-1].candidate_snapshot_sha256
                 if stages
                 else None,
-                "actor_snapshot_sha256": latest[GeneratedStage.actor].output_sha256
-                if latest[GeneratedStage.actor]
+                "actor_snapshot_sha256": canonical_sha256(
+                    causal_artifacts[GeneratedStage.actor]
+                )
+                if GeneratedStage.actor in causal_artifacts
                 else None,
-                "narrative_snapshot_sha256": latest[
-                    GeneratedStage.narrative
-                ].output_sha256
-                if latest[GeneratedStage.narrative]
+                "narrative_snapshot_sha256": canonical_sha256(
+                    causal_artifacts[GeneratedStage.narrative]
+                )
+                if GeneratedStage.narrative in causal_artifacts
                 else None,
-                "final_tree_snapshot_sha256": next(
-                    (
-                        item.final_tree_snapshot_sha256
-                        for item in reversed(stages)
-                        if item.stage is GeneratedStage.behavior
-                        and item.final_tree_snapshot_sha256 is not None
-                    ),
-                    None,
-                ),
+                "final_tree_snapshot_sha256": canonical_sha256(
+                    causal_artifacts[GeneratedStage.tree]
+                )
+                if GeneratedStage.behavior in causal_artifacts
+                else None,
             }
             publication = (
                 terminal_payload.publication if terminal_payload is not None else None
@@ -2295,8 +2557,7 @@ class FinalizationPersistenceAdapter:
             else:
                 target_id = candidate_attempt.target_entry_point_id
                 artifacts = {
-                    stage: latest[stage].result if latest[stage] is not None else None
-                    for stage in GeneratedStage
+                    stage: causal_artifacts.get(stage) for stage in GeneratedStage
                 }
                 digests = {
                     stage: canonical_sha256(artifact)
@@ -2415,7 +2676,7 @@ def make_finalization_persistence_adapter(
     """Phase 5 factory; creates no runner coupling and activates no manifest version."""
 
     run_dir = Path(run_dir)
-    recovered_plan = _recover_journal(run_dir)
+    recovered_plan = recover_finalization_journal(run_dir, expected_run_id=run_id)
     if recovered_plan is not None:
         coverage_plan = recovered_plan
     coverage_plan = CoveragePlanV2.model_validate(
@@ -2425,6 +2686,35 @@ def make_finalization_persistence_adapter(
         canonical_json_bytes(coverage_plan)
     ).hexdigest()
     plan_path = run_dir / "coverage-plan.json"
+    inventory_path = run_dir / "finalization-inventory.json"
+    if not plan_path.exists() and not inventory_path.exists():
+        inventory = FinalizationInventoryV1(
+            schema_version="1",
+            run_id=run_id,
+            coverage_plan_sha256=coverage_plan_sha256,
+            candidate_attempts=[],
+            stage_attempts=[],
+            transitions=[],
+            repairs=[],
+            admission_decisions=[],
+            admitted_inventory=[],
+            quarantine_inventory=[],
+        )
+        journal = PersistenceJournalV1(
+            schema_version="1",
+            coverage_plan=coverage_plan,
+            finalization_inventory=inventory,
+        )
+        _write_model(run_dir, ".finalization-state.json", journal)
+        write_finalization_inventory(run_dir, inventory)
+        write_coverage_plan(run_dir, coverage_plan)
+        (run_dir / ".finalization-state.json").unlink()
+        dir_fd = os.open(run_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+
     if plan_path.exists():
         persisted_plan = read_coverage_plan(run_dir)
         if persisted_plan != coverage_plan:
@@ -2433,8 +2723,7 @@ def make_finalization_persistence_adapter(
             )
     else:
         write_coverage_plan(run_dir, coverage_plan)
-    path = run_dir / "finalization-inventory.json"
-    if path.exists():
+    if inventory_path.exists():
         inventory = read_finalization_inventory(Path(run_dir))
         if (
             inventory.run_id != run_id

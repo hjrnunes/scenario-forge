@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import json
+from pathlib import Path
 
 import typer
 import yaml
@@ -162,6 +161,37 @@ def generate(
         if exc.__cause__:
             msg += f"\n  Caused by: {exc.__cause__}"
         typer.echo(msg, err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def resume(
+    run_dir: Path = typer.Argument(..., help="Exact v3 STARTED run directory."),
+    base_url: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    model: str | None = typer.Option(None),
+    log_level: str = typer.Option("INFO", case_sensitive=False),
+    structured: bool = typer.Option(False),
+) -> None:
+    """Resume an interrupted manifest-v3 run in the same directory."""
+    from scenario_forge.log_config import setup_logging
+
+    setup_logging(log_level=log_level)
+    try:
+        from scenario_forge.pipeline.runner import resume_pipeline
+
+        result = resume_pipeline(
+            run_dir,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            log_level=log_level,
+            structured=structured,
+        )
+        typer.echo(f"\nPipeline resumed: {result.run_id}")
+        typer.echo(f"  Run directory: {result.run_dir}")
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        typer.echo(f"\nError: {exc}", err=True)
         raise typer.Exit(code=1)
 
 
