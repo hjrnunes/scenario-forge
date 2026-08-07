@@ -45,7 +45,7 @@ def test_live_matrix_preflight_reports_full_deterministic_readiness() -> None:
     assert report.catalog_denominator == 49
     assert (
         report.catalog_sha256
-        == "827bda87448c0ff156ffd468dee9eea0993896f3eb5e8e073af042baf47f4eb4"
+        == "e94f343b31093f0bea773015b9970f95650364cec511e8b5554a7203c9c75a12"
     )
     assert report.missing_pattern_ids == ()
     assert sum(len(item.projected_pattern_ids) for item in report.preflight) == 49

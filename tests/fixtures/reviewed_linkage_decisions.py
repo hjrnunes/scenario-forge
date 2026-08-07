@@ -11,7 +11,8 @@ Decisions are grouped by rationale category:
 - STATE_PERSIST: actual persisted state in an integration → persistent_state/integration
 - RENDERED_OUTPUT: outcome visible in agent rendered response → rendered_output/output_surface
 - ENDPOINT_RECEIPT: data delivery/receipt at external endpoint → endpoint_receipt/integration
-- AGENT_STATE: agent-internal assembled state → agent_state/agent_internal (typed-infeasible: no authoritative profile inventory)
+- AGENT_STATE: agent-internal assembled state → agent_state/agent_internal
+- SOURCE_INFLUENCE: typed upstream source crosses a directed boundary into ingress
 
 Rationale cites the postcondition description, produced reference,
 and causal mechanism — not action kind/name, slot cardinality, or
@@ -25,6 +26,7 @@ STATE_PERSIST = "state_persist"
 RENDERED_OUTPUT = "rendered_output"
 ENDPOINT_RECEIPT = "endpoint_receipt"
 AGENT_STATE = "agent_state"
+SOURCE_INFLUENCE = "source_influence"
 
 # Each entry: (pattern_id, step_id, postcondition_id, observation, binding_slot_id, category, rationale)
 REVIEWED_DECISIONS: list[dict] = [
@@ -173,20 +175,22 @@ REVIEWED_DECISIONS: list[dict] = [
             "through the tool."
         ),
     },
-    # --- Intentionally typed infeasible ---
+    # --- Chain-level activation topology ---
     {
         "pattern_id": "AP-T6-07",
         "step_id": "_chain",
         "postcondition_id": "_chain",
-        "observation": "_infeasible",
-        "binding_slot_id": "_infeasible",
-        "category": "infeasible",
+        "observation": "source_influence",
+        "binding_slot_id": "agent_config",
+        "trust_boundary_slot_id": "boundary",
+        "target_ingress_slot_id": "ingress",
+        "category": SOURCE_INFLUENCE,
         "rationale": (
-            "AP-T6-07 has no activation link (no ingress or source_influence "
-            "resource link). The pattern requires pre-existing attacker "
-            "execution to modify the agent's configuration; this is "
-            "prerequisite-based activation, which the canonical model cannot "
-            "represent. Typed infeasible for candidate-v2."
+            "AP-T6-07 activates when the poisoned agent_config is loaded into "
+            "a future system prompt. The source_influence link therefore crosses "
+            "the explicitly directed configuration/memory-to-reasoning boundary "
+            "into the typed configuration-load ingress; host execution remains "
+            "an independently proven precondition rather than the ingress."
         ),
     },
     # --- Independent semantic audit corrections (422o.3.2) ---
@@ -219,12 +223,10 @@ REVIEWED_DECISIONS: list[dict] = [
             "assembled in the agent's internal working context before any "
             "endpoint delivery — this is agent-internal state, not an "
             "entry-point ingress, tool, integration, or output surface. "
-            "A new agent_state observation kind with an agent_internal "
-            "slot kind truthfully represents this surface. Capability "
-            "profiles carry no authoritative agent-internal-state "
-            "inventory, so this slot is unresolvable and AP-T1-06 is "
-            "typed-infeasible for candidate-v2 projection rather than "
-            "fabricating a nearest-fit binding."
+            "The agent_state observation kind and agent_internal slot kind "
+            "truthfully represent this surface. Candidate-v2 resolves it as "
+            "the intrinsic singleton working state of a profile with an active "
+            "reasoning zone, without fabricating a tool or integration identity."
         ),
     },
     {

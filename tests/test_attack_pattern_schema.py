@@ -547,6 +547,9 @@ class SnapshotResolver:
     def contains_resource(self, reference: Any) -> bool:
         return reference.kind != self.missing_kind
 
+    def resource_matches_slot(self, reference: Any, slot: Any) -> bool:
+        return self.contains_resource(reference) and reference.kind == slot.kind
+
 
 def test_projection_snapshot_requires_external_qualification() -> None:
     with pytest.raises(TypeError):

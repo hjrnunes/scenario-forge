@@ -242,6 +242,47 @@ $defs:
         enum: [entry_point, tool, integration, trust_boundary, output_surface, agent_internal]
       purpose:
         enum: [initial_ingress, intermediate, target, supporting]
+      allowed_integration_types:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [api, database, message_queue, file_system, web_service, other]
+      allowed_entry_point_types:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [user_input, external_content, configuration_load, system_event, inter_agent_message, other]
+      allowed_entry_point_directions:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [input, output, bidirectional]
+      allowed_entry_point_controllability:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [direct, indirect, system]
+      allowed_entry_point_ingress_zones:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [input, reasoning, tool_execution, memory, inter_agent]
+      allowed_trust_boundary_from_zones:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [input, reasoning, tool_execution, memory, inter_agent]
+      allowed_trust_boundary_to_zones:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [input, reasoning, tool_execution, memory, inter_agent]
+      distinct_from_slot_ids:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          minLength: 1
     description: >-
       Planned resource slot using the canonical chain's kind/purpose
       vocabulary (scenario_forge.models.attack_pattern.ResourceSlot).

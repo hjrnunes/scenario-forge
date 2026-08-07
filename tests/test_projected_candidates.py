@@ -1103,6 +1103,39 @@ def test_all_live_projected_candidate_requirement_ids_unique() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_slot_distinctness_is_explicit_not_globally_injective() -> None:
+    """Only slot pairs named by the authoritative contract must differ."""
+    from scenario_forge.models.attack_pattern import (
+        IntegrationResourceReference,
+        ResourceSlot,
+    )
+    from scenario_forge.pipeline.projection import (
+        _combination_satisfies_distinctness,
+        _count_compatible_combinations,
+    )
+
+    slots = (
+        ResourceSlot(
+            slot_id="config",
+            kind="integration",
+            purpose="intermediate",
+            distinct_from_slot_ids=("endpoint",),
+        ),
+        ResourceSlot(slot_id="endpoint", kind="integration", purpose="target"),
+        ResourceSlot(slot_id="audit", kind="integration", purpose="supporting"),
+    )
+    first = IntegrationResourceReference(
+        kind="integration", integration_id="int:v1:" + "1" * 32
+    )
+    second = IntegrationResourceReference(
+        kind="integration", integration_id="int:v1:" + "2" * 32
+    )
+    assert _combination_satisfies_distinctness(slots, (first, second, first))
+    assert not _combination_satisfies_distinctness(slots, (first, first, second))
+    options = ((first, second), (first, second), (first, second))
+    assert _count_compatible_combinations(slots, options) == 4
+
+
 def test_ap_t6_07_catalog_projection_derives_source_influence_activation() -> None:
     """The catalog's configuration-poisoning edge deterministically derives
     source influence through the declared boundary into canonical ingress."""
@@ -1124,7 +1157,13 @@ def test_ap_t6_07_catalog_projection_derives_source_influence_activation() -> No
     profile = CapabilityProfile(
         zones_active=["input", "reasoning", "tool_execution", "memory"],
         entry_points=[
-            {"name": "chat", "direction": "input", "controllability": "direct"},
+            {
+                "name": "configuration loader",
+                "entry_point_type": "configuration_load",
+                "direction": "input",
+                "controllability": "indirect",
+                "ingress_zone": "reasoning",
+            },
         ],
         confidence=ConfidenceLevel.high,
         kc_subcodes=["KCX-PMEM", "KC6.1.1", "KC4.3"],
@@ -1141,7 +1180,7 @@ def test_ap_t6_07_catalog_projection_derives_source_influence_activation() -> No
         external_integrations=[
             {
                 "name": "agent_config",
-                "integration_type": "api",
+                "integration_type": "file_system",
                 "auth_method": "oauth",
                 "data_sensitivity": "high",
             },
@@ -1155,7 +1194,7 @@ def test_ap_t6_07_catalog_projection_derives_source_influence_activation() -> No
         trust_boundaries=[
             {
                 "name": "boundary",
-                "from_zone": "input",
+                "from_zone": "memory",
                 "to_zone": "reasoning",
                 "confidence": "explicit",
             }
@@ -1185,8 +1224,54 @@ def test_ap_t6_07_catalog_projection_derives_source_influence_activation() -> No
     )
 
     candidates = [c for c in batch.candidates if c.pattern_id == "AP-T6-07"]
-    assert len(candidates) == 4
+    assert len(candidates) == 1
     candidate = candidates[0]
+    bindings = {
+        binding.slot_id: binding.resource_ref
+        for binding in candidate.projection.bindings
+    }
+    config = profile.resolve_integration(bindings["agent_config"].integration_id)
+    c2 = profile.resolve_integration(bindings["c2_channel"].integration_id)
+    assert config is not None and config.integration_type.value == "file_system"
+    assert c2 is not None and c2.integration_type.value == "api"
+    assert bindings["agent_config"] != bindings["c2_channel"]
+
+    # A serialized candidate cannot swap the two same-kind references after
+    # projection: re-signing the projection and candidate identity still fails
+    # authoritative typed-slot validation.
+    from scenario_forge.models.attack_pattern import (
+        ProjectionSnapshot,
+        compute_projection_digest,
+        validate_projection_snapshot,
+    )
+    from scenario_forge.pipeline.projection import _candidate_v2_id
+
+    swapped = candidate.model_dump(mode="json")
+    swapped_bindings = {
+        binding["slot_id"]: binding for binding in swapped["projection"]["bindings"]
+    }
+    (
+        swapped_bindings["agent_config"]["resource_ref"],
+        swapped_bindings["c2_channel"]["resource_ref"],
+    ) = (
+        swapped_bindings["c2_channel"]["resource_ref"],
+        swapped_bindings["agent_config"]["resource_ref"],
+    )
+    swapped["projection"]["projection_digest"] = compute_projection_digest(
+        swapped["projection"]
+    )
+    swapped_projection = ProjectionSnapshot.model_validate(swapped["projection"])
+    swapped["candidate_id"] = _candidate_v2_id("AP-T6-07", swapped_projection)
+    with pytest.raises(ValueError, match="resource is incompatible with slot"):
+        validate_projection_snapshot(swapped["projection"], snapshot)
+    with pytest.raises(ValueError, match="resource is incompatible with slot"):
+        validate_projected_candidate(
+            swapped,
+            snapshot,
+            raw,
+            resolver,
+            expected_catalog_pin=candidate.projection.catalog_pin,
+        )
     requirements = [
         item
         for item in candidate.execution_requirements
@@ -1223,6 +1308,91 @@ def test_ap_t6_07_catalog_projection_derives_source_influence_activation() -> No
         issue.code == "missing_compatible_resource" and issue.slot_id == "boundary"
         for issue in no_boundary.infeasibilities
     )
+
+    # Every typed dimension fails closed independently. One integration cannot
+    # alias both roles; missing either typed role, a mismatched ingress, or a
+    # reversed boundary produces no nearest-fit candidate.
+    base = profile.model_dump(mode="python", exclude_computed_fields=True)
+    negative_updates = [
+        (
+            {"external_integrations": [base["external_integrations"][0]]},
+            "c2_channel",
+        ),
+        (
+            {"external_integrations": [base["external_integrations"][1]]},
+            "agent_config",
+        ),
+        (
+            {
+                "external_integrations": [
+                    base["external_integrations"][0],
+                    base["external_integrations"][0],
+                ]
+            },
+            "c2_channel",
+        ),
+        (
+            {
+                "entry_points": [
+                    {
+                        **base["entry_points"][0],
+                        "entry_point_type": "user_input",
+                    }
+                ]
+            },
+            "ingress",
+        ),
+        (
+            {
+                "entry_points": [
+                    {
+                        **base["entry_points"][0],
+                        "controllability": "direct",
+                    }
+                ]
+            },
+            "ingress",
+        ),
+        (
+            {
+                "entry_points": [
+                    {
+                        **base["entry_points"][0],
+                        "name": "configuration document",
+                        "controllability": None,
+                    }
+                ]
+            },
+            "ingress",
+        ),
+        (
+            {
+                "trust_boundaries": [
+                    {
+                        **base["trust_boundaries"][0],
+                        "from_zone": "reasoning",
+                        "to_zone": "memory",
+                    }
+                ]
+            },
+            "boundary",
+        ),
+    ]
+    for update, expected_missing_slot in negative_updates:
+        incompatible_profile = CapabilityProfile.model_validate({**base, **update})
+        incompatible = project_authoritative_candidates(
+            [raw],
+            resolver,
+            capture_capability_snapshot(
+                incompatible_profile, [_evidence(), runtime_evidence]
+            ),
+        )
+        assert not incompatible.candidates
+        assert any(
+            issue.code == "missing_compatible_resource"
+            and issue.slot_id == expected_missing_slot
+            for issue in incompatible.infeasibilities
+        )
 
     # Removing activation from the otherwise valid authoritative record
     # remains a typed projection infeasibility rather than an admitted empty

@@ -2668,6 +2668,119 @@
           ],
           "title": "Purpose",
           "type": "string"
+        },
+        "allowed_integration_types": {
+          "default": [],
+          "items": {
+            "enum": [
+              "api",
+              "database",
+              "message_queue",
+              "file_system",
+              "web_service",
+              "other"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Integration Types",
+          "type": "array"
+        },
+        "allowed_entry_point_types": {
+          "default": [],
+          "items": {
+            "enum": [
+              "user_input",
+              "external_content",
+              "configuration_load",
+              "system_event",
+              "inter_agent_message",
+              "other"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Types",
+          "type": "array"
+        },
+        "allowed_entry_point_directions": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "output",
+              "bidirectional"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Directions",
+          "type": "array"
+        },
+        "allowed_entry_point_controllability": {
+          "default": [],
+          "items": {
+            "enum": [
+              "direct",
+              "indirect",
+              "system"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Controllability",
+          "type": "array"
+        },
+        "allowed_entry_point_ingress_zones": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "reasoning",
+              "tool_execution",
+              "memory",
+              "inter_agent"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Ingress Zones",
+          "type": "array"
+        },
+        "allowed_trust_boundary_from_zones": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "reasoning",
+              "tool_execution",
+              "memory",
+              "inter_agent"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Trust Boundary From Zones",
+          "type": "array"
+        },
+        "allowed_trust_boundary_to_zones": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "reasoning",
+              "tool_execution",
+              "memory",
+              "inter_agent"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Trust Boundary To Zones",
+          "type": "array"
+        },
+        "distinct_from_slot_ids": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "title": "Distinct From Slot Ids",
+          "type": "array"
         }
       },
       "required": [

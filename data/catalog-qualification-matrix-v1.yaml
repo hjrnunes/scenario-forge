@@ -1,5 +1,5 @@
 schema_version: "1"
-catalog_sha256: 827bda87448c0ff156ffd468dee9eea0993896f3eb5e8e073af042baf47f4eb4
+catalog_sha256: e94f343b31093f0bea773015b9970f95650364cec511e8b5554a7203c9c75a12
 catalog_denominator: 49
 profiles:
   - profile_id: direct-conversational
@@ -328,13 +328,20 @@ profiles:
   - profile_id: writable-persistent-state
     rationale: >-
       Reviewed cross-session writable memory and configuration state with a
-      state-changing tool, persistent integration, and explicit boundary.
+      state-changing tool, persistent state store, typed configuration-load
+      path, and a distinct API command endpoint across explicit boundaries.
     profile:
       zones_active: [input, inter_agent, memory, reasoning, tool_execution]
       entry_points:
         - name: reviewed persistent-state request
+          entry_point_type: user_input
           direction: input
           controllability: direct
+        - name: reviewed configuration prompt load
+          entry_point_type: configuration_load
+          direction: input
+          controllability: indirect
+          ingress_zone: reasoning
       confidence: high
       kc_subcodes:
         - KC1.1
@@ -350,7 +357,9 @@ profiles:
         - name: reviewed persistent-state writer
           description: Writes reviewed memory and configuration state
       entry_point_completeness: operator_confirmed_complete
-      entry_point_evidence: [422o.5 reviewed persistent-state ingress]
+      entry_point_evidence:
+        - 422o.5 reviewed persistent-state ingress
+        - 422o.5 reviewed configuration-load ingress
       tool_inventory_completeness: operator_confirmed_complete
       tool_inventory_evidence: [422o.5 reviewed persistent-state writer]
       tool_types:
@@ -364,6 +373,10 @@ profiles:
           from_zone: reasoning
           to_zone: memory
           confidence: explicit
+        - name: reviewed configuration-to-reasoning boundary
+          from_zone: memory
+          to_zone: reasoning
+          confidence: explicit
       memory_mechanisms:
         - type: vector_store
           scope: shared
@@ -373,6 +386,14 @@ profiles:
         - name: reviewed persistent state store
           integration_type: database
           auth_method: service_account
+          data_sensitivity: high
+        - name: reviewed agent configuration file
+          integration_type: file_system
+          auth_method: service_account
+          data_sensitivity: high
+        - name: reviewed C2 task endpoint
+          integration_type: api
+          auth_method: api_key
           data_sensitivity: high
     facts:
       - fact: &attacker-host-execution

@@ -35,6 +35,7 @@ Wave contract for ``data/taxonomies/attack-patterns/attack-patterns-atlas-derive
 
 from __future__ import annotations
 
+from copy import deepcopy
 import re
 from typing import Any
 
@@ -287,7 +288,7 @@ GOLDEN_DIGESTS = {
     "AP-T3-05": "66be208503910d209fb74240ff27ba55ddd9e280159bd656c404ce4f750d4d1d",
     "AP-T3-06": "440a715d5eae939377bf09bbb1445d5f3a9118822d3533e05679131e8a613fd2",
     "AP-T6-06": "fccf892ba7f5c462c175175e9e63b5afe706cecbeec32be2c765a00efad4fff1",
-    "AP-T6-07": "fa6d85da423b2bd9cf0894a1a240d53265734bc8c83ced18b52304a1648d3df2",
+    "AP-T6-07": "391a8ed68096c3e57d256dfea924785308a34ee73955f01a222d9e62546befe1",
     "AP-T11-05": "58a60fa294495d6db91179842e8cbe1e367343ecef62ad4f3f759b6beb1d67f5",
     "AP-T17-03": "f7bbe4c0cc65453e64cfcc4e1055de15801e074039911f857b2e1d62cd9940cd",
     "AP-T17-04": "bd4a58fdeeec7fcbcc9fa5867d71e4e1085c1b94f6818f5bfbd1f18226b0698d",
@@ -650,6 +651,14 @@ class TestQualificationAndDigest:
         assert compute_chain_semantic_digest(chain) == GOLDEN_DIGESTS[pid]
         reordered = {key: chain[key] for key in reversed(chain)}
         assert compute_chain_semantic_digest(reordered) == GOLDEN_DIGESTS[pid]
+
+    def test_resource_constraint_membership_order_is_not_semantic(self, records):
+        chain = deepcopy(records["AP-T6-07"]["canonical_chain"])
+        c2_slot = next(
+            slot for slot in chain["resource_slots"] if slot["slot_id"] == "c2_channel"
+        )
+        c2_slot["allowed_integration_types"].reverse()
+        assert compute_chain_semantic_digest(chain) == GOLDEN_DIGESTS["AP-T6-07"]
 
     def test_no_laaf_decisions_anywhere(self, records):
         for raw in records.values():

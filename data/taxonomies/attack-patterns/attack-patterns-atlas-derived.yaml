@@ -1626,8 +1626,8 @@ patterns:
       schema_version: "v1"
       pattern_id: "AP-T6-07"
       chain_id: "chain.ap-t6-07"
-      semantic_revision: 2
-      semantic_digest: "fa6d85da423b2bd9cf0894a1a240d53265734bc8c83ced18b52304a1648d3df2"
+      semantic_revision: 3
+      semantic_digest: "391a8ed68096c3e57d256dfea924785308a34ee73955f01a222d9e62546befe1"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1893,15 +1893,24 @@ patterns:
         - slot_id: "ingress"
           kind: "entry_point"
           purpose: "initial_ingress"
+          allowed_entry_point_types: ["configuration_load"]
+          allowed_entry_point_directions: ["input"]
+          allowed_entry_point_controllability: ["indirect"]
+          allowed_entry_point_ingress_zones: ["reasoning"]
         - slot_id: "agent_config"
           kind: "integration"
           purpose: "intermediate"
+          allowed_integration_types: ["file_system"]
+          distinct_from_slot_ids: ["c2_channel"]
         - slot_id: "c2_channel"
           kind: "integration"
           purpose: "target"
+          allowed_integration_types: ["api", "web_service"]
         - slot_id: "boundary"
           kind: "trust_boundary"
           purpose: "supporting"
+          allowed_trust_boundary_from_zones: ["memory"]
+          allowed_trust_boundary_to_zones: ["reasoning"]
       initial_ingress_slot_id: "ingress"
 
   # ═══════════════════════════════════════════════════════════════════

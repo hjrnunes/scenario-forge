@@ -302,7 +302,23 @@ def test_reviewed_decisions_match_yaml() -> None:
     raw = _load_raw_patterns()
     for decision in REVIEWED_DECISIONS:
         if decision["step_id"] == "_chain":
-            continue  # chain-level decision (infeasibility)
+            chain = raw[decision["pattern_id"]]["canonical_chain"]
+            links = [
+                link
+                for step in chain["steps"]
+                for link in step.get("resource_links", [])
+                if link["role"] == decision["observation"]
+                and link["slot_id"] == decision["binding_slot_id"]
+            ]
+            assert links == [
+                {
+                    "slot_id": decision["binding_slot_id"],
+                    "role": decision["observation"],
+                    "trust_boundary_slot_id": decision["trust_boundary_slot_id"],
+                    "target_ingress_slot_id": decision["target_ingress_slot_id"],
+                }
+            ]
+            continue
 
         pid = decision["pattern_id"]
         sid = decision["step_id"]
