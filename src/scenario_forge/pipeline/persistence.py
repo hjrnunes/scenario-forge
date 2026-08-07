@@ -48,6 +48,8 @@ from scenario_forge.pipeline.finalization import (
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.finalization_gates import (
     DIAGNOSTIC_BACKED_EVIDENCE_IDS,
+    EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
     AdmissionEvidenceId,
 )
 from scenario_forge.pipeline.generate.stages import (
@@ -480,6 +482,14 @@ class AdmissionDecisionRecord(StrictModel):
     def _status_matches_admission(self) -> AdmissionDecisionRecord:
         if self.admitted != (self.status is CandidateTerminalStatus.admitted):
             raise ValueError("admitted flag must match terminal candidate status")
+        evidence_ids = [gate.gate for gate in self.gate_results]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("admission evidence IDs must be unique")
+        exceptional = set(evidence_ids) & EXCEPTIONAL_ADMISSION_EVIDENCE_IDS
+        if exceptional and len(evidence_ids) != 1:
+            raise ValueError("exceptional admission evidence must be a singleton")
+        if self.admitted and set(evidence_ids) != set(NORMAL_POSTBEHAVIOR_EVIDENCE_IDS):
+            raise ValueError("admitted decision requires canonical gate evidence")
         authoritative = [
             violation for gate in self.gate_results for violation in gate.violations
         ]

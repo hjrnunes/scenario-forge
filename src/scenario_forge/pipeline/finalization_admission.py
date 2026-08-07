@@ -25,6 +25,8 @@ from scenario_forge.pipeline.finalization import (
 )
 from scenario_forge.pipeline.finalization_gates import (
     DIAGNOSTIC_BACKED_EVIDENCE_IDS,
+    EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
     AdmissionEvidenceId,
     GateCode,
     GateResult,
@@ -182,6 +184,12 @@ class PostbehaviorAdmissionReport:
     gate_results: tuple[GateResult, ...]
 
     def __post_init__(self) -> None:
+        evidence_ids = tuple(result.evidence_id for result in self.gate_results)
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("postbehavior admission evidence IDs must be unique")
+        exceptional = set(evidence_ids) & EXCEPTIONAL_ADMISSION_EVIDENCE_IDS
+        if exceptional and (len(evidence_ids) != 1 or self.envelope is not None):
+            raise ValueError("exceptional admission evidence must be a singleton")
         authoritative = tuple(
             violation for result in self.gate_results for violation in result.violations
         )
@@ -603,6 +611,10 @@ class PostbehaviorAdmissionPort:
         report = PostbehaviorAdmissionReport(envelope, tuple(gate_results))
         if violations:
             return AdmissionDecision(False, violations, value=report)
+        if {result.evidence_id for result in report.gate_results} != set(
+            NORMAL_POSTBEHAVIOR_EVIDENCE_IDS
+        ):
+            raise RuntimeError("successful admission requires canonical gate evidence")
         return AdmissionDecision(
             True,
             value=report,

@@ -20,6 +20,7 @@ from scenario_forge.eval.scorecard import (
 )
 from scenario_forge.eval.versioned_metrics import (
     _admission_evidence_metric,
+    _admission_gate_failure_metrics,
     canonical_entry_point_sets,
     evaluate_v3_scorecard,
     inventory_identity_mismatches,
@@ -474,6 +475,35 @@ def test_category_metrics_require_one_exact_non_vacuous_outcome(
         evidence=["test"],
     )
     assert metric.status is expected
+
+
+def test_admission_gate_failure_rate_counts_outcomes_in_both_units() -> None:
+    failed_gate = GateResultRecord(
+        gate=AdmissionEvidenceId.actor_attack_complexity,
+        passed=False,
+        applicable=True,
+        violations=[
+            {
+                "code": "capability_complexity",
+                "detail": "failed",
+                "owner": "tree",
+                "retryable": True,
+            }
+        ],
+        diagnostics=[],
+    )
+    final = SimpleNamespace(
+        admission_decisions=[
+            SimpleNamespace(candidate_id=candidate_id, gate_results=[failed_gate])
+            for candidate_id in ("candidate-1", "candidate-2")
+        ]
+    )
+    metric = _admission_gate_failure_metrics(final)[  # type: ignore[arg-type]
+        "admission_gate_failure_rate:actor_attack_complexity"
+    ]
+    assert metric.numerator == 2
+    assert metric.denominator == 2
+    assert metric.affected_ids == ["candidate-1", "candidate-2"]
 
 
 def test_checked_in_schema_has_exact_generated_parity() -> None:

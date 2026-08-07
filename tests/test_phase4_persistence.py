@@ -48,6 +48,9 @@ from scenario_forge.pipeline.finalization import (
 )
 from scenario_forge.pipeline.finalization_admission import PostbehaviorAdmissionReport
 from scenario_forge.pipeline.finalization_gates import (
+    DIAGNOSTIC_BACKED_EVIDENCE_IDS,
+    EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
     AdmissionEvidenceId,
     GateCode,
     GateResult,
@@ -1090,6 +1093,18 @@ def _stage_evidence(stage: GeneratedStage) -> StageCallEvidence:
     )
 
 
+def _passing_normal_gate_results() -> tuple[GateResult, ...]:
+    return tuple(
+        GateResult(
+            evidence_id,
+            outcome=True if evidence_id in DIAGNOSTIC_BACKED_EVIDENCE_IDS else None,
+        )
+        for evidence_id in sorted(
+            NORMAL_POSTBEHAVIOR_EVIDENCE_IDS, key=lambda item: item.value
+        )
+    )
+
+
 def test_real_machine_adapter_primary_rejection_then_fallback_admission(
     tmp_path: Path,
 ):
@@ -1152,7 +1167,7 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
             value=AdmittedTerminalPayload(
                 report=PostbehaviorAdmissionReport(
                     envelope=object(),
-                    gate_results=(GateResult(AdmissionEvidenceId.identity),),
+                    gate_results=_passing_normal_gate_results(),
                 ),
                 publication=AdmittedArtifactPublication(
                     candidate_id=candidate.candidate_id,
@@ -1186,6 +1201,53 @@ def test_real_machine_adapter_primary_rejection_then_fallback_admission(
     assert (tmp_path / "scenarios/scenario-admitted.yaml").is_file()
     assert (tmp_path / "scenarios/scenario-admitted.feature").is_file()
     assert len(inventory.admitted_inventory) == 2
+
+    admitted = next(item for item in inventory.admission_decisions if item.admitted)
+    assert {gate.gate for gate in admitted.gate_results} == set(
+        NORMAL_POSTBEHAVIOR_EVIDENCE_IDS
+    )
+    admitted_raw = admitted.model_dump(mode="json")
+    identity_only = dict(admitted_raw)
+    identity_only["gate_results"] = [
+        gate
+        for gate in admitted_raw["gate_results"]
+        if gate["gate"] == AdmissionEvidenceId.identity.value
+    ]
+    with pytest.raises(ValidationError, match="canonical gate evidence"):
+        AdmissionDecisionRecord.model_validate(identity_only)
+
+    for missing_id in NORMAL_POSTBEHAVIOR_EVIDENCE_IDS:
+        mutated = dict(admitted_raw)
+        mutated["gate_results"] = [
+            gate
+            for gate in admitted_raw["gate_results"]
+            if gate["gate"] != missing_id.value
+        ]
+        with pytest.raises(ValidationError, match="canonical gate evidence"):
+            AdmissionDecisionRecord.model_validate(mutated)
+
+    duplicated = dict(admitted_raw)
+    duplicated["gate_results"] = [
+        *admitted_raw["gate_results"],
+        admitted_raw["gate_results"][0],
+    ]
+    with pytest.raises(ValidationError, match="must be unique"):
+        AdmissionDecisionRecord.model_validate(duplicated)
+
+    for exceptional_id in EXCEPTIONAL_ADMISSION_EVIDENCE_IDS:
+        exceptional = dict(admitted_raw)
+        exceptional["gate_results"] = [
+            *admitted_raw["gate_results"],
+            {
+                "gate": exceptional_id.value,
+                "passed": True,
+                "violations": [],
+                "diagnostics": [],
+                "applicable": True,
+            },
+        ]
+        with pytest.raises(ValidationError, match="exceptional admission evidence"):
+            AdmissionDecisionRecord.model_validate(exceptional)
 
     restarted = make_finalization_persistence_adapter(
         tmp_path, run_id=RUN_ID, coverage_plan=current_plan

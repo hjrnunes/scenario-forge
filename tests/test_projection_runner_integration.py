@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,7 +26,11 @@ from scenario_forge.models.projection_envelope import ProjectionTraceabilityResu
 from scenario_forge.models.scenario import CallMetadata, CallName
 from scenario_forge.pipeline.candidates import FilteredSeed, StageRecord
 from scenario_forge.pipeline.coverage import CoverageGaps
-from scenario_forge.pipeline.finalization_gates import FinalTreeSemanticSnapshot
+from scenario_forge.pipeline.finalization_gates import (
+    EXCEPTIONAL_ADMISSION_EVIDENCE_IDS,
+    NORMAL_POSTBEHAVIOR_EVIDENCE_IDS,
+    FinalTreeSemanticSnapshot,
+)
 from scenario_forge.pipeline.generate.stages import (
     ActorStageResult,
     BehaviorStageResult,
@@ -329,6 +334,62 @@ def test_exact_projection_match_uses_authoritative_identity(tmp_path: Path) -> N
     assert manifest.manifest_version == "3"
     assert manifest.attempts == []
     assert manifest.funnel == {}
+
+
+def test_strict_resolver_rejects_noncanonical_admitted_gate_evidence(
+    tmp_path: Path,
+) -> None:
+    projected = get_projected_candidate()
+    stack, _, _, args = _arrange(
+        tmp_path,
+        entry_point_id=get_canonical_ingress_id(),
+        projected_candidates=[projected],
+    )
+    with stack:
+        result = run_pipeline(**args)
+
+    manifest = load_manifest(result.run_dir)
+    final_entry = next(
+        entry
+        for entry in manifest.inventory
+        if entry.role is ArtifactRole.FINALIZATION_INVENTORY
+    )
+    final_path = result.run_dir / final_entry.path
+    original = json.loads(final_path.read_text())
+    admitted_index = next(
+        index
+        for index, decision in enumerate(original["admission_decisions"])
+        if decision["admitted"]
+    )
+    original_gates = original["admission_decisions"][admitted_index]["gate_results"]
+    mutations: list[list[dict]] = [
+        [gate for gate in original_gates if gate["gate"] != missing.value]
+        for missing in NORMAL_POSTBEHAVIOR_EVIDENCE_IDS
+    ]
+    mutations.append([*original_gates, original_gates[0]])
+    mutations.extend(
+        [
+            *original_gates,
+            {
+                "gate": exceptional.value,
+                "passed": True,
+                "violations": [],
+                "diagnostics": [],
+                "applicable": True,
+            },
+        ]
+        for exceptional in EXCEPTIONAL_ADMISSION_EVIDENCE_IDS
+    )
+
+    for gate_results in mutations:
+        mutated = json.loads(json.dumps(original))
+        mutated["admission_decisions"][admitted_index]["gate_results"] = gate_results
+        final_path.write_bytes(canonical_json_bytes(mutated))
+        final_entry.sha256 = compute_file_sha256(final_path)
+        with pytest.raises(
+            ManifestIntegrityError, match="Invalid manifest v3 persistence model"
+        ):
+            ManifestInventoryResolver(result.run_dir, manifest, check_orphans=False)
 
 
 def test_completion_recomputes_scorecard_and_report_from_strict_inventory(

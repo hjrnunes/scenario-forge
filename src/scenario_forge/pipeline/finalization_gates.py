@@ -105,6 +105,17 @@ class AdmissionEvidenceId(str, Enum):
     or_tree_prohibition = "or_tree_prohibition"
 
 
+EXCEPTIONAL_ADMISSION_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = frozenset(
+    {
+        AdmissionEvidenceId.admission_exception,
+        AdmissionEvidenceId.snapshot_integrity,
+    }
+)
+NORMAL_POSTBEHAVIOR_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = (
+    frozenset(AdmissionEvidenceId) - EXCEPTIONAL_ADMISSION_EVIDENCE_IDS
+)
+
+
 DIAGNOSTIC_BACKED_EVIDENCE_IDS: frozenset[AdmissionEvidenceId] = frozenset(
     {
         AdmissionEvidenceId.tool_integration_grounding,

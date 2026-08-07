@@ -207,6 +207,37 @@ def _admission_evidence_metric(
     )
 
 
+def _admission_gate_failure_metrics(
+    final: FinalizationInventoryV1,
+) -> dict[str, MetricResult]:
+    """Return failure rates whose numerator and denominator both count outcomes."""
+    gate_failures: Counter[AdmissionEvidenceId] = Counter()
+    gate_failure_ids: dict[AdmissionEvidenceId, set[str]] = {}
+    gate_runs: Counter[AdmissionEvidenceId] = Counter()
+    for decision in final.admission_decisions:
+        for gate in decision.gate_results:
+            gate_runs[gate.gate] += 1
+            if not gate.passed:
+                gate_failures[gate.gate] += 1
+                gate_failure_ids.setdefault(gate.gate, set()).add(decision.candidate_id)
+    return {
+        f"admission_gate_failure_rate:{evidence_id.value}": ratio_metric(
+            gate_failures[evidence_id],
+            run_count,
+            threshold=0.0,
+            evidence=[
+                f"typed admission evidence_id={evidence_id.value}",
+                f"denominator=gate outcomes ({run_count})",
+            ],
+            affected_ids=sorted(gate_failure_ids.get(evidence_id, set())),
+            applicable=False,
+        )
+        for evidence_id, run_count in sorted(
+            gate_runs.items(), key=lambda item: item[0].value
+        )
+    }
+
+
 def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
     """Compute v1 metrics without discovery, repair, or artifact writes."""
     manifest = resolver.manifest
@@ -352,28 +383,7 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             affected_ids=affected,
             applicable=False,
         )
-    gate_failures: dict[AdmissionEvidenceId, set[str]] = {}
-    gate_runs: Counter[AdmissionEvidenceId] = Counter()
-    for decision in final.admission_decisions:
-        for gate in decision.gate_results:
-            gate_runs[gate.gate] += 1
-            if not gate.passed:
-                gate_failures.setdefault(gate.gate, set()).add(decision.candidate_id)
-    for evidence_id, run_count in sorted(
-        gate_runs.items(), key=lambda item: item[0].value
-    ):
-        affected = sorted(gate_failures.get(evidence_id, set()))
-        validity[f"admission_gate_failure_rate:{evidence_id.value}"] = ratio_metric(
-            len(affected),
-            run_count,
-            threshold=0.0,
-            evidence=[
-                f"typed admission evidence_id={evidence_id.value}",
-                f"denominator=gate outcomes ({run_count})",
-            ],
-            affected_ids=affected,
-            applicable=False,
-        )
+    validity.update(_admission_gate_failure_metrics(final))
     quarantine_reasons: dict[str, set[str]] = {}
     for decision in final.admission_decisions:
         if decision.admitted:
