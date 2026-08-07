@@ -14,6 +14,7 @@ def test_actor_profile_call_has_a_stage_specific_completion_bound(monkeypatch) -
     )
     monkeypatch.setattr(actor, "render_prompt", lambda *_args, **_kwargs: "prompt")
     client = MagicMock()
+    client.max_completion_tokens = None
     client.complete.side_effect = RuntimeError("stop after invocation")
 
     with pytest.raises(RuntimeError, match="stop after invocation"):
@@ -25,3 +26,9 @@ def test_actor_profile_call_has_a_stage_specific_completion_bound(monkeypatch) -
         )
 
     assert client.complete.call_args.kwargs["max_completion_tokens"] == 4096
+
+
+def test_actor_profile_call_preserves_tighter_operator_completion_bound() -> None:
+    client = MagicMock(max_completion_tokens=2048)
+
+    assert actor._actor_completion_limit(client) == 2048
