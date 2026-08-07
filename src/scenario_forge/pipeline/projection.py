@@ -40,6 +40,7 @@ from scenario_forge.models.attack_pattern import (
     OutputSurfaceResourceReference,
     ProjectionSnapshot,
     ResourceBinding,
+    ResourceSlot,
     SecurityOutcomeAssertionRequirement,
     StateChangingToolFixtureRequirement,
     StepOmission,
@@ -190,9 +191,17 @@ def _requirement_id(prefix: str, *components: str) -> str:
 
 
 _SEMANTICALLY_UNORDERED_FIELDS = {
+    "allowed_entry_point_controllability",
+    "allowed_entry_point_directions",
+    "allowed_entry_point_ingress_zones",
+    "allowed_entry_point_types",
+    "allowed_integration_types",
+    "allowed_trust_boundary_from_zones",
+    "allowed_trust_boundary_to_zones",
     "bindings",
     "condition_results",
     "consumed",
+    "distinct_from_slot_ids",
     "evidence",
     "ids",
     "mappings",
@@ -273,11 +282,22 @@ class CapabilityFactSnapshot(ProjectionModel):
                 is not None
             )
         if isinstance(reference, AgentInternalResourceReference):
-            # Agent-internal state has no authoritative profile inventory;
-            # it is always unresolvable, making patterns that require it
-            # typed-infeasible for candidate-v2.
-            return False
+            # Every validated capability profile has the reasoning zone and
+            # therefore exactly one intrinsic agent working-state resource.
+            # This remains a distinct typed binding: it is never substituted
+            # with a tool, integration, entry point, or trust boundary.
+            return "reasoning" in self.profile.zones_active
         return False
+
+    def resource_matches_slot(
+        self, reference: CanonicalResourceReference, slot: ResourceSlot
+    ) -> bool:
+        self.assert_integrity()
+        return reference in _references_for_slot(
+            slot,
+            self,
+            initial_ingress=slot.purpose == "initial_ingress",
+        )
 
     @model_validator(mode="after")
     def coherent_digest(self) -> CapabilityFactSnapshot:
@@ -632,9 +652,14 @@ def _references_for_kind(
             if item.direction in ("output", "bidirectional")
         ]
     elif kind == "agent_internal":
-        # No authoritative profile inventory for agent-internal state;
-        # patterns requiring this slot kind are typed-infeasible.
-        refs = []
+        # Agent working state is an intrinsic singleton of every validated
+        # profile (which must include the reasoning zone), not an adapter
+        # inventory item.  Keep its reference typed and identity-free.
+        refs = (
+            [AgentInternalResourceReference(kind="agent_internal")]
+            if "reasoning" in profile.zones_active
+            else []
+        )
     else:
         refs = [
             TrustBoundaryResourceReference(
@@ -643,6 +668,159 @@ def _references_for_kind(
             for item in profile.trust_boundaries or ()
         ]
     return tuple(sorted(refs, key=_resource_key))
+
+
+def _references_for_slot(
+    slot: ResourceSlot,
+    snapshot: CapabilityFactSnapshot,
+    *,
+    initial_ingress: bool,
+) -> tuple[CanonicalResourceReference, ...]:
+    """Resolve one slot using only its typed, adapter-neutral constraints."""
+    references = _references_for_kind(
+        slot.kind,
+        snapshot,
+        initial_ingress=initial_ingress,
+        attacker_influence_required=(
+            slot.kind == "entry_point" and slot.purpose == "supporting"
+        ),
+    )
+    compatible: list[CanonicalResourceReference] = []
+    for reference in references:
+        if isinstance(reference, IntegrationResourceReference):
+            integration = snapshot.profile.resolve_integration(reference.integration_id)
+            if integration is None:  # pragma: no cover - built from this snapshot
+                continue
+            if (
+                slot.allowed_integration_types
+                and integration.integration_type.value
+                not in slot.allowed_integration_types
+            ):
+                continue
+        elif isinstance(reference, EntryPointResourceReference):
+            entry_point = snapshot.profile.resolve_entry_point(reference.entry_point_id)
+            if entry_point is None:  # pragma: no cover - built from this snapshot
+                continue
+            if (
+                slot.allowed_entry_point_types
+                and entry_point.entry_point_type not in slot.allowed_entry_point_types
+            ):
+                continue
+            if (
+                slot.allowed_entry_point_directions
+                and entry_point.direction not in slot.allowed_entry_point_directions
+            ):
+                continue
+            if (
+                slot.allowed_entry_point_controllability
+                and entry_point.controllability
+                not in slot.allowed_entry_point_controllability
+            ):
+                continue
+            if (
+                slot.allowed_entry_point_ingress_zones
+                and entry_point.effective_ingress_zone
+                not in slot.allowed_entry_point_ingress_zones
+            ):
+                continue
+        elif isinstance(reference, TrustBoundaryResourceReference):
+            boundary = snapshot.profile.resolve_trust_boundary(
+                reference.trust_boundary_id
+            )
+            if boundary is None:  # pragma: no cover - built from this snapshot
+                continue
+            if (
+                slot.allowed_trust_boundary_from_zones
+                and boundary.from_zone not in slot.allowed_trust_boundary_from_zones
+            ):
+                continue
+            if (
+                slot.allowed_trust_boundary_to_zones
+                and boundary.to_zone not in slot.allowed_trust_boundary_to_zones
+            ):
+                continue
+        compatible.append(reference)
+    return tuple(compatible)
+
+
+def _combination_satisfies_distinctness(
+    slots: tuple[ResourceSlot, ...],
+    resources: tuple[CanonicalResourceReference, ...],
+) -> bool:
+    resources_by_slot = {
+        slot.slot_id: resource for slot, resource in zip(slots, resources, strict=True)
+    }
+    return all(
+        resources_by_slot[slot.slot_id] != resources_by_slot[other_slot_id]
+        for slot in slots
+        for other_slot_id in slot.distinct_from_slot_ids
+    )
+
+
+def _iter_compatible_combinations(
+    slots: tuple[ResourceSlot, ...],
+    options: tuple[tuple[CanonicalResourceReference, ...], ...],
+) -> Iterable[tuple[CanonicalResourceReference, ...]]:
+    for resources in _iter_coverage_first_combinations(options):
+        if _combination_satisfies_distinctness(slots, resources):
+            yield resources
+
+
+def _count_compatible_combinations(
+    slots: tuple[ResourceSlot, ...],
+    options: tuple[tuple[CanonicalResourceReference, ...], ...],
+) -> int:
+    """Count valid bindings without expanding unrelated Cartesian dimensions."""
+    index_by_slot = {slot.slot_id: index for index, slot in enumerate(slots)}
+    edges = {
+        frozenset((index, index_by_slot[other_slot_id]))
+        for index, slot in enumerate(slots)
+        for other_slot_id in slot.distinct_from_slot_ids
+    }
+    constrained = set().union(*edges) if edges else set()
+    total = prod(
+        len(slot_options)
+        for index, slot_options in enumerate(options)
+        if index not in constrained
+    )
+    remaining = set(constrained)
+    while remaining:
+        component = {remaining.pop()}
+        frontier = list(component)
+        while frontier:
+            current = frontier.pop()
+            neighbors = {
+                next(iter(edge - {current}))
+                for edge in edges
+                if current in edge and len(edge) == 2
+            }
+            new = neighbors & remaining
+            remaining -= new
+            component |= new
+            frontier.extend(new)
+        ordered = sorted(component)
+
+        def count_at(
+            offset: int, assigned: dict[int, CanonicalResourceReference]
+        ) -> int:
+            if offset == len(ordered):
+                return 1
+            index = ordered[offset]
+            count = 0
+            for resource in options[index]:
+                if any(
+                    frozenset((index, other_index)) in edges
+                    and resource == other_resource
+                    for other_index, other_resource in assigned.items()
+                ):
+                    continue
+                assigned[index] = resource
+                count += count_at(offset + 1, assigned)
+                del assigned[index]
+            return count
+
+        total *= count_at(0, {})
+    return total
 
 
 def _coverage_first_combinations(
@@ -1012,13 +1190,10 @@ def validate_projected_candidate(
     }
     chain = candidate.projection.source_chain
     for slot in chain.resource_slots:
-        allowed = _references_for_kind(
-            slot.kind,
+        allowed = _references_for_slot(
+            slot,
             snapshot,
             initial_ingress=slot.slot_id == chain.initial_ingress_slot_id,
-            attacker_influence_required=(
-                slot.kind == "entry_point" and slot.purpose == "supporting"
-            ),
         )
         if binding_by_slot[slot.slot_id] not in allowed:
             raise ValueError("candidate binding is incompatible with snapshot resource")
@@ -1439,13 +1614,10 @@ def project_authoritative_candidates(
         option_sets: list[tuple[CanonicalResourceReference, ...]] = []
         missing_slots = []
         for slot in chain.resource_slots:
-            options = _references_for_kind(
-                slot.kind,
+            options = _references_for_slot(
+                slot,
                 snapshot,
                 initial_ingress=slot.slot_id == chain.initial_ingress_slot_id,
-                attacker_influence_required=(
-                    slot.kind == "entry_point" and slot.purpose == "supporting"
-                ),
             )
             option_sets.append(options)
             if not options:
@@ -1542,13 +1714,33 @@ def project_authoritative_candidates(
                 continue
             option_sets[ingress_index] = direct_ingress_options
 
-        total_bindings = prod(len(options) for options in option_sets)
+        total_bindings = _count_compatible_combinations(
+            chain.resource_slots, tuple(option_sets)
+        )
+        if total_bindings == 0:
+            constrained_slot = next(
+                slot for slot in chain.resource_slots if slot.distinct_from_slot_ids
+            )
+            issues.append(
+                ProjectionIssue(
+                    code="missing_compatible_resource",
+                    pattern_id=pattern.id,
+                    slot_id=constrained_slot.slot_id,
+                    detail=(
+                        "no concrete resource assignment satisfies explicit "
+                        "per-slot distinctness constraints"
+                    ),
+                )
+            )
+            continue
 
         # cmps.4 blocker 3 (corrected): Do NOT eagerly materialize all
         # Cartesian combinations.  Store the lazy iterator and pattern
         # metadata so candidates are built on demand during reservation
         # and bounded variant fill.  The full product is never materialized.
-        combination_iter = _iter_coverage_first_combinations(tuple(option_sets))
+        combination_iter = _iter_compatible_combinations(
+            chain.resource_slots, tuple(option_sets)
+        )
         pattern_state = _PatternProjectionState(
             pattern_id=pattern.id,
             chain=chain,
@@ -1654,7 +1846,9 @@ def project_authoritative_candidates(
                 target_options = list(state.option_sets)
                 target_options[ingress_index] = (target_ref,)
                 target_iter = iter(
-                    _iter_coverage_first_combinations(tuple(target_options))
+                    _iter_compatible_combinations(
+                        state.chain.resource_slots, tuple(target_options)
+                    )
                 )
                 while True:
                     candidate, is_unique, exhausted = derive_one(

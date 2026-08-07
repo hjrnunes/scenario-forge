@@ -6,12 +6,12 @@
 # records the decisions were made against.
 schema_version: '1'
 release:
-  version: 1.1.0
+  version: 1.2.0
   description: 'Corrected authoritative catalog-lineage decisions for the 71 legacy attack-pattern
     source records: closed-vocabulary dispositions, overlap-group resolutions, and resulting
     authoritative pattern boundaries with exact ATLAS mappings for the deterministic chain-authoring
-    waves. Revised per Mayor canonical-chain semantic review.'
-  semantic_digest: 271fb7ab8b92fbd2cf17e6382bfff28e667537965eb9869b408aad2f3c83e606
+    waves. Revised with typed AP-T6-07 resource and activation-topology constraints.'
+  semantic_digest: 3702a2f8eae3a78fe37587238c60bc2e999d064ba2297574eebfdde0b19ba443
 taxonomy_context:
   atlas:
     release: '2026.05'
@@ -3758,15 +3758,24 @@ sources:
     - slot_id: ingress
       kind: entry_point
       purpose: initial_ingress
+      allowed_entry_point_types: [configuration_load]
+      allowed_entry_point_directions: [input]
+      allowed_entry_point_controllability: [indirect]
+      allowed_entry_point_ingress_zones: [reasoning]
     - slot_id: agent_config
       kind: integration
       purpose: intermediate
+      allowed_integration_types: [file_system]
+      distinct_from_slot_ids: [c2_channel]
     - slot_id: c2_channel
       kind: integration
       purpose: target
+      allowed_integration_types: [api, web_service]
     - slot_id: boundary
       kind: trust_boundary
       purpose: supporting
+      allowed_trust_boundary_from_zones: [memory]
+      allowed_trust_boundary_to_zones: [reasoning]
     provenance_plan: Adapt the implant line of the legacy chain with explicit tiers against
       AML.CS0051 S13-S17 (config modification, modified-prompt execution, cross-thread persistence,
       C2 polling, impact); these steps are explicit, not adapted, per the qa-audit-t6-t7.md

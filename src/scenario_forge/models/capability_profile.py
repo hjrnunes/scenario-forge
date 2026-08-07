@@ -645,13 +645,15 @@ def deduplicate_entry_points(
         )
         if eid in seen:
             existing_tuple, existing_ep = seen[eid]
-            if existing_tuple != identity_tuple:
+            if (
+                existing_tuple != identity_tuple
+                or existing_ep.entry_point_type != ep.entry_point_type
+            ):
                 raise ValueError(
                     f"Ambiguous entry point identity: '{ep.name}' and "
                     f"'{existing_ep.name}' resolve to the same "
                     f"entry_point_id {eid} but have different canonical "
-                    f"identity tuples "
-                    f"({identity_tuple} vs {existing_tuple}). "
+                    f"identity or typed ingress semantics. "
                     f"Remove or disambiguate one of them."
                 )
             # Exact semantic duplicate — silently dedup (keep first).
@@ -998,6 +1000,20 @@ class EntryPoint(BaseModel):
 
     name: str = Field(
         description="Entry point description, e.g. 'user prompts via chat widget'."
+    )
+    entry_point_type: Literal[
+        "user_input",
+        "external_content",
+        "configuration_load",
+        "system_event",
+        "inter_agent_message",
+        "other",
+    ] = Field(
+        default="other",
+        description=(
+            "Typed ingress mechanism. This is adapter-neutral semantic metadata; "
+            "it does not derive from the entry-point name."
+        ),
     )
     direction: Literal["input", "output", "bidirectional"] = Field(
         default="bidirectional",

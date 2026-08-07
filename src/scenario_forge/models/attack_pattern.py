@@ -129,6 +129,10 @@ class CapabilitySnapshotResolver(Protocol):
 
     def contains_resource(self, reference: CanonicalResourceReference) -> bool: ...
 
+    def resource_matches_slot(
+        self, reference: CanonicalResourceReference, slot: ResourceSlot
+    ) -> bool: ...
+
 
 class TypedReference(ContractModel):
     ref_id: Identifier
@@ -704,6 +708,79 @@ class ResourceSlot(ContractModel):
         "agent_internal",
     ]
     purpose: Literal["initial_ingress", "intermediate", "target", "supporting"]
+    allowed_integration_types: tuple[
+        Literal[
+            "api", "database", "message_queue", "file_system", "web_service", "other"
+        ],
+        ...,
+    ] = ()
+    allowed_entry_point_types: tuple[
+        Literal[
+            "user_input",
+            "external_content",
+            "configuration_load",
+            "system_event",
+            "inter_agent_message",
+            "other",
+        ],
+        ...,
+    ] = ()
+    allowed_entry_point_directions: tuple[
+        Literal["input", "output", "bidirectional"], ...
+    ] = ()
+    allowed_entry_point_controllability: tuple[
+        Literal["direct", "indirect", "system"], ...
+    ] = ()
+    allowed_entry_point_ingress_zones: tuple[
+        Literal["input", "reasoning", "tool_execution", "memory", "inter_agent"],
+        ...,
+    ] = ()
+    allowed_trust_boundary_from_zones: tuple[
+        Literal["input", "reasoning", "tool_execution", "memory", "inter_agent"],
+        ...,
+    ] = ()
+    allowed_trust_boundary_to_zones: tuple[
+        Literal["input", "reasoning", "tool_execution", "memory", "inter_agent"],
+        ...,
+    ] = ()
+    distinct_from_slot_ids: tuple[Identifier, ...] = ()
+
+    @model_validator(mode="after")
+    def typed_constraints_match_kind(self) -> ResourceSlot:
+        groups = {
+            "integration": self.allowed_integration_types,
+            "entry_point": (
+                self.allowed_entry_point_types
+                + self.allowed_entry_point_directions
+                + self.allowed_entry_point_controllability
+                + self.allowed_entry_point_ingress_zones
+            ),
+            "trust_boundary": (
+                self.allowed_trust_boundary_from_zones
+                + self.allowed_trust_boundary_to_zones
+            ),
+        }
+        for constrained_kind, values in groups.items():
+            if values and self.kind != constrained_kind:
+                raise ValueError(
+                    f"{constrained_kind} constraints require a {constrained_kind} slot"
+                )
+        constraint_groups = (
+            self.allowed_integration_types,
+            self.allowed_entry_point_types,
+            self.allowed_entry_point_directions,
+            self.allowed_entry_point_controllability,
+            self.allowed_entry_point_ingress_zones,
+            self.allowed_trust_boundary_from_zones,
+            self.allowed_trust_boundary_to_zones,
+        )
+        if any(len(values) != len(set(values)) for values in constraint_groups):
+            raise ValueError("each resource-slot constraint list must be unique")
+        if len(self.distinct_from_slot_ids) != len(set(self.distinct_from_slot_ids)):
+            raise ValueError("distinct resource-slot references must be unique")
+        if self.slot_id in self.distinct_from_slot_ids:
+            raise ValueError("resource slot cannot be distinct from itself")
+        return self
 
 
 class CanonicalAttackChain(ContractModel):
@@ -777,6 +854,18 @@ class CanonicalAttackChain(ContractModel):
             raise ValueError("initial ingress slot must be an entry_point")
         slot_ids = {slot.slot_id for slot in self.resource_slots}
         slots_by_id = {slot.slot_id: slot for slot in self.resource_slots}
+        for slot in self.resource_slots:
+            for distinct_slot_id in slot.distinct_from_slot_ids:
+                distinct_slot = slots_by_id.get(distinct_slot_id)
+                if distinct_slot is None:
+                    raise ValueError(
+                        f"resource slot {slot.slot_id} references absent distinct slot "
+                        f"{distinct_slot_id}"
+                    )
+                if distinct_slot.kind != slot.kind:
+                    raise ValueError(
+                        "distinct resource-slot constraints require matching kinds"
+                    )
         for step in self.steps:
             for link in step.resource_links:
                 if link.slot_id not in slot_ids:
@@ -969,12 +1058,10 @@ class AgentInternalResourceReference(ContractModel):
 
     Agent-internal state is data assembled or transformed within the
     agent's own working context — neither an external entry point, tool,
-    integration, nor trust boundary.  Capability profiles do not carry
-    an authoritative agent-internal-state inventory, so this reference
-    type is **unresolvable** by design: ``contains_resource`` always
-    returns ``False`` and ``_references_for_kind`` always returns an
-    empty tuple.  Patterns that require an ``agent_internal`` resource
-    slot are therefore typed-infeasible for candidate-v2 projection.
+    integration, nor trust boundary.  It is the intrinsic singleton working
+    state of the profiled agent, so it requires no adapter inventory identity.
+    Candidate-v2 resolves exactly this typed singleton rather than laundering
+    it through an unrelated tool or integration binding.
     """
 
     kind: Literal["agent_internal"]
@@ -1045,6 +1132,16 @@ class ProjectionSnapshot(ContractModel):
                 raise ValueError("binding references an absent resource slot")
             if binding.resource_ref.kind != slot.kind:
                 raise ValueError("binding resource kind must match its slot")
+        bindings_by_slot = {
+            binding.slot_id: binding.resource_ref for binding in self.bindings
+        }
+        for slot in slots.values():
+            for distinct_slot_id in slot.distinct_from_slot_ids:
+                if bindings_by_slot[slot.slot_id] == bindings_by_slot[distinct_slot_id]:
+                    raise ValueError(
+                        f"bindings for slots {slot.slot_id} and {distinct_slot_id} "
+                        "must have distinct identities"
+                    )
         ingress = [
             b
             for b in self.bindings
@@ -1100,6 +1197,13 @@ class ProjectionSnapshot(ContractModel):
 
 
 _UNORDERED_FIELDS = {
+    "allowed_entry_point_controllability",
+    "allowed_entry_point_directions",
+    "allowed_entry_point_ingress_zones",
+    "allowed_entry_point_types",
+    "allowed_integration_types",
+    "allowed_trust_boundary_from_zones",
+    "allowed_trust_boundary_to_zones",
     "consumed",
     "produced",
     "preconditions",
@@ -1111,6 +1215,7 @@ _UNORDERED_FIELDS = {
     "values",
     "evidence",
     "condition_results",
+    "distinct_from_slot_ids",
     "omissions",
     "bindings",
     "requirements",
@@ -1170,6 +1275,32 @@ def compute_chain_semantic_digest(chain: CanonicalAttackChain | dict[str, Any]) 
     context = payload.get("taxonomy_context")
     if isinstance(context, dict) and "laaf" not in context:
         payload["taxonomy_context"] = {**context, "laaf": None}
+    # Empty resource constraints are unconstrained and were absent from
+    # chains signed before these generic constraints existed. Keep omitted
+    # and explicitly empty constraints byte-equivalent while signing every
+    # non-empty constraint.
+    resource_slots = payload.get("resource_slots")
+    if isinstance(resource_slots, (list, tuple)):
+        constraint_fields = (
+            "allowed_integration_types",
+            "allowed_entry_point_types",
+            "allowed_entry_point_directions",
+            "allowed_entry_point_controllability",
+            "allowed_entry_point_ingress_zones",
+            "allowed_trust_boundary_from_zones",
+            "allowed_trust_boundary_to_zones",
+            "distinct_from_slot_ids",
+        )
+        payload["resource_slots"] = [
+            {
+                key: value
+                for key, value in slot.items()
+                if key not in constraint_fields or value
+            }
+            if isinstance(slot, dict)
+            else slot
+            for slot in resource_slots
+        ]
     # Canonicalize optional linkage fields: a raw dict may omit
     # ``trust_boundary_slot_id`` / ``target_ingress_slot_id`` on a
     # resource link where model validation materializes ``None``, and may
@@ -1218,8 +1349,40 @@ def compute_chain_semantic_digest(chain: CanonicalAttackChain | dict[str, Any]) 
 
 
 def compute_projection_digest(snapshot: ProjectionSnapshot | dict[str, Any]) -> str:
+    payload = (
+        snapshot.model_dump(mode="python")
+        if isinstance(snapshot, BaseModel)
+        else dict(snapshot)
+    )
+    source_chain = payload.get("source_chain")
+    if isinstance(source_chain, dict):
+        resource_slots = source_chain.get("resource_slots")
+        if isinstance(resource_slots, (list, tuple)):
+            constraint_fields = {
+                "allowed_integration_types",
+                "allowed_entry_point_types",
+                "allowed_entry_point_directions",
+                "allowed_entry_point_controllability",
+                "allowed_entry_point_ingress_zones",
+                "allowed_trust_boundary_from_zones",
+                "allowed_trust_boundary_to_zones",
+                "distinct_from_slot_ids",
+            }
+            payload["source_chain"] = {
+                **source_chain,
+                "resource_slots": [
+                    {
+                        key: value
+                        for key, value in slot.items()
+                        if key not in constraint_fields or value
+                    }
+                    if isinstance(slot, dict)
+                    else slot
+                    for slot in resource_slots
+                ],
+            }
     return _semantic_digest(
-        snapshot, "projection_digest", "scenario-forge:projection:v1"
+        payload, "projection_digest", "scenario-forge:projection:v1"
     )
 
 
@@ -1271,6 +1434,16 @@ def validate_projection_snapshot(
     for binding in snapshot.bindings:
         if not resolver.contains_resource(binding.resource_ref):
             raise ValueError(f"missing {binding.resource_ref.kind} resource")
+        slot = next(
+            item
+            for item in snapshot.source_chain.resource_slots
+            if item.slot_id == binding.slot_id
+        )
+        if not resolver.resource_matches_slot(binding.resource_ref, slot):
+            raise ValueError(
+                f"{binding.resource_ref.kind} resource is incompatible with slot "
+                f"{binding.slot_id}"
+            )
     return snapshot
 
 

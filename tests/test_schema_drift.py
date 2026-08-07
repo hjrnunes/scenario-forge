@@ -12,6 +12,7 @@ gate/children rules). Instead, it checks that:
 1. All required fields in the Pydantic schema are required in the JSON Schema.
 2. All top-level property names in the Pydantic schema appear in the JSON Schema.
 3. All $defs (model names) in the Pydantic schema appear in the JSON Schema.
+4. Persisted EntryPoint structure exactly matches the generated nested definition.
 """
 
 from __future__ import annotations
@@ -94,6 +95,14 @@ class TestSchemaDrift:
         assert not missing, (
             f"Sub-models in Pydantic schema but missing from hand schema $defs: {missing}. "
             f"Update scenario-envelope.schema.json to include them."
+        )
+
+    def test_persisted_entry_point_definition_has_exact_model_parity(
+        self, pydantic_schema, hand_schema
+    ):
+        """Persisted capability snapshots must retain typed ingress semantics."""
+        assert (
+            hand_schema["$defs"]["EntryPoint"] == pydantic_schema["$defs"]["EntryPoint"]
         )
 
     def test_hand_schema_is_valid_json_schema(self, hand_schema):

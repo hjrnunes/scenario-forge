@@ -2668,6 +2668,119 @@
           ],
           "title": "Purpose",
           "type": "string"
+        },
+        "allowed_integration_types": {
+          "default": [],
+          "items": {
+            "enum": [
+              "api",
+              "database",
+              "message_queue",
+              "file_system",
+              "web_service",
+              "other"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Integration Types",
+          "type": "array"
+        },
+        "allowed_entry_point_types": {
+          "default": [],
+          "items": {
+            "enum": [
+              "user_input",
+              "external_content",
+              "configuration_load",
+              "system_event",
+              "inter_agent_message",
+              "other"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Types",
+          "type": "array"
+        },
+        "allowed_entry_point_directions": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "output",
+              "bidirectional"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Directions",
+          "type": "array"
+        },
+        "allowed_entry_point_controllability": {
+          "default": [],
+          "items": {
+            "enum": [
+              "direct",
+              "indirect",
+              "system"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Controllability",
+          "type": "array"
+        },
+        "allowed_entry_point_ingress_zones": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "reasoning",
+              "tool_execution",
+              "memory",
+              "inter_agent"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Entry Point Ingress Zones",
+          "type": "array"
+        },
+        "allowed_trust_boundary_from_zones": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "reasoning",
+              "tool_execution",
+              "memory",
+              "inter_agent"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Trust Boundary From Zones",
+          "type": "array"
+        },
+        "allowed_trust_boundary_to_zones": {
+          "default": [],
+          "items": {
+            "enum": [
+              "input",
+              "reasoning",
+              "tool_execution",
+              "memory",
+              "inter_agent"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Trust Boundary To Zones",
+          "type": "array"
+        },
+        "distinct_from_slot_ids": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "title": "Distinct From Slot Ids",
+          "type": "array"
         }
       },
       "required": [
@@ -3613,7 +3726,7 @@
     },
     "AgentInternalResourceReference": {
       "additionalProperties": false,
-      "description": "Canonical reference to agent-internal state.\n\nAgent-internal state is data assembled or transformed within the\nagent's own working context \u2014 neither an external entry point, tool,\nintegration, nor trust boundary.  Capability profiles do not carry\nan authoritative agent-internal-state inventory, so this reference\ntype is **unresolvable** by design: ``contains_resource`` always\nreturns ``False`` and ``_references_for_kind`` always returns an\nempty tuple.  Patterns that require an ``agent_internal`` resource\nslot are therefore typed-infeasible for candidate-v2 projection.",
+      "description": "Canonical reference to agent-internal state.\n\nAgent-internal state is data assembled or transformed within the\nagent's own working context \u2014 neither an external entry point, tool,\nintegration, nor trust boundary.  It is the intrinsic singleton working\nstate of the profiled agent, so it requires no adapter inventory identity.\nCandidate-v2 resolves exactly this typed singleton rather than laundering\nit through an unrelated tool or integration binding.",
       "properties": {
         "kind": {
           "const": "agent_internal",
@@ -4512,6 +4625,20 @@
         "name": {
           "description": "Entry point description, e.g. 'user prompts via chat widget'.",
           "title": "Name",
+          "type": "string"
+        },
+        "entry_point_type": {
+          "default": "other",
+          "description": "Typed ingress mechanism. This is adapter-neutral semantic metadata; it does not derive from the entry-point name.",
+          "enum": [
+            "user_input",
+            "external_content",
+            "configuration_load",
+            "system_event",
+            "inter_agent_message",
+            "other"
+          ],
+          "title": "Entry Point Type",
           "type": "string"
         },
         "direction": {
