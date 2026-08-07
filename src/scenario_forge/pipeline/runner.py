@@ -47,6 +47,7 @@ from scenario_forge.manifest import (
     resolve_run_dir,
     validate_attempt_equations,
     validate_completed_inventory,
+    validate_generation_run_id,
     write_failed_manifest,
     write_manifest_sentinel,
     write_started_manifest,
@@ -301,6 +302,7 @@ def _complete_v3_run(
             write_eval_scorecard(scorecard, run_dir)
             eval_success = True
         except Exception as exc:  # noqa: BLE001 - non-authoritative output
+            (run_dir / "eval-scorecard.yaml").unlink(missing_ok=True)
             logger.warning("Eval scorecard generation failed: %s", exc)
     else:
         logger.info("[Eval] Skipped (--no-eval) — non-authoritative.")
@@ -341,6 +343,7 @@ def _complete_v3_run(
         generate_report(report_data, run_dir)
         report_success = True
     except Exception as exc:  # noqa: BLE001 - non-authoritative output
+        (run_dir / "report.html").unlink(missing_ok=True)
         logger.warning("Report generation failed: %s", exc)
 
     final_status = (
@@ -409,6 +412,7 @@ def resume_pipeline(
     from scenario_forge.log_config import setup_logging
     from scenario_forge.pipeline.coverage_planning import CoveragePlan, SelectionResult
     from scenario_forge.pipeline.persistence import (
+        read_coverage_plan,
         read_finalization_inventory,
         recover_finalization_journal,
     )
@@ -422,12 +426,18 @@ def resume_pipeline(
         ) from exc
     if not supplied.is_dir():
         raise ManifestIntegrityError("resume requires an existing run directory")
-    recover_finalization_journal(supplied)
     manifest = load_manifest(supplied, requested_version=MANIFEST_VERSION)
     if manifest.status is not RunStatus.STARTED:
         raise ManifestIntegrityError("only a v3 STARTED run can be resumed")
+    try:
+        validate_generation_run_id(manifest.run_id)
+    except ValueError as exc:
+        raise ManifestIntegrityError("resume manifest has noncanonical run_id") from exc
     if supplied.name != manifest.run_id:
         raise ManifestIntegrityError("manifest run_id does not match run directory")
+    if manifest.provenance is None or manifest.provenance.run_id != manifest.run_id:
+        raise ManifestIntegrityError("manifest provenance run_id mismatch")
+    recover_finalization_journal(supplied, expected_run_id=manifest.run_id)
     support = ManifestInventoryResolver(supplied, manifest, check_orphans=False)
     use_entry = support.entry_by_role(ArtifactRole.USE_CASE)
     profile_entry = support.entry_by_role(ArtifactRole.CAPABILITY_PROFILE)
@@ -441,12 +451,72 @@ def resume_pipeline(
     if inventory.run_id != manifest.run_id:
         raise ManifestIntegrityError("finalization inventory run_id mismatch")
 
-    setup_logging(log_level=log_level, output_dir=supplied, structured=structured)
-    persisted_model = (
-        manifest.provenance.model_config_provenance
-        if manifest.provenance is not None
-        else None
+    provenance = manifest.provenance
+    if provenance.config_digest != compute_config_digest(provenance.command.options):
+        raise ManifestIntegrityError("resume configuration provenance drift")
+    if provenance.prompt_template_hashes != hash_prompt_templates():
+        raise ManifestIntegrityError("resume prompt template provenance drift")
+    if provenance.input_hashes.use_case_hash != compute_bytes_sha256(
+        use_case.encode("utf-8")
+    ):
+        raise ManifestIntegrityError("resume use-case provenance drift")
+
+    options = provenance.command.options
+    required_paths = {
+        "risk_extraction_path",
+        "sssom_path",
+        "cross_taxonomy_path",
+        "threats_path",
+    }
+    if not required_paths.issubset(options):
+        raise ManifestIntegrityError("resume command provenance is incomplete")
+    current_hashes = _capture_input_hashes(
+        use_case,
+        Path(options["risk_extraction_path"]),
+        Path(options["sssom_path"]),
+        Path(options["cross_taxonomy_path"]),
+        Path(options["threats_path"]),
+        Path(options["profile_path"]) if options.get("profile_path") else None,
     )
+    persisted_hashes = provenance.input_hashes
+    for field in (
+        "risk_extraction_hash",
+        "sssom_hash",
+        "cross_taxonomy_hash",
+        "threats_hash",
+        "source_profile_hash",
+        "attack_patterns_hash",
+        "attack_patterns_sssom_hash",
+        "attack_goals_taxonomy_hash",
+        "threat_goal_affinity_hash",
+        "attack_patterns_yaml_map",
+        "attack_patterns_sssom_map",
+    ):
+        if getattr(current_hashes, field) != getattr(persisted_hashes, field):
+            raise ManifestIntegrityError(f"resume input provenance drift: {field}")
+
+    taxonomy_resolver = load_taxonomy_resolver()
+    capability_snapshot = capture_capability_snapshot(profile)
+    trusted_catalog = list(load_attack_patterns().values())
+    durable_plan = read_coverage_plan(supplied)
+    from scenario_forge.pipeline.coverage_planning import revalidate_qualified_candidate
+
+    try:
+        for target in durable_plan.targets:
+            for choice in target.ordered_choices:
+                revalidate_qualified_candidate(
+                    choice.model_dump(mode="json"),
+                    taxonomy_resolver,
+                    capability_snapshot,
+                    trusted_catalog,
+                )
+    except Exception as exc:
+        raise ManifestIntegrityError(
+            f"resume durable candidate provenance drift: {exc}"
+        ) from exc
+
+    setup_logging(log_level=log_level, output_dir=supplied, structured=structured)
+    persisted_model = provenance.model_config_provenance
     if persisted_model is None:
         raise ManifestIntegrityError(
             "resumable v3 run requires persisted model configuration"
@@ -478,9 +548,9 @@ def resume_pipeline(
         profile=profile,
         client=client,
         use_case=use_case,
-        taxonomy_resolver=load_taxonomy_resolver(),
-        capability_snapshot=capture_capability_snapshot(profile),
-        trusted_catalog=list(load_attack_patterns().values()),
+        taxonomy_resolver=taxonomy_resolver,
+        capability_snapshot=capability_snapshot,
+        trusted_catalog=trusted_catalog,
     )
     durable_plan = finalization.coverage_plan
     selection_result = SelectionResult(
@@ -2789,6 +2859,7 @@ def run_pipeline(
                 logger.info("  Scorecard written to %s", scorecard_path)
                 eval_success = True
             except Exception as exc:  # noqa: BLE001 - eval failure is non-fatal, logs warning
+                (run_dir / "eval-scorecard.yaml").unlink(missing_ok=True)
                 logger.warning("Eval scorecard generation failed: %s", exc)
                 eval_success = False
         else:
@@ -2845,6 +2916,7 @@ def run_pipeline(
             logger.info("Report written to %s", report_path)
             report_success = True
         except Exception as exc:  # noqa: BLE001 - report failure is non-fatal, logs warning
+            (run_dir / "report.html").unlink(missing_ok=True)
             logger.warning("Report generation failed: %s", exc)
             report_success = False
 
@@ -2989,7 +3061,7 @@ def run_pipeline(
                     recover_finalization_journal,
                 )
 
-                recover_finalization_journal(run_dir)
+                recover_finalization_journal(run_dir, expected_run_id=run_id)
                 failed_manifest.attempts = []
                 failed_manifest.funnel = {}
                 failed_manifest.stage_records = []

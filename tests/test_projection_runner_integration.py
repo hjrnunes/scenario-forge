@@ -704,8 +704,18 @@ def test_public_resume_terminalizes_unknown_actor_without_reissue(
     assert load_manifest(run_dir).status is RunStatus.COMPLETED_WITH_ERRORS
 
 
-def test_public_resume_reuses_only_causal_frontier_after_actor_retry(
+@pytest.mark.parametrize(
+    ("retry_owner", "expected_calls"),
+    [
+        ("actor", (2, 2, 2, 2)),
+        ("narrative", (1, 2, 2, 2)),
+        ("tree", (1, 1, 2, 2)),
+    ],
+)
+def test_public_resume_reuses_only_causal_frontier_after_owner_retry(
     tmp_path: Path,
+    retry_owner: str,
+    expected_calls: tuple[int, int, int, int],
 ) -> None:
     from scenario_forge.pipeline.finalization import (
         AdmissionDecision,
@@ -723,6 +733,8 @@ def test_public_resume_reuses_only_causal_frontier_after_actor_retry(
     from scenario_forge.pipeline.runner_finalization import (
         make_postbehavior_admission as real_admission_factory,
     )
+
+    owner = GeneratedStage(retry_owner)
 
     projected = get_projected_candidate()
     stack, _, generate, args = _arrange(
@@ -794,8 +806,8 @@ def test_public_resume_reuses_only_causal_frontier_after_actor_retry(
                 routed = True
                 gate_violation = GateViolation(
                     GateCode.actor_access,
-                    "retry actor from durable admission evidence",
-                    GeneratedStage.actor,
+                    f"retry {owner.value} from durable admission evidence",
+                    owner,
                 )
                 violation = gate_violation.lifecycle()
                 return AdmissionDecision(
@@ -824,11 +836,11 @@ def test_public_resume_reuses_only_causal_frontier_after_actor_retry(
         original_record(self, invocation, result)
         if (
             not crashed
-            and invocation.stage is GeneratedStage.actor
+            and invocation.stage is owner
             and invocation.invocation_index == 1
         ):
             crashed = True
-            raise KeyboardInterrupt("crash after durable actor retry")
+            raise KeyboardInterrupt(f"crash after durable {owner.value} retry")
 
     stack.enter_context(
         patch.object(
@@ -844,23 +856,26 @@ def test_public_resume_reuses_only_causal_frontier_after_actor_retry(
         resume_pipeline(run_dir)
 
     generate.assert_not_called()
-    assert actor.call_count == 2
-    assert narrative.call_count == 2
-    assert tree.call_count == 2
-    assert behavior.call_count == 2
+    assert (
+        actor.call_count,
+        narrative.call_count,
+        tree.call_count,
+        behavior.call_count,
+    ) == expected_calls
     inventory = read_finalization_inventory(run_dir)
     assert inventory.admission_decisions[-1].admitted is True
-    actor_retry = [
+    owner_retry = [
         item
         for item in inventory.stage_attempts
-        if item.stage is GeneratedStage.actor and item.invocation_index == 1
+        if item.stage is owner and item.invocation_index == 1
     ][0]
-    resumed_narrative = [
+    downstream = tuple(GeneratedStage)[tuple(GeneratedStage).index(owner) + 1]
+    resumed_downstream = [
         item
         for item in inventory.stage_attempts
-        if item.stage is GeneratedStage.narrative and item.invocation_index == 1
+        if item.stage is downstream and item.invocation_index == 1
     ][0]
-    assert resumed_narrative.input.visible_artifacts["actor"] == actor_retry.result
+    assert resumed_downstream.input.visible_artifacts[owner.value] == owner_retry.result
 
 
 def _run_and_get_coverage_report(tmp_path: Path, *, confirmed: bool) -> dict:

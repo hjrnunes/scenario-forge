@@ -59,6 +59,7 @@ from scenario_forge.pipeline.persistence import (
     CoveragePlanV2,
     CoverageTargetEntry,
     QualifiedCandidateRef,
+    _causal_stage_artifacts,
     canonical_sha256,
     make_admitted_terminal_payload,
     make_finalization_persistence_adapter,
@@ -294,14 +295,16 @@ def run_target_finalization(
                 durable_candidate = ref_by_id[
                     active_attempt.candidate_id
                 ].projected_candidate
-                if any(
-                    canonical_sha256(record.input.candidate)
-                    != canonical_sha256(durable_candidate)
-                    for record in candidate_stages
-                ):
-                    raise ValueError(
-                        "stage resume candidate snapshot differs from durable plan"
-                    )
+                _causal_stage_artifacts(
+                    candidate_stages,
+                    candidate_attempt_id=active_attempt.attempt_id,
+                    durable_candidate=durable_candidate,
+                    repairs=[
+                        item
+                        for item in persistence.inventory.repairs
+                        if item.candidate_id == active_attempt.candidate_id
+                    ],
+                )
                 for record in candidate_stages:
                     # Every invocation supersedes its owner and all downstream
                     # artifacts.  Replay the journal in sequence rather than

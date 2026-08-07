@@ -13,6 +13,7 @@ import os
 import secrets
 import stat
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path, PurePosixPath
@@ -829,29 +830,32 @@ class FinalizationInventoryV1(StrictModel):
                 )
             if decision.admitted:
                 candidate_stages.sort(key=lambda item: item.sequence)
-                latest_outputs = {
-                    stage: next(
-                        (
-                            item
-                            for item in reversed(candidate_stages)
-                            if item.stage is stage and item.output_sha256 is not None
-                        ),
-                        None,
-                    )
-                    for stage in GeneratedStage
-                }
-                behavior = latest_outputs[GeneratedStage.behavior]
+                causal = _causal_stage_artifacts(
+                    candidate_stages,
+                    candidate_attempt_id=next(
+                        item.attempt_id
+                        for item in self.candidate_attempts
+                        if item.candidate_id == decision.candidate_id
+                    ),
+                    repairs=[
+                        item
+                        for item in self.repairs
+                        if item.candidate_id == decision.candidate_id
+                    ],
+                )
                 expected_snapshots = (
                     candidate_stages[-1].candidate_snapshot_sha256
                     if candidate_stages
                     else None,
-                    latest_outputs[GeneratedStage.actor].output_sha256
-                    if latest_outputs[GeneratedStage.actor]
+                    canonical_sha256(causal[GeneratedStage.actor])
+                    if GeneratedStage.actor in causal
                     else None,
-                    latest_outputs[GeneratedStage.narrative].output_sha256
-                    if latest_outputs[GeneratedStage.narrative]
+                    canonical_sha256(causal[GeneratedStage.narrative])
+                    if GeneratedStage.narrative in causal
                     else None,
-                    behavior.final_tree_snapshot_sha256 if behavior else None,
+                    canonical_sha256(causal[GeneratedStage.tree])
+                    if GeneratedStage.behavior in causal
+                    else None,
                 )
                 actual_snapshots = (
                     decision.candidate_snapshot_sha256,
@@ -968,11 +972,20 @@ class FinalizationInventoryV1(StrictModel):
 
 def _causal_stage_artifacts(
     records: list[StageAttemptRecord],
+    *,
+    candidate_attempt_id: str,
+    durable_candidate: JsonValue | None = None,
+    repairs: Sequence[ParsimonyRepairRecord] = (),
 ) -> dict[GeneratedStage, JsonValue]:
     """Reduce stage evidence to one causally contiguous artifact frontier."""
     frontier: dict[GeneratedStage, JsonValue] = {}
     order = tuple(GeneratedStage)
     for record in sorted(records, key=lambda item: item.sequence):
+        if (
+            durable_candidate is not None
+            and record.input.candidate != durable_candidate
+        ):
+            raise ValueError("stage candidate snapshot differs from durable plan")
         for invalidated in order[order.index(record.stage) :]:
             frontier.pop(invalidated, None)
         visible = dict(record.input.visible_artifacts)
@@ -984,6 +997,22 @@ def _causal_stage_artifacts(
             ):
                 raise ValueError(
                     "behavior evidence is not bound to its final-tree input"
+                )
+            generated_tree = frontier.get(GeneratedStage.tree)
+            if generated_tree is None:
+                raise ValueError("behavior evidence has no causal generated tree")
+            before_digest = canonical_sha256(generated_tree)
+            after_digest = canonical_sha256(visible_tree)
+            if before_digest != after_digest and not any(
+                repair.accepted
+                and repair.candidate_attempt_id == candidate_attempt_id
+                and repair.sequence < record.sequence
+                and repair.before_digest == before_digest
+                and repair.after_digest == after_digest
+                for repair in repairs
+            ):
+                raise ValueError(
+                    "behavior tree is neither generated nor linked by accepted repair"
                 )
             frontier[GeneratedStage.tree] = visible_tree
         expected_visible = {
@@ -1366,9 +1395,7 @@ def read_quarantine_bundle(run_dir: Path, entry: ArtifactEntry) -> QuarantineBun
     )
 
 
-def _recover_journal(run_dir: Path) -> CoveragePlanV2 | None:
-    """Complete an interrupted synchronized plan/inventory state replacement."""
-
+def _read_journal(run_dir: Path) -> PersistenceJournalV1 | None:
     journal_path = run_dir / ".finalization-state.json"
     if not journal_path.exists():
         return None
@@ -1380,6 +1407,14 @@ def _recover_journal(run_dir: Path) -> CoveragePlanV2 | None:
         raise ManifestIntegrityError(
             f"Invalid finalization state journal: {exc}"
         ) from exc
+
+    return journal
+
+
+def _publish_journal(run_dir: Path, journal: PersistenceJournalV1) -> CoveragePlanV2:
+    """Complete one already-validated synchronized state replacement."""
+
+    journal_path = run_dir / ".finalization-state.json"
     if journal.quarantine_bundle is not None:
         write_quarantine_bundle(run_dir, journal.quarantine_bundle)
     if journal.admitted_publication is not None:
@@ -1395,9 +1430,19 @@ def _recover_journal(run_dir: Path) -> CoveragePlanV2 | None:
     return journal.coverage_plan
 
 
-def recover_finalization_journal(run_dir: Path) -> CoveragePlanV2 | None:
+def recover_finalization_journal(
+    run_dir: Path, *, expected_run_id: str
+) -> CoveragePlanV2 | None:
     """Complete an interrupted v3 state publication before forensic loading."""
-    return _recover_journal(Path(run_dir))
+    run_dir = Path(run_dir)
+    journal = _read_journal(run_dir)
+    if journal is None:
+        return None
+    if journal.finalization_inventory.run_id != expected_run_id:
+        raise ManifestIntegrityError(
+            "finalization state journal run_id does not match resumed run"
+        )
+    return _publish_journal(run_dir, journal)
 
 
 def _read_model(
@@ -1646,6 +1691,24 @@ def validate_v3_inventories(resolver: Any) -> None:
         raise ManifestIntegrityError(
             "Normal scenario inventory must contain admitted candidates only"
         )
+    for candidate_id in admitted:
+        attempt = next(
+            item
+            for item in final.candidate_attempts
+            if item.candidate_id == candidate_id
+        )
+        _causal_stage_artifacts(
+            [
+                item
+                for item in final.stage_attempts
+                if item.candidate_id == candidate_id
+            ],
+            candidate_attempt_id=attempt.attempt_id,
+            durable_candidate=plan_by_candidate[candidate_id][1].projected_candidate,
+            repairs=[
+                item for item in final.repairs if item.candidate_id == candidate_id
+            ],
+        )
     for entry in resolver.entries_by_role(ArtifactRole.QUARANTINE_BUNDLE):
         try:
             bundle = QuarantineBundleV1.model_validate(resolver.read_json(entry))
@@ -1691,7 +1754,16 @@ def validate_v3_inventories(resolver: Any) -> None:
                 item
                 for item in final.stage_attempts
                 if item.candidate_id == bundle.candidate_id
-            ]
+            ],
+            candidate_attempt_id=attempt.attempt_id,
+            durable_candidate=plan_by_candidate[bundle.candidate_id][
+                1
+            ].projected_candidate,
+            repairs=[
+                item
+                for item in final.repairs
+                if item.candidate_id == bundle.candidate_id
+            ],
         )
         for stage in GeneratedStage:
             if getattr(bundle, stage.value) != causal_artifacts.get(stage):
@@ -2322,31 +2394,41 @@ class FinalizationPersistenceAdapter:
                 for item in next_inventory.stage_attempts
                 if item.candidate_id == candidate_id
             ]
-            latest = {stage: None for stage in GeneratedStage}
-            for item in stages:
-                if item.output_sha256 is not None:
-                    latest[item.stage] = item
+            planned_choice = next(
+                choice
+                for target in self.coverage_plan.targets
+                for choice in target.ordered_choices
+                if choice.candidate_id == candidate_id
+            )
+            causal_artifacts = _causal_stage_artifacts(
+                stages,
+                candidate_attempt_id=candidate_attempt.attempt_id,
+                durable_candidate=planned_choice.projected_candidate,
+                repairs=[
+                    item
+                    for item in next_inventory.repairs
+                    if item.candidate_id == candidate_id
+                ],
+            )
             snapshots = {
                 "candidate_snapshot_sha256": stages[-1].candidate_snapshot_sha256
                 if stages
                 else None,
-                "actor_snapshot_sha256": latest[GeneratedStage.actor].output_sha256
-                if latest[GeneratedStage.actor]
+                "actor_snapshot_sha256": canonical_sha256(
+                    causal_artifacts[GeneratedStage.actor]
+                )
+                if GeneratedStage.actor in causal_artifacts
                 else None,
-                "narrative_snapshot_sha256": latest[
-                    GeneratedStage.narrative
-                ].output_sha256
-                if latest[GeneratedStage.narrative]
+                "narrative_snapshot_sha256": canonical_sha256(
+                    causal_artifacts[GeneratedStage.narrative]
+                )
+                if GeneratedStage.narrative in causal_artifacts
                 else None,
-                "final_tree_snapshot_sha256": next(
-                    (
-                        item.final_tree_snapshot_sha256
-                        for item in reversed(stages)
-                        if item.stage is GeneratedStage.behavior
-                        and item.final_tree_snapshot_sha256 is not None
-                    ),
-                    None,
-                ),
+                "final_tree_snapshot_sha256": canonical_sha256(
+                    causal_artifacts[GeneratedStage.tree]
+                )
+                if GeneratedStage.behavior in causal_artifacts
+                else None,
             }
             publication = (
                 terminal_payload.publication if terminal_payload is not None else None
@@ -2361,7 +2443,6 @@ class FinalizationPersistenceAdapter:
                 next_inventory.admitted_inventory.extend(terminal_receipts)
             else:
                 target_id = candidate_attempt.target_entry_point_id
-                causal_artifacts = _causal_stage_artifacts(stages)
                 artifacts = {
                     stage: causal_artifacts.get(stage) for stage in GeneratedStage
                 }
@@ -2482,7 +2563,7 @@ def make_finalization_persistence_adapter(
     """Phase 5 factory; creates no runner coupling and activates no manifest version."""
 
     run_dir = Path(run_dir)
-    recovered_plan = _recover_journal(run_dir)
+    recovered_plan = recover_finalization_journal(run_dir, expected_run_id=run_id)
     if recovered_plan is not None:
         coverage_plan = recovered_plan
     coverage_plan = CoveragePlanV2.model_validate(
