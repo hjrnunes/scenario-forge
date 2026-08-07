@@ -253,7 +253,13 @@ def required_singleton_roles(
     if eval_enabled:
         roles.add(ArtifactRole.EVAL_SCORECARD)
     if manifest_version == MANIFEST_V3:
-        roles.update({ArtifactRole.COVERAGE_PLAN, ArtifactRole.FINALIZATION_INVENTORY})
+        roles.update(
+            {
+                ArtifactRole.PLANNING_CHECKPOINT,
+                ArtifactRole.COVERAGE_PLAN,
+                ArtifactRole.FINALIZATION_INVENTORY,
+            }
+        )
     return roles
 
 
@@ -1236,6 +1242,7 @@ class ManifestInventoryResolver:
             RunStatus.COMPLETED_WITH_ERRORS,
         }:
             for role in (
+                ArtifactRole.PLANNING_CHECKPOINT,
                 ArtifactRole.COVERAGE_PLAN,
                 ArtifactRole.FINALIZATION_INVENTORY,
             ):

@@ -1588,7 +1588,8 @@ def validate_v3_inventories(resolver: Any) -> None:
         )
     coverage_entry = resolver.entry_by_role(ArtifactRole.COVERAGE_PLAN)
     final_entry = resolver.entry_by_role(ArtifactRole.FINALIZATION_INVENTORY)
-    if coverage_entry is None or final_entry is None:
+    planning_entry = resolver.entry_by_role(ArtifactRole.PLANNING_CHECKPOINT)
+    if planning_entry is None or coverage_entry is None or final_entry is None:
         raise ManifestIntegrityError("Manifest v3 persistence singletons are missing")
     try:
         coverage = CoveragePlanV2.model_validate(resolver.read_json(coverage_entry))
@@ -1597,10 +1598,8 @@ def validate_v3_inventories(resolver: Any) -> None:
         raise ManifestIntegrityError(
             f"Invalid manifest v3 persistence model: {exc}"
         ) from exc
-    planning_entry = resolver.entry_by_role(ArtifactRole.PLANNING_CHECKPOINT)
-    if planning_entry is not None:
-        checkpoint = read_planning_checkpoint_bytes(resolver.read_bytes(planning_entry))
-        validate_planning_checkpoint(checkpoint, coverage)
+    checkpoint = read_planning_checkpoint_bytes(resolver.read_bytes(planning_entry))
+    validate_planning_checkpoint(checkpoint, coverage)
     if final.run_id != resolver.manifest.run_id:
         raise ManifestIntegrityError("Finalization inventory run_id mismatch")
     if final.coverage_plan_sha256 != coverage_entry.sha256:

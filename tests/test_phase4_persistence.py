@@ -172,6 +172,45 @@ def _inventory(coverage_hash: str = HASH) -> FinalizationInventoryV1:
     )
 
 
+def _write_planning_for_plan(tmp_path: Path, plan: CoveragePlanV2):
+    primary_ids = [
+        target.primary_candidate_id
+        for target in plan.targets
+        if target.primary_candidate_id is not None
+    ]
+    checkpoint = PlanningCheckpointV1(
+        stage_events=[],
+        projection_limitation_target_ids=[],
+        selected_candidate_ids=primary_ids,
+        capped_count=0,
+        uncovered_target_ids=sorted(
+            target.entry_point_id
+            for target in plan.targets
+            if not target.ordered_choices
+        ),
+        per_pattern_counts={},
+        primary_candidate_ids={
+            target.entry_point_id: target.primary_candidate_id
+            for target in plan.targets
+            if target.primary_candidate_id is not None
+        },
+        attempted_candidate_ids=sorted(primary_ids),
+        selection_limitation_target_ids=sorted(plan.selection_limitation_target_ids),
+        fallback_candidate_ids={
+            target.entry_point_id: [
+                choice.candidate_id for choice in target.ordered_choices
+            ]
+            for target in plan.targets
+        },
+    )
+    write_planning_checkpoint(tmp_path, checkpoint)
+    return build_artifact_entry(
+        ArtifactRole.PLANNING_CHECKPOINT,
+        tmp_path,
+        "planning-checkpoint.json",
+    )
+
+
 def _event(sequence: int, label: str) -> dict[str, object]:
     return {
         "event_id": canonical_sha256({"event": label}),
@@ -506,6 +545,9 @@ def test_v2_default_roles_and_strict_v3_request_compatibility(tmp_path: Path):
     assert ArtifactRole.COVERAGE_PLAN in required_singleton_roles(
         eval_enabled=False, manifest_version="3"
     )
+    assert ArtifactRole.PLANNING_CHECKPOINT in required_singleton_roles(
+        eval_enabled=False, manifest_version="3"
+    )
     atomic_write_yaml(
         tmp_path / "run-manifest.yaml",
         RunManifest(
@@ -574,16 +616,15 @@ def test_v3_rejects_legacy_lifecycle_authority(tmp_path: Path):
 
 
 def test_valid_empty_v3_inventory(tmp_path: Path):
-    coverage_entry = write_coverage_plan(
-        tmp_path,
-        CoveragePlanV2(
-            schema_version="2",
-            completeness="not_applicable",
-            evidence_refs=[],
-            targets=[],
-            selection_limitation_target_ids=[],
-        ),
+    plan = CoveragePlanV2(
+        schema_version="2",
+        completeness="not_applicable",
+        evidence_refs=[],
+        targets=[],
+        selection_limitation_target_ids=[],
     )
+    coverage_entry = write_coverage_plan(tmp_path, plan)
+    planning_entry = _write_planning_for_plan(tmp_path, plan)
     final_entry = write_finalization_inventory(
         tmp_path, _inventory(coverage_entry.sha256)
     )
@@ -594,11 +635,37 @@ def test_valid_empty_v3_inventory(tmp_path: Path):
             status=RunStatus.COMPLETED,
             run_id=RUN_ID,
             timestamp_start="2026-01-01T00:00:00Z",
-            inventory=[coverage_entry, final_entry],
+            inventory=[planning_entry, coverage_entry, final_entry],
         ),
     )
     resolver = load_strict_resolver(tmp_path, manifest_version="3")
     assert resolver.entry_by_role(ArtifactRole.COVERAGE_PLAN) == coverage_entry
+
+
+def test_completed_v3_rejects_missing_planning_checkpoint(tmp_path: Path):
+    plan = CoveragePlanV2(
+        schema_version="2",
+        completeness="not_applicable",
+        evidence_refs=[],
+        targets=[],
+        selection_limitation_target_ids=[],
+    )
+    coverage_entry = write_coverage_plan(tmp_path, plan)
+    final_entry = write_finalization_inventory(
+        tmp_path, _inventory(coverage_entry.sha256)
+    )
+    finalize_manifest(
+        tmp_path,
+        RunManifest(
+            manifest_version="3",
+            status=RunStatus.COMPLETED_WITH_ERRORS,
+            run_id=RUN_ID,
+            timestamp_start="2026-01-01T00:00:00Z",
+            inventory=[coverage_entry, final_entry],
+        ),
+    )
+    with pytest.raises(ManifestIntegrityError, match="planning_checkpoint"):
+        load_strict_resolver(tmp_path, manifest_version="3")
 
 
 def _quarantine_v3_parts(tmp_path: Path):
@@ -775,6 +842,7 @@ def _quarantine_v3_parts(tmp_path: Path):
 
 
 def _finalize_v3(tmp_path: Path, inventory):
+    planning_entry = _write_planning_for_plan(tmp_path, read_coverage_plan(tmp_path))
     finalize_manifest(
         tmp_path,
         RunManifest(
@@ -782,7 +850,7 @@ def _finalize_v3(tmp_path: Path, inventory):
             status=RunStatus.COMPLETED_WITH_ERRORS,
             run_id=RUN_ID,
             timestamp_start="2026-01-01T00:00:00Z",
-            inventory=inventory,
+            inventory=[planning_entry, *inventory],
         ),
     )
 

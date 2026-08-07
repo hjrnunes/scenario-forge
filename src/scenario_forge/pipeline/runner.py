@@ -3165,23 +3165,24 @@ def run_pipeline(
                     )
                 except Exception:  # noqa: BLE001 - early failures may predate sentinel
                     started_manifest = None
-                immutable_entries = (
-                    [
-                        item
+                original_by_role = (
+                    {
+                        item.role: item
                         for item in started_manifest.inventory
                         if item.role in immutable_roles
-                    ]
+                    }
                     if started_manifest is not None
-                    else []
+                    else {}
                 )
-                support_valid = True
-                if started_manifest is not None:
+                support_published = set(original_by_role) == immutable_roles
+                support_valid = False
+                if support_published and started_manifest is not None:
                     try:
                         ManifestInventoryResolver(
                             run_dir, started_manifest, check_orphans=False
                         )
+                        support_valid = True
                     except ManifestIntegrityError as support_exc:
-                        support_valid = False
                         failed_manifest.error = (
                             f"{exc}; immutable support validation failed: {support_exc}"
                         )
@@ -3203,8 +3204,8 @@ def run_pipeline(
                 failed_manifest.inventory = [
                     item
                     for item in evidence_inventory
-                    if item.role not in immutable_roles
-                ] + immutable_entries
+                    if item.role not in original_by_role
+                ] + list(original_by_role.values())
                 write_failed_manifest(run_dir, failed_manifest)
                 raise
             # Include any accumulated attempts

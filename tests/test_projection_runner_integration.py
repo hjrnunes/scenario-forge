@@ -971,6 +971,70 @@ def test_failed_run_inventories_published_planning_checkpoint(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
+    ("fault_boundary", "expected_support"),
+    [
+        ("after_use_case", {ArtifactRole.USE_CASE}),
+        (
+            "after_threat_surface",
+            {
+                ArtifactRole.USE_CASE,
+                ArtifactRole.CAPABILITY_PROFILE,
+                ArtifactRole.THREAT_SURFACE,
+            },
+        ),
+        (
+            "before_started_support_manifest",
+            {
+                ArtifactRole.USE_CASE,
+                ArtifactRole.CAPABILITY_PROFILE,
+                ArtifactRole.THREAT_SURFACE,
+                ArtifactRole.PLANNING_CHECKPOINT,
+            },
+        ),
+    ],
+)
+def test_early_failed_v3_inventories_unpublished_support_without_orphans(
+    tmp_path: Path,
+    fault_boundary: str,
+    expected_support: set[ArtifactRole],
+) -> None:
+    from scenario_forge.manifest import ManifestInventoryResolver
+
+    projected = get_projected_candidate()
+    stack, patches, _, args = _arrange(
+        tmp_path,
+        entry_point_id=projected.canonical_ingress.entry_point_id,
+        projected_candidates=[projected],
+    )
+    if fault_boundary == "after_use_case":
+        stack.enter_context(
+            patch(
+                "scenario_forge.pipeline.runner.infer_capability_profile",
+                side_effect=RuntimeError(fault_boundary),
+            )
+        )
+    elif fault_boundary == "after_threat_surface":
+        patches["expand_seeds"].side_effect = RuntimeError(fault_boundary)
+    else:
+        stack.enter_context(
+            patch(
+                "scenario_forge.pipeline.runner.write_started_manifest",
+                side_effect=RuntimeError(fault_boundary),
+            )
+        )
+
+    with stack, pytest.raises(RuntimeError, match=fault_boundary):
+        run_pipeline(**args)
+
+    run_dir = next(args["output_dir"].iterdir())
+    manifest = load_manifest(run_dir)
+    assert manifest.status is RunStatus.FAILED
+    roles = {item.role for item in manifest.inventory}
+    assert expected_support <= roles
+    ManifestInventoryResolver(run_dir, manifest, check_orphans=True)
+
+
+@pytest.mark.parametrize(
     ("retry_owner", "expected_calls"),
     [
         ("actor", (2, 2, 2, 2)),
