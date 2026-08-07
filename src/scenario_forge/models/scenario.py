@@ -133,11 +133,11 @@ class NarrativeStep(BaseModel):
     # and owned postconditions.  Prose action/effect explain but are not
     # the authority -- these typed records are the authority.
     realizations: tuple[ProjectedStepRealization, ...] = Field(
-        min_length=1,
+        default=(),
         description=(
             "Per-projected-step canonical realization records.  One record "
-            "per projected_step_id.  The validator compares each record "
-            "against the embedded canonical step at the narrative boundary."
+            "per projected_step_id.  Derived deterministically in "
+            "post-processing from the projection context."
         ),
     )
 
