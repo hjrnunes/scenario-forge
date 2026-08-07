@@ -153,6 +153,13 @@
           },
           "title": "Not Applicable Gate Ids",
           "type": "array"
+        },
+        "blocking_not_applicable_gate_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking Not Applicable Gate Ids",
+          "type": "array"
         }
       },
       "required": [
@@ -161,7 +168,8 @@
         "passed_gate_count",
         "failed_gate_ids",
         "error_gate_ids",
-        "not_applicable_gate_ids"
+        "not_applicable_gate_ids",
+        "blocking_not_applicable_gate_ids"
       ],
       "title": "QualificationResult",
       "type": "object"

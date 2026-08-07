@@ -12,16 +12,15 @@ from scenario_forge.eval.scorecard import (
     MetricResult,
     MetricSection,
     MetricStatus,
+    QUALIFICATION_GATE_PATHS,
+    REQUIRED_QUALIFICATION_GATE_IDS,
     ScorecardV1,
     aggregate_qualification,
     ratio_metric,
     zero_gate,
 )
 from scenario_forge.manifest import ArtifactRole, ManifestInventoryResolver
-from scenario_forge.models.capability_profile import (
-    CapabilityProfile,
-    InventoryCompleteness,
-)
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.scenario import ScenarioEnvelope
 from scenario_forge.pipeline.persistence import CoveragePlanV2, FinalizationInventoryV1
 
@@ -119,6 +118,15 @@ def canonical_entry_point_sets(
     return used_ids & expected_ids, used_ids - expected_ids
 
 
+def inventory_identity_mismatches(
+    yaml_ids: set[str], feature_ids: set[str], receipt_ids: set[str]
+) -> set[str]:
+    """Return every ID preventing exact three-way inventory equality."""
+    return (yaml_ids | feature_ids | receipt_ids) - (
+        yaml_ids & feature_ids & receipt_ids
+    )
+
+
 def _count_metric(count: int, evidence: list[str], affected: list[str]) -> MetricResult:
     return MetricResult(
         status=MetricStatus.PASS,
@@ -134,7 +142,6 @@ def _resolver_orphan_fact(
     if not getattr(resolver, "check_orphans", False):
         return MetricResult(
             status=MetricStatus.NOT_APPLICABLE,
-            numerator=0,
             evidence=[
                 evidence,
                 "in-progress resolver does not own final orphan reconciliation",
@@ -144,22 +151,12 @@ def _resolver_orphan_fact(
     return zero_gate(0, evidence=[evidence])
 
 
-def _gate_for_codes(
-    codes: set[str],
-    failures: dict[str, set[str]],
-    *,
-    evidence: list[str],
-    applicable: bool = True,
-) -> MetricResult:
-    affected = sorted(set().union(*(failures.get(code, set()) for code in codes)))
-    if not applicable:
-        return MetricResult(
-            status=MetricStatus.NOT_APPLICABLE,
-            numerator=len(affected),
-            evidence=evidence,
-            affected_ids=affected,
-        )
-    return zero_gate(len(affected), evidence=evidence, affected_ids=affected)
+def _unsupported_gate(reason: str) -> MetricResult:
+    return MetricResult(
+        status=MetricStatus.NOT_APPLICABLE,
+        evidence=[reason],
+        affected_ids=[],
+    )
 
 
 def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
@@ -208,24 +205,30 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
     receipt_scenarios = {receipt.scenario_id for receipt in admitted_receipts}
     receipt_pairs = Counter(receipt.scenario_id for receipt in admitted_receipts)
     bad_pairs = sorted(sid for sid, count in receipt_pairs.items() if count != 2)
-    evaluated_ids = set(scenario_ids) & set(feature_ids)
+    yaml_id_set = set(scenario_ids)
+    feature_id_set = set(feature_ids)
     count_mismatch_ids = sorted(
-        (set(scenario_ids) ^ set(feature_ids)) | (evaluated_ids ^ receipt_scenarios)
+        inventory_identity_mismatches(yaml_id_set, feature_id_set, receipt_scenarios)
     )
 
     presence = {
-        "manifest_evaluated_count_coherence": ratio_metric(
-            len(evaluated_ids & receipt_scenarios),
-            len(receipt_scenarios),
+        "nonempty_admitted_inventory": zero_gate(
+            0 if receipt_scenarios else 1,
+            evidence=[
+                "finalization-inventory.json:admitted_inventory must be nonempty"
+            ],
+            affected_ids=[] if receipt_scenarios else [manifest.run_id],
+        ),
+        "manifest_evaluated_count_coherence": zero_gate(
+            len(count_mismatch_ids),
             evidence=[
                 "manifest YAML/feature inventory",
                 "finalization-inventory.json:admitted_inventory",
             ],
             affected_ids=count_mismatch_ids,
         ),
-        "manifest_pair_coherence": ratio_metric(
-            len(receipt_pairs) - len(bad_pairs),
-            len(receipt_pairs),
+        "manifest_pair_coherence": zero_gate(
+            len(bad_pairs),
             evidence=["finalization-inventory.json:admitted_inventory"],
             affected_ids=bad_pairs,
         ),
@@ -490,16 +493,23 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
         ),
     }
 
-    confirmed_entry_points = (
-        profile.entry_point_completeness
-        is InventoryCompleteness.operator_confirmed_complete
-    )
-    confirmed_tools = (
-        profile.tool_inventory_completeness
-        is InventoryCompleteness.operator_confirmed_complete
-    )
     quarantine_ids = sorted(
         receipt.candidate_id for receipt in final.quarantine_inventory
+    )
+    evaluated_candidate_ids = {
+        str(raw.get("candidate_id"))
+        for _, raw in scenario_items
+        if raw.get("candidate_id")
+    }
+    admitted_decision_ids = {
+        decision.candidate_id
+        for decision in final.admission_decisions
+        if decision.admitted
+    }
+    admission_mismatch_ids = sorted(evaluated_candidate_ids ^ admitted_decision_ids)
+    unsupported_positional = (
+        "cmps.5 persists positional gate names and aggregate violation codes; "
+        "absence of a category code does not prove that category gate ran"
     )
     release = {
         "zero_quarantine": zero_gate(
@@ -507,61 +517,31 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             evidence=["finalization-inventory.json:quarantine_inventory"],
             affected_ids=quarantine_ids,
         ),
-        "actor_attack_complexity": _gate_for_codes(
-            {"actor_access", "capability_complexity"},
-            failures,
-            evidence=["persisted cmps.5 admission violations"],
-        ),
-        "capability_grounding": _gate_for_codes(
-            {"phantom"},
-            failures,
+        "persisted_admission_traceability_outcome": zero_gate(
+            len(admission_mismatch_ids),
             evidence=[
-                f"entry_point_completeness={profile.entry_point_completeness.value}"
+                "exact evaluated candidate IDs equal persisted admitted decisions"
             ],
-            applicable=confirmed_entry_points,
+            affected_ids=admission_mismatch_ids,
         ),
-        "tool_integration_grounding": _gate_for_codes(
-            {"phantom"},
-            failures,
-            evidence=[
-                f"tool_inventory_completeness={profile.tool_inventory_completeness.value}"
-            ],
-            applicable=confirmed_tools,
+        "actor_attack_complexity": _unsupported_gate(unsupported_positional),
+        "capability_grounding": _unsupported_gate(
+            f"{unsupported_positional}; "
+            f"entry_point_completeness={profile.entry_point_completeness.value}"
         ),
-        "data_access_grounding": _gate_for_codes(
-            {"actor_access", "narrative_access", "trusted_context"},
-            failures,
-            evidence=["persisted actor/access/trusted-context admission evidence"],
-            applicable=confirmed_entry_points,
+        "tool_integration_grounding": _unsupported_gate(
+            f"{unsupported_positional}; "
+            f"tool_inventory_completeness={profile.tool_inventory_completeness.value}"
         ),
-        "catalog_taxonomy_pin_validity": _gate_for_codes(
-            {"trusted_context", "candidate_identity"},
-            failures,
-            evidence=[
-                "persisted trusted-context and candidate-identity admission evidence"
-            ],
+        "data_access_grounding": _unsupported_gate(
+            f"{unsupported_positional}; "
+            f"entry_point_completeness={profile.entry_point_completeness.value}"
         ),
-        "resource_binding_validity": _gate_for_codes(
-            {"traceability", "canonical_identity"},
-            failures,
-            evidence=["persisted projection traceability admission evidence"],
-        ),
-        "execution_requirement_drift": _gate_for_codes(
-            {"traceability"},
-            failures,
-            evidence=["persisted projection traceability admission evidence"],
-        ),
-        "zero_schema_identifier_phantom_parsimony_failures": _gate_for_codes(
-            {
-                "structural",
-                "semantic",
-                "scenario_identity",
-                "canonical_identity",
-                "phantom",
-                "parsimony",
-            },
-            failures,
-            evidence=["persisted cmps.5 admission violations"],
+        "catalog_taxonomy_pin_validity": _unsupported_gate(unsupported_positional),
+        "resource_binding_validity": _unsupported_gate(unsupported_positional),
+        "execution_requirement_drift": _unsupported_gate(unsupported_positional),
+        "zero_schema_identifier_phantom_parsimony_failures": _unsupported_gate(
+            unsupported_positional
         ),
         "kill_chain_quarantine_reasons": zero_gate(
             len(quarantine_ids),
@@ -571,31 +551,24 @@ def evaluate_v3_scorecard(resolver: ManifestInventoryResolver) -> ScorecardV1:
             affected_ids=quarantine_ids,
         ),
     }
+    sections = {
+        "presence_coverage": MetricSection(metrics=presence),
+        "validity_grounding": MetricSection(metrics=validity),
+        "cross_artifact_agreement": MetricSection(metrics=agreement),
+        "semantic_quality_diagnostics": MetricSection(metrics=diagnostics),
+        "release_qualification": MetricSection(metrics=release),
+    }
     qualification_gates = {
-        "inventory_count_coherence": presence["manifest_evaluated_count_coherence"],
-        "inventory_pair_coherence": presence["manifest_pair_coherence"],
-        "scenario_schema_validity": validity["scenario_schema_validity"],
-        "known_entry_point_identity": presence["unknown_entry_point_count"],
-        "zero_stale_orphan": presence["stale_or_orphan_artifact_count"],
-        "zero_missing_pairs": presence["missing_pair_count"],
-        "zero_duplicate_overwritten": presence[
-            "duplicate_or_overwritten_artifact_count"
-        ],
-        "zero_unmanifested": presence["unmanifested_artifact_count"],
-        "projected_step_recall": agreement["projected_step_recall"],
-        "pinned_technique_recall": agreement["pinned_technique_recall"],
-        "tree_behavior_correspondence": agreement["exact_tree_behavior_correspondence"],
-        "exact_title_duplicates": diagnostics["exact_normalized_title_duplicate_count"],
-        **release,
+        gate_id: sections[section_name].metrics[metric_id]
+        for gate_id, (section_name, metric_id) in QUALIFICATION_GATE_PATHS.items()
     }
     return ScorecardV1(
         run_id=manifest.run_id,
         scenario_count=len(scenario_items),
         feature_file_count=len(feature_ids),
-        presence_coverage=MetricSection(metrics=presence),
-        validity_grounding=MetricSection(metrics=validity),
-        cross_artifact_agreement=MetricSection(metrics=agreement),
-        semantic_quality_diagnostics=MetricSection(metrics=diagnostics),
-        release_qualification=MetricSection(metrics=release),
-        qualification=aggregate_qualification(qualification_gates),
+        **sections,
+        qualification=aggregate_qualification(
+            qualification_gates,
+            required_gate_ids=REQUIRED_QUALIFICATION_GATE_IDS,
+        ),
     )

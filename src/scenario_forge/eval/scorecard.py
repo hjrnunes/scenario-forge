@@ -10,6 +10,134 @@ from pydantic import BaseModel, Field, model_validator
 SCORECARD_SCHEMA_VERSION = "1"
 METRIC_DEFINITION_VERSION = "1"
 
+# Canonical qualification membership. Keeping this in the schema module lets
+# validation reconstruct the aggregate without trusting serialized counts or
+# IDs supplied by a producer.
+QUALIFICATION_GATE_PATHS: dict[str, tuple[str, str]] = {
+    "nonempty_admitted_inventory": (
+        "presence_coverage",
+        "nonempty_admitted_inventory",
+    ),
+    "inventory_count_coherence": (
+        "presence_coverage",
+        "manifest_evaluated_count_coherence",
+    ),
+    "inventory_pair_coherence": (
+        "presence_coverage",
+        "manifest_pair_coherence",
+    ),
+    "scenario_schema_validity": ("validity_grounding", "scenario_schema_validity"),
+    "known_entry_point_identity": (
+        "presence_coverage",
+        "unknown_entry_point_count",
+    ),
+    "zero_stale_orphan": (
+        "presence_coverage",
+        "stale_or_orphan_artifact_count",
+    ),
+    "zero_missing_pairs": ("presence_coverage", "missing_pair_count"),
+    "zero_duplicate_overwritten": (
+        "presence_coverage",
+        "duplicate_or_overwritten_artifact_count",
+    ),
+    "zero_unmanifested": (
+        "presence_coverage",
+        "unmanifested_artifact_count",
+    ),
+    "projected_step_recall": (
+        "cross_artifact_agreement",
+        "projected_step_recall",
+    ),
+    "pinned_technique_recall": (
+        "cross_artifact_agreement",
+        "pinned_technique_recall",
+    ),
+    "tree_behavior_correspondence": (
+        "cross_artifact_agreement",
+        "exact_tree_behavior_correspondence",
+    ),
+    "exact_title_duplicates": (
+        "semantic_quality_diagnostics",
+        "exact_normalized_title_duplicate_count",
+    ),
+    "zero_quarantine": ("release_qualification", "zero_quarantine"),
+    "persisted_admission_traceability": (
+        "release_qualification",
+        "persisted_admission_traceability_outcome",
+    ),
+    "actor_attack_complexity": ("release_qualification", "actor_attack_complexity"),
+    "capability_grounding": ("release_qualification", "capability_grounding"),
+    "tool_integration_grounding": (
+        "release_qualification",
+        "tool_integration_grounding",
+    ),
+    "data_access_grounding": ("release_qualification", "data_access_grounding"),
+    "catalog_taxonomy_pin_validity": (
+        "release_qualification",
+        "catalog_taxonomy_pin_validity",
+    ),
+    "resource_binding_validity": (
+        "release_qualification",
+        "resource_binding_validity",
+    ),
+    "execution_requirement_drift": (
+        "release_qualification",
+        "execution_requirement_drift",
+    ),
+    "schema_identifier_phantom_parsimony": (
+        "release_qualification",
+        "zero_schema_identifier_phantom_parsimony_failures",
+    ),
+}
+
+REQUIRED_QUALIFICATION_GATE_IDS: frozenset[str] = frozenset(
+    {
+        "nonempty_admitted_inventory",
+        "inventory_count_coherence",
+        "inventory_pair_coherence",
+        "scenario_schema_validity",
+        "known_entry_point_identity",
+        "zero_stale_orphan",
+        "zero_missing_pairs",
+        "zero_duplicate_overwritten",
+        "zero_unmanifested",
+        "projected_step_recall",
+        "pinned_technique_recall",
+        "tree_behavior_correspondence",
+        "exact_title_duplicates",
+        "zero_quarantine",
+        "persisted_admission_traceability",
+    }
+)
+
+QUALIFICATION_RATIO_GATE_IDS: frozenset[str] = frozenset(
+    {
+        "scenario_schema_validity",
+        "projected_step_recall",
+        "pinned_technique_recall",
+        "tree_behavior_correspondence",
+    }
+)
+
+UNSUPPORTED_QUALIFICATION_GATE_IDS: frozenset[str] = frozenset(
+    {
+        "actor_attack_complexity",
+        "capability_grounding",
+        "tool_integration_grounding",
+        "data_access_grounding",
+        "catalog_taxonomy_pin_validity",
+        "resource_binding_validity",
+        "execution_requirement_drift",
+        "schema_identifier_phantom_parsimony",
+    }
+)
+
+QUALIFICATION_ZERO_GATE_IDS: frozenset[str] = (
+    frozenset(QUALIFICATION_GATE_PATHS)
+    - QUALIFICATION_RATIO_GATE_IDS
+    - UNSUPPORTED_QUALIFICATION_GATE_IDS
+)
+
 
 class MetricStatus(str, Enum):
     PASS = "pass"
@@ -53,8 +181,14 @@ class MetricResult(BaseModel):
                     "bounded values require a nonzero denominator and numerator"
                 )
             expected = self.numerator / self.denominator
-            if abs(self.value - expected) > 0.00005:
+            if self.value != expected:
                 raise ValueError("value must equal numerator / denominator")
+            if self.threshold is not None:
+                meets_threshold = self.value >= self.threshold
+                if self.status is MetricStatus.PASS and not meets_threshold:
+                    raise ValueError("pass metric is below threshold")
+                if self.status is MetricStatus.FAIL and meets_threshold:
+                    raise ValueError("fail metric is at or above threshold")
         if self.status is MetricStatus.ERROR and self.value is not None:
             raise ValueError("error metrics cannot claim a value")
         return self
@@ -73,6 +207,7 @@ class QualificationResult(BaseModel):
     failed_gate_ids: list[str]
     error_gate_ids: list[str]
     not_applicable_gate_ids: list[str]
+    blocking_not_applicable_gate_ids: list[str]
 
     @model_validator(mode="after")
     def _aggregate(self) -> QualificationResult:
@@ -82,7 +217,7 @@ class QualificationResult(BaseModel):
             MetricStatus.ERROR
             if self.error_gate_ids
             else MetricStatus.FAIL
-            if self.failed_gate_ids
+            if self.failed_gate_ids or self.blocking_not_applicable_gate_ids
             else MetricStatus.PASS
         )
         if self.status is not expected:
@@ -106,6 +241,17 @@ class ScorecardV1(BaseModel):
     semantic_quality_diagnostics: MetricSection
     release_qualification: MetricSection
     qualification: QualificationResult
+
+    @model_validator(mode="after")
+    def _qualification_is_canonical(self) -> ScorecardV1:
+        gates = scorecard_qualification_gates(self)
+        validate_qualification_gate_semantics(gates)
+        expected = aggregate_qualification(
+            gates, required_gate_ids=REQUIRED_QUALIFICATION_GATE_IDS
+        )
+        if self.qualification != expected:
+            raise ValueError("qualification does not match canonical scorecard gates")
+        return self
 
 
 def ratio_metric(
@@ -158,11 +304,14 @@ def zero_gate(
     )
 
 
-def aggregate_qualification(gates: dict[str, MetricResult]) -> QualificationResult:
+def aggregate_qualification(
+    gates: dict[str, MetricResult], *, required_gate_ids: frozenset[str] = frozenset()
+) -> QualificationResult:
     """Exclude N/A gates, surface errors, and never average gate values."""
     failed = sorted(k for k, v in gates.items() if v.status is MetricStatus.FAIL)
     errors = sorted(k for k, v in gates.items() if v.status is MetricStatus.ERROR)
     na = sorted(k for k, v in gates.items() if v.status is MetricStatus.NOT_APPLICABLE)
+    blocking_na = sorted(required_gate_ids.intersection(na))
     applicable = len(gates) - len(na)
     passed = sum(v.status is MetricStatus.PASS for v in gates.values())
     status = (
@@ -170,6 +319,8 @@ def aggregate_qualification(gates: dict[str, MetricResult]) -> QualificationResu
         if errors
         else MetricStatus.FAIL
         if failed
+        else MetricStatus.FAIL
+        if blocking_na
         else MetricStatus.PASS
     )
     return QualificationResult(
@@ -179,4 +330,87 @@ def aggregate_qualification(gates: dict[str, MetricResult]) -> QualificationResu
         failed_gate_ids=failed,
         error_gate_ids=errors,
         not_applicable_gate_ids=na,
+        blocking_not_applicable_gate_ids=blocking_na,
     )
+
+
+def scorecard_qualification_gates(scorecard: ScorecardV1) -> dict[str, MetricResult]:
+    """Resolve the immutable canonical gate map from scorecard sections."""
+    gates: dict[str, MetricResult] = {}
+    for gate_id, (section_name, metric_id) in QUALIFICATION_GATE_PATHS.items():
+        section = getattr(scorecard, section_name)
+        metric = section.metrics.get(metric_id)
+        if metric is None:
+            raise ValueError(f"scorecard missing canonical gate metric {gate_id}")
+        gates[gate_id] = metric
+    return gates
+
+
+def validate_qualification_gate_semantics(
+    gates: dict[str, MetricResult],
+) -> None:
+    """Reject serialized gate outcomes that contradict canonical definitions."""
+    for gate_id in UNSUPPORTED_QUALIFICATION_GATE_IDS:
+        if gates[gate_id].status is not MetricStatus.NOT_APPLICABLE:
+            raise ValueError(f"unsupported qualification gate {gate_id} must be N/A")
+
+    for gate_id in QUALIFICATION_RATIO_GATE_IDS:
+        metric = gates[gate_id]
+        if metric.status is MetricStatus.ERROR:
+            if any(
+                value is not None
+                for value in (
+                    metric.threshold,
+                    metric.numerator,
+                    metric.denominator,
+                    metric.value,
+                )
+            ):
+                raise ValueError(
+                    f"error qualification ratio gate {gate_id} cannot claim a value"
+                )
+            continue
+        if metric.threshold != 1.0:
+            raise ValueError(f"qualification ratio gate {gate_id} requires threshold 1")
+        if metric.numerator is None or metric.denominator is None:
+            raise ValueError(
+                f"qualification ratio gate {gate_id} requires numerator/denominator"
+            )
+        expected = (
+            MetricStatus.NOT_APPLICABLE
+            if metric.denominator == 0
+            else MetricStatus.PASS
+            if metric.numerator == metric.denominator
+            else MetricStatus.FAIL
+        )
+        if metric.status is not expected:
+            raise ValueError(f"qualification ratio gate {gate_id} has forged status")
+
+    for gate_id in QUALIFICATION_ZERO_GATE_IDS:
+        metric = gates[gate_id]
+        if metric.status in {MetricStatus.NOT_APPLICABLE, MetricStatus.ERROR}:
+            if any(
+                value is not None
+                for value in (
+                    metric.threshold,
+                    metric.numerator,
+                    metric.denominator,
+                    metric.value,
+                )
+            ):
+                raise ValueError(
+                    f"N/A or error qualification zero gate {gate_id} cannot claim a value"
+                )
+            continue
+        if (
+            metric.numerator is None
+            or metric.threshold is not None
+            or metric.denominator is not None
+            or metric.value is not None
+        ):
+            raise ValueError(
+                f"qualification zero gate {gate_id} requires a count numerator"
+            )
+        expected = MetricStatus.PASS if metric.numerator == 0 else MetricStatus.FAIL
+        if metric.status is not expected:
+            raise ValueError(f"qualification zero gate {gate_id} has forged status")
