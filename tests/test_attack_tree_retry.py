@@ -589,9 +589,10 @@ class TestCall2ProjectionRetry:
         # Original projection context survives in the retry prompt
         # (projection_digest removed in Phase 2 — check step IDs instead)
         assert "step.1" in retry_prompt
-        # Bindings / resource refs present
-        assert any(b["slot_id"] in retry_prompt for b in ctx["bindings"]), (
-            "Retry prompt should contain binding slot IDs"
+        # Resource links present (bindings removed in Phase 4 — check
+        # that resource_links roles appear in the rendered prompt)
+        assert "role:" in retry_prompt or "resource:" in retry_prompt, (
+            "Retry prompt should contain resource link info"
         )
         # Feedback appended (not replacing original prompt)
         assert "Feedback" in retry_prompt
