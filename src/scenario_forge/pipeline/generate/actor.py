@@ -43,6 +43,18 @@ from scenario_forge.prompts import render_prompt
 
 logger = logging.getLogger(__name__)
 
+_ACTOR_MAX_COMPLETION_TOKENS = 4096
+
+
+def _actor_completion_limit(client: LLMClient) -> int:
+    """Bound actor output without overriding a tighter operator limit."""
+    configured = client.max_completion_tokens
+    return (
+        min(configured, _ACTOR_MAX_COMPLETION_TOKENS)
+        if configured
+        else _ACTOR_MAX_COMPLETION_TOKENS
+    )
+
 
 # ---------------------------------------------------------------------------
 # Intermediate model for structured output
@@ -1074,6 +1086,7 @@ def _call_actor_profile(
         ),
         user_prompt=render_prompt("call0_user.j2", **ctx),
         response_format=Call0Response,
+        max_completion_tokens=_actor_completion_limit(client),
     )
 
     resp = result.content
