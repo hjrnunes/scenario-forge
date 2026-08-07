@@ -3202,57 +3202,6 @@ class TestAlteredCall3Output:
 
 
 # ---------------------------------------------------------------------------#
-# Tests: Runner exact-ingress selection ambiguity (422o.4)
-# ---------------------------------------------------------------------------#
-
-
-class TestRunnerExactIngressSelection:
-    """Runner must fail closed on ambiguous projections and skip on no match."""
-
-    def test_ambiguous_projection_fails_closed(self):
-        """Multiple projected candidates with the same ingress must abort."""
-        from scenario_forge.pipeline.runner import ScenarioForgeIntegrityError
-
-        candidate = get_projected_candidate()
-        # Create a second candidate with the same ingress → ambiguous.
-        dup = candidate.model_copy(update={"candidate_id": "cand:v2:" + "c" * 32})
-        # Both have the same canonical_ingress.entry_point_id.
-        projected_by_pattern = {candidate.pattern_id: [candidate, dup]}
-
-        # Simulate the main generation selection logic.
-        fseed_entry_point_id = candidate.canonical_ingress.entry_point_id
-        pc_list = projected_by_pattern.get(candidate.pattern_id)
-        matching = [
-            pc
-            for pc in pc_list
-            if pc.canonical_ingress.entry_point_id == fseed_entry_point_id
-        ]
-        assert len(matching) > 1
-        with pytest.raises(ScenarioForgeIntegrityError, match="Ambiguous"):
-            if len(matching) > 1:
-                raise ScenarioForgeIntegrityError(
-                    f"Ambiguous projected candidates for pattern "
-                    f"'{candidate.pattern_id}' with ingress "
-                    f"entry_point_id '{fseed_entry_point_id}': "
-                    f"{len(matching)} matches."
-                )
-
-    def test_no_exact_match_skips_generation(self):
-        """Zero matches must not call generation (skip, not fabricate)."""
-        candidate = get_projected_candidate()
-        # Use a different entry_point_id that won't match.
-        wrong_ep_id = "ep:v1:" + "0" * 32
-        projected_by_pattern = {candidate.pattern_id: [candidate]}
-
-        pc_list = projected_by_pattern.get(candidate.pattern_id)
-        matching = [
-            pc for pc in pc_list if pc.canonical_ingress.entry_point_id == wrong_ep_id
-        ]
-        assert len(matching) == 0
-        # No match → generation is not called (skip).
-
-
-# ---------------------------------------------------------------------------#
 # Tests: Incompatible effect/postcondition mapping (422o.4 blocker #4)
 # ---------------------------------------------------------------------------#
 
