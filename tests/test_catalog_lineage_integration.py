@@ -502,13 +502,11 @@ def test_all_49_patterns_have_explicit_activation_linkage() -> None:
         )
         if not has_ingress and not has_source:
             infeasible.append(pid)
-    # AP-T6-07 is intentionally typed-infeasible for candidate-v2:
-    # prerequisite-based inside persistence with no supported activation.
-    assert infeasible == ["AP-T6-07"]
+    assert infeasible == []
 
 
 def test_activation_mechanism_counts() -> None:
-    """45 direct-ingress, 3 source-influence, 1 typed-infeasible (AP-T6-07)."""
+    """45 direct-ingress and 4 source-influence mechanisms are explicit."""
     patterns = load_attack_patterns()
     ingress_count = 0
     source_count = 0
@@ -534,8 +532,8 @@ def test_activation_mechanism_counts() -> None:
         if not has_ingress and not has_source:
             none_count += 1
     assert ingress_count == 45
-    assert source_count == 3
-    assert none_count == 1
+    assert source_count == 4
+    assert none_count == 0
     assert ingress_count + source_count + none_count == 49
 
 

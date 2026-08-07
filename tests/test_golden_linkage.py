@@ -122,19 +122,27 @@ def test_ap_t2_04_craft_payload_has_no_outcome_links() -> None:
     assert step["resource_links"] == []
 
 
-def test_ap_t6_07_is_typed_infeasible_no_activation() -> None:
-    """Regression: AP-T6-07 config_modification is prerequisite-based inside
-    persistence, not direct ingress.  No step may carry an ingress or
-    source_influence resource link.  The chain is structurally valid but
-    candidate-v2-infeasible."""
+def test_ap_t6_07_has_configuration_source_influence_activation() -> None:
+    """The poisoned configuration is the typed upstream source that crosses
+    the declared boundary into canonical ingress on future prompt loading."""
     raw = _load_raw_patterns()
     chain = raw["AP-T6-07"]["canonical_chain"]
-    for s in chain["steps"]:
-        for rl in s.get("resource_links", []):
-            assert rl["role"] not in ("ingress", "source_influence"), (
-                f"AP-T6-07/{s['step_id']} must not have activation link, got {rl['role']}"
-            )
-    # The chain must still validate structurally.
+    links = [
+        (step["step_id"], link)
+        for step in chain["steps"]
+        for link in step.get("resource_links", [])
+    ]
+    assert links == [
+        (
+            "poisoned_prompt_activation",
+            {
+                "slot_id": "agent_config",
+                "role": "source_influence",
+                "trust_boundary_slot_id": "boundary",
+                "target_ingress_slot_id": "ingress",
+            },
+        )
+    ]
     resolver = load_taxonomy_resolver()
     validate_attack_pattern(raw["AP-T6-07"], resolver)
 
@@ -170,7 +178,7 @@ def test_all_49_patterns_validate_and_digests_match() -> None:
 
 
 def test_activation_classification_matches_golden() -> None:
-    """45 direct-ingress, 3 source-influence, 1 infeasible (AP-T6-07)."""
+    """45 direct-ingress and 4 source-influence chains are explicit."""
     raw = _load_raw_patterns()
     ingress = []
     source = []
@@ -196,8 +204,8 @@ def test_activation_classification_matches_golden() -> None:
         else:
             none.append(pid)
     assert len(ingress) == 45
-    assert len(source) == 3
-    assert none == ["AP-T6-07"]
+    assert len(source) == 4
+    assert none == []
 
 
 def test_observation_kind_counts() -> None:

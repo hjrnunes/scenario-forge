@@ -2773,7 +2773,14 @@ GOLDEN_LINKAGE: dict[str, dict] = {
     },
     "AP-T6-07/poisoned_prompt_activation": {
         "boundary": "inside",
-        "resource_links": [],
+        "resource_links": [
+            {
+                "slot_id": "agent_config",
+                "role": "source_influence",
+                "trust_boundary_slot_id": "boundary",
+                "target_ingress_slot_id": "ingress",
+            },
+        ],
         "observable_outcome_links": [
             {
                 "postcondition_id": "post.poisoned_prompt_activation.loaded",

@@ -1,5 +1,5 @@
 schema_version: "1"
-catalog_sha256: f9805af1c0427fe3809806bc98b4fe1278e173b75e89d21f3030587da400fa3c
+catalog_sha256: 827bda87448c0ff156ffd468dee9eea0993896f3eb5e8e073af042baf47f4eb4
 catalog_denominator: 49
 profiles:
   - profile_id: direct-conversational

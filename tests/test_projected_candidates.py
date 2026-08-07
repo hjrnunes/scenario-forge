@@ -1103,11 +1103,9 @@ def test_all_live_projected_candidate_requirement_ids_unique() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ap_t6_07_catalog_projection_yields_typed_no_activation_infeasibility() -> None:
-    """End-to-end: projecting the actual AP-T6-07 catalog record with
-    otherwise satisfying profile facts/resources must yield a typed
-    unsupported_requirement_derivation issue for absence of activation,
-    not a candidate or a missing-resource/profile-mismatch issue."""
+def test_ap_t6_07_catalog_projection_derives_source_influence_activation() -> None:
+    """The catalog's configuration-poisoning edge deterministically derives
+    source influence through the declared boundary into canonical ingress."""
     from scenario_forge.data.loaders import load_attack_patterns
     from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
     from scenario_forge.models.capability_profile import (
@@ -1186,17 +1184,83 @@ def test_ap_t6_07_catalog_projection_yields_typed_no_activation_infeasibility() 
         budget=ProjectionBudget(max_candidates=10),
     )
 
-    t6_07_candidates = [c for c in batch.candidates if c.pattern_id == "AP-T6-07"]
-    assert len(t6_07_candidates) == 0, (
-        "AP-T6-07 must not produce a candidate (no activation mechanism)"
+    candidates = [c for c in batch.candidates if c.pattern_id == "AP-T6-07"]
+    assert len(candidates) == 4
+    candidate = candidates[0]
+    requirements = [
+        item
+        for item in candidate.execution_requirements
+        if item.kind == "upstream_source_influence"
+    ]
+    assert len(requirements) == 1
+    requirement = requirements[0]
+    assert requirement.source_slot_id == "agent_config"
+    assert requirement.source_identity_kind == "integration"
+    assert requirement.trust_boundary_slot_id == "boundary"
+    assert requirement.target_ingress_slot_id == "ingress"
+    assert not [i for i in batch.infeasibilities if i.pattern_id == "AP-T6-07"]
+
+    # The catalog support remains fail-closed when its authoritative runtime
+    # fact is absent, even though every resource is otherwise compatible.
+    unresolved = project_authoritative_candidates(
+        [raw], resolver, capture_capability_snapshot(profile, [_evidence()])
     )
-    t6_07_issues = [i for i in batch.infeasibilities if i.pattern_id == "AP-T6-07"]
-    assert len(t6_07_issues) >= 1, "AP-T6-07 must produce a typed infeasibility issue"
-    issue = t6_07_issues[0]
-    assert issue.code == "unsupported_requirement_derivation"
-    assert "no activation mechanism" in issue.detail, (
-        f"Expected 'no activation mechanism' in detail, got: {issue.detail}"
+    assert not unresolved.candidates
+    assert unresolved.infeasibilities[0].code == "unresolved_condition"
+
+    # A missing trust-boundary resource cannot be laundered through the
+    # source integration or canonical ingress.
+    no_boundary_profile = profile.model_copy(update={"trust_boundaries": None})
+    no_boundary = project_authoritative_candidates(
+        [raw],
+        resolver,
+        capture_capability_snapshot(
+            no_boundary_profile, [_evidence(), runtime_evidence]
+        ),
     )
+    assert not no_boundary.candidates
+    assert any(
+        issue.code == "missing_compatible_resource" and issue.slot_id == "boundary"
+        for issue in no_boundary.infeasibilities
+    )
+
+    # Removing activation from the otherwise valid authoritative record
+    # remains a typed projection infeasibility rather than an admitted empty
+    # requirement set.
+    no_activation_raw = deepcopy(raw)
+    activation_step = next(
+        step
+        for step in no_activation_raw["canonical_chain"]["steps"]
+        if step["step_id"] == "poisoned_prompt_activation"
+    )
+    activation_step["resource_links"] = []
+    no_activation_raw["canonical_chain"]["semantic_digest"] = (
+        compute_chain_semantic_digest(no_activation_raw["canonical_chain"])
+    )
+    no_activation = project_authoritative_candidates(
+        [no_activation_raw], resolver, snapshot
+    )
+    assert not no_activation.candidates
+    assert any(
+        issue.code == "unsupported_requirement_derivation"
+        and "no activation mechanism" in issue.detail
+        for issue in no_activation.infeasibilities
+    )
+
+    # Typed linkage cannot target the source integration in place of the
+    # canonical initial-ingress slot.
+    mismatched_raw = deepcopy(raw)
+    mismatched_step = next(
+        step
+        for step in mismatched_raw["canonical_chain"]["steps"]
+        if step["step_id"] == "poisoned_prompt_activation"
+    )
+    mismatched_step["resource_links"][0]["target_ingress_slot_id"] = "agent_config"
+    mismatched_raw["canonical_chain"]["semantic_digest"] = (
+        compute_chain_semantic_digest(mismatched_raw["canonical_chain"])
+    )
+    with pytest.raises(ValueError, match="target_ingress_slot_id"):
+        project_authoritative_candidates([mismatched_raw], resolver, snapshot)
 
 
 # ---------------------------------------------------------------------------
@@ -1274,10 +1338,10 @@ def test_output_surface_slot_with_no_output_entry_points_yields_no_options() -> 
     assert refs == ()
 
 
-def test_agent_internal_slot_yields_no_resource_options() -> None:
-    """An agent_internal slot kind must always yield zero resource options
-    because capability profiles carry no authoritative agent-internal-state
-    inventory.  Patterns requiring this slot are typed-infeasible."""
+def test_agent_internal_slot_yields_only_intrinsic_typed_resource() -> None:
+    """Agent working state resolves to one intrinsic typed singleton, never
+    to an unrelated profile inventory resource."""
+    from scenario_forge.models.attack_pattern import AgentInternalResourceReference
     from scenario_forge.models.capability_profile import (
         CapabilityProfile,
         ConfidenceLevel,
@@ -1299,19 +1363,13 @@ def test_agent_internal_slot_yields_no_resource_options() -> None:
         initial_ingress=False,
         attacker_influence_required=False,
     )
-    assert refs == ()
+    assert refs == (AgentInternalResourceReference(kind="agent_internal"),)
+    assert snapshot.contains_resource(refs[0])
 
 
-def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
-    """End-to-end: projecting the actual AP-T1-06 catalog record with
-    otherwise satisfying profile facts/resources must yield a typed
-    missing_compatible_resource issue for the agent_internal slot, not a
-    candidate.  AP-T1-06 is typed-infeasible because agent-internal state
-    has no authoritative profile inventory.
-
-    Uses a single bidirectional chat entry point: bidirectional supports
-    output, so the rendered_output slot is satisfied.  The only missing
-    slot must be agent_internal_state."""
+def test_ap_t1_06_catalog_projection_binds_intrinsic_agent_state() -> None:
+    """AP-T1-06 binds agent state to the typed intrinsic singleton while
+    retaining concrete catalog-backed bindings for every external resource."""
     from scenario_forge.data.loaders import load_attack_patterns
     from scenario_forge.data.taxonomy_pins import load_taxonomy_resolver
     from scenario_forge.models.capability_profile import (
@@ -1324,7 +1382,7 @@ def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
     resolver = load_taxonomy_resolver()
 
     # Build a profile that satisfies AP-T1-06's prerequisites and all
-    # resource slots except agent_internal (which has no profile inventory).
+    # catalog-backed resource slots.
     # A single bidirectional chat entry point serves as both the ingress
     # and the output surface (rendered_output slot).
     profile = CapabilityProfile(
@@ -1367,16 +1425,12 @@ def test_ap_t1_06_catalog_projection_yields_typed_infeasibility() -> None:
         budget=ProjectionBudget(max_candidates=10),
     )
 
-    t1_06_candidates = [c for c in batch.candidates if c.pattern_id == "AP-T1-06"]
-    assert len(t1_06_candidates) == 0, (
-        "AP-T1-06 must not produce a candidate (agent_internal slot unresolvable)"
-    )
-    t1_06_issues = [i for i in batch.infeasibilities if i.pattern_id == "AP-T1-06"]
-    assert len(t1_06_issues) >= 1, "AP-T1-06 must produce a typed infeasibility issue"
-    # The sole missing slot must be agent_internal_state — not rendered_output.
-    missing_slots = {
-        i.slot_id for i in t1_06_issues if i.code == "missing_compatible_resource"
+    candidates = [c for c in batch.candidates if c.pattern_id == "AP-T1-06"]
+    assert len(candidates) == 4
+    bindings = {
+        binding.slot_id: binding.resource_ref
+        for binding in candidates[0].projection.bindings
     }
-    assert missing_slots == {"agent_internal_state"}, (
-        f"Expected only agent_internal_state missing, got: {missing_slots}"
-    )
+    assert bindings["agent_internal_state"].kind == "agent_internal"
+    assert snapshot.contains_resource(bindings["agent_internal_state"])
+    assert not [i for i in batch.infeasibilities if i.pattern_id == "AP-T1-06"]

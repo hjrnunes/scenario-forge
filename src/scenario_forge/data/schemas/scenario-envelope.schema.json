@@ -3613,7 +3613,7 @@
     },
     "AgentInternalResourceReference": {
       "additionalProperties": false,
-      "description": "Canonical reference to agent-internal state.\n\nAgent-internal state is data assembled or transformed within the\nagent's own working context \u2014 neither an external entry point, tool,\nintegration, nor trust boundary.  Capability profiles do not carry\nan authoritative agent-internal-state inventory, so this reference\ntype is **unresolvable** by design: ``contains_resource`` always\nreturns ``False`` and ``_references_for_kind`` always returns an\nempty tuple.  Patterns that require an ``agent_internal`` resource\nslot are therefore typed-infeasible for candidate-v2 projection.",
+      "description": "Canonical reference to agent-internal state.\n\nAgent-internal state is data assembled or transformed within the\nagent's own working context \u2014 neither an external entry point, tool,\nintegration, nor trust boundary.  It is the intrinsic singleton working\nstate of the profiled agent, so it requires no adapter inventory identity.\nCandidate-v2 resolves exactly this typed singleton rather than laundering\nit through an unrelated tool or integration binding.",
       "properties": {
         "kind": {
           "const": "agent_internal",

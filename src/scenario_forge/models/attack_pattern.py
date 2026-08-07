@@ -969,12 +969,10 @@ class AgentInternalResourceReference(ContractModel):
 
     Agent-internal state is data assembled or transformed within the
     agent's own working context — neither an external entry point, tool,
-    integration, nor trust boundary.  Capability profiles do not carry
-    an authoritative agent-internal-state inventory, so this reference
-    type is **unresolvable** by design: ``contains_resource`` always
-    returns ``False`` and ``_references_for_kind`` always returns an
-    empty tuple.  Patterns that require an ``agent_internal`` resource
-    slot are therefore typed-infeasible for candidate-v2 projection.
+    integration, nor trust boundary.  It is the intrinsic singleton working
+    state of the profiled agent, so it requires no adapter inventory identity.
+    Candidate-v2 resolves exactly this typed singleton rather than laundering
+    it through an unrelated tool or integration binding.
     """
 
     kind: Literal["agent_internal"]

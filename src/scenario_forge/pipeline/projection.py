@@ -273,10 +273,11 @@ class CapabilityFactSnapshot(ProjectionModel):
                 is not None
             )
         if isinstance(reference, AgentInternalResourceReference):
-            # Agent-internal state has no authoritative profile inventory;
-            # it is always unresolvable, making patterns that require it
-            # typed-infeasible for candidate-v2.
-            return False
+            # Every validated capability profile has the reasoning zone and
+            # therefore exactly one intrinsic agent working-state resource.
+            # This remains a distinct typed binding: it is never substituted
+            # with a tool, integration, entry point, or trust boundary.
+            return "reasoning" in self.profile.zones_active
         return False
 
     @model_validator(mode="after")
@@ -632,9 +633,14 @@ def _references_for_kind(
             if item.direction in ("output", "bidirectional")
         ]
     elif kind == "agent_internal":
-        # No authoritative profile inventory for agent-internal state;
-        # patterns requiring this slot kind are typed-infeasible.
-        refs = []
+        # Agent working state is an intrinsic singleton of every validated
+        # profile (which must include the reasoning zone), not an adapter
+        # inventory item.  Keep its reference typed and identity-free.
+        refs = (
+            [AgentInternalResourceReference(kind="agent_internal")]
+            if "reasoning" in profile.zones_active
+            else []
+        )
     else:
         refs = [
             TrustBoundaryResourceReference(

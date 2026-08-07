@@ -1626,8 +1626,8 @@ patterns:
       schema_version: "v1"
       pattern_id: "AP-T6-07"
       chain_id: "chain.ap-t6-07"
-      semantic_revision: 1
-      semantic_digest: "d7fec69b76dd6e7c684b390aaaaabacff914ded4d65fb651cbfd8b568553b35e"
+      semantic_revision: 2
+      semantic_digest: "fa6d85da423b2bd9cf0894a1a240d53265734bc8c83ced18b52304a1648d3df2"
       taxonomy_context:
         atlas:
           release: "2026.05"
@@ -1716,7 +1716,11 @@ patterns:
               description: "New threads load the modified system prompt and the injected instructions execute."
               security_relevant: true
               terminal: false
-          resource_links: []
+          resource_links:
+          - slot_id: agent_config
+            role: source_influence
+            trust_boundary_slot_id: boundary
+            target_ingress_slot_id: ingress
           observable_outcome_links:
           - postcondition_id: post.poisoned_prompt_activation.loaded
             observation: persistent_state

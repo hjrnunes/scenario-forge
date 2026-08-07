@@ -38,16 +38,17 @@ MATRIX = ROOT / "data/catalog-qualification-matrix-v1.yaml"
 SCHEMAS = ROOT / "src/scenario_forge/data/schemas"
 
 
-def test_live_matrix_preflight_reports_known_blockers() -> None:
+def test_live_matrix_preflight_reports_full_deterministic_readiness() -> None:
     report = preflight_matrix(MATRIX)
     assert report.kind == "preflight"
     assert report.campaign_manifest_sha256 is None
     assert report.catalog_denominator == 49
     assert (
         report.catalog_sha256
-        == "f9805af1c0427fe3809806bc98b4fe1278e173b75e89d21f3030587da400fa3c"
+        == "827bda87448c0ff156ffd468dee9eea0993896f3eb5e8e073af042baf47f4eb4"
     )
-    assert report.missing_pattern_ids == ("AP-T1-06", "AP-T6-07")
+    assert report.missing_pattern_ids == ()
+    assert sum(len(item.projected_pattern_ids) for item in report.preflight) == 49
 
 
 def test_precondition_true_false_and_omitted_unknown_fail_closed() -> None:
@@ -205,7 +206,10 @@ def test_standalone_contract_validation_does_not_run_preflight(tmp_path: Path) -
             ),
             "sorted and unique|must be reviewed",
         ),
-        (lambda raw: raw.update(missing_pattern_ids=[]), "report kind"),
+        (
+            lambda raw: raw.update(missing_pattern_ids=["AP-NOT-MISSING"]),
+            "report kind",
+        ),
         (
             lambda raw: raw.update(
                 kind="campaign",
