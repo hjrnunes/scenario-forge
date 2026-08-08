@@ -51,7 +51,7 @@ from scenario_forge.stpa.system_model.critic import (
 from scenario_forge.stpa.system_model.loss_analysis import derive_loss_analysis
 from scenario_forge.stpa.system_model.profile import derive_capability_profile
 from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
 
 
 # ---------------------------------------------------------------------------
@@ -241,15 +241,6 @@ def _valid_control_structure_dict() -> dict:
     }
 
 
-def _valid_connection_set_dict() -> dict:
-    """ConnectionSet matching the Call 2 ResponsibilitySet."""
-    return {
-        "coordination_links": [],
-        "controlled_processes": [],
-        "connection_assignments": [],
-    }
-
-
 def _valid_critic_findings_dict_with_unjustified() -> dict:
     return {
         "gaps": [
@@ -286,7 +277,7 @@ def _setup_valid_mock_client() -> MockLLMClient:
     client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-    client.set_response_for(ConnectionSet, _valid_connection_set_dict())
+    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
     client.set_response_for(CriticFindings, _valid_critic_findings_dict_no_gaps())
     return client
 

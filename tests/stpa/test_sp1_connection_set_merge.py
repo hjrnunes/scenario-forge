@@ -28,6 +28,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionAssignment,
     ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
@@ -342,6 +343,72 @@ class TestConnSet07ControlledProcessesInFinalCS:
 
         cp_ids = {cp.cp_id for cp in cs.controlled_processes}
         assert "CP-1" in cp_ids
+
+
+# ---------------------------------------------------------------------------
+# ConnSet-07a: merge with unmatched and None assignments is a no-op
+# ---------------------------------------------------------------------------
+
+
+class TestConnSet07aMergeEdgeCases:
+    """Edge cases: assignments with None source/target or unmatched element IDs."""
+
+    def test_merge_ignores_assignment_with_none_source_and_target(self):
+        """Assignment with both source and target None is a no-op."""
+        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
+        conn_set = ConnectionSet(
+            connection_assignments=[
+                ConnectionAssignment(element_id="FB-1-1"),  # no source, no target
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+        # FB-1-1 source should remain None (not set)
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                if fb.fb_id == "FB-1-1":
+                    assert fb.source is None
+
+    def test_merge_ignores_assignment_with_unmatched_element_id(self):
+        """Assignment whose element_id matches no FB or CA is silently ignored."""
+        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
+        conn_set = ConnectionSet(
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id="FB-9-9",
+                    source={"type": "controlled_process", "id": "CP-1"},
+                ),
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+        # No feedback channel should have a source set from this unmatched assignment
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                if fb.fb_id == "FB-1-1":
+                    assert fb.source is None
+
+    def test_merge_assignment_source_only_does_not_set_ca_target(self):
+        """Assignment with source but no target sets FB source but not CA target."""
+        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
+        conn_set = ConnectionSet(
+            controlled_processes=[
+                {"cp_id": "CP-1", "description": "Payment system"},
+            ],
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id="FB-1-1",
+                    source={"type": "controlled_process", "id": "CP-1"},
+                ),
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                if fb.fb_id == "FB-1-1":
+                    assert fb.source is not None
+                    assert fb.source.id == "CP-1"
+            for ca in resp.control_actions:
+                if ca.ca_id == "CA-1-1":
+                    assert ca.target is None
 
 
 # ---------------------------------------------------------------------------

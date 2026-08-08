@@ -18,7 +18,7 @@ from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.critic import CriticFindings
 from scenario_forge.stpa.system_model.run import run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
 
 
 def _make_risk_cards() -> list[RiskCard]:
@@ -134,15 +134,6 @@ def _valid_control_structure_dict() -> dict:
     }
 
 
-def _valid_connection_set_dict() -> dict:
-    """ConnectionSet matching the Call 2 ResponsibilitySet."""
-    return {
-        "coordination_links": [],
-        "controlled_processes": [],
-        "connection_assignments": [],
-    }
-
-
 def _valid_critic_findings_dict() -> dict:
     return {
         "gaps": [
@@ -201,7 +192,7 @@ def _setup_mock_client(
     # Stage 2 Call 3: ConnectionSet
     from scenario_forge.stpa.system_model.control_structure import ConnectionSet
 
-    client.set_response_for(ConnectionSet, _valid_connection_set_dict())
+    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
 
     # Critic: CriticFindings
     if critic_findings is not None:

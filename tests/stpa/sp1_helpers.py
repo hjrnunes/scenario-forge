@@ -13,6 +13,20 @@ from unittest.mock import MagicMock
 from scenario_forge.stpa.infra.llm import LLMResult
 
 
+def valid_empty_connection_set_dict() -> dict:
+    """Minimal ConnectionSet with no links, processes, or assignments.
+
+    Used by tests that only need Call 3 to produce a valid (but empty)
+    ConnectionSet so the merge produces a ControlStructure matching
+    the Call 2 ResponsibilitySet.
+    """
+    return {
+        "coordination_links": [],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
 @dataclass
 class MockCall:
     """A recorded LLM call."""

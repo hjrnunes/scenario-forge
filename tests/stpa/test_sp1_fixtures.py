@@ -23,7 +23,7 @@ from scenario_forge.stpa.system_model.control_structure import (
 from scenario_forge.stpa.system_model.critic import CriticFindings, run_completeness_critic
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
 from scenario_forge.models.capability_profile import Stage1Profile
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
 
 FIXTURES_DIR = (
     Path(__file__).resolve().parent.parent.parent
@@ -111,15 +111,6 @@ def _valid_cs_dict() -> dict:
     }
 
 
-def _valid_connection_set_dict() -> dict:
-    """ConnectionSet matching the Call 2 ResponsibilitySet for fixtures."""
-    return {
-        "coordination_links": [],
-        "controlled_processes": [],
-        "connection_assignments": [],
-    }
-
-
 def _valid_critic_findings_dict() -> dict:
     return {
         "gaps": [],
@@ -162,7 +153,7 @@ class TestSP1FixtureIntegration:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_req_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
-        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
+        client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
 
         control_structure = derive_control_structure(
             llm_client=client,
