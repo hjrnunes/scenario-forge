@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=1c6fe4bb456a3f9efd9140f6171425e5b91c3ba9b8171a5ffd70db44aebf42be
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:51:52.008673Z","feature_name":"SP1 — Solution-neutrality post-call check","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_solution_neutrality.feature","background_hash":"5c09546ab0489d18bab6a3c913697555d78de6d1efa967627ad0e0e2d75a192d","implementation_hash":"unknown","scenarios":[{"index":0,"name":"SP1-NEUT-01 component name in responsibility description produces warning","scenario_hash":"0a75aaeef44d9e10d9ea1d9406b1bc0fc82054347ba803e5d77d39988a53aa9e","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-08T14:51:52.008673Z"},{"index":1,"name":"SP1-NEUT-02 component name in process model part description produces warning","scenario_hash":"7021576410d916b8fb68040337ba23f2332d64e0e942a43e79ed6143a0555678","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-08T14:51:52.008673Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Solution-neutrality post-call check
   The control structure is solution-neutral: responsibilities describe what
   must be true, not who or what implements it. A deterministic post-call check

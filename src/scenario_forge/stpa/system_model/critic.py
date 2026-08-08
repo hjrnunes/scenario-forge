@@ -123,10 +123,7 @@ def has_unjustified_gaps(findings: CriticFindings) -> bool:
     Returns:
         True if revision should be triggered, False otherwise.
     """
-    return any(
-        status == "absent_unjustified"
-        for status in findings.checklist_results.values()
-    )
+    return any(status == "absent_unjustified" for status in findings.checklist_results.values())
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +219,9 @@ _PROBE_TEXT_HITL = (
 def _needs_rag_probe(profile: CapabilityProfile) -> bool:
     """True when the profile includes RAG capabilities."""
     kc_set = set(profile.kc_subcodes)
-    return "KC6.3.3" in kc_set or any(
-        "rag" in ep.name.lower() for ep in profile.entry_points
-    )
+    if "KC6.3.3" in kc_set:
+        return True
+    return any("rag" in ep.name.lower() for ep in profile.entry_points)
 
 
 def _needs_tool_probe(profile: CapabilityProfile) -> bool:
@@ -253,3 +250,8 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
         (lambda p: p.hitl, _PROBE_TEXT_HITL),
     ]
     return [text for predicate, text in gated_probes if predicate(profile)]
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:42:29Z","module_hash":"476189601cdc78899e3e435f7474de196b2e14e11e3dee90199445f166822ec4","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":60,"end_line":112,"hash":"bfc981ab2a6bfac94b63dcab451345a76659b6c339d8237cfb38b0a618ff9606"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":115,"end_line":126,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":134,"end_line":188,"hash":"5c8ba32b4b8f1ac8b00ec3e463938c1e2199c4976e1e646dfcb280034b8f0407"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":219,"end_line":224,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":227,"end_line":230,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":233,"end_line":252,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
+# mutate4py-manifest-end

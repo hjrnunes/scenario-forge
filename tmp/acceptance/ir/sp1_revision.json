@@ -1,0 +1,136 @@
+{
+  "name" : "SP1 Stage 2 — Revision",
+  "scenarios" : [ {
+    "name" : "SP1-REV-01 revision call produces a valid ControlStructure",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a revised ControlStructure JSON with an added responsibility"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a revised ControlStructure model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the revised control structure passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-REV-02 revision call is logged with stage stage_2 and step revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a revised ControlStructure JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is revision"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-REV-03 revision receives current control structure and critic findings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a revised ControlStructure JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the user prompt contains the current control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt contains the critic findings"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-REV-04 structural heuristics are re-run after revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a revised ControlStructure JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "structural heuristics are re-run on the revised control structure"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-REV-05 only one revision attempt is made",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a critic that identifies unjustified gaps"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a revised ControlStructure that still has gaps"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "no second revision call is made"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-REV-06 no revision when critic finds no unjustified gaps",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a critic that finds only justified gaps or no gaps"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "no revision call is made"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-REV-07 structural errors after revision are flagged in run manifest",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a revised ControlStructure with a missing process model part"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the structural error is recorded in the run manifest"
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline proceeds without a second revision"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-REV-08 revised control structure replaces the original",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a revised ControlStructure with an added responsibility RESP-3"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the final control structure contains RESP-3"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure does not lose existing responsibilities"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model revision module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure and CriticFindings with unjustified gaps are available"
+  } ]
+}

@@ -222,3 +222,8 @@ def _call_3_connections(
     control_structure = parse_llm_result(result, ControlStructure)
     log_llm_call(result, llm_client.model, run_dir, STAGE, "call_3_connections")
     return control_structure
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:39:48Z","module_hash":"c593c5b6f94756fdf5ab30c2fdc1c577f0995d602f5aadd2d992f0285c659cc0","functions":[{"id":"func/derive_control_structure","name":"derive_control_structure","line":67,"end_line":122,"hash":"2ba98232f6d2c58b7beaf290942635d5b3aae809212973a234f22a5fdc358252"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":130,"end_line":156,"hash":"8cc8a1497fc016005167c7cd7c1c93948c97530c6d2d52773a35334b2bcc1295"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":164,"end_line":190,"hash":"257ac9ad94aee0e73cc5691a49c267343398cb5d5adb28a70258a9956d1383dc"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":198,"end_line":224,"hash":"9ca3edab18acb91d2f03e3dc5f6035f6b575d01f9f4954d26727ef67977ee038"}]}
+# mutate4py-manifest-end

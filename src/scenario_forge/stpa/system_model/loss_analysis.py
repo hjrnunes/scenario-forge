@@ -72,3 +72,8 @@ def derive_loss_analysis(
     log_llm_call(result, llm_client.model, run_dir, STAGE, STEP)
     write_yaml(loss_analysis, run_dir / "loss-analysis.yaml")
     return loss_analysis
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:39:00Z","module_hash":"dbb5316a49239d95bc3658b532a9a04fa08722c06b7ff008c94d9a2927d94d50","functions":[{"id":"func/derive_loss_analysis","name":"derive_loss_analysis","line":26,"end_line":74,"hash":"417e25404ba6bfb698e25d39d6422f7358decaa67f39ea786d066e3b40e9186e"}]}
+# mutate4py-manifest-end

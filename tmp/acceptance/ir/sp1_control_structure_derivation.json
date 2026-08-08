@@ -1,0 +1,274 @@
+{
+  "name" : "SP1 Stage 2 — Control Structure derivation",
+  "scenarios" : [ {
+    "name" : "SP1-S2-01 Call 1 produces a valid RequirementSet",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid RequirementSet JSON with requirements REQ-1 and REQ-2"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 1 requirements derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a RequirementSet model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "each requirement has a req_id, description, classification, and source_constraint"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-02 requirements are classified as control or constraint",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RequirementSet with REQ-1 classified as control and REQ-2 classified as constraint"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 1 requirements derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "REQ-1 has classification control"
+    }, {
+      "keyword" : "And",
+      "text" : "REQ-2 has classification constraint"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-03 requirement with invalid classification fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RequirementSet with REQ-1 classified as <bad_class>",
+      "parameters" : [ "bad_class" ]
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 1 requirements derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing classification"
+    } ],
+    "examples" : [ {
+      "bad_class" : "enforcement"
+    }, {
+      "bad_class" : "policy"
+    } ]
+  }, {
+    "name" : "SP1-S2-04 each requirement references a source constraint",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RequirementSet where REQ-1 references SC-1 and REQ-2 references SC-2"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 1 requirements derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "REQ-1 has source_constraint SC-1"
+    }, {
+      "keyword" : "And",
+      "text" : "REQ-2 has source_constraint SC-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-05 Call 1 is logged with stage stage_2 and step call_1_requirements",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid RequirementSet JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 1 requirements derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is call_1_requirements"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-06 Call 2 produces a valid ResponsibilitySet",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid ResponsibilitySet JSON with responsibilities RESP-1 and RESP-2 and controlled process CP-1"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 2 responsibilities derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a ResponsibilitySet model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "each responsibility has at least one process model part, one control action, and one feedback channel"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-07 controlled processes are identified in Call 2",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a ResponsibilitySet with controlled process CP-1 referenced by a feedback source"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 2 responsibilities derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the ResponsibilitySet contains controlled process CP-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-08 ElementRef references in Call 2 are valid",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a ResponsibilitySet where feedback sources reference RESP-1 and CP-1"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 2 responsibilities derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "all ElementRef references in the ResponsibilitySet point to valid responsibilities or controlled processes"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-09 Call 2 is logged with stage stage_2 and step call_2_responsibilities",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid ResponsibilitySet JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 2 responsibilities derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is call_2_responsibilities"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-10 Call 3 produces a valid ControlStructure",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a valid ControlStructure JSON with coordination links"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 3 connections derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a ControlStructure model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the control structure passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-11 coordination links are identified in Call 3",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a ControlStructure with coordination link CL-1 from RESP-1 to RESP-2 sharing PM-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 3 connections derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the ControlStructure contains coordination link CL-1"
+    }, {
+      "keyword" : "And",
+      "text" : "CL-1 has source RESP-1 and target RESP-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-12 Call 3 is logged with stage stage_2 and step call_3_connections",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a valid ControlStructure JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 Call 3 connections derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is call_3_connections"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-13 control structure is written to control-structure.yaml",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all three Stage 2 calls"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 control structure derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file control-structure.yaml exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains a valid ControlStructure model when read back"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-14 Call 2 receives requirements from Call 1",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid RequirementSet for Call 1"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a valid ResponsibilitySet for Call 2"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 calls 1 through 2 are run in sequence"
+    }, {
+      "keyword" : "Then",
+      "text" : "the Call 2 user prompt contains the requirements from Call 1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-S2-15 Call 3 receives responsibilities and controlled processes from Call 2",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid RequirementSet for Call 1"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a valid ResponsibilitySet for Call 2"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a valid ControlStructure for Call 3"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 calls 1 through 3 are run in sequence"
+    }, {
+      "keyword" : "Then",
+      "text" : "the Call 3 user prompt contains responsibilities and controlled processes from Call 2"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a loss analysis with security constraints SC-1 and SC-2 is available"
+  }, {
+    "keyword" : "And",
+    "text" : "a use-case description is available"
+  } ]
+}

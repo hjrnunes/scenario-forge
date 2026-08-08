@@ -235,3 +235,8 @@ def _write_manifest(
         critic_findings=critic_summary,
     )
     write_yaml(manifest, run_dir / "run-manifest.yaml")
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:45:29Z","module_hash":"175e788adf6257a3af9565fec8e49b4cbc540bfaa08231a00ad38539090ac0f3","functions":[{"id":"func/run_sp1","name":"run_sp1","line":65,"end_line":183,"hash":"391fc785c55d3433b251a263316a3acde1ea692f049fc611a7733f387df15626"},{"id":"func/_write_manifest","name":"_write_manifest","line":186,"end_line":237,"hash":"ce0763d77bdca98f957ebc4f472f943e2cc3681d0eea1815edbcba3f2b50467b"}]}
+# mutate4py-manifest-end

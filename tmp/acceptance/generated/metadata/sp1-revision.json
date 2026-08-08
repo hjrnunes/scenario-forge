@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 revision",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_revision.json",
+  "implementation_hash": "sha256:2aff9218484b42748b9d9a4fa5cb49c72adba362f5b1e39dd4e02cc7ac984f18",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_revision_acceptance_test.py"
+  ]
+}

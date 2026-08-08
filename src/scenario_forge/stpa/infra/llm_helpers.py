@@ -74,3 +74,8 @@ def log_llm_call(
         success=True,
     )
     append_call_log([entry], run_dir)
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:46:09Z","module_hash":"a1b7aad0a3fe2a93a11eabd799102851a999caea1bbf1117a7d368018839c121","functions":[{"id":"func/parse_llm_result","name":"parse_llm_result","line":18,"end_line":46,"hash":"e4d2fe9b6dad2e2b56503eba252efc1fba9a47d4641ba96ea4f03e42348869e6"},{"id":"func/log_llm_call","name":"log_llm_call","line":49,"end_line":76,"hash":"adb889755e90f94601e1524f9499750950888cfa3e5d708ea65462d1aeb96c7c"}]}
+# mutate4py-manifest-end

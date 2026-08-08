@@ -96,6 +96,15 @@ class World:
         self.template_rendered: str | None = None
         self.template_hashes: dict[str, str] | None = None
         self.manifest: Any = None
+        # SP1 system model test state
+        self.sp1_llm_content: Any = None
+        self.sp1_component_name: str | None = None
+        self.sp1_warnings: list[str] = []
+        self.sp1_gap_type: str | None = None
+        self.sp1_element_type: str | None = None
+        self.sp1_entity: str | None = None
+        self.sp1_ref_target: str | None = None
+        self.sp1_error_fragment: str | None = None
 
 
 def _resolve_value(text: str, examples: dict[str, str]) -> str:
@@ -2708,6 +2717,509 @@ _register(r"the scenario envelope is validated", _h_envelope_validated)
 _register(r"the faceting metadata target_responsibility is", _h_faceting_target_resp)
 _register(r"the faceting metadata ica_type is", _h_faceting_ica_type)
 _register(r"the faceting metadata provenance is", _h_faceting_provenance)
+
+
+# ---------------------------------------------------------------------------
+# SP1 System Model handlers
+# ---------------------------------------------------------------------------
+
+from scenario_forge.stpa.system_model.heuristics import (
+    check_solution_neutrality as _sp1_check_neutrality,
+)
+from scenario_forge.stpa.system_model.critic import (
+    CriticFindings as _SP1CriticFindings,
+    CriticGap as _SP1CriticGap,
+)
+from scenario_forge.stpa.system_model.control_structure import (
+    Requirement as _SP1Requirement,
+    RequirementSet as _SP1RequirementSet,
+)
+
+
+def _sp1_make_control_structure_with_resp(desc: str = "Controller 1") -> ControlStructure:
+    """Build a minimal valid ControlStructure with one responsibility."""
+    return ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description=desc,
+                process_model_parts=[
+                    ProcessModelPart(pm_id="PM-1-1", description="State 1")
+                ],
+                control_actions=[
+                    ControlAction(ca_id="CA-1-1", description="Action 1")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-1-1",
+                        description="FB 1",
+                        updates="PM-1-1",
+                        source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+                    )
+                ],
+            )
+        ],
+    )
+
+
+def _sp1_make_control_structure_two_resps() -> ControlStructure:
+    """Build a ControlStructure with two responsibilities."""
+    return ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description="Controller 1",
+                process_model_parts=[
+                    ProcessModelPart(pm_id="PM-1-1", description="State 1")
+                ],
+                control_actions=[
+                    ControlAction(ca_id="CA-1-1", description="Action 1")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-1-1",
+                        description="FB 1",
+                        updates="PM-1-1",
+                        source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+                    )
+                ],
+            ),
+            Responsibility(
+                resp_id="RESP-2",
+                description="Controller 2",
+                process_model_parts=[
+                    ProcessModelPart(pm_id="PM-2-1", description="State 2")
+                ],
+                control_actions=[
+                    ControlAction(ca_id="CA-2-1", description="Action 2")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-2-1",
+                        description="FB 2",
+                        updates="PM-2-1",
+                        source=ElementRef(type=ReferenceType.responsibility, id="RESP-2"),
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+def _sp1_make_loss_analysis_with_constraints() -> LossAnalysis:
+    """Build a LossAnalysis with security constraints SC-1 and SC-2."""
+    return LossAnalysis(
+        risk_card_losses=[],
+        use_case_losses=[
+            Loss(loss_id="L-1", description="Loss 1", provenance=LossProvenance.use_case),
+            Loss(loss_id="L-2", description="Loss 2", provenance=LossProvenance.use_case),
+        ],
+        hazards=[
+            Hazard(hazard_id="H-1", description="Hazard 1", related_losses=["L-1"]),
+            Hazard(hazard_id="H-2", description="Hazard 2", related_losses=["L-2"]),
+        ],
+        security_constraints=[
+            SecurityConstraint(constraint_id="SC-1", description="C1", related_hazards=["H-1"]),
+            SecurityConstraint(constraint_id="SC-2", description="C2", related_hazards=["H-2"]),
+        ],
+    )
+
+
+# --- Background step handlers ---
+
+def _h_sp1_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the STPA system model ... module is importable."""
+    import scenario_forge.stpa.system_model  # noqa: F401
+    return True, ""
+
+
+def _h_sp1_use_case_risk_cards(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a use-case description and risk cards are available as input."""
+    return True, ""
+
+
+def _h_sp1_use_case_loss_analysis(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a use-case description and loss analysis are available as input."""
+    return True, ""
+
+
+def _h_sp1_use_case_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a use-case description is available."""
+    return True, ""
+
+
+def _h_sp1_use_case_risk_json(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a use-case description and risk extraction JSON are available as input."""
+    return True, ""
+
+
+def _h_sp1_cs_two_resps_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure with responsibilities RESP-1 and RESP-2 is available."""
+    world.control_structure = _sp1_make_control_structure_two_resps()
+    return True, ""
+
+
+def _h_sp1_cap_profile_use_case(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a capability profile and use-case text are available."""
+    return True, ""
+
+
+def _h_sp1_loss_analysis_constraints(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with security constraints SC-1 and SC-2 is available."""
+    world.loss_analysis = _sp1_make_loss_analysis_with_constraints()
+    return True, ""
+
+
+def _h_sp1_cs_and_critic_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure and CriticFindings with unjustified gaps are available."""
+    world.control_structure = _sp1_make_control_structure_with_resp()
+    return True, ""
+
+
+def _h_sp1_cs_resp1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure with responsibility RESP-1."""
+    world.control_structure = _sp1_make_control_structure_with_resp()
+    return True, ""
+
+
+def _h_sp1_cs_resp1_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1."""
+    world.control_structure = _sp1_make_control_structure_with_resp()
+    return True, ""
+
+
+# --- SP1-LA-04: Loss analysis invalid cross-reference ---
+
+def _h_sp1_la_invalid_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a loss analysis where <entity> references non-existent <ref_target>."""
+    entity = examples.get("entity", "")
+    ref_target = examples.get("ref_target", "")
+    world.sp1_entity = entity
+    world.sp1_ref_target = ref_target
+    if entity == "hazard":
+        world.sp1_llm_content = {
+            "risk_card_losses": [],
+            "use_case_losses": [
+                {"loss_id": "L-1", "description": "Loss 1", "provenance": "use_case", "source_risk_cards": []},
+            ],
+            "hazards": [
+                {"hazard_id": "H-1", "description": "Hazard 1", "related_losses": ["L-99"]},
+            ],
+            "security_constraints": [],
+        }
+    elif entity == "constraint":
+        world.sp1_llm_content = {
+            "risk_card_losses": [],
+            "use_case_losses": [
+                {"loss_id": "L-1", "description": "Loss 1", "provenance": "use_case", "source_risk_cards": []},
+            ],
+            "hazards": [
+                {"hazard_id": "H-1", "description": "Hazard 1", "related_losses": ["L-1"]},
+            ],
+            "security_constraints": [
+                {"constraint_id": "SC-1", "description": "C1", "related_hazards": ["H-99"]},
+            ],
+        }
+    else:
+        world.sp1_llm_content = {
+            "risk_card_losses": [],
+            "use_case_losses": [],
+            "hazards": [],
+            "security_constraints": [],
+        }
+    return True, ""
+
+
+def _h_sp1_stage1a_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 1a loss analysis is run."""
+    if world.sp1_llm_content is not None:
+        try:
+            world.loss_analysis = LossAnalysis.model_validate(world.sp1_llm_content)
+        except (ValidationError, ValueError) as e:
+            world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_post_call_fails(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: post-call validation fails with error containing <error_fragment>."""
+    fragment = examples.get("error_fragment", "")
+    if not fragment:
+        # Extract from text
+        m = re.search(r"containing\s+(\S+)", text)
+        fragment = m.group(1) if m else ""
+    if world.validation_error is None:
+        return False, f"Expected validation error containing '{fragment}' but none was raised"
+    err_str = str(world.validation_error)
+    if fragment and fragment not in err_str:
+        return False, f"Expected error containing '{fragment}' but got: {err_str}"
+    return True, ""
+
+
+# --- SP1-NEUT-01/02: Solution neutrality ---
+
+def _h_sp1_neut_resp_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a responsibility RESP-1 with description containing <component_name>."""
+    component = examples.get("component_name", "LLM")
+    world.sp1_component_name = component
+    world.control_structure = ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description=f"Controller using {component} for processing",
+                process_model_parts=[
+                    ProcessModelPart(pm_id="PM-1-1", description="State 1")
+                ],
+                control_actions=[
+                    ControlAction(ca_id="CA-1-1", description="Action 1")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-1-1",
+                        description="FB 1",
+                        updates="PM-1-1",
+                        source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+                    )
+                ],
+            )
+        ],
+    )
+    return True, ""
+
+
+def _h_sp1_neut_pm_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a process model part PM-1-1 with description containing <component_name>."""
+    component = examples.get("component_name", "LLM")
+    world.sp1_component_name = component
+    world.control_structure = ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description="Controller 1",
+                process_model_parts=[
+                    ProcessModelPart(pm_id="PM-1-1", description=f"State tracked by {component}")
+                ],
+                control_actions=[
+                    ControlAction(ca_id="CA-1-1", description="Action 1")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-1-1",
+                        description="FB 1",
+                        updates="PM-1-1",
+                        source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+                    )
+                ],
+            )
+        ],
+    )
+    return True, ""
+
+
+def _h_sp1_neut_check_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the solution-neutrality check is run."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    world.sp1_warnings = _sp1_check_neutrality(world.control_structure)
+    return True, ""
+
+
+def _h_sp1_neut_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a warning is produced containing <component_name>."""
+    component = examples.get("component_name", "")
+    if not component:
+        m = re.search(r"containing\s+(\S+)", text)
+        component = m.group(1) if m else ""
+    if not world.sp1_warnings:
+        return False, "Expected a warning but none was produced"
+    found = any(component.lower() in w.lower() for w in world.sp1_warnings)
+    if not found:
+        return False, f"Expected warning containing '{component}' but got: {world.sp1_warnings}"
+    return True, ""
+
+
+# --- SP1-S2-03: Invalid classification ---
+
+def _h_sp1_s2_bad_class(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a RequirementSet with REQ-1 classified as <bad_class>."""
+    bad_class = examples.get("bad_class", "enforcement")
+    world.sp1_llm_content = {
+        "requirements": [
+            {
+                "req_id": "REQ-1",
+                "description": "Test requirement",
+                "classification": bad_class,
+                "source_constraint": "SC-1",
+            }
+        ]
+    }
+    return True, ""
+
+
+def _h_sp1_s2_call1_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 Call 1 requirements derivation is run."""
+    if world.sp1_llm_content is not None:
+        try:
+            world.sp1_llm_content = _SP1RequirementSet.model_validate(world.sp1_llm_content)
+        except (ValidationError, ValueError) as e:
+            world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_validation_fails(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation fails with error containing <fragment>."""
+    m = re.search(r"containing\s+(\S+)", text)
+    fragment = m.group(1) if m else ""
+    if world.validation_error is None:
+        return False, f"Expected validation error containing '{fragment}' but none was raised"
+    err_str = str(world.validation_error)
+    if fragment and fragment not in err_str:
+        return False, f"Expected error containing '{fragment}' but got: {err_str}"
+    return True, ""
+
+
+# --- SP1-HEUR-02: Missing element type ---
+
+def _h_sp1_heur_zero_element(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a responsibility RESP-1 with zero <element_type>."""
+    element_type = examples.get("element_type", "")
+    world.sp1_element_type = element_type
+    resp_kwargs: dict = {
+        "resp_id": "RESP-1",
+        "description": "Controller 1",
+    }
+    if element_type != "process_model_parts":
+        resp_kwargs["process_model_parts"] = [
+            ProcessModelPart(pm_id="PM-1-1", description="State 1")
+        ]
+    if element_type != "control_actions":
+        resp_kwargs["control_actions"] = [
+            ControlAction(ca_id="CA-1-1", description="Action 1")
+        ]
+    # Only add feedback channels if there are PMs to reference
+    if element_type != "feedback_channels" and "process_model_parts" in resp_kwargs:
+        resp_kwargs["feedback_channels"] = [
+            FeedbackChannel(
+                fb_id="FB-1-1",
+                description="FB 1",
+                updates="PM-1-1",
+                source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+            )
+        ]
+    world.control_structure = ControlStructure(
+        responsibilities=[Responsibility(**resp_kwargs)]
+    )
+    return True, ""
+
+
+def _h_sp1_heur_check(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: structural heuristics are checked."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    world.heuristic_result = check_structural_heuristics(world.control_structure)
+    return True, ""
+
+
+def _h_sp1_heur_fails(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the heuristic check fails with error containing <error_fragment>."""
+    fragment = examples.get("error_fragment", "")
+    if not fragment:
+        m = re.search(r"containing\s+(.+)$", text)
+        fragment = m.group(1).strip() if m else ""
+    if world.heuristic_result is None:
+        return False, "No heuristic result available"
+    errors = world.heuristic_result.errors
+    if not errors:
+        return False, "Expected heuristic errors but none were found"
+    found = any(fragment.lower() in e.lower() for e in errors)
+    if not found:
+        return False, f"Expected error containing '{fragment}' but got: {errors}"
+    return True, ""
+
+
+# --- SP1-CRITIC-03: Gap type validation ---
+
+def _h_sp1_critic_gap_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a CriticFindings JSON with a gap of type <gap_type>."""
+    gap_type = examples.get("gap_type", "")
+    world.sp1_gap_type = gap_type
+    world.sp1_llm_content = {
+        "gaps": [
+            {
+                "gap_type": gap_type,
+                "description": "Test gap",
+                "related_attack_path": "Attack path",
+                "suggested_remedy": "Fix",
+            }
+        ],
+        "checklist_results": {},
+        "taxonomy_probe_results": {},
+    }
+    return True, ""
+
+
+def _h_sp1_critic_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the completeness critic is run."""
+    if world.sp1_llm_content is not None:
+        try:
+            world.sp1_llm_content = _SP1CriticFindings.model_validate(world.sp1_llm_content)
+        except (ValidationError, ValueError) as e:
+            world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_critic_gap_found(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the CriticFindings model contains a gap with gap_type <gap_type>."""
+    gap_type = examples.get("gap_type", "")
+    if not isinstance(world.sp1_llm_content, _SP1CriticFindings):
+        return False, "CriticFindings model was not created"
+    gaps = world.sp1_llm_content.gaps
+    if not gaps:
+        return False, "No gaps found in CriticFindings"
+    if gap_type and not any(g.gap_type == gap_type for g in gaps):
+        return False, f"Expected gap_type '{gap_type}' but got: {[g.gap_type for g in gaps]}"
+    return True, ""
+
+
+# --- SP1 step registrations ---
+
+# Background steps
+_register(r"the STPA system model(?: \S+)? module is importable", _h_sp1_module_importable)
+_register(r"a use-case description and risk cards are available as input", _h_sp1_use_case_risk_cards)
+_register(r"a use-case description and loss analysis are available as input", _h_sp1_use_case_loss_analysis)
+_register(r"a use-case description is available", _h_sp1_use_case_available)
+_register(r"a use-case description and risk extraction JSON are available as input", _h_sp1_use_case_risk_json)
+_register(r"a control structure with responsibilities RESP-1 and RESP-2 is available", _h_sp1_cs_two_resps_available)
+_register(r"a capability profile and use-case text are available", _h_sp1_cap_profile_use_case)
+_register(r"a loss analysis with security constraints SC-1 and SC-2 is available", _h_sp1_loss_analysis_constraints)
+_register(r"a control structure and CriticFindings with unjustified gaps are available", _h_sp1_cs_and_critic_available)
+_register(r"a control structure with responsibility RESP-1$", _h_sp1_cs_resp1)
+_register(r"a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1", _h_sp1_cs_resp1_full)
+
+# SP1-LA-04
+_register(r"an LLM that returns a loss analysis where .* references non-existent", _h_sp1_la_invalid_ref)
+_register(r"Stage 1a loss analysis is run", _h_sp1_stage1a_run)
+_register(r"post-call validation fails with error containing", _h_sp1_post_call_fails)
+
+# SP1-NEUT-01/02
+_register(r"a responsibility RESP-1 with description containing", _h_sp1_neut_resp_desc)
+_register(r"a process model part PM-1-1 with description containing", _h_sp1_neut_pm_desc)
+_register(r"the solution-neutrality check is run", _h_sp1_neut_check_run)
+_register(r"a warning is produced containing", _h_sp1_neut_warning)
+
+# SP1-S2-03
+_register(r"an LLM that returns a RequirementSet with REQ-1 classified as", _h_sp1_s2_bad_class)
+_register(r"Stage 2 Call 1 requirements derivation is run", _h_sp1_s2_call1_run)
+_register(r"validation fails with error containing", _h_sp1_validation_fails)
+
+# SP1-HEUR-02
+_register(r"a responsibility RESP-1 with zero", _h_sp1_heur_zero_element)
+_register(r"structural heuristics are checked", _h_sp1_heur_check)
+_register(r"the heuristic check fails with error containing", _h_sp1_heur_fails)
+
+# SP1-CRITIC-03
+_register(r"an LLM that returns a CriticFindings JSON with a gap of type", _h_sp1_critic_gap_type)
+_register(r"the completeness critic is run", _h_sp1_critic_run)
+_register(r"the CriticFindings model contains a gap with gap_type", _h_sp1_critic_gap_found)
 
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:

@@ -1,0 +1,204 @@
+{
+  "name" : "SP1 Stage 1a — Loss Analysis derivation",
+  "scenarios" : [ {
+    "name" : "SP1-LA-01 valid LLM response produces a valid LossAnalysis",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid loss analysis JSON with risk-card losses and use-case losses"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a LossAnalysis model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the loss analysis passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-02 risk-card-derived losses have correct provenance",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns losses L-1 and L-2 with provenance risk_card and source_risk_cards atlas-001 and atlas-002"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the risk_card_losses contain L-1 and L-2 with provenance risk_card"
+    }, {
+      "keyword" : "And",
+      "text" : "each risk_card_loss has non-empty source_risk_cards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-03 use-case-derived losses have correct provenance",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns loss L-3 with provenance use_case and empty source_risk_cards"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the use_case_losses contain L-3 with provenance use_case"
+    }, {
+      "keyword" : "And",
+      "text" : "each use_case_loss has empty source_risk_cards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-04 LLM response with invalid cross-reference fails post-call validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a loss analysis where <entity> references non-existent <ref_target>",
+      "parameters" : [ "entity", "ref_target" ]
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "post-call validation fails with error containing <error_fragment>",
+      "parameters" : [ "error_fragment" ]
+    } ],
+    "examples" : [ {
+      "entity" : "hazard",
+      "ref_target" : "loss L-99",
+      "error_fragment" : "related_losses"
+    }, {
+      "entity" : "constraint",
+      "ref_target" : "hazard H-99",
+      "error_fragment" : "related_hazards"
+    } ]
+  }, {
+    "name" : "SP1-LA-05 LLM response with risk-card loss missing source_risk_cards fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a risk-card loss L-1 with empty source_risk_cards"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "post-call validation fails with error containing source_risk_cards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-06 LLM response with use-case loss having source_risk_cards fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a use-case loss L-3 with source_risk_cards atlas-001"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "post-call validation fails with error containing source_risk_cards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-07 LLM response with duplicate loss IDs fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a loss analysis with duplicate loss_id L-1"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "post-call validation fails with error containing duplicate"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-08 LLM call is logged with stage stage_1a",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid loss analysis JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_1a"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is loss_analysis"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-09 loss analysis is written to loss-analysis.yaml",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid loss analysis JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file loss-analysis.yaml exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains a valid LossAnalysis model when read back"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-10 both risk-card and use-case losses can coexist",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns risk-card losses L-1 and L-2 and use-case losses L-3 and L-4"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the risk_card_losses contain L-1 and L-2"
+    }, {
+      "keyword" : "And",
+      "text" : "the use_case_losses contain L-3 and L-4"
+    }, {
+      "keyword" : "And",
+      "text" : "the loss analysis passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-11 every hazard links to at least one loss",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a loss analysis with hazard H-1 referencing L-1 and hazard H-2 referencing L-2"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the loss analysis passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-LA-12 every security constraint links to at least one hazard",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a loss analysis with constraint SC-1 referencing H-1 and constraint SC-2 referencing H-2"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1a loss analysis is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the loss analysis passes foundation validation"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a use-case description and risk cards are available as input"
+  } ]
+}

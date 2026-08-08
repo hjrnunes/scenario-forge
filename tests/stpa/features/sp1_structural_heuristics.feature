@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=03bce0738ed8c11d1d4548f25a0d34aac945807dc9f94f1e9aaa2a9a27ea0419
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:52:01.643454Z","feature_name":"SP1 Stage 2 — Structural heuristics","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_structural_heuristics.feature","background_hash":"a350cda96589d8b76dbbc5203db760801e9647bd0c937d66151ee1f1d79072b5","implementation_hash":"unknown","scenarios":[{"index":1,"name":"SP1-HEUR-02 responsibility missing an element type fails","scenario_hash":"976d42a3f4d7c8f1ddb27b3a83559b95bb22348fb031bb4bb285deee9b1cc373","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-08T14:52:01.643454Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 2 — Structural heuristics
   Structural heuristics are deterministic post-checks run after Stage 2 Call 3
   assembles the ControlStructure. They catch mechanical errors: responsibilities

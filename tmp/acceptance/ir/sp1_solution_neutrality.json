@@ -1,0 +1,123 @@
+{
+  "name" : "SP1 — Solution-neutrality post-call check",
+  "scenarios" : [ {
+    "name" : "SP1-NEUT-01 component name in responsibility description produces warning",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with description containing <component_name>",
+      "parameters" : [ "component_name" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the solution-neutrality check is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a warning is produced containing <component_name>",
+      "parameters" : [ "component_name" ]
+    } ],
+    "examples" : [ {
+      "component_name" : "LLM"
+    }, {
+      "component_name" : "proxy"
+    }, {
+      "component_name" : "orchestrator"
+    }, {
+      "component_name" : "guardrail"
+    }, {
+      "component_name" : "prompt"
+    }, {
+      "component_name" : "API"
+    } ]
+  }, {
+    "name" : "SP1-NEUT-02 component name in process model part description produces warning",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a process model part PM-1-1 with description containing <component_name>",
+      "parameters" : [ "component_name" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the solution-neutrality check is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a warning is produced containing <component_name>",
+      "parameters" : [ "component_name" ]
+    } ],
+    "examples" : [ {
+      "component_name" : "LLM"
+    }, {
+      "component_name" : "proxy"
+    }, {
+      "component_name" : "orchestrator"
+    }, {
+      "component_name" : "guardrail"
+    }, {
+      "component_name" : "prompt"
+    }, {
+      "component_name" : "API"
+    } ]
+  }, {
+    "name" : "SP1-NEUT-03 solution-neutral description produces no warning",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with description The system must validate that user requests are within authorized scope"
+    }, {
+      "keyword" : "When",
+      "text" : "the solution-neutrality check is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "no solution-neutrality warnings are produced"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-NEUT-04 check is case-insensitive",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with description containing llm"
+    }, {
+      "keyword" : "When",
+      "text" : "the solution-neutrality check is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a warning is produced"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-NEUT-05 check scans all element types",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure where RESP-1 has PM-1-1, CA-1-1, and FB-1-1"
+    }, {
+      "keyword" : "And",
+      "text" : "CA-1-1 has description containing orchestrator"
+    }, {
+      "keyword" : "When",
+      "text" : "the solution-neutrality check is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a warning is produced for CA-1-1 containing orchestrator"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-NEUT-06 solution-neutrality check runs after Stage 2 assembly",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all three Stage 2 calls"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 control structure derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the solution-neutrality check is run on the assembled ControlStructure"
+    }, {
+      "keyword" : "And",
+      "text" : "the results are available as warnings"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model heuristics module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibility RESP-1"
+  } ]
+}

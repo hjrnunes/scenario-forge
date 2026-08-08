@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=34dba8d0a0a254c5f9d8d9edd1b00cb5404e1a20c9bc5d488b88c5472d340bac
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:51:59.093449Z","feature_name":"SP1 Stage 1a — Loss Analysis derivation","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_loss_analysis.feature","background_hash":"308166141490735c84fabbe40c5c62f66592cf62e157ebf616cb79c3a16638c0","implementation_hash":"unknown","scenarios":[{"index":3,"name":"SP1-LA-04 LLM response with invalid cross-reference fails post-call validation","scenario_hash":"7271079a390b8cc8619e9f4eae194cfd1c45947411cfc9696bdc660a5ca08a71","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-08T14:51:59.093449Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 1a — Loss Analysis derivation
   Stage 1a derives losses, hazards, and security constraints from use-case
   text and risk cards via a single LLM call. Output is a valid LossAnalysis

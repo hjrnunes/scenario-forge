@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=71f3ac9faa230bdba0ffa22aa191ab064905d53233c3925ab30cc8e3afda3399
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:51:59.763513Z","feature_name":"SP1 Stage 2 — Control Structure derivation","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_control_structure_derivation.feature","background_hash":"33b87ed407f52e8aea57082699bf61ea5723bd4d2112a4c7baeceac682aab5fd","implementation_hash":"unknown","scenarios":[{"index":2,"name":"SP1-S2-03 requirement with invalid classification fails","scenario_hash":"f017e3757e89f558c84d75fe33d7f5369d288ba34df6f107a4407ffe6058ba7f","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-08-08T14:51:59.763513Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 2 — Control Structure derivation
   Stage 2 applies Poh's Behavioral Design Process in three sequential LLM
   calls: Call 1 derives requirements from security constraints, Call 2

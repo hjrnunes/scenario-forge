@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=c42812b01dc37523e8531224e1da8f44793aec77e226feeb24e222cb221119f6
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T14:52:02.610285Z","feature_name":"SP1 Stage 2 — Completeness critic","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_completeness_critic.feature","background_hash":"500d563aa17cede8b86bb381346e85e9022f2d56543037ae079a584800ed49e5","implementation_hash":"unknown","scenarios":[{"index":2,"name":"SP1-CRITIC-03 gap types are validated","scenario_hash":"61296f50b1974fa51c47e18a9a66a77697e53f7fc76a5f54fc7d7c66b24471e4","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-08T14:52:02.610285Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 2 — Completeness critic
   The completeness critic is a single LLM call that receives the derived
   ControlStructure, use-case text, and CapabilityProfile. It combines three

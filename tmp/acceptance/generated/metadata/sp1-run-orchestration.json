@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 run orchestration",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_run_orchestration.json",
+  "implementation_hash": "sha256:9ce8aff8eda6d254d6e03c354725717ea523dbf78a55e3ccabf923f207bb25f0",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_run_orchestration_acceptance_test.py"
+  ]
+}

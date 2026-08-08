@@ -1,0 +1,157 @@
+{
+  "name" : "SP1 Stage 1b — Capability Profile inference",
+  "scenarios" : [ {
+    "name" : "SP1-CP-01 valid LLM response produces a valid CapabilityProfile",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid Stage1Profile JSON with zones, entry_points, and kc_subcodes"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1b capability profile is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a CapabilityProfile model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the capability profile has zones derived from kc_subcodes"
+    }, {
+      "keyword" : "And",
+      "text" : "the capability profile entry_point_completeness is inferred_partial"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CP-02 Stage1Profile is promoted via to_capability_profile",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid Stage1Profile JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1b capability profile is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the Stage1Profile is promoted to a CapabilityProfile"
+    }, {
+      "keyword" : "And",
+      "text" : "the promoted profile has zones_active derived from kc_subcodes"
+    }, {
+      "keyword" : "And",
+      "text" : "the promoted profile has has_persistent_memory derived from kc_subcodes"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CP-03 profile flag skips the LLM call",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a pre-built capability-profile.yaml at a known path"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1b is run with the profile flag"
+    }, {
+      "keyword" : "Then",
+      "text" : "no LLM call is made for Stage 1b"
+    }, {
+      "keyword" : "And",
+      "text" : "the loaded CapabilityProfile is returned"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CP-04 profile flag still produces loss analysis from Stage 1a",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a pre-built capability-profile.yaml at a known path"
+    }, {
+      "keyword" : "And",
+      "text" : "a use-case description and risk cards are available"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with the profile flag"
+    }, {
+      "keyword" : "Then",
+      "text" : "a LossAnalysis is produced from Stage 1a"
+    }, {
+      "keyword" : "And",
+      "text" : "no LLM call is made for Stage 1b"
+    }, {
+      "keyword" : "And",
+      "text" : "the pre-built CapabilityProfile is loaded"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CP-05 LLM call is logged with stage stage_1b",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid Stage1Profile JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1b capability profile is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_1b"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is capability_profile"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CP-06 capability profile is written to capability-profile.yaml",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid Stage1Profile JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1b capability profile is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file capability-profile.yaml exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains a valid CapabilityProfile model when read back"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CP-07 invalid KC sub-codes in LLM response fail validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a Stage1Profile with invalid KC sub-code KC9.9"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1b capability profile is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing Invalid KC sub-code"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CP-08 loss analysis context is passed to the prompt",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid Stage1Profile JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a loss analysis with losses L-1 and L-2 and hazards H-1 and H-2"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 1b capability profile is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the user prompt contains loss analysis context"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt references losses and hazards from the loss analysis"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a use-case description and loss analysis are available as input"
+  } ]
+}

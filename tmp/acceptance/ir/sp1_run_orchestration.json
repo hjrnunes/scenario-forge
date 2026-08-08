@@ -1,0 +1,223 @@
+{
+  "name" : "SP1 — Run orchestration",
+  "scenarios" : [ {
+    "name" : "SP1-RUN-01 full run produces all three output artifacts",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file loss-analysis.yaml exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "a file capability-profile.yaml exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "a file control-structure.yaml exists in the run directory"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-02 stages execute in order 1a then 1b then 2",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "Stage 1a loss analysis is produced first"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 1b capability profile is produced second"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 2 control structure is produced third"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-03 all LLM calls are logged to calls.jsonl",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file calls.jsonl exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains entries for stage_1a, stage_1b, and stage_2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-04 run manifest is written at run end",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a run manifest is written to the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the manifest has stage_summary with call counts for each stage"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-05 run manifest records critic findings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages and critic findings with two gaps"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest critic_findings contains two entries"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-06 run manifest records input hashes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest input_hashes contains a hash for the use-case text"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest input_hashes contains a hash for the risk extraction"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-07 run manifest records prompt hashes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest prompt_hashes contains SHA-256 hashes for all prompt templates"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-08 Stage 2 receives loss analysis and capability profile",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "Stage 2 Call 1 receives security constraints from the loss analysis"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 2 receives the capability profile for the critic"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-09 prompt templates exist for all stages",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP1 prompt templates directory"
+    }, {
+      "keyword" : "Then",
+      "text" : "the following template files exist:"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-10 module layout matches spec",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the STPA system model module"
+    }, {
+      "keyword" : "Then",
+      "text" : "the following modules exist and are importable:"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-11 internal models are defined",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the STPA system model module"
+    }, {
+      "keyword" : "Then",
+      "text" : "the following internal models are defined:"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-12 run with profile flag skips Stage 1b LLM call",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for Stage 1a and Stage 2"
+    }, {
+      "keyword" : "And",
+      "text" : "a pre-built capability-profile.yaml at a known path"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with the profile flag"
+    }, {
+      "keyword" : "Then",
+      "text" : "no call log entry has stage stage_1b"
+    }, {
+      "keyword" : "And",
+      "text" : "the pre-built capability profile is used"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-13 temperature is 0.4 for all Stage 2 calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that records the temperature used"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "all Stage 2 LLM calls use temperature 0.4"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-RUN-14 existing pipeline tests are unaffected",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP1 system model module is implemented"
+    }, {
+      "keyword" : "When",
+      "text" : "the existing test suite is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "no new failures are introduced"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model run module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a use-case description and risk extraction JSON are available as input"
+  } ]
+}
