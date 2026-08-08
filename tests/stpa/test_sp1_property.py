@@ -421,3 +421,318 @@ class TestTaxonomyProbeGating:
         profile = self._make_profile(kc_subcodes=kc_subset)
         probes = _build_taxonomy_probes(profile)
         assert 0 <= len(probes) <= self.MAX_PROBES
+
+
+# ---------------------------------------------------------------------------
+# safe_llm_call return-shape and logging invariants
+# ---------------------------------------------------------------------------
+
+
+class TestSafeLlmCallInvariants:
+    """Property tests for ``safe_llm_call`` return-shape and logging invariants.
+
+    These verify that the error-handling wrapper maintains consistent
+    contracts regardless of which exception type or stage/step labels
+    are used:
+
+    - **Return-shape dichotomy**: On success, ``(model, result, None)``;
+      on failure, ``(None, result_or_None, error_str)``.  The ``error``
+      slot and the ``model`` slot are never both non-None.
+    - **Failure logging**: Every failed call produces a ``calls.jsonl``
+      entry with ``success=false`` and a non-empty ``error`` field.
+    - **Stage/step propagation**: The stage and step labels passed to
+      ``safe_llm_call`` appear verbatim in the logged entry.
+    """
+
+    @given(
+        stage=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        step=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        error_msg=st.text(min_size=1, max_size=50),
+    )
+    @settings(
+        max_examples=25,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_failure_return_shape(self, tmp_path, stage, step, error_msg):
+        """On failure: model is None, error is non-None, result may be None."""
+        from pydantic import BaseModel
+
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+
+        class _M(BaseModel):
+            val: int = 0
+
+        client = MockLLMClient()
+        client.set_exception_for(_M, RuntimeError(error_msg))
+
+        model, result, error = safe_llm_call(
+            llm_client=client,
+            system_prompt="s",
+            user_prompt="u",
+            response_format=_M,
+            run_dir=tmp_path,
+            stage=stage,
+            step=step,
+            temperature=0.4,
+        )
+        assert model is None
+        assert error is not None
+        assert error_msg in error
+
+    @given(
+        stage=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        step=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+    )
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_failure_logged_with_success_false_and_error(
+        self, tmp_path, stage, step
+    ):
+        """Failed calls are logged with success=false and a non-empty error."""
+        import json
+
+        from pydantic import BaseModel
+
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+
+        class _M(BaseModel):
+            val: int = 0
+
+        # Clear any prior entries (function-scoped fixture reused across examples)
+        calls_file = tmp_path / "calls.jsonl"
+        if calls_file.exists():
+            calls_file.unlink()
+
+        client = MockLLMClient()
+        client.set_exception_for(_M, RuntimeError("boom"))
+
+        safe_llm_call(
+            llm_client=client,
+            system_prompt="s",
+            user_prompt="u",
+            response_format=_M,
+            run_dir=tmp_path,
+            stage=stage,
+            step=step,
+        )
+        calls_file = tmp_path / "calls.jsonl"
+        assert calls_file.exists()
+        entries = [json.loads(line) for line in calls_file.read_text().splitlines()]
+        assert len(entries) == 1
+        assert entries[0]["success"] is False
+        assert entries[0]["error"]
+        assert entries[0]["stage"] == stage
+        assert entries[0]["step"] == step
+
+    @given(
+        val=st.integers(min_value=0, max_value=1000),
+    )
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_success_return_shape(self, tmp_path, val):
+        """On success: model is non-None, error is None."""
+        from pydantic import BaseModel
+
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+
+        class _M(BaseModel):
+            val: int = 0
+
+        client = MockLLMClient()
+        client.set_response_for(_M, {"val": val})
+
+        model, result, error = safe_llm_call(
+            llm_client=client,
+            system_prompt="s",
+            user_prompt="u",
+            response_format=_M,
+            run_dir=tmp_path,
+            stage="test",
+            step="test",
+        )
+        assert model is not None
+        assert model.val == val
+        assert error is None
+        assert result is not None
+
+    @given(
+        val=st.integers(min_value=0, max_value=1000),
+    )
+    @settings(
+        max_examples=15,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_success_logged_with_success_true_no_error(self, tmp_path, val):
+        """Successful calls are logged with success=true and no error field."""
+        import json
+
+        from pydantic import BaseModel
+
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+
+        class _M(BaseModel):
+            val: int = 0
+
+        # Clear any prior entries (function-scoped fixture reused across examples)
+        calls_file = tmp_path / "calls.jsonl"
+        if calls_file.exists():
+            calls_file.unlink()
+
+        client = MockLLMClient()
+        client.set_response_for(_M, {"val": val})
+
+        safe_llm_call(
+            llm_client=client,
+            system_prompt="s",
+            user_prompt="u",
+            response_format=_M,
+            run_dir=tmp_path,
+            stage="test",
+            step="test",
+        )
+        calls_file = tmp_path / "calls.jsonl"
+        assert calls_file.exists()
+        entries = [json.loads(line) for line in calls_file.read_text().splitlines()]
+        assert len(entries) == 1
+        assert entries[0]["success"] is True
+        assert "error" not in entries[0]
+
+
+# ---------------------------------------------------------------------------
+# StageError context preservation
+# ---------------------------------------------------------------------------
+
+
+class TestStageErrorContextPreservation:
+    """``StageError`` preserves stage and step context across construction.
+
+    The ``str()`` representation and attributes must be consistent so
+    that ``run_sp1`` can reliably extract the error context when building
+    ``stage_errors``.
+    """
+
+    @given(
+        stage=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        step=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        message=st.text(min_size=1, max_size=80),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_attributes_preserved(self, stage, step, message):
+        """StageError attributes match constructor arguments."""
+        from scenario_forge.stpa.infra.llm_helpers import StageError
+
+        exc = StageError(stage=stage, step=step, message=message)
+        assert exc.stage == stage
+        assert exc.step == step
+        assert exc.message == message
+
+    @given(
+        stage=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        step=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        message=st.text(min_size=1, max_size=80),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_str_contains_stage_and_step(self, stage, step, message):
+        """str(StageError) contains both stage and step identifiers."""
+        from scenario_forge.stpa.infra.llm_helpers import StageError
+
+        exc = StageError(stage=stage, step=step, message=message)
+        s = str(exc)
+        assert stage in s
+        assert step in s
+
+    @given(
+        stage=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        step=st.text(
+            alphabet=st.characters(
+                whitelist_categories=("Ll", "Lu", "Nd"),
+                whitelist_characters=("_",),
+            ),
+            min_size=1,
+            max_size=20,
+        ),
+        message=st.text(min_size=1, max_size=80),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_stage_error_is_exception(self, stage, step, message):
+        """StageError is an Exception subclass, not a BaseException-direct subclass."""
+        from scenario_forge.stpa.infra.llm_helpers import StageError
+
+        exc = StageError(stage=stage, step=step, message=message)
+        assert isinstance(exc, Exception)
+        assert not isinstance(exc, (KeyboardInterrupt, SystemExit))

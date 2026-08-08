@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TypeVar
 
 from pydantic import BaseModel
 
 from scenario_forge.stpa.infra.call_log import append_call_log, make_call_log_entry
 from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
+
+_T = TypeVar("_T", bound=BaseModel)
 
 
 class StageError(Exception):
@@ -31,7 +34,7 @@ class StageError(Exception):
         super().__init__(f"{stage}/{step}: {message}")
 
 
-def parse_llm_result(result: LLMResult, model_class: type[BaseModel]) -> BaseModel:
+def parse_llm_result(result: LLMResult, model_class: type[_T]) -> _T:
     """Parse and validate an LLM result into the specified Pydantic model.
 
     Handles three content types the LLM client may return:
@@ -139,12 +142,12 @@ def safe_llm_call(
     llm_client: LLMClient,
     system_prompt: str,
     user_prompt: str,
-    response_format: type[BaseModel],
+    response_format: type[_T],
     run_dir: Path,
     stage: str,
     step: str,
     temperature: float = 0.4,
-) -> tuple[BaseModel | None, LLMResult | None, str | None]:
+) -> tuple[_T | None, LLMResult | None, str | None]:
     """Wrap complete() + parse_llm_result() in a try/except.
 
     On success, logs the call and returns ``(model, result, None)``.
