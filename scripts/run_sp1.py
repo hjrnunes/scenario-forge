@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 def resolve_llm_client() -> LLMClient:
     """Create an LLMClient from environment variables.
-    
+
     Checks for SCENARIO_FORGE_* vars first, falls back to FG_* vars.
     """
     base_url = os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL") or os.environ.get(
@@ -99,28 +99,41 @@ def main() -> int:
             run_dir=output_dir,
         )
 
-        # Count control actions across all responsibilities
-        total_control_actions = sum(
-            len(resp.control_actions) for resp in result.control_structure.responsibilities
-        )
-
         # Print summary
         print("\n" + "=" * 60)
         print("SP1 RUN SUMMARY")
         print("=" * 60)
-        all_losses = (
-            result.loss_analysis.risk_card_losses + result.loss_analysis.use_case_losses
-        )
-        print(f"Losses: {len(all_losses)}")
-        print(f"Hazards: {len(result.loss_analysis.hazards)}")
-        print(f"Constraints: {len(result.loss_analysis.security_constraints)}")
-        print(f"Responsibilities: {len(result.control_structure.responsibilities)}")
-        print(f"Control Actions: {total_control_actions}")
+
+        if result.loss_analysis is not None:
+            all_losses = (
+                result.loss_analysis.risk_card_losses
+                + result.loss_analysis.use_case_losses
+            )
+            print(f"Losses: {len(all_losses)}")
+            print(f"Hazards: {len(result.loss_analysis.hazards)}")
+            print(f"Constraints: {len(result.loss_analysis.security_constraints)}")
+        else:
+            print("Loss Analysis: DEGRADED — not produced")
+
+        if result.control_structure is not None:
+            total_ca = sum(
+                len(r.control_actions)
+                for r in result.control_structure.responsibilities
+            )
+            print(f"Responsibilities: {len(result.control_structure.responsibilities)}")
+            print(f"Control Actions: {total_ca}")
+        else:
+            print("Control Structure: DEGRADED — not produced")
+
         print(f"Heuristic Errors: {len(result.heuristic_errors)}")
         print(f"Heuristic Warnings: {len(result.heuristic_warnings)}")
         if result.critic_findings:
             print(f"Critic Findings: {len(result.critic_findings.gaps)} gaps")
         print(f"Revision Occurred: {result.revised}")
+        if result.stage_errors:
+            print(f"Stage Errors: {len(result.stage_errors)}")
+            for err in result.stage_errors:
+                print(f"  - {err}")
         print("=" * 60)
 
         logger.info("SP1 pipeline completed successfully")
