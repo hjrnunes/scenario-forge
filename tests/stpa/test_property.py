@@ -13,6 +13,10 @@ These tests verify invariants that should hold across broad input ranges:
 - **Structural heuristic completeness**: A well-formed control structure
   passes all structural heuristics; removing required children produces
   errors.
+- **merge_connection_set invariants**: The merge function preserves
+  all responsibilities, does not mutate its input, applies assignments
+  correctly, ignores unmatched assignments, deduplicates controlled
+  processes, and passes coordination links through unchanged.
 
 Property tests complement the example-based unit tests by exploring a
 broader input space than hand-written cases can cover.
@@ -58,6 +62,12 @@ from scenario_forge.stpa.models.scenario_spec import (
     DefenderIntention,
     ScenarioSpec,
     ThreatSource,
+)
+from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionAssignment,
+    ConnectionSet,
+    ResponsibilitySet,
+    merge_connection_set,
 )
 from tests.stpa.helpers import (
     make_ica,
@@ -591,3 +601,300 @@ class TestStructuralHeuristics:
             )
         else:
             assert result.passed
+
+
+# ---------------------------------------------------------------------------
+# merge_connection_set property tests
+# ---------------------------------------------------------------------------
+
+
+def _make_mergeable_responsibility_set(
+    n_resps: int = 2,
+) -> ResponsibilitySet:
+    """Build a ResponsibilitySet with n responsibilities, each with 1 FB and 1 CA.
+
+    Feedback sources and CA targets are left as None so that connection
+    assignments can fill them in during merge.
+    """
+    responsibilities = []
+    for i in range(1, n_resps + 1):
+        resp_id = f"RESP-{i}"
+        responsibilities.append(
+            Responsibility(
+                resp_id=resp_id,
+                description=f"Controller {i}",
+                process_model_parts=[
+                    ProcessModelPart(pm_id=f"PM-{i}-1", description=f"State {i}")
+                ],
+                control_actions=[
+                    ControlAction(ca_id=f"CA-{i}-1", description=f"Action {i}")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id=f"FB-{i}-1",
+                        description=f"Feedback {i}",
+                        updates=f"PM-{i}-1",
+                    )
+                ],
+            )
+        )
+    return ResponsibilitySet(responsibilities=responsibilities)
+
+
+class TestMergeConnectionSetProperties:
+    """Property tests for merge_connection_set invariants."""
+
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(max_examples=20, deadline=None)
+    def test_merge_preserves_all_responsibilities(self, n_resps):
+        """Conservation: every responsibility from ResponsibilitySet appears in output."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet()
+        cs = merge_connection_set(resp_set, conn_set)
+
+        input_ids = {r.resp_id for r in resp_set.responsibilities}
+        output_ids = {r.resp_id for r in cs.responsibilities}
+        assert input_ids == output_ids
+
+    @given(n_resps=st.integers(min_value=1, max_value=4))
+    @settings(max_examples=15, deadline=None)
+    def test_merge_does_not_mutate_original(self, n_resps):
+        """Non-mutation: merge does not modify the original ResponsibilitySet."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        # Snapshot original source/target states
+        original_sources = {
+            fb.fb_id: fb.source
+            for r in resp_set.responsibilities
+            for fb in r.feedback_channels
+        }
+        original_targets = {
+            ca.ca_id: ca.target
+            for r in resp_set.responsibilities
+            for ca in r.control_actions
+        }
+
+        conn_set = ConnectionSet(
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"FB-{i}-1",
+                    source={"type": "responsibility", "id": "RESP-1"},
+                )
+                for i in range(1, n_resps + 1)
+            ],
+        )
+        merge_connection_set(resp_set, conn_set)
+
+        # Verify originals are unchanged
+        for r in resp_set.responsibilities:
+            for fb in r.feedback_channels:
+                assert fb.source == original_sources[fb.fb_id], (
+                    f"Original {fb.fb_id}.source was mutated by merge"
+                )
+            for ca in r.control_actions:
+                assert ca.target == original_targets[ca.ca_id], (
+                    f"Original {ca.ca_id}.target was mutated by merge"
+                )
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        source_type=st.sampled_from(["responsibility", "controlled_process"]),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_feedback_assignment_sets_source(self, n_resps, source_type):
+        """Assignment application: matching FB assignment sets the source."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        source_ref = ElementRef(
+            type=ReferenceType(source_type),
+            id="RESP-1" if source_type == "responsibility" else "CP-1",
+        )
+        conn_set = ConnectionSet(
+            controlled_processes=(
+                [ControlledProcess(cp_id="CP-1", description="CP")]
+                if source_type == "controlled_process"
+                else []
+            ),
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"FB-{i}-1",
+                    source=source_ref,
+                )
+                for i in range(1, n_resps + 1)
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                assert fb.source is not None
+                assert fb.source == source_ref
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        target_type=st.sampled_from(["responsibility", "controlled_process"]),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_control_action_assignment_sets_target(self, n_resps, target_type):
+        """Assignment application: matching CA assignment sets the target."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        target_ref = ElementRef(
+            type=ReferenceType(target_type),
+            id="RESP-1" if target_type == "responsibility" else "CP-1",
+        )
+        conn_set = ConnectionSet(
+            controlled_processes=(
+                [ControlledProcess(cp_id="CP-1", description="CP")]
+                if target_type == "controlled_process"
+                else []
+            ),
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"CA-{i}-1",
+                    target=target_ref,
+                )
+                for i in range(1, n_resps + 1)
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+
+        for resp in cs.responsibilities:
+            for ca in resp.control_actions:
+                assert ca.target is not None
+                assert ca.target == target_ref
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=3),
+        n_unmatched=st.integers(min_value=1, max_value=5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_unmatched_assignments_are_noops(self, n_resps, n_unmatched):
+        """Unmatched assignments: assignments with non-existent element IDs are ignored."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet(
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"FB-99-{j}",
+                    source={"type": "responsibility", "id": "RESP-1"},
+                )
+                for j in range(1, n_unmatched + 1)
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+
+        # No feedback channel should have a source set
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                assert fb.source is None
+            for ca in resp.control_actions:
+                assert ca.target is None
+
+    @given(
+        n_call2=st.integers(min_value=0, max_value=3),
+        n_call3=st.integers(min_value=0, max_value=3),
+        n_overlap=st.integers(min_value=0, max_value=2),
+    )
+    @settings(max_examples=25, deadline=None)
+    def test_controlled_process_deduplication(self, n_call2, n_call3, n_overlap):
+        """Deduplication: merging CPs from Call 2 and Call 3 deduplicates by cp_id."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        cp_call2 = [
+            ControlledProcess(cp_id=f"CP-{i}", description=f"CP2 {i}")
+            for i in range(1, n_call2 + 1)
+        ]
+        # Call 3 CPs: some overlap with Call 2, some new
+        overlap_ids = [f"CP-{i}" for i in range(1, min(n_overlap, n_call2) + 1)]
+        new_ids = [f"CP-{100 + i}" for i in range(1, n_call3 + 1)]
+        cp_call3 = [
+            ControlledProcess(cp_id=cp_id, description=f"CP3 {cp_id}")
+            for cp_id in overlap_ids + new_ids
+        ]
+
+        resp_set = ResponsibilitySet(
+            responsibilities=[
+                Responsibility(
+                    resp_id="RESP-1",
+                    description="Controller",
+                    process_model_parts=[
+                        ProcessModelPart(pm_id="PM-1-1", description="State")
+                    ],
+                    control_actions=[
+                        ControlAction(ca_id="CA-1-1", description="Action")
+                    ],
+                    feedback_channels=[
+                        FeedbackChannel(
+                            fb_id="FB-1-1",
+                            description="FB",
+                            updates="PM-1-1",
+                            source=ElementRef(
+                                type=ReferenceType.responsibility, id="RESP-1"
+                            ),
+                        )
+                    ],
+                )
+            ],
+            controlled_processes=cp_call2,
+        )
+        conn_set = ConnectionSet(controlled_processes=cp_call3)
+        cs = merge_connection_set(resp_set, conn_set)
+
+        cp_ids = [cp.cp_id for cp in cs.controlled_processes]
+        assert len(cp_ids) == len(set(cp_ids)), "Duplicate cp_ids in merged output"
+        expected = {cp.cp_id for cp in cp_call2 + cp_call3}
+        assert set(cp_ids) == expected
+
+    @given(n_links=st.integers(min_value=0, max_value=3))
+    @settings(max_examples=15, deadline=None)
+    def test_coordination_links_pass_through(self, n_links):
+        """Pass-through: coordination links from ConnectionSet appear in output."""
+        from scenario_forge.stpa.models.control_structure import (
+            CoordinationLink,
+            CoordinationMechanism,
+        )
+
+        resp_set = _make_mergeable_responsibility_set(2)
+        links = [
+            CoordinationLink(
+                link_id=f"CL-{i}",
+                source="RESP-1",
+                target="RESP-2",
+                shared_pm="PM-2-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id=f"CM-{i}",
+                    description=f"Mechanism {i}",
+                    payload="Payload",
+                ),
+                description=f"Link {i}",
+            )
+            for i in range(1, n_links + 1)
+        ]
+        conn_set = ConnectionSet(coordination_links=links)
+        cs = merge_connection_set(resp_set, conn_set)
+
+        assert len(cs.coordination_links) == n_links
+        for i, cl in enumerate(cs.coordination_links):
+            assert cl.link_id == links[i].link_id
+            assert cl.source == links[i].source
+            assert cl.target == links[i].target
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        n_extra=st.integers(min_value=0, max_value=5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_empty_connection_set_preserves_responsibilities(self, n_resps, n_extra):
+        """Empty ConnectionSet: merge with no assignments preserves responsibilities as-is."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet()
+        cs = merge_connection_set(resp_set, conn_set)
+
+        assert len(cs.responsibilities) == n_resps
+        # All sources and targets remain None
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                assert fb.source is None
+            for ca in resp.control_actions:
+                assert ca.target is None
