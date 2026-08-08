@@ -23,7 +23,11 @@ from scenario_forge.stpa.system_model.control_structure import (
 from scenario_forge.stpa.system_model.critic import CriticFindings, run_completeness_critic
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
 from scenario_forge.models.capability_profile import Stage1Profile
-from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    valid_empty_connection_set_dict,
+    valid_stage1_profile_dict,
+)
 
 FIXTURES_DIR = (
     Path(__file__).resolve().parent.parent.parent
@@ -127,20 +131,6 @@ def _valid_critic_findings_dict() -> dict:
     }
 
 
-def _valid_stage1_profile_dict() -> dict:
-    return {
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": False,
-        "entry_points": [
-            {"name": "User chat", "direction": "input", "controllability": "direct"},
-        ],
-        "confidence": "medium",
-        "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
-        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
-    }
-
-
 class TestSP1FixtureIntegration:
     """SP1-FIX-01 and SP1-FIX-02: fixture integration with the SP1 pipeline."""
 
@@ -155,7 +145,7 @@ class TestSP1FixtureIntegration:
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
         client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
 
-        control_structure = derive_control_structure(
+        control_structure, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Klarna payment agent use case",
             loss_analysis=loss_analysis,
@@ -179,7 +169,7 @@ class TestSP1FixtureIntegration:
         client = MockLLMClient()
         client.set_response_for(CriticFindings, _valid_critic_findings_dict())
 
-        profile = Stage1Profile(**_valid_stage1_profile_dict()).to_capability_profile()
+        profile = Stage1Profile(**valid_stage1_profile_dict()).to_capability_profile()
 
         findings = run_completeness_critic(
             llm_client=client,

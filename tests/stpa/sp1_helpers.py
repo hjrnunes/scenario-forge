@@ -2,14 +2,18 @@
 
 Provides a mock LLM client that returns canned responses for different
 stages and records call metadata (prompts, temperature, call count).
+Also provides shared fixture data builders used across multiple test modules.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMResult
 
 
@@ -138,3 +142,57 @@ class MockLLMClient:
             if substring in call.user_prompt:
                 return call
         return None
+
+
+# ---------------------------------------------------------------------------
+# Shared fixture data builders (used by multiple test modules)
+# ---------------------------------------------------------------------------
+
+
+def make_risk_cards() -> list[RiskCard]:
+    """Return a minimal list of RiskCards for SP1 pipeline tests."""
+    return [
+        RiskCard(
+            risk_id="atlas-001",
+            risk_name="Prompt injection",
+            risk_description="Risk of prompt injection",
+            taxonomy="ibm-risk-atlas",
+            confidence=0.9,
+            grounding_confidence="high",
+        ),
+    ]
+
+
+def read_calls_jsonl(run_dir: Path) -> list[dict]:
+    """Read calls.jsonl and return parsed entries."""
+    calls_file = run_dir / "calls.jsonl"
+    if not calls_file.exists():
+        return []
+    return [json.loads(line) for line in calls_file.read_text().splitlines()]
+
+
+def valid_stage1_profile_dict() -> dict:
+    """Return a valid Stage1Profile dict for tests that need Stage 1b."""
+    return {
+        "has_persistent_memory": False,
+        "multi_agent": False,
+        "hitl": False,
+        "entry_points": [
+            {"name": "User chat", "direction": "input", "controllability": "direct"},
+        ],
+        "confidence": "medium",
+        "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
+        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
+    }
+
+
+def valid_critic_findings_dict_no_gaps() -> dict:
+    """Return a CriticFindings dict with no gaps (all checklist items present)."""
+    return {
+        "gaps": [],
+        "checklist_results": {
+            "Input validation": "present",
+            "Authorization": "present",
+        },
+        "taxonomy_probe_results": {},
+    }

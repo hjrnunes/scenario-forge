@@ -249,7 +249,7 @@ class TestConnSet03MergeProducesValidControlStructure:
     def test_connset_03_merge_produces_valid_control_structure(self, tmp_path):
         """Full Stage 2 derivation produces a valid ControlStructure."""
         client = _setup_mock_client()
-        cs = derive_control_structure(
+        cs, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Test",
             loss_analysis=_make_loss_analysis(),

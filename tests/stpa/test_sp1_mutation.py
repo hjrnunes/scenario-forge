@@ -33,6 +33,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
 )
@@ -44,7 +45,7 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
 )
 from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
 
 
 def _profile(
@@ -442,20 +443,20 @@ def _make_mock_client(
     if revised_cs is not None:
         # Queue all responses in call order for the revision path
         client.set_response_queue([
-            _valid_loss_analysis_dict(),       # Stage 1a
-            _valid_stage1_profile_dict(),       # Stage 1b
-            _valid_requirement_set_dict(),      # Stage 2 Call 1
-            _valid_responsibility_set_dict(),   # Stage 2 Call 2
-            _valid_control_structure_dict(),    # Stage 2 Call 3
-            findings,                           # Critic
-            revised_cs,                         # Revision
+            _valid_loss_analysis_dict(),               # Stage 1a
+            _valid_stage1_profile_dict(),               # Stage 1b
+            _valid_requirement_set_dict(),              # Stage 2 Call 1
+            _valid_responsibility_set_dict(),           # Stage 2 Call 2
+            valid_empty_connection_set_dict(),          # Stage 2 Call 3
+            findings,                                   # Critic
+            revised_cs,                                 # Revision
         ])
     else:
         client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
         client.set_response_for(_S1P, _valid_stage1_profile_dict())
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
         client.set_response_for(CriticFindings, findings)
 
     return client

@@ -335,7 +335,7 @@ class TestStage2Derivation:
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
         client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
-        cs = derive_control_structure(
+        cs, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Test",
             loss_analysis=_make_loss_analysis(),
@@ -351,7 +351,7 @@ class TestStage2Derivation:
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
         client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
-        cs = derive_control_structure(
+        cs, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Test",
             loss_analysis=_make_loss_analysis(),

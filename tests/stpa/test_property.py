@@ -898,3 +898,250 @@ class TestMergeConnectionSetProperties:
                 assert fb.source is None
             for ca in resp.control_actions:
                 assert ca.target is None
+
+
+# ---------------------------------------------------------------------------
+# _merge_with_fallback property tests
+# ---------------------------------------------------------------------------
+
+from scenario_forge.stpa.system_model.control_structure import (  # noqa: E402
+    _merge_with_fallback,
+)
+
+
+def _invalid_coord_link_connection_set(n_resps: int) -> ConnectionSet:
+    """Build a ConnectionSet with a coordination link referencing a non-existent
+    responsibility, guaranteeing a merge failure."""
+    from scenario_forge.stpa.models.control_structure import (
+        CoordinationLink,
+        CoordinationMechanism,
+    )
+
+    return ConnectionSet(
+        coordination_links=[
+            CoordinationLink(
+                link_id="CL-BAD",
+                source="RESP-999",
+                target=f"RESP-{n_resps}",
+                shared_pm=f"PM-{n_resps}-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-1",
+                    description="Bad mechanism",
+                    payload="Payload",
+                ),
+                description="Invalid link",
+            )
+        ],
+    )
+
+
+def _invalid_shared_pm_connection_set() -> ConnectionSet:
+    """Build a ConnectionSet with a coordination link referencing a non-existent PM."""
+    from scenario_forge.stpa.models.control_structure import (
+        CoordinationLink,
+        CoordinationMechanism,
+    )
+
+    return ConnectionSet(
+        coordination_links=[
+            CoordinationLink(
+                link_id="CL-BAD",
+                source="RESP-1",
+                target="RESP-2",
+                shared_pm="PM-999-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-1",
+                    description="Bad mechanism",
+                    payload="Payload",
+                ),
+                description="Invalid shared_pm",
+            )
+        ],
+    )
+
+
+class TestMergeWithFallbackProperties:
+    """Property tests for _merge_with_fallback invariants.
+
+    These tests verify the fallback behavior when merge_connection_set
+    fails due to invalid cross-references in the ConnectionSet.
+    """
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_preserves_all_responsibilities(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Conservation: every responsibility from ResponsibilitySet appears in fallback CS."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = invalid_conn_fn(n_resps)
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        input_ids = {r.resp_id for r in resp_set.responsibilities}
+        output_ids = {r.resp_id for r in cs.responsibilities}
+        assert input_ids == output_ids
+        assert len(warnings) == 1
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_has_empty_coordination_links(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Invariant: fallback CS always has empty coordination_links."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = invalid_conn_fn(n_resps)
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert cs.coordination_links == []
+        assert len(warnings) == 1
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        n_cps=st.integers(min_value=0, max_value=3),
+    )
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_preserves_controlled_processes(
+        self, tmp_path, n_resps, n_cps
+    ):
+        """Preservation: controlled processes from ResponsibilitySet appear in fallback CS."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        resp_set.controlled_processes = [
+            ControlledProcess(cp_id=f"CP-{i}", description=f"Process {i}")
+            for i in range(1, n_cps + 1)
+        ]
+        conn_set = _invalid_coord_link_connection_set(n_resps)
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        input_cp_ids = {cp.cp_id for cp in resp_set.controlled_processes}
+        output_cp_ids = {cp.cp_id for cp in cs.controlled_processes}
+        assert input_cp_ids == output_cp_ids
+        assert len(warnings) == 1
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_produces_exactly_one_warning(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Warning count: merge failure always produces exactly 1 warning with step name."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = invalid_conn_fn(n_resps)
+        _cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert len(warnings) == 1
+        assert "merge_connection_set" in warnings[0]
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=4))
+    @settings(
+        max_examples=15,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_does_not_mutate_input(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Non-mutation: fallback does not modify the original ResponsibilitySet."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        original_resp_count = len(resp_set.responsibilities)
+        original_cp_count = len(resp_set.controlled_processes)
+        conn_set = invalid_conn_fn(n_resps)
+        _cs, _warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert len(resp_set.responsibilities) == original_resp_count
+        assert len(resp_set.controlled_processes) == original_cp_count
+
+    @given(n_resps=st.integers(min_value=1, max_value=4))
+    @settings(
+        max_examples=15,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_successful_merge_produces_no_warnings(self, tmp_path, n_resps):
+        """Success path: valid ConnectionSet produces 0 warnings."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet()
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert warnings == []
+        assert isinstance(cs, ControlStructure)
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    def test_fallback_failure_logged_to_calls_jsonl(
+        self, tmp_path, invalid_conn_fn
+    ):
+        """Logging: merge failure is logged to calls.jsonl with success=false."""
+        import json
+
+        resp_set = _make_mergeable_responsibility_set(3)
+        conn_set = invalid_conn_fn(3)
+        _merge_with_fallback(resp_set, conn_set, tmp_path, "test-model")
+
+        calls_path = tmp_path / "calls.jsonl"
+        assert calls_path.exists()
+        entries = [json.loads(line) for line in calls_path.read_text().splitlines()]
+        merge_entries = [e for e in entries if e["step"] == "merge_connection_set"]
+        assert len(merge_entries) == 1
+        assert merge_entries[0]["success"] is False
+        assert merge_entries[0]["error"]  # non-empty

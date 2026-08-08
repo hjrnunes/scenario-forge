@@ -226,7 +226,7 @@ def _run_stage_2_block(
         return _Stage2Result()
 
     try:
-        control_structure = derive_control_structure(
+        control_structure, merge_warnings = derive_control_structure(
             llm_client=llm_client,
             use_case_text=use_case_text,
             loss_analysis=loss_analysis,
@@ -234,6 +234,7 @@ def _run_stage_2_block(
             template_loader=loader,
             temperature=temperature,
         )
+        stage_errors.extend(merge_warnings)
     except StageError as exc:
         stage_errors.append(str(exc))
         return _Stage2Result()
@@ -345,5 +346,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T18:11:41Z","module_hash":"091507490f13301fe0df7f99b658ea43288ab2cb6ce29f38bc4b33e47be0904b","functions":[{"id":"func/run_sp1","name":"run_sp1","line":69,"end_line":142,"hash":"0b92f33a59fde7310b4beb7cae2a1ec6b0a861027c7e294c488a61ad47986d2e"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":158,"end_line":179,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":182,"end_line":208,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":211,"end_line":281,"hash":"23151663ef6509a49106ab202f187528dc3750db8f32059605cdd1ed2d4b8f1e"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":284,"end_line":292,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":295,"end_line":299,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":302,"end_line":344,"hash":"09dcd42895f01df10232158bd78cc34c88507f2743878ea338d8a4a7fca8b665"}]}
+# {"version":1,"tested_at":"2026-08-08T21:55:48Z","module_hash":"f5f5c0f32d98755a21989b3f15a610738fd0e98d4ffd5fe618812dbc7bc71aca","functions":[{"id":"func/run_sp1","name":"run_sp1","line":69,"end_line":142,"hash":"0b92f33a59fde7310b4beb7cae2a1ec6b0a861027c7e294c488a61ad47986d2e"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":158,"end_line":179,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":182,"end_line":208,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":211,"end_line":282,"hash":"de649540395eec594dc7a62fd0b3bbb9cd829d383e1df7a4770e86b44c06ca4e"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":285,"end_line":293,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":296,"end_line":300,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":303,"end_line":345,"hash":"09dcd42895f01df10232158bd78cc34c88507f2743878ea338d8a4a7fca8b665"}]}
 # mutate4py-manifest-end
