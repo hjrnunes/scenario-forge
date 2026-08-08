@@ -8,22 +8,19 @@ flag skips this stage (loads a pre-built profile).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-
-from pydantic import ValidationError
 
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
 )
-from scenario_forge.stpa.infra.call_log import append_call_log, make_call_log_entry
-from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
+from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import read_yaml, write_yaml
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.system_model import PROMPTS_DIR
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
 STAGE = "stage_1b"
 STEP = "capability_profile"
 DEFAULT_TEMPERATURE = 0.4
@@ -73,9 +70,9 @@ def derive_capability_profile(
         temperature=temperature,
     )
 
-    stage1_profile = _parse_stage1_profile(result)
+    stage1_profile = parse_llm_result(result, Stage1Profile)
     capability_profile = stage1_profile.to_capability_profile()
-    _log_call(result, llm_client.model, run_dir)
+    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP)
     write_yaml(capability_profile, run_dir / "capability-profile.yaml")
     return capability_profile
 
@@ -92,34 +89,3 @@ def load_capability_profile(profile_path: Path) -> CapabilityProfile:
         Validated CapabilityProfile model.
     """
     return read_yaml(profile_path, CapabilityProfile)
-
-
-def _parse_stage1_profile(result: LLMResult) -> Stage1Profile:
-    """Parse and validate the LLM result into a Stage1Profile."""
-    content = result.content
-    if isinstance(content, Stage1Profile):
-        return content
-    if isinstance(content, dict):
-        return Stage1Profile.model_validate(content)
-    if isinstance(content, str):
-        return Stage1Profile.model_validate(json.loads(content))
-    raise ValidationError(
-        f"Unexpected LLM result content type: {type(content)}",
-        Stage1Profile,
-    )
-
-
-def _log_call(result: LLMResult, model: str, run_dir: Path) -> None:
-    """Append a call-log entry for the Stage 1b capability profile call."""
-    entry = make_call_log_entry(
-        stage=STAGE,
-        step=STEP,
-        model=model,
-        system_prompt=result.system_prompt,
-        user_prompt=result.user_prompt,
-        prompt_tokens=result.prompt_tokens,
-        completion_tokens=result.completion_tokens,
-        duration_ms=result.duration_ms,
-        success=True,
-    )
-    append_call_log([entry], run_dir)

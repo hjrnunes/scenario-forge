@@ -7,10 +7,10 @@ run after Stage 2 Call 3 assembles the ControlStructure.
 
 from __future__ import annotations
 
-
 from scenario_forge.stpa.models.control_structure import (
     ControlStructure,
     HeuristicResult,
+    check_structural_heuristics,
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 
@@ -41,10 +41,6 @@ def run_heuristics(
     Returns:
         A HeuristicResult with errors and warnings.
     """
-    from scenario_forge.stpa.models.control_structure import (
-        check_structural_heuristics,
-    )
-
     return check_structural_heuristics(cs, loss_analysis)
 
 

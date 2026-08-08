@@ -11,37 +11,23 @@ Revision is a single LLM call (not a loop) if the critic finds unjustified gaps.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.stpa.infra.call_log import append_call_log, make_call_log_entry
-from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
+from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-from scenario_forge.stpa.system_model.control_structure import _parse_model
+from scenario_forge.stpa.system_model import PROMPTS_DIR
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
 STAGE = "stage_2"
 STEP_CRITIC = "critic"
 STEP_REVISION = "revision"
 DEFAULT_TEMPERATURE = 0.4
-
-# Checklist responsibility names (Probe 1).
-_CHECKLIST_ITEMS: tuple[str, ...] = (
-    "Input validation / intent classification",
-    "Authorization scope enforcement",
-    "Action selection / parameter binding",
-    "Outcome verification / output checking",
-    "Context management / state tracking",
-    "Multi-agent coordination",
-    "Human-in-the-loop / alerting",
-)
-
-_VALID_CHECKLIST_RESULTS = frozenset({"present", "absent_justified", "absent_unjustified"})
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +107,8 @@ def run_completeness_critic(
         temperature=temperature,
     )
 
-    findings = _parse_model(result, CriticFindings)
-    _log_call(result, llm_client.model, run_dir, STEP_CRITIC)
+    findings = parse_llm_result(result, CriticFindings)
+    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_CRITIC)
     return findings
 
 
@@ -195,8 +181,8 @@ def run_revision(
         temperature=temperature,
     )
 
-    revised_cs = _parse_model(result, ControlStructure)
-    _log_call(result, llm_client.model, run_dir, STEP_REVISION)
+    revised_cs = parse_llm_result(result, ControlStructure)
+    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_REVISION)
 
     # Re-run structural heuristics after revision
     post_revision = run_heuristics(revised_cs, loss_analysis)
@@ -209,9 +195,49 @@ def run_revision(
 # Taxonomy probe builder
 # ---------------------------------------------------------------------------
 
+# Each entry: (predicate, probe text).  Predicates are kept as small
+# standalone functions so the builder itself stays a simple loop.
+_PROBE_TEXT_RAG = (
+    "RAG retrieval integrity: Is there a responsibility governing "
+    "retrieval content validation and source integrity?"
+)
+_PROBE_TEXT_TOOL = (
+    "Tool parameter validation: Is there a responsibility governing "
+    "parameter validation for tool invocations?"
+)
+_PROBE_TEXT_MEMORY = (
+    "Memory integrity: Is there a responsibility governing "
+    "persistent memory integrity and access control?"
+)
+_PROBE_TEXT_MULTI_AGENT = (
+    "Multi-agent coordination: Are there coordination responsibilities "
+    "for inter-agent communication?"
+)
+_PROBE_TEXT_HITL = (
+    "Human-in-the-loop escalation: Is there a responsibility for "
+    "escalation to human review when needed?"
+)
+
+
+def _needs_rag_probe(profile: CapabilityProfile) -> bool:
+    """True when the profile includes RAG capabilities."""
+    kc_set = set(profile.kc_subcodes)
+    return "KC6.3.3" in kc_set or any(
+        "rag" in ep.name.lower() for ep in profile.entry_points
+    )
+
+
+def _needs_tool_probe(profile: CapabilityProfile) -> bool:
+    """True when the profile includes tool-invocation capabilities."""
+    kc_set = set(profile.kc_subcodes)
+    return any(kc.startswith("KC5.") or kc.startswith("KC6.") for kc in kc_set)
+
 
 def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
     """Build taxonomy-derived probes based on the capability profile.
+
+    Each probe is gated by a small predicate so this function stays a
+    simple loop instead of a chain of independent ``if`` blocks.
 
     Args:
         profile: The capability profile.
@@ -219,67 +245,11 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
     Returns:
         A list of probe descriptions.
     """
-    probes: list[str] = []
-    kc_set = set(profile.kc_subcodes)
-
-    # RAG (KC6.3.3 or entry point containing "rag")
-    if "KC6.3.3" in kc_set or any(
-        "rag" in ep.name.lower() for ep in profile.entry_points
-    ):
-        probes.append(
-            "RAG retrieval integrity: Is there a responsibility governing "
-            "retrieval content validation and source integrity?"
-        )
-
-    # Tool invocation (KC5.* or KC6.*)
-    if any(kc.startswith("KC5.") or kc.startswith("KC6.") for kc in kc_set):
-        probes.append(
-            "Tool parameter validation: Is there a responsibility governing "
-            "parameter validation for tool invocations?"
-        )
-
-    # Persistent memory (KC4.3-KC4.6 or KCX-PMEM) — use computed property
-    if profile.has_persistent_memory:
-        probes.append(
-            "Memory integrity: Is there a responsibility governing "
-            "persistent memory integrity and access control?"
-        )
-
-    # Multi-agent (KC2.3 or KCX-MAGENT) — use computed property
-    if profile.multi_agent:
-        probes.append(
-            "Multi-agent coordination: Are there coordination responsibilities "
-            "for inter-agent communication?"
-        )
-
-    # HITL (KCX-HITL) — use computed property
-    if profile.hitl:
-        probes.append(
-            "Human-in-the-loop escalation: Is there a responsibility for "
-            "escalation to human review when needed?"
-        )
-
-    return probes
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
-def _log_call(
-    result: LLMResult, model: str, run_dir: Path, step: str
-) -> None:
-    """Append a call-log entry for a critic or revision call."""
-    entry = make_call_log_entry(
-        stage=STAGE,
-        step=step,
-        model=model,
-        system_prompt=result.system_prompt,
-        user_prompt=result.user_prompt,
-        prompt_tokens=result.prompt_tokens,
-        completion_tokens=result.completion_tokens,
-        duration_ms=result.duration_ms,
-        success=True,
-    )
-    append_call_log([entry], run_dir)
+    gated_probes: list[tuple[Any, str]] = [
+        (_needs_rag_probe, _PROBE_TEXT_RAG),
+        (_needs_tool_probe, _PROBE_TEXT_TOOL),
+        (lambda p: p.has_persistent_memory, _PROBE_TEXT_MEMORY),
+        (lambda p: p.multi_agent, _PROBE_TEXT_MULTI_AGENT),
+        (lambda p: p.hitl, _PROBE_TEXT_HITL),
+    ]
+    return [text for predicate, text in gated_probes if predicate(profile)]

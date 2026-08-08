@@ -8,19 +8,16 @@ losses (provenance=use_case, empty source_risk_cards).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from scenario_forge.models.risk_card import RiskCard
-from scenario_forge.stpa.infra.call_log import append_call_log, make_call_log_entry
-from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
+from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.system_model import PROMPTS_DIR
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
 STAGE = "stage_1a"
 STEP = "loss_analysis"
 DEFAULT_TEMPERATURE = 0.4
@@ -71,38 +68,7 @@ def derive_loss_analysis(
         temperature=temperature,
     )
 
-    loss_analysis = _parse_loss_analysis(result)
-    _log_call(result, llm_client.model, run_dir)
+    loss_analysis = parse_llm_result(result, LossAnalysis)
+    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP)
     write_yaml(loss_analysis, run_dir / "loss-analysis.yaml")
     return loss_analysis
-
-
-def _parse_loss_analysis(result: LLMResult) -> LossAnalysis:
-    """Parse and validate the LLM result into a LossAnalysis."""
-    content = result.content
-    if isinstance(content, LossAnalysis):
-        return content
-    if isinstance(content, dict):
-        return LossAnalysis.model_validate(content)
-    if isinstance(content, str):
-        return LossAnalysis.model_validate(json.loads(content))
-    raise ValidationError(
-        f"Unexpected LLM result content type: {type(content)}",
-        LossAnalysis,
-    )
-
-
-def _log_call(result: LLMResult, model: str, run_dir: Path) -> None:
-    """Append a call-log entry for the Stage 1a loss analysis call."""
-    entry = make_call_log_entry(
-        stage=STAGE,
-        step=STEP,
-        model=model,
-        system_prompt=result.system_prompt,
-        user_prompt=result.user_prompt,
-        prompt_tokens=result.prompt_tokens,
-        completion_tokens=result.completion_tokens,
-        duration_ms=result.duration_ms,
-        success=True,
-    )
-    append_call_log([entry], run_dir)

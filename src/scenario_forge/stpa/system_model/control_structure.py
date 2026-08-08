@@ -8,14 +8,13 @@ Three sequential LLM calls applying Poh's Behavioral Design Process:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
-from scenario_forge.stpa.infra.call_log import append_call_log, make_call_log_entry
-from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
+from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import (
@@ -24,8 +23,8 @@ from scenario_forge.stpa.models.control_structure import (
     ControlledProcess,
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.system_model import PROMPTS_DIR
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
 STAGE = "stage_2"
 DEFAULT_TEMPERATURE = 0.4
 
@@ -152,8 +151,8 @@ def _call_1_requirements(
         temperature=temperature,
     )
 
-    requirement_set = _parse_model(result, RequirementSet)
-    _log_call(result, llm_client.model, run_dir, "call_1_requirements")
+    requirement_set = parse_llm_result(result, RequirementSet)
+    log_llm_call(result, llm_client.model, run_dir, STAGE, "call_1_requirements")
     return requirement_set
 
 
@@ -186,8 +185,8 @@ def _call_2_responsibilities(
         temperature=temperature,
     )
 
-    responsibility_set = _parse_model(result, ResponsibilitySet)
-    _log_call(result, llm_client.model, run_dir, "call_2_responsibilities")
+    responsibility_set = parse_llm_result(result, ResponsibilitySet)
+    log_llm_call(result, llm_client.model, run_dir, STAGE, "call_2_responsibilities")
     return responsibility_set
 
 
@@ -220,44 +219,6 @@ def _call_3_connections(
         temperature=temperature,
     )
 
-    control_structure = _parse_model(result, ControlStructure)
-    _log_call(result, llm_client.model, run_dir, "call_3_connections")
+    control_structure = parse_llm_result(result, ControlStructure)
+    log_llm_call(result, llm_client.model, run_dir, STAGE, "call_3_connections")
     return control_structure
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_model(result: LLMResult, model_class: type[BaseModel]) -> BaseModel:
-    """Parse and validate the LLM result into the specified Pydantic model."""
-    content = result.content
-    if isinstance(content, model_class):
-        return content
-    if isinstance(content, dict):
-        return model_class.model_validate(content)
-    if isinstance(content, str):
-        return model_class.model_validate(json.loads(content))
-    raise ValidationError(
-        f"Unexpected LLM result content type: {type(content)}",
-        model_class,
-    )
-
-
-def _log_call(
-    result: LLMResult, model: str, run_dir: Path, step: str
-) -> None:
-    """Append a call-log entry for a Stage 2 call."""
-    entry = make_call_log_entry(
-        stage=STAGE,
-        step=step,
-        model=model,
-        system_prompt=result.system_prompt,
-        user_prompt=result.user_prompt,
-        prompt_tokens=result.prompt_tokens,
-        completion_tokens=result.completion_tokens,
-        duration_ms=result.duration_ms,
-        success=True,
-    )
-    append_call_log([entry], run_dir)

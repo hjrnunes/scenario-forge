@@ -29,10 +29,6 @@ from scenario_forge.stpa.system_model.control_structure import (
 )
 from tests.stpa.sp1_helpers import MockLLMClient
 
-PROMPTS_DIR = (
-    __import__("scenario_forge").stpa.system_model.control_structure.PROMPTS_DIR
-)
-
 
 def _make_loss_analysis() -> LossAnalysis:
     return LossAnalysis(

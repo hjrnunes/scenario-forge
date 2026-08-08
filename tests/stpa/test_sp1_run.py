@@ -364,7 +364,7 @@ class TestRunOrchestration:
 
     def test_run_09_prompt_templates_exist(self):
         """SP1-RUN-09: all 14 prompt template files exist."""
-        from scenario_forge.stpa.system_model.control_structure import PROMPTS_DIR
+        from scenario_forge.stpa.system_model import PROMPTS_DIR
 
         expected = [
             "stage1a_system.j2", "stage1a_user.j2",
@@ -459,3 +459,22 @@ class TestRunOrchestration:
         from scenario_forge.stpa.system_model import run_sp1 as _run
 
         assert _run is not None
+
+    def test_run_15_manifest_with_empty_risk_cards(self, tmp_path):
+        """SP1-RUN-15: manifest is written correctly when no risk cards are provided."""
+        client = _setup_mock_client()
+        run_sp1(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=[],
+            run_dir=tmp_path,
+        )
+        manifest_file = tmp_path / "run-manifest.yaml"
+        assert manifest_file.exists()
+        import yaml
+
+        manifest = yaml.safe_load(manifest_file.read_text())
+        assert "input_hashes" in manifest
+        assert "risk_extraction" in manifest["input_hashes"]
+        # Empty risk cards still produce a hash (of empty string)
+        assert manifest["input_hashes"]["risk_extraction"]

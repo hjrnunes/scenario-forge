@@ -22,8 +22,8 @@ from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.system_model import PROMPTS_DIR
 from scenario_forge.stpa.system_model.control_structure import (
-    PROMPTS_DIR,
     derive_control_structure,
 )
 from scenario_forge.stpa.system_model.critic import (
