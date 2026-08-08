@@ -12,7 +12,12 @@ from pathlib import Path
 
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
+from scenario_forge.stpa.infra.llm_helpers import (
+    StageError,
+    log_llm_call_failure,
+    log_llm_call,
+    parse_llm_result,
+)
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
@@ -50,7 +55,7 @@ def derive_loss_analysis(
         Validated LossAnalysis model.
 
     Raises:
-        ValidationError: If the LLM response does not produce a valid LossAnalysis.
+        StageError: If the LLM call fails or the response fails validation.
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -61,14 +66,31 @@ def derive_loss_analysis(
         risk_cards=risk_cards,
     )
 
-    result = llm_client.complete(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_format=LossAnalysis,
-        temperature=temperature,
-    )
+    try:
+        result = llm_client.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_format=LossAnalysis,
+            temperature=temperature,
+        )
+        loss_analysis = parse_llm_result(result, LossAnalysis)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        log_llm_call_failure(
+            llm_client.model,
+            run_dir,
+            STAGE,
+            STEP,
+            error_msg,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        raise StageError(
+            stage=STAGE,
+            step=STEP,
+            message=error_msg,
+        ) from exc
 
-    loss_analysis = parse_llm_result(result, LossAnalysis)
     log_llm_call(result, llm_client.model, run_dir, STAGE, STEP)
     write_yaml(loss_analysis, run_dir / "loss-analysis.yaml")
     return loss_analysis

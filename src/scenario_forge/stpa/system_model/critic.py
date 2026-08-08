@@ -17,7 +17,11 @@ from pydantic import BaseModel
 
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
+from scenario_forge.stpa.infra.llm_helpers import (
+    log_llm_call_failure,
+    log_llm_call,
+    parse_llm_result,
+)
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
@@ -83,6 +87,7 @@ def run_completeness_critic(
 
     Returns:
         CriticFindings model with gaps, checklist results, and taxonomy probe results.
+        Returns empty CriticFindings if the LLM call fails.
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -100,14 +105,27 @@ def run_completeness_critic(
         taxonomy_probes=taxonomy_probes,
     )
 
-    result = llm_client.complete(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_format=CriticFindings,
-        temperature=temperature,
-    )
+    try:
+        result = llm_client.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_format=CriticFindings,
+            temperature=temperature,
+        )
+        findings = parse_llm_result(result, CriticFindings)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        log_llm_call_failure(
+            llm_client.model,
+            run_dir,
+            STAGE,
+            STEP_CRITIC,
+            error_msg,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        return CriticFindings()
 
-    findings = parse_llm_result(result, CriticFindings)
     log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_CRITIC)
     return findings
 
@@ -160,6 +178,7 @@ def run_revision(
 
     Returns:
         A tuple of (revised ControlStructure, post-revision heuristic warnings).
+        On LLM failure, returns (pre-revision ControlStructure, [warning]).
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -171,14 +190,27 @@ def run_revision(
         critic_findings=critic_findings,
     )
 
-    result = llm_client.complete(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_format=ControlStructure,
-        temperature=temperature,
-    )
+    try:
+        result = llm_client.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_format=ControlStructure,
+            temperature=temperature,
+        )
+        revised_cs = parse_llm_result(result, ControlStructure)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        log_llm_call_failure(
+            llm_client.model,
+            run_dir,
+            STAGE,
+            STEP_REVISION,
+            error_msg,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        return control_structure, [f"Revision failed: {error_msg}"]
 
-    revised_cs = parse_llm_result(result, ControlStructure)
     log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_REVISION)
 
     # Re-run structural heuristics after revision

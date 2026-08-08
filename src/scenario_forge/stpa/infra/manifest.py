@@ -41,6 +41,10 @@ class STPARunManifest(BaseModel):
         default_factory=list,
         description="Gaps identified by the completeness critic.",
     )
+    stage_errors: list[str] = Field(
+        default_factory=list,
+        description="Stage failures that occurred during the run (partial failure).",
+    )
     eval_scorecard_path: str | None = None
 
 

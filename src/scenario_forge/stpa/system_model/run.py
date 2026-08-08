@@ -17,6 +17,7 @@ from pathlib import Path
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.infra.manifest import STPARunManifest
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
@@ -49,17 +50,23 @@ DEFAULT_TEMPERATURE = 0.4
 
 @dataclass
 class SP1RunResult:
-    """Result of a full SP1 run."""
+    """Result of a full SP1 run.
 
-    loss_analysis: LossAnalysis
-    capability_profile: CapabilityProfile
-    control_structure: ControlStructure
+    On partial failure, ``loss_analysis``, ``capability_profile``, and
+    ``control_structure`` may be ``None`` and ``stage_errors`` lists
+    the failures that occurred.
+    """
+
+    loss_analysis: LossAnalysis | None = None
+    capability_profile: CapabilityProfile | None = None
+    control_structure: ControlStructure | None = None
     critic_findings: CriticFindings | None = None
     heuristic_errors: list[str] = field(default_factory=list)
     heuristic_warnings: list[str] = field(default_factory=list)
     solution_neutrality_warnings: list[str] = field(default_factory=list)
     post_revision_warnings: list[str] = field(default_factory=list)
     revised: bool = False
+    stage_errors: list[str] = field(default_factory=list)
 
 
 def run_sp1(
@@ -83,82 +90,108 @@ def run_sp1(
         temperature: LLM temperature (default 0.4).
 
     Returns:
-        SP1RunResult with all artifacts and diagnostic info.
+        SP1RunResult with all artifacts and diagnostic info. On partial
+        failure, returns a partial result with ``stage_errors`` populated
+        and remaining artifacts as None.
     """
     run_dir.mkdir(parents=True, exist_ok=True)
     loader = TemplateLoader(PROMPTS_DIR)
 
-    # --- Stage 1a: Loss Analysis ---
-    loss_analysis = derive_loss_analysis(
-        llm_client=llm_client,
-        use_case_text=use_case_text,
-        risk_cards=risk_cards,
-        run_dir=run_dir,
-        template_loader=loader,
-        temperature=temperature,
-    )
-
-    # --- Stage 1b: Capability Profile ---
-    profile_skipped = profile_path is not None
-    if profile_skipped:
-        capability_profile = load_capability_profile(profile_path)
-    else:
-        capability_profile = derive_capability_profile(
-            llm_client=llm_client,
-            use_case_text=use_case_text,
-            loss_analysis=loss_analysis,
-            run_dir=run_dir,
-            template_loader=loader,
-            temperature=temperature,
-        )
-
-    # --- Stage 2: Control Structure ---
-    control_structure = derive_control_structure(
-        llm_client=llm_client,
-        use_case_text=use_case_text,
-        loss_analysis=loss_analysis,
-        run_dir=run_dir,
-        template_loader=loader,
-        temperature=temperature,
-    )
-
-    # Structural heuristics (always run after Call 3)
-    heuristic_result = run_heuristics(control_structure, loss_analysis)
-    heuristic_errors = list(heuristic_result.errors)
-    heuristic_warnings = list(heuristic_result.warnings)
-
-    # Solution-neutrality check
-    solution_neutrality_warnings = check_solution_neutrality(control_structure)
-
-    # Completeness critic
-    critic_findings = run_completeness_critic(
-        llm_client=llm_client,
-        control_structure=control_structure,
-        capability_profile=capability_profile,
-        use_case_text=use_case_text,
-        run_dir=run_dir,
-        template_loader=loader,
-        temperature=temperature,
-    )
-
-    # Revision (single attempt if unjustified gaps)
+    stage_errors: list[str] = []
+    loss_analysis: LossAnalysis | None = None
+    capability_profile: CapabilityProfile | None = None
+    control_structure: ControlStructure | None = None
+    critic_findings: CriticFindings | None = None
+    heuristic_errors: list[str] = []
+    heuristic_warnings: list[str] = []
+    solution_neutrality_warnings: list[str] = []
     post_revision_warnings: list[str] = []
     revised = False
-    if has_unjustified_gaps(critic_findings):
-        revised = True
-        control_structure, post_revision_warnings = run_revision(
+    profile_skipped = profile_path is not None
+
+    # --- Stage 1a: Loss Analysis ---
+    try:
+        loss_analysis = derive_loss_analysis(
             llm_client=llm_client,
-            control_structure=control_structure,
-            critic_findings=critic_findings,
             use_case_text=use_case_text,
+            risk_cards=risk_cards,
             run_dir=run_dir,
-            loss_analysis=loss_analysis,
             template_loader=loader,
             temperature=temperature,
         )
-        write_yaml(control_structure, run_dir / "control-structure.yaml")
+    except StageError as exc:
+        stage_errors.append(str(exc))
+        loss_analysis = None
 
-    # Write run manifest
+    # --- Stage 1b: Capability Profile ---
+    if loss_analysis is not None:
+        if profile_skipped:
+            capability_profile = load_capability_profile(profile_path)
+        else:
+            try:
+                capability_profile = derive_capability_profile(
+                    llm_client=llm_client,
+                    use_case_text=use_case_text,
+                    loss_analysis=loss_analysis,
+                    run_dir=run_dir,
+                    template_loader=loader,
+                    temperature=temperature,
+                )
+            except StageError as exc:
+                stage_errors.append(str(exc))
+                capability_profile = None
+
+    # --- Stage 2: Control Structure ---
+    if loss_analysis is not None and capability_profile is not None:
+        try:
+            control_structure = derive_control_structure(
+                llm_client=llm_client,
+                use_case_text=use_case_text,
+                loss_analysis=loss_analysis,
+                run_dir=run_dir,
+                template_loader=loader,
+                temperature=temperature,
+            )
+        except StageError as exc:
+            stage_errors.append(str(exc))
+            control_structure = None
+
+    # Structural heuristics (always run after Call 3)
+    if control_structure is not None:
+        heuristic_result = run_heuristics(control_structure, loss_analysis)
+        heuristic_errors = list(heuristic_result.errors)
+        heuristic_warnings = list(heuristic_result.warnings)
+
+        # Solution-neutrality check
+        solution_neutrality_warnings = check_solution_neutrality(control_structure)
+
+        # Completeness critic (graceful — returns empty findings on failure)
+        critic_findings = run_completeness_critic(
+            llm_client=llm_client,
+            control_structure=control_structure,
+            capability_profile=capability_profile,
+            use_case_text=use_case_text,
+            run_dir=run_dir,
+            template_loader=loader,
+            temperature=temperature,
+        )
+
+        # Revision (single attempt if unjustified gaps; graceful on failure)
+        if has_unjustified_gaps(critic_findings):
+            revised = True
+            control_structure, post_revision_warnings = run_revision(
+                llm_client=llm_client,
+                control_structure=control_structure,
+                critic_findings=critic_findings,
+                use_case_text=use_case_text,
+                run_dir=run_dir,
+                loss_analysis=loss_analysis,
+                template_loader=loader,
+                temperature=temperature,
+            )
+            write_yaml(control_structure, run_dir / "control-structure.yaml")
+
+    # Write run manifest (always, even on partial failure)
     _write_manifest(
         run_dir=run_dir,
         llm_client=llm_client,
@@ -168,6 +201,7 @@ def run_sp1(
         critic_findings=critic_findings,
         temperature=temperature,
         profile_skipped=profile_skipped,
+        stage_errors=stage_errors,
     )
 
     return SP1RunResult(
@@ -180,6 +214,7 @@ def run_sp1(
         solution_neutrality_warnings=solution_neutrality_warnings,
         post_revision_warnings=post_revision_warnings,
         revised=revised,
+        stage_errors=stage_errors,
     )
 
 
@@ -190,9 +225,10 @@ def _write_manifest(
     use_case_text: str,
     risk_cards: list[RiskCard],
     loader: TemplateLoader,
-    critic_findings: CriticFindings,
+    critic_findings: CriticFindings | None,
     temperature: float,
     profile_skipped: bool,
+    stage_errors: list[str] | None = None,
 ) -> None:
     """Write the run manifest with stage summary, input hashes, and prompt hashes."""
     input_hashes = {
@@ -208,9 +244,11 @@ def _write_manifest(
 
     prompt_hashes = loader.hash_prompt_templates()
 
-    critic_summary = [
-        f"{gap.gap_type}: {gap.description}" for gap in critic_findings.gaps
-    ]
+    critic_summary = (
+        [f"{gap.gap_type}: {gap.description}" for gap in critic_findings.gaps]
+        if critic_findings is not None
+        else []
+    )
 
     stage_1b_calls = 0 if profile_skipped else 1
 
@@ -234,6 +272,8 @@ def _write_manifest(
         },
         critic_findings=critic_summary,
     )
+    if stage_errors:
+        manifest.stage_errors = stage_errors
     write_yaml(manifest, run_dir / "run-manifest.yaml")
 
 

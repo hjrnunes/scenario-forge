@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from scenario_forge.models.risk_card import RiskCard
+from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.models.loss_analysis import (
     LossAnalysis,
     LossProvenance,
@@ -135,7 +136,7 @@ class TestStage1aLossAnalysis:
         bad["hazards"][0]["related_losses"] = ["L-99"]
         client = MockLLMClient()
         client.set_response_for(LossAnalysis, bad)
-        with pytest.raises((ValidationError, ValueError), match="related_losses"):
+        with pytest.raises((ValidationError, ValueError, StageError), match="related_losses"):
             derive_loss_analysis(
                 llm_client=client,
                 use_case_text="Test use case",
@@ -149,7 +150,7 @@ class TestStage1aLossAnalysis:
         bad["security_constraints"][0]["related_hazards"] = ["H-99"]
         client = MockLLMClient()
         client.set_response_for(LossAnalysis, bad)
-        with pytest.raises((ValidationError, ValueError), match="related_hazards"):
+        with pytest.raises((ValidationError, ValueError, StageError), match="related_hazards"):
             derive_loss_analysis(
                 llm_client=client,
                 use_case_text="Test use case",
@@ -163,7 +164,7 @@ class TestStage1aLossAnalysis:
         bad["risk_card_losses"][0]["source_risk_cards"] = []
         client = MockLLMClient()
         client.set_response_for(LossAnalysis, bad)
-        with pytest.raises((ValidationError, ValueError), match="source_risk_cards"):
+        with pytest.raises((ValidationError, ValueError, StageError), match="source_risk_cards"):
             derive_loss_analysis(
                 llm_client=client,
                 use_case_text="Test use case",
@@ -177,7 +178,7 @@ class TestStage1aLossAnalysis:
         bad["use_case_losses"][0]["source_risk_cards"] = ["atlas-001"]
         client = MockLLMClient()
         client.set_response_for(LossAnalysis, bad)
-        with pytest.raises((ValidationError, ValueError), match="source_risk_cards"):
+        with pytest.raises((ValidationError, ValueError, StageError), match="source_risk_cards"):
             derive_loss_analysis(
                 llm_client=client,
                 use_case_text="Test use case",
@@ -191,7 +192,7 @@ class TestStage1aLossAnalysis:
         bad["risk_card_losses"][1]["loss_id"] = "L-1"
         client = MockLLMClient()
         client.set_response_for(LossAnalysis, bad)
-        with pytest.raises((ValidationError, ValueError), match="(?i)duplicate"):
+        with pytest.raises((ValidationError, ValueError, StageError), match="(?i)duplicate"):
             derive_loss_analysis(
                 llm_client=client,
                 use_case_text="Test use case",

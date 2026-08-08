@@ -47,6 +47,7 @@ def make_call_log_entry(
     completion_tokens: int = 0,
     duration_ms: int = 0,
     success: bool = True,
+    error: str | None = None,
     slot_id: str | None = None,
     scenario_id: str | None = None,
     timestamp: str | None = None,
@@ -63,6 +64,7 @@ def make_call_log_entry(
         completion_tokens: Completion tokens generated.
         duration_ms: Wall-clock duration in milliseconds.
         success: Whether the call succeeded.
+        error: Optional error message for failed calls.
         slot_id: Stage 3 slot ID (e.g. ``RESP-1:CA-1-1:TYPE-1``), or None.
         scenario_id: Stage 5/6 scenario ID (e.g. ``SCN-001``), or None.
         timestamp: ISO 8601 timestamp; defaults to current UTC time.
@@ -70,7 +72,7 @@ def make_call_log_entry(
     Returns:
         A dict suitable for JSONL serialization.
     """
-    return {
+    entry: dict[str, Any] = {
         "stage": stage,
         "step": step,
         "slot_id": slot_id,
@@ -84,6 +86,9 @@ def make_call_log_entry(
         "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
         "success": success,
     }
+    if error is not None:
+        entry["error"] = error
+    return entry
 
 
 def append_call_log(entries: list[dict], run_dir: Path) -> None:

@@ -3,6 +3,7 @@
 Derives the control structure that is the pipeline's primary representation.
 """
 
+from scenario_forge.stpa.infra.llm_helpers import StageError  # noqa: E402
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.control_structure import (  # noqa: E402
     Requirement,
@@ -22,17 +23,21 @@ from scenario_forge.stpa.system_model.heuristics import (  # noqa: E402
 )
 from scenario_forge.stpa.system_model.loss_analysis import derive_loss_analysis  # noqa: E402
 from scenario_forge.stpa.system_model.profile import derive_capability_profile  # noqa: E402
-from scenario_forge.stpa.system_model.run import run_sp1  # noqa: E402
+from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1  # noqa: E402
 
 __all__ = [
     # constants
     "PROMPTS_DIR",
+    # error types
+    "StageError",
     # internal models
     "Requirement",
     "RequirementSet",
     "ResponsibilitySet",
     "CriticFindings",
     "CriticGap",
+    # run result
+    "SP1RunResult",
     # stage functions
     "derive_loss_analysis",
     "derive_capability_profile",
