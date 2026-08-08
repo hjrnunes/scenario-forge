@@ -284,7 +284,7 @@ print('PQF-10 OK')
 
 **Steps:**
 1. Read the raw `stage1a_user.j2` template file.
-2. Verify the file contains `{{ use_case_text }}` and `{{ risk_cards }}`.
+2. Verify the file contains `{{ use_case_text }}` and `{% if risk_cards %}`.
 
 **Command:**
 ```bash
@@ -292,7 +292,7 @@ uv run python -c "
 from pathlib import Path
 text = Path('src/scenario_forge/stpa/system_model/prompts/stage1a_user.j2').read_text()
 assert '{{ use_case_text }}' in text, 'use_case_text variable missing'
-assert '{{ risk_cards }}' in text, 'risk_cards variable missing'
+assert '{% if risk_cards %}' in text, 'risk_cards variable missing'
 print('PQF-11 OK')
 "
 ```
