@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=ecb9f9b119d6d9c662f7b36ed8a465ea662873b9d6a2c9dbd66b9f4f71d4a812
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T12:24:17.472537Z","feature_name":"ICAEnumeration boundary schema validation","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/ica_enumeration_validation.feature","background_hash":"7f7e1d0d86486b91e1032042bdd50421d82de05c8286ca110b5392e3f803961f","implementation_hash":"unknown","scenarios":[{"index":9,"name":"ICAEnumeration-10 all UCA types are accepted","scenario_hash":"8bc9281c8d1cdf5608f4e991fa513db79864c3cd0e192f41e93d3b9a8c35fd9e","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-08T12:24:17.472537Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: ICAEnumeration boundary schema validation
   The ICAEnumeration model validates slot-level N/A vs ICA mutual exclusivity,
   hazard and constraint reference validity, and rejects duplicate slot IDs.

@@ -36,3 +36,8 @@ class ScenarioEnvelope(BaseModel):
                 f"'{self.scenario_spec.scenario_id}'."
             )
         return self
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T11:52:38Z","module_hash":"d30f3163f40dc2eac5871555332b356ce184be5d9d0cdf729ce5621e1dbb1144","functions":[{"id":"func/ScenarioEnvelope.validate_scenario_id_match","name":"validate_scenario_id_match","line":31,"end_line":38,"hash":"ae66e01ea20d4bafb634c17253dfa96bea6a31c8e839f07ca0ec5a5c316bdbf4"}]}
+# mutate4py-manifest-end

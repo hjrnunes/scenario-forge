@@ -155,3 +155,8 @@ def _validate_ica_references(
                 f"ICA {ica.ica_id} references non-existent "
                 f"constraint '{ref}' in related_constraints."
             )
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T12:01:08Z","module_hash":"b564566ce5f5aa629a42dd2358a33c94f7b42567db61c679ddd534361489186b","functions":[{"id":"func/ICASlot.validate_na_exclusivity","name":"validate_na_exclusivity","line":61,"end_line":82,"hash":"835ddf7d1e996cb58923018a0ec995ca2869893755b8961197565fe5a9a41bd8"},{"id":"func/ICAEnumeration.validate_duplicate_slot_ids","name":"validate_duplicate_slot_ids","line":91,"end_line":97,"hash":"4c17c97626e3a7ec6dc8bcab115cd6e4ccf524e9004508ed12bb105c50c69d2d"},{"id":"func/ICAEnumeration.validate_against","name":"validate_against","line":99,"end_line":128,"hash":"98f7eb70bfcd71e0ea4d1bcba0344848dcb615e78abe17ed8f962f8414a2ed65"},{"id":"func/_collect_rc_ids","name":"_collect_rc_ids","line":131,"end_line":137,"hash":"7099d0acaeddedc7c7fd211fc37f3cb79f71ab14734ec326809065561e7a8447"},{"id":"func/_validate_ica_references","name":"_validate_ica_references","line":140,"end_line":157,"hash":"0c4befb8a7e7faa4af05ccb9983dcc4b91f79f6dd3329769d321916c3665b8fc"}]}
+# mutate4py-manifest-end

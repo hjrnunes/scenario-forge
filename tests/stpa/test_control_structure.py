@@ -173,7 +173,7 @@ class TestControlStructureValidation:
         )
         with pytest.raises(ValidationError) as exc_info:
             _make_cs(responsibilities=[resp1, resp2])
-        assert "updates" in str(exc_info.value)
+        assert "different" in str(exc_info.value)
 
     @pytest.mark.parametrize(
         "ref_type,bad_ref",

@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=c7934743622c199d2664fd920dac94a18d7449f0ec159636c713b34bfb3f0c9b
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T12:23:31.056999Z","feature_name":"EnrichedThreatSet boundary schema validation","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/enriched_threat_set_validation.feature","background_hash":"12e59a8fd4ea910f0b1f225eac71c97f4087c443604958ac94c515904b18dc90","implementation_hash":"unknown","scenarios":[{"index":2,"name":"EnrichedThreatSet-03 catalog mapping confidence levels","scenario_hash":"0fe4b57b8d17d6650175104e0d405fc73f6d39941be9afd37718146fae45d858","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-08T12:23:31.056999Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: EnrichedThreatSet boundary schema validation
   The EnrichedThreatSet model validates structural threat entries, catalog
   mappings with confidence levels, and coverage analysis metrics.

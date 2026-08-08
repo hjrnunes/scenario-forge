@@ -7,8 +7,10 @@ from pydantic import ValidationError
 
 from scenario_forge.stpa.infra.yaml_io import read_yaml, write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
+from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from tests.stpa.helpers import (
+    make_ica_slot,
     make_minimal_control_structure,
     make_minimal_loss_analysis,
 )
@@ -63,3 +65,21 @@ security_constraints: []
         path.write_text(invalid_yaml)
         with pytest.raises(ValidationError):
             read_yaml(path, LossAnalysis)
+
+    def test_yaml_05_creates_nested_parent_dirs(self, tmp_path):
+        """InfraYAML-05: write_yaml creates nested parent directories."""
+        model = make_minimal_loss_analysis()
+        path = tmp_path / "nested" / "sub" / "dir" / "output.yaml"
+        write_yaml(model, path)
+        assert path.exists()
+
+    def test_yaml_06_excludes_none_fields_from_yaml(self, tmp_path):
+        """InfraYAML-06: write_yaml excludes None-valued fields from output."""
+        # ICASlot has coordination_link=None and na_justification=None
+        model = ICAEnumeration(slots=[make_ica_slot()])
+        path = tmp_path / "ica.yaml"
+        write_yaml(model, path)
+        text = path.read_text()
+        # With exclude_none=True, None fields should not appear in the YAML
+        assert "coordination_link" not in text
+        assert "na_justification" not in text

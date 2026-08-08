@@ -60,3 +60,22 @@ class TestInfraCallLog:
         """InfraCallLog-04: empty list does not create calls.jsonl."""
         append_call_log([], tmp_path)
         assert not (tmp_path / "calls.jsonl").exists()
+
+    def test_call_log_05_creates_nested_run_dir(self, tmp_path):
+        """InfraCallLog-05: append_call_log creates nested run_dir."""
+        entry = make_call_log_entry(stage="stage_2", step="call_1", model="m")
+        nested = tmp_path / "nested" / "run"
+        append_call_log([entry], nested)
+        assert (nested / "calls.jsonl").exists()
+
+    def test_call_log_06_preserves_non_ascii_content(self, tmp_path):
+        """InfraCallLog-06: JSONL preserves non-ASCII in direct fields."""
+        entry = make_call_log_entry(
+            stage="stage_2",
+            step="call_1",
+            model="tëst-mödél",
+        )
+        append_call_log([entry], tmp_path)
+        raw = (tmp_path / "calls.jsonl").read_text()
+        # With ensure_ascii=False, non-ASCII chars appear directly in the file
+        assert "tëst-mödél" in raw

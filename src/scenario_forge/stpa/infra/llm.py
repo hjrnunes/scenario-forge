@@ -189,3 +189,8 @@ class LLMClient:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
         )
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T12:26:55Z","module_hash":"7c73ed1b6c6b80e6e2dd573bcd436c2b305ef194e1cf39f0cd0754b36ec568da","functions":[{"id":"func/_resolve_temperature","name":"_resolve_temperature","line":26,"end_line":35,"hash":"998ed6ac410ac249f9323306689e281049387bb4cdb7b40473aa70e8a12d5218"},{"id":"func/_resolve_max_tokens","name":"_resolve_max_tokens","line":38,"end_line":45,"hash":"cb0fddfec270db0947c9e4c4641ca1ab14a3a0840697f7b1d186b3f95bd4492c"},{"id":"func/_resolve_base_url","name":"_resolve_base_url","line":48,"end_line":50,"hash":"f49d568278a6d26ac457df37e5df8d5ec67f8e3fbf717ab6139b0868093eff26"},{"id":"func/_resolve_api_key","name":"_resolve_api_key","line":53,"end_line":55,"hash":"9d252c6a2c4627645193dc1d414b204a9fb0ae3ca6fbec47157ea6929db89a2e"},{"id":"func/_resolve_model","name":"_resolve_model","line":58,"end_line":62,"hash":"702c4a307f67d7519b9926c7cd7bcff24dd960c8d96239b4793cf9d1e670e506"},{"id":"func/_resolve_extra_headers","name":"_resolve_extra_headers","line":65,"end_line":74,"hash":"e60982eb84b4e3e6c180960e7bedb1b8fb5c8f4cf6c98d0632e8c673e10d0708"},{"id":"func/_inject_openrouter_headers","name":"_inject_openrouter_headers","line":77,"end_line":83,"hash":"7a170937e63ad4d1e269ef89e011e3003b8a7c8d66fe519abff1ab75995ac6eb"},{"id":"func/LLMClient.__init__","name":"__init__","line":104,"end_line":138,"hash":"130cf69fd18ba8aec2179e1162cf86cb42758c36793f6f9e7ef9ce96fb52c734"},{"id":"func/LLMClient.complete","name":"complete","line":140,"end_line":191,"hash":"62f6e29fb5c1757f3939fcf206ceabf3ab75a240ea94e62b87aed8955e485694"}]}
+# mutate4py-manifest-end

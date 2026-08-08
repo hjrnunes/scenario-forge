@@ -90,7 +90,16 @@ st_constraint_ids = st.lists(
     unique=True,
 )
 
-st_text = st.text(min_size=1, max_size=50)
+# Exclude YAML 1.1 line-break characters (\x85 NEL, \u2028 LS, \u2029 PS)
+# and control characters that PyYAML does not round-trip correctly.
+st_text = st.text(
+    alphabet=st.characters(
+        blacklist_categories=("Cs", "Cc"),
+        blacklist_characters=("\x85", "\u2028", "\u2029"),
+    ),
+    min_size=1,
+    max_size=50,
+)
 
 
 # ---------------------------------------------------------------------------

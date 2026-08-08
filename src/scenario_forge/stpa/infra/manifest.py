@@ -42,3 +42,8 @@ class STPARunManifest(BaseModel):
         description="Gaps identified by the completeness critic.",
     )
     eval_scorecard_path: str | None = None
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T11:55:23Z","module_hash":"79cf053719f37a04c4994d71a572f083a712db8dd06513272708876283e6a329","functions":[]}
+# mutate4py-manifest-end

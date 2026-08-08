@@ -63,3 +63,12 @@ class TestInfraTemplates:
         # Should be able to render our template
         result = loader.render_prompt("test.j2", msg="ok")
         assert result == "ok"
+
+    def test_templates_05_keeps_trailing_newline(self, tmp_path):
+        """InfraTemplates-05: loader preserves trailing newline in templates."""
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "test.j2").write_text("Hello {{ name }}!\n")
+        loader = TemplateLoader(prompts_dir)
+        rendered = loader.render_prompt("test.j2", name="World")
+        assert rendered == "Hello World!\n"

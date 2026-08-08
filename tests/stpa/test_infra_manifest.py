@@ -28,6 +28,16 @@ class TestInfraManifest:
         assert manifest.run_id == "RUN-001"
         assert manifest.run_dir == "output/test"
 
+    def test_manifest_01a_defaults_are_zero(self):
+        """InfraManifest-01a: optional numeric fields default to zero."""
+        manifest = STPARunManifest(**self._base_manifest_data())
+        assert manifest.slot_count == 0
+        assert manifest.na_count == 0
+        assert manifest.fill_rate == 0.0
+        assert manifest.scenario_count == 0
+        assert manifest.critic_findings == []
+        assert manifest.eval_scorecard_path is None
+
     def test_manifest_02_with_fill_rate_and_counts(self):
         """InfraManifest-02: manifest with fill_rate and counts passes."""
         data = self._base_manifest_data()
