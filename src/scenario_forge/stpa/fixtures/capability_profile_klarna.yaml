@@ -1,0 +1,49 @@
+# Fixture: CapabilityProfile for the Klarna agentic payment assistant.
+# Provenance: Derived from the existing scenario-forge pipeline output
+# for the Klarna use case. Provides zones, entry points, KC sub-codes,
+# and tool inventory for SP2 and SP3 development against fixtures.
+# Schema: scenario_forge.models.capability_profile.CapabilityProfile
+
+zones_active:
+  - input
+  - reasoning
+  - tool_execution
+  - memory
+
+entry_points:
+  - name: User chat messages via Klarna app
+    entry_point_type: user_input
+    direction: input
+    controllability: direct
+  - name: Retrieval from product knowledge base
+    entry_point_type: external_content
+    direction: input
+    controllability: indirect
+    ingress_zone: input
+  - name: Payment API responses
+    entry_point_type: system_event
+    direction: output
+  - name: Agent responses to user
+    entry_point_type: user_input
+    direction: output
+
+confidence: medium
+
+kc_subcodes:
+  - KC1.1
+  - KC2.1
+  - KC3.2
+  - KC4.3
+  - KC4.5
+  - KC5.1
+  - KC6.1.1
+  - KC6.3.2
+  - KC6.4
+
+tool_inventory:
+  - name: payment_api
+    description: Execute and query payment transactions
+  - name: knowledge_base_search
+    description: Search the product knowledge base for payment advice
+  - name: user_profile_lookup
+    description: Look up user profile and payment history
