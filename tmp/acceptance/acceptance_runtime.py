@@ -245,7 +245,11 @@ def _h_loss_analysis_hazard_bad_ref(world: World, text: str, examples: dict) -> 
             Loss(loss_id="L-1", description="Loss", provenance=LossProvenance.use_case)
         ],
         hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=[bad_ref])],
-        security_constraints=[],
+        security_constraints=[
+            SecurityConstraint(
+                constraint_id="SC-1", description="Constraint", related_hazards=["H-1"]
+            )
+        ],
     )
     return True, ""
 
@@ -285,8 +289,12 @@ def _h_loss_analysis_duplicate(world: World, text: str, examples: dict) -> tuple
                 Loss(loss_id=dup_value, description="A", provenance=LossProvenance.use_case),
                 Loss(loss_id=dup_value, description="B", provenance=LossProvenance.use_case),
             ],
-            hazards=[],
-            security_constraints=[],
+            hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
+            security_constraints=[
+                SecurityConstraint(
+                    constraint_id="SC-1", description="Constraint", related_hazards=["H-1"]
+                )
+            ],
         )
     elif id_field == "hazard_id":
         world.loss_analysis = LossAnalysis(
@@ -298,7 +306,11 @@ def _h_loss_analysis_duplicate(world: World, text: str, examples: dict) -> tuple
                 Hazard(hazard_id=dup_value, description="A", related_losses=["L-1"]),
                 Hazard(hazard_id=dup_value, description="B", related_losses=["L-1"]),
             ],
-            security_constraints=[],
+            security_constraints=[
+                SecurityConstraint(
+                    constraint_id="SC-1", description="Constraint", related_hazards=["H-1"]
+                )
+            ],
         )
     elif id_field == "constraint_id":
         world.loss_analysis = LossAnalysis(
@@ -325,8 +337,12 @@ def _h_loss_analysis_risk_card(world: World, text: str, examples: dict) -> tuple
                 Loss(loss_id="L-1", description="Loss", provenance=LossProvenance.risk_card),
             ],
             use_case_losses=[],
-            hazards=[],
-            security_constraints=[],
+            hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
+            security_constraints=[
+                SecurityConstraint(
+                    constraint_id="SC-1", description="Constraint", related_hazards=["H-1"]
+                )
+            ],
         )
     elif "provenance risk_card and source_risk_cards atlas-001" in text:
         world.loss_analysis = LossAnalysis(
@@ -339,8 +355,12 @@ def _h_loss_analysis_risk_card(world: World, text: str, examples: dict) -> tuple
                 ),
             ],
             use_case_losses=[],
-            hazards=[],
-            security_constraints=[],
+            hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
+            security_constraints=[
+                SecurityConstraint(
+                    constraint_id="SC-1", description="Constraint", related_hazards=["H-1"]
+                )
+            ],
         )
     elif "provenance use_case and source_risk_cards atlas-001" in text:
         world.loss_analysis = LossAnalysis(
@@ -353,8 +373,12 @@ def _h_loss_analysis_risk_card(world: World, text: str, examples: dict) -> tuple
                     source_risk_cards=["atlas-001"],
                 ),
             ],
-            hazards=[],
-            security_constraints=[],
+            hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
+            security_constraints=[
+                SecurityConstraint(
+                    constraint_id="SC-1", description="Constraint", related_hazards=["H-1"]
+                )
+            ],
         )
     elif "provenance use_case and empty source_risk_cards" in text:
         world.loss_analysis = _make_minimal_loss_analysis()
@@ -364,8 +388,12 @@ def _h_loss_analysis_risk_card(world: World, text: str, examples: dict) -> tuple
             use_case_losses=[
                 Loss(loss_id="L-1", description="Loss", provenance=LossProvenance.critic_derived),
             ],
-            hazards=[],
-            security_constraints=[],
+            hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
+            security_constraints=[
+                SecurityConstraint(
+                    constraint_id="SC-1", description="Constraint", related_hazards=["H-1"]
+                )
+            ],
         )
     else:
         return False, f"Unhandled risk card step: {text}"
@@ -2932,7 +2960,9 @@ def _h_sp1_la_invalid_ref(world: World, text: str, examples: dict) -> tuple[bool
             "hazards": [
                 {"hazard_id": "H-1", "description": "Hazard 1", "related_losses": ["L-99"]},
             ],
-            "security_constraints": [],
+            "security_constraints": [
+                {"constraint_id": "SC-1", "description": "Constraint 1", "related_hazards": ["H-1"]},
+            ],
         }
     elif entity == "constraint":
         world.sp1_llm_content = {
@@ -3609,6 +3639,7 @@ def _sp1_setup_full_mock_client(
     client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
     client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
     client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
     client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
     if critic_findings is not None:
         client.set_response_for(_SP1CriticFindings, critic_findings)
@@ -3640,7 +3671,8 @@ def _h_sp1_la_use_case_loss(world: World, text: str, examples: dict) -> tuple[bo
         "risk_card_losses": [], "use_case_losses": [
             {"loss_id": "L-3", "description": "Loss of trust", "provenance": "use_case", "source_risk_cards": []},
         ],
-        "hazards": [], "security_constraints": [],
+        "hazards": [{"hazard_id": "H-1", "description": "Hazard", "related_losses": ["L-3"]}],
+        "security_constraints": [{"constraint_id": "SC-1", "description": "Constraint", "related_hazards": ["H-1"]}],
     }
     return True, ""
 
@@ -3651,7 +3683,9 @@ def _h_sp1_la_risk_card_missing_source(world: World, text: str, examples: dict) 
         "risk_card_losses": [
             {"loss_id": "L-1", "description": "Loss 1", "provenance": "risk_card", "source_risk_cards": []},
         ],
-        "use_case_losses": [], "hazards": [], "security_constraints": [],
+        "use_case_losses": [],
+        "hazards": [{"hazard_id": "H-1", "description": "Hazard", "related_losses": ["L-1"]}],
+        "security_constraints": [{"constraint_id": "SC-1", "description": "Constraint", "related_hazards": ["H-1"]}],
     }
     return True, ""
 
@@ -3662,7 +3696,8 @@ def _h_sp1_la_use_case_with_source(world: World, text: str, examples: dict) -> t
         "risk_card_losses": [], "use_case_losses": [
             {"loss_id": "L-3", "description": "Loss 3", "provenance": "use_case", "source_risk_cards": ["atlas-001"]},
         ],
-        "hazards": [], "security_constraints": [],
+        "hazards": [{"hazard_id": "H-1", "description": "Hazard", "related_losses": ["L-3"]}],
+        "security_constraints": [{"constraint_id": "SC-1", "description": "Constraint", "related_hazards": ["H-1"]}],
     }
     return True, ""
 
@@ -4888,6 +4923,8 @@ def _h_sp1_run_full(world: World, text: str, examples: dict) -> tuple[bool, str]
             client.set_response_for(_GDRequirementSet, _sp1_valid_req_set_dict())
         if _GDResponsibilitySet not in client._response_map and _GDResponsibilitySet not in client._invalid_types and _GDResponsibilitySet not in client._exception_types:
             client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_dict())
+        if _SP1ConnectionSet not in client._response_map and _SP1ConnectionSet not in client._invalid_types and _SP1ConnectionSet not in client._exception_types:
+            client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
         if ControlStructure not in client._response_map and ControlStructure not in client._invalid_types and ControlStructure not in client._exception_types:
             client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
         if _SP1CriticFindings not in client._response_map and _SP1CriticFindings not in client._invalid_types and _SP1CriticFindings not in client._exception_types:
