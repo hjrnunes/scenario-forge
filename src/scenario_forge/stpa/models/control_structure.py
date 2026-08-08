@@ -65,7 +65,7 @@ class FeedbackChannel(BaseModel):
     fb_id: str  # FB-X-Y
     description: str
     updates: str  # pm_id ref
-    source: ElementRef
+    source: ElementRef | None = None
 
 
 class Responsibility(BaseModel):
@@ -110,7 +110,7 @@ class CoordinationLink(BaseModel):
 class ControlStructure(BaseModel):
     """The hierarchical control structure of the system."""
 
-    responsibilities: list[Responsibility]
+    responsibilities: list[Responsibility] = Field(min_length=1)
     controlled_processes: list[ControlledProcess] = Field(default_factory=list)
     coordination_links: list[CoordinationLink] = Field(default_factory=list)
 
@@ -230,6 +230,8 @@ def _validate_fb_source_refs(
 ) -> None:
     """Validate source references in feedback channels."""
     for fb in resp.feedback_channels:
+        if fb.source is None:
+            continue
         if not _is_valid_element_ref(fb.source, resp_ids, cp_ids):
             raise ValueError(
                 f"FeedbackChannel {fb.fb_id} source references "
@@ -392,7 +394,7 @@ def _collect_referenced_cps(responsibilities: list[Responsibility]) -> set[str]:
 def _add_cps_from_feedback(referenced: set[str], channels: list[FeedbackChannel]) -> None:
     """Add CP IDs referenced by feedback channel sources."""
     for fb in channels:
-        if fb.source.type == ReferenceType.controlled_process:
+        if fb.source is not None and fb.source.type == ReferenceType.controlled_process:
             referenced.add(fb.source.id)
 
 

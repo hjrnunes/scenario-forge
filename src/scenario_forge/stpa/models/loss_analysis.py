@@ -53,8 +53,8 @@ class LossAnalysis(BaseModel):
 
     risk_card_losses: list[Loss]
     use_case_losses: list[Loss]
-    hazards: list[Hazard]
-    security_constraints: list[SecurityConstraint]
+    hazards: list[Hazard] = Field(min_length=1)
+    security_constraints: list[SecurityConstraint] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_references_and_provenance(self) -> LossAnalysis:

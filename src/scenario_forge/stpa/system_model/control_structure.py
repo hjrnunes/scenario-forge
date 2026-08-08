@@ -8,6 +8,7 @@ Three sequential LLM calls applying Poh's Behavioral Design Process:
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Literal
 
@@ -19,8 +20,10 @@ from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import (
     ControlStructure,
-    Responsibility,
+    CoordinationLink,
     ControlledProcess,
+    ElementRef,
+    Responsibility,
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
@@ -57,6 +60,85 @@ class ResponsibilitySet(BaseModel):
 
     responsibilities: list[Responsibility]
     controlled_processes: list[ControlledProcess] = []
+
+
+class ConnectionAssignment(BaseModel):
+    """A connection assignment for a feedback channel or control action."""
+
+    element_id: str  # FB-* or CA-*
+    target: ElementRef | None = None  # for control actions: which element receives the action
+    source: ElementRef | None = None  # for feedback channels: which element provides the info
+
+
+class ConnectionSet(BaseModel):
+    """Slim schema for Call 3 — only new outputs."""
+
+    coordination_links: list[CoordinationLink] = []
+    controlled_processes: list[ControlledProcess] = []
+    connection_assignments: list[ConnectionAssignment] = []
+
+
+# ---------------------------------------------------------------------------
+# Merge — combine ResponsibilitySet (Call 2) with ConnectionSet (Call 3)
+# ---------------------------------------------------------------------------
+
+
+def merge_connection_set(
+    responsibility_set: ResponsibilitySet,
+    connection_set: ConnectionSet,
+) -> ControlStructure:
+    """Merge ResponsibilitySet from Call 2 with ConnectionSet from Call 3.
+
+    - Applies connection assignments to responsibilities (sets feedback
+      sources, control action targets by element ID)
+    - Adds coordination links and controlled processes
+    - Produces and validates the final ControlStructure
+    """
+    responsibilities = copy.deepcopy(responsibility_set.responsibilities)
+
+    for assignment in connection_set.connection_assignments:
+        _apply_connection_assignment(responsibilities, assignment)
+
+    controlled_processes = _merge_controlled_processes(
+        responsibility_set.controlled_processes,
+        connection_set.controlled_processes,
+    )
+
+    return ControlStructure(
+        responsibilities=responsibilities,
+        controlled_processes=controlled_processes,
+        coordination_links=connection_set.coordination_links,
+    )
+
+
+def _apply_connection_assignment(
+    responsibilities: list[Responsibility],
+    assignment: ConnectionAssignment,
+) -> None:
+    """Apply a single connection assignment to the matching feedback channel or control action."""
+    for resp in responsibilities:
+        for fb in resp.feedback_channels:
+            if fb.fb_id == assignment.element_id and assignment.source is not None:
+                fb.source = assignment.source
+                return
+        for ca in resp.control_actions:
+            if ca.ca_id == assignment.element_id and assignment.target is not None:
+                ca.target = assignment.target
+                return
+
+
+def _merge_controlled_processes(
+    from_call2: list[ControlledProcess],
+    from_call3: list[ControlledProcess],
+) -> list[ControlledProcess]:
+    """Merge controlled processes from Call 2 and Call 3, deduplicating by cp_id."""
+    seen: set[str] = set()
+    merged: list[ControlledProcess] = []
+    for cp in from_call2 + from_call3:
+        if cp.cp_id not in seen:
+            seen.add(cp.cp_id)
+            merged.append(cp)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +191,7 @@ def derive_control_structure(
     )
 
     # Call 3 — Connections
-    control_structure = _call_3_connections(
+    connection_set = _call_3_connections(
         llm_client=llm_client,
         use_case_text=use_case_text,
         responsibility_set=responsibility_set,
@@ -117,6 +199,8 @@ def derive_control_structure(
         loader=loader,
         temperature=temperature,
     )
+
+    control_structure = merge_connection_set(responsibility_set, connection_set)
 
     write_yaml(control_structure, run_dir / "control-structure.yaml")
     return control_structure
@@ -217,8 +301,11 @@ def _call_3_connections(
     run_dir: Path,
     loader: TemplateLoader,
     temperature: float,
-) -> ControlStructure:
-    """Run Call 3: identify connections, coordination links, and assemble ControlStructure.
+) -> ConnectionSet:
+    """Run Call 3: identify connections, coordination links, and connection assignments.
+
+    Returns a ConnectionSet (slim schema) that is later merged with the
+    ResponsibilitySet from Call 2 to produce the final ControlStructure.
 
     Raises:
         StageError: If the LLM call fails or the response fails validation.
@@ -230,11 +317,11 @@ def _call_3_connections(
         responsibility_set=responsibility_set,
     )
 
-    control_structure, _, error_msg = safe_llm_call(
+    connection_set, _, error_msg = safe_llm_call(
         llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        response_format=ControlStructure,
+        response_format=ConnectionSet,
         run_dir=run_dir,
         stage=STAGE,
         step="call_3_connections",
@@ -242,7 +329,7 @@ def _call_3_connections(
     )
     if error_msg is not None:
         raise StageError(stage=STAGE, step="call_3_connections", message=error_msg)
-    return control_structure
+    return connection_set
 
 
 # mutate4py-manifest-begin

@@ -37,6 +37,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
@@ -240,6 +241,15 @@ def _valid_control_structure_dict() -> dict:
     }
 
 
+def _valid_connection_set_dict() -> dict:
+    """ConnectionSet matching the Call 2 ResponsibilitySet."""
+    return {
+        "coordination_links": [],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
 def _valid_critic_findings_dict_with_unjustified() -> dict:
     return {
         "gaps": [
@@ -276,7 +286,7 @@ def _setup_valid_mock_client() -> MockLLMClient:
     client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-    client.set_response_for(ControlStructure, _valid_control_structure_dict())
+    client.set_response_for(ConnectionSet, _valid_connection_set_dict())
     client.set_response_for(CriticFindings, _valid_critic_findings_dict_no_gaps())
     return client
 
@@ -524,7 +534,7 @@ class TestDerivationStageFailure:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_invalid_response_for(ControlStructure)
+        client.set_invalid_response_for(ConnectionSet)
         def invoke(c, d):
             derive_control_structure(
                 llm_client=c,

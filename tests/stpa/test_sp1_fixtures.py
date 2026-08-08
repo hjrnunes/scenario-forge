@@ -15,6 +15,7 @@ from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
@@ -53,7 +54,9 @@ def _valid_resp_set_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"}
+                    {"rc_id": "SC-1", "description": "Must confirm before action"},
+                    {"rc_id": "SC-2", "description": "Must protect data"},
+                    {"rc_id": "SC-3", "description": "Must audit actions"},
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -108,6 +111,15 @@ def _valid_cs_dict() -> dict:
     }
 
 
+def _valid_connection_set_dict() -> dict:
+    """ConnectionSet matching the Call 2 ResponsibilitySet for fixtures."""
+    return {
+        "coordination_links": [],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
 def _valid_critic_findings_dict() -> dict:
     return {
         "gaps": [],
@@ -150,7 +162,7 @@ class TestSP1FixtureIntegration:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_req_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
-        client.set_response_for(ControlStructure, _valid_cs_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
         control_structure = derive_control_structure(
             llm_client=client,

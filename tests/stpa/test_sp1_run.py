@@ -134,6 +134,15 @@ def _valid_control_structure_dict() -> dict:
     }
 
 
+def _valid_connection_set_dict() -> dict:
+    """ConnectionSet matching the Call 2 ResponsibilitySet."""
+    return {
+        "coordination_links": [],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
 def _valid_critic_findings_dict() -> dict:
     return {
         "gaps": [
@@ -189,8 +198,10 @@ def _setup_mock_client(
     # Stage 2 Call 2: ResponsibilitySet
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
 
-    # Stage 2 Call 3: ControlStructure
-    client.set_response_for(ControlStructure, _valid_control_structure_dict())
+    # Stage 2 Call 3: ConnectionSet
+    from scenario_forge.stpa.system_model.control_structure import ConnectionSet
+
+    client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
     # Critic: CriticFindings
     if critic_findings is not None:
@@ -207,14 +218,7 @@ def _setup_mock_client(
 
     # Revision: ControlStructure (if needed)
     if revised_cs is not None:
-        # Need to use a queue for the second ControlStructure response
-        # The first CS response is for Call 3, the second for revision
-        client.set_response_queue([
-            _valid_control_structure_dict(),  # Call 3
-            revised_cs,  # Revision
-        ])
-        # Clear the response_map for ControlStructure so the queue is used
-        client._response_map.pop(ControlStructure, None)
+        client.set_response_for(ControlStructure, revised_cs)
 
     return client
 

@@ -271,8 +271,14 @@ class TestDuplicateIdRejection:
                         provenance=LossProvenance.use_case,
                     ),
                 ],
-                hazards=[],
-                security_constraints=[],
+                hazards=[
+                    Hazard(hazard_id="H-1", description="H", related_losses=[dup_id]),
+                ],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="C", related_hazards=["H-1"]
+                    )
+                ],
             )
 
     @given(dup_id=st.from_regex(r"H-[1-9][0-9]*", fullmatch=True))
@@ -293,7 +299,11 @@ class TestDuplicateIdRejection:
                     Hazard(hazard_id=dup_id, description="A", related_losses=["L-1"]),
                     Hazard(hazard_id=dup_id, description="B", related_losses=["L-1"]),
                 ],
-                security_constraints=[],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="C", related_hazards=[dup_id]
+                    )
+                ],
             )
 
     @given(dup_id=st.from_regex(r"SC-[1-9][0-9]*", fullmatch=True))
@@ -429,7 +439,11 @@ class TestInvalidReferenceRejection:
                         hazard_id="H-1", description="H", related_losses=[bad_ref]
                     ),
                 ],
-                security_constraints=[],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="C", related_hazards=["H-1"]
+                    )
+                ],
             )
 
     @given(bad_ref=st.from_regex(r"H-[9][0-9]+", fullmatch=True))

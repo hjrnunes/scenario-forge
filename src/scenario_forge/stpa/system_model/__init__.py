@@ -6,6 +6,8 @@ Derives the control structure that is the pipeline's primary representation.
 from scenario_forge.stpa.infra.llm_helpers import StageError  # noqa: E402
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.control_structure import (  # noqa: E402
+    ConnectionAssignment,
+    ConnectionSet,
     Requirement,
     RequirementSet,
     ResponsibilitySet,
@@ -34,6 +36,8 @@ __all__ = [
     "Requirement",
     "RequirementSet",
     "ResponsibilitySet",
+    "ConnectionAssignment",
+    "ConnectionSet",
     "CriticFindings",
     "CriticGap",
     # run result
