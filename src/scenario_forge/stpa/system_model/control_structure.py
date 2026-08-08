@@ -245,9 +245,7 @@ def derive_control_structure(
             "merge_connection_set",
             error_msg,
         )
-        merge_warnings.append(
-            f"{STAGE}/merge_connection_set: {error_msg}"
-        )
+        merge_warnings.append(f"{STAGE}/merge_connection_set: {error_msg}")
         # Fall back to ResponsibilitySet-only ControlStructure
         control_structure = ControlStructure(
             responsibilities=responsibility_set.responsibilities,

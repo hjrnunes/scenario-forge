@@ -13,13 +13,10 @@ without crashing. The merge failure is logged and recorded in stage_errors.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 import yaml
 
 from scenario_forge.models.capability_profile import Stage1Profile
-from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import (
@@ -36,25 +33,18 @@ from scenario_forge.stpa.system_model.control_structure import (
     derive_control_structure,
 )
 from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    make_risk_cards,
+    read_calls_jsonl,
+    valid_critic_findings_dict_no_gaps,
+    valid_stage1_profile_dict,
+)
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_risk_cards() -> list[RiskCard]:
-    return [
-        RiskCard(
-            risk_id="atlas-001",
-            risk_name="Prompt injection",
-            risk_description="Risk of prompt injection",
-            taxonomy="ibm-risk-atlas",
-            confidence=0.9,
-            grounding_confidence="high",
-        ),
-    ]
 
 
 def _make_loss_analysis() -> LossAnalysis:
@@ -111,20 +101,6 @@ def _valid_loss_analysis_dict() -> dict:
                 "related_hazards": ["H-1"],
             },
         ],
-    }
-
-
-def _valid_stage1_profile_dict() -> dict:
-    return {
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": False,
-        "entry_points": [
-            {"name": "User chat", "direction": "input", "controllability": "direct"},
-        ],
-        "confidence": "medium",
-        "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
-        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
     }
 
 
@@ -236,17 +212,6 @@ def _valid_connection_set_dict() -> dict:
     }
 
 
-def _valid_critic_findings_dict_no_gaps() -> dict:
-    return {
-        "gaps": [],
-        "checklist_results": {
-            "Input validation": "present",
-            "Authorization": "present",
-        },
-        "taxonomy_probe_results": {},
-    }
-
-
 def _namespace_confusion_connection_set() -> dict:
     """ConnectionSet with namespace confusion: feedback_source uses a
     FeedbackChannel ID (FB-1-1) as a ControlledProcess ID.
@@ -340,7 +305,7 @@ def _setup_full_run_client(
 
     client = MockLLMClient()
     client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
-    client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
+    client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(
         ResponsibilitySet, resp_set_dict or _valid_responsibility_set_dict()
@@ -348,16 +313,8 @@ def _setup_full_run_client(
     client.set_response_for(
         ConnectionSet, conn_set_dict or _namespace_confusion_connection_set()
     )
-    client.set_response_for(CriticFindings, _valid_critic_findings_dict_no_gaps())
+    client.set_response_for(CriticFindings, valid_critic_findings_dict_no_gaps())
     return client
-
-
-def _read_calls_jsonl(run_dir) -> list[dict]:
-    """Read calls.jsonl and return parsed entries."""
-    calls_file = run_dir / "calls.jsonl"
-    if not calls_file.exists():
-        return []
-    return [json.loads(line) for line in calls_file.read_text().splitlines()]
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +443,7 @@ class TestMergeFallback05FailureLogged:
             loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         merge_entries = [e for e in entries if e["step"] == "merge_connection_set"]
         assert len(merge_entries) == 1
         assert merge_entries[0]["stage"] == "stage_2"
@@ -508,7 +465,7 @@ class TestMergeFallback06ManifestStageErrors:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         manifest = yaml.safe_load((tmp_path / "run-manifest.yaml").read_text())
@@ -553,7 +510,7 @@ class TestMergeFallback08HeuristicsPass:
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert result.control_structure is not None
@@ -575,7 +532,7 @@ class TestMergeFallback09NoCrashFullRun:
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert isinstance(result, SP1RunResult)
@@ -611,6 +568,6 @@ class TestMergeFallback10SuccessfulMerge:
         # No merge warnings
         assert warnings == []
         # No merge failure logged
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         merge_entries = [e for e in entries if e["step"] == "merge_connection_set"]
         assert len(merge_entries) == 0

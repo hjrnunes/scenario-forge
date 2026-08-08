@@ -10,15 +10,12 @@ exceptions, then verify graceful degradation behavior.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
 )
-from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.models.control_structure import (
     ControlAction,
@@ -51,25 +48,19 @@ from scenario_forge.stpa.system_model.critic import (
 from scenario_forge.stpa.system_model.loss_analysis import derive_loss_analysis
 from scenario_forge.stpa.system_model.profile import derive_capability_profile
 from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    make_risk_cards,
+    read_calls_jsonl,
+    valid_critic_findings_dict_no_gaps,
+    valid_empty_connection_set_dict,
+    valid_stage1_profile_dict,
+)
 
 
 # ---------------------------------------------------------------------------
 # Shared fixtures / helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_risk_cards() -> list[RiskCard]:
-    return [
-        RiskCard(
-            risk_id="atlas-001",
-            risk_name="Prompt injection",
-            risk_description="Risk of prompt injection",
-            taxonomy="ibm-risk-atlas",
-            confidence=0.9,
-            grounding_confidence="high",
-        ),
-    ]
 
 
 def _make_loss_analysis() -> LossAnalysis:
@@ -176,20 +167,6 @@ def _valid_loss_analysis_dict() -> dict:
     }
 
 
-def _valid_stage1_profile_dict() -> dict:
-    return {
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": False,
-        "entry_points": [
-            {"name": "User chat", "direction": "input", "controllability": "direct"},
-        ],
-        "confidence": "medium",
-        "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
-        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
-    }
-
-
 def _valid_requirement_set_dict() -> dict:
     return {
         "requirements": [
@@ -259,35 +236,16 @@ def _valid_critic_findings_dict_with_unjustified() -> dict:
     }
 
 
-def _valid_critic_findings_dict_no_gaps() -> dict:
-    return {
-        "gaps": [],
-        "checklist_results": {
-            "Input validation": "present",
-            "Authorization": "present",
-        },
-        "taxonomy_probe_results": {},
-    }
-
-
 def _setup_valid_mock_client() -> MockLLMClient:
     """Set up a mock LLM client with valid responses for all stages."""
     client = MockLLMClient()
     client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
-    client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
+    client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
     client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
-    client.set_response_for(CriticFindings, _valid_critic_findings_dict_no_gaps())
+    client.set_response_for(CriticFindings, valid_critic_findings_dict_no_gaps())
     return client
-
-
-def _read_calls_jsonl(run_dir) -> list[dict]:
-    """Read calls.jsonl and return parsed entries."""
-    calls_file = run_dir / "calls.jsonl"
-    if not calls_file.exists():
-        return []
-    return [json.loads(line) for line in calls_file.read_text().splitlines()]
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +291,7 @@ class TestRevisionGracefulDegradation:
             use_case_text="Test",
             run_dir=tmp_path,
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         rev_entries = [e for e in entries if e["step"] == "revision"]
         assert len(rev_entries) == 1
         assert rev_entries[0]["stage"] == "stage_2"
@@ -357,7 +315,7 @@ class TestRevisionGracefulDegradation:
         )
         assert revised is cs
         assert any("Revision failed" in w for w in warnings)
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         rev_entries = [e for e in entries if e["step"] == "revision"]
         assert len(rev_entries) == 1
         assert rev_entries[0]["stage"] == "stage_2"
@@ -395,7 +353,7 @@ class TestCriticGracefulDegradation:
             use_case_text="Test",
             run_dir=tmp_path,
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         critic_entries = [e for e in entries if e["step"] == "critic"]
         assert len(critic_entries) == 1
         assert critic_entries[0]["stage"] == "stage_2"
@@ -429,7 +387,7 @@ class TestCriticGracefulDegradation:
         )
         assert isinstance(findings, CriticFindings)
         assert len(findings.gaps) == 0
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         critic_entries = [e for e in entries if e["step"] == "critic"]
         assert len(critic_entries) == 1
         assert critic_entries[0]["stage"] == "stage_2"
@@ -466,7 +424,7 @@ class TestDerivationStageFailure:
         assert exc_info.value.step == step_name
 
         # Verify the failed call is logged with success=false
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         failed = [e for e in entries if e.get("success") is False]
         assert len(failed) >= 1
         assert any(e["stage"] == stage_name and e["step"] == step_name for e in failed)
@@ -478,7 +436,7 @@ class TestDerivationStageFailure:
             derive_loss_analysis(
                 llm_client=c,
                 use_case_text="Test",
-                risk_cards=_make_risk_cards(),
+                risk_cards=make_risk_cards(),
                 run_dir=d,
             )
         return client, invoke
@@ -551,7 +509,7 @@ class TestRunOrchestrationPartialFailure:
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert isinstance(result, SP1RunResult)
@@ -570,7 +528,7 @@ class TestRunOrchestrationPartialFailure:
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert isinstance(result, SP1RunResult)
@@ -588,7 +546,7 @@ class TestRunOrchestrationPartialFailure:
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert isinstance(result, SP1RunResult)
@@ -606,10 +564,10 @@ class TestRunOrchestrationPartialFailure:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         failed = [e for e in entries if e.get("success") is False]
         assert len(failed) >= 1
         stage_1a_failed = [e for e in failed if e["stage"] == "stage_1a"]
@@ -625,7 +583,7 @@ class TestRunOrchestrationPartialFailure:
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert isinstance(result, SP1RunResult)
@@ -637,12 +595,12 @@ class TestRunOrchestrationPartialFailure:
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert isinstance(result, SP1RunResult)
         assert any("stage_1a" in e for e in result.stage_errors)
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         failed = [e for e in entries if e.get("success") is False]
         assert len(failed) >= 1
 
@@ -653,7 +611,7 @@ class TestRunOrchestrationPartialFailure:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         import yaml
@@ -698,7 +656,7 @@ class TestSafeLlmCallFallbackValues:
             stage="stage_1a",
             step="loss_analysis",
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         assert len(entries) == 1
         assert entries[0]["success"] is False
         assert entries[0]["prompt_tokens"] == 0
