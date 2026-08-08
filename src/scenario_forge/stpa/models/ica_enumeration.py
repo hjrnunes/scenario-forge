@@ -120,24 +120,38 @@ class ICAEnumeration(BaseModel):
         constraint_ids = {
             sc.constraint_id for sc in loss_analysis.security_constraints
         }
-        rc_ids: set[str] = set()
-        for resp in control_structure.responsibilities:
-            for rc in resp.responsibility_constraints:
-                rc_ids.add(rc.rc_id)
-
+        rc_ids = _collect_rc_ids(control_structure)
         valid_constraint_refs = constraint_ids | rc_ids
 
         for slot in self.slots:
             for ica in slot.icas:
-                for ref in ica.related_hazards:
-                    if ref not in hazard_ids:
-                        raise ValueError(
-                            f"ICA {ica.ica_id} references non-existent "
-                            f"hazard '{ref}' in related_hazards."
-                        )
-                for ref in ica.related_constraints:
-                    if ref not in valid_constraint_refs:
-                        raise ValueError(
-                            f"ICA {ica.ica_id} references non-existent "
-                            f"constraint '{ref}' in related_constraints."
-                        )
+                _validate_ica_references(ica, hazard_ids, valid_constraint_refs)
+
+
+def _collect_rc_ids(control_structure: ControlStructure) -> set[str]:
+    """Collect all responsibility constraint IDs from a control structure."""
+    rc_ids: set[str] = set()
+    for resp in control_structure.responsibilities:
+        for rc in resp.responsibility_constraints:
+            rc_ids.add(rc.rc_id)
+    return rc_ids
+
+
+def _validate_ica_references(
+    ica: ICA,
+    hazard_ids: set[str],
+    valid_constraint_refs: set[str],
+) -> None:
+    """Validate a single ICA's hazard and constraint references."""
+    for ref in ica.related_hazards:
+        if ref not in hazard_ids:
+            raise ValueError(
+                f"ICA {ica.ica_id} references non-existent "
+                f"hazard '{ref}' in related_hazards."
+            )
+    for ref in ica.related_constraints:
+        if ref not in valid_constraint_refs:
+            raise ValueError(
+                f"ICA {ica.ica_id} references non-existent "
+                f"constraint '{ref}' in related_constraints."
+            )

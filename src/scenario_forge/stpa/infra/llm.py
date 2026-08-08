@@ -15,6 +15,73 @@ from typing import Any
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+DEFAULT_TEMPERATURE: float = 0.4
+
+_OPENROUTER_DEFAULT_HEADERS: dict[str, str] = {
+    "HTTP-Referer": "https://github.com/hjrnunes/scenario-forge",
+    "X-Title": "scenario-forge",
+}
+
+
+def _resolve_temperature(
+    explicit: float | None,
+    env_var: str | None,
+) -> float:
+    """Resolve the effective temperature from explicit arg or env var."""
+    if explicit is not None:
+        return explicit
+    if env_var is not None:
+        return float(env_var)
+    return DEFAULT_TEMPERATURE
+
+
+def _resolve_max_tokens(
+    explicit: int | None,
+    env_var: str | None,
+) -> int | None:
+    """Resolve the effective max_completion_tokens from explicit arg or env var."""
+    if explicit is not None:
+        return explicit
+    return int(env_var) if env_var else None
+
+
+def _resolve_base_url(explicit: str | None) -> str | None:
+    """Resolve base_url from explicit arg or environment."""
+    return explicit or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL") or None
+
+
+def _resolve_api_key(explicit: str | None) -> str:
+    """Resolve API key from explicit arg or environment."""
+    return explicit or os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
+
+
+def _resolve_model(explicit: str | None) -> str:
+    """Resolve model name from explicit arg or environment."""
+    return explicit or os.environ.get(
+        "SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it"
+    )
+
+
+def _resolve_extra_headers(
+    base_url: str | None,
+    explicit: dict[str, str] | None,
+    env_raw: str | None,
+) -> dict[str, str] | None:
+    """Merge explicit headers, env-var headers, and OpenRouter defaults."""
+    env_headers: dict[str, str] = json.loads(env_raw) if env_raw else {}
+    merged: dict[str, str] = {**env_headers, **(explicit or {})}
+    _inject_openrouter_headers(merged, base_url)
+    return merged if merged else None
+
+
+def _inject_openrouter_headers(
+    merged: dict[str, str], base_url: str | None
+) -> None:
+    """Inject OpenRouter default headers if the base URL points to OpenRouter."""
+    if base_url and "openrouter.ai" in base_url:
+        for key, default in _OPENROUTER_DEFAULT_HEADERS.items():
+            merged.setdefault(key, default)
+
 
 class LLMResult(BaseModel):
     """Wrapper carrying the LLM response plus usage telemetry."""
@@ -30,12 +97,9 @@ class LLMResult(BaseModel):
 class LLMClient:
     """Thin wrapper around the OpenAI SDK for structured and unstructured completions."""
 
-    DEFAULT_TEMPERATURE: float = 0.4
+    DEFAULT_TEMPERATURE: float = DEFAULT_TEMPERATURE
 
-    _OPENROUTER_DEFAULT_HEADERS: dict[str, str] = {
-        "HTTP-Referer": "https://github.com/hjrnunes/scenario-forge",
-        "X-Title": "scenario-forge",
-    }
+    _OPENROUTER_DEFAULT_HEADERS: dict[str, str] = _OPENROUTER_DEFAULT_HEADERS
 
     def __init__(
         self,
@@ -46,27 +110,21 @@ class LLMClient:
         temperature: float | None = None,
         extra_headers: dict[str, str] | None = None,
     ) -> None:
-        self.base_url = (
-            base_url or os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL") or None
+        self.base_url = _resolve_base_url(base_url)
+        self.api_key = _resolve_api_key(api_key)
+        self.model = _resolve_model(model)
+        self.max_completion_tokens = _resolve_max_tokens(
+            max_completion_tokens,
+            os.environ.get("SCENARIO_FORGE_MAX_COMPLETION_TOKENS"),
         )
-        self.api_key = api_key or os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
-        self.model = model or os.environ.get(
-            "SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it"
+        self.temperature = _resolve_temperature(
+            temperature, os.environ.get("SCENARIO_FORGE_TEMPERATURE")
         )
-        env_val = os.environ.get("SCENARIO_FORGE_MAX_COMPLETION_TOKENS")
-        self.max_completion_tokens = max_completion_tokens or (
-            int(env_val) if env_val else None
+        self.extra_headers = _resolve_extra_headers(
+            self.base_url,
+            extra_headers,
+            os.environ.get("SCENARIO_FORGE_EXTRA_HEADERS"),
         )
-        env_temp = os.environ.get("SCENARIO_FORGE_TEMPERATURE")
-        if temperature is not None:
-            self.temperature = temperature
-        elif env_temp is not None:
-            self.temperature = float(env_temp)
-        else:
-            self.temperature = self.DEFAULT_TEMPERATURE
-
-        # --- extra headers resolution ---
-        self.extra_headers = self._resolve_extra_headers(extra_headers)
 
         if not self.base_url:
             raise ValueError(
@@ -78,21 +136,6 @@ class LLMClient:
             api_key=self.api_key,
             default_headers=self.extra_headers or None,
         )
-
-    def _resolve_extra_headers(
-        self, explicit: dict[str, str] | None
-    ) -> dict[str, str] | None:
-        """Merge explicit headers, env-var headers, and OpenRouter defaults."""
-        env_raw = os.environ.get("SCENARIO_FORGE_EXTRA_HEADERS")
-        env_headers: dict[str, str] = json.loads(env_raw) if env_raw else {}
-
-        merged: dict[str, str] = {**env_headers, **(explicit or {})}
-
-        if self.base_url and "openrouter.ai" in self.base_url:
-            for key, default in self._OPENROUTER_DEFAULT_HEADERS.items():
-                merged.setdefault(key, default)
-
-        return merged if merged else None
 
     def complete(
         self,

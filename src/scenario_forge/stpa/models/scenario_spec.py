@@ -96,59 +96,100 @@ class ScenarioSpec(BaseModel):
         Raises:
             ValueError: If any reference is invalid.
         """
-        # Build lookup maps
-        resp_ids: set[str] = set()
-        all_pm_ids: set[str] = set()
-        all_ca_ids: set[str] = set()
-        ca_to_resp: dict[str, str] = {}
+        resp_ids, all_pm_ids, all_ca_ids, ca_to_resp = _build_lookup_maps(
+            control_structure
+        )
 
-        for resp in control_structure.responsibilities:
-            resp_ids.add(resp.resp_id)
-            for pm in resp.process_model_parts:
-                all_pm_ids.add(pm.pm_id)
-            for ca in resp.control_actions:
-                all_ca_ids.add(ca.ca_id)
-                ca_to_resp[ca.ca_id] = resp.resp_id
+        _validate_target(
+            self.target_controller,
+            self.target_control_action,
+            resp_ids,
+            all_ca_ids,
+            ca_to_resp,
+        )
+        _validate_defender_bdi(
+            self.defender_bdi, all_pm_ids, resp_ids, all_ca_ids
+        )
 
-        # Validate target_controller
-        if self.target_controller not in resp_ids:
+
+def _build_lookup_maps(
+    cs: ControlStructure,
+) -> tuple[set[str], set[str], set[str], dict[str, str]]:
+    """Build lookup maps from a control structure's responsibilities.
+
+    Returns:
+        A tuple of (resp_ids, all_pm_ids, all_ca_ids, ca_to_resp).
+    """
+    resp_ids: set[str] = set()
+    all_pm_ids: set[str] = set()
+    all_ca_ids: set[str] = set()
+    ca_to_resp: dict[str, str] = {}
+
+    for resp in cs.responsibilities:
+        resp_ids.add(resp.resp_id)
+        for pm in resp.process_model_parts:
+            all_pm_ids.add(pm.pm_id)
+        for ca in resp.control_actions:
+            all_ca_ids.add(ca.ca_id)
+            ca_to_resp[ca.ca_id] = resp.resp_id
+
+    return resp_ids, all_pm_ids, all_ca_ids, ca_to_resp
+
+
+def _validate_target(
+    target_controller: str,
+    target_control_action: str,
+    resp_ids: set[str],
+    all_ca_ids: set[str],
+    ca_to_resp: dict[str, str],
+) -> None:
+    """Validate target_controller and target_control_action references."""
+    if target_controller not in resp_ids:
+        raise ValueError(
+            f"target_controller '{target_controller}' is not a valid "
+            f"responsibility ID."
+        )
+    if target_control_action not in all_ca_ids:
+        raise ValueError(
+            f"target_control_action '{target_control_action}' is not a "
+            f"valid control action ID."
+        )
+    if ca_to_resp.get(target_control_action) != target_controller:
+        raise ValueError(
+            f"target_control_action '{target_control_action}' does not "
+            f"belong to target_controller '{target_controller}'."
+        )
+
+
+def _validate_defender_bdi(
+    defender_bdi: DefenderBDI,
+    all_pm_ids: set[str],
+    resp_ids: set[str],
+    all_ca_ids: set[str],
+) -> None:
+    """Validate defender BDI references against control structure lookups."""
+    _validate_ref_items(
+        defender_bdi.beliefs, "pm_id", all_pm_ids, "DefenderBelief"
+    )
+    _validate_ref_items(
+        defender_bdi.desires, "resp_id", resp_ids, "DefenderDesire"
+    )
+    _validate_ref_items(
+        defender_bdi.intentions, "ca_id", all_ca_ids, "DefenderIntention"
+    )
+
+
+def _validate_ref_items(
+    items: list,
+    attr_name: str,
+    valid_ids: set[str],
+    model_name: str,
+) -> None:
+    """Validate that each item's *attr_name* references a valid ID."""
+    for item in items:
+        ref_value = getattr(item, attr_name)
+        if ref_value not in valid_ids:
             raise ValueError(
-                f"target_controller '{self.target_controller}' is not a valid "
-                f"responsibility ID."
+                f"{model_name} references non-existent {attr_name} "
+                f"'{ref_value}'."
             )
-
-        # Validate target_control_action exists and belongs to target_controller
-        if self.target_control_action not in all_ca_ids:
-            raise ValueError(
-                f"target_control_action '{self.target_control_action}' is not a "
-                f"valid control action ID."
-            )
-        if ca_to_resp.get(self.target_control_action) != self.target_controller:
-            raise ValueError(
-                f"target_control_action '{self.target_control_action}' does not "
-                f"belong to target_controller '{self.target_controller}'."
-            )
-
-        # Validate defender beliefs
-        for belief in self.defender_bdi.beliefs:
-            if belief.pm_id not in all_pm_ids:
-                raise ValueError(
-                    f"DefenderBelief references non-existent pm_id "
-                    f"'{belief.pm_id}'."
-                )
-
-        # Validate defender desires
-        for desire in self.defender_bdi.desires:
-            if desire.resp_id not in resp_ids:
-                raise ValueError(
-                    f"DefenderDesire references non-existent resp_id "
-                    f"'{desire.resp_id}'."
-                )
-
-        # Validate defender intentions
-        for intention in self.defender_bdi.intentions:
-            if intention.ca_id not in all_ca_ids:
-                raise ValueError(
-                    f"DefenderIntention references non-existent ca_id "
-                    f"'{intention.ca_id}'."
-                )

@@ -9,6 +9,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
+from scenario_forge.stpa.models._validation import check_duplicate_ids
+
 
 class LossProvenance(str, Enum):
     """How a loss was identified."""
@@ -56,80 +58,75 @@ class LossAnalysis(BaseModel):
 
     @model_validator(mode="after")
     def validate_references_and_provenance(self) -> LossAnalysis:
-        # Collect all loss IDs
         all_losses = self.risk_card_losses + self.use_case_losses
         loss_ids = {loss.loss_id for loss in all_losses}
 
-        # No duplicate loss IDs across both lists
-        all_loss_ids_list = [loss.loss_id for loss in all_losses]
-        _check_duplicates(all_loss_ids_list, "loss_id")
-
-        # No duplicate hazard IDs
-        _check_duplicates(
-            [h.hazard_id for h in self.hazards], "hazard_id"
-        )
-
-        # No duplicate constraint IDs
-        _check_duplicates(
+        check_duplicate_ids([loss.loss_id for loss in all_losses], "loss_id")
+        check_duplicate_ids([h.hazard_id for h in self.hazards], "hazard_id")
+        check_duplicate_ids(
             [sc.constraint_id for sc in self.security_constraints], "constraint_id"
         )
 
-        # Provenance consistency for risk_card_losses
-        for loss in self.risk_card_losses:
-            if loss.provenance != LossProvenance.risk_card:
-                raise ValueError(
-                    f"Loss {loss.loss_id} in risk_card_losses has provenance "
-                    f"'{loss.provenance.value}' but must be 'risk_card'."
-                )
-            if not loss.source_risk_cards:
-                raise ValueError(
-                    f"Loss {loss.loss_id} has provenance 'risk_card' but "
-                    f"source_risk_cards is empty."
-                )
+        _validate_risk_card_provenance(self.risk_card_losses)
+        _validate_use_case_provenance(self.use_case_losses)
+        _validate_hazard_references(self.hazards, loss_ids)
 
-        # Provenance consistency for use_case_losses
-        for loss in self.use_case_losses:
-            if loss.provenance not in (
-                LossProvenance.use_case,
-                LossProvenance.critic_derived,
-            ):
-                raise ValueError(
-                    f"Loss {loss.loss_id} in use_case_losses has provenance "
-                    f"'{loss.provenance.value}' but must be 'use_case' or "
-                    f"'critic_derived'."
-                )
-            if loss.source_risk_cards:
-                raise ValueError(
-                    f"Loss {loss.loss_id} has provenance '{loss.provenance.value}' "
-                    f"but source_risk_cards is non-empty: {loss.source_risk_cards}."
-                )
-
-        # Hazard.related_losses must reference valid loss IDs
-        for hazard in self.hazards:
-            for ref in hazard.related_losses:
-                if ref not in loss_ids:
-                    raise ValueError(
-                        f"Hazard {hazard.hazard_id} references non-existent "
-                        f"loss '{ref}' in related_losses."
-                    )
-
-        # SecurityConstraint.related_hazards must reference valid hazard IDs
         hazard_ids = {h.hazard_id for h in self.hazards}
-        for sc in self.security_constraints:
-            for ref in sc.related_hazards:
-                if ref not in hazard_ids:
-                    raise ValueError(
-                        f"SecurityConstraint {sc.constraint_id} references "
-                        f"non-existent hazard '{ref}' in related_hazards."
-                    )
+        _validate_constraint_references(self.security_constraints, hazard_ids)
 
         return self
 
 
-def _check_duplicates(ids: list[str], field_name: str) -> None:
-    """Raise ValueError if *ids* contains duplicates."""
-    seen: set[str] = set()
-    for id_val in ids:
-        if id_val in seen:
-            raise ValueError(f"Duplicate {field_name}: '{id_val}'.")
-        seen.add(id_val)
+def _validate_risk_card_provenance(losses: list[Loss]) -> None:
+    """Ensure every loss in risk_card_losses has risk_card provenance and non-empty source."""
+    for loss in losses:
+        if loss.provenance != LossProvenance.risk_card:
+            raise ValueError(
+                f"Loss {loss.loss_id} in risk_card_losses has provenance "
+                f"'{loss.provenance.value}' but must be 'risk_card'."
+            )
+        if not loss.source_risk_cards:
+            raise ValueError(
+                f"Loss {loss.loss_id} has provenance 'risk_card' but "
+                f"source_risk_cards is empty."
+            )
+
+
+def _validate_use_case_provenance(losses: list[Loss]) -> None:
+    """Ensure every loss in use_case_losses has use_case/critic_derived provenance and empty source."""
+    for loss in losses:
+        if loss.provenance not in (LossProvenance.use_case, LossProvenance.critic_derived):
+            raise ValueError(
+                f"Loss {loss.loss_id} in use_case_losses has provenance "
+                f"'{loss.provenance.value}' but must be 'use_case' or "
+                f"'critic_derived'."
+            )
+        if loss.source_risk_cards:
+            raise ValueError(
+                f"Loss {loss.loss_id} has provenance '{loss.provenance.value}' "
+                f"but source_risk_cards is non-empty: {loss.source_risk_cards}."
+            )
+
+
+def _validate_hazard_references(hazards: list[Hazard], loss_ids: set[str]) -> None:
+    """Ensure every hazard's related_losses reference valid loss IDs."""
+    for hazard in hazards:
+        for ref in hazard.related_losses:
+            if ref not in loss_ids:
+                raise ValueError(
+                    f"Hazard {hazard.hazard_id} references non-existent "
+                    f"loss '{ref}' in related_losses."
+                )
+
+
+def _validate_constraint_references(
+    constraints: list[SecurityConstraint], hazard_ids: set[str]
+) -> None:
+    """Ensure every constraint's related_hazards reference valid hazard IDs."""
+    for sc in constraints:
+        for ref in sc.related_hazards:
+            if ref not in hazard_ids:
+                raise ValueError(
+                    f"SecurityConstraint {sc.constraint_id} references "
+                    f"non-existent hazard '{ref}' in related_hazards."
+                )

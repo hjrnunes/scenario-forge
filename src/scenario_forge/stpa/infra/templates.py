@@ -54,44 +54,6 @@ class TemplateLoader:
         return hashes
 
 
-# --- Module-level convenience functions (for backward-compatible API) ---
-
-_default_loader: TemplateLoader | None = None
-
-
-def _get_default_loader(prompts_dir: Path | None = None) -> TemplateLoader:
-    global _default_loader
-    if prompts_dir is not None:
-        _default_loader = TemplateLoader(prompts_dir)
-    if _default_loader is None:
-        raise ValueError(
-            "No prompts directory configured. Pass a prompts_dir to "
-            "TemplateLoader or set one via render_prompt(..., prompts_dir=...)."
-        )
-    return _default_loader
-
-
-def render_prompt(
-    template_name: str,
-    *,
-    prompts_dir: Path | None = None,
-    **kwargs: object,
-) -> str:
-    """Render a template from *prompts_dir* (or the default loader).
-
-    Args:
-        template_name: Filename of the template.
-        prompts_dir: Optional prompts directory for this call.
-        **kwargs: Template variables.
-
-    Returns:
-        The rendered prompt string.
-    """
-    if prompts_dir is not None:
-        return TemplateLoader(prompts_dir).render_prompt(template_name, **kwargs)
-    return _get_default_loader().render_prompt(template_name, **kwargs)
-
-
 def hash_prompt_templates(prompts_dir: Path) -> dict[str, str]:
     """Return SHA-256 hashes for every ``.j2`` file in *prompts_dir*.
 

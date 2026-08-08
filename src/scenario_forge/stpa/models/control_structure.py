@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, model_validator
 
+from scenario_forge.stpa.models._validation import check_duplicate_ids
+
 if TYPE_CHECKING:
     from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 
@@ -114,121 +116,28 @@ class ControlStructure(BaseModel):
 
     @model_validator(mode="after")
     def validate_references_and_duplicates(self) -> ControlStructure:
-        # Build lookup sets
         resp_ids = {r.resp_id for r in self.responsibilities}
         cp_ids = {cp.cp_id for cp in self.controlled_processes}
 
-        # No duplicate resp_id
-        _check_duplicates([r.resp_id for r in self.responsibilities], "resp_id")
-        # No duplicate cp_id
-        _check_duplicates([cp.cp_id for cp in self.controlled_processes], "cp_id")
+        check_duplicate_ids([r.resp_id for r in self.responsibilities], "resp_id")
+        check_duplicate_ids([cp.cp_id for cp in self.controlled_processes], "cp_id")
 
-        # Collect all PM/CA/FB IDs across responsibilities
-        all_pm_ids: list[str] = []
-        all_ca_ids: list[str] = []
-        all_fb_ids: list[str] = []
-        pm_by_resp: dict[str, set[str]] = {}
+        all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = _collect_child_ids(
+            self.responsibilities
+        )
 
-        for resp in self.responsibilities:
-            pm_ids = {pm.pm_id for pm in resp.process_model_parts}
-            pm_by_resp[resp.resp_id] = pm_ids
-            all_pm_ids.extend(pm.pm_id for pm in resp.process_model_parts)
-            all_ca_ids.extend(ca.ca_id for ca in resp.control_actions)
-            all_fb_ids.extend(fb.fb_id for fb in resp.feedback_channels)
-
-            # No duplicate PM within a responsibility
-            _check_duplicates(
-                [pm.pm_id for pm in resp.process_model_parts], "pm_id"
-            )
-            # No duplicate CA within a responsibility
-            _check_duplicates(
-                [ca.ca_id for ca in resp.control_actions], "ca_id"
-            )
-            # No duplicate FB within a responsibility
-            _check_duplicates(
-                [fb.fb_id for fb in resp.feedback_channels], "fb_id"
-            )
-
-        # No duplicate link_id
-        _check_duplicates(
+        check_duplicate_ids(all_pm_ids, "pm_id")
+        check_duplicate_ids(all_ca_ids, "ca_id")
+        check_duplicate_ids(all_fb_ids, "fb_id")
+        check_duplicate_ids(
             [cl.link_id for cl in self.coordination_links], "link_id"
         )
 
-        # All PM IDs are unique across responsibilities
-        _check_duplicates(all_pm_ids, "pm_id")
-        # All CA IDs are unique across responsibilities
-        _check_duplicates(all_ca_ids, "ca_id")
-        # All FB IDs are unique across responsibilities
-        _check_duplicates(all_fb_ids, "fb_id")
-
-        # Validate feedback_source references in ProcessModelParts
-        for resp in self.responsibilities:
-            for pm in resp.process_model_parts:
-                if pm.feedback_source is not None:
-                    if not _is_valid_element_ref(pm.feedback_source, resp_ids, cp_ids):
-                        raise ValueError(
-                            f"ProcessModelPart {pm.pm_id} feedback_source "
-                            f"references non-existent element "
-                            f"{pm.feedback_source.type.value} '{pm.feedback_source.id}'."
-                        )
-
-        # Validate target references in ControlActions
-        for resp in self.responsibilities:
-            for ca in resp.control_actions:
-                if ca.target is not None:
-                    if not _is_valid_element_ref(ca.target, resp_ids, cp_ids):
-                        raise ValueError(
-                            f"ControlAction {ca.ca_id} target references "
-                            f"non-existent element "
-                            f"{ca.target.type.value} '{ca.target.id}'."
-                        )
-
-        # Validate FeedbackChannel.updates — must reference a valid PM
-        # within the SAME responsibility
-        for resp in self.responsibilities:
-            local_pm_ids = pm_by_resp[resp.resp_id]
-            for fb in resp.feedback_channels:
-                if fb.updates not in local_pm_ids:
-                    # Check if it exists in another responsibility
-                    if fb.updates in {pm for s in pm_by_resp.values() for pm in s}:
-                        raise ValueError(
-                            f"FeedbackChannel {fb.fb_id} updates references "
-                            f"PM '{fb.updates}' which belongs to a different "
-                            f"responsibility (not {resp.resp_id})."
-                        )
-                    else:
-                        raise ValueError(
-                            f"FeedbackChannel {fb.fb_id} updates references "
-                            f"non-existent PM '{fb.updates}'."
-                        )
-
-        # Validate FeedbackChannel.source references
-        for resp in self.responsibilities:
-            for fb in resp.feedback_channels:
-                if not _is_valid_element_ref(fb.source, resp_ids, cp_ids):
-                    raise ValueError(
-                        f"FeedbackChannel {fb.fb_id} source references "
-                        f"non-existent element "
-                        f"{fb.source.type.value} '{fb.source.id}'."
-                    )
-
-        # Validate CoordinationLink source/target/shared_pm
-        for cl in self.coordination_links:
-            if cl.source not in resp_ids:
-                raise ValueError(
-                    f"CoordinationLink {cl.link_id} source references "
-                    f"non-existent responsibility '{cl.source}'."
-                )
-            if cl.target not in resp_ids:
-                raise ValueError(
-                    f"CoordinationLink {cl.link_id} target references "
-                    f"non-existent responsibility '{cl.target}'."
-                )
-            if cl.shared_pm not in set(all_pm_ids):
-                raise ValueError(
-                    f"CoordinationLink {cl.link_id} shared_pm references "
-                    f"non-existent PM '{cl.shared_pm}'."
-                )
+        _validate_element_refs(self.responsibilities, resp_ids, cp_ids)
+        _validate_feedback_updates(self.responsibilities, pm_by_resp)
+        _validate_coordination_links(
+            self.coordination_links, resp_ids, all_pm_ids
+        )
 
         return self
 
@@ -241,18 +150,150 @@ def _is_valid_element_ref(
     """Check if an ElementRef points to a valid responsibility or controlled process."""
     if ref.type == ReferenceType.responsibility:
         return ref.id in resp_ids
-    elif ref.type == ReferenceType.controlled_process:
+    if ref.type == ReferenceType.controlled_process:
         return ref.id in cp_ids
     return False
 
 
-def _check_duplicates(ids: list[str], field_name: str) -> None:
-    """Raise ValueError if *ids* contains duplicates."""
-    seen: set[str] = set()
-    for id_val in ids:
-        if id_val in seen:
-            raise ValueError(f"Duplicate {field_name}: '{id_val}'.")
-        seen.add(id_val)
+def _collect_child_ids(
+    responsibilities: list[Responsibility],
+) -> tuple[list[str], list[str], list[str], dict[str, set[str]]]:
+    """Collect all PM/CA/FB IDs and check for per-responsibility duplicates.
+
+    Returns:
+        A tuple of (all_pm_ids, all_ca_ids, all_fb_ids, pm_ids_by_resp).
+    """
+    all_pm_ids: list[str] = []
+    all_ca_ids: list[str] = []
+    all_fb_ids: list[str] = []
+    pm_by_resp: dict[str, set[str]] = {}
+
+    for resp in responsibilities:
+        pm_list = [pm.pm_id for pm in resp.process_model_parts]
+        ca_list = [ca.ca_id for ca in resp.control_actions]
+        fb_list = [fb.fb_id for fb in resp.feedback_channels]
+
+        pm_by_resp[resp.resp_id] = set(pm_list)
+        all_pm_ids.extend(pm_list)
+        all_ca_ids.extend(ca_list)
+        all_fb_ids.extend(fb_list)
+
+        check_duplicate_ids(pm_list, "pm_id")
+        check_duplicate_ids(ca_list, "ca_id")
+        check_duplicate_ids(fb_list, "fb_id")
+
+    return all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp
+
+
+def _validate_element_refs(
+    responsibilities: list[Responsibility],
+    resp_ids: set[str],
+    cp_ids: set[str],
+) -> None:
+    """Validate ElementRef targets in PMs, CAs, and FBs."""
+    for resp in responsibilities:
+        _validate_pm_refs(resp, resp_ids, cp_ids)
+        _validate_ca_refs(resp, resp_ids, cp_ids)
+        _validate_fb_source_refs(resp, resp_ids, cp_ids)
+
+
+def _validate_pm_refs(
+    resp: Responsibility, resp_ids: set[str], cp_ids: set[str]
+) -> None:
+    """Validate feedback_source references in process model parts."""
+    for pm in resp.process_model_parts:
+        if pm.feedback_source is not None:
+            if not _is_valid_element_ref(pm.feedback_source, resp_ids, cp_ids):
+                raise ValueError(
+                    f"ProcessModelPart {pm.pm_id} feedback_source "
+                    f"references non-existent element "
+                    f"{pm.feedback_source.type.value} '{pm.feedback_source.id}'."
+                )
+
+
+def _validate_ca_refs(
+    resp: Responsibility, resp_ids: set[str], cp_ids: set[str]
+) -> None:
+    """Validate target references in control actions."""
+    for ca in resp.control_actions:
+        if ca.target is not None:
+            if not _is_valid_element_ref(ca.target, resp_ids, cp_ids):
+                raise ValueError(
+                    f"ControlAction {ca.ca_id} target references "
+                    f"non-existent element "
+                    f"{ca.target.type.value} '{ca.target.id}'."
+                )
+
+
+def _validate_fb_source_refs(
+    resp: Responsibility, resp_ids: set[str], cp_ids: set[str]
+) -> None:
+    """Validate source references in feedback channels."""
+    for fb in resp.feedback_channels:
+        if not _is_valid_element_ref(fb.source, resp_ids, cp_ids):
+            raise ValueError(
+                f"FeedbackChannel {fb.fb_id} source references "
+                f"non-existent element "
+                f"{fb.source.type.value} '{fb.source.id}'."
+            )
+
+
+def _validate_feedback_updates(
+    responsibilities: list[Responsibility],
+    pm_by_resp: dict[str, set[str]],
+) -> None:
+    """Validate that feedback channel updates reference a PM in the same responsibility."""
+    all_pm_ids = {pm for s in pm_by_resp.values() for pm in s}
+    for resp in responsibilities:
+        local_pm_ids = pm_by_resp[resp.resp_id]
+        for fb in resp.feedback_channels:
+            _validate_fb_update_target(fb, resp.resp_id, local_pm_ids, all_pm_ids)
+
+
+def _validate_fb_update_target(
+    fb: FeedbackChannel,
+    resp_id: str,
+    local_pm_ids: set[str],
+    all_pm_ids: set[str],
+) -> None:
+    """Validate a single feedback channel's updates reference."""
+    if fb.updates in local_pm_ids:
+        return
+    if fb.updates in all_pm_ids:
+        raise ValueError(
+            f"FeedbackChannel {fb.fb_id} updates references "
+            f"PM '{fb.updates}' which belongs to a different "
+            f"responsibility (not {resp_id})."
+        )
+    raise ValueError(
+        f"FeedbackChannel {fb.fb_id} updates references "
+        f"non-existent PM '{fb.updates}'."
+    )
+
+
+def _validate_coordination_links(
+    links: list[CoordinationLink],
+    resp_ids: set[str],
+    all_pm_ids: list[str],
+) -> None:
+    """Validate coordination link source/target/shared_pm references."""
+    pm_id_set = set(all_pm_ids)
+    for cl in links:
+        if cl.source not in resp_ids:
+            raise ValueError(
+                f"CoordinationLink {cl.link_id} source references "
+                f"non-existent responsibility '{cl.source}'."
+            )
+        if cl.target not in resp_ids:
+            raise ValueError(
+                f"CoordinationLink {cl.link_id} target references "
+                f"non-existent responsibility '{cl.target}'."
+            )
+        if cl.shared_pm not in pm_id_set:
+            raise ValueError(
+                f"CoordinationLink {cl.link_id} shared_pm references "
+                f"non-existent PM '{cl.shared_pm}'."
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +326,7 @@ def check_structural_heuristics(
     - Every controlled process is referenced by >=1 feedback channel source
       OR >=1 control action target.
     - Every hazard (from LossAnalysis) traces to >=1 responsibility
-      (via security constraints → responsibilities).
+      (via security constraints -> responsibilities).
     - Orphan PM parts (not updated by any feedback channel) are flagged as
       warnings.
 
@@ -298,32 +339,39 @@ def check_structural_heuristics(
     """
     result = HeuristicResult()
 
-    # 1. Every responsibility has >=1 PM, >=1 CA, >=1 FB
+    _check_responsibility_completeness(cs, result)
+    _check_controlled_process_references(cs, result)
+    _check_orphan_pms(cs, result)
+    if loss_analysis is not None:
+        _check_hazard_tracing(cs, loss_analysis, result)
+
+    return result
+
+
+def _check_responsibility_completeness(
+    cs: ControlStructure, result: HeuristicResult
+) -> None:
+    """Every responsibility has >=1 PM, >=1 CA, >=1 FB."""
     for resp in cs.responsibilities:
-        if len(resp.process_model_parts) < 1:
+        if not resp.process_model_parts:
             result.errors.append(
                 f"Responsibility {resp.resp_id} has no process model part."
             )
-        if len(resp.control_actions) < 1:
+        if not resp.control_actions:
             result.errors.append(
                 f"Responsibility {resp.resp_id} has no control action."
             )
-        if len(resp.feedback_channels) < 1:
+        if not resp.feedback_channels:
             result.errors.append(
                 f"Responsibility {resp.resp_id} has no feedback channel."
             )
 
-    # 2. Every controlled process is referenced by >=1 feedback source
-    #    OR >=1 control action target
-    referenced_cps: set[str] = set()
-    for resp in cs.responsibilities:
-        for fb in resp.feedback_channels:
-            if fb.source.type == ReferenceType.controlled_process:
-                referenced_cps.add(fb.source.id)
-        for ca in resp.control_actions:
-            if ca.target is not None and ca.target.type == ReferenceType.controlled_process:
-                referenced_cps.add(ca.target.id)
 
+def _check_controlled_process_references(
+    cs: ControlStructure, result: HeuristicResult
+) -> None:
+    """Every controlled process is referenced by >=1 feedback source or CA target."""
+    referenced_cps = _collect_referenced_cps(cs.responsibilities)
     for cp in cs.controlled_processes:
         if cp.cp_id not in referenced_cps:
             result.errors.append(
@@ -331,7 +379,32 @@ def check_structural_heuristics(
                 f"feedback channel source or control action target."
             )
 
-    # 3. Orphan PM parts (not updated by any feedback channel) -> warnings
+
+def _collect_referenced_cps(responsibilities: list[Responsibility]) -> set[str]:
+    """Collect CP IDs referenced by feedback sources or CA targets."""
+    referenced: set[str] = set()
+    for resp in responsibilities:
+        _add_cps_from_feedback(referenced, resp.feedback_channels)
+        _add_cps_from_control_actions(referenced, resp.control_actions)
+    return referenced
+
+
+def _add_cps_from_feedback(referenced: set[str], channels: list[FeedbackChannel]) -> None:
+    """Add CP IDs referenced by feedback channel sources."""
+    for fb in channels:
+        if fb.source.type == ReferenceType.controlled_process:
+            referenced.add(fb.source.id)
+
+
+def _add_cps_from_control_actions(referenced: set[str], actions: list[ControlAction]) -> None:
+    """Add CP IDs referenced by control action targets."""
+    for ca in actions:
+        if ca.target is not None and ca.target.type == ReferenceType.controlled_process:
+            referenced.add(ca.target.id)
+
+
+def _check_orphan_pms(cs: ControlStructure, result: HeuristicResult) -> None:
+    """Orphan PM parts (not updated by any feedback channel) produce warnings."""
     for resp in cs.responsibilities:
         updated_pms = {fb.updates for fb in resp.feedback_channels}
         for pm in resp.process_model_parts:
@@ -341,34 +414,57 @@ def check_structural_heuristics(
                     f"is not updated by any feedback channel."
                 )
 
-    # 4. Hazard tracing (requires loss_analysis)
-    if loss_analysis is not None:
-        # Build a mapping: constraint_id -> which responsibility references it
-        # in its responsibility_constraints
-        constraints_by_resp: dict[str, set[str]] = {}
-        for resp in cs.responsibilities:
-            for rc in resp.responsibility_constraints:
-                constraints_by_resp.setdefault(rc.rc_id, set()).add(resp.resp_id)
 
-        # Map hazard_id -> set of constraint IDs that reference it
-        # Security constraints from LossAnalysis have related_hazards
-        hazard_to_constraints: dict[str, set[str]] = {}
-        for sc in loss_analysis.security_constraints:
-            for h_id in sc.related_hazards:
-                hazard_to_constraints.setdefault(h_id, set()).add(sc.constraint_id)
+def _check_hazard_tracing(
+    cs: ControlStructure,
+    loss_analysis: LossAnalysis,
+    result: HeuristicResult,
+) -> None:
+    """Every hazard traces to >=1 responsibility via security constraints."""
+    constraints_by_resp = _build_constraints_by_resp(cs.responsibilities)
+    hazard_to_constraints = _build_hazard_to_constraints(
+        loss_analysis.security_constraints
+    )
 
-        # For each hazard, check that at least one responsibility references
-        # a constraint that covers that hazard
-        for hazard in loss_analysis.hazards:
-            covering_constraints = hazard_to_constraints.get(hazard.hazard_id, set())
-            traced_resps: set[str] = set()
-            for c_id in covering_constraints:
-                traced_resps.update(constraints_by_resp.get(c_id, set()))
-            if not traced_resps:
-                result.errors.append(
-                    f"Hazard {hazard.hazard_id} is not traced to any "
-                    f"responsibility (no responsibility references a constraint "
-                    f"that covers this hazard)."
-                )
+    for hazard in loss_analysis.hazards:
+        covering = hazard_to_constraints.get(hazard.hazard_id, set())
+        traced_resps = _trace_responsibilities(covering, constraints_by_resp)
+        if not traced_resps:
+            result.errors.append(
+                f"Hazard {hazard.hazard_id} is not traced to any "
+                f"responsibility (no responsibility references a constraint "
+                f"that covers this hazard)."
+            )
 
-    return result
+
+def _build_constraints_by_resp(
+    responsibilities: list[Responsibility],
+) -> dict[str, set[str]]:
+    """Map rc_id -> set of resp_ids that reference it."""
+    mapping: dict[str, set[str]] = {}
+    for resp in responsibilities:
+        for rc in resp.responsibility_constraints:
+            mapping.setdefault(rc.rc_id, set()).add(resp.resp_id)
+    return mapping
+
+
+def _build_hazard_to_constraints(
+    security_constraints: list,
+) -> dict[str, set[str]]:
+    """Map hazard_id -> set of constraint_ids that cover it."""
+    mapping: dict[str, set[str]] = {}
+    for sc in security_constraints:
+        for h_id in sc.related_hazards:
+            mapping.setdefault(h_id, set()).add(sc.constraint_id)
+    return mapping
+
+
+def _trace_responsibilities(
+    covering_constraints: set[str],
+    constraints_by_resp: dict[str, set[str]],
+) -> set[str]:
+    """Find all responsibilities referenced by the covering constraints."""
+    traced: set[str] = set()
+    for c_id in covering_constraints:
+        traced.update(constraints_by_resp.get(c_id, set()))
+    return traced

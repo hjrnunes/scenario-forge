@@ -414,6 +414,36 @@ class TestControlStructureHeuristics:
         assert not result.passed
         assert any("controlled process" in e.lower() for e in result.errors)
 
+    def test_cs_15b_cp_referenced_by_ca_target_passes(self):
+        """CS-15b: controlled process referenced by CA target passes heuristic."""
+        cs = _make_cs(
+            responsibilities=[
+                _make_resp(
+                    cas=[_make_ca(target=_make_element_ref(ReferenceType.controlled_process, "CP-1"))],
+                )
+            ],
+            controlled_processes=[
+                ControlledProcess(cp_id="CP-1", description="Process"),
+            ],
+        )
+        result = check_structural_heuristics(cs)
+        assert result.passed
+
+    def test_cs_15c_cp_referenced_by_feedback_source_passes(self):
+        """CS-15c: controlled process referenced by feedback source passes heuristic."""
+        cs = _make_cs(
+            responsibilities=[
+                _make_resp(
+                    fbs=[_make_fb(source=_make_element_ref(ReferenceType.controlled_process, "CP-1"))],
+                )
+            ],
+            controlled_processes=[
+                ControlledProcess(cp_id="CP-1", description="Process"),
+            ],
+        )
+        result = check_structural_heuristics(cs)
+        assert result.passed
+
     def test_cs_16_hazard_not_traced_fails_heuristic(self):
         """CS-16: hazard not traced to any responsibility fails structural heuristic."""
         la = LossAnalysis(
@@ -459,32 +489,8 @@ class TestControlStructureHeuristics:
                 )
             ],
         )
-        cs = _make_cs(
-            responsibilities=[
-                _make_resp(
-                    constraints=[
-                        ResponsibilityConstraint(
-                            rc_id="RC-1-1", description="Constraint"
-                        )
-                    ]
-                )
-            ]
-        )
-        # The hazard is traced via SC-1 -> RC-1-1 -> RESP-1
-        # But wait — the heuristic maps constraint_id to responsibilities
-        # via responsibility_constraints (rc_id). SC-1 is a security constraint
-        # from LossAnalysis, not a responsibility constraint.
-        # We need the responsibility to reference SC-1 as an rc_id.
-        # Let me re-check the heuristic logic...
-        # The heuristic checks if any responsibility references a constraint
-        # that covers the hazard. The constraint in LossAnalysis is SC-1.
-        # The responsibility_constraints have rc_ids like RC-1-1.
-        # So we need RC-1-1 to be referenced by SC-1... but that's not how it works.
-        # The heuristic maps constraint_id -> responsibility, where constraint_id
-        # is the rc_id from responsibility_constraints. But the hazard_to_constraints
-        # map uses SC-1 from LossAnalysis.security_constraints.
-        # So SC-1 needs to be the rc_id for this to work.
-        # Let me fix the test: use SC-1 as the rc_id.
+        # The hazard is traced via SC-1 -> a responsibility_constraint whose
+        # rc_id matches SC-1 -> RESP-1.
         cs = _make_cs(
             responsibilities=[
                 _make_resp(

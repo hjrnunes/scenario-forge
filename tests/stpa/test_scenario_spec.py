@@ -27,11 +27,14 @@ from scenario_forge.stpa.models.scenario_spec import (
     ScenarioSpec,
     ThreatSource,
 )
+from tests.stpa.helpers import make_minimal_control_structure
 
 
 def _make_control_structure(
     with_resp2: bool = False,
 ) -> ControlStructure:
+    if not with_resp2:
+        return make_minimal_control_structure()
     responsibilities = [
         Responsibility(
             resp_id="RESP-1",
@@ -52,8 +55,7 @@ def _make_control_structure(
             ],
         )
     ]
-    if with_resp2:
-        responsibilities.append(
+    responsibilities.append(
             Responsibility(
                 resp_id="RESP-2",
                 description="Controller 2",
