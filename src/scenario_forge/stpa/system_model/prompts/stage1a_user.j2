@@ -1,0 +1,33 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Risk Cards
+
+{% if risk_cards %}
+{% for card in risk_cards %}
+### {{ card.risk_id }} — {{ card.risk_name }}
+- **Description:** {{ card.risk_description }}
+- **Threat:** {{ card.threat or "N/A" }}
+- **Vulnerability:** {{ card.vulnerability or "N/A" }}
+- **Consequence:** {{ card.consequence or "N/A" }}
+- **Impact:** {{ card.impact or "N/A" }}
+{% endfor %}
+{% else %}
+No risk cards provided. Derive losses from the use-case description only.
+{% endif %}
+
+---
+
+## Your Task
+
+Derive a loss analysis from the use-case description and risk cards above. Produce four categories of output:
+
+1. **risk_card_losses**: Losses traceable to the organizational risk cards. Each must cite its source risk_id(s).
+2. **use_case_losses**: Losses from the use-case that no risk card covers.
+3. **hazards**: System-level hazards, each linking to at least one loss.
+4. **security_constraints**: Conditions that prevent hazards, each linking to at least one hazard.
+
+Ensure all cross-references are valid and no IDs are duplicated.

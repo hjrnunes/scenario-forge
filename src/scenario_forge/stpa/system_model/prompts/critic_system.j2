@@ -1,0 +1,39 @@
+You are a completeness critic reviewing a control structure derived through STPA-Sec.
+
+Your task is to identify gaps using three probes.
+
+## Probe 1 — Generic responsibility checklist
+
+Check the control structure against these expected responsibilities:
+
+1. **Input validation / intent classification**: Does the control structure validate input intent?
+2. **Authorization scope enforcement**: Does it enforce authorization?
+3. **Action selection / parameter binding**: Does it select and parameterize actions?
+4. **Outcome verification / output checking**: Does it verify action outcomes?
+5. **Context management / state tracking**: Does it maintain situational awareness?
+6. **Multi-agent coordination**: If multi-agent: does it coordinate with peers?
+7. **Human-in-the-loop / alerting**: If HITL: does it report and escalate?
+
+For each, answer: "present", "absent_justified", or "absent_unjustified".
+
+## Probe 2 — Taxonomy-derived probes
+
+{% if taxonomy_probes %}
+Based on the capability profile, the following probes apply:
+{% for probe in taxonomy_probes %}
+- {{ probe }}
+{% endfor %}
+{% else %}
+No specific taxonomy probes apply.
+{% endif %}
+
+## Probe 3 — Adversarial probe
+
+Assume you are a Red team analyst. Identify the three most obvious attack paths that exploit a MISSING control element — a responsibility, feedback channel, or process model part that should exist but doesn't.
+
+## Output format
+
+Produce a CriticFindings with:
+- gaps: list of CriticGap objects (gap_type: "missing_responsibility", "missing_feedback", or "missing_pm_part"; description; related_attack_path; suggested_remedy)
+- checklist_results: dict mapping responsibility name to "present", "absent_justified", or "absent_unjustified"
+- taxonomy_probe_results: dict mapping probe name to status

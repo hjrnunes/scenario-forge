@@ -1,0 +1,21 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Security Constraints
+
+{% for sc in security_constraints %}
+### {{ sc.constraint_id }}
+{{ sc.description }}
+Related hazards: {{ sc.related_hazards | join(", ") }}
+{% endfor %}
+
+---
+
+## Your Task
+
+For each security constraint, derive solution-neutral requirements. Classify each as "control" (a decision/function) or "constraint" (a restriction on how decisions are made). Each requirement must reference its source constraint.
+
+Remember: solution-neutral means no implementation-specific terms. Describe what must be true, not who or what implements it.

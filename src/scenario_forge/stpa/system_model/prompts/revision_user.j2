@@ -1,0 +1,52 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Current Control Structure
+
+### Responsibilities
+{% for resp in control_structure.responsibilities %}
+- **{{ resp.resp_id }}**: {{ resp.description }}
+  PM parts: {{ resp.process_model_parts | map(attribute='pm_id') | join(", ") }}
+  Control actions: {{ resp.control_actions | map(attribute='ca_id') | join(", ") }}
+  Feedback channels: {{ resp.feedback_channels | map(attribute='fb_id') | join(", ") }}
+{% endfor %}
+
+### Controlled Processes
+{% for cp in control_structure.controlled_processes %}
+- **{{ cp.cp_id }}**: {{ cp.description }}
+{% endfor %}
+
+### Coordination Links
+{% for cl in control_structure.coordination_links %}
+- **{{ cl.link_id }}**: {{ cl.source }} → {{ cl.target }} (shared: {{ cl.shared_pm }})
+{% endfor %}
+
+---
+
+## Critic Findings
+
+### Gaps
+{% for gap in critic_findings.gaps %}
+- **{{ gap.gap_type }}**: {{ gap.description }}
+  Attack path: {{ gap.related_attack_path }}
+  Suggested remedy: {{ gap.suggested_remedy }}
+{% endfor %}
+
+### Checklist Results
+{% for name, status in critic_findings.checklist_results.items() %}
+- {{ name }}: {{ status }}
+{% endfor %}
+
+### Taxonomy Probe Results
+{% for name, status in critic_findings.taxonomy_probe_results.items() %}
+- {{ name }}: {{ status }}
+{% endfor %}
+
+---
+
+## Your Task
+
+Modify the control structure to address the identified gaps. Add missing responsibilities, feedback channels, or PM parts. Ensure new elements connect properly. Do not lose existing responsibilities.

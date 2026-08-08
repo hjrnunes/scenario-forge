@@ -1,0 +1,32 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Loss Analysis Context
+
+The following loss analysis was derived from the use-case and risk cards. Use it to understand what losses and hazards the capability profile needs to support.
+
+### Losses
+{% for loss in all_losses %}
+- **{{ loss.loss_id }}** ({{ loss.provenance }}): {{ loss.description }}
+{% endfor %}
+
+### Hazards
+{% for hazard in loss_analysis.hazards %}
+- **{{ hazard.hazard_id }}**: {{ hazard.description }} (related losses: {{ hazard.related_losses | join(", ") }})
+{% endfor %}
+
+### Security Constraints
+{% for sc in loss_analysis.security_constraints %}
+- **{{ sc.constraint_id }}**: {{ sc.description }} (related hazards: {{ sc.related_hazards | join(", ") }})
+{% endfor %}
+
+---
+
+## Your Task
+
+Extract a capability profile for this system. Provide zones (derived from kc_subcodes), entry_points, kc_subcodes, tool_inventory, confidence, and the boolean flags (has_persistent_memory, multi_agent, hitl).
+
+Ensure the tool inventory is complete — every tool or API the system can invoke must be listed. Ensure entry points capture every attacker-accessible ingress path.
