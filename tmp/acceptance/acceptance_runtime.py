@@ -2969,7 +2969,7 @@ def _h_sp1_stage1a_run(world: World, text: str, examples: dict) -> tuple[bool, s
             llm_client=client, use_case_text=world.sp1_use_case_text,
             risk_cards=_sp1_make_risk_cards(), run_dir=run_dir,
         )
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError, _GDStageError) as e:
         world.validation_error = e
     return True, ""
 
@@ -3649,7 +3649,7 @@ def _h_sp1_stage1a_run_full(world: World, text: str, examples: dict) -> tuple[bo
             llm_client=client, use_case_text=world.sp1_use_case_text,
             risk_cards=_sp1_make_risk_cards(), run_dir=run_dir,
         )
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError, _GDStageError) as e:
         world.validation_error = e
     return True, ""
 
@@ -3852,7 +3852,7 @@ def _h_sp1_cp_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
             llm_client=client, use_case_text=world.sp1_use_case_text,
             loss_analysis=la, run_dir=run_dir,
         )
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError, _GDStageError) as e:
         world.validation_error = e
     return True, ""
 
@@ -4202,7 +4202,7 @@ def _h_sp1_s2_full_run(world: World, text: str, examples: dict) -> tuple[bool, s
             loss_analysis=la, run_dir=run_dir,
         )
         world.heuristic_result = _sp1_run_heuristics(world.control_structure, la)
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError, _GDStageError) as e:
         world.validation_error = e
     return True, ""
 
@@ -6071,7 +6071,7 @@ def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
                 return handler(world, text, examples)
 
         return False, f"Unsupported step: {keyword} {text}"
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError, _GDStageError) as e:
         world.validation_error = e
         return True, ""
 
