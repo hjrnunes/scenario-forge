@@ -2438,13 +2438,18 @@ def _h_template_render_no_var(world: World, text: str, examples: dict) -> tuple[
 
 
 def _h_template_rendered_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the rendered text contains World."""
-    match = re.search(r"contains (\S+)", text)
-    expected = match.group(1) if match else "World"
+    """Handle: the rendered text contains "..." (quoted) or single word."""
     if world.template_rendered is None:
         return False, "No rendered text"
+    quoted = re.search(r'"([^"]+)"', text)
+    if quoted:
+        expected = quoted.group(1)
+    else:
+        match = re.search(r"contains (\S+)", text)
+        expected = match.group(1) if match else "World"
     if expected not in world.template_rendered:
-        return False, f"Expected '{expected}' in rendered text but got '{world.template_rendered}'"
+        snippet = world.template_rendered[:300]
+        return False, f"Expected '{expected}' in rendered text but it was not found. Start: {snippet}..."
     return True, ""
 
 
@@ -6748,6 +6753,170 @@ _register(r"the heuristic result is available$", _h_mf_heuristic_result_availabl
 _register(r"the SP1RunResult stage_errors contains the merge failure", _h_mf_stage_errors_contains_merge)
 _register(r"no merge failure is logged", _h_mf_no_merge_failure_logged)
 _register(r"an LLM that returns a valid ConnectionSet with coordination link CL-1 from RESP-1 to RESP-2", _h_mf_llm_valid_connectionset_with_cl)
+
+
+# ---------------------------------------------------------------------------
+# SP1 Prompt Quality Fix step handlers
+# ---------------------------------------------------------------------------
+
+# Path to the STPA system model prompts directory
+_PQF_PROMPTS_DIR = PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "system_model" / "prompts"
+
+
+def _h_pqf_prompts_dir_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the STPA system model prompts directory is available."""
+    if not _PQF_PROMPTS_DIR.is_dir():
+        return False, f"Prompts directory not found: {_PQF_PROMPTS_DIR}"
+    world.template_dir = _PQF_PROMPTS_DIR
+    return True, ""
+
+
+def _h_pqf_template_loader_created(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the TemplateLoader can load templates from the prompts directory."""
+    if world.template_dir is None:
+        world.template_dir = _PQF_PROMPTS_DIR
+    world.template_loader = TemplateLoader(world.template_dir)
+    return True, ""
+
+
+def _h_pqf_template_loaded(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template <name>.j2 is loaded."""
+    match = re.search(r"the template (\S+\.j2) is loaded", text)
+    if not match:
+        return False, f"Could not parse template name from: {text}"
+    template_name = match.group(1)
+    if world.template_loader is None:
+        world.template_loader = TemplateLoader(_PQF_PROMPTS_DIR)
+    template_path = world.template_loader.prompts_dir / template_name
+    # Case-sensitive check: verify the exact filename exists (macOS HFS+/APFS is case-insensitive)
+    actual_files = {p.name for p in world.template_loader.prompts_dir.iterdir()}
+    if template_name not in actual_files:
+        return False, f"Template not found (case-sensitive): {template_name}"
+    world.template_rendered = template_path.read_text(encoding="utf-8")
+    world.fixture_filename = template_name
+    return True, ""
+
+
+def _h_pqf_template_text_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template text contains "..." or the template text contains the <category> "..."."""
+    if world.template_rendered is None:
+        return False, "No template text loaded"
+    quoted = re.search(r'"([^"]+)"', text)
+    if not quoted:
+        return False, f"Could not extract quoted text from: {text}"
+    expected = quoted.group(1)
+    if expected not in world.template_rendered:
+        snippet = world.template_rendered[:200]
+        return False, f"Expected '{expected}' in template text but it was not found. Start: {snippet}..."
+    return True, ""
+
+
+def _h_pqf_template_text_not_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template text does not contain "..."."""
+    if world.template_rendered is None:
+        return False, "No template text loaded"
+    quoted = re.search(r'"([^"]+)"', text)
+    if not quoted:
+        return False, f"Could not extract quoted text from: {text}"
+    excluded = quoted.group(1)
+    if excluded in world.template_rendered:
+        return False, f"Expected '{excluded}' to NOT be in template text but it was found"
+    return True, ""
+
+
+def _h_pqf_quality_after_section(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Quality requirements section appears after the <X> section [in <template>]."""
+    if world.template_rendered is None:
+        return False, "No template text loaded"
+    # Extract the section name that Quality requirements should appear after
+    match = re.search(r"after the (.+?) section(?: in \S+)?$", text)
+    if not match:
+        return False, f"Could not parse section name from: {text}"
+    section_name = match.group(1)
+    quality_pos = world.template_rendered.find("## Quality requirements")
+    section_pos = world.template_rendered.find(f"## {section_name}")
+    if quality_pos == -1:
+        return False, "## Quality requirements section not found in template"
+    if section_pos == -1:
+        return False, f"## {section_name} section not found in template"
+    if quality_pos <= section_pos:
+        return False, (
+            f"Quality requirements section (pos {quality_pos}) should appear after "
+            f"{section_name} section (pos {section_pos})"
+        )
+    return True, ""
+
+
+def _h_pqf_render_no_variables(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template is rendered with no variables."""
+    if world.template_loader is None:
+        return False, "No template loader available"
+    if world.fixture_filename is None:
+        return False, "No template name set"
+    # Case-sensitive check (macOS HFS+/APFS is case-insensitive)
+    actual_files = {p.name for p in world.template_loader.prompts_dir.iterdir()}
+    if world.fixture_filename not in actual_files:
+        return False, f"Template not found (case-sensitive): {world.fixture_filename}"
+    try:
+        world.template_rendered = world.template_loader.render_prompt(
+            world.fixture_filename
+        )
+    except Exception as e:
+        return False, f"Template rendering failed: {e}"
+    return True, ""
+
+
+def _h_pqf_render_with_vars(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template is rendered with use_case_text "..." and an empty risk_cards list."""
+    if world.template_loader is None:
+        return False, "No template loader available"
+    if world.fixture_filename is None:
+        return False, "No template name set"
+    # Case-sensitive check (macOS HFS+/APFS is case-insensitive)
+    actual_files = {p.name for p in world.template_loader.prompts_dir.iterdir()}
+    if world.fixture_filename not in actual_files:
+        return False, f"Template not found (case-sensitive): {world.fixture_filename}"
+    quoted = re.search(r'use_case_text "([^"]+)"', text)
+    use_case_text = quoted.group(1) if quoted else "Test use case"
+    try:
+        world.template_rendered = world.template_loader.render_prompt(
+            world.fixture_filename,
+            use_case_text=use_case_text,
+            risk_cards=[],
+        )
+    except Exception as e:
+        return False, f"Template rendering failed: {e}"
+    return True, ""
+
+
+def _h_pqf_rendered_text_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the rendered text contains "..." (multi-word quoted text)."""
+    if world.template_rendered is None:
+        return False, "No rendered text"
+    quoted = re.search(r'"([^"]+)"', text)
+    if quoted:
+        expected = quoted.group(1)
+    else:
+        # Fallback: single word for backward compatibility
+        match = re.search(r"contains (\S+)", text)
+        expected = match.group(1) if match else ""
+    if not expected:
+        return False, f"Could not extract expected text from: {text}"
+    if expected not in world.template_rendered:
+        snippet = world.template_rendered[:300]
+        return False, f"Expected '{expected}' in rendered text but it was not found. Start: {snippet}..."
+    return True, ""
+
+
+# Prompt Quality Fix step registrations
+_register(r"the STPA system model prompts directory is available", _h_pqf_prompts_dir_available)
+_register(r"the TemplateLoader can load templates from the prompts directory", _h_pqf_template_loader_created)
+_register(r"the template \S+\.j2 is loaded", _h_pqf_template_loaded)
+_register(r"the template text does not contain", _h_pqf_template_text_not_contains)
+_register(r"the template text contains", _h_pqf_template_text_contains)
+_register(r"the Quality requirements section appears after", _h_pqf_quality_after_section)
+_register(r"the template is rendered with no variables", _h_pqf_render_no_variables)
+_register(r"the template is rendered with use_case_text", _h_pqf_render_with_vars)
 
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:

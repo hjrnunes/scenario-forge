@@ -99,5 +99,5 @@ def load_capability_profile(profile_path: Path) -> CapabilityProfile:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T18:00:08Z","module_hash":"03a6de03003ac6678d9292ab679913b7f8afd9bf539ca8971262febb8bafdbc4","functions":[{"id":"func/derive_capability_profile","name":"derive_capability_profile","line":29,"end_line":84,"hash":"1a1eab634d8bb16e680228e373c25c18ceb5f286b71d4aff6f807c7f272a3d2e"},{"id":"func/load_capability_profile","name":"load_capability_profile","line":87,"end_line":98,"hash":"879c915a125131af1cfb241df23ef326e72ed0742affe7d456dfc8ecb9658f89"}]}
+# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"03a6de03003ac6678d9292ab679913b7f8afd9bf539ca8971262febb8bafdbc4","functions":[{"id":"func/derive_capability_profile","name":"derive_capability_profile","line":29,"end_line":84,"hash":"1a1eab634d8bb16e680228e373c25c18ceb5f286b71d4aff6f807c7f272a3d2e"},{"id":"func/load_capability_profile","name":"load_capability_profile","line":87,"end_line":98,"hash":"879c915a125131af1cfb241df23ef326e72ed0742affe7d456dfc8ecb9658f89"}]}
 # mutate4py-manifest-end

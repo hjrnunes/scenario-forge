@@ -38,3 +38,8 @@ __all__ = [
     # manifest
     "STPARunManifest",
 ]
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"4e591bb85398f0de8d29db741bb62eb569d9302972363a95634f5c982e673d6a","functions":[]}
+# mutate4py-manifest-end

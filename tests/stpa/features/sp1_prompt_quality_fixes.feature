@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=60ee0177717d007badb3eab42a7b035987754f1328cc6dc5330a8ab187b31fba
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T23:20:30.522309Z","feature_name":"SP1 Stage 1 prompt quality fixes","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/.factory/swarmforge/aps/../../../tests/stpa/features/sp1_prompt_quality_fixes.feature","background_hash":"a7bc2ec77d4defafedaa1fd7aa346715ff439a68ae3d8c13e3a536e3d7527613","implementation_hash":"unknown","scenarios":[{"index":1,"name":"PQF-02 stage1a_system.j2 contains Hazard specificity patterns","scenario_hash":"c13ba2157fe05bf4d67e22220b506cdf0139ce941ae51c19198fd99483342706","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-08T23:20:30.522309Z"},{"index":8,"name":"PQF-09 system templates render quality requirements content without errors","scenario_hash":"5b647ebd71ff39a4c04307279cda34de9947c2fc543e951ff38e179509ef1036","mutation_count":14,"result":{"Total":14,"Killed":14,"Survived":0,"Errors":0},"tested_at":"2026-08-08T23:20:30.522309Z"},{"index":7,"name":"PQF-08 stage1b_system.j2 contains Quality requirements section with acronym expansion","scenario_hash":"c72dab78c166bcebd47d5d0045fe7837bbc954272e8873165aaf6868ce8070b6","mutation_count":5,"result":{"Total":5,"Killed":5,"Survived":0,"Errors":0},"tested_at":"2026-08-08T23:19:13.810267Z"},{"index":11,"name":"PQF-12 stage1a_system.j2 preserves existing sections","scenario_hash":"ed36b7419f5b08e48252986c7a226810090e3bf8cfd2334aed471bdd0cea39ff","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-08T23:19:13.810267Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 1 prompt quality fixes
   Three combined fixes improve Stage 1a/1b prompt templates for better
   LLM output quality: hazard specificity and loss specificity requirements,
@@ -20,14 +25,14 @@ Feature: SP1 Stage 1 prompt quality fixes
     Then the template text contains "### Hazard specificity"
     And the template text contains "at least one specific component"
     And the template text contains "too generic"
-    And the template text contains the <pattern_category> "<pattern_text>"
+    And the template text contains "<pattern_text>"
 
     Examples:
-      | pattern_category  | pattern_text                                                              |
-      | anti-pattern      | LLM outputs are manipulated via prompt injection to bypass security controls |
-      | anti-pattern      | System generates biased or discriminatory content                         |
-      | correct pattern   | patient chatbot generates an inaccurate surgical procedure explanation    |
-      | correct pattern   | refund processing API executes an unauthorized refund amount              |
+      | pattern_text                                                              |
+      | LLM outputs are manipulated via prompt injection to bypass security controls |
+      | System generates biased or discriminatory content                         |
+      | patient chatbot generates an inaccurate surgical procedure explanation    |
+      | refund processing API executes an unauthorized refund amount              |
 
   # PQF-03
   Scenario: PQF-03 stage1a_system.j2 contains Loss specificity sub-section
@@ -110,7 +115,7 @@ Feature: SP1 Stage 1 prompt quality fixes
   Scenario: PQF-11 stage1a_user.j2 preserves Jinja2 template variables
     Given the template stage1a_user.j2 is loaded
     Then the template text contains "{{ use_case_text }}"
-    And the template text contains "{{ risk_cards }}"
+    And the template text contains "{% if risk_cards %}"
 
   # PQF-12
   Scenario Outline: PQF-12 stage1a_system.j2 preserves existing sections
