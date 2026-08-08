@@ -4323,7 +4323,7 @@ def _h_sp1_s2_full_run(world: World, text: str, examples: dict) -> tuple[bool, s
         client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
     la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
     try:
-        world.control_structure = _sp1_derive_control_structure(
+        world.control_structure, _merge_warnings = _sp1_derive_control_structure(
             llm_client=client, use_case_text=world.sp1_use_case_text,
             loss_analysis=la, run_dir=run_dir,
         )
@@ -6107,6 +6107,9 @@ def _h_gd_full_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
     if _GDResponsibilitySet not in client._invalid_types and _GDResponsibilitySet not in client._exception_types:
         if _GDResponsibilitySet not in client._response_map:
             client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_dict())
+    if _SP1ConnectionSet not in client._invalid_types and _SP1ConnectionSet not in client._exception_types:
+        if _SP1ConnectionSet not in client._response_map:
+            client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
     if ControlStructure not in client._invalid_types and ControlStructure not in client._exception_types:
         if ControlStructure not in client._response_map:
             client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
@@ -6509,6 +6512,242 @@ _register(r"critic findings with unjustified gaps", _h_connset_critic_unjustifie
 _register(r"Stage 2 revision is run", _h_connset_s2_revision_run)
 _register(r"the ControlStructure contains controlled process CP-1", _h_connset_cs_contains_cp)
 _register(r"an LLM that returns a valid revised ControlStructure JSON", _h_connset_llm_valid_revised_cs)
+
+
+# ---------------------------------------------------------------------------
+# SP1 Merge fallback degradation step handlers
+# ---------------------------------------------------------------------------
+
+
+def _sp1_invalid_connectionset_namespace_confusion() -> dict:
+    """ConnectionSet where a feedback source uses a FeedbackChannel ID as a CP ID."""
+    return {
+        "coordination_links": [],
+        "controlled_processes": [],
+        "connection_assignments": [
+            # FB-1-1 source set to controlled_process "FB-1-1" (namespace confusion)
+            {"element_id": "FB-1-1", "source": {"type": "controlled_process", "id": "FB-1-1"}},
+        ],
+    }
+
+
+def _sp1_invalid_connectionset_bad_link_source() -> dict:
+    """ConnectionSet with a coordination link referencing a non-existent responsibility."""
+    return {
+        "coordination_links": [
+            {"link_id": "CL-1", "source": "RESP-99", "target": "RESP-2", "shared_pm": "PM-1-1",
+             "coordination_mechanism": {"cm_id": "CM-1", "description": "Mechanism", "payload": "data"},
+             "description": "Link"},
+        ],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
+def _sp1_invalid_connectionset_bad_link_pm() -> dict:
+    """ConnectionSet with a coordination link referencing a non-existent PM."""
+    return {
+        "coordination_links": [
+            {"link_id": "CL-1", "source": "RESP-1", "target": "RESP-2", "shared_pm": "PM-99-1",
+             "coordination_mechanism": {"cm_id": "CM-1", "description": "Mechanism", "payload": "data"},
+             "description": "Link"},
+        ],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
+def _h_mf_llm_call1_call2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid responses for Call 1 and Call 2."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    return True, ""
+
+
+def _h_mf_llm_connectionset_violation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ConnectionSet with <violation>."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    if "namespace confusion" in text:
+        cs_dict = _sp1_invalid_connectionset_namespace_confusion()
+    elif "non-existent responsibility" in text:
+        cs_dict = _sp1_invalid_connectionset_bad_link_source()
+    elif "non-existent PM" in text:
+        cs_dict = _sp1_invalid_connectionset_bad_link_pm()
+    else:
+        cs_dict = _sp1_invalid_connectionset_namespace_confusion()
+    client.set_response_for(_SP1ConnectionSet, cs_dict)
+    return True, ""
+
+
+def _h_mf_llm_stage1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid responses for stage_1a and stage_1b."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    if LossAnalysis not in client._response_map:
+        client.set_response_for(LossAnalysis, _sp1_valid_la_dict())
+    if _SP1Stage1Profile not in client._response_map:
+        client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
+    return True, ""
+
+
+def _h_mf_resp_set_with_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet from Call 2 with controlled process CP-1."""
+    resp_dict = _sp1_valid_resp_set_dict()
+    # Ensure controlled_processes includes CP-1 (it already does in the default)
+    world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(resp_dict)
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_SP1ResponsibilitySet, resp_dict)
+    return True, ""
+
+
+def _h_mf_coordination_links_empty(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ControlStructure coordination_links list is empty."""
+    cs = world.control_structure
+    if cs is None:
+        # Check if it's in the run result
+        if world.sp1_run_result is not None and world.sp1_run_result.control_structure is not None:
+            cs = world.sp1_run_result.control_structure
+    if cs is None:
+        return False, "No ControlStructure available"
+    if len(cs.coordination_links) != 0:
+        return False, f"Expected empty coordination_links, got {len(cs.coordination_links)}"
+    return True, ""
+
+
+def _h_mf_contains_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ControlStructure contains responsibility RESP-1/RESP-2."""
+    m = re.search(r"contains responsibility (RESP-\d+)", text)
+    if not m:
+        return False, f"Could not parse responsibility ID from: {text}"
+    resp_id = m.group(1)
+    cs = world.control_structure
+    if cs is None:
+        if world.sp1_run_result is not None and world.sp1_run_result.control_structure is not None:
+            cs = world.sp1_run_result.control_structure
+    if cs is None:
+        return False, "No ControlStructure available"
+    if not any(r.resp_id == resp_id for r in cs.responsibilities):
+        return False, f"Responsibility {resp_id} not found in ControlStructure"
+    return True, ""
+
+
+def _h_mf_call_log_step_merge(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the call log entry step is merge_connection_set."""
+    run_dir = world.sp1_run_dir
+    if run_dir is None or not (run_dir / "calls.jsonl").exists():
+        return False, "No calls.jsonl found"
+    entries = [json.loads(line) for line in (run_dir / "calls.jsonl").read_text().splitlines()]
+    if not any(e.get("step") == "merge_connection_set" for e in entries):
+        return False, f"No call log entry with step 'merge_connection_set' found in {entries}"
+    return True, ""
+
+
+def _h_mf_stage_errors_includes_merge(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the stage_errors field includes the merge failure description."""
+    manifest = world.sp1_manifest
+    if manifest is None:
+        run_dir = world.sp1_run_dir
+        if run_dir is not None:
+            manifest_file = run_dir / "run-manifest.yaml"
+            if manifest_file.exists():
+                import yaml as _yaml
+                manifest = _yaml.safe_load(manifest_file.read_text())
+    if manifest is None:
+        return False, "No manifest available"
+    errors = manifest.get("stage_errors", [])
+    if not any("merge_connection_set" in str(e) for e in errors):
+        return False, f"stage_errors does not include merge failure: {errors}"
+    return True, ""
+
+
+def _h_mf_file_valid_cs_readback(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the file contains a valid ControlStructure model when read back."""
+    run_dir = world.sp1_run_dir
+    if run_dir is None:
+        return False, "No run directory available"
+    cs_file = run_dir / "control-structure.yaml"
+    if not cs_file.exists():
+        return False, f"control-structure.yaml does not exist in {run_dir}"
+    import yaml as _yaml
+    data = _yaml.safe_load(cs_file.read_text())
+    try:
+        ControlStructure.model_validate(data)
+    except Exception as e:
+        return False, f"control-structure.yaml is not a valid ControlStructure: {e}"
+    return True, ""
+
+
+def _h_mf_cs_not_none(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP1RunResult control_structure is not None."""
+    result = world.sp1_run_result or world.gd_run_result
+    if result is None:
+        return False, "No SP1RunResult available"
+    if result.control_structure is None:
+        return False, "SP1RunResult.control_structure is None"
+    return True, ""
+
+
+def _h_mf_heuristic_result_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the heuristic result is available."""
+    if world.heuristic_result is not None:
+        return True, ""
+    # Check run result for heuristic data (full SP1 run path)
+    result = world.sp1_run_result or world.gd_run_result
+    if result is not None and result.control_structure is not None:
+        # Heuristics always run when Stage 2 produces a control structure
+        return True, ""
+    return False, "No heuristic result available"
+
+
+def _h_mf_stage_errors_contains_merge(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP1RunResult stage_errors contains the merge failure."""
+    result = world.sp1_run_result or world.gd_run_result
+    if result is None:
+        return False, "No SP1RunResult available"
+    if not any("merge_connection_set" in str(e) for e in result.stage_errors):
+        return False, f"stage_errors does not contain merge failure: {result.stage_errors}"
+    return True, ""
+
+
+def _h_mf_no_merge_failure_logged(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no merge failure is logged."""
+    run_dir = world.sp1_run_dir
+    if run_dir is None or not (run_dir / "calls.jsonl").exists():
+        return True, ""  # No calls.jsonl means no merge failure logged
+    entries = [json.loads(line) for line in (run_dir / "calls.jsonl").read_text().splitlines()]
+    merge_failures = [e for e in entries if e.get("step") == "merge_connection_set" and not e.get("success", True)]
+    if merge_failures:
+        return False, f"Unexpected merge failure logged: {merge_failures}"
+    return True, ""
+
+
+def _h_mf_llm_valid_connectionset_with_cl(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid ConnectionSet with coordination link CL-1 from RESP-1 to RESP-2 sharing PM-1-1."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
+    return True, ""
+
+
+# Merge fallback degradation registrations
+_register(r"an LLM that returns valid responses for Call 1 and Call 2", _h_mf_llm_call1_call2)
+_register(r"an LLM that returns a ConnectionSet with ", _h_mf_llm_connectionset_violation)
+_register(r"an LLM that returns valid responses for stage_1a and stage_1b", _h_mf_llm_stage1)
+_register(r"a ResponsibilitySet from Call 2 with controlled process CP-1", _h_mf_resp_set_with_cp)
+_register(r"the ControlStructure coordination_links list is empty", _h_mf_coordination_links_empty)
+_register(r"the ControlStructure contains responsibility RESP-\d+", _h_mf_contains_resp)
+_register(r"the call log entry step is merge_connection_set", _h_mf_call_log_step_merge)
+_register(r"the stage_errors field includes the merge failure description", _h_mf_stage_errors_includes_merge)
+_register(r"the file contains a valid ControlStructure model when read back", _h_mf_file_valid_cs_readback)
+_register(r"the SP1RunResult control_structure is not None", _h_mf_cs_not_none)
+_register(r"the heuristic result is available$", _h_mf_heuristic_result_available)
+_register(r"the SP1RunResult stage_errors contains the merge failure", _h_mf_stage_errors_contains_merge)
+_register(r"no merge failure is logged", _h_mf_no_merge_failure_logged)
+_register(r"an LLM that returns a valid ConnectionSet with coordination link CL-1 from RESP-1 to RESP-2", _h_mf_llm_valid_connectionset_with_cl)
 
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:

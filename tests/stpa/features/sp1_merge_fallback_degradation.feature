@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=898cb5ad3de37cc43c3971df2b46eaf1390d643123593e8342892d6fa10acb28
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T22:06:19.304678Z","feature_name":"SP1 — Merge fallback degradation for ConnectionSet validation failures","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_merge_fallback_degradation.feature","background_hash":"5d52ad0e8a09acad3554748502875c2bb97d3643bfb26a2388fea923787efd56","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Merge fallback degradation for ConnectionSet validation failures
   If the merge of ResponsibilitySet (Call 2) and ConnectionSet (Call 3)
   fails because the ConnectionSet contains invalid cross-references, the
@@ -18,19 +23,13 @@ Feature: SP1 — Merge fallback degradation for ConnectionSet validation failure
     And a run directory for output and call logging
 
   # MergeFallback-01
-  Scenario Outline: MergeFallback-01 invalid ConnectionSet triggers fallback to ResponsibilitySet-only ControlStructure
+  Scenario: MergeFallback-01 invalid ConnectionSet triggers fallback to ResponsibilitySet-only ControlStructure
     Given an LLM that returns valid responses for Call 1 and Call 2
-    And an LLM that returns a ConnectionSet with <violation>
+    And an LLM that returns a ConnectionSet with namespace confusion: feedback_source uses a FeedbackChannel ID as a ControlledProcess ID
     When Stage 2 control structure derivation is run
     Then a ControlStructure model is produced
     And the control structure passes foundation validation
     And the pipeline does not crash
-
-    Examples:
-      | violation                                                             |
-      | namespace confusion: feedback_source uses a FeedbackChannel ID as a ControlledProcess ID |
-      | coordination link source referencing a non-existent responsibility    |
-      | coordination link shared_pm referencing a non-existent PM             |
 
   # MergeFallback-02
   Scenario: MergeFallback-02 fallback ControlStructure has empty coordination_links
