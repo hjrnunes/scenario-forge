@@ -168,6 +168,56 @@ def _merge_controlled_processes(
 
 
 # ---------------------------------------------------------------------------
+# Merge with fallback — deterministic, no LLM dependency
+# ---------------------------------------------------------------------------
+
+
+def _merge_with_fallback(
+    responsibility_set: ResponsibilitySet,
+    connection_set: ConnectionSet,
+    run_dir: Path,
+    model: str,
+) -> tuple[ControlStructure, list[str]]:
+    """Merge ConnectionSet into ResponsibilitySet, falling back on failure.
+
+    On merge failure (invalid cross-references in the ConnectionSet), the
+    failure is logged to ``calls.jsonl`` and a fallback ControlStructure is
+    built from the ResponsibilitySet alone (without coordination links).
+
+    This function is deterministic and has no LLM dependency, so it can be
+    tested independently of the Stage 2 LLM call sequence.
+
+    Args:
+        responsibility_set: Responsibilities and controlled processes from Call 2.
+        connection_set: Coordination links, CPs, and assignments from Call 3.
+        run_dir: Directory for failure logging.
+        model: LLM model name (used in the call-log entry).
+
+    Returns:
+        A tuple of (ControlStructure, merge_warnings). The warning list
+        is empty when the merge succeeds.
+    """
+    try:
+        return merge_connection_set(responsibility_set, connection_set), []
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        log_llm_call_failure(
+            model,
+            run_dir,
+            STAGE,
+            "merge_connection_set",
+            error_msg,
+        )
+        warnings = [f"{STAGE}/merge_connection_set: {error_msg}"]
+        # Deep-copy to match merge_connection_set's non-mutation contract
+        fallback = ControlStructure(
+            responsibilities=copy.deepcopy(responsibility_set.responsibilities),
+            controlled_processes=copy.deepcopy(responsibility_set.controlled_processes),
+        )
+        return fallback, warnings
+
+
+# ---------------------------------------------------------------------------
 # Stage 2 — three sequential LLM calls
 # ---------------------------------------------------------------------------
 
@@ -233,24 +283,9 @@ def derive_control_structure(
         temperature=temperature,
     )
 
-    merge_warnings: list[str] = []
-    try:
-        control_structure = merge_connection_set(responsibility_set, connection_set)
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_llm_call_failure(
-            llm_client.model,
-            run_dir,
-            STAGE,
-            "merge_connection_set",
-            error_msg,
-        )
-        merge_warnings.append(f"{STAGE}/merge_connection_set: {error_msg}")
-        # Fall back to ResponsibilitySet-only ControlStructure
-        control_structure = ControlStructure(
-            responsibilities=responsibility_set.responsibilities,
-            controlled_processes=responsibility_set.controlled_processes,
-        )
+    control_structure, merge_warnings = _merge_with_fallback(
+        responsibility_set, connection_set, run_dir, llm_client.model,
+    )
 
     write_yaml(control_structure, run_dir / "control-structure.yaml")
     return control_structure, merge_warnings
