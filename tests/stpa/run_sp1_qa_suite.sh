@@ -75,68 +75,80 @@ echo "Foundation model imports confirmed"
 # --- 2. Stage 1a — Loss Analysis ---
 
 check "QA-SP1-LA-01: Stage 1a validation rules" \
-    uv run pytest tests/stpa/ -k "sp1_loss or SP1_LA or stage_1a" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "sp1_loss or test_la" -v --tb=short -q
+
+check "QA-SP1-LA-02: Loss analysis YAML output" \
+    uv run pytest tests/stpa/ -k "la_09" -v --tb=short -q
+
+check "QA-SP1-LA-03: Call logging for Stage 1a" \
+    uv run pytest tests/stpa/ -k "la_08" -v --tb=short -q
 
 # --- 3. Stage 1b — Capability Profile ---
 
 check "QA-SP1-CP-01: Stage 1b validation rules" \
-    uv run pytest tests/stpa/ -k "sp1_cap or SP1_CP or stage_1b" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "sp1_profile or test_cp" -v --tb=short -q
+
+check "QA-SP1-CP-02: Profile flag skips Stage 1b" \
+    uv run pytest tests/stpa/ -k "cp_03" -v --tb=short -q
+
+check "QA-SP1-CP-03: Loss analysis context in prompt" \
+    uv run pytest tests/stpa/ -k "cp_08" -v --tb=short -q
 
 # --- 4. Stage 2 — Control Structure Derivation ---
 
 check "QA-SP1-S2-01: Stage 2 Call 1 — Requirements" \
-    uv run pytest tests/stpa/ -k "sp1_s2_call1 or SP1_S2_01 or SP1_S2_02 or SP1_S2_03 or SP1_S2_04 or SP1_S2_05" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "s2_01 or s2_02 or s2_03 or s2_04 or s2_05" -v --tb=short -q
 
 check "QA-SP1-S2-02: Stage 2 Call 2 — Responsibilities" \
-    uv run pytest tests/stpa/ -k "sp1_s2_call2 or SP1_S2_06 or SP1_S2_07 or SP1_S2_08 or SP1_S2_09" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "s2_06 or s2_07 or s2_08 or s2_09" -v --tb=short -q
 
 check "QA-SP1-S2-03: Stage 2 Call 3 — Connections" \
-    uv run pytest tests/stpa/ -k "sp1_s2_call3 or SP1_S2_10 or SP1_S2_11 or SP1_S2_12 or SP1_S2_13" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "s2_10 or s2_11 or s2_12 or s2_13" -v --tb=short -q
 
 check "QA-SP1-S2-04: Sequential call chaining" \
-    uv run pytest tests/stpa/ -k "sp1_s2_chaining or SP1_S2_14 or SP1_S2_15" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "s2_14 or s2_15" -v --tb=short -q
 
 # --- 5. Structural Heuristics ---
 
 check "QA-SP1-HEUR-01: Heuristic checks" \
-    uv run pytest tests/stpa/ -k "sp1_heur or SP1_HEUR" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "sp1_heur or test_heur" -v --tb=short -q
 
 # --- 6. Completeness Critic ---
 
 check "QA-SP1-CRITIC-01: Critic validation rules" \
-    uv run pytest tests/stpa/ -k "sp1_critic or SP1_CRITIC" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "sp1_critic or test_critic" -v --tb=short -q
 
 # --- 7. Revision ---
 
 check "QA-SP1-REV-01: Revision behavior" \
-    uv run pytest tests/stpa/ -k "sp1_rev or SP1_REV" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "test_rev" -v --tb=short -q
 
 # --- 8. Solution-Neutrality ---
 
 check "QA-SP1-NEUT-01: Solution-neutrality check" \
-    uv run pytest tests/stpa/ -k "sp1_neut or SP1_NEUT" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "test_neut" -v --tb=short -q
 
 # --- 9. Run Orchestration ---
 
 check "QA-SP1-RUN-01: Full run produces all artifacts" \
-    uv run pytest tests/stpa/ -k "sp1_run_artifacts or SP1_RUN_01" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "run_01" -v --tb=short -q
 
 check "QA-SP1-RUN-02: Call logging for full run" \
-    uv run pytest tests/stpa/ -k "sp1_run_call_log or SP1_RUN_03" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "run_03" -v --tb=short -q
 
 check "QA-SP1-RUN-03: Run manifest written" \
-    uv run pytest tests/stpa/ -k "sp1_run_manifest or SP1_RUN_04" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "run_04" -v --tb=short -q
 
 check "QA-SP1-RUN-04: Profile flag in full run" \
-    uv run pytest tests/stpa/ -k "sp1_run_profile_flag or SP1_RUN_12" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "run_12" -v --tb=short -q
 
 # --- 10. Integration with Fixtures ---
 
 check "QA-SP1-FIX-01: Loss analysis fixture feeds Stage 2" \
-    uv run pytest tests/stpa/ -k "sp1_fixture_integration or SP1_FIX" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "sp1_fixture_01" -v --tb=short -q
 
 check "QA-SP1-FIX-02: Control structure fixture runs through critic" \
-    uv run pytest tests/stpa/ -k "sp1_fixture_critic or SP1_FIX_02" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "sp1_fixture_02" -v --tb=short -q
 
 # --- 11. Full Test Suite Execution ---
 
@@ -150,6 +162,13 @@ check "QA-SP1-FULL-03: Existing pipeline tests unaffected" \
     bash -c '
 output=$(uv run pytest tests/ --ignore=tests/stpa/ -q --tb=line 2>&1 || true)
 echo "$output" | tail -5
+# Check for new failures (pre-existing: 11 failures from LLM endpoint config)
+failed=$(echo "$output" | grep -o "[0-9]* failed" | grep -o "[0-9]*" || echo "0")
+if [ "$failed" -gt 11 ]; then
+  echo "New failures detected: $failed failed (expected 11 pre-existing)"
+  exit 1
+fi
+echo "No new failures (pre-existing: 11)"
 '
 
 check "QA-SP1-FULL-04: Linting passes" \

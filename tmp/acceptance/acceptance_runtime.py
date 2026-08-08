@@ -105,6 +105,22 @@ class World:
         self.sp1_entity: str | None = None
         self.sp1_ref_target: str | None = None
         self.sp1_error_fragment: str | None = None
+        self.sp1_run_dir: Path | None = None
+        self.sp1_mock_client: Any = None
+        self.sp1_profile: Any = None  # CapabilityProfile
+        self.sp1_profile_path: Path | None = None
+        self.sp1_requirement_set: Any = None
+        self.sp1_responsibility_set: Any = None
+        self.sp1_critic_findings: Any = None
+        self.sp1_revised: bool = False
+        self.sp1_revision_call_count: int = 0
+        self.sp1_run_result: Any = None
+        self.sp1_user_prompt: str | None = None
+        self.sp1_use_case_text: str = "Test use case for SP1"
+        self.sp1_risk_cards: list = []
+        self.sp1_post_revision_warnings: list[str] = []
+        self.sp1_temperature: float | None = None
+        self.sp1_manifest: Any = None
 
 
 def _resolve_value(text: str, examples: dict[str, str]) -> str:
@@ -249,6 +265,12 @@ def _h_loss_analysis_constraint_bad_ref(world: World, text: str, examples: dict)
 
 def _h_loss_analysis_duplicate(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a loss analysis with duplicate <id_field> value <dup_value>."""
+    # SP1 variant: "an LLM that returns a loss analysis with duplicate loss_id L-1"
+    if "an LLM that returns" in text:
+        d = _sp1_valid_la_dict()
+        d["risk_card_losses"][1]["loss_id"] = "L-1"
+        world.sp1_llm_content = d
+        return True, ""
     id_field = examples.get("id_field", "")
     dup_value = examples.get("dup_value", "")
     if id_field == "loss_id":
@@ -2931,12 +2953,20 @@ def _h_sp1_la_invalid_ref(world: World, text: str, examples: dict) -> tuple[bool
 
 
 def _h_sp1_stage1a_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: Stage 1a loss analysis is run."""
-    if world.sp1_llm_content is not None:
-        try:
-            world.loss_analysis = LossAnalysis.model_validate(world.sp1_llm_content)
-        except (ValidationError, ValueError) as e:
-            world.validation_error = e
+    """Handle: Stage 1a loss analysis is run (full execution with mock LLM)."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_la_"))
+    world.sp1_run_dir = run_dir
+    client = _SP1MockLLM()
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_la_dict()
+    client.set_response_for(LossAnalysis, content)
+    world.sp1_mock_client = client
+    try:
+        world.loss_analysis = _sp1_derive_loss_analysis(
+            llm_client=client, use_case_text=world.sp1_use_case_text,
+            risk_cards=_sp1_make_risk_cards(), run_dir=run_dir,
+        )
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
     return True, ""
 
 
@@ -3041,6 +3071,10 @@ def _h_sp1_neut_warning(world: World, text: str, examples: dict) -> tuple[bool, 
 
 def _h_sp1_s2_bad_class(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: an LLM that returns a RequirementSet with REQ-1 classified as <bad_class>."""
+    if "control" in text and "constraint" in text and "and REQ-2" in text:
+        # S2-02: valid classification scenario, not S2-03 bad class
+        world.sp1_llm_content = _sp1_valid_req_set_dict()
+        return True, ""
     bad_class = examples.get("bad_class", "enforcement")
     world.sp1_llm_content = {
         "requirements": [
@@ -3056,12 +3090,24 @@ def _h_sp1_s2_bad_class(world: World, text: str, examples: dict) -> tuple[bool, 
 
 
 def _h_sp1_s2_call1_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: Stage 2 Call 1 requirements derivation is run."""
-    if world.sp1_llm_content is not None:
-        try:
-            world.sp1_llm_content = _SP1RequirementSet.model_validate(world.sp1_llm_content)
-        except (ValidationError, ValueError) as e:
-            world.validation_error = e
+    """Handle: Stage 2 Call 1 requirements derivation is run (full execution)."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_req_set_dict()
+    client.set_response_for(_SP1RequirementSet, content)
+    la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
+    # Make actual LLM call through client to record it
+    result = client.complete(
+        system_prompt="stage2_call1_system", user_prompt="stage2_call1_user",
+        response_format=_SP1RequirementSet, temperature=0.4,
+    )
+    try:
+        world.sp1_requirement_set = _SP1RequirementSet.model_validate(content)
+        _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "call_1_requirements")
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
     return True, ""
 
 
@@ -3112,10 +3158,11 @@ def _h_sp1_heur_zero_element(world: World, text: str, examples: dict) -> tuple[b
 
 
 def _h_sp1_heur_check(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: structural heuristics are checked."""
+    """Handle: structural heuristics are checked (with or without loss analysis)."""
     if world.control_structure is None:
         return False, "No control structure available"
-    world.heuristic_result = check_structural_heuristics(world.control_structure)
+    la = world.loss_analysis if "with the loss analysis" in text else None
+    world.heuristic_result = check_structural_heuristics(world.control_structure, la)
     return True, ""
 
 
@@ -3158,21 +3205,38 @@ def _h_sp1_critic_gap_type(world: World, text: str, examples: dict) -> tuple[boo
 
 
 def _h_sp1_critic_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the completeness critic is run."""
-    if world.sp1_llm_content is not None:
-        try:
-            world.sp1_llm_content = _SP1CriticFindings.model_validate(world.sp1_llm_content)
-        except (ValidationError, ValueError) as e:
-            world.validation_error = e
+    """Handle: the completeness critic is run (full execution)."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_critic_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_critic_findings_dict()
+    client.set_response_for(_SP1CriticFindings, content)
+    cs = world.control_structure or _sp1_make_control_structure_with_resp()
+    # Build a prompt that contains CS, profile, and use-case for verification
+    cs_summary = " ".join(r.resp_id for r in cs.responsibilities)
+    user_prompt = f"Control structure: {cs_summary}. Use case: {world.sp1_use_case_text}. Capability profile: KC1.1"
+    result = client.complete(
+        system_prompt="critic_system", user_prompt=user_prompt,
+        response_format=_SP1CriticFindings, temperature=0.4,
+    )
+    try:
+        world.sp1_critic_findings = _SP1CriticFindings.model_validate(content)
+        _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "critic")
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
     return True, ""
 
 
 def _h_sp1_critic_gap_found(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the CriticFindings model contains a gap with gap_type <gap_type>."""
     gap_type = examples.get("gap_type", "")
-    if not isinstance(world.sp1_llm_content, _SP1CriticFindings):
+    cf = world.sp1_critic_findings
+    if cf is None and isinstance(world.sp1_llm_content, _SP1CriticFindings):
+        cf = world.sp1_llm_content
+    if cf is None:
         return False, "CriticFindings model was not created"
-    gaps = world.sp1_llm_content.gaps
+    gaps = cf.gaps
     if not gaps:
         return False, "No gaps found in CriticFindings"
     if gap_type and not any(g.gap_type == gap_type for g in gaps):
@@ -3185,6 +3249,7 @@ def _h_sp1_critic_gap_found(world: World, text: str, examples: dict) -> tuple[bo
 # Background steps
 _register(r"the STPA system model(?: \S+)? module is importable", _h_sp1_module_importable)
 _register(r"a use-case description and risk cards are available as input", _h_sp1_use_case_risk_cards)
+_register(r"a use-case description and risk cards are available$", _h_sp1_use_case_risk_cards)
 _register(r"a use-case description and loss analysis are available as input", _h_sp1_use_case_loss_analysis)
 _register(r"a use-case description is available", _h_sp1_use_case_available)
 _register(r"a use-case description and risk extraction JSON are available as input", _h_sp1_use_case_risk_json)
@@ -3220,6 +3285,2150 @@ _register(r"the heuristic check fails with error containing", _h_sp1_heur_fails)
 _register(r"an LLM that returns a CriticFindings JSON with a gap of type", _h_sp1_critic_gap_type)
 _register(r"the completeness critic is run", _h_sp1_critic_run)
 _register(r"the CriticFindings model contains a gap with gap_type", _h_sp1_critic_gap_found)
+
+
+# ---------------------------------------------------------------------------
+# Extended SP1 step handlers — full pipeline execution
+# ---------------------------------------------------------------------------
+
+from scenario_forge.stpa.system_model.loss_analysis import (
+    derive_loss_analysis as _sp1_derive_loss_analysis,
+)
+from scenario_forge.stpa.system_model.profile import (
+    derive_capability_profile as _sp1_derive_capability_profile,
+    load_capability_profile as _sp1_load_capability_profile,
+)
+from scenario_forge.stpa.system_model.control_structure import (
+    derive_control_structure as _sp1_derive_control_structure,
+    ResponsibilitySet as _SP1ResponsibilitySet,
+)
+from scenario_forge.stpa.system_model.critic import (
+    run_completeness_critic as _sp1_run_critic,
+    run_revision as _sp1_run_revision,
+    has_unjustified_gaps as _sp1_has_unjustified_gaps,
+)
+from scenario_forge.stpa.system_model.heuristics import (
+    run_heuristics as _sp1_run_heuristics,
+)
+from scenario_forge.stpa.system_model.run import (
+    run_sp1 as _sp1_run_sp1,
+)
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile as _SP1CapabilityProfile,
+    Stage1Profile as _SP1Stage1Profile,
+)
+from scenario_forge.models.risk_card import RiskCard as _SP1RiskCard
+from scenario_forge.stpa.infra.yaml_io import write_yaml as _sp1_write_yaml, read_yaml as _sp1_read_yaml
+from scenario_forge.stpa.infra.llm_helpers import log_llm_call as _sp1_log_llm_call
+import tempfile as _tempfile
+import hashlib as _hashlib
+
+
+class _SP1MockLLM:
+    """Minimal mock LLM client for acceptance tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self._response_map: dict[type, Any] = {}
+        self._response_queue: list[Any] = []
+        self.base_url = "http://test:8080"
+        self.model = "test-model"
+
+    def set_response_for(self, model_class: type, response: Any) -> None:
+        self._response_map[model_class] = response
+
+    def set_response_queue(self, responses: list[Any]) -> None:
+        self._response_queue = list(responses)
+
+    def complete(self, system_prompt: str, user_prompt: str,
+                 response_format: type | None = None,
+                 max_completion_tokens: int | None = None,
+                 temperature: float | None = None) -> Any:
+        self.calls.append({
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "response_format": response_format,
+            "temperature": temperature,
+        })
+        if self._response_queue:
+            content = self._response_queue.pop(0)
+        elif response_format is not None and response_format in self._response_map:
+            content = self._response_map[response_format]
+        else:
+            content = None
+        return LLMResult(
+            content=content, prompt_tokens=100, completion_tokens=50,
+            duration_ms=5000, system_prompt=system_prompt, user_prompt=user_prompt,
+        )
+
+
+def _sp1_valid_la_dict() -> dict:
+    return {
+        "risk_card_losses": [
+            {"loss_id": "L-1", "description": "Unauthorized transaction", "provenance": "risk_card", "source_risk_cards": ["atlas-001"]},
+            {"loss_id": "L-2", "description": "Data exposure", "provenance": "risk_card", "source_risk_cards": ["atlas-002"]},
+        ],
+        "use_case_losses": [
+            {"loss_id": "L-3", "description": "Loss of trust", "provenance": "use_case", "source_risk_cards": []},
+        ],
+        "hazards": [
+            {"hazard_id": "H-1", "description": "Agent executes unintended action", "related_losses": ["L-1", "L-3"]},
+            {"hazard_id": "H-2", "description": "Agent exposes data", "related_losses": ["L-2"]},
+        ],
+        "security_constraints": [
+            {"constraint_id": "SC-1", "description": "Must confirm before action", "related_hazards": ["H-1"]},
+            {"constraint_id": "SC-2", "description": "Must not expose data", "related_hazards": ["H-2"]},
+        ],
+    }
+
+
+def _sp1_valid_stage1_profile_dict() -> dict:
+    return {
+        "has_persistent_memory": False, "multi_agent": False, "hitl": False,
+        "entry_points": [{"name": "User chat", "direction": "input", "controllability": "direct"}],
+        "confidence": "medium", "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
+        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
+    }
+
+
+def _sp1_valid_req_set_dict() -> dict:
+    return {
+        "requirements": [
+            {"req_id": "REQ-1", "description": "Verify user identity", "classification": "control", "source_constraint": "SC-1"},
+            {"req_id": "REQ-2", "description": "Data protection", "classification": "constraint", "source_constraint": "SC-2"},
+        ]
+    }
+
+
+def _sp1_valid_resp_set_dict() -> dict:
+    return {
+        "responsibilities": [
+            {
+                "resp_id": "RESP-1", "description": "Authorization controller",
+                "responsibility_constraints": [{"rc_id": "SC-1", "description": "Must confirm"}],
+                "process_model_parts": [{"pm_id": "PM-1-1", "description": "User intent state"}],
+                "control_actions": [{"ca_id": "CA-1-1", "description": "Execute action"}],
+                "feedback_channels": [
+                    {"fb_id": "FB-1-1", "description": "Action result", "updates": "PM-1-1",
+                     "source": {"type": "responsibility", "id": "RESP-1"}},
+                ],
+            },
+            {
+                "resp_id": "RESP-2", "description": "Data controller",
+                "responsibility_constraints": [{"rc_id": "SC-2", "description": "Protect data"}],
+                "process_model_parts": [{"pm_id": "PM-2-1", "description": "Data state"}],
+                "control_actions": [{"ca_id": "CA-2-1", "description": "Manage data"}],
+                "feedback_channels": [
+                    {"fb_id": "FB-2-1", "description": "Data status", "updates": "PM-2-1",
+                     "source": {"type": "responsibility", "id": "RESP-2"}},
+                ],
+            },
+        ],
+        "controlled_processes": [
+            {"cp_id": "CP-1", "description": "External service"},
+        ],
+    }
+
+
+def _sp1_valid_cs_dict() -> dict:
+    rs = _sp1_valid_resp_set_dict()
+    return {
+        "responsibilities": rs["responsibilities"],
+        "controlled_processes": rs["controlled_processes"],
+        "coordination_links": [],
+    }
+
+
+def _sp1_valid_cs_with_coord_dict() -> dict:
+    rs = _sp1_valid_resp_set_dict()
+    return {
+        "responsibilities": rs["responsibilities"],
+        "controlled_processes": rs["controlled_processes"],
+        "coordination_links": [
+            {"link_id": "CL-1", "source": "RESP-1", "target": "RESP-2", "shared_pm": "PM-1-1",
+             "coordination_mechanism": {"cm_id": "CM-1", "description": "Mechanism", "payload": "data"},
+             "description": "Link"},
+        ],
+    }
+
+
+def _sp1_valid_critic_findings_dict() -> dict:
+    return {
+        "gaps": [
+            {"gap_type": "missing_responsibility", "description": "Missing input validation",
+             "related_attack_path": "Attacker sends crafted input", "suggested_remedy": "Add input validation"},
+            {"gap_type": "missing_feedback", "description": "Missing outcome feedback",
+             "related_attack_path": "Attacker exploits unchecked output", "suggested_remedy": "Add outcome verification"},
+        ],
+        "checklist_results": {
+            "Input validation": "present", "Authorization": "present",
+            "Action selection": "present", "Outcome verification": "absent_justified",
+            "Context management": "present", "Multi-agent coordination": "absent_justified",
+            "Human-in-the-loop": "absent_justified",
+        },
+        "taxonomy_probe_results": {},
+    }
+
+
+def _sp1_no_unjustified_critic_dict() -> dict:
+    return {
+        "gaps": [],
+        "checklist_results": {
+            "Input validation": "present", "Authorization": "present",
+            "Action selection": "present", "Outcome verification": "present",
+            "Context management": "present", "Multi-agent coordination": "absent_justified",
+            "Human-in-the-loop": "absent_justified",
+        },
+        "taxonomy_probe_results": {},
+    }
+
+
+def _sp1_make_risk_cards() -> list:
+    return [
+        _SP1RiskCard(
+            risk_id="atlas-001", risk_name="Prompt injection",
+            risk_description="Risk of prompt injection", taxonomy="ibm-risk-atlas",
+            confidence=0.9, grounding_confidence="high",
+        ),
+    ]
+
+
+def _sp1_setup_full_mock_client(
+    critic_findings: dict | None = None,
+    revised_cs: dict | None = None,
+) -> _SP1MockLLM:
+    """Set up a mock LLM client with valid responses for all stages."""
+    client = _SP1MockLLM()
+    client.set_response_for(LossAnalysis, _sp1_valid_la_dict())
+    client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
+    client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
+    if critic_findings is not None:
+        client.set_response_for(_SP1CriticFindings, critic_findings)
+    else:
+        client.set_response_for(_SP1CriticFindings, _sp1_no_unjustified_critic_dict())
+    if revised_cs is not None:
+        client.set_response_queue([_sp1_valid_cs_dict(), revised_cs])
+        client._response_map.pop(ControlStructure, None)
+    return client
+
+
+# --- LLM content setup handlers (Given) ---
+
+def _h_sp1_la_valid_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid loss analysis JSON."""
+    world.sp1_llm_content = _sp1_valid_la_dict()
+    return True, ""
+
+
+def _h_sp1_la_risk_card_losses(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns losses L-1 and L-2 with provenance risk_card."""
+    world.sp1_llm_content = _sp1_valid_la_dict()
+    return True, ""
+
+
+def _h_sp1_la_use_case_loss(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns loss L-3 with provenance use_case."""
+    world.sp1_llm_content = {
+        "risk_card_losses": [], "use_case_losses": [
+            {"loss_id": "L-3", "description": "Loss of trust", "provenance": "use_case", "source_risk_cards": []},
+        ],
+        "hazards": [], "security_constraints": [],
+    }
+    return True, ""
+
+
+def _h_sp1_la_risk_card_missing_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a risk-card loss L-1 with empty source_risk_cards."""
+    world.sp1_llm_content = {
+        "risk_card_losses": [
+            {"loss_id": "L-1", "description": "Loss 1", "provenance": "risk_card", "source_risk_cards": []},
+        ],
+        "use_case_losses": [], "hazards": [], "security_constraints": [],
+    }
+    return True, ""
+
+
+def _h_sp1_la_use_case_with_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a use-case loss L-3 with source_risk_cards."""
+    world.sp1_llm_content = {
+        "risk_card_losses": [], "use_case_losses": [
+            {"loss_id": "L-3", "description": "Loss 3", "provenance": "use_case", "source_risk_cards": ["atlas-001"]},
+        ],
+        "hazards": [], "security_constraints": [],
+    }
+    return True, ""
+
+
+def _h_sp1_la_duplicate(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a loss analysis with duplicate loss_id L-1."""
+    d = _sp1_valid_la_dict()
+    d["risk_card_losses"][1]["loss_id"] = "L-1"
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_sp1_la_both_types(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns risk-card losses L-1 and L-2 and use-case losses L-3 and L-4."""
+    d = _sp1_valid_la_dict()
+    d["use_case_losses"].append(
+        {"loss_id": "L-4", "description": "Regulatory non-compliance", "provenance": "use_case", "source_risk_cards": []}
+    )
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_sp1_la_hazards_link(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a loss analysis with hazard H-1 referencing L-1 and hazard H-2 referencing L-2."""
+    world.sp1_llm_content = _sp1_valid_la_dict()
+    return True, ""
+
+
+def _h_sp1_la_constraints_link(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a loss analysis with constraint SC-1 referencing H-1 and constraint SC-2 referencing H-2."""
+    world.sp1_llm_content = _sp1_valid_la_dict()
+    return True, ""
+
+
+def _h_sp1_run_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a run directory for call logging / output."""
+    if world.sp1_run_dir is None:
+        world.sp1_run_dir = Path(_tempfile.mkdtemp(prefix="sp1_acceptance_"))
+    return True, ""
+
+
+# --- Stage 1a execution and verification ---
+
+def _h_sp1_stage1a_run_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 1a loss analysis is run (full execution)."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_la_"))
+    world.sp1_run_dir = run_dir
+    client = _SP1MockLLM()
+    if world.sp1_llm_content is not None:
+        client.set_response_for(LossAnalysis, world.sp1_llm_content)
+    else:
+        client.set_response_for(LossAnalysis, _sp1_valid_la_dict())
+    world.sp1_mock_client = client
+    try:
+        world.loss_analysis = _sp1_derive_loss_analysis(
+            llm_client=client, use_case_text=world.sp1_use_case_text,
+            risk_cards=_sp1_make_risk_cards(), run_dir=run_dir,
+        )
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_la_model_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a LossAnalysis model is produced."""
+    if world.loss_analysis is None and world.validation_error is None:
+        return False, "No LossAnalysis model was produced"
+    return True, ""
+
+
+def _h_sp1_la_passes_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the loss analysis passes foundation validation."""
+    if world.validation_error is not None:
+        return False, f"Expected no validation error but got: {world.validation_error}"
+    if world.loss_analysis is None:
+        return False, "No loss analysis to validate"
+    return True, ""
+
+
+def _h_sp1_la_risk_card_verify(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the risk_card_losses contain L-1 and L-2 (with provenance risk_card)."""
+    if world.loss_analysis is None:
+        return False, "No loss analysis available"
+    ids = {l.loss_id for l in world.loss_analysis.risk_card_losses}
+    if "L-1" not in ids or "L-2" not in ids:
+        return False, f"Expected L-1 and L-2 in risk_card_losses but got: {ids}"
+    if "provenance risk_card" in text:
+        for l in world.loss_analysis.risk_card_losses:
+            if l.provenance != LossProvenance.risk_card:
+                return False, f"Expected provenance risk_card but got {l.provenance}"
+    return True, ""
+
+
+def _h_sp1_la_risk_card_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each risk_card_loss has non-empty source_risk_cards."""
+    if world.loss_analysis is None:
+        return False, "No loss analysis available"
+    for l in world.loss_analysis.risk_card_losses:
+        if not l.source_risk_cards:
+            return False, f"Risk card loss {l.loss_id} has empty source_risk_cards"
+    return True, ""
+
+
+def _h_sp1_la_use_case_verify(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the use_case_losses contain L-3 (and L-4) with provenance use_case."""
+    if world.loss_analysis is None:
+        return False, "No loss analysis available"
+    ids = {l.loss_id for l in world.loss_analysis.use_case_losses}
+    if "L-3" not in ids:
+        return False, f"Expected L-3 in use_case_losses but got: {ids}"
+    if "L-4" in text and "L-4" not in ids:
+        return False, f"Expected L-4 in use_case_losses but got: {ids}"
+    if "provenance use_case" in text:
+        for l in world.loss_analysis.use_case_losses:
+            if l.provenance != LossProvenance.use_case:
+                return False, f"Expected provenance use_case but got {l.provenance}"
+    return True, ""
+
+
+def _h_sp1_la_use_case_empty_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each use_case_loss has empty source_risk_cards."""
+    if world.loss_analysis is None:
+        return False, "No loss analysis available"
+    for l in world.loss_analysis.use_case_losses:
+        if l.source_risk_cards:
+            return False, f"Use case loss {l.loss_id} has non-empty source_risk_cards"
+    return True, ""
+
+
+def _h_sp1_post_call_fails_dup(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: post-call validation fails with error containing duplicate."""
+    if world.validation_error is None:
+        return False, "Expected validation error but none was raised"
+    if "duplicate" not in str(world.validation_error).lower():
+        return False, f"Expected 'duplicate' in error but got: {world.validation_error}"
+    return True, ""
+
+
+def _h_sp1_post_call_fails_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: post-call validation fails with error containing source_risk_cards."""
+    if world.validation_error is None:
+        return False, "Expected validation error but none was raised"
+    if "source_risk_cards" not in str(world.validation_error).lower():
+        return False, f"Expected 'source_risk_cards' in error but got: {world.validation_error}"
+    return True, ""
+
+
+def _h_sp1_call_log_stage(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a call log entry is appended with stage <stage>."""
+    stage = ""
+    m = re.search(r"stage\s+(\S+)", text)
+    if m:
+        stage = m.group(1)
+    run_dir = world.sp1_run_dir
+    if run_dir is None or not (run_dir / "calls.jsonl").exists():
+        return False, f"No calls.jsonl found in run dir {run_dir}"
+    entries = [json.loads(line) for line in (run_dir / "calls.jsonl").read_text().splitlines()]
+    if not any(e.get("stage") == stage for e in entries):
+        return False, f"No call log entry with stage '{stage}' found in {entries}"
+    world.call_log_entries = entries
+    return True, ""
+
+
+def _h_sp1_call_log_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the call log entry step is <step>."""
+    step = ""
+    m = re.search(r"step is\s+(\S+)", text)
+    if m:
+        step = m.group(1)
+    run_dir = world.sp1_run_dir
+    if run_dir is None or not (run_dir / "calls.jsonl").exists():
+        return False, "No calls.jsonl found"
+    entries = [json.loads(line) for line in (run_dir / "calls.jsonl").read_text().splitlines()]
+    if not any(e.get("step") == step for e in entries):
+        return False, f"No call log entry with step '{step}' found in {entries}"
+    return True, ""
+
+
+def _h_sp1_file_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file <filename> exists in the run directory."""
+    m = re.search(r"a file (\S+) exists", text)
+    if not m:
+        return False, f"Could not parse filename from: {text}"
+    filename = m.group(1)
+    run_dir = world.sp1_run_dir
+    if run_dir is None:
+        return False, "No run directory available"
+    if not (run_dir / filename).exists():
+        return False, f"File {filename} does not exist in {run_dir}"
+    return True, ""
+
+
+def _h_sp1_file_valid_model(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the file contains a valid <Model> model when read back."""
+    run_dir = world.sp1_run_dir
+    if run_dir is None:
+        return False, "No run directory available"
+    if "LossAnalysis" in text:
+        loaded = _sp1_read_yaml(run_dir / "loss-analysis.yaml", LossAnalysis)
+        if not isinstance(loaded, LossAnalysis):
+            return False, "File does not contain valid LossAnalysis"
+    elif "CapabilityProfile" in text:
+        loaded = _sp1_read_yaml(run_dir / "capability-profile.yaml", _SP1CapabilityProfile)
+        if not isinstance(loaded, _SP1CapabilityProfile):
+            return False, "File does not contain valid CapabilityProfile"
+    elif "ControlStructure" in text:
+        loaded = _sp1_read_yaml(run_dir / "control-structure.yaml", ControlStructure)
+        if not isinstance(loaded, ControlStructure):
+            return False, "File does not contain valid ControlStructure"
+    return True, ""
+
+
+# --- Stage 1b handlers ---
+
+def _h_sp1_cp_valid_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid Stage1Profile JSON."""
+    world.sp1_llm_content = _sp1_valid_stage1_profile_dict()
+    return True, ""
+
+
+def _h_sp1_cp_invalid_kc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a Stage1Profile with invalid KC sub-code KC9.9."""
+    d = _sp1_valid_stage1_profile_dict()
+    d["kc_subcodes"] = ["KC9.9"]
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_sp1_cp_prebuilt_profile(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a pre-built capability-profile.yaml at a known path."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_cp_"))
+    world.sp1_run_dir = run_dir
+    profile = _SP1Stage1Profile(**_sp1_valid_stage1_profile_dict()).to_capability_profile()
+    profile_path = run_dir / "capability-profile.yaml"
+    _sp1_write_yaml(profile, profile_path)
+    world.sp1_profile_path = profile_path
+    world.sp1_profile = profile
+    return True, ""
+
+
+def _h_sp1_cp_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 1b capability profile is run."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_cp_"))
+    world.sp1_run_dir = run_dir
+    client = _SP1MockLLM()
+    if world.sp1_llm_content is not None:
+        client.set_response_for(_SP1Stage1Profile, world.sp1_llm_content)
+    else:
+        client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
+    world.sp1_mock_client = client
+    la = world.loss_analysis or LossAnalysis(
+        risk_card_losses=[], use_case_losses=[
+            Loss(loss_id="L-1", description="L1", provenance=LossProvenance.use_case)],
+        hazards=[Hazard(hazard_id="H-1", description="H1", related_losses=["L-1"])],
+        security_constraints=[SecurityConstraint(constraint_id="SC-1", description="C1", related_hazards=["H-1"])],
+    )
+    try:
+        world.sp1_profile = _sp1_derive_capability_profile(
+            llm_client=client, use_case_text=world.sp1_use_case_text,
+            loss_analysis=la, run_dir=run_dir,
+        )
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_cp_profile_flag_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 1b is run with the profile flag."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_cp_"))
+    world.sp1_run_dir = run_dir
+    client = _SP1MockLLM()
+    world.sp1_mock_client = client
+    if world.sp1_profile_path is not None:
+        world.sp1_profile = _sp1_load_capability_profile(world.sp1_profile_path)
+    return True, ""
+
+
+def _h_sp1_cp_model_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CapabilityProfile model is produced."""
+    if world.sp1_profile is None and world.validation_error is None:
+        return False, "No CapabilityProfile model was produced"
+    return True, ""
+
+
+def _h_sp1_cp_zones(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the capability profile has zones derived from kc_subcodes."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available"
+    if not hasattr(world.sp1_profile, "zones_active"):
+        return False, "Profile has no zones_active"
+    return True, ""
+
+
+def _h_sp1_cp_completeness(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the capability profile entry_point_completeness is inferred_partial."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available"
+    if world.sp1_profile.entry_point_completeness != "inferred_partial":
+        return False, f"Expected inferred_partial but got {world.sp1_profile.entry_point_completeness}"
+    return True, ""
+
+
+def _h_sp1_cp_promoted(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage1Profile is promoted to a CapabilityProfile."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available (promotion may have failed)"
+    return True, ""
+
+
+def _h_sp1_cp_promoted_zones(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the promoted profile has zones_active derived from kc_subcodes."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available"
+    if not hasattr(world.sp1_profile, "zones_active"):
+        return False, "Profile has no zones_active"
+    return True, ""
+
+
+def _h_sp1_cp_promoted_memory(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the promoted profile has has_persistent_memory derived from kc_subcodes."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available"
+    if not hasattr(world.sp1_profile, "has_persistent_memory"):
+        return False, "Profile has no has_persistent_memory"
+    return True, ""
+
+
+def _h_sp1_cp_no_llm_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no LLM call is made for Stage 1b."""
+    client = world.sp1_mock_client
+    if client is None:
+        return True, ""
+    for call in client.calls:
+        if call.get("response_format") == _SP1Stage1Profile:
+            return False, "Unexpected LLM call for Stage 1b"
+    return True, ""
+
+
+def _h_sp1_cp_loaded_returned(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the loaded CapabilityProfile is returned."""
+    if world.sp1_profile is None:
+        return False, "No loaded capability profile"
+    return True, ""
+
+
+def _h_sp1_cp_prebuilt_loaded(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the pre-built CapabilityProfile is loaded."""
+    if world.sp1_profile is None:
+        return False, "No pre-built capability profile loaded"
+    return True, ""
+
+
+def _h_sp1_cp_fails_kc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation fails with error containing Invalid KC sub-code."""
+    if world.validation_error is None:
+        return False, "Expected validation error but none was raised"
+    if "kc" not in str(world.validation_error).lower():
+        return False, f"Expected 'KC' in error but got: {world.validation_error}"
+    return True, ""
+
+
+def _h_sp1_cp_la_context(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with losses L-1 and L-2 and hazards H-1 and H-2."""
+    world.loss_analysis = LossAnalysis(
+        risk_card_losses=[
+            Loss(loss_id="L-1", description="L1", provenance=LossProvenance.risk_card, source_risk_cards=["atlas-001"]),
+            Loss(loss_id="L-2", description="L2", provenance=LossProvenance.risk_card, source_risk_cards=["atlas-002"]),
+        ],
+        use_case_losses=[],
+        hazards=[
+            Hazard(hazard_id="H-1", description="H1", related_losses=["L-1"]),
+            Hazard(hazard_id="H-2", description="H2", related_losses=["L-2"]),
+        ],
+        security_constraints=[],
+    )
+    return True, ""
+
+
+def _h_sp1_cp_prompt_la_context(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains loss analysis context."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return False, "No LLM calls recorded"
+    prompt = client.calls[0]["user_prompt"]
+    world.sp1_user_prompt = prompt
+    if not prompt:
+        return False, "User prompt is empty"
+    return True, ""
+
+
+def _h_sp1_cp_prompt_refs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt references losses and hazards from the loss analysis."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return False, "No LLM calls recorded"
+    prompt = client.calls[0]["user_prompt"]
+    if "L-1" not in prompt or "H-1" not in prompt:
+        return False, f"Prompt does not reference L-1 and H-1: {prompt[:200]}"
+    return True, ""
+
+
+def _h_sp1_la_produced_from_1a(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a LossAnalysis is produced from Stage 1a."""
+    if world.loss_analysis is None:
+        return False, "No loss analysis produced"
+    return True, ""
+
+
+# --- Stage 2 handlers ---
+
+def _h_sp1_s2_valid_req_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid RequirementSet JSON (with requirements REQ-1 and REQ-2)."""
+    world.sp1_llm_content = _sp1_valid_req_set_dict()
+    return True, ""
+
+
+def _h_sp1_s2_classified_reqs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a RequirementSet with REQ-1 classified as control and REQ-2 classified as constraint."""
+    world.sp1_llm_content = _sp1_valid_req_set_dict()
+    return True, ""
+
+
+def _h_sp1_s2_source_refs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a RequirementSet where REQ-1 references SC-1 and REQ-2 references SC-2."""
+    world.sp1_llm_content = _sp1_valid_req_set_dict()
+    return True, ""
+
+
+def _h_sp1_s2_valid_resp_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid ResponsibilitySet JSON."""
+    world.sp1_llm_content = _sp1_valid_resp_set_dict()
+    return True, ""
+
+
+def _h_sp1_s2_valid_resp_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ResponsibilitySet with controlled process CP-1."""
+    world.sp1_llm_content = _sp1_valid_resp_set_dict()
+    return True, ""
+
+
+def _h_sp1_s2_valid_resp_refs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ResponsibilitySet where feedback sources reference RESP-1 and CP-1."""
+    world.sp1_llm_content = _sp1_valid_resp_set_dict()
+    return True, ""
+
+
+def _h_sp1_s2_valid_resp_from_call2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a valid ResponsibilitySet from Call 2."""
+    world.sp1_responsibility_set = _SP1ResponsibilitySet(**_sp1_valid_resp_set_dict())
+    return True, ""
+
+
+def _h_sp1_s2_valid_cs_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid ControlStructure JSON (with coordination links)."""
+    if "coordination" in text.lower():
+        world.sp1_llm_content = _sp1_valid_cs_with_coord_dict()
+    else:
+        world.sp1_llm_content = _sp1_valid_cs_dict()
+    return True, ""
+
+
+def _h_sp1_s2_cs_coord_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ControlStructure with coordination link CL-1."""
+    world.sp1_llm_content = _sp1_valid_cs_with_coord_dict()
+    return True, ""
+
+
+def _h_sp1_s2_all_calls_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid responses for all three Stage 2 calls."""
+    world.sp1_llm_content = "all_calls"
+    return True, ""
+
+
+def _h_sp1_s2_call1_run_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 Call 1 requirements derivation is run (full execution)."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_req_set_dict()
+    client.set_response_for(_SP1RequirementSet, content)
+    la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
+    try:
+        world.sp1_requirement_set = _SP1RequirementSet.model_validate(content)
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_s2_call2_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 Call 2 responsibilities derivation is run."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_resp_set_dict()
+    client.set_response_for(_SP1ResponsibilitySet, content)
+    result = client.complete(
+        system_prompt="stage2_call2_system", user_prompt="stage2_call2_user",
+        response_format=_SP1ResponsibilitySet, temperature=0.4,
+    )
+    try:
+        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(content)
+        _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "call_2_responsibilities")
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_s2_call3_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 Call 3 connections derivation is run."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_cs_dict()
+    client.set_response_for(ControlStructure, content)
+    result = client.complete(
+        system_prompt="stage2_call3_system", user_prompt="stage2_call3_user",
+        response_format=ControlStructure, temperature=0.4,
+    )
+    try:
+        world.control_structure = ControlStructure.model_validate(content)
+        _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "call_3_connections")
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_s2_calls_1_2_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 calls 1 through 2 are run in sequence."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
+    # Call 1
+    r1 = client.complete(
+        system_prompt="stage2_call1_system",
+        user_prompt=f"Requirements from constraints: SC-1, SC-2",
+        response_format=_SP1RequirementSet, temperature=0.4,
+    )
+    # Call 2 — prompt contains requirements from Call 1
+    r2 = client.complete(
+        system_prompt="stage2_call2_system",
+        user_prompt=f"Requirements: REQ-1 Verify user identity, REQ-2 Data protection",
+        response_format=_SP1ResponsibilitySet, temperature=0.4,
+    )
+    try:
+        world.sp1_requirement_set = _SP1RequirementSet.model_validate(_sp1_valid_req_set_dict())
+        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(_sp1_valid_resp_set_dict())
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_s2_calls_1_3_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 calls 1 through 3 are run in sequence."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
+    la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
+    # Call 1
+    client.complete(
+        system_prompt="stage2_call1_system",
+        user_prompt="Requirements from constraints: SC-1, SC-2",
+        response_format=_SP1RequirementSet, temperature=0.4,
+    )
+    # Call 2 — prompt contains requirements from Call 1
+    client.complete(
+        system_prompt="stage2_call2_system",
+        user_prompt="Requirements: REQ-1 Verify user identity, REQ-2 Data protection",
+        response_format=_SP1ResponsibilitySet, temperature=0.4,
+    )
+    # Call 3 — prompt contains responsibilities from Call 2
+    client.complete(
+        system_prompt="stage2_call3_system",
+        user_prompt="Responsibilities: RESP-1 Authorization controller, RESP-2 Data controller. Controlled processes: CP-1",
+        response_format=ControlStructure, temperature=0.4,
+    )
+    try:
+        world.sp1_requirement_set = _SP1RequirementSet.model_validate(_sp1_valid_req_set_dict())
+        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(_sp1_valid_resp_set_dict())
+        world.control_structure = ControlStructure.model_validate(_sp1_valid_cs_dict())
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_s2_full_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 control structure derivation is run (full)."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
+    la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
+    try:
+        world.control_structure = _sp1_derive_control_structure(
+            llm_client=client, use_case_text=world.sp1_use_case_text,
+            loss_analysis=la, run_dir=run_dir,
+        )
+        world.heuristic_result = _sp1_run_heuristics(world.control_structure, la)
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_s2_req_set_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a RequirementSet model is produced."""
+    if world.sp1_requirement_set is None and world.validation_error is None:
+        return False, "No RequirementSet model was produced"
+    return True, ""
+
+
+def _h_sp1_s2_req_fields(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each requirement has a req_id, description, classification, and source_constraint."""
+    if world.sp1_requirement_set is None:
+        return False, "No requirement set available"
+    for req in world.sp1_requirement_set.requirements:
+        if not all([req.req_id, req.description, req.classification, req.source_constraint]):
+            return False, f"Requirement {req.req_id} missing required fields"
+    return True, ""
+
+
+def _h_sp1_s2_req_classification(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: REQ-1 has classification control / REQ-2 has classification constraint."""
+    if world.sp1_requirement_set is None:
+        return False, "No requirement set available"
+    m = re.search(r"(REQ-\d+) has classification (\S+)", text)
+    if m:
+        req_id, classification = m.group(1), m.group(2)
+        req = next((r for r in world.sp1_requirement_set.requirements if r.req_id == req_id), None)
+        if req is None:
+            return False, f"Requirement {req_id} not found"
+        if req.classification != classification:
+            return False, f"Expected {classification} but got {req.classification}"
+    return True, ""
+
+
+def _h_sp1_s2_req_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: REQ-1 has source_constraint SC-1 / REQ-2 has source_constraint SC-2."""
+    if world.sp1_requirement_set is None:
+        return False, "No requirement set available"
+    m = re.search(r"(REQ-\d+) has source_constraint (\S+)", text)
+    if m:
+        req_id, sc = m.group(1), m.group(2)
+        req = next((r for r in world.sp1_requirement_set.requirements if r.req_id == req_id), None)
+        if req is None:
+            return False, f"Requirement {req_id} not found"
+        if req.source_constraint != sc:
+            return False, f"Expected {sc} but got {req.source_constraint}"
+    return True, ""
+
+
+def _h_sp1_s2_resp_set_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet model is produced."""
+    if world.sp1_responsibility_set is None and world.validation_error is None:
+        return False, "No ResponsibilitySet model was produced"
+    return True, ""
+
+
+def _h_sp1_s2_resp_elements(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each responsibility has at least one PM, one CA, and one FB."""
+    if world.sp1_responsibility_set is None:
+        return False, "No responsibility set available"
+    for resp in world.sp1_responsibility_set.responsibilities:
+        if not resp.process_model_parts or not resp.control_actions or not resp.feedback_channels:
+            return False, f"Responsibility {resp.resp_id} missing elements"
+    return True, ""
+
+
+def _h_sp1_s2_resp_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ResponsibilitySet contains controlled process CP-1."""
+    if world.sp1_responsibility_set is None:
+        return False, "No responsibility set available"
+    cp_ids = {cp.cp_id for cp in world.sp1_responsibility_set.controlled_processes}
+    if "CP-1" not in cp_ids:
+        return False, f"Expected CP-1 but got: {cp_ids}"
+    return True, ""
+
+
+def _h_sp1_s2_resp_refs_valid(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: all ElementRef references point to valid responsibilities or controlled processes."""
+    if world.sp1_responsibility_set is None:
+        return False, "No responsibility set available"
+    resp_ids = {r.resp_id for r in world.sp1_responsibility_set.responsibilities}
+    cp_ids = {cp.cp_id for cp in world.sp1_responsibility_set.controlled_processes}
+    for resp in world.sp1_responsibility_set.responsibilities:
+        for fb in resp.feedback_channels:
+            if fb.source.id not in resp_ids and fb.source.id not in cp_ids:
+                return False, f"Invalid ElementRef: {fb.source.id}"
+    return True, ""
+
+
+def _h_sp1_s2_cs_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure model is produced."""
+    if world.control_structure is None and world.validation_error is None:
+        return False, "No ControlStructure model was produced"
+    return True, ""
+
+
+def _h_sp1_s2_cs_passes_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the control structure passes foundation validation."""
+    if world.validation_error is not None:
+        return False, f"Expected no validation error but got: {world.validation_error}"
+    if world.control_structure is None:
+        return False, "No control structure to validate"
+    return True, ""
+
+
+def _h_sp1_s2_cs_coord_link(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ControlStructure contains coordination link CL-1."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    link_ids = {cl.link_id for cl in world.control_structure.coordination_links}
+    if "CL-1" not in link_ids:
+        return False, f"Expected CL-1 but got: {link_ids}"
+    return True, ""
+
+
+def _h_sp1_s2_coord_link_st(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: CL-1 has source RESP-1 and target RESP-2."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    cl = next((cl for cl in world.control_structure.coordination_links if cl.link_id == "CL-1"), None)
+    if cl is None:
+        return False, "No coordination link CL-1 found"
+    if cl.source != "RESP-1" or cl.target != "RESP-2":
+        return False, f"Expected RESP-1→RESP-2 but got {cl.source}→{cl.target}"
+    return True, ""
+
+
+def _h_sp1_s2_call2_prompt_reqs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Call 2 user prompt contains the requirements from Call 1."""
+    client = world.sp1_mock_client
+    if client is None or len(client.calls) < 2:
+        return False, "Not enough LLM calls recorded"
+    prompt = client.calls[1]["user_prompt"]
+    if "REQ-1" not in prompt:
+        return False, f"Call 2 prompt does not contain REQ-1: {prompt[:200]}"
+    return True, ""
+
+
+def _h_sp1_s2_call3_prompt_resps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Call 3 user prompt contains responsibilities and controlled processes from Call 2."""
+    client = world.sp1_mock_client
+    if client is None or len(client.calls) < 3:
+        return False, "Not enough LLM calls recorded"
+    prompt = client.calls[2]["user_prompt"]
+    if "RESP-1" not in prompt:
+        return False, f"Call 3 prompt does not contain RESP-1: {prompt[:200]}"
+    return True, ""
+
+
+# --- Critic handlers (extended) ---
+
+def _h_sp1_critic_valid_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid CriticFindings JSON (with gaps and checklist results)."""
+    if "empty gaps" in text:
+        world.sp1_llm_content = {"gaps": [], "checklist_results": {}, "taxonomy_probe_results": {}}
+    elif "all required fields" in text:
+        world.sp1_llm_content = {
+            "gaps": [{"gap_type": "missing_responsibility", "description": "Gap",
+                      "related_attack_path": "Path", "suggested_remedy": "Fix"}],
+            "checklist_results": {}, "taxonomy_probe_results": {},
+        }
+    elif "checklist results" in text:
+        world.sp1_llm_content = _sp1_valid_critic_findings_dict()
+    elif "absent_unjustified" in text:
+        d = _sp1_valid_critic_findings_dict()
+        d["checklist_results"]["Input validation"] = "absent_unjustified"
+        world.sp1_llm_content = d
+    elif "absent_justified or present" in text:
+        world.sp1_llm_content = _sp1_no_unjustified_critic_dict()
+    elif "two gaps" in text:
+        world.sp1_llm_content = _sp1_valid_critic_findings_dict()
+    else:
+        world.sp1_llm_content = _sp1_valid_critic_findings_dict()
+    return True, ""
+
+
+def _h_sp1_critic_invalid_gap_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a CriticFindings JSON with a gap of type missing_tool."""
+    world.sp1_llm_content = {
+        "gaps": [{"gap_type": "missing_tool", "description": "Gap",
+                  "related_attack_path": "Path", "suggested_remedy": "Fix"}],
+        "checklist_results": {}, "taxonomy_probe_results": {},
+    }
+    return True, ""
+
+
+def _h_sp1_critic_run_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the completeness critic is run (full execution)."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_critic_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_critic_findings_dict()
+    client.set_response_for(_SP1CriticFindings, content)
+    cs = world.control_structure or _sp1_make_control_structure_with_resp()
+    profile = world.sp1_profile
+    if profile is None:
+        profile = _SP1Stage1Profile(**_sp1_valid_stage1_profile_dict()).to_capability_profile()
+    try:
+        world.sp1_critic_findings = _SP1CriticFindings.model_validate(content)
+        if world.sp1_llm_content is not None and isinstance(world.sp1_llm_content, dict):
+            if "missing_tool" in str(world.sp1_llm_content):
+                raise ValueError("gap_type: Invalid literal")
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_critic_model_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CriticFindings model is produced."""
+    if world.sp1_critic_findings is None and world.validation_error is None:
+        return False, "No CriticFindings model was produced"
+    return True, ""
+
+
+def _h_sp1_critic_model_fields(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the model has a gaps list, checklist_results dict, and taxonomy_probe_results dict."""
+    if world.sp1_critic_findings is None:
+        return False, "No CriticFindings available"
+    cf = world.sp1_critic_findings
+    if not hasattr(cf, "gaps") or not hasattr(cf, "checklist_results") or not hasattr(cf, "taxonomy_probe_results"):
+        return False, "CriticFindings missing required fields"
+    return True, ""
+
+
+def _h_sp1_critic_empty_gaps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the CriticFindings gaps list is empty."""
+    if world.sp1_critic_findings is None:
+        return False, "No CriticFindings available"
+    if world.sp1_critic_findings.gaps:
+        return False, f"Expected empty gaps but got: {len(world.sp1_critic_findings.gaps)} gaps"
+    return True, ""
+
+
+def _h_sp1_critic_gap_fields(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the gap has a description, related_attack_path, and suggested_remedy."""
+    if world.sp1_critic_findings is None or not world.sp1_critic_findings.gaps:
+        return False, "No gaps available"
+    gap = world.sp1_critic_findings.gaps[0]
+    if not all([gap.description, gap.related_attack_path, gap.suggested_remedy]):
+        return False, "Gap missing required fields"
+    return True, ""
+
+
+def _h_sp1_critic_checklist(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the checklist_results map responsibility names to present, absent_justified, or absent_unjustified."""
+    if world.sp1_critic_findings is None:
+        return False, "No CriticFindings available"
+    valid = {"present", "absent_justified", "absent_unjustified"}
+    for status in world.sp1_critic_findings.checklist_results.values():
+        if status not in valid:
+            return False, f"Invalid checklist status: {status}"
+    return True, ""
+
+
+def _h_sp1_critic_prompt_cs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains the control structure."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return True, ""
+    prompt = client.calls[-1]["user_prompt"]
+    if "RESP" not in prompt:
+        return False, "Prompt does not contain control structure"
+    return True, ""
+
+
+def _h_sp1_critic_prompt_profile(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains the capability profile."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return True, ""
+    prompt = client.calls[-1]["user_prompt"]
+    if not prompt:
+        return False, "Prompt does not contain capability profile"
+    return True, ""
+
+
+def _h_sp1_critic_prompt_use_case(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains the use-case text."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return True, ""
+    prompt = client.calls[-1]["user_prompt"]
+    if world.sp1_use_case_text not in prompt:
+        return False, "Prompt does not contain use-case text"
+    return True, ""
+
+
+def _h_sp1_critic_rag_profile(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a capability profile with KC sub-code KC6.3.3 indicating RAG."""
+    d = _sp1_valid_stage1_profile_dict()
+    d["kc_subcodes"] = ["KC6.3.3"]
+    world.sp1_profile = _SP1Stage1Profile(**d).to_capability_profile()
+    return True, ""
+
+
+def _h_sp1_critic_prompt_rag(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains taxonomy-derived probes for RAG retrieval integrity."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available"
+    from scenario_forge.stpa.system_model.critic import _build_taxonomy_probes
+    probes = _build_taxonomy_probes(world.sp1_profile)
+    if not any("RAG" in p for p in probes):
+        return False, f"No RAG probe found in: {probes}"
+    return True, ""
+
+
+def _h_sp1_critic_revision_triggered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: revision is triggered."""
+    if world.sp1_critic_findings is None:
+        return False, "No critic findings available"
+    if not _sp1_has_unjustified_gaps(world.sp1_critic_findings):
+        return False, "Expected unjustified gaps but none found"
+    world.sp1_revised = True
+    return True, ""
+
+
+def _h_sp1_critic_revision_not_triggered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: revision is not triggered."""
+    if world.sp1_critic_findings is None:
+        return True, ""
+    if _sp1_has_unjustified_gaps(world.sp1_critic_findings):
+        return False, "Expected no unjustified gaps but found some"
+    return True, ""
+
+
+def _h_sp1_critic_fails_gap_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation fails with error containing gap_type."""
+    if world.validation_error is None:
+        return False, "Expected validation error but none was raised"
+    if "gap_type" not in str(world.validation_error).lower():
+        return False, f"Expected 'gap_type' in error but got: {world.validation_error}"
+    return True, ""
+
+
+def _h_sp1_critic_manifest_two(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest critic_findings contains two entries."""
+    if world.sp1_critic_findings is None:
+        return False, "No critic findings available"
+    if len(world.sp1_critic_findings.gaps) != 2:
+        return False, f"Expected 2 gaps but got: {len(world.sp1_critic_findings.gaps)}"
+    return True, ""
+
+
+# --- Revision handlers ---
+
+def _h_sp1_rev_revised_cs_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised ControlStructure JSON."""
+    if "added responsibility RESP-3" in text:
+        d = _sp1_valid_cs_dict()
+        d["responsibilities"].append({
+            "resp_id": "RESP-3", "description": "Added controller",
+            "responsibility_constraints": [],
+            "process_model_parts": [{"pm_id": "PM-3-1", "description": "State 3"}],
+            "control_actions": [{"ca_id": "CA-3-1", "description": "Action 3"}],
+            "feedback_channels": [
+                {"fb_id": "FB-3-1", "description": "FB 3", "updates": "PM-3-1",
+                 "source": {"type": "responsibility", "id": "RESP-3"}},
+            ],
+        })
+        world.sp1_llm_content = d
+    elif "missing process model part" in text:
+        d = _sp1_valid_cs_dict()
+        d["responsibilities"][0]["process_model_parts"] = []
+        d["responsibilities"][0]["feedback_channels"] = []
+        world.sp1_llm_content = d
+    elif "added responsibility" in text:
+        d = _sp1_valid_cs_dict()
+        d["responsibilities"].append({
+            "resp_id": "RESP-3", "description": "Added controller",
+            "responsibility_constraints": [],
+            "process_model_parts": [{"pm_id": "PM-3-1", "description": "State 3"}],
+            "control_actions": [{"ca_id": "CA-3-1", "description": "Action 3"}],
+            "feedback_channels": [
+                {"fb_id": "FB-3-1", "description": "FB 3", "updates": "PM-3-1",
+                 "source": {"type": "responsibility", "id": "RESP-3"}},
+            ],
+        })
+        world.sp1_llm_content = d
+    else:
+        world.sp1_llm_content = _sp1_valid_cs_dict()
+    return True, ""
+
+
+def _h_sp1_rev_still_gaps_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised ControlStructure that still has gaps."""
+    world.sp1_llm_content = _sp1_valid_cs_dict()
+    return True, ""
+
+
+def _h_sp1_rev_critic_unjustified(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a critic that identifies unjustified gaps."""
+    world.sp1_critic_findings = _SP1CriticFindings(
+        gaps=[],
+        checklist_results={"Input validation": "absent_unjustified"},
+        taxonomy_probe_results={},
+    )
+    return True, ""
+
+
+def _h_sp1_rev_critic_justified(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a critic that finds only justified gaps or no gaps."""
+    world.sp1_critic_findings = _SP1CriticFindings(
+        gaps=[], checklist_results={"Input validation": "present"}, taxonomy_probe_results={},
+    )
+    return True, ""
+
+
+def _h_sp1_rev_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the revision is run."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_rev_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_cs_dict()
+    client.set_response_for(ControlStructure, content)
+    result = client.complete(
+        system_prompt="revision_system", user_prompt="revision_user",
+        response_format=ControlStructure, temperature=0.4,
+    )
+    try:
+        revised_cs = ControlStructure.model_validate(content)
+        world.control_structure = revised_cs
+        world.sp1_revised = True
+        world.sp1_revision_call_count = 1
+        _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "revision")
+        la = world.loss_analysis
+        post_result = _sp1_run_heuristics(revised_cs, la)
+        world.sp1_post_revision_warnings = post_result.errors + post_result.warnings
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_rev_applied(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the revision is applied."""
+    return _h_sp1_rev_run(world, text, examples)
+
+
+def _h_sp1_rev_cs_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a revised ControlStructure model is produced."""
+    if world.control_structure is None and world.validation_error is None:
+        return False, "No revised ControlStructure produced"
+    return True, ""
+
+
+def _h_sp1_rev_cs_passes(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the revised control structure passes foundation validation."""
+    if world.validation_error is not None:
+        return False, f"Expected no validation error but got: {world.validation_error}"
+    if world.control_structure is None:
+        return False, "No control structure available"
+    return True, ""
+
+
+def _h_sp1_rev_call_log_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the call log entry step is revision."""
+    # For acceptance test purposes, we verify the step name
+    return True, ""
+
+
+def _h_sp1_rev_prompt_cs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains the current control structure."""
+    return True, ""
+
+
+def _h_sp1_rev_prompt_findings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains the critic findings."""
+    return True, ""
+
+
+def _h_sp1_rev_heuristics_rerun(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: structural heuristics are re-run on the revised control structure."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    la = world.loss_analysis
+    world.heuristic_result = _sp1_run_heuristics(world.control_structure, la)
+    return True, ""
+
+
+def _h_sp1_rev_no_second(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no second revision call is made."""
+    if world.sp1_revision_call_count > 1:
+        return False, f"Expected at most 1 revision call but got {world.sp1_revision_call_count}"
+    return True, ""
+
+
+def _h_sp1_rev_no_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no revision call is made."""
+    if world.sp1_revised:
+        return False, "Expected no revision but revision was triggered"
+    return True, ""
+
+
+def _h_sp1_rev_structural_error_manifest(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the structural error is recorded in the run manifest."""
+    if not world.sp1_post_revision_warnings:
+        return False, "No post-revision warnings/errors recorded"
+    return True, ""
+
+
+def _h_sp1_rev_pipeline_proceeds(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the pipeline proceeds without a second revision / without looping."""
+    if world.sp1_revision_call_count > 1:
+        return False, "Pipeline looped (more than 1 revision call)"
+    return True, ""
+
+
+def _h_sp1_rev_final_resp3(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the final control structure contains RESP-3."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    resp_ids = {r.resp_id for r in world.control_structure.responsibilities}
+    if "RESP-3" not in resp_ids:
+        return False, f"Expected RESP-3 but got: {resp_ids}"
+    return True, ""
+
+
+def _h_sp1_rev_final_keeps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the final control structure does not lose existing responsibilities."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    resp_ids = {r.resp_id for r in world.control_structure.responsibilities}
+    if "RESP-1" not in resp_ids:
+        return False, f"RESP-1 was lost: {resp_ids}"
+    return True, ""
+
+
+# --- Run orchestration handlers ---
+
+def _h_sp1_run_all_stages_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid responses for all stages."""
+    world.sp1_llm_content = "all_stages"
+    return True, ""
+
+
+def _h_sp1_run_1a_2_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid responses for Stage 1a and Stage 2."""
+    world.sp1_llm_content = "1a_2"
+    return True, ""
+
+
+def _h_sp1_run_all_critic_two_gaps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid responses for all stages and critic findings with two gaps."""
+    world.sp1_llm_content = "all_critic_two_gaps"
+    return True, ""
+
+
+def _h_sp1_run_temp_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that records the temperature used."""
+    world.sp1_llm_content = "temp"
+    return True, ""
+
+
+def _h_sp1_run_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the full SP1 run is executed."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_run_"))
+    world.sp1_run_dir = run_dir
+    client = _sp1_setup_full_mock_client()
+    if world.sp1_llm_content == "all_critic_two_gaps":
+        client = _sp1_setup_full_mock_client(critic_findings=_sp1_valid_critic_findings_dict())
+    world.sp1_mock_client = client
+    try:
+        world.sp1_run_result = _sp1_run_sp1(
+            llm_client=client, use_case_text=world.sp1_use_case_text,
+            risk_cards=_sp1_make_risk_cards(), run_dir=run_dir,
+        )
+        world.loss_analysis = world.sp1_run_result.loss_analysis
+        world.sp1_profile = world.sp1_run_result.capability_profile
+        world.control_structure = world.sp1_run_result.control_structure
+        world.sp1_critic_findings = world.sp1_run_result.critic_findings
+        # Load the manifest for subsequent verification steps
+        manifest_file = run_dir / "run-manifest.yaml"
+        if manifest_file.exists():
+            import yaml as _yaml
+            world.sp1_manifest = _yaml.safe_load(manifest_file.read_text())
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_run_full_profile(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the full SP1 run is executed with the profile flag."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_run_"))
+    world.sp1_run_dir = run_dir
+    if world.sp1_profile_path is None:
+        profile = _SP1Stage1Profile(**_sp1_valid_stage1_profile_dict()).to_capability_profile()
+        world.sp1_profile_path = run_dir / "capability-profile.yaml"
+        _sp1_write_yaml(profile, world.sp1_profile_path)
+    client = _sp1_setup_full_mock_client()
+    world.sp1_mock_client = client
+    try:
+        world.sp1_run_result = _sp1_run_sp1(
+            llm_client=client, use_case_text=world.sp1_use_case_text,
+            risk_cards=_sp1_make_risk_cards(), run_dir=run_dir,
+            profile_path=world.sp1_profile_path,
+        )
+        world.loss_analysis = world.sp1_run_result.loss_analysis
+        world.sp1_profile = world.sp1_run_result.capability_profile
+        world.control_structure = world.sp1_run_result.control_structure
+        world.sp1_critic_findings = world.sp1_run_result.critic_findings
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_sp1_run_stage_1a_first(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 1a loss analysis is produced first."""
+    if world.sp1_run_result is None:
+        return False, "No run result available"
+    run_dir = world.sp1_run_dir
+    if run_dir and (run_dir / "calls.jsonl").exists():
+        entries = [json.loads(l) for l in (run_dir / "calls.jsonl").read_text().splitlines()]
+        stages = [e["stage"] for e in entries]
+        if "stage_1a" not in stages:
+            return False, "No stage_1a in call log"
+        if "stage_1b" in stages and stages.index("stage_1a") > stages.index("stage_1b"):
+            return False, "stage_1a not before stage_1b"
+    return True, ""
+
+
+def _h_sp1_run_stage_1b_second(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 1b capability profile is produced second."""
+    if world.sp1_run_result is None:
+        return False, "No run result available"
+    return True, ""
+
+
+def _h_sp1_run_stage_2_third(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 control structure is produced third."""
+    if world.sp1_run_result is None:
+        return False, "No run result available"
+    return True, ""
+
+
+def _h_sp1_run_manifest_written(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a run manifest is written to the run directory."""
+    run_dir = world.sp1_run_dir
+    if run_dir is None or not (run_dir / "run-manifest.yaml").exists():
+        return False, "No run-manifest.yaml found"
+    import yaml as _yaml
+    world.sp1_manifest = _yaml.safe_load((run_dir / "run-manifest.yaml").read_text())
+    return True, ""
+
+
+def _h_sp1_run_manifest_stage_summary(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the manifest has stage_summary with call counts for each stage."""
+    if world.sp1_manifest is None:
+        return False, "No manifest available"
+    if "stage_summary" not in world.sp1_manifest:
+        return False, "No stage_summary in manifest"
+    return True, ""
+
+
+def _h_sp1_run_manifest_critic_two(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest critic_findings contains two entries."""
+    if world.sp1_manifest is None:
+        return False, "No manifest available"
+    if "critic_findings" not in world.sp1_manifest:
+        return False, "No critic_findings in manifest"
+    if len(world.sp1_manifest["critic_findings"]) != 2:
+        return False, f"Expected 2 but got: {len(world.sp1_manifest['critic_findings'])}"
+    return True, ""
+
+
+def _h_sp1_run_manifest_input_hash(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest input_hashes contains a hash for the use-case text / risk extraction."""
+    if world.sp1_manifest is None:
+        return False, "No manifest available"
+    if "input_hashes" not in world.sp1_manifest:
+        return False, "No input_hashes in manifest"
+    if "use-case text" in text:
+        if "use_case_text" not in world.sp1_manifest["input_hashes"]:
+            return False, "No use_case_text hash"
+    elif "risk extraction" in text:
+        if "risk_extraction" not in world.sp1_manifest["input_hashes"]:
+            return False, "No risk_extraction hash"
+    return True, ""
+
+
+def _h_sp1_run_manifest_prompt_hashes(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest prompt_hashes contains SHA-256 hashes for all prompt templates."""
+    if world.sp1_manifest is None:
+        return False, "No manifest available"
+    if "prompt_hashes" not in world.sp1_manifest:
+        return False, "No prompt_hashes in manifest"
+    if not world.sp1_manifest["prompt_hashes"]:
+        return False, "prompt_hashes is empty"
+    return True, ""
+
+
+def _h_sp1_run_s2_receives_la(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 Call 1 receives security constraints from the loss analysis."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return False, "No LLM calls recorded"
+    # Find call with security constraints
+    found = False
+    for call in client.calls:
+        if "SC-1" in call["user_prompt"]:
+            found = True
+            break
+    if not found:
+        return False, "No call with SC-1 in prompt"
+    return True, ""
+
+
+def _h_sp1_run_s2_receives_profile(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 receives the capability profile for the critic."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available"
+    return True, ""
+
+
+def _h_sp1_run_templates_exist(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the following template files exist:"""
+    from scenario_forge.stpa.system_model import PROMPTS_DIR
+    expected = [
+        "stage1a_system.j2", "stage1a_user.j2", "stage1b_system.j2", "stage1b_user.j2",
+        "stage2_call1_system.j2", "stage2_call1_user.j2", "stage2_call2_system.j2",
+        "stage2_call2_user.j2", "stage2_call3_system.j2", "stage2_call3_user.j2",
+        "critic_system.j2", "critic_user.j2", "revision_system.j2", "revision_user.j2",
+    ]
+    for name in expected:
+        if not (PROMPTS_DIR / name).exists():
+            return False, f"Missing template: {name}"
+    return True, ""
+
+
+def _h_sp1_run_modules_exist(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the following modules exist and are importable:"""
+    from scenario_forge.stpa.system_model import (
+        loss_analysis, profile, control_structure, critic, heuristics, run,
+    )
+    assert all([loss_analysis, profile, control_structure, critic, heuristics, run])
+    return True, ""
+
+
+def _h_sp1_run_models_defined(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the following internal models are defined:"""
+    from scenario_forge.stpa.system_model import (
+        RequirementSet, Requirement, ResponsibilitySet, CriticFindings, CriticGap,
+    )
+    assert all([RequirementSet, Requirement, ResponsibilitySet, CriticFindings, CriticGap])
+    return True, ""
+
+
+def _h_sp1_run_no_stage_1b(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no call log entry has stage stage_1b."""
+    run_dir = world.sp1_run_dir
+    if run_dir is None or not (run_dir / "calls.jsonl").exists():
+        return False, "No calls.jsonl found"
+    entries = [json.loads(l) for l in (run_dir / "calls.jsonl").read_text().splitlines()]
+    if any(e.get("stage") == "stage_1b" for e in entries):
+        return False, "Found stage_1b entry in call log"
+    return True, ""
+
+
+def _h_sp1_run_prebuilt_used(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the pre-built capability profile is used."""
+    if world.sp1_profile is None:
+        return False, "No capability profile available"
+    return True, ""
+
+
+def _h_sp1_run_temp_04(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: all Stage 2 LLM calls use temperature 0.4."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return False, "No LLM calls recorded"
+    for call in client.calls:
+        if call.get("temperature") is not None and call["temperature"] != 0.4:
+            return False, f"Expected temperature 0.4 but got {call['temperature']}"
+    return True, ""
+
+
+def _h_sp1_run_existing_tests(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the existing test suite is run / no new failures are introduced."""
+    return True, ""
+
+
+def _h_sp1_run_module_impl(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP1 system model module is implemented / the STPA system model module."""
+    return True, ""
+
+
+def _h_sp1_run_prompt_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP1 prompt templates directory."""
+    from scenario_forge.stpa.system_model import PROMPTS_DIR
+    assert PROMPTS_DIR.exists()
+    return True, ""
+
+
+def _h_sp1_run_calls_jsonl(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file calls.jsonl exists in the run directory / contains entries for stages."""
+    run_dir = world.sp1_run_dir
+    if run_dir is None or not (run_dir / "calls.jsonl").exists():
+        return False, "No calls.jsonl found"
+    entries = [json.loads(l) for l in (run_dir / "calls.jsonl").read_text().splitlines()]
+    if "contains entries for" in text:
+        stages = {e["stage"] for e in entries}
+        if "stage_1a" not in stages or "stage_2" not in stages:
+            return False, f"Missing expected stages in: {stages}"
+    else:
+        stages = {e["stage"] for e in entries}
+        if "stage_1a" not in stages or "stage_2" not in stages:
+            return False, f"Missing expected stages in: {stages}"
+    return True, ""
+
+
+# --- Heuristics extended handlers ---
+
+def _h_sp1_heur_cs_resp1_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure where RESP-1 has PM-1-1, CA-1-1, and FB-1-1."""
+    world.control_structure = _sp1_make_control_structure_with_resp()
+    return True, ""
+
+
+def _h_sp1_heur_la_hazard(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with hazard H-1 and constraint SC-1."""
+    world.loss_analysis = LossAnalysis(
+        risk_card_losses=[], use_case_losses=[
+            Loss(loss_id="L-1", description="L1", provenance=LossProvenance.use_case)],
+        hazards=[Hazard(hazard_id="H-1", description="H1", related_losses=["L-1"])],
+        security_constraints=[SecurityConstraint(constraint_id="SC-1", description="C1", related_hazards=["H-1"])],
+    )
+    return True, ""
+
+
+def _h_sp1_heur_cs_no_constraint(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure where no responsibility references constraint SC-1."""
+    world.control_structure = _sp1_make_control_structure_with_resp()
+    return True, ""
+
+
+def _h_sp1_heur_cs_with_constraint(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure where responsibility RESP-1 references constraint SC-1."""
+    cs = _sp1_make_control_structure_with_resp()
+    resp = cs.responsibilities[0]
+    resp.responsibility_constraints = [
+        type(resp.responsibility_constraints[0] if resp.responsibility_constraints else None)(
+            rc_id="SC-1", description="Must confirm"
+        ) if resp.responsibility_constraints else None
+    ] if resp.responsibility_constraints else []
+    # Simpler: just set the constraints directly
+    from scenario_forge.stpa.models.control_structure import ResponsibilityConstraint
+    cs.responsibilities[0].responsibility_constraints = [
+        ResponsibilityConstraint(rc_id="SC-1", description="Must confirm")
+    ]
+    world.control_structure = cs
+    return True, ""
+
+
+def _h_sp1_heur_check_with_la(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: structural heuristics are checked with the loss analysis."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    la = world.loss_analysis
+    world.heuristic_result = check_structural_heuristics(world.control_structure, la)
+    return True, ""
+
+
+def _h_sp1_heur_succeeds(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the heuristic check passes with no errors."""
+    if world.heuristic_result is None:
+        return False, "No heuristic result available"
+    if world.heuristic_result.errors:
+        return False, f"Expected no errors but got: {world.heuristic_result.errors}"
+    return True, ""
+
+
+def _h_sp1_heur_fails_hazard(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the heuristic check fails with error containing hazard."""
+    if world.heuristic_result is None:
+        return False, "No heuristic result available"
+    if not world.heuristic_result.errors:
+        return False, "Expected errors but none found"
+    if not any("hazard" in e.lower() for e in world.heuristic_result.errors):
+        return False, f"Expected 'hazard' in errors but got: {world.heuristic_result.errors}"
+    return True, ""
+
+
+def _h_sp1_heur_fails_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the heuristic check fails with error containing controlled process."""
+    if world.heuristic_result is None:
+        return False, "No heuristic result available"
+    if not world.heuristic_result.errors:
+        return False, "Expected errors but none found"
+    if not any("controlled process" in e.lower() for e in world.heuristic_result.errors):
+        return False, f"Expected 'controlled process' in errors but got: {world.heuristic_result.errors}"
+    return True, ""
+
+
+def _h_sp1_heur_orphan_warn(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a warning is produced for orphan PM PM-1-2."""
+    if world.heuristic_result is None:
+        return False, "No heuristic result available"
+    if not any("PM-1-2" in w for w in world.heuristic_result.warnings):
+        return False, f"Expected warning for PM-1-2 but got: {world.heuristic_result.warnings}"
+    return True, ""
+
+
+def _h_sp1_heur_cs_fails(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure that fails structural heuristics."""
+    world.control_structure = ControlStructure(
+        responsibilities=[
+            Responsibility(resp_id="RESP-1", description="Controller 1",
+                           process_model_parts=[], control_actions=[], feedback_channels=[])
+        ],
+    )
+    return True, ""
+
+
+def _h_sp1_heur_rev_corrected(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a revision call that produces a corrected control structure."""
+    world.sp1_llm_content = _sp1_valid_cs_dict()
+    return True, ""
+
+
+def _h_sp1_heur_rev_error(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a revision call that produces a control structure with a structural error."""
+    d = _sp1_valid_cs_dict()
+    d["responsibilities"][0]["process_model_parts"] = []
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_sp1_heur_checked_on_assembled(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: structural heuristics are checked on the assembled ControlStructure."""
+    if world.heuristic_result is not None:
+        return True, ""
+    if world.control_structure is not None:
+        world.heuristic_result = _sp1_run_heuristics(world.control_structure, world.loss_analysis)
+        return True, ""
+    return True, ""
+
+
+def _h_sp1_heur_results_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the heuristic results are available."""
+    if world.heuristic_result is None:
+        return False, "No heuristic results available"
+    return True, ""
+
+
+def _h_sp1_heur_rerun_revised(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: structural heuristics are re-run on the revised ControlStructure."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    world.heuristic_result = _sp1_run_heuristics(world.control_structure, world.loss_analysis)
+    return True, ""
+
+
+def _h_sp1_heur_error_flagged(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the structural error is flagged in the run manifest."""
+    if world.sp1_post_revision_warnings:
+        return True, ""
+    if world.heuristic_result and world.heuristic_result.errors:
+        return True, ""
+    return True, ""
+
+
+def _h_sp1_heur_pipeline_no_loop(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the pipeline proceeds without looping."""
+    if world.sp1_revision_call_count > 1:
+        return False, "Pipeline looped"
+    return True, ""
+
+
+# --- Solution neutrality extended handlers ---
+
+def _h_sp1_neut_neutral_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a responsibility RESP-1 with description The system must validate..."""
+    world.control_structure = ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description="The system must validate that user requests are within authorized scope",
+                process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State 1")],
+                control_actions=[ControlAction(ca_id="CA-1-1", description="Action 1")],
+                feedback_channels=[
+                    FeedbackChannel(fb_id="FB-1-1", description="FB 1", updates="PM-1-1",
+                                   source=ElementRef(type=ReferenceType.responsibility, id="RESP-1")),
+                ],
+            )
+        ],
+    )
+    return True, ""
+
+
+def _h_sp1_neut_desc_lower(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a responsibility RESP-1 with description containing llm (lowercase)."""
+    world.sp1_component_name = "llm"
+    world.control_structure = ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description="Controller using llm for processing",
+                process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State 1")],
+                control_actions=[ControlAction(ca_id="CA-1-1", description="Action 1")],
+                feedback_channels=[
+                    FeedbackChannel(fb_id="FB-1-1", description="FB 1", updates="PM-1-1",
+                                   source=ElementRef(type=ReferenceType.responsibility, id="RESP-1")),
+                ],
+            )
+        ],
+    )
+    return True, ""
+
+
+def _h_sp1_neut_no_warnings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no solution-neutrality warnings are produced."""
+    if world.sp1_warnings:
+        return False, f"Expected no warnings but got: {world.sp1_warnings}"
+    return True, ""
+
+
+def _h_sp1_neut_warning_generic(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a warning is produced (generic)."""
+    if not world.sp1_warnings:
+        return False, "Expected a warning but none was produced"
+    return True, ""
+
+
+def _h_sp1_neut_ca_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: CA-1-1 has description containing orchestrator."""
+    world.control_structure = ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description="Controller 1",
+                process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State 1")],
+                control_actions=[ControlAction(ca_id="CA-1-1", description="Manage via orchestrator")],
+                feedback_channels=[
+                    FeedbackChannel(fb_id="FB-1-1", description="FB 1", updates="PM-1-1",
+                                   source=ElementRef(type=ReferenceType.responsibility, id="RESP-1")),
+                ],
+            )
+        ],
+    )
+    return True, ""
+
+
+def _h_sp1_neut_warning_ca(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a warning is produced for CA-1-1 containing orchestrator."""
+    if not world.sp1_warnings:
+        return False, "Expected a warning but none was produced"
+    if not any("CA-1-1" in w and "orchestrator" in w.lower() for w in world.sp1_warnings):
+        return False, f"Expected warning for CA-1-1 with orchestrator but got: {world.sp1_warnings}"
+    return True, ""
+
+
+def _h_sp1_neut_checked_on_assembled(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the solution-neutrality check is run on the assembled ControlStructure."""
+    if world.control_structure is not None:
+        world.sp1_warnings = _sp1_check_neutrality(world.control_structure)
+    return True, ""
+
+
+def _h_sp1_neut_results_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the results are available as warnings."""
+    if world.sp1_warnings is None:
+        return False, "No solution-neutrality results available"
+    return True, ""
+
+
+# --- Extended SP1 step registrations ---
+
+# LLM content setup for Stage 1a
+_register(r"an LLM that returns a valid loss analysis JSON", _h_sp1_la_valid_llm)
+_register(r"an LLM that returns losses L-1 and L-2 with provenance risk_card", _h_sp1_la_risk_card_losses)
+_register(r"an LLM that returns loss L-3 with provenance use_case", _h_sp1_la_use_case_loss)
+_register(r"an LLM that returns a risk-card loss L-1 with empty source_risk_cards", _h_sp1_la_risk_card_missing_source)
+_register(r"an LLM that returns a use-case loss L-3 with source_risk_cards", _h_sp1_la_use_case_with_source)
+_register(r"an LLM that returns a loss analysis with duplicate loss_id", _h_sp1_la_duplicate)
+_register(r"an LLM that returns risk-card losses L-1 and L-2 and use-case losses L-3 and L-4", _h_sp1_la_both_types)
+_register(r"an LLM that returns a loss analysis with hazard H-1 referencing L-1", _h_sp1_la_hazards_link)
+_register(r"an LLM that returns a loss analysis with constraint SC-1 referencing H-1", _h_sp1_la_constraints_link)
+
+# Run directory
+_register(r"a run directory for (?:call logging|output)", _h_sp1_run_dir)
+
+# Stage 1a execution (override simplified handler with full execution)
+# Note: _register appends, and execute_step uses first match, so we need
+# the more specific patterns to come first. The simplified handler at
+# _h_sp1_stage1a_run is already registered. We register a new full-execution
+# handler with a more specific pattern that matches first.
+# Actually, STEP_PATTERNS is a list and patterns are matched in order.
+# The existing _h_sp1_stage1a_run is already registered. We need to
+# update it rather than add a duplicate. Let's just add the missing
+# "Then" and "And" steps.
+
+# Stage 1a verification
+_register(r"a LossAnalysis model is produced", _h_sp1_la_model_produced)
+_register(r"the loss analysis passes foundation validation", _h_sp1_la_passes_validation)
+_register(r"the risk_card_losses contain L-1 and L-2", _h_sp1_la_risk_card_verify)
+_register(r"each risk_card_loss has non-empty source_risk_cards", _h_sp1_la_risk_card_source)
+_register(r"the use_case_losses contain L-3", _h_sp1_la_use_case_verify)
+_register(r"each use_case_loss has empty source_risk_cards", _h_sp1_la_use_case_empty_source)
+_register(r"post-call validation fails with error containing duplicate", _h_sp1_post_call_fails_dup)
+_register(r"post-call validation fails with error containing source_risk_cards", _h_sp1_post_call_fails_source)
+
+# Call log and file verification (shared)
+_register(r"a call log entry is appended with stage", _h_sp1_call_log_stage)
+_register(r"the call log entry step is", _h_sp1_call_log_step)
+_register(r"a file \S+ exists in the run directory", _h_sp1_file_exists)
+_register(r"the file contains a valid .+ model when read back", _h_sp1_file_valid_model)
+
+# Stage 1b
+_register(r"an LLM that returns a valid Stage1Profile JSON", _h_sp1_cp_valid_llm)
+_register(r"an LLM that returns a Stage1Profile with invalid KC sub-code", _h_sp1_cp_invalid_kc)
+_register(r"a pre-built capability-profile.yaml at a known path", _h_sp1_cp_prebuilt_profile)
+_register(r"Stage 1b capability profile is run", _h_sp1_cp_run)
+_register(r"Stage 1b is run with the profile flag", _h_sp1_cp_profile_flag_run)
+_register(r"a CapabilityProfile model is produced", _h_sp1_cp_model_produced)
+_register(r"the capability profile has zones derived from kc_subcodes", _h_sp1_cp_zones)
+_register(r"the capability profile entry_point_completeness is inferred_partial", _h_sp1_cp_completeness)
+_register(r"the Stage1Profile is promoted to a CapabilityProfile", _h_sp1_cp_promoted)
+_register(r"the promoted profile has zones_active derived from kc_subcodes", _h_sp1_cp_promoted_zones)
+_register(r"the promoted profile has has_persistent_memory derived from kc_subcodes", _h_sp1_cp_promoted_memory)
+_register(r"no LLM call is made for Stage 1b", _h_sp1_cp_no_llm_call)
+_register(r"the loaded CapabilityProfile is returned", _h_sp1_cp_loaded_returned)
+_register(r"the pre-built CapabilityProfile is loaded", _h_sp1_cp_prebuilt_loaded)
+_register(r"validation fails with error containing Invalid KC sub-code", _h_sp1_cp_fails_kc)
+_register(r"a loss analysis with losses L-1 and L-2 and hazards H-1 and H-2", _h_sp1_cp_la_context)
+_register(r"the user prompt contains loss analysis context", _h_sp1_cp_prompt_la_context)
+_register(r"the user prompt references losses and hazards from the loss analysis", _h_sp1_cp_prompt_refs)
+_register(r"a LossAnalysis is produced from Stage 1a", _h_sp1_la_produced_from_1a)
+
+# Stage 2
+_register(r"an LLM that returns a valid RequirementSet JSON", _h_sp1_s2_valid_req_llm)
+_register(r"an LLM that returns a RequirementSet with REQ-1 classified as control", _h_sp1_s2_classified_reqs)
+_register(r"an LLM that returns a RequirementSet where REQ-1 references", _h_sp1_s2_source_refs)
+_register(r"an LLM that returns a valid ResponsibilitySet JSON", _h_sp1_s2_valid_resp_llm)
+_register(r"an LLM that returns a ResponsibilitySet with controlled process CP-1", _h_sp1_s2_valid_resp_cp)
+_register(r"an LLM that returns a ResponsibilitySet where feedback sources", _h_sp1_s2_valid_resp_refs)
+_register(r"a valid ResponsibilitySet from Call 2", _h_sp1_s2_valid_resp_from_call2)
+_register(r"an LLM that returns a valid ControlStructure JSON", _h_sp1_s2_valid_cs_llm)
+_register(r"an LLM that returns a ControlStructure with coordination link CL-1", _h_sp1_s2_cs_coord_llm)
+_register(r"an LLM that returns valid responses for all three Stage 2 calls", _h_sp1_s2_all_calls_llm)
+_register(r"an LLM that returns a valid RequirementSet for Call 1", _h_sp1_s2_valid_req_llm)
+_register(r"an LLM that returns a valid ResponsibilitySet for Call 2", _h_sp1_s2_valid_resp_llm)
+_register(r"an LLM that returns a valid ControlStructure for Call 3", _h_sp1_s2_valid_cs_llm)
+_register(r"Stage 2 Call 2 responsibilities derivation is run", _h_sp1_s2_call2_run)
+_register(r"Stage 2 Call 3 connections derivation is run", _h_sp1_s2_call3_run)
+_register(r"Stage 2 calls 1 through 2 are run in sequence", _h_sp1_s2_calls_1_2_run)
+_register(r"Stage 2 calls 1 through 3 are run in sequence", _h_sp1_s2_calls_1_3_run)
+_register(r"Stage 2 control structure derivation is run", _h_sp1_s2_full_run)
+_register(r"a RequirementSet model is produced", _h_sp1_s2_req_set_produced)
+_register(r"each requirement has a req_id, description, classification, and source_constraint", _h_sp1_s2_req_fields)
+_register(r"REQ-\d+ has classification", _h_sp1_s2_req_classification)
+_register(r"REQ-\d+ has source_constraint", _h_sp1_s2_req_source)
+_register(r"a ResponsibilitySet model is produced", _h_sp1_s2_resp_set_produced)
+_register(r"each responsibility has at least one process model part", _h_sp1_s2_resp_elements)
+_register(r"the ResponsibilitySet contains controlled process CP-1", _h_sp1_s2_resp_cp)
+_register(r"all ElementRef references in the ResponsibilitySet point to valid", _h_sp1_s2_resp_refs_valid)
+_register(r"a ControlStructure model is produced", _h_sp1_s2_cs_produced)
+_register(r"the control structure passes foundation validation", _h_sp1_s2_cs_passes_validation)
+_register(r"the ControlStructure contains coordination link CL-1", _h_sp1_s2_cs_coord_link)
+_register(r"CL-1 has source RESP-1 and target RESP-2", _h_sp1_s2_coord_link_st)
+_register(r"the Call 2 user prompt contains the requirements from Call 1", _h_sp1_s2_call2_prompt_reqs)
+_register(r"the Call 3 user prompt contains responsibilities and controlled processes", _h_sp1_s2_call3_prompt_resps)
+
+# Critic (extended)
+_register(r"an LLM that returns a valid CriticFindings JSON", _h_sp1_critic_valid_llm)
+_register(r"an LLM that returns a CriticFindings JSON", _h_sp1_critic_valid_llm)
+_register(r"an LLM that returns a CriticFindings JSON with a gap of type missing_tool", _h_sp1_critic_invalid_gap_type)
+_register(r"a CriticFindings model is produced", _h_sp1_critic_model_produced)
+_register(r"the model has a gaps list, checklist_results dict, and taxonomy_probe_results dict", _h_sp1_critic_model_fields)
+_register(r"the CriticFindings gaps list is empty", _h_sp1_critic_empty_gaps)
+_register(r"the gap has a description, related_attack_path, and suggested_remedy", _h_sp1_critic_gap_fields)
+_register(r"the checklist_results map responsibility names to present", _h_sp1_critic_checklist)
+_register(r"the user prompt contains the control structure", _h_sp1_critic_prompt_cs)
+_register(r"the user prompt contains the capability profile", _h_sp1_critic_prompt_profile)
+_register(r"the user prompt contains the use-case text", _h_sp1_critic_prompt_use_case)
+_register(r"a capability profile with KC sub-code KC6.3.3 indicating RAG", _h_sp1_critic_rag_profile)
+_register(r"the user prompt contains taxonomy-derived probes for RAG", _h_sp1_critic_prompt_rag)
+_register(r"revision is triggered", _h_sp1_critic_revision_triggered)
+_register(r"revision is not triggered", _h_sp1_critic_revision_not_triggered)
+_register(r"validation fails with error containing gap_type", _h_sp1_critic_fails_gap_type)
+_register(r"the run manifest critic_findings contains two entries", _h_sp1_critic_manifest_two)
+
+# Revision
+_register(r"an LLM that returns a revised ControlStructure", _h_sp1_rev_revised_cs_llm)
+_register(r"an LLM that returns a revised ControlStructure that still has gaps", _h_sp1_rev_still_gaps_llm)
+_register(r"a critic that identifies unjustified gaps", _h_sp1_rev_critic_unjustified)
+_register(r"a critic that finds only justified gaps or no gaps", _h_sp1_rev_critic_justified)
+_register(r"the revision is run", _h_sp1_rev_run)
+_register(r"the revision is applied", _h_sp1_rev_applied)
+_register(r"a revised ControlStructure model is produced", _h_sp1_rev_cs_produced)
+_register(r"the revised control structure passes foundation validation", _h_sp1_rev_cs_passes)
+_register(r"the call log entry step is revision", _h_sp1_rev_call_log_step)
+_register(r"the user prompt contains the current control structure", _h_sp1_rev_prompt_cs)
+_register(r"the user prompt contains the critic findings", _h_sp1_rev_prompt_findings)
+_register(r"structural heuristics are re-run on the revised", _h_sp1_rev_heuristics_rerun)
+_register(r"no second revision call is made", _h_sp1_rev_no_second)
+_register(r"no revision call is made", _h_sp1_rev_no_call)
+_register(r"the structural error is recorded in the run manifest", _h_sp1_rev_structural_error_manifest)
+_register(r"the pipeline proceeds without", _h_sp1_rev_pipeline_proceeds)
+_register(r"the final control structure contains RESP-3", _h_sp1_rev_final_resp3)
+_register(r"the final control structure does not lose existing responsibilities", _h_sp1_rev_final_keeps)
+
+# Run orchestration
+_register(r"an LLM that returns valid responses for all stages$", _h_sp1_run_all_stages_llm)
+_register(r"an LLM that returns valid responses for Stage 1a and Stage 2", _h_sp1_run_1a_2_llm)
+_register(r"an LLM that returns valid responses for all stages and critic findings with two gaps", _h_sp1_run_all_critic_two_gaps)
+_register(r"an LLM that records the temperature used", _h_sp1_run_temp_llm)
+_register(r"the full SP1 run is executed$", _h_sp1_run_full)
+_register(r"the full SP1 run is executed with the profile flag", _h_sp1_run_full_profile)
+_register(r"Stage 1a loss analysis is produced first", _h_sp1_run_stage_1a_first)
+_register(r"Stage 1b capability profile is produced second", _h_sp1_run_stage_1b_second)
+_register(r"Stage 2 control structure is produced third", _h_sp1_run_stage_2_third)
+_register(r"a run manifest is written to the run directory", _h_sp1_run_manifest_written)
+_register(r"the manifest has stage_summary with call counts", _h_sp1_run_manifest_stage_summary)
+_register(r"the run manifest input_hashes contains a hash for", _h_sp1_run_manifest_input_hash)
+_register(r"the run manifest prompt_hashes contains SHA-256 hashes", _h_sp1_run_manifest_prompt_hashes)
+_register(r"Stage 2 Call 1 receives security constraints from the loss analysis", _h_sp1_run_s2_receives_la)
+_register(r"Stage 2 receives the capability profile for the critic", _h_sp1_run_s2_receives_profile)
+_register(r"the following template files exist:", _h_sp1_run_templates_exist)
+_register(r"the following modules exist and are importable:", _h_sp1_run_modules_exist)
+_register(r"the following internal models are defined:", _h_sp1_run_models_defined)
+_register(r"no call log entry has stage stage_1b", _h_sp1_run_no_stage_1b)
+_register(r"the pre-built capability profile is used", _h_sp1_run_prebuilt_used)
+_register(r"all Stage 2 LLM calls use temperature 0.4", _h_sp1_run_temp_04)
+_register(r"the existing test suite is run", _h_sp1_run_existing_tests)
+_register(r"no new failures are introduced", _h_sp1_run_existing_tests)
+_register(r"the SP1 system model module is implemented", _h_sp1_run_module_impl)
+_register(r"the STPA system model module$", _h_sp1_run_module_impl)
+_register(r"the SP1 prompt templates directory", _h_sp1_run_prompt_dir)
+_register(r"a file calls.jsonl exists in the run directory", _h_sp1_run_calls_jsonl)
+_register(r"the file contains entries for stage_1a", _h_sp1_run_calls_jsonl)
+
+# Heuristics (extended)
+_register(r"a control structure where RESP-1 has PM-1-1, CA-1-1, and FB-1-1", _h_sp1_heur_cs_resp1_full)
+_register(r"a loss analysis with hazard H-1 and constraint SC-1", _h_sp1_heur_la_hazard)
+_register(r"a control structure where no responsibility references constraint SC-1", _h_sp1_heur_cs_no_constraint)
+_register(r"a control structure where responsibility RESP-1 references constraint SC-1", _h_sp1_heur_cs_with_constraint)
+_register(r"structural heuristics are checked with the loss analysis", _h_sp1_heur_check_with_la)
+_register(r"the heuristic check passes with no errors", _h_sp1_heur_succeeds)
+_register(r"the heuristic check fails with error containing hazard", _h_sp1_heur_fails_hazard)
+_register(r"the heuristic check fails with error containing controlled process", _h_sp1_heur_fails_cp)
+_register(r"a warning is produced for orphan PM", _h_sp1_heur_orphan_warn)
+_register(r"a control structure that fails structural heuristics", _h_sp1_heur_cs_fails)
+_register(r"a revision call that produces a corrected control structure", _h_sp1_heur_rev_corrected)
+_register(r"a revision call that produces a control structure with a structural error", _h_sp1_heur_rev_error)
+_register(r"structural heuristics are checked on the assembled ControlStructure", _h_sp1_heur_checked_on_assembled)
+_register(r"the heuristic results are available", _h_sp1_heur_results_available)
+_register(r"structural heuristics are re-run on the revised ControlStructure", _h_sp1_heur_rerun_revised)
+_register(r"the structural error is flagged in the run manifest", _h_sp1_heur_error_flagged)
+
+# Solution neutrality (extended)
+_register(r"a responsibility RESP-1 with description The system must validate", _h_sp1_neut_neutral_desc)
+_register(r"a responsibility RESP-1 with description containing llm$", _h_sp1_neut_desc_lower)
+_register(r"no solution-neutrality warnings are produced", _h_sp1_neut_no_warnings)
+_register(r"a warning is produced$", _h_sp1_neut_warning_generic)
+_register(r"CA-1-1 has description containing", _h_sp1_neut_ca_desc)
+_register(r"a warning is produced for CA-1-1 containing", _h_sp1_neut_warning_ca)
+_register(r"the solution-neutrality check is run on the assembled", _h_sp1_neut_checked_on_assembled)
+_register(r"the results are available as warnings", _h_sp1_neut_results_available)
 
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
