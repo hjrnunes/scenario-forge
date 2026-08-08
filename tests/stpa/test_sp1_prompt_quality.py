@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+from hypothesis import given, settings, strategies as st
+
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.system_model import PROMPTS_DIR
 
 _STAGE1A_SYSTEM = "stage1a_system.j2"
 _STAGE1A_USER = "stage1a_user.j2"
 _STAGE1B_SYSTEM = "stage1b_system.j2"
+
+# System templates that take zero template variables — they are pure
+# static prompts whose rendered output equals their raw text.
+_ZERO_VAR_SYSTEM_TEMPLATES = [
+    "stage1a_system.j2",
+    "stage1b_system.j2",
+    "stage2_call1_system.j2",
+    "stage2_call2_system.j2",
+    "stage2_call3_system.j2",
+    "revision_system.j2",
+]
 
 
 def _text(template_name: str) -> str:
@@ -134,3 +147,101 @@ def test_pqf_13_stage1b_quality_section_follows_emphasis() -> None:
     text = _text(_STAGE1B_SYSTEM)
     assert "## Emphasis" in text
     assert text.index("## Quality requirements") > text.index("## Emphasis")
+
+
+# ---------------------------------------------------------------------------
+# Property-based tests for template rendering
+#
+# These tests verify invariants that hold across broad input ranges:
+#
+# - **Zero-variable system templates render without error**: every static
+#   system prompt is valid Jinja2 and renders to its raw text.
+# - **Rendering idempotence**: rendering a system template twice produces
+#   identical output.
+# - **No unrendered Jinja2 markers**: rendered system templates contain no
+#   ``{{`` or ``{%`` sequences.
+# - **Use-case text injection**: ``stage1a_user.j2`` always includes the
+#   provided ``use_case_text`` verbatim in its rendered output.
+# - **Empty-risk-cards fallback**: ``stage1a_user.j2`` with an empty list
+#   always shows the "No risk cards provided" fallback.
+# - **Section ordering invariant**: "Quality requirements" always follows
+#   "Structural requirements" in the rendered ``stage1a_system.j2``.
+# ---------------------------------------------------------------------------
+
+# Printable text without Jinja2 delimiters — safe for variable injection.
+_st_safe_text = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters=("{", "}")),
+    min_size=1,
+    max_size=200,
+)
+
+
+class TestTemplateRenderingProperties:
+    """Property-based invariants for prompt template rendering."""
+
+    @given(template_name=st.sampled_from(_ZERO_VAR_SYSTEM_TEMPLATES))
+    @settings(max_examples=20, deadline=None)
+    def test_pqp_01_zero_var_system_template_renders_to_raw_text(
+        self,
+        template_name: str,
+    ) -> None:
+        """A zero-variable system template renders identically to its raw text."""
+        rendered = _render(template_name)
+        raw = _text(template_name)
+        assert rendered == raw
+
+    @given(template_name=st.sampled_from(_ZERO_VAR_SYSTEM_TEMPLATES))
+    @settings(max_examples=20, deadline=None)
+    def test_pqp_02_system_template_rendering_is_idempotent(
+        self,
+        template_name: str,
+    ) -> None:
+        """Rendering a system template twice produces identical output."""
+        first = _render(template_name)
+        second = _render(template_name)
+        assert first == second
+
+    @given(template_name=st.sampled_from(_ZERO_VAR_SYSTEM_TEMPLATES))
+    @settings(max_examples=20, deadline=None)
+    def test_pqp_03_no_unrendered_jinja_markers_in_system_templates(
+        self,
+        template_name: str,
+    ) -> None:
+        """Rendered system templates contain no ``{{`` or ``{%`` markers."""
+        rendered = _render(template_name)
+        assert "{{" not in rendered
+        assert "{%" not in rendered
+
+    @given(use_case_text=_st_safe_text)
+    @settings(max_examples=50, deadline=None)
+    def test_pqp_04_stage1a_user_injects_use_case_text_verbatim(
+        self,
+        use_case_text: str,
+    ) -> None:
+        """stage1a_user.j2 always includes the provided use_case_text verbatim."""
+        rendered = _render(_STAGE1A_USER, use_case_text=use_case_text, risk_cards=[])
+        assert use_case_text in rendered
+
+    @given(use_case_text=_st_safe_text)
+    @settings(max_examples=20, deadline=None)
+    def test_pqp_05_stage1a_user_empty_risk_cards_shows_fallback(
+        self,
+        use_case_text: str,
+    ) -> None:
+        """stage1a_user.j2 with empty risk_cards shows the fallback message."""
+        rendered = _render(_STAGE1A_USER, use_case_text=use_case_text, risk_cards=[])
+        assert "No risk cards provided" in rendered
+
+    @given(use_case_text=_st_safe_text)
+    @settings(max_examples=20, deadline=None)
+    def test_pqp_06_stage1a_quality_section_follows_structural_in_render(
+        self,
+        use_case_text: str,
+    ) -> None:
+        """In rendered stage1a_system, Quality requirements follows Structural."""
+        rendered = _render(_STAGE1A_SYSTEM)
+        assert "## Structural requirements" in rendered
+        assert "## Quality requirements" in rendered
+        assert rendered.index("## Quality requirements") > rendered.index(
+            "## Structural requirements"
+        )
