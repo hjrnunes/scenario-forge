@@ -595,6 +595,7 @@ class TestRunOrchestrationPartialFailure:
         assert result.loss_analysis is not None
         assert result.capability_profile is not None
         assert result.control_structure is None
+        assert result.revised is False
         assert (tmp_path / "run-manifest.yaml").exists()
 
     def test_gd_12_failed_derivation_call_logged_with_success_false(self, tmp_path):
@@ -659,3 +660,71 @@ class TestRunOrchestrationPartialFailure:
         manifest = yaml.safe_load((tmp_path / "run-manifest.yaml").read_text())
         assert "stage_errors" in manifest
         assert any("stage_1b" in e for e in manifest["stage_errors"])
+
+
+# ---------------------------------------------------------------------------
+# Mutation-killing tests: fallback values when result is None
+# ---------------------------------------------------------------------------
+
+
+class TestSafeLlmCallFallbackValues:
+    """When the LLM call raises before returning a result, the failure log
+    entry must record zero token counts and zero duration.
+
+    Kills the ``0 -> 1`` mutants on the fallback expressions in
+    ``safe_llm_call``'s except block.
+    """
+
+    def test_exception_before_result_logs_zero_tokens(self, tmp_path):
+        """LLM exception with no result → log entry has prompt_tokens=0,
+        completion_tokens=0, duration_ms=0."""
+        from pydantic import BaseModel
+
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+
+        class _M(BaseModel):
+            val: int = 0
+
+        client = MockLLMClient()
+        client.set_exception_for(_M, RuntimeError("connection refused"))
+
+        safe_llm_call(
+            llm_client=client,
+            system_prompt="s",
+            user_prompt="u",
+            response_format=_M,
+            run_dir=tmp_path,
+            stage="stage_1a",
+            step="loss_analysis",
+        )
+        entries = _read_calls_jsonl(tmp_path)
+        assert len(entries) == 1
+        assert entries[0]["success"] is False
+        assert entries[0]["prompt_tokens"] == 0
+        assert entries[0]["completion_tokens"] == 0
+        assert entries[0]["duration_ms"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Mutation-killing test: timestamp defaults to current time
+# ---------------------------------------------------------------------------
+
+
+class TestCallLogTimestampDefault:
+    """``make_call_log_entry`` must set a non-None timestamp when not provided.
+
+    Kills the ``or -> and`` mutant on the timestamp fallback expression.
+    """
+
+    def test_timestamp_not_none_when_not_provided(self):
+        """When timestamp is not provided, the entry's timestamp is not None."""
+        from scenario_forge.stpa.infra.call_log import make_call_log_entry
+
+        entry = make_call_log_entry(
+            stage="stage_1a",
+            step="loss_analysis",
+            model="test-model",
+        )
+        assert entry["timestamp"] is not None
+        assert len(entry["timestamp"]) > 0
+

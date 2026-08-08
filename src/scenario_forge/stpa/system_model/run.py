@@ -115,6 +115,7 @@ def run_sp1(
     )
 
     # Write run manifest (always, even on partial failure)
+    _profile_skipped = profile_path is not None
     _write_manifest(
         run_dir=run_dir,
         llm_client=llm_client,
@@ -123,7 +124,7 @@ def run_sp1(
         loader=loader,
         critic_findings=stage2_result.critic_findings,
         temperature=temperature,
-        profile_skipped=profile_path is not None,
+        profile_skipped=_profile_skipped,
         stage_errors=stage_errors,
     )
 
@@ -315,6 +316,8 @@ def _write_manifest(
     prompt_hashes = loader.hash_prompt_templates()
     critic_summary = _summarize_critic_findings(critic_findings)
     stage_1b_calls = 0 if profile_skipped else 1
+    _stage_1a_call_count = 1
+    _stage_2_call_count = 3
 
     manifest = STPARunManifest(
         run_id=run_dir.name,
@@ -330,9 +333,9 @@ def _write_manifest(
         input_hashes=input_hashes,
         prompt_hashes=prompt_hashes,
         stage_summary={
-            "stage_1a": {"call_count": 1},
+            "stage_1a": {"call_count": _stage_1a_call_count},
             "stage_1b": {"call_count": stage_1b_calls},
-            "stage_2": {"call_count": 3},
+            "stage_2": {"call_count": _stage_2_call_count},
         },
         critic_findings=critic_summary,
     )
@@ -342,5 +345,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T14:45:29Z","module_hash":"175e788adf6257a3af9565fec8e49b4cbc540bfaa08231a00ad38539090ac0f3","functions":[{"id":"func/run_sp1","name":"run_sp1","line":65,"end_line":183,"hash":"391fc785c55d3433b251a263316a3acde1ea692f049fc611a7733f387df15626"},{"id":"func/_write_manifest","name":"_write_manifest","line":186,"end_line":237,"hash":"ce0763d77bdca98f957ebc4f472f943e2cc3681d0eea1815edbcba3f2b50467b"}]}
+# {"version":1,"tested_at":"2026-08-08T18:11:41Z","module_hash":"091507490f13301fe0df7f99b658ea43288ab2cb6ce29f38bc4b33e47be0904b","functions":[{"id":"func/run_sp1","name":"run_sp1","line":69,"end_line":142,"hash":"0b92f33a59fde7310b4beb7cae2a1ec6b0a861027c7e294c488a61ad47986d2e"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":158,"end_line":179,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":182,"end_line":208,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":211,"end_line":281,"hash":"23151663ef6509a49106ab202f187528dc3750db8f32059605cdd1ed2d4b8f1e"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":284,"end_line":292,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":295,"end_line":299,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":302,"end_line":344,"hash":"09dcd42895f01df10232158bd78cc34c88507f2743878ea338d8a4a7fca8b665"}]}
 # mutate4py-manifest-end

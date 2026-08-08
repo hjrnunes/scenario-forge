@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=2ba0d3330482e428fb34879d727b13488b54f09ef035a1c0eb9f9a88db81c576
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T18:22:32.289547Z","feature_name":"SP1 — Stage failure raises StageError and run returns partial results","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_graceful_degradation_stage_error.feature","background_hash":"d764efea6f065a70d9294f99c588c6fa177f1dcd4982c88652b061ac822f7a71","implementation_hash":"unknown","scenarios":[{"index":0,"name":"SP1-GD-08 derivation stage failure raises StageError with context","scenario_hash":"65922bae67a1b7bda29878c74bdb118dd2bed2ce0e902285497a4101aad40303","mutation_count":15,"result":{"Total":15,"Killed":15,"Survived":0,"Errors":0},"tested_at":"2026-08-08T18:22:32.289547Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Stage failure raises StageError and run returns partial results
   If a derivation stage's LLM call fails validation or raises an
   exception, the stage raises a StageError carrying stage and step

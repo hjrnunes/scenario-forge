@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=f91984c0c1c5b525b13148cddc8d34f0eea052943f7c2f5a342876e27dced29c
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T18:22:38.748293Z","feature_name":"SP1 — Graceful degradation for recoverable LLM failures","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_graceful_degradation_recoverable.feature","background_hash":"8fd23737835163fe074e6c18bc781fa2bea2e109afaa4112861c1680ffed4969","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Graceful degradation for recoverable LLM failures
   If the completeness critic or revision LLM call fails validation or
   raises an exception, the pipeline degrades gracefully instead of crashing.
