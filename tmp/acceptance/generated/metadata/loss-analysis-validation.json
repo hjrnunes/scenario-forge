@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "loss analysis validation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/loss_analysis_validation.json",
+  "implementation_hash": "sha256:96285e614021b2a57d1964a3ffd9d8f42794955ca754e9fb870233c34d2129af",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "loss_analysis_validation_acceptance_test.py"
+  ]
+}

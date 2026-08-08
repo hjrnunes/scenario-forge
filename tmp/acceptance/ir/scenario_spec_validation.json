@@ -1,0 +1,160 @@
+{
+  "name" : "ScenarioSpec boundary schema validation",
+  "scenarios" : [ {
+    "name" : "ScenarioSpec-01 valid scenario spec passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec SCN-001 with target_controller RESP-1 and target_control_action CA-1-1"
+    }, {
+      "keyword" : "And",
+      "text" : "defender belief referencing PM-1-1, desire referencing RESP-1, intention referencing CA-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-02 defender belief referencing non-existent PM fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with defender belief referencing PM-99-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing pm_id"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-03 defender desire referencing non-existent RESP fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with defender desire referencing RESP-99"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing resp_id"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-04 defender intention referencing non-existent CA fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with defender intention referencing CA-99-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing ca_id"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-05 target_controller referencing non-existent RESP fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with target_controller RESP-99"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing target_controller"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-06 target_control_action referencing non-existent CA fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with target_control_action CA-99-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing target_control_action"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-07 target_control_action not belonging to target_controller fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibilities RESP-1 and RESP-2 where CA-2-1 belongs to RESP-2"
+    }, {
+      "keyword" : "And",
+      "text" : "a scenario spec with target_controller RESP-1 and target_control_action CA-2-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing target_control_action"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-08 threat source with structural provenance passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with threat source ica_slot_id RESP-1:CA-1-1:NOT_PROVIDED and provenance structural"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-09 threat source with catalog_only provenance passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with threat source ica_slot_id RESP-1:CA-1-1:NOT_PROVIDED and provenance catalog_only"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-10 attacker BDI with free-form strings passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with attacker beliefs, desires, and intentions as free-form strings"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioSpec-11 scenario spec with catalog context passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario spec with catalog context containing OWASP_AGENTIC mapping T2-T3 confidence high"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario spec is validated against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibility RESP-1, process model part PM-1-1, and control action CA-1-1"
+  } ]
+}

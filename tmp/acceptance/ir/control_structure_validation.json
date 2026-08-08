@@ -1,0 +1,284 @@
+{
+  "name" : "ControlStructure boundary schema validation",
+  "scenarios" : [ {
+    "name" : "ControlStructure-01 valid control structure passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibility RESP-1 having PM-1-1, CA-1-1, and FB-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-02 process model part feedback_source referencing non-existent element fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a process model part PM-1-1 with feedback_source referencing <ref_type> <bad_ref>",
+      "parameters" : [ "ref_type", "bad_ref" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing feedback_source"
+    } ],
+    "examples" : [ {
+      "ref_type" : "responsibility",
+      "bad_ref" : "RESP-99"
+    }, {
+      "ref_type" : "controlled_process",
+      "bad_ref" : "CP-99"
+    } ]
+  }, {
+    "name" : "ControlStructure-03 control action target referencing non-existent element fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control action CA-1-1 with target referencing <ref_type> <bad_ref>",
+      "parameters" : [ "ref_type", "bad_ref" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing target"
+    } ],
+    "examples" : [ {
+      "ref_type" : "responsibility",
+      "bad_ref" : "RESP-99"
+    }, {
+      "ref_type" : "controlled_process",
+      "bad_ref" : "CP-99"
+    } ]
+  }, {
+    "name" : "ControlStructure-04 feedback channel updates referencing non-existent PM fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a feedback channel FB-1-1 with updates referencing PM-99-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing updates"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-05 feedback channel updates referencing PM in different responsibility fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibilities RESP-1 and RESP-2 where FB-1-1 updates PM-2-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing updates"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-06 feedback channel source referencing non-existent element fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a feedback channel FB-1-1 with source referencing <ref_type> <bad_ref>",
+      "parameters" : [ "ref_type", "bad_ref" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing source"
+    } ],
+    "examples" : [ {
+      "ref_type" : "responsibility",
+      "bad_ref" : "RESP-99"
+    }, {
+      "ref_type" : "controlled_process",
+      "bad_ref" : "CP-99"
+    } ]
+  }, {
+    "name" : "ControlStructure-07 coordination link with valid source and target passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibilities RESP-1 and RESP-2 and coordination link CL-1 from RESP-1 to RESP-2 sharing PM-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-08 coordination link referencing non-existent responsibility fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a coordination link CL-1 with <field> referencing RESP-99",
+      "parameters" : [ "field" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing <field>",
+      "parameters" : [ "field" ]
+    } ],
+    "examples" : [ {
+      "field" : "source"
+    }, {
+      "field" : "target"
+    } ]
+  }, {
+    "name" : "ControlStructure-09 coordination link shared_pm referencing non-existent PM fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a coordination link CL-1 with shared_pm referencing PM-99-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing shared_pm"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-10 duplicate IDs fail validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with duplicate <id_field> value <dup_value>",
+      "parameters" : [ "id_field", "dup_value" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing duplicate"
+    } ],
+    "examples" : [ {
+      "id_field" : "resp_id",
+      "dup_value" : "RESP-1"
+    }, {
+      "id_field" : "cp_id",
+      "dup_value" : "CP-1"
+    }, {
+      "id_field" : "pm_id",
+      "dup_value" : "PM-1-1"
+    }, {
+      "id_field" : "ca_id",
+      "dup_value" : "CA-1-1"
+    }, {
+      "id_field" : "fb_id",
+      "dup_value" : "FB-1-1"
+    }, {
+      "id_field" : "link_id",
+      "dup_value" : "CL-1"
+    } ]
+  }, {
+    "name" : "ControlStructure-11 responsibility with no process model parts fails structural heuristic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with zero process model parts"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing process model part"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-12 responsibility with no control actions fails structural heuristic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with zero control actions"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing control action"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-13 responsibility with no feedback channels fails structural heuristic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with zero feedback channels"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing feedback channel"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-14 orphan PM not updated by any feedback channel produces warning",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with PM-1-1 and PM-1-2 where only PM-1-1 is updated by FB-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "a warning is produced for orphan PM PM-1-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-15 controlled process not referenced by any feedback or control action fails structural heuristic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a controlled process CP-1 not referenced by any feedback channel source or control action target"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing controlled process"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-16 hazard not traced to any responsibility fails structural heuristic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with hazard H-1 and constraint SC-1"
+    }, {
+      "keyword" : "And",
+      "text" : "a control structure where no responsibility references constraint SC-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure structural heuristics are checked with the loss analysis"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing hazard"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ControlStructure-17 hazard traced to a responsibility passes structural heuristic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with hazard H-1 and constraint SC-1"
+    }, {
+      "keyword" : "And",
+      "text" : "a control structure where responsibility RESP-1 references constraint SC-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure structural heuristics are checked with the loss analysis"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check succeeds"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a minimal valid control structure with responsibility RESP-1, process model part PM-1-1, control action CA-1-1, and feedback channel FB-1-1"
+  } ]
+}

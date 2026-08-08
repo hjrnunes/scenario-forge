@@ -1,0 +1,69 @@
+{
+  "name" : "ScenarioEnvelope wrapping and faceting metadata",
+  "scenarios" : [ {
+    "name" : "ScenarioEnvelope-01 valid envelope with all artifacts passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario envelope wrapping SCN-001 with narrative text, attack tree dict, and gherkin spec text"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario envelope is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioEnvelope-02 envelope scenario_id matches spec scenario_id",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario envelope with scenario_id SCN-001 wrapping spec SCN-001"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario envelope is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioEnvelope-03 envelope faceting metadata derived from spec",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario envelope wrapping SCN-001 with target_responsibility RESP-1, ica_type NOT_PROVIDED, and provenance structural"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario envelope is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "the faceting metadata target_responsibility is RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the faceting metadata ica_type is NOT_PROVIDED"
+    }, {
+      "keyword" : "And",
+      "text" : "the faceting metadata provenance is structural"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ScenarioEnvelope-04 envelope with catalog mappings in faceting passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario envelope wrapping SCN-001 with catalog mappings OWASP_AGENTIC T2-T3 high"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario envelope is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a valid scenario spec SCN-001 with target_controller RESP-1 and target_control_action CA-1-1"
+  } ]
+}

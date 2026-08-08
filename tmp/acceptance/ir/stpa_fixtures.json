@@ -1,0 +1,113 @@
+{
+  "name" : "STPA fixture validation",
+  "scenarios" : [ {
+    "name" : "Fixtures-01 loss_analysis_klarna fixture validates as LossAnalysis",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the fixture file loss_analysis_klarna.yaml"
+    }, {
+      "keyword" : "When",
+      "text" : "the fixture is loaded and validated as LossAnalysis"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file contains a header comment documenting provenance"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Fixtures-02 capability_profile_klarna fixture validates as CapabilityProfile",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the fixture file capability_profile_klarna.yaml"
+    }, {
+      "keyword" : "When",
+      "text" : "the fixture is loaded and validated as CapabilityProfile"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file contains a header comment documenting provenance"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Fixtures-03 control_structure_klarna fixture validates as ControlStructure",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the fixture file control_structure_klarna.yaml"
+    }, {
+      "keyword" : "When",
+      "text" : "the fixture is loaded and validated as ControlStructure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file contains a header comment documenting provenance"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Fixtures-04 ica_enumeration_klarna fixture validates as ICAEnumeration",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the fixture file ica_enumeration_klarna.yaml"
+    }, {
+      "keyword" : "When",
+      "text" : "the fixture is loaded and validated as ICAEnumeration"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file contains a header comment documenting provenance"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Fixtures-05 enriched_threats_klarna fixture validates as EnrichedThreatSet",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the fixture file enriched_threats_klarna.yaml"
+    }, {
+      "keyword" : "When",
+      "text" : "the fixture is loaded and validated as EnrichedThreatSet"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file contains a header comment documenting provenance"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Fixtures-06 all five required fixture files are present",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "the fixtures directory is scanned for YAML files"
+    }, {
+      "keyword" : "Then",
+      "text" : "the fixture file loss_analysis_klarna.yaml is present"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file capability_profile_klarna.yaml is present"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file control_structure_klarna.yaml is present"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file ica_enumeration_klarna.yaml is present"
+    }, {
+      "keyword" : "And",
+      "text" : "the fixture file enriched_threats_klarna.yaml is present"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA fixtures directory exists at src/scenario_forge/stpa/fixtures"
+  }, {
+    "keyword" : "And",
+    "text" : "the STPA boundary schema module is importable"
+  } ]
+}

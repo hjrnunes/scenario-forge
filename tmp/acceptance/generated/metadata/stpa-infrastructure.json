@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "stpa infrastructure",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/stpa_infrastructure.json",
+  "implementation_hash": "sha256:011faa5c189ec13cfc8ed42a2607d9e9dab523f56ad43ad27de2615b848c16ee",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "stpa_infrastructure_acceptance_test.py"
+  ]
+}

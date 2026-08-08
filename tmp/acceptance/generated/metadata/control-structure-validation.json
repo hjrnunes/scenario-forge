@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "control structure validation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/control_structure_validation.json",
+  "implementation_hash": "sha256:8f026c67bfa50b005db049265838d815011f79c3b87725dfdcea84c06bc78b82",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "control_structure_validation_acceptance_test.py"
+  ]
+}

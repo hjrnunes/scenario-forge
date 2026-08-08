@@ -1,0 +1,320 @@
+{
+  "name" : "STPA infrastructure clean copy",
+  "scenarios" : [ {
+    "name" : "InfraLLM-01 LLM client resolves base_url from environment variable",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "environment variable SCENARIO_FORGE_MODEL_BASE_URL is set to http://test:8080"
+    }, {
+      "keyword" : "When",
+      "text" : "an LLMClient is constructed without explicit base_url"
+    }, {
+      "keyword" : "Then",
+      "text" : "the client base_url is http://test:8080"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraLLM-02 LLM client resolves model name from environment variable",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "environment variable SCENARIO_FORGE_MODEL_NAME is set to test-model"
+    }, {
+      "keyword" : "When",
+      "text" : "an LLMClient is constructed with base_url http://test:8080"
+    }, {
+      "keyword" : "Then",
+      "text" : "the client model is test-model"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraLLM-03 LLM client explicit args override environment variables",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "environment variable SCENARIO_FORGE_MODEL_BASE_URL is set to http://env:8080"
+    }, {
+      "keyword" : "When",
+      "text" : "an LLMClient is constructed with base_url http://explicit:8080 and model explicit-model"
+    }, {
+      "keyword" : "Then",
+      "text" : "the client base_url is http://explicit:8080"
+    }, {
+      "keyword" : "And",
+      "text" : "the client model is explicit-model"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraLLM-04 LLM client without base_url raises ValueError",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "no SCENARIO_FORGE_MODEL_BASE_URL environment variable is set"
+    }, {
+      "keyword" : "When",
+      "text" : "an LLMClient is constructed without explicit base_url"
+    }, {
+      "keyword" : "Then",
+      "text" : "a ValueError is raised containing No LLM endpoint configured"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraLLM-05 LLM client auto-injects OpenRouter headers",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url https://openrouter.ai/api/v1"
+    }, {
+      "keyword" : "Then",
+      "text" : "the client extra headers include HTTP-Referer and X-Title"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraLLM-06 LLM client default temperature is 0.4",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url http://test:8080"
+    }, {
+      "keyword" : "Then",
+      "text" : "the client temperature is 0.4"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraLLM-07 LLMResult carries content and usage telemetry",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMResult with content text, prompt_tokens 100, completion_tokens 50, and duration_ms 5000"
+    }, {
+      "keyword" : "Then",
+      "text" : "the result content is text"
+    }, {
+      "keyword" : "And",
+      "text" : "the result prompt_tokens is 100"
+    }, {
+      "keyword" : "And",
+      "text" : "the result completion_tokens is 50"
+    }, {
+      "keyword" : "And",
+      "text" : "the result duration_ms is 5000"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraCallLog-01 call log entry written as JSONL",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a call log entry with stage stage_2, step call_1, slot_id RESP-1:CA-1-1:NOT_PROVIDED, and scenario_id null"
+    }, {
+      "keyword" : "When",
+      "text" : "the entry is appended to calls.jsonl"
+    }, {
+      "keyword" : "Then",
+      "text" : "the file contains one valid JSON line with stage stage_2 and step call_1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraCallLog-02 call log entry with scenario_id set",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a call log entry with stage stage_6_narrative, step call_a, slot_id null, and scenario_id SCN-001"
+    }, {
+      "keyword" : "When",
+      "text" : "the entry is appended to calls.jsonl"
+    }, {
+      "keyword" : "Then",
+      "text" : "the file contains one valid JSON line with scenario_id SCN-001"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraCallLog-03 multiple call log entries appended sequentially",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "three call log entries with stages stage_2, stage_3, and stage_5"
+    }, {
+      "keyword" : "When",
+      "text" : "all entries are appended to calls.jsonl"
+    }, {
+      "keyword" : "Then",
+      "text" : "the file contains three valid JSON lines in order"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraCallLog-04 empty entry list does not create file",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an empty list of call log entries"
+    }, {
+      "keyword" : "When",
+      "text" : "the entries are appended to calls.jsonl"
+    }, {
+      "keyword" : "Then",
+      "text" : "no calls.jsonl file is created"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraYAML-01 write_yaml serializes Pydantic model to YAML file",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a LossAnalysis model with one loss L-1 and one hazard H-1"
+    }, {
+      "keyword" : "When",
+      "text" : "write_yaml is called with the model and a file path"
+    }, {
+      "keyword" : "Then",
+      "text" : "a YAML file exists at the path containing loss_id L-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraYAML-02 read_yaml loads YAML file into Pydantic model",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a YAML file containing a valid loss analysis with loss L-1"
+    }, {
+      "keyword" : "When",
+      "text" : "read_yaml is called with the path and LossAnalysis class"
+    }, {
+      "keyword" : "Then",
+      "text" : "a LossAnalysis model is returned with loss_id L-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraYAML-03 YAML round-trip preserves model data",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure model with responsibility RESP-1 and PM-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the model is written to YAML and read back"
+    }, {
+      "keyword" : "Then",
+      "text" : "the read-back model matches the original model"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraYAML-04 read_yaml on invalid data raises validation error",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a YAML file containing a loss analysis where hazard references non-existent loss"
+    }, {
+      "keyword" : "When",
+      "text" : "read_yaml is called with the path and LossAnalysis class"
+    }, {
+      "keyword" : "Then",
+      "text" : "a validation error is raised"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraTemplates-01 template loader accepts a custom prompts directory",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a prompts directory at tmp/prompts containing template test.j2 with variable name"
+    }, {
+      "keyword" : "When",
+      "text" : "a template loader is created with the directory path"
+    }, {
+      "keyword" : "And",
+      "text" : "render_prompt is called with template test.j2 and name World"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains World"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraTemplates-02 hash_prompt_templates returns SHA-256 hashes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a prompts directory at tmp/prompts containing templates a.j2 and b.j2"
+    }, {
+      "keyword" : "When",
+      "text" : "hash_prompt_templates is called with the directory path"
+    }, {
+      "keyword" : "Then",
+      "text" : "a dict is returned with keys a.j2 and b.j2 mapping to 64-character hex digests"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraTemplates-03 undefined template variable raises StrictUndefined error",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a prompts directory containing template test.j2 with variable name"
+    }, {
+      "keyword" : "When",
+      "text" : "render_prompt is called with template test.j2 without providing name"
+    }, {
+      "keyword" : "Then",
+      "text" : "an undefined variable error is raised"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraTemplates-04 template loader is independent of existing pipeline prompts",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a template loader created with directory tmp/stpa_prompts"
+    }, {
+      "keyword" : "Then",
+      "text" : "the loader does not reference the existing pipeline data/prompts directory"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraManifest-01 valid run manifest passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a run manifest with run_id RUN-001, run_dir output/test, and created_at 2026-08-08T12:00:00Z"
+    }, {
+      "keyword" : "When",
+      "text" : "the manifest is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraManifest-02 manifest with fill_rate and counts passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a run manifest with slot_count 10, na_count 2, fill_rate 0.8, and scenario_count 5"
+    }, {
+      "keyword" : "When",
+      "text" : "the manifest is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraManifest-03 manifest with critic findings passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a run manifest with critic_findings gap in hazard coverage, missing constraint for H-2"
+    }, {
+      "keyword" : "When",
+      "text" : "the manifest is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraManifest-04 manifest with eval scorecard path passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a run manifest with eval_scorecard_path output/test/eval-scorecard.yaml"
+    }, {
+      "keyword" : "When",
+      "text" : "the manifest is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "InfraManifest-05 manifest is not coupled to existing v3 sentinel system",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the STPA run manifest module is imported"
+    }, {
+      "keyword" : "Then",
+      "text" : "the module does not import or reference the existing pipeline manifest module"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA infra module is importable"
+  } ]
+}

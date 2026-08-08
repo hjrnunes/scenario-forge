@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "enriched threat set validation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/enriched_threat_set_validation.json",
+  "implementation_hash": "sha256:4dc94be4887bb11102d3d323785b60ad8976e6e5db6a74b4a9e0930a34fdae3c",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "enriched_threat_set_validation_acceptance_test.py"
+  ]
+}
