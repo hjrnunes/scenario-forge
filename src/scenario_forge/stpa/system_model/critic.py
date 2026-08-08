@@ -17,11 +17,7 @@ from pydantic import BaseModel
 
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import (
-    log_llm_call_failure,
-    log_llm_call,
-    parse_llm_result,
-)
+from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
@@ -105,28 +101,19 @@ def run_completeness_critic(
         taxonomy_probes=taxonomy_probes,
     )
 
-    try:
-        result = llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_format=CriticFindings,
-            temperature=temperature,
-        )
-        findings = parse_llm_result(result, CriticFindings)
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_llm_call_failure(
-            llm_client.model,
-            run_dir,
-            STAGE,
-            STEP_CRITIC,
-            error_msg,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
+    findings, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=CriticFindings,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=STEP_CRITIC,
+        temperature=temperature,
+    )
+    if error_msg is not None:
         return CriticFindings()
 
-    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_CRITIC)
     return findings
 
 
@@ -190,28 +177,18 @@ def run_revision(
         critic_findings=critic_findings,
     )
 
-    try:
-        result = llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_format=ControlStructure,
-            temperature=temperature,
-        )
-        revised_cs = parse_llm_result(result, ControlStructure)
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_llm_call_failure(
-            llm_client.model,
-            run_dir,
-            STAGE,
-            STEP_REVISION,
-            error_msg,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
+    revised_cs, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=ControlStructure,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=STEP_REVISION,
+        temperature=temperature,
+    )
+    if error_msg is not None:
         return control_structure, [f"Revision failed: {error_msg}"]
-
-    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_REVISION)
 
     # Re-run structural heuristics after revision
     post_revision = run_heuristics(revised_cs, loss_analysis)

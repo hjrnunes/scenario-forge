@@ -15,12 +15,7 @@ from scenario_forge.models.capability_profile import (
     Stage1Profile,
 )
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import (
-    StageError,
-    log_llm_call_failure,
-    log_llm_call,
-    parse_llm_result,
-)
+from scenario_forge.stpa.infra.llm_helpers import StageError, safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import read_yaml, write_yaml
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
@@ -71,33 +66,20 @@ def derive_capability_profile(
         all_losses=all_losses,
     )
 
-    try:
-        result = llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_format=Stage1Profile,
-            temperature=temperature,
-        )
-        stage1_profile = parse_llm_result(result, Stage1Profile)
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_llm_call_failure(
-            llm_client.model,
-            run_dir,
-            STAGE,
-            STEP,
-            error_msg,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
-        raise StageError(
-            stage=STAGE,
-            step=STEP,
-            message=error_msg,
-        ) from exc
+    stage1_profile, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=Stage1Profile,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=STEP,
+        temperature=temperature,
+    )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step=STEP, message=error_msg)
 
     capability_profile = stage1_profile.to_capability_profile()
-    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP)
     write_yaml(capability_profile, run_dir / "capability-profile.yaml")
     return capability_profile
 

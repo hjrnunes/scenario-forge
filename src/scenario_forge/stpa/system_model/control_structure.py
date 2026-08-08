@@ -14,12 +14,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import (
-    StageError,
-    log_llm_call_failure,
-    log_llm_call,
-    parse_llm_result,
-)
+from scenario_forge.stpa.infra.llm_helpers import StageError, safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import (
@@ -153,32 +148,18 @@ def _call_1_requirements(
         security_constraints=loss_analysis.security_constraints,
     )
 
-    try:
-        result = llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_format=RequirementSet,
-            temperature=temperature,
-        )
-        requirement_set = parse_llm_result(result, RequirementSet)
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_llm_call_failure(
-            llm_client.model,
-            run_dir,
-            STAGE,
-            "call_1_requirements",
-            error_msg,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
-        raise StageError(
-            stage=STAGE,
-            step="call_1_requirements",
-            message=error_msg,
-        ) from exc
-
-    log_llm_call(result, llm_client.model, run_dir, STAGE, "call_1_requirements")
+    requirement_set, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=RequirementSet,
+        run_dir=run_dir,
+        stage=STAGE,
+        step="call_1_requirements",
+        temperature=temperature,
+    )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step="call_1_requirements", message=error_msg)
     return requirement_set
 
 
@@ -208,32 +189,18 @@ def _call_2_responsibilities(
         requirements=requirement_set.requirements,
     )
 
-    try:
-        result = llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_format=ResponsibilitySet,
-            temperature=temperature,
-        )
-        responsibility_set = parse_llm_result(result, ResponsibilitySet)
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_llm_call_failure(
-            llm_client.model,
-            run_dir,
-            STAGE,
-            "call_2_responsibilities",
-            error_msg,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
-        raise StageError(
-            stage=STAGE,
-            step="call_2_responsibilities",
-            message=error_msg,
-        ) from exc
-
-    log_llm_call(result, llm_client.model, run_dir, STAGE, "call_2_responsibilities")
+    responsibility_set, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=ResponsibilitySet,
+        run_dir=run_dir,
+        stage=STAGE,
+        step="call_2_responsibilities",
+        temperature=temperature,
+    )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step="call_2_responsibilities", message=error_msg)
     return responsibility_set
 
 
@@ -263,32 +230,18 @@ def _call_3_connections(
         responsibility_set=responsibility_set,
     )
 
-    try:
-        result = llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_format=ControlStructure,
-            temperature=temperature,
-        )
-        control_structure = parse_llm_result(result, ControlStructure)
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_llm_call_failure(
-            llm_client.model,
-            run_dir,
-            STAGE,
-            "call_3_connections",
-            error_msg,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
-        raise StageError(
-            stage=STAGE,
-            step="call_3_connections",
-            message=error_msg,
-        ) from exc
-
-    log_llm_call(result, llm_client.model, run_dir, STAGE, "call_3_connections")
+    control_structure, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=ControlStructure,
+        run_dir=run_dir,
+        stage=STAGE,
+        step="call_3_connections",
+        temperature=temperature,
+    )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step="call_3_connections", message=error_msg)
     return control_structure
 
 
