@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=13f7ac8af3ef7cdebc82396a540040039871c133f9aaf5abd0b8c21500f233d9
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T20:48:59.184076Z","feature_name":"SP1 Stage 2 Call 3 ConnectionSet merge","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_connection_set_merge.feature","background_hash":"096166f5b6ee6ca3e8647b722119b4ca2834bea98cb8fa1545bdbd5b2c2a8b21","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 2 Call 3 ConnectionSet merge
   Stage 2 Call 3 uses a slim ConnectionSet response schema that captures only
   new outputs: coordination links, controlled processes, and connection

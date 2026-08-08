@@ -89,6 +89,22 @@ class TestMinItemsEmptyCriticalArrayFails:
                 security_constraints=[_make_constraint()],
             )
 
+    def test_minitems_01_empty_hazards_fails_without_constraint_refs(self):
+        """Empty hazards fails on min_length alone (no constraint referencing missing hazard)."""
+        with pytest.raises(ValidationError):
+            LossAnalysis(
+                risk_card_losses=[],
+                use_case_losses=[_make_loss()],
+                hazards=[],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1",
+                        description="No refs",
+                        related_hazards=[],
+                    )
+                ],
+            )
+
     def test_minitems_01_empty_security_constraints_fails(self):
         """Empty security_constraints fails validation."""
         with pytest.raises(ValidationError):

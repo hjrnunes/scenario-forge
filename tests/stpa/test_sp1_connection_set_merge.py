@@ -32,6 +32,8 @@ from scenario_forge.stpa.system_model.control_structure import (
     ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
+    _try_set_feedback_source,
+    _try_set_control_action_target,
     derive_control_structure,
     merge_connection_set,
 )
@@ -564,3 +566,84 @@ class TestConnSet11RevisionUsesControlStructure:
         assert isinstance(revised, ControlStructure)
         # The revision call used response_format=ControlStructure
         assert client.calls[0].response_format is ControlStructure
+
+
+# ---------------------------------------------------------------------------
+# Helper return-value tests (mutation hardening)
+# ---------------------------------------------------------------------------
+
+
+class TestHelperReturnValues:
+    """Verify _try_set_feedback_source and _try_set_control_action_target return True on match."""
+
+    def test_try_set_feedback_source_returns_true_on_match(self):
+        """_try_set_feedback_source returns True when it sets the source."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Controller",
+            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
+            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
+            feedback_channels=[
+                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
+            ],
+        )
+        assignment = ConnectionAssignment(
+            element_id="FB-1-1",
+            source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
+        )
+        assert _try_set_feedback_source(resp, assignment) is True
+        assert resp.feedback_channels[0].source is not None
+        assert resp.feedback_channels[0].source.id == "CP-1"
+
+    def test_try_set_feedback_source_returns_false_on_no_match(self):
+        """_try_set_feedback_source returns False when element_id does not match."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Controller",
+            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
+            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
+            feedback_channels=[
+                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
+            ],
+        )
+        assignment = ConnectionAssignment(
+            element_id="FB-9-9",
+            source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
+        )
+        assert _try_set_feedback_source(resp, assignment) is False
+
+    def test_try_set_control_action_target_returns_true_on_match(self):
+        """_try_set_control_action_target returns True when it sets the target."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Controller",
+            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
+            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
+            feedback_channels=[
+                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
+            ],
+        )
+        assignment = ConnectionAssignment(
+            element_id="CA-1-1",
+            target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
+        )
+        assert _try_set_control_action_target(resp, assignment) is True
+        assert resp.control_actions[0].target is not None
+        assert resp.control_actions[0].target.id == "CP-1"
+
+    def test_try_set_control_action_target_returns_false_on_no_match(self):
+        """_try_set_control_action_target returns False when element_id does not match."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Controller",
+            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
+            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
+            feedback_channels=[
+                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
+            ],
+        )
+        assignment = ConnectionAssignment(
+            element_id="CA-9-9",
+            target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
+        )
+        assert _try_set_control_action_target(resp, assignment) is False

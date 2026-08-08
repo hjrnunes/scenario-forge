@@ -1,0 +1,82 @@
+{
+  "name" : "SP1 minItems constraints on critical arrays",
+  "scenarios" : [ {
+    "name" : "MinItems-01 empty critical array fails validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a <model> with empty <field>",
+      "parameters" : [ "model", "field" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the <model> is validated",
+      "parameters" : [ "model" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails"
+    } ],
+    "examples" : [ {
+      "model" : "loss analysis",
+      "field" : "hazards"
+    }, {
+      "model" : "loss analysis",
+      "field" : "security_constraints"
+    }, {
+      "model" : "control structure",
+      "field" : "responsibilities"
+    } ]
+  }, {
+    "name" : "MinItems-02 empty optional array passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with empty <field> and one use case loss L-1",
+      "parameters" : [ "field" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ {
+      "field" : "risk_card_losses"
+    }, {
+      "field" : "use_case_losses"
+    } ]
+  }, {
+    "name" : "MinItems-03 non-empty critical arrays pass validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with hazard H-1 and security constraint SC-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "MinItems-04 ControlStructure with non-empty responsibilities passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibility RESP-1 having PM-1-1, CA-1-1, and FB-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the control structure is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a minimal valid loss analysis with loss L-1, hazard H-1, and constraint SC-1"
+  }, {
+    "keyword" : "And",
+    "text" : "a minimal valid control structure with responsibility RESP-1"
+  } ]
+}

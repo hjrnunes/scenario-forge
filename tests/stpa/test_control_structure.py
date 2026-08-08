@@ -414,6 +414,34 @@ class TestControlStructureHeuristics:
         assert not result.passed
         assert any("controlled process" in e.lower() for e in result.errors)
 
+    def test_cs_15a_cp_not_referenced_with_fb_source_none_fails(self):
+        """CS-15a: CP not referenced when FB source is None still fails heuristic.
+
+        This covers the case where feedback channels have no source set,
+        ensuring _add_cps_from_feedback correctly skips them.
+        """
+        fb_no_source = FeedbackChannel(
+            fb_id="FB-1-1",
+            description="Feedback",
+            updates="PM-1-1",
+            source=None,
+        )
+        cs = _make_cs(
+            responsibilities=[
+                _make_resp(
+                    pms=[_make_pm()],
+                    cas=[_make_ca()],
+                    fbs=[fb_no_source],
+                )
+            ],
+            controlled_processes=[
+                ControlledProcess(cp_id="CP-1", description="Process"),
+            ],
+        )
+        result = check_structural_heuristics(cs)
+        assert not result.passed
+        assert any("controlled process" in e.lower() for e in result.errors)
+
     def test_cs_15b_cp_referenced_by_ca_target_passes(self):
         """CS-15b: controlled process referenced by CA target passes heuristic."""
         cs = _make_cs(

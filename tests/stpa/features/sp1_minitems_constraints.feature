@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=b6935b213cae18e855b41961cc943848283f1bf15151520b283347514c58af96
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-08T20:48:55.101954Z","feature_name":"SP1 minItems constraints on critical arrays","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_minitems_constraints.feature","background_hash":"81c3bf7368b8bb21ba0e164acef3809ceba9cb838b29c119d000af660a748e0e","implementation_hash":"unknown","scenarios":[{"index":0,"name":"MinItems-01 empty critical array fails validation","scenario_hash":"488b62a29cae71e7e4a2d7f72e8c4bf5122c120a4db06df68e2b5e55abdbd92b","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-08T20:48:55.101954Z"},{"index":1,"name":"MinItems-02 empty optional array passes validation","scenario_hash":"8a14f4106ff9c23f797cc1609ddb25723c240b9d613ed219858595a6e25b3cbb","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-08-08T20:48:55.101954Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 minItems constraints on critical arrays
   The LossAnalysis and ControlStructure models enforce min_length=1 on
   arrays that the pipeline assumes are non-empty downstream: LossAnalysis.hazards,

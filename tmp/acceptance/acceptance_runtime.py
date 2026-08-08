@@ -111,6 +111,7 @@ class World:
         self.sp1_profile_path: Path | None = None
         self.sp1_requirement_set: Any = None
         self.sp1_responsibility_set: Any = None
+        self.sp1_connection_set: Any = None
         self.sp1_critic_findings: Any = None
         self.sp1_revised: bool = False
         self.sp1_revision_call_count: int = 0
@@ -3320,6 +3321,9 @@ from scenario_forge.stpa.system_model.profile import (
 from scenario_forge.stpa.system_model.control_structure import (
     derive_control_structure as _sp1_derive_control_structure,
     ResponsibilitySet as _SP1ResponsibilitySet,
+    ConnectionSet as _SP1ConnectionSet,
+    ConnectionAssignment as _SP1ConnectionAssignment,
+    merge_connection_set as _sp1_merge_connection_set,
 )
 from scenario_forge.stpa.system_model.critic import (
     run_completeness_critic as _sp1_run_critic,
@@ -3470,6 +3474,74 @@ def _sp1_valid_cs_dict() -> dict:
         "responsibilities": rs["responsibilities"],
         "controlled_processes": rs["controlled_processes"],
         "coordination_links": [],
+    }
+
+
+def _sp1_valid_connection_set_dict() -> dict:
+    """Valid ConnectionSet for Call 3 — matches the merge test helper."""
+    return {
+        "coordination_links": [
+            {"link_id": "CL-1", "source": "RESP-1", "target": "RESP-2", "shared_pm": "PM-1-1",
+             "coordination_mechanism": {"cm_id": "CM-1", "description": "Mechanism", "payload": "data"},
+             "description": "Link"},
+        ],
+        "controlled_processes": [
+            {"cp_id": "CP-1", "description": "External service"},
+        ],
+        "connection_assignments": [
+            {"element_id": "FB-1-1", "source": {"type": "controlled_process", "id": "CP-1"}},
+            {"element_id": "CA-1-1", "target": {"type": "controlled_process", "id": "CP-1"}},
+        ],
+    }
+
+
+def _sp1_valid_connection_set_no_assignments_dict() -> dict:
+    """ConnectionSet with only coordination links, no assignments."""
+    return {
+        "coordination_links": [
+            {"link_id": "CL-1", "source": "RESP-1", "target": "RESP-2", "shared_pm": "PM-1-1",
+             "coordination_mechanism": {"cm_id": "CM-1", "description": "Mechanism", "payload": "data"},
+             "description": "Link"},
+        ],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
+def _sp1_valid_connection_set_cp_only_dict() -> dict:
+    """ConnectionSet with only a controlled process, no links or assignments."""
+    return {
+        "coordination_links": [],
+        "controlled_processes": [
+            {"cp_id": "CP-1", "description": "External service"},
+        ],
+        "connection_assignments": [],
+    }
+
+
+def _sp1_valid_connection_set_fb_assignment_dict() -> dict:
+    """ConnectionSet with assignment for FB-1-1 setting source to CP-1."""
+    return {
+        "coordination_links": [],
+        "controlled_processes": [
+            {"cp_id": "CP-1", "description": "External service"},
+        ],
+        "connection_assignments": [
+            {"element_id": "FB-1-1", "source": {"type": "controlled_process", "id": "CP-1"}},
+        ],
+    }
+
+
+def _sp1_valid_connection_set_ca_assignment_dict() -> dict:
+    """ConnectionSet with assignment for CA-1-1 setting target to CP-1."""
+    return {
+        "coordination_links": [],
+        "controlled_processes": [
+            {"cp_id": "CP-1", "description": "External service"},
+        ],
+        "connection_assignments": [
+            {"element_id": "CA-1-1", "target": {"type": "controlled_process", "id": "CP-1"}},
+        ],
     }
 
 
@@ -4106,15 +4178,26 @@ def _h_sp1_s2_call3_run(world: World, text: str, examples: dict) -> tuple[bool, 
     world.sp1_run_dir = run_dir
     client = world.sp1_mock_client or _SP1MockLLM()
     world.sp1_mock_client = client
-    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_cs_dict()
-    client.set_response_for(ControlStructure, content)
+    content = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_connection_set_dict()
+    client.set_response_for(_SP1ConnectionSet, content)
     result = client.complete(
         system_prompt="stage2_call3_system", user_prompt="stage2_call3_user",
-        response_format=ControlStructure, temperature=0.4,
+        response_format=_SP1ConnectionSet, temperature=0.4,
     )
     try:
-        world.control_structure = ControlStructure.model_validate(content)
+        world.sp1_connection_set = _SP1ConnectionSet.model_validate(content)
         _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "call_3_connections")
+        # If a ResponsibilitySet is available, merge to produce a ControlStructure
+        # (backward compatibility for older feature tests that expect a CS from Call 3).
+        if world.sp1_responsibility_set is not None:
+            world.control_structure = _sp1_merge_connection_set(
+                world.sp1_responsibility_set, world.sp1_connection_set,
+            )
+        else:
+            # Fallback: construct a CS from the connection set dict directly
+            rs = _SP1ResponsibilitySet.model_validate(_sp1_valid_resp_set_dict())
+            world.sp1_responsibility_set = rs
+            world.control_structure = _sp1_merge_connection_set(rs, world.sp1_connection_set)
     except (ValidationError, ValueError) as e:
         world.validation_error = e
     return True, ""
@@ -4157,7 +4240,7 @@ def _h_sp1_s2_calls_1_3_run(world: World, text: str, examples: dict) -> tuple[bo
     world.sp1_mock_client = client
     client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
     client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
-    client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
+    client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
     la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
     # Call 1
     client.complete(
@@ -4175,12 +4258,15 @@ def _h_sp1_s2_calls_1_3_run(world: World, text: str, examples: dict) -> tuple[bo
     client.complete(
         system_prompt="stage2_call3_system",
         user_prompt="Responsibilities: RESP-1 Authorization controller, RESP-2 Data controller. Controlled processes: CP-1",
-        response_format=ControlStructure, temperature=0.4,
+        response_format=_SP1ConnectionSet, temperature=0.4,
     )
     try:
         world.sp1_requirement_set = _SP1RequirementSet.model_validate(_sp1_valid_req_set_dict())
         world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(_sp1_valid_resp_set_dict())
-        world.control_structure = ControlStructure.model_validate(_sp1_valid_cs_dict())
+        world.sp1_connection_set = _SP1ConnectionSet.model_validate(_sp1_valid_connection_set_dict())
+        world.control_structure = _sp1_merge_connection_set(
+            world.sp1_responsibility_set, world.sp1_connection_set,
+        )
     except (ValidationError, ValueError) as e:
         world.validation_error = e
     return True, ""
@@ -4194,7 +4280,12 @@ def _h_sp1_s2_full_run(world: World, text: str, examples: dict) -> tuple[bool, s
     world.sp1_mock_client = client
     client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
     client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
-    client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
+    # Use ConnectionSet for Call 3 (new schema), fall back to ControlStructure
+    # for older tests that registered a ControlStructure response.
+    if _SP1ConnectionSet not in client._response_map:
+        client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
+    if ControlStructure not in client._response_map:
+        client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
     la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
     try:
         world.control_structure = _sp1_derive_control_structure(
@@ -6051,6 +6142,336 @@ _register(r"the pipeline does not raise an exception", _h_gd_pipeline_no_excepti
 _register(r"a partial SP1RunResult is returned", _h_gd_partial_returned)
 _register(r"the manifest contains a stage_errors field", _h_gd_manifest_has_stage_errors)
 _register(r"the stage_errors field includes the", _h_gd_stage_errors_includes_description)
+
+
+# ---------------------------------------------------------------------------
+# SP1 minItems constraints step handlers
+# ---------------------------------------------------------------------------
+
+
+def _h_minitems_model_with_empty_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a <model> with empty <field>."""
+    model = examples.get("model", "")
+    field = examples.get("field", "")
+    if "loss analysis" in model:
+        kwargs = {
+            "risk_card_losses": [],
+            "use_case_losses": [
+                {"loss_id": "L-1", "description": "Loss", "provenance": "use_case", "source_risk_cards": []},
+            ],
+            "hazards": [],
+            "security_constraints": [],
+        }
+        if field == "hazards":
+            kwargs["security_constraints"] = [
+                {"constraint_id": "SC-1", "description": "C", "related_hazards": []},
+            ]
+        elif field == "security_constraints":
+            kwargs["hazards"] = [
+                {"hazard_id": "H-1", "description": "H", "related_losses": ["L-1"]},
+            ]
+        try:
+            world.loss_analysis = LossAnalysis(**kwargs)
+        except (ValidationError, ValueError) as e:
+            world.validation_error = e
+    elif "control structure" in model:
+        if field == "responsibilities":
+            try:
+                world.control_structure = ControlStructure(responsibilities=[])
+            except (ValidationError, ValueError) as e:
+                world.validation_error = e
+    return True, ""
+
+
+def _h_minitems_la_empty_optional_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with empty <field> and one use case loss L-1."""
+    field = examples.get("field", "")
+    kwargs = {
+        "risk_card_losses": [],
+        "use_case_losses": [
+            {"loss_id": "L-1", "description": "Loss", "provenance": "use_case", "source_risk_cards": []},
+        ],
+        "hazards": [{"hazard_id": "H-1", "description": "H", "related_losses": ["L-1"]}],
+        "security_constraints": [
+            {"constraint_id": "SC-1", "description": "C", "related_hazards": ["H-1"]},
+        ],
+    }
+    if field == "risk_card_losses":
+        kwargs["risk_card_losses"] = []
+    elif field == "use_case_losses":
+        kwargs["use_case_losses"] = []
+    try:
+        world.loss_analysis = LossAnalysis(**kwargs)
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_minitems_la_with_hazard_constraint(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with hazard H-1 and security constraint SC-1."""
+    try:
+        world.loss_analysis = LossAnalysis(
+            risk_card_losses=[],
+            use_case_losses=[
+                {"loss_id": "L-1", "description": "Loss", "provenance": "use_case", "source_risk_cards": []},
+            ],
+            hazards=[{"hazard_id": "H-1", "description": "H", "related_losses": ["L-1"]}],
+            security_constraints=[
+                {"constraint_id": "SC-1", "description": "C", "related_hazards": ["H-1"]},
+            ],
+        )
+    except (ValidationError, ValueError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _h_validation_fails_plain(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation fails (plain, no error fragment)."""
+    if world.validation_error is None:
+        return False, "Expected validation to fail but no error was raised"
+    return True, ""
+
+
+# minItems registrations
+_register(r"a (?:loss analysis|control structure) with empty (?:hazards|security_constraints|responsibilities|risk_card_losses|use_case_losses)", _h_minitems_model_with_empty_field)
+_register(r"a loss analysis with empty (?:risk_card_losses|use_case_losses) and one use case loss L-1", _h_minitems_la_empty_optional_field)
+_register(r"a loss analysis with hazard H-1 and security constraint SC-1", _h_minitems_la_with_hazard_constraint)
+_register(r"validation fails$", _h_validation_fails_plain)
+
+
+# ---------------------------------------------------------------------------
+# SP1 ConnectionSet merge step handlers
+# ---------------------------------------------------------------------------
+
+
+def _h_connset_valid_llm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid ConnectionSet JSON with coordination links."""
+    world.sp1_llm_content = _sp1_valid_connection_set_dict()
+    return True, ""
+
+
+def _h_connset_llm_with_cl_cp_assignment(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ConnectionSet with coordination link CL-1, controlled process CP-1, and connection assignment for element FB-1-1."""
+    world.sp1_llm_content = _sp1_valid_connection_set_dict()
+    return True, ""
+
+
+def _h_connset_llm_with_fb_assignment(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ConnectionSet with assignment for FB-1-1 setting source to controlled process CP-1."""
+    world.sp1_llm_content = _sp1_valid_connection_set_fb_assignment_dict()
+    return True, ""
+
+
+def _h_connset_llm_with_ca_assignment(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ConnectionSet with assignment for CA-1-1 setting target to controlled process CP-1."""
+    world.sp1_llm_content = _sp1_valid_connection_set_ca_assignment_dict()
+    return True, ""
+
+
+def _h_connset_llm_with_cl(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ConnectionSet with coordination link CL-1 from RESP-1 to RESP-2 sharing PM-1-1."""
+    world.sp1_llm_content = _sp1_valid_connection_set_dict()
+    return True, ""
+
+
+def _h_connset_llm_with_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a ConnectionSet with controlled process CP-1."""
+    world.sp1_llm_content = _sp1_valid_connection_set_cp_only_dict()
+    return True, ""
+
+
+def _h_connset_llm_valid_for_call3(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid ConnectionSet for Call 3."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
+    return True, ""
+
+
+def _h_connset_resp_set_fb_no_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet where FB-1-1 has no feedback source."""
+    resp_dict = _sp1_valid_resp_set_dict()
+    # Ensure FB-1-1 has no source
+    for resp in resp_dict["responsibilities"]:
+        for fb in resp.get("feedback_channels", []):
+            if fb["fb_id"] == "FB-1-1":
+                fb.pop("source", None)
+    world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(resp_dict)
+    return True, ""
+
+
+def _h_connset_resp_set_ca_no_target(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet where CA-1-1 has no target."""
+    resp_dict = _sp1_valid_resp_set_dict()
+    for resp in resp_dict["responsibilities"]:
+        for ca in resp.get("control_actions", []):
+            if ca["ca_id"] == "CA-1-1":
+                ca.pop("target", None)
+    world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(resp_dict)
+    return True, ""
+
+
+def _h_connset_valid_resp_from_call2_with_resps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a valid ResponsibilitySet from Call 2 with responsibilities RESP-1 and RESP-2."""
+    world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(_sp1_valid_resp_set_dict())
+    return True, ""
+
+
+def _h_connset_connection_set_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ConnectionSet is produced from Call 3."""
+    if world.sp1_connection_set is None and world.validation_error is None:
+        return False, "No ConnectionSet model was produced"
+    return True, ""
+
+
+def _h_connset_contains_cl(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ConnectionSet contains coordination link CL-1."""
+    if world.sp1_connection_set is None:
+        return False, "No ConnectionSet available"
+    cl_ids = {cl.link_id for cl in world.sp1_connection_set.coordination_links}
+    if "CL-1" not in cl_ids:
+        return False, f"Expected CL-1 but got: {cl_ids}"
+    return True, ""
+
+
+def _h_connset_contains_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ConnectionSet contains controlled process CP-1."""
+    if world.sp1_connection_set is None:
+        return False, "No ConnectionSet available"
+    cp_ids = {cp.cp_id for cp in world.sp1_connection_set.controlled_processes}
+    if "CP-1" not in cp_ids:
+        return False, f"Expected CP-1 but got: {cp_ids}"
+    return True, ""
+
+
+def _h_connset_contains_assignment(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ConnectionSet contains connection assignment for element FB-1-1."""
+    if world.sp1_connection_set is None:
+        return False, "No ConnectionSet available"
+    element_ids = {a.element_id for a in world.sp1_connection_set.connection_assignments}
+    if "FB-1-1" not in element_ids:
+        return False, f"Expected FB-1-1 assignment but got: {element_ids}"
+    return True, ""
+
+
+def _h_connset_fb_source_cp1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the final ControlStructure has feedback channel FB-1-1 with source CP-1."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    for resp in world.control_structure.responsibilities:
+        for fb in resp.feedback_channels:
+            if fb.fb_id == "FB-1-1":
+                if fb.source is None:
+                    return False, "FB-1-1 has no source"
+                if fb.source.id != "CP-1":
+                    return False, f"Expected source CP-1 but got {fb.source.id}"
+                return True, ""
+    return False, "FB-1-1 not found in any responsibility"
+
+
+def _h_connset_ca_target_cp1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the final ControlStructure has control action CA-1-1 with target CP-1."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    for resp in world.control_structure.responsibilities:
+        for ca in resp.control_actions:
+            if ca.ca_id == "CA-1-1":
+                if ca.target is None:
+                    return False, "CA-1-1 has no target"
+                if ca.target.id != "CP-1":
+                    return False, f"Expected target CP-1 but got {ca.target.id}"
+                return True, ""
+    return False, "CA-1-1 not found in any responsibility"
+
+
+def _h_connset_valid_cs_from_stage2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a valid ControlStructure from Stage 2."""
+    if world.control_structure is None:
+        world.control_structure = ControlStructure.model_validate(_sp1_valid_cs_dict())
+    return True, ""
+
+
+def _h_connset_critic_unjustified(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: critic findings with unjustified gaps."""
+    world.sp1_critic_findings = _sp1_critic_unjustified_gaps()
+    return True, ""
+
+
+def _h_connset_s2_revision_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 2 revision is run."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_rev_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    if ControlStructure not in client._response_map:
+        client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
+    cs = world.control_structure or ControlStructure.model_validate(_sp1_valid_cs_dict())
+    findings = world.sp1_critic_findings or _sp1_critic_unjustified_gaps()
+    try:
+        revised, warnings = _sp1_run_revision(
+            llm_client=client, control_structure=cs,
+            critic_findings=findings, use_case_text=world.sp1_use_case_text,
+            run_dir=run_dir,
+        )
+        world.control_structure = revised
+        world.sp1_revised = True
+        world.sp1_post_revision_warnings = warnings
+    except (ValidationError, ValueError, _GDStageError) as e:
+        world.validation_error = e
+    return True, ""
+
+
+def _sp1_critic_unjustified_gaps():
+    """Return CriticFindings with unjustified gaps for revision tests."""
+    from scenario_forge.stpa.system_model.critic import CriticFindings
+    return CriticFindings(
+        gaps=[{"gap_type": "missing_responsibility", "description": "Missing validation",
+               "related_attack_path": "Attack", "suggested_remedy": "Add validation"}],
+        checklist_results={"Input validation": "absent_unjustified"},
+        taxonomy_probe_results={},
+    )
+
+
+def _h_connset_cs_contains_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ControlStructure contains controlled process CP-1."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    cp_ids = {cp.cp_id for cp in world.control_structure.controlled_processes}
+    if "CP-1" not in cp_ids:
+        return False, f"Expected CP-1 but got: {cp_ids}"
+    return True, ""
+
+
+def _h_connset_llm_valid_revised_cs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a valid revised ControlStructure JSON."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
+    return True, ""
+
+
+# ConnectionSet merge registrations
+_register(r"an LLM that returns a valid ConnectionSet JSON with coordination links", _h_connset_valid_llm)
+_register(r"an LLM that returns a ConnectionSet with coordination link CL-1, controlled process CP-1, and connection assignment", _h_connset_llm_with_cl_cp_assignment)
+_register(r"an LLM that returns a ConnectionSet with assignment for FB-1-1 setting source", _h_connset_llm_with_fb_assignment)
+_register(r"an LLM that returns a ConnectionSet with assignment for CA-1-1 setting target", _h_connset_llm_with_ca_assignment)
+_register(r"an LLM that returns a ConnectionSet with coordination link CL-1 from RESP-1 to RESP-2", _h_connset_llm_with_cl)
+_register(r"an LLM that returns a ConnectionSet with controlled process CP-1$", _h_connset_llm_with_cp)
+_register(r"an LLM that returns a valid ConnectionSet for Call 3", _h_connset_llm_valid_for_call3)
+_register(r"a ResponsibilitySet where FB-1-1 has no feedback source", _h_connset_resp_set_fb_no_source)
+_register(r"a ResponsibilitySet where CA-1-1 has no target", _h_connset_resp_set_ca_no_target)
+_register(r"a valid ResponsibilitySet from Call 2 with responsibilities RESP-1 and RESP-2", _h_connset_valid_resp_from_call2_with_resps)
+_register(r"a ConnectionSet is produced from Call 3", _h_connset_connection_set_produced)
+_register(r"the ConnectionSet contains coordination link CL-1", _h_connset_contains_cl)
+_register(r"the ConnectionSet contains controlled process CP-1", _h_connset_contains_cp)
+_register(r"the ConnectionSet contains connection assignment for element FB-1-1", _h_connset_contains_assignment)
+_register(r"the final ControlStructure has feedback channel FB-1-1 with source CP-1", _h_connset_fb_source_cp1)
+_register(r"the final ControlStructure has control action CA-1-1 with target CP-1", _h_connset_ca_target_cp1)
+_register(r"a valid ControlStructure from Stage 2", _h_connset_valid_cs_from_stage2)
+_register(r"critic findings with unjustified gaps", _h_connset_critic_unjustified)
+_register(r"Stage 2 revision is run", _h_connset_s2_revision_run)
+_register(r"the ControlStructure contains controlled process CP-1", _h_connset_cs_contains_cp)
+_register(r"an LLM that returns a valid revised ControlStructure JSON", _h_connset_llm_valid_revised_cs)
 
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
