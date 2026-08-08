@@ -28,6 +28,7 @@ import pytest
 STPA_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "scenario_forge" / "stpa"
 INFRA_DIR = STPA_ROOT / "infra"
 MODELS_DIR = STPA_ROOT / "models"
+SYSTEM_MODEL_DIR = STPA_ROOT / "system_model"
 
 # Modules that stpa/infra/ must NOT import from.
 _FORBIDDEN_INFRA_PREFIXES = (
@@ -263,3 +264,207 @@ class TestModelDependencyDirection:
         path = model_files["enriched_threat_set"]
         imports = _stpa_model_imports(path)
         assert not imports, f"enriched_threat_set.py imports stpa models: {imports}"
+
+
+# ---------------------------------------------------------------------------
+# System Model architecture guards
+# ---------------------------------------------------------------------------
+
+# Dependency layers within system_model (lower = closer to IO/constants).
+# A module at layer N may import from modules at layer <= N.
+_SYSTEM_MODEL_LAYERS: dict[str, int] = {
+    "_constants": 0,
+    "heuristics": 1,
+    "loss_analysis": 1,
+    "profile": 1,
+    "control_structure": 1,
+    "critic": 2,
+    "run": 3,
+}
+
+# Existing-pipeline modules that system_model is allowed to import.
+# These are the I/O contract types (CapabilityProfile, RiskCard) that
+# cross the STPA/existing-pipeline boundary by design.
+_ACCEPTED_PIPELINE_IMPORTS: frozenset[str] = frozenset(
+    {
+        "scenario_forge.models.capability_profile",
+        "scenario_forge.models.risk_card",
+    }
+)
+
+# Modules that system_model must NOT import from (existing pipeline).
+_FORBIDDEN_SYSTEM_MODEL_PREFIXES = (
+    "scenario_forge.pipeline",
+    "scenario_forge.llm",
+    "scenario_forge.prompts",
+    "scenario_forge.data",
+    "scenario_forge.models.stage",
+    "scenario_forge.report",
+    "scenario_forge.cli",
+    "scenario_forge.config",
+    "scenario_forge.io",
+)
+
+
+def _system_model_internal_imports(file_path: Path) -> list[str]:
+    """Return bare module names imported from within system_model.
+
+    E.g. ``from scenario_forge.stpa.system_model.heuristics import X``
+    yields ``"heuristics"``.
+    """
+    result: list[str] = []
+    for imp in _extract_imports(file_path):
+        prefix = "scenario_forge.stpa.system_model."
+        if imp.startswith(prefix):
+            result.append(imp[len(prefix):].split(".")[0])
+    return result
+
+
+class TestSystemModelCleanCopy:
+    """system_model/ must have no coupling to the existing pipeline
+    beyond the accepted I/O contract types."""
+
+    @pytest.fixture
+    def system_model_python_files(self) -> list[Path]:
+        return sorted(
+            p for p in SYSTEM_MODEL_DIR.glob("*.py")
+            if p.name != "__init__.py"
+        )
+
+    def test_no_forbidden_imports_in_system_model(self, system_model_python_files):
+        """No system_model file imports from forbidden existing-pipeline modules."""
+        violations: list[str] = []
+        for path in system_model_python_files:
+            for imp in _extract_imports(path):
+                for forbidden in _FORBIDDEN_SYSTEM_MODEL_PREFIXES:
+                    if imp == forbidden or imp.startswith(forbidden + "."):
+                        violations.append(
+                            f"{path.name}: imports '{imp}' — "
+                            f"forbidden by clean-copy policy"
+                        )
+        assert not violations, (
+            "Clean-copy violation in system_model/:\n" + "\n".join(violations)
+        )
+
+    def test_pipeline_imports_limited_to_accepted_types(
+        self, system_model_python_files
+    ):
+        """Any import from scenario_forge.models must be an accepted contract type."""
+        violations: list[str] = []
+        for path in system_model_python_files:
+            for imp in _extract_imports(path):
+                if imp.startswith("scenario_forge.models.") or imp == "scenario_forge.models":
+                    if imp not in _ACCEPTED_PIPELINE_IMPORTS:
+                        violations.append(
+                            f"{path.name}: imports '{imp}' — "
+                            f"not an accepted I/O contract type"
+                        )
+        assert not violations, (
+            "Unexpected pipeline model imports in system_model/:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestSystemModelNoImportCycles:
+    """All system_model modules must import without circular dependency errors."""
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "scenario_forge.stpa.system_model",
+            "scenario_forge.stpa.system_model._constants",
+            "scenario_forge.stpa.system_model.loss_analysis",
+            "scenario_forge.stpa.system_model.profile",
+            "scenario_forge.stpa.system_model.control_structure",
+            "scenario_forge.stpa.system_model.critic",
+            "scenario_forge.stpa.system_model.heuristics",
+            "scenario_forge.stpa.system_model.run",
+        ],
+    )
+    def test_module_imports_cleanly(self, module_name):
+        """Module can be imported without errors."""
+        mod = importlib.import_module(module_name)
+        assert mod is not None
+
+
+class TestSystemModelDependencyDirection:
+    """Higher-level system_model modules must not import lower-level ones in reverse.
+
+    Dependency layers (lower = closer to IO/constants):
+      0: _constants     (leaf — no imports)
+      1: heuristics, loss_analysis, profile, control_structure  (stages)
+      2: critic         (uses heuristics)
+      3: run            (orchestrator — uses all)
+    """
+
+    @pytest.fixture
+    def system_model_files(self) -> dict[str, Path]:
+        files: dict[str, Path] = {}
+        for path in sorted(SYSTEM_MODEL_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            files[path.stem] = path
+        return files
+
+    def test_no_reverse_dependencies(self, system_model_files):
+        """A module at layer N must not import from a module at layer > N."""
+        violations: list[str] = []
+        for name, path in system_model_files.items():
+            my_layer = _SYSTEM_MODEL_LAYERS.get(name, 99)
+            for imported in _system_model_internal_imports(path):
+                target_layer = _SYSTEM_MODEL_LAYERS.get(imported, 99)
+                if target_layer > my_layer:
+                    violations.append(
+                        f"{name} (layer {my_layer}) imports "
+                        f"{imported} (layer {target_layer}) — "
+                        f"dependency direction violation"
+                    )
+        assert not violations, (
+            "System model dependency direction violations:\n"
+            + "\n".join(violations)
+        )
+
+    def test_constants_is_leaf(self, system_model_files):
+        """_constants.py must not import any other module."""
+        path = system_model_files.get("_constants")
+        assert path is not None, "_constants.py not found"
+        all_imports = _extract_imports(path)
+        # Allow only stdlib imports (from __future__ and pathlib).
+        non_stdlib = [
+            imp for imp in all_imports
+            if not imp.startswith("_") and imp not in ("pathlib",)
+        ]
+        assert not non_stdlib, (
+            f"_constants.py imports non-stdlib modules: {non_stdlib}"
+        )
+
+    def test_stage_modules_do_not_import_each_other(self, system_model_files):
+        """Stage modules (loss_analysis, profile, control_structure, heuristics)
+        must not import from each other or from critic/run."""
+        stage_modules = {"loss_analysis", "profile", "control_structure", "heuristics"}
+        forbidden_targets = {"critic", "run"}
+        for name in stage_modules:
+            path = system_model_files[name]
+            imports = set(_system_model_internal_imports(path))
+            cross_stage = imports & (stage_modules - {name})
+            higher = imports & forbidden_targets
+            assert not cross_stage, (
+                f"{name}.py imports sibling stage module(s): {cross_stage}"
+            )
+            assert not higher, (
+                f"{name}.py imports higher-level module(s): {higher}"
+            )
+
+    def test_critic_does_not_import_run(self, system_model_files):
+        """critic.py must not import the orchestrator (run.py)."""
+        path = system_model_files["critic"]
+        imports = set(_system_model_internal_imports(path))
+        assert "run" not in imports, "critic.py imports run.py — direction violation"
+
+    def test_heuristics_imports_no_system_model_modules(self, system_model_files):
+        """heuristics.py is a pure post-check — must not import any system_model module."""
+        path = system_model_files["heuristics"]
+        imports = _system_model_internal_imports(path)
+        assert not imports, (
+            f"heuristics.py imports system_model modules: {imports}"
+        )

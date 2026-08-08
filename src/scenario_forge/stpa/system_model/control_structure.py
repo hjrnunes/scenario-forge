@@ -23,7 +23,7 @@ from scenario_forge.stpa.models.control_structure import (
     ControlledProcess,
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-from scenario_forge.stpa.system_model import PROMPTS_DIR
+from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 
 STAGE = "stage_2"
 DEFAULT_TEMPERATURE = 0.4

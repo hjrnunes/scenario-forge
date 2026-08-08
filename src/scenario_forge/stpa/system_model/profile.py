@@ -19,7 +19,7 @@ from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import read_yaml, write_yaml
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-from scenario_forge.stpa.system_model import PROMPTS_DIR
+from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 
 STAGE = "stage_1b"
 STEP = "capability_profile"
