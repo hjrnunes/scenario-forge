@@ -29,6 +29,7 @@ output/
 
 # AI working files (findings are exploratory, not committed)
 ai/findings/
+ai/lab-results/
 ai/.DS_Store
 .opencode
 opencode.json
