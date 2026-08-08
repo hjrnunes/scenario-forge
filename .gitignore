@@ -32,3 +32,8 @@ ai/findings/
 ai/.DS_Store
 .opencode
 opencode.json
+
+# SwarmForge runtime state (handoffs, roles.tsv)
+.swarmforge/
+# APS clone — each developer clones separately
+.factory/swarmforge/aps/

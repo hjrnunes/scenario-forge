@@ -125,3 +125,177 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+<!-- BEGIN swarmforge: startup-tools -->
+## Startup tools (procure from source)
+
+- On startup, procure the latest version of each required CRAP, mutation, and DRY tool for the project language directly from the listed repositories and get each one ready to run. Go/Clojure/Java tools live at `github.com/unclebob/...`; the Python ports live at `github.com/gabadi/...` and are also published on PyPI.
+- Resolve each listed repository at its latest available upstream version before installing or building. Do not rely on stale cached, vendored, or preinstalled copies when a fresh install/build is possible in the current environment. For Python, `uv tool install <name>` (or `pipx`/`pip`) fetches the latest published version from PyPI, which satisfies this.
+- Procurement requires user consent. The orchestrator or `/swarmforge-setup` asks the user before installing anything. Role droids procure only after consent has been given; if a tool is missing and consent was not given or installation fails, the role stops and reports.
+- Language tool table:
+  - Go (install with `go install`): mutation `github.com/unclebob/mutate4go`, CRAP `github.com/unclebob/crap4go`, DRY `github.com/unclebob/dry4go`.
+  - Clojure (install via Clojure CLI/deps.edn): mutation `github.com/unclebob/clj-mutate`, CRAP `github.com/unclebob/crap4clj`, DRY `github.com/unclebob/dry4clj`.
+  - Java (install with Maven `mvn`): mutation `github.com/unclebob/mutate4java`, CRAP `github.com/unclebob/crap4java`, DRY `github.com/unclebob/dry4java`.
+  - Python (install with `uv tool install`): mutation `github.com/gabadi/mutate4py` (PyPI `mutate4py`), CRAP `github.com/gabadi/crap4py` (PyPI `crap4py`), DRY `github.com/gabadi/drywall` (PyPI `drywall`; also `cargo install drywall`). `mutate4py` and `crap4py` consume an LCOV coverage file — generate it with `pytest --cov --cov-branch --cov-report=lcov:lcov.info` (requires `pytest-cov`).
+  - APS (all languages): `github.com/unclebob/Acceptance-Pipeline-Specification` supplies `gherkin-parser`, `gherkin-ir-dry-checker`, and `gherkin-mutator`. They are Babashka tasks (`bb gherkin-parser`, `bb gherkin-ir-dry-checker`, `bb gherkin-mutator`) — install `bb` and clone the repo; Go fallback binaries of the same names are built from `cmd/` only if Babashka is unavailable. APS is not on PyPI and is not built with the language toolchain.
+<!-- END swarmforge: startup-tools -->
+<!-- BEGIN swarmforge: acceptance-pipeline -->
+## Acceptance pipeline (APS)
+
+- Use github.com/unclebob/Acceptance-Pipeline-Specification for Gherkin acceptance tests.
+- The Acceptance Pipeline Specification supplies `gherkin-parser`, `gherkin-ir-dry-checker`, and `gherkin-mutator`; install or build those commands from that repository instead of reimplementing them in the project.
+- Prefer the Babashka APS tools (`bb gherkin-parser`, `bb gherkin-ir-dry-checker`, `bb gherkin-mutator`). Use Go-based APS tools only if the Babashka APS tools do not work in the current project environment.
+- Project-specific acceptance pipeline components are the acceptance entrypoint generator, acceptance runtime, project step handlers, runner adapter, and convenience scripts.
+- Gherkin acceptance mutation means running `gherkin-mutator` to mutate Gherkin example values. Gherkin acceptance mutation runs must report periodic progress/status so agents can distinguish normal long-running work from a hang.
+- Run acceptance generation and acceptance tests sequentially. Avoid running whole-suite language test commands concurrently with acceptance generation.
+- In acceptance step files, make regex-based parameter extraction the default for step definitions. Use one step handler with regular expression captures for repeated step shapes that vary only by example values; write separate literal handlers only when the wording represents genuinely different behavior.
+- Keep generated acceptance tests separate from unit tests.
+<!-- END swarmforge: acceptance-pipeline -->
+<!-- BEGIN swarmforge: quality-tools -->
+## Quality tools
+
+The CRAP, DRY, and mutation quality gates use SwarmForge's language-specific CLI tools, procured from source (see "Startup tools" above) — not Droid skills. Each role runs the tool for its project language directly:
+
+- CRAP: `crap4clj` / `crap4go` / `crap4java` / `crap4py` — reduce to 6 or below.
+- DRY: `dry4clj` / `dry4go` / `dry4java` / `drywall` — reduce duplicate code where reasonable. (`drywall` also analyzes Rust, JS, and TS.)
+- Mutation: `clj-mutate` / `mutate4go` / `mutate4java` / `mutate4py` — the hardender runs mutation tests; the cleaner runs scan/count mode only.
+- Coverage (Python): `crap4py` and `mutate4py` consume an LCOV file. Generate it before running them: `pytest --cov --cov-branch --cov-report=lcov:lcov.info` (requires `pytest-cov`). Store the LCOV-generating command in `SWARMFORGE_COVERAGE_CMD` in `config.sh`.
+- Gherkin mutation: `gherkin-mutator --level soft` (APS).
+
+### Optional Droid-skill aids
+
+These Droid skills are optional aids where they add value. They do not replace the procured tools above:
+
+- `tdd` — red-green-refactor loop for the coder.
+- `decomplect` — structural / coupling review for the cleaner and architect.
+- `code-review` — self-check for the architect.
+- `security-review` — optional security sweep for QA.
+<!-- END swarmforge: quality-tools -->
+<!-- BEGIN swarmforge: handoff-protocol -->
+## Handoff protocol
+
+Inter-role messages are durable files on disk under `.swarmforge/handoffs/<role>/`. The handoff files are the source of truth; the orchestrator is just the sequencer.
+
+- Send a handoff: write a draft with only structured headers, then run
+  `SWARMFORGE_ROLE=<role> .factory/swarmforge/scripts/swarm_handoff.sh <role> ./tmp/handoff.txt`.
+- Receive work: `SWARMFORGE_ROLE=<role> .factory/swarmforge/scripts/ready_for_next.sh <role>`.
+- Complete work: `SWARMFORGE_ROLE=<role> .factory/swarmforge/scripts/done_with_current.sh <role>`.
+- Use only these message types: `git_handoff`, `note`.
+- Do not send `note` handoffs unless the user, your role prompt, or this file explicitly directs you to. When blocked by ambiguity, contradiction, or test/specification conflict, stop and ask for clarification instead of sending a `note`.
+- `git_handoff` draft:
+  ```
+  type: git_handoff
+  to: <role>[,<role>...]
+  priority: NN
+  task: <short-stable-task-name>
+  commit: <10-character-commit-abbrev>
+  ```
+- `note` draft:
+  ```
+  type: note
+  to: <role>[,<role>...]
+  priority: NN
+  message: <one line, max 80 chars>
+  ```
+- When your role is an intermediate step in the pack pipeline, always forward a `git_handoff` to the next role after completing the inbound task, regardless of what changed. Formatting-only, manifest-only, audit-only, and other non-functional churn still require a forward down the chain.
+- When your role sends the end-of-chain handoff to multiple recipients (QA completion broadcast, `priority: 00`), those recipients merge only (`merge_and_process`). They do not forward that handoff further.
+- Preserve the received task name when forwarding work for the same task. If the handoff starts new work, invent a short stable task name.
+- Do not write long handoff bodies; the helper generates the delivered payload.
+- Do not hand-edit, merge, stage, or commit `.swarmforge/` runtime state.
+<!-- END swarmforge: handoff-protocol -->
+<!-- BEGIN swarmforge: commit-byline -->
+## Commit byline
+
+Include your role byline in every git commit message in this form: `By <role>.`
+
+```
+Implement handoff validation
+
+By coder.
+```
+<!-- END swarmforge: commit-byline -->
+<!-- BEGIN swarmforge: worktree-discipline -->
+## Worktree discipline
+
+- Work only in the current branch of the main checkout. (v1 is sequential and single-branch; per-role worktrees are a future addition.)
+- Do not inspect, diff, merge, or base work on another branch unless that branch is specifically named in a handoff or explicit user instruction.
+- Use `./tmp/` in the project root for temporary files; do not use `/tmp`.
+- If the expected git layout is missing, stop and report instead of silently working in the wrong place.
+<!-- END swarmforge: worktree-discipline -->
+<!-- BEGIN swarmforge: language-clojure -->
+<!-- LANGUAGE: Clojure
+## Clojure tooling
+
+- Prefer Babashka where possible.
+- Prefer Speclj for unit and behavior tests.
+- For Speclj projects, use github.com/unclebob/speclj-structure-check to validate
+  test syntax. If a Speclj spec file changed, run the structure check before
+  executing the relevant test command.
+- Mutation: github.com/unclebob/clj-mutate (procure from source; install via Clojure CLI/deps.edn).
+- CRAP: github.com/unclebob/crap4clj (procure from source; run directly).
+- DRY: github.com/unclebob/dry4clj (procure from source; run directly).
+- APS tools: prefer the Babashka `gherkin-parser` and `gherkin-mutator`.
+
+config.sh placeholders to fill:
+  SWARMFORGE_TEST_CMD="bb spec"            # or: lein spec
+  SWARMFORGE_ACCEPTANCE_CMD="REPLACE_ME"
+  SWARMFORGE_CRAP_CMD="REPLACE_ME"
+  SWARMFORGE_DRY_CMD="REPLACE_ME"
+  SWARMFORGE_QA_CMD="REPLACE_ME"
+-->
+<!-- END swarmforge: language-clojure -->
+<!-- BEGIN swarmforge: language-python -->
+## Python tooling
+
+- Mutation: github.com/gabadi/mutate4py (PyPI `mutate4py`; install with `uv tool install mutate4py`).
+- CRAP: github.com/gabadi/crap4py (PyPI `crap4py`; install with `uv tool install crap4py`).
+- DRY: github.com/gabadi/drywall (PyPI `drywall`; install with `uv tool install drywall`).
+- Coverage: `crap4py` and `mutate4py` consume an LCOV file. Generate it with
+  `pytest --cov --cov-branch --cov-report=lcov:lcov.info` (requires `pytest-cov`).
+- `drywall` also analyzes Rust, JS, and TS source.
+
+config.sh placeholders to fill:
+  SWARMFORGE_TEST_CMD="pytest"
+  SWARMFORGE_ACCEPTANCE_CMD="REPLACE_ME"
+  SWARMFORGE_COVERAGE_CMD="pytest --cov --cov-branch --cov-report=lcov:lcov.info"
+  SWARMFORGE_CRAP_CMD="crap4py src/ --lcov lcov.info --max-crap 6"
+  SWARMFORGE_DRY_CMD="drywall --threshold 0.82 ./src"
+  SWARMFORGE_MUTATION_CMD="mutate4py src/ --test-command 'pytest' --lcov lcov.info --max-workers 8"
+  SWARMFORGE_QA_CMD="REPLACE_ME"
+<!-- END swarmforge: language-python -->
+<!-- BEGIN swarmforge: language-go -->
+<!-- LANGUAGE: Go
+## Go tooling
+
+- Mutation: github.com/unclebob/mutate4go (procure from source; install with `go install`).
+- CRAP: github.com/unclebob/crap4go (procure from source; run directly).
+- DRY: github.com/unclebob/dry4go (procure from source; run directly).
+- APS tools: use the Go-based APS tools only if the Babashka APS tools do not
+  work in the current project environment.
+
+config.sh placeholders to fill:
+  SWARMFORGE_TEST_CMD="go test ./..."
+  SWARMFORGE_ACCEPTANCE_CMD="REPLACE_ME"
+  SWARMFORGE_CRAP_CMD="REPLACE_ME"
+  SWARMFORGE_DRY_CMD="REPLACE_ME"
+  SWARMFORGE_QA_CMD="REPLACE_ME"
+-->
+<!-- END swarmforge: language-go -->
+<!-- BEGIN swarmforge: language-java -->
+<!-- LANGUAGE: Java
+## Java tooling
+
+- Build with Maven (`mvn`), but avoid using Maven to run tests; build dedicated
+  test runners and run those instead.
+- Mutation: github.com/unclebob/mutate4java (procure from source; install with `mvn`).
+- CRAP: github.com/unclebob/crap4java (procure from source; run directly).
+- DRY: github.com/unclebob/dry4java (procure from source; run directly).
+
+config.sh placeholders to fill:
+  SWARMFORGE_TEST_CMD="REPLACE_ME"
+  SWARMFORGE_ACCEPTANCE_CMD="REPLACE_ME"
+  SWARMFORGE_CRAP_CMD="REPLACE_ME"
+  SWARMFORGE_DRY_CMD="REPLACE_ME"
+  SWARMFORGE_QA_CMD="REPLACE_ME"
+-->
+<!-- END swarmforge: language-java -->

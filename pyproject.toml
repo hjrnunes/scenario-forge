@@ -24,3 +24,8 @@ dev = [
 
 [project.scripts]
 scenario-forge = "scenario_forge.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.1.0",
+]
