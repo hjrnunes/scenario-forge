@@ -17,11 +17,24 @@ When two responsibilities share a process model part (PM) that is NOT connected 
 - coordination_mechanism: { cm_id: CM-N, description, payload }
 - description: what the coordination link does
 
+## Connection assignments
+
+For each feedback channel and control action, provide a connection assignment:
+- element_id: FB-X-Y or CA-X-Y (matching the element from Call 2)
+- source: { type: "responsibility" | "controlled_process", id: "RESP-*" | "CP-*" } — for feedback channels: which element provides the information
+- target: { type: "responsibility" | "controlled_process", id: "RESP-*" | "CP-*" } — for control actions: which element receives the action
+
+## Controlled processes
+
+List all controlled processes identified in the system:
+- cp_id: CP-N
+- description
+
 ## Output format
 
-Produce a complete ControlStructure with:
-- responsibilities: all responsibilities with their PM/CA/FB elements and connections populated
-- controlled_processes: all controlled processes
+Produce a ConnectionSet with:
 - coordination_links: identified coordination links
+- controlled_processes: all controlled processes
+- connection_assignments: connection assignments for feedback channels and control actions
 
 Ensure all ElementRef references are valid and all cross-references are consistent.

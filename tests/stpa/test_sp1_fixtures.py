@@ -15,6 +15,7 @@ from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
@@ -22,7 +23,7 @@ from scenario_forge.stpa.system_model.control_structure import (
 from scenario_forge.stpa.system_model.critic import CriticFindings, run_completeness_critic
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
 from scenario_forge.models.capability_profile import Stage1Profile
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
 
 FIXTURES_DIR = (
     Path(__file__).resolve().parent.parent.parent
@@ -53,7 +54,9 @@ def _valid_resp_set_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"}
+                    {"rc_id": "SC-1", "description": "Must confirm before action"},
+                    {"rc_id": "SC-2", "description": "Must protect data"},
+                    {"rc_id": "SC-3", "description": "Must audit actions"},
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -150,7 +153,7 @@ class TestSP1FixtureIntegration:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_req_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
-        client.set_response_for(ControlStructure, _valid_cs_dict())
+        client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
 
         control_structure = derive_control_structure(
             llm_client=client,

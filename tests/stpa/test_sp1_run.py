@@ -18,7 +18,7 @@ from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.critic import CriticFindings
 from scenario_forge.stpa.system_model.run import run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
 
 
 def _make_risk_cards() -> list[RiskCard]:
@@ -189,8 +189,10 @@ def _setup_mock_client(
     # Stage 2 Call 2: ResponsibilitySet
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
 
-    # Stage 2 Call 3: ControlStructure
-    client.set_response_for(ControlStructure, _valid_control_structure_dict())
+    # Stage 2 Call 3: ConnectionSet
+    from scenario_forge.stpa.system_model.control_structure import ConnectionSet
+
+    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
 
     # Critic: CriticFindings
     if critic_findings is not None:
@@ -207,14 +209,7 @@ def _setup_mock_client(
 
     # Revision: ControlStructure (if needed)
     if revised_cs is not None:
-        # Need to use a queue for the second ControlStructure response
-        # The first CS response is for Call 3, the second for revision
-        client.set_response_queue([
-            _valid_control_structure_dict(),  # Call 3
-            revised_cs,  # Revision
-        ])
-        # Clear the response_map for ControlStructure so the queue is used
-        client._response_map.pop(ControlStructure, None)
+        client.set_response_for(ControlStructure, revised_cs)
 
     return client
 

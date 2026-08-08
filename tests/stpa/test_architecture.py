@@ -468,3 +468,180 @@ class TestSystemModelDependencyDirection:
         assert not imports, (
             f"heuristics.py imports system_model modules: {imports}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Graceful degradation architecture guards
+# ---------------------------------------------------------------------------
+
+
+class TestSafeLlmCallExceptionSafety:
+    """``safe_llm_call`` must catch ``Exception`` but NOT ``BaseException``
+    subclasses like ``KeyboardInterrupt`` or ``SystemExit``.
+
+    Catching ``BaseException`` would prevent the user from interrupting
+    a long-running pipeline and would swallow process-exit signals.
+    """
+
+    def test_keyboard_interrupt_not_caught(self, tmp_path):
+        """KeyboardInterrupt propagates through safe_llm_call."""
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+        from pydantic import BaseModel
+
+        class _Dummy(BaseModel):
+            x: int = 1
+
+        client = MockLLMClient()
+        client.set_exception_for(_Dummy, KeyboardInterrupt("Ctrl-C"))
+
+        with pytest.raises(KeyboardInterrupt):
+            safe_llm_call(
+                llm_client=client,
+                system_prompt="s",
+                user_prompt="u",
+                response_format=_Dummy,
+                run_dir=tmp_path,
+                stage="test",
+                step="test",
+            )
+
+    def test_system_exit_not_caught(self, tmp_path):
+        """SystemExit propagates through safe_llm_call."""
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+        from pydantic import BaseModel
+
+        class _Dummy(BaseModel):
+            x: int = 1
+
+        client = MockLLMClient()
+        client.set_exception_for(_Dummy, SystemExit(1))
+
+        with pytest.raises(SystemExit):
+            safe_llm_call(
+                llm_client=client,
+                system_prompt="s",
+                user_prompt="u",
+                response_format=_Dummy,
+                run_dir=tmp_path,
+                stage="test",
+                step="test",
+            )
+
+    def test_runtime_exception_caught_and_logged(self, tmp_path):
+        """RuntimeError is caught by safe_llm_call (not propagated)."""
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+        from pydantic import BaseModel
+
+        class _Dummy(BaseModel):
+            x: int = 1
+
+        client = MockLLMClient()
+        client.set_exception_for(_Dummy, RuntimeError("API down"))
+
+        model, result, error = safe_llm_call(
+            llm_client=client,
+            system_prompt="s",
+            user_prompt="u",
+            response_format=_Dummy,
+            run_dir=tmp_path,
+            stage="test",
+            step="test",
+        )
+        assert model is None
+        assert error is not None
+        assert "RuntimeError" in error
+
+
+class TestSafeLlmCallCanonicalEntryPoint:
+    """``safe_llm_call`` must be the sole caller of ``llm_client.complete()``
+    in the STPA pipeline.  No stage function should call ``complete()``
+    directly, bypassing error handling and call logging."""
+
+    def test_no_direct_complete_calls_in_system_model(self):
+        """No system_model module calls llm_client.complete() directly."""
+        violations: list[str] = []
+        for path in sorted(SYSTEM_MODEL_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if ".complete(" in source:
+                # Exclude safe_llm_call itself (which is in infra, not here)
+                violations.append(
+                    f"{path.name}: calls .complete() directly — "
+                    f"must use safe_llm_call() instead"
+                )
+        assert not violations, (
+            "Direct .complete() calls in system_model/:\n" + "\n".join(violations)
+        )
+
+    def test_complete_only_called_from_safe_llm_call(self):
+        """llm_client.complete() is called only from safe_llm_call in infra."""
+        import re
+
+        violations: list[str] = []
+        for path in sorted(STPA_ROOT.rglob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            # Find all .complete( calls
+            for match in re.finditer(r"\.complete\(", source):
+                # Check if it's inside safe_llm_call function
+                # Get the function context by looking backwards for 'def '
+                pos = match.start()
+                # Find the enclosing function definition
+                lines_before = source[:pos].split("\n")
+                enclosing_func = None
+                for line in reversed(lines_before):
+                    stripped = line.lstrip()
+                    if stripped.startswith("def "):
+                        enclosing_func = stripped
+                        break
+                if enclosing_func and "safe_llm_call" not in enclosing_func:
+                    violations.append(
+                        f"{path.name}: .complete() called outside safe_llm_call "
+                        f"(in '{enclosing_func.strip()}')"
+                    )
+        assert not violations, (
+            ".complete() called outside safe_llm_call:\n" + "\n".join(violations)
+        )
+
+
+class TestStageErrorLocation:
+    """``StageError`` must be defined in the infra layer, not in system_model.
+
+    This ensures downstream SPs (SP2, SP3) can import ``StageError`` from
+    the shared infra layer without depending on SP1's system_model.
+    """
+
+    def test_stage_error_defined_in_infra(self):
+        """StageError is defined in infra/llm_helpers.py."""
+        from scenario_forge.stpa.infra import llm_helpers
+
+        assert hasattr(llm_helpers, "StageError")
+        assert llm_helpers.StageError.__module__ == "scenario_forge.stpa.infra.llm_helpers"
+
+    def test_stage_error_not_defined_in_system_model(self):
+        """No system_model module defines its own StageError class."""
+        import ast
+
+        for path in sorted(SYSTEM_MODEL_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name == "StageError":
+                    pytest.fail(
+                        f"{path.name}: defines StageError — "
+                        f"must use the infra layer's StageError"
+                    )
+
+    def test_stage_error_importable_without_system_model(self):
+        """StageError can be imported without importing system_model."""
+        import importlib
+
+        mod = importlib.import_module("scenario_forge.stpa.infra.llm_helpers")
+        assert hasattr(mod, "StageError")

@@ -92,7 +92,7 @@ class TestLossAnalysisValidation:
                 risk_card_losses=[],
                 use_case_losses=[_make_loss("L-1")],
                 hazards=[_make_hazard("H-1", related_losses=[bad_ref])],
-                security_constraints=[],
+                security_constraints=[_make_constraint("SC-1", related_hazards=["H-1"])],
             )
         assert "related_losses" in str(exc_info.value)
 
@@ -203,8 +203,8 @@ class TestLossAnalysisValidation:
                         _make_loss(dup_value),
                         _make_loss(dup_value),
                     ],
-                    hazards=[],
-                    security_constraints=[],
+                    hazards=[_make_hazard("H-1")],
+                    security_constraints=[_make_constraint("SC-1")],
                 )
             elif id_field == "hazard_id":
                 LossAnalysis(
@@ -214,7 +214,7 @@ class TestLossAnalysisValidation:
                         _make_hazard(dup_value),
                         _make_hazard(dup_value),
                     ],
-                    security_constraints=[],
+                    security_constraints=[_make_constraint("SC-1")],
                 )
             elif id_field == "constraint_id":
                 LossAnalysis(

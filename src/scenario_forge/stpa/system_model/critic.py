@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
+from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
@@ -83,6 +83,7 @@ def run_completeness_critic(
 
     Returns:
         CriticFindings model with gaps, checklist results, and taxonomy probe results.
+        Returns empty CriticFindings if the LLM call fails.
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -100,15 +101,19 @@ def run_completeness_critic(
         taxonomy_probes=taxonomy_probes,
     )
 
-    result = llm_client.complete(
+    findings, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response_format=CriticFindings,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=STEP_CRITIC,
         temperature=temperature,
     )
+    if error_msg is not None:
+        return CriticFindings()
 
-    findings = parse_llm_result(result, CriticFindings)
-    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_CRITIC)
     return findings
 
 
@@ -160,6 +165,7 @@ def run_revision(
 
     Returns:
         A tuple of (revised ControlStructure, post-revision heuristic warnings).
+        On LLM failure, returns (pre-revision ControlStructure, [warning]).
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -171,15 +177,18 @@ def run_revision(
         critic_findings=critic_findings,
     )
 
-    result = llm_client.complete(
+    revised_cs, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response_format=ControlStructure,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=STEP_REVISION,
         temperature=temperature,
     )
-
-    revised_cs = parse_llm_result(result, ControlStructure)
-    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP_REVISION)
+    if error_msg is not None:
+        return control_structure, [f"Revision failed: {error_msg}"]
 
     # Re-run structural heuristics after revision
     post_revision = run_heuristics(revised_cs, loss_analysis)
@@ -253,5 +262,5 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T14:42:29Z","module_hash":"476189601cdc78899e3e435f7474de196b2e14e11e3dee90199445f166822ec4","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":60,"end_line":112,"hash":"bfc981ab2a6bfac94b63dcab451345a76659b6c339d8237cfb38b0a618ff9606"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":115,"end_line":126,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":134,"end_line":188,"hash":"5c8ba32b4b8f1ac8b00ec3e463938c1e2199c4976e1e646dfcb280034b8f0407"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":219,"end_line":224,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":227,"end_line":230,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":233,"end_line":252,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
+# {"version":1,"tested_at":"2026-08-08T18:01:06Z","module_hash":"3937c46ef93daf15a31477e584e03a938a3adeef2454423bae2b833ccad615f6","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":60,"end_line":117,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":120,"end_line":131,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":139,"end_line":197,"hash":"41295630fb7ee15d508592a6537affe8f226de5f8e7249eba52f33397b91594c"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":228,"end_line":233,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":236,"end_line":239,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":242,"end_line":261,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
 # mutate4py-manifest-end

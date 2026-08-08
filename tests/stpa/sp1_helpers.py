@@ -13,6 +13,20 @@ from unittest.mock import MagicMock
 from scenario_forge.stpa.infra.llm import LLMResult
 
 
+def valid_empty_connection_set_dict() -> dict:
+    """Minimal ConnectionSet with no links, processes, or assignments.
+
+    Used by tests that only need Call 3 to produce a valid (but empty)
+    ConnectionSet so the merge produces a ControlStructure matching
+    the Call 2 ResponsibilitySet.
+    """
+    return {
+        "coordination_links": [],
+        "controlled_processes": [],
+        "connection_assignments": [],
+    }
+
+
 @dataclass
 class MockCall:
     """A recorded LLM call."""
@@ -44,6 +58,20 @@ class MockLLMClient:
         self.calls: list[MockCall] = []
         self._response_queue: list[Any] = []
         self._response_map: dict[type, Any] = {}
+        self._invalid_response_types: set[type] = set()
+        self._exception_response_types: dict[type, Exception] = {}
+
+    def set_invalid_response_for(self, model_class: type) -> None:
+        """Configure the mock to return an invalid response for a type.
+
+        The mock returns a dict with an obviously invalid field that
+        will fail Pydantic validation for the target model_class.
+        """
+        self._invalid_response_types.add(model_class)
+
+    def set_exception_for(self, model_class: type, exc: Exception) -> None:
+        """Configure the mock to raise *exc* when called for *model_class*."""
+        self._exception_response_types[model_class] = exc
 
     @property
     def _client(self) -> Any:
@@ -74,9 +102,16 @@ class MockLLMClient:
         )
         self.calls.append(call)
 
+        # Raise exception if configured for this response_format
+        if response_format is not None and response_format in self._exception_response_types:
+            raise self._exception_response_types[response_format]
+
         # Determine which response to return
         if self._response_queue:
             content = self._response_queue.pop(0)
+        elif response_format is not None and response_format in self._invalid_response_types:
+            # Return a non-JSON string that will fail parsing/validation
+            content = "THIS_IS_NOT_VALID_JSON{{{"
         elif response_format is not None and response_format in self._response_map:
             content = self._response_map[response_format]
         elif response_format is None and None in self._response_map:

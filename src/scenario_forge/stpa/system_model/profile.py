@@ -15,7 +15,7 @@ from scenario_forge.models.capability_profile import (
     Stage1Profile,
 )
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
+from scenario_forge.stpa.infra.llm_helpers import StageError, safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import read_yaml, write_yaml
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
@@ -51,6 +51,9 @@ def derive_capability_profile(
 
     Returns:
         Validated CapabilityProfile model.
+
+    Raises:
+        StageError: If the LLM call fails or the response fails validation.
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -63,16 +66,20 @@ def derive_capability_profile(
         all_losses=all_losses,
     )
 
-    result = llm_client.complete(
+    stage1_profile, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response_format=Stage1Profile,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=STEP,
         temperature=temperature,
     )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step=STEP, message=error_msg)
 
-    stage1_profile = parse_llm_result(result, Stage1Profile)
     capability_profile = stage1_profile.to_capability_profile()
-    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP)
     write_yaml(capability_profile, run_dir / "capability-profile.yaml")
     return capability_profile
 
@@ -92,5 +99,5 @@ def load_capability_profile(profile_path: Path) -> CapabilityProfile:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T14:39:05Z","module_hash":"f9b20182c8f4f98aa32e057faefc20e8acccc613e6c45c1cf6397947ecba8902","functions":[{"id":"func/derive_capability_profile","name":"derive_capability_profile","line":29,"end_line":77,"hash":"eebef01256c14a524b11d90c528e049b0251d4f5b3b5789f01e8132d814fd471"},{"id":"func/load_capability_profile","name":"load_capability_profile","line":80,"end_line":91,"hash":"879c915a125131af1cfb241df23ef326e72ed0742affe7d456dfc8ecb9658f89"}]}
+# {"version":1,"tested_at":"2026-08-08T18:00:08Z","module_hash":"03a6de03003ac6678d9292ab679913b7f8afd9bf539ca8971262febb8bafdbc4","functions":[{"id":"func/derive_capability_profile","name":"derive_capability_profile","line":29,"end_line":84,"hash":"1a1eab634d8bb16e680228e373c25c18ceb5f286b71d4aff6f807c7f272a3d2e"},{"id":"func/load_capability_profile","name":"load_capability_profile","line":87,"end_line":98,"hash":"879c915a125131af1cfb241df23ef326e72ed0742affe7d456dfc8ecb9658f89"}]}
 # mutate4py-manifest-end

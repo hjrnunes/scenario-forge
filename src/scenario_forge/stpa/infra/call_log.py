@@ -47,6 +47,7 @@ def make_call_log_entry(
     completion_tokens: int = 0,
     duration_ms: int = 0,
     success: bool = True,
+    error: str | None = None,
     slot_id: str | None = None,
     scenario_id: str | None = None,
     timestamp: str | None = None,
@@ -63,6 +64,7 @@ def make_call_log_entry(
         completion_tokens: Completion tokens generated.
         duration_ms: Wall-clock duration in milliseconds.
         success: Whether the call succeeded.
+        error: Optional error message for failed calls.
         slot_id: Stage 3 slot ID (e.g. ``RESP-1:CA-1-1:TYPE-1``), or None.
         scenario_id: Stage 5/6 scenario ID (e.g. ``SCN-001``), or None.
         timestamp: ISO 8601 timestamp; defaults to current UTC time.
@@ -70,7 +72,8 @@ def make_call_log_entry(
     Returns:
         A dict suitable for JSONL serialization.
     """
-    return {
+    _timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+    entry: dict[str, Any] = {
         "stage": stage,
         "step": step,
         "slot_id": slot_id,
@@ -81,9 +84,12 @@ def make_call_log_entry(
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "duration_ms": duration_ms,
-        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+        "timestamp": _timestamp,
         "success": success,
     }
+    if error is not None:
+        entry["error"] = error
+    return entry
 
 
 def append_call_log(entries: list[dict], run_dir: Path) -> None:
@@ -102,5 +108,5 @@ def append_call_log(entries: list[dict], run_dir: Path) -> None:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T11:59:51Z","module_hash":"f8fe2a20a8edd0b7aa9e751e9d276bfdb4b60caec8b772bda6fdca102f97a055","functions":[{"id":"func/_sha256","name":"_sha256","line":34,"end_line":36,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":39,"end_line":86,"hash":"2a780ade31e7be7da08157f09b16f28c4b1a6a11f76c7288fde6e4c11171e44b"},{"id":"func/append_call_log","name":"append_call_log","line":89,"end_line":101,"hash":"54c483e260f97b6586a87149e0a4913e941946248c8a5f8f16f8a4a3051f7f25"}]}
+# {"version":1,"tested_at":"2026-08-08T18:10:33Z","module_hash":"8a4610943d4088e2012f52232d38bd8e6aeed0318dc2ac5ef45eed1b159c172d","functions":[{"id":"func/_sha256","name":"_sha256","line":34,"end_line":36,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":39,"end_line":92,"hash":"16b858e8b67017048297f4aa87efcc291df32ea992edc09cec06d14fce3ca016"},{"id":"func/append_call_log","name":"append_call_log","line":95,"end_line":107,"hash":"54c483e260f97b6586a87149e0a4913e941946248c8a5f8f16f8a4a3051f7f25"}]}
 # mutate4py-manifest-end

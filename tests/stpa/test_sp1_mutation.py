@@ -16,8 +16,22 @@ from scenario_forge.models.capability_profile import (
 )
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.yaml_io import write_yaml
-from scenario_forge.stpa.models.control_structure import ControlStructure
-from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.models.control_structure import (
+    ControlAction,
+    ControlStructure,
+    ElementRef,
+    FeedbackChannel,
+    ProcessModelPart,
+    ReferenceType,
+    Responsibility,
+)
+from scenario_forge.stpa.models.loss_analysis import (
+    Hazard,
+    Loss,
+    LossAnalysis,
+    LossProvenance,
+    SecurityConstraint,
+)
 from scenario_forge.stpa.system_model.control_structure import (
     RequirementSet,
     ResponsibilitySet,
@@ -472,12 +486,47 @@ class TestSP1RunResultDefault:
         result = SP1RunResult(
             loss_analysis=LossAnalysis(
                 risk_card_losses=[],
-                use_case_losses=[],
-                hazards=[],
-                security_constraints=[],
+                use_case_losses=[
+                    Loss(
+                        loss_id="L-1",
+                        description="A loss",
+                        provenance=LossProvenance.use_case,
+                    )
+                ],
+                hazards=[
+                    Hazard(hazard_id="H-1", description="A hazard", related_losses=["L-1"]),
+                ],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="A constraint", related_hazards=["H-1"]
+                    ),
+                ],
             ),
             capability_profile=_make_profile(),
-            control_structure=ControlStructure(responsibilities=[]),
+            control_structure=ControlStructure(
+                responsibilities=[
+                    Responsibility(
+                        resp_id="RESP-1",
+                        description="Controller",
+                        process_model_parts=[
+                            ProcessModelPart(pm_id="PM-1-1", description="State")
+                        ],
+                        control_actions=[
+                            ControlAction(ca_id="CA-1-1", description="Action")
+                        ],
+                        feedback_channels=[
+                            FeedbackChannel(
+                                fb_id="FB-1-1",
+                                description="FB",
+                                updates="PM-1-1",
+                                source=ElementRef(
+                                    type=ReferenceType.responsibility, id="RESP-1"
+                                ),
+                            )
+                        ],
+                    )
+                ]
+            ),
         )
         assert result.revised is False
 
