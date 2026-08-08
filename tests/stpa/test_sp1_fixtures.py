@@ -155,7 +155,7 @@ class TestSP1FixtureIntegration:
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
         client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
 
-        control_structure = derive_control_structure(
+        control_structure, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Klarna payment agent use case",
             loss_analysis=loss_analysis,

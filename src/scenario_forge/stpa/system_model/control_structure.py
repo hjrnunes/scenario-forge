@@ -15,7 +15,11 @@ from typing import Literal
 from pydantic import BaseModel
 
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import StageError, safe_llm_call
+from scenario_forge.stpa.infra.llm_helpers import (
+    StageError,
+    log_llm_call_failure,
+    safe_llm_call,
+)
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import (
@@ -176,8 +180,14 @@ def derive_control_structure(
     run_dir: Path,
     template_loader: TemplateLoader | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
-) -> ControlStructure:
+) -> tuple[ControlStructure, list[str]]:
     """Run all three Stage 2 calls in sequence and assemble the ControlStructure.
+
+    If the merge of ResponsibilitySet (Call 2) and ConnectionSet (Call 3)
+    fails due to invalid cross-references in the ConnectionSet, the merge
+    failure is logged and a fallback ControlStructure is built from the
+    ResponsibilitySet alone (without coordination links). The returned
+    warning list is non-empty in that case.
 
     Args:
         llm_client: LLM client for making completion calls.
@@ -188,7 +198,8 @@ def derive_control_structure(
         temperature: LLM temperature (default 0.4).
 
     Returns:
-        Validated ControlStructure model.
+        A tuple of (validated ControlStructure, merge_warnings). The
+        warning list is empty when the merge succeeds.
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -222,10 +233,29 @@ def derive_control_structure(
         temperature=temperature,
     )
 
-    control_structure = merge_connection_set(responsibility_set, connection_set)
+    merge_warnings: list[str] = []
+    try:
+        control_structure = merge_connection_set(responsibility_set, connection_set)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        log_llm_call_failure(
+            llm_client.model,
+            run_dir,
+            STAGE,
+            "merge_connection_set",
+            error_msg,
+        )
+        merge_warnings.append(
+            f"{STAGE}/merge_connection_set: {error_msg}"
+        )
+        # Fall back to ResponsibilitySet-only ControlStructure
+        control_structure = ControlStructure(
+            responsibilities=responsibility_set.responsibilities,
+            controlled_processes=responsibility_set.controlled_processes,
+        )
 
     write_yaml(control_structure, run_dir / "control-structure.yaml")
-    return control_structure
+    return control_structure, merge_warnings
 
 
 # ---------------------------------------------------------------------------

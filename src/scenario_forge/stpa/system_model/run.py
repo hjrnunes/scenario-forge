@@ -226,7 +226,7 @@ def _run_stage_2_block(
         return _Stage2Result()
 
     try:
-        control_structure = derive_control_structure(
+        control_structure, merge_warnings = derive_control_structure(
             llm_client=llm_client,
             use_case_text=use_case_text,
             loss_analysis=loss_analysis,
@@ -234,6 +234,7 @@ def _run_stage_2_block(
             template_loader=loader,
             temperature=temperature,
         )
+        stage_errors.extend(merge_warnings)
     except StageError as exc:
         stage_errors.append(str(exc))
         return _Stage2Result()
