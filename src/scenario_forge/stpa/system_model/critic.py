@@ -158,6 +158,119 @@ def has_unjustified_gaps(findings: CriticFindings) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Critic ID sanitization
+# ---------------------------------------------------------------------------
+
+# Patterns for non-conforming IDs: any ID-like token that uses ID 0.
+# These are IDs the critic might suggest that would cause the revision
+# LLM to produce invalid Pydantic ValidationError on the RevisionDelta.
+_ID_ZERO_PATTERNS: dict[str, str] = {
+    "PM-0": "a new PM part",
+    "RESP-0": "a new responsibility",
+    "CA-0": "a new control action",
+    "FB-0": "a new feedback channel",
+}
+
+# Also catch multi-part zero IDs like PM-0-1, CA-0-1, FB-0-1
+_MULTIPART_ZERO_PATTERN = re.compile(
+    r"\b(PM|RESP|CA|FB)-0(?:-\d+)?\b"
+)
+
+# Conforming ID patterns (valid format, non-zero):
+# RESP-N, PM-X-Y, CA-X-Y, FB-X-Y, CP-N, CL-N, RC-X-Y
+_CONFORMING_PATTERNS = [
+    re.compile(r"^RESP-\d+$"),
+    re.compile(r"^PM-\d+-\d+$"),
+    re.compile(r"^CA-\d+-\d+$"),
+    re.compile(r"^FB-\d+-\d+$"),
+    re.compile(r"^CP-\d+$"),
+    re.compile(r"^CL-\d+$"),
+    re.compile(r"^RC-\d+-\d+$"),
+]
+
+# Any ID-like token (for detection): RESP-*, PM-*, CA-*, FB-*, CP-*, CL-*, RC-*
+_ID_LIKE_PATTERN = re.compile(
+    r"\b(?:RESP|PM|CA|FB|CP|CL|RC)-\d+(?:-\d+)?\b"
+)
+
+# Zero-number detection for non-conforming IDs
+_ZERO_ID_PATTERN = re.compile(
+    r"\b(?:RESP|PM|CA|FB|CP|CL|RC)-0(?:-\d+)?\b"
+)
+
+
+def _is_conforming_id(token: str) -> bool:
+    """Check whether an ID-like token matches a valid format and is non-zero."""
+    return any(p.match(token) for p in _CONFORMING_PATTERNS)
+
+
+def _replace_non_conforming_ids(remedy: str) -> str:
+    """Replace non-conforming ID tokens in a suggested_remedy string.
+
+    Replaces zero-based IDs (PM-0, RESP-0, CA-0, FB-0, and multi-part
+    variants like PM-0-1) with generic descriptions. Also replaces
+    any ID-like token that does not match a conforming format.
+    """
+    def _replacer(match: re.Match) -> str:
+        token = match.group()
+        if _is_conforming_id(token):
+            return token
+        # Non-conforming: determine replacement
+        prefix = token.split("-")[0]
+        generic_map = {
+            "PM": "a new PM part",
+            "RESP": "a new responsibility",
+            "CA": "a new control action",
+            "FB": "a new feedback channel",
+            "CP": "a new controlled process",
+            "CL": "a new coordination link",
+            "RC": "a new responsibility constraint",
+        }
+        return generic_map.get(prefix, "a new element")
+
+    return _ID_LIKE_PATTERN.sub(_replacer, remedy)
+
+
+def sanitize_critic_ids(findings: CriticFindings) -> CriticFindings:
+    """Sanitize non-conforming IDs in critic suggested_remedy strings.
+
+    The completeness critic's ``suggested_remedy`` field is free-text and
+    may contain non-conforming IDs (e.g., ``PM-0``, ``RESP-0``, or
+    IDs that don't match the standard format). These are passed verbatim
+    into the revision user prompt, causing the revision LLM to use invalid
+    IDs and trigger Pydantic ValidationError on the RevisionDelta output.
+
+    This function replaces non-conforming IDs with generic descriptions
+    (e.g., ``PM-0`` → ``a new PM part``) so the revision model receives
+    only valid or descriptive text.
+
+    Args:
+        findings: The CriticFindings from the completeness critic.
+
+    Returns:
+        A new CriticFindings with sanitized suggested_remedy strings.
+        ``checklist_results`` and ``taxonomy_probe_results`` are preserved
+        unchanged.
+    """
+    sanitized_gaps = []
+    for gap in findings.gaps:
+        sanitized_remedy = _replace_non_conforming_ids(gap.suggested_remedy)
+        sanitized_gaps.append(
+            CriticGap(
+                gap_type=gap.gap_type,
+                description=gap.description,
+                related_attack_path=gap.related_attack_path,
+                suggested_remedy=sanitized_remedy,
+            )
+        )
+    return CriticFindings(
+        gaps=sanitized_gaps,
+        checklist_results=findings.checklist_results,
+        taxonomy_probe_results=findings.taxonomy_probe_results,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Revision
 # ---------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ Three sequential LLM calls applying Poh's Behavioral Design Process:
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,6 +29,7 @@ from scenario_forge.stpa.models.control_structure import (
     CoordinationLink,
     ControlledProcess,
     ElementRef,
+    FeedbackChannel,
     Responsibility,
     _is_valid_element_ref,
 )
@@ -383,6 +385,125 @@ def _merge_with_fallback(
 
 
 # ---------------------------------------------------------------------------
+# Orphan PM repair — deterministic, no LLM dependency
+# ---------------------------------------------------------------------------
+
+
+def _extract_resp_num(resp_id: str) -> int:
+    """Extract the numeric suffix from a resp_id like 'RESP-3'."""
+    match = re.search(r"\d+", resp_id)
+    return int(match.group()) if match else 0
+
+
+def _next_fb_num(resp: Responsibility) -> int:
+    """Return the next available FB number for a responsibility.
+
+    Scans existing feedback_channels and returns ``max(fb_nums) + 1``,
+    or 1 when the responsibility has no feedback channels.
+    """
+    nums = []
+    for fb in resp.feedback_channels:
+        match = re.match(r"FB-\d+-(\d+)", fb.fb_id)
+        if match:
+            nums.append(int(match.group(1)))
+    return max(nums, default=0) + 1
+
+
+def _find_orphan_pms(resp: Responsibility) -> list[str]:
+    """Return PM IDs in *resp* that no feedback channel updates."""
+    updated_pms = {fb.updates for fb in resp.feedback_channels}
+    return [
+        pm.pm_id for pm in resp.process_model_parts
+        if pm.pm_id not in updated_pms
+    ]
+
+
+def _create_stub_fb(
+    resp: Responsibility,
+    pm_id: str,
+    fb_num: int,
+) -> FeedbackChannel:
+    """Create a stub FeedbackChannel for an orphan PM.
+
+    Args:
+        resp: The responsibility containing the orphan PM.
+        pm_id: The orphan PM's ID (e.g. 'PM-1-3').
+        fb_num: The FB number to assign (e.g. 2 → 'FB-1-2').
+
+    Returns:
+        A FeedbackChannel with auto-generated description and updates
+        referencing the orphan PM.
+    """
+    resp_num = _extract_resp_num(resp.resp_id)
+    fb_id = f"FB-{resp_num}-{fb_num}"
+    # Reuse an existing feedback_source if any FB has one
+    source = None
+    for fb in resp.feedback_channels:
+        if fb.source is not None:
+            source = fb.source
+            break
+    return FeedbackChannel(
+        fb_id=fb_id,
+        description=f"Auto-generated feedback for orphan {pm_id}",
+        updates=pm_id,
+        source=source,
+    )
+
+
+def repair_orphan_pms(
+    responsibility_set: ResponsibilitySet,
+) -> tuple[ResponsibilitySet, list[str]]:
+    """Repair orphan PM parts by auto-generating stub feedback channels.
+
+    For each responsibility, finds PM parts where no feedback channel has
+    that PM in its ``updates`` list. For each orphan PM, creates a stub
+    feedback channel:
+      - ``fb_id``: ``FB-{resp_num}-{next_fb_num}``
+      - ``description``: ``"Auto-generated feedback for orphan PM {pm_id}"``
+      - ``updates``: ``[pm_id]``
+      - ``source``: reuses an existing FB source if available, else None
+
+    Args:
+        responsibility_set: The ResponsibilitySet from Call 2.
+
+    Returns:
+        A tuple of (repaired ResponsibilitySet, warnings). Each warning
+        mentions the orphan PM ID. If no orphans exist, the set is
+        returned unchanged with an empty warnings list.
+    """
+    warnings: list[str] = []
+    any_repaired = False
+    repaired_resps: list[Responsibility] = []
+
+    for resp in responsibility_set.responsibilities:
+        orphan_pm_ids = _find_orphan_pms(resp)
+        if not orphan_pm_ids:
+            repaired_resps.append(resp)
+            continue
+
+        any_repaired = True
+        resp_copy = copy.deepcopy(resp)
+        next_num = _next_fb_num(resp_copy)
+        for pm_id in orphan_pm_ids:
+            stub = _create_stub_fb(resp_copy, pm_id, next_num)
+            resp_copy.feedback_channels.append(stub)
+            warnings.append(
+                f"Auto-generated feedback channel {stub.fb_id} "
+                f"for orphan PM {pm_id} in responsibility {resp.resp_id}."
+            )
+            next_num += 1
+        repaired_resps.append(resp_copy)
+
+    if not any_repaired:
+        return responsibility_set, warnings
+
+    repaired_set = responsibility_set.model_copy(
+        update={"responsibilities": repaired_resps},
+    )
+    return repaired_set, warnings
+
+
+# ---------------------------------------------------------------------------
 # Stage 2 — three sequential LLM calls
 # ---------------------------------------------------------------------------
 
@@ -440,6 +561,9 @@ def derive_control_structure(
         temperature=temperature,
     )
 
+    # Repair orphan PMs — auto-generate stub FB channels before Call 3
+    responsibility_set, repair_warnings = repair_orphan_pms(responsibility_set)
+
     # Call 3 — Connections
     connection_set = _call_3_connections(
         llm_client=llm_client,
@@ -455,7 +579,7 @@ def derive_control_structure(
     )
 
     write_yaml(control_structure, run_dir / "control-structure.yaml")
-    return control_structure, merge_warnings
+    return control_structure, merge_warnings + repair_warnings
 
 
 # ---------------------------------------------------------------------------

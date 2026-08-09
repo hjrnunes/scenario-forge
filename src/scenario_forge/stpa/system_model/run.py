@@ -35,6 +35,7 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
     run_completeness_critic,
     run_revision,
+    sanitize_critic_ids,
     strip_empty_responsibilities,
 )
 from scenario_forge.stpa.system_model.heuristics import (
@@ -268,6 +269,9 @@ def _run_stage_2_block(
         template_loader=loader,
         temperature=temperature,
     )
+
+    # Sanitize non-conforming IDs from critic remedies before revision
+    critic_findings = sanitize_critic_ids(critic_findings)
 
     # Revision (single attempt if unjustified gaps; graceful on failure)
     post_revision_warnings: list[str] = []

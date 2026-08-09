@@ -49,6 +49,8 @@ Feedback sources and control action targets use ElementRef:
 
 All ElementRef references must point to existing responsibilities or controlled processes.
 
+CRITICAL: Every process model part (PM-X-Y) MUST have at least one feedback channel (FB-X-Y) whose updates field references that PM. If a responsibility has N process model parts, it must have at least N feedback channels. No orphan PMs — every PM must be updated by some FB.
+
 ## Output format
 
 Produce a ResponsibilitySet with:
