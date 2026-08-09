@@ -13,7 +13,7 @@ from pathlib import Path
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
-    build_kc_subcodes_display,
+    inject_kc_subcodes_display,
 )
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import StageError, safe_llm_call
@@ -25,25 +25,6 @@ from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 STAGE = "stage_1b"
 STEP = "capability_profile"
 DEFAULT_TEMPERATURE = 0.4
-
-
-def inject_kc_subcodes_display(data: dict) -> dict:
-    """Inject kc_subcodes_display into the dumped profile dict.
-
-    Post-processing hook for ``write_yaml`` — adds a companion
-    ``kc_subcodes_display`` field mapping each KC sub-code to its
-    human-readable description, using the shared
-    :func:`build_kc_subcodes_display` helper.
-
-    This function is the STPA pipeline's bridge between the generic
-    ``write_yaml`` serializer (which cannot import from the models
-    layer due to clean-copy policy) and the ``build_kc_subcodes_display``
-    helper in ``capability_profile.py``.
-    """
-    kc_subcodes = data.get("kc_subcodes")
-    if kc_subcodes is not None:
-        data["kc_subcodes_display"] = build_kc_subcodes_display(kc_subcodes)
-    return data
 
 
 def derive_capability_profile(

@@ -23,6 +23,41 @@ if TYPE_CHECKING:
     from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 
 
+def _validate_id_format(
+    value: str,
+    field_name: str,
+    format_spec: str,
+    example: str,
+    pattern: str,
+) -> str:
+    """Validate that *value* matches the expected ID format.
+
+    All control-structure ID fields share the same validation logic:
+    regex-check the value and raise a descriptive ValueError on mismatch.
+    This helper eliminates the per-field boilerplate while keeping each
+    field's error message specific.
+
+    Args:
+        value: The ID string to validate.
+        field_name: Human-readable field name for the error message.
+        format_spec: Format placeholder (e.g. ``"RC-X-Y"``).
+        example: Concrete example for the error message (e.g. ``"RC-1-1"``).
+        pattern: Anchored regex pattern the value must match.
+
+    Returns:
+        The validated value (unchanged).
+
+    Raises:
+        ValueError: If *value* does not match *pattern*.
+    """
+    if not re.match(pattern, value):
+        raise ValueError(
+            f"{field_name} must match format '{format_spec}' "
+            f"(e.g. '{example}'), got '{value}'"
+        )
+    return value
+
+
 class ReferenceType(str, Enum):
     """Type of element referenced by an ElementRef."""
 
@@ -46,11 +81,7 @@ class ResponsibilityConstraint(BaseModel):
     @field_validator("rc_id")
     @classmethod
     def validate_rc_id_format(cls, v: str) -> str:
-        if not re.match(r"^RC-\d+-\d+$", v):
-            raise ValueError(
-                f"rc_id must match format 'RC-X-Y' (e.g. 'RC-1-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "rc_id", "RC-X-Y", "RC-1-1", r"^RC-\d+-\d+$")
 
 
 class ProcessModelPart(BaseModel):
@@ -63,11 +94,7 @@ class ProcessModelPart(BaseModel):
     @field_validator("pm_id")
     @classmethod
     def validate_pm_id_format(cls, v: str) -> str:
-        if not re.match(r"^PM-\d+-\d+$", v):
-            raise ValueError(
-                f"pm_id must match format 'PM-X-Y' (e.g. 'PM-1-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "pm_id", "PM-X-Y", "PM-1-1", r"^PM-\d+-\d+$")
 
 
 class ControlAction(BaseModel):
@@ -80,11 +107,7 @@ class ControlAction(BaseModel):
     @field_validator("ca_id")
     @classmethod
     def validate_ca_id_format(cls, v: str) -> str:
-        if not re.match(r"^CA-\d+-\d+$", v):
-            raise ValueError(
-                f"ca_id must match format 'CA-X-Y' (e.g. 'CA-1-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "ca_id", "CA-X-Y", "CA-1-1", r"^CA-\d+-\d+$")
 
 
 class FeedbackChannel(BaseModel):
@@ -98,11 +121,7 @@ class FeedbackChannel(BaseModel):
     @field_validator("fb_id")
     @classmethod
     def validate_fb_id_format(cls, v: str) -> str:
-        if not re.match(r"^FB-\d+-\d+$", v):
-            raise ValueError(
-                f"fb_id must match format 'FB-X-Y' (e.g. 'FB-1-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "fb_id", "FB-X-Y", "FB-1-1", r"^FB-\d+-\d+$")
 
 
 class Responsibility(BaseModel):
@@ -120,11 +139,7 @@ class Responsibility(BaseModel):
     @field_validator("resp_id")
     @classmethod
     def validate_resp_id_format(cls, v: str) -> str:
-        if not re.match(r"^RESP-\d+$", v):
-            raise ValueError(
-                f"resp_id must match format 'RESP-N' (e.g. 'RESP-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "resp_id", "RESP-N", "RESP-1", r"^RESP-\d+$")
 
 
 class ControlledProcess(BaseModel):
@@ -136,11 +151,7 @@ class ControlledProcess(BaseModel):
     @field_validator("cp_id")
     @classmethod
     def validate_cp_id_format(cls, v: str) -> str:
-        if not re.match(r"^CP-\d+$", v):
-            raise ValueError(
-                f"cp_id must match format 'CP-N' (e.g. 'CP-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "cp_id", "CP-N", "CP-1", r"^CP-\d+$")
 
 
 class CoordinationMechanism(BaseModel):
@@ -153,11 +164,7 @@ class CoordinationMechanism(BaseModel):
     @field_validator("cm_id")
     @classmethod
     def validate_cm_id_format(cls, v: str) -> str:
-        if not re.match(r"^CM-\d+$", v):
-            raise ValueError(
-                f"cm_id must match format 'CM-N' (e.g. 'CM-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "cm_id", "CM-N", "CM-1", r"^CM-\d+$")
 
 
 class CoordinationLink(BaseModel):
@@ -173,11 +180,7 @@ class CoordinationLink(BaseModel):
     @field_validator("link_id")
     @classmethod
     def validate_link_id_format(cls, v: str) -> str:
-        if not re.match(r"^CL-\d+$", v):
-            raise ValueError(
-                f"link_id must match format 'CL-N' (e.g. 'CL-1'), got '{v}'"
-            )
-        return v
+        return _validate_id_format(v, "link_id", "CL-N", "CL-1", r"^CL-\d+$")
 
 
 class ControlStructure(BaseModel):
@@ -192,23 +195,18 @@ class ControlStructure(BaseModel):
         resp_ids = {r.resp_id for r in self.responsibilities}
         cp_ids = {cp.cp_id for cp in self.controlled_processes}
 
-        check_duplicate_ids([r.resp_id for r in self.responsibilities], "resp_id")
-        check_duplicate_ids([cp.cp_id for cp in self.controlled_processes], "cp_id")
-
         all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = (
             _collect_child_ids(self.responsibilities)
         )
 
-        check_duplicate_ids(all_rc_ids, "rc_id")
-        check_duplicate_ids(all_pm_ids, "pm_id")
-        check_duplicate_ids(all_ca_ids, "ca_id")
-        check_duplicate_ids(all_fb_ids, "fb_id")
-        check_duplicate_ids(
-            [cl.link_id for cl in self.coordination_links], "link_id"
-        )
-        check_duplicate_ids(
-            [cl.coordination_mechanism.cm_id for cl in self.coordination_links],
-            "cm_id",
+        _check_all_duplicate_ids(
+            self.responsibilities,
+            self.controlled_processes,
+            self.coordination_links,
+            all_rc_ids,
+            all_pm_ids,
+            all_ca_ids,
+            all_fb_ids,
         )
 
         _check_cross_namespace_collision(self.responsibilities, self.controlled_processes)
@@ -220,6 +218,28 @@ class ControlStructure(BaseModel):
         )
 
         return self
+
+
+def _check_all_duplicate_ids(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+    coordination_links: list[CoordinationLink],
+    all_rc_ids: list[str],
+    all_pm_ids: list[str],
+    all_ca_ids: list[str],
+    all_fb_ids: list[str],
+) -> None:
+    """Check every ID type for duplicates at the control-structure level."""
+    check_duplicate_ids([r.resp_id for r in responsibilities], "resp_id")
+    check_duplicate_ids([cp.cp_id for cp in controlled_processes], "cp_id")
+    check_duplicate_ids(all_rc_ids, "rc_id")
+    check_duplicate_ids(all_pm_ids, "pm_id")
+    check_duplicate_ids(all_ca_ids, "ca_id")
+    check_duplicate_ids(all_fb_ids, "fb_id")
+    check_duplicate_ids([cl.link_id for cl in coordination_links], "link_id")
+    check_duplicate_ids(
+        [cl.coordination_mechanism.cm_id for cl in coordination_links], "cm_id"
+    )
 
 
 def _is_valid_element_ref(
@@ -269,6 +289,51 @@ def _collect_child_ids(
     return all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp
 
 
+def _collect_all_id_sets(
+    responsibilities: list[Responsibility],
+) -> tuple[set[str], set[str], set[str], set[str], set[str]]:
+    """Collect all RC/PM/CA/FB/RESP ID sets across responsibilities.
+
+    Returns:
+        A tuple of (rc_ids, pm_ids, ca_ids, fb_ids, resp_ids).
+    """
+    rc_ids: set[str] = set()
+    pm_ids: set[str] = set()
+    ca_ids: set[str] = set()
+    fb_ids: set[str] = set()
+    resp_ids: set[str] = set()
+    for resp in responsibilities:
+        resp_ids.add(resp.resp_id)
+        rc_ids.update(rc.rc_id for rc in resp.responsibility_constraints)
+        pm_ids.update(pm.pm_id for pm in resp.process_model_parts)
+        ca_ids.update(ca.ca_id for ca in resp.control_actions)
+        fb_ids.update(fb.fb_id for fb in resp.feedback_channels)
+    return rc_ids, pm_ids, ca_ids, fb_ids, resp_ids
+
+
+def _collect_namespace_buckets(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> list[tuple[str, set[str]]]:
+    """Collect ID sets grouped by namespace name.
+
+    Returns a list of (namespace_name, id_set) pairs for every ID type
+    in the control structure.
+    """
+    rc_ids, pm_ids, ca_ids, fb_ids, resp_ids = _collect_all_id_sets(
+        responsibilities
+    )
+    cp_ids = {cp.cp_id for cp in controlled_processes}
+    return [
+        ("rc_id", rc_ids),
+        ("pm_id", pm_ids),
+        ("ca_id", ca_ids),
+        ("fb_id", fb_ids),
+        ("resp_id", resp_ids),
+        ("cp_id", cp_ids),
+    ]
+
+
 def _check_cross_namespace_collision(
     responsibilities: list[Responsibility],
     controlled_processes: list[ControlledProcess],
@@ -281,35 +346,9 @@ def _check_cross_namespace_collision(
     validators alone cannot detect when validators are bypassed (e.g.
     an RC-1-1 value used as both rc_id and pm_id).
     """
-    namespace_buckets: list[tuple[str, set[str]]] = []
-
-    rc_ids: set[str] = set()
-    pm_ids: set[str] = set()
-    ca_ids: set[str] = set()
-    fb_ids: set[str] = set()
-    resp_ids: set[str] = set()
-    for resp in responsibilities:
-        resp_ids.add(resp.resp_id)
-        for rc in resp.responsibility_constraints:
-            rc_ids.add(rc.rc_id)
-        for pm in resp.process_model_parts:
-            pm_ids.add(pm.pm_id)
-        for ca in resp.control_actions:
-            ca_ids.add(ca.ca_id)
-        for fb in resp.feedback_channels:
-            fb_ids.add(fb.fb_id)
-    cp_ids = {cp.cp_id for cp in controlled_processes}
-
-    namespace_buckets = [
-        ("rc_id", rc_ids),
-        ("pm_id", pm_ids),
-        ("ca_id", ca_ids),
-        ("fb_id", fb_ids),
-        ("resp_id", resp_ids),
-        ("cp_id", cp_ids),
-    ]
-
-    # Check every pair of namespace buckets for shared ID values.
+    namespace_buckets = _collect_namespace_buckets(
+        responsibilities, controlled_processes
+    )
     for i, (name_a, bucket_a) in enumerate(namespace_buckets):
         for name_b, bucket_b in namespace_buckets[i + 1 :]:
             shared = bucket_a & bucket_b

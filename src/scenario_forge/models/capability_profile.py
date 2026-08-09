@@ -188,6 +188,23 @@ def build_kc_subcodes_display(kc_subcodes: list[str]) -> dict[str, str]:
     return display
 
 
+def inject_kc_subcodes_display(data: dict) -> dict:
+    """Inject ``kc_subcodes_display`` into a dumped profile dict.
+
+    Post-processing hook for ``write_yaml`` — adds a companion
+    ``kc_subcodes_display`` field mapping each KC sub-code to its
+    human-readable description, using :func:`build_kc_subcodes_display`.
+
+    Both the STPA pipeline (``stpa.system_model.profile``) and the
+    existing pipeline (``pipeline.io``) call this shared function so
+    that the injection logic is defined in exactly one place.
+    """
+    kc_subcodes = data.get("kc_subcodes")
+    if kc_subcodes is not None:
+        data["kc_subcodes_display"] = build_kc_subcodes_display(kc_subcodes)
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Zone derivation from KC sub-codes
 # ---------------------------------------------------------------------------

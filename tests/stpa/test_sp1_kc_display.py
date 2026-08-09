@@ -11,11 +11,11 @@ import yaml
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     build_kc_subcodes_display,
+    inject_kc_subcodes_display,
     KC_SUBCODE_NAMES,
     KCX_SUBCODES,
 )
 from scenario_forge.stpa.infra.yaml_io import write_yaml, read_yaml
-from scenario_forge.stpa.system_model.profile import inject_kc_subcodes_display
 
 
 def _make_profile(kc_subcodes: list[str]) -> CapabilityProfile:
@@ -163,17 +163,15 @@ class TestSharedHelper:
     """KCDisp-08: both serialization paths use the same helper function."""
 
     def test_kcdisp_08_both_paths_use_same_helper(self):
-        """KCDisp-08: verify both paths use build_kc_subcodes_display."""
+        """KCDisp-08: verify both paths use the shared injection function."""
         import inspect
 
         from scenario_forge.pipeline.io import write_capability_profile
-        from scenario_forge.stpa.system_model.profile import inject_kc_subcodes_display
 
         io_src = inspect.getsource(write_capability_profile)
-        profile_src = inspect.getsource(inject_kc_subcodes_display)
 
-        # Both paths must reference the shared helper.
-        assert "build_kc_subcodes_display" in io_src
-        assert "build_kc_subcodes_display" in profile_src
-        # The helper exists and is callable.
+        # The pipeline io.py path must call the shared injection function.
+        assert "inject_kc_subcodes_display" in io_src
+        # The shared injection function and its underlying helper are callable.
+        assert callable(inject_kc_subcodes_display)
         assert callable(build_kc_subcodes_display)
