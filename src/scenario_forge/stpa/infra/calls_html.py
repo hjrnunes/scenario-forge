@@ -90,31 +90,44 @@ def _build_summary_html(summary: dict[str, Any]) -> str:
     )
 
 
+_DETAIL_HEADERS = (
+    "stage", "step", "model", "prompt_tokens",
+    "completion_tokens", "duration_ms", "timestamp", "status",
+)
+
+
+def _build_status_cell(success: bool, entry: dict[str, Any]) -> str:
+    """Build the HTML for the status column of a detail row."""
+    if success:
+        return "<td>OK</td>"
+    error = entry.get("error", "")
+    return f'<td>FAILED<br><span class="error-msg">{_html_escape(error)}</span></td>'
+
+
+def _build_entry_cells(entry: dict[str, Any]) -> list[str]:
+    """Build all table cells for a single detail-row entry."""
+    success = entry.get("success", True)
+    cells: list[str] = []
+    for h in _DETAIL_HEADERS:
+        if h == "status":
+            cells.append(_build_status_cell(success, entry))
+        else:
+            val = entry.get(h, "")
+            cells.append(f"<td>{_html_escape(str(val))}</td>")
+    return cells
+
+
 def _build_detail_html(entries: list[dict[str, Any]]) -> str:
     """Build the detail table HTML."""
-    headers = [
-        "stage", "step", "model", "prompt_tokens",
-        "completion_tokens", "duration_ms", "timestamp", "status",
-    ]
-    header_row = "    <tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>\n"
+    header_row = "    <tr>" + "".join(
+        f"<th>{h}</th>" for h in _DETAIL_HEADERS
+    ) + "</tr>\n"
 
     body_rows: list[str] = []
     for entry in entries:
         success = entry.get("success", True)
         css_class = "" if success else ' class="failed"'
-        cells: list[str] = []
-        for h in headers:
-            if h == "status":
-                if success:
-                    cells.append("<td>OK</td>")
-                else:
-                    error = entry.get("error", "")
-                    cells.append(
-                        f'<td>FAILED<br><span class="error-msg">{_html_escape(error)}</span></td>'
-                    )
-            else:
-                val = entry.get(h, "")
-                cells.append(f"<td>{_html_escape(str(val))}</td>")
+        cells = _build_entry_cells(entry)
         body_rows.append(f"    <tr{css_class}>" + "".join(cells) + "</tr>")
 
     body = "\n".join(body_rows)

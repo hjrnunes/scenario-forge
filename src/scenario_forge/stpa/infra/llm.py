@@ -141,6 +141,21 @@ class LLMClient:
             default_headers=self.extra_headers or None,
         )
 
+    def _build_extra_kwargs(
+        self,
+        effective_max: int | None,
+        effective_temp: float,
+    ) -> dict[str, Any]:
+        """Build the extra kwargs dict for the OpenAI completion call."""
+        kwargs: dict[str, Any] = {"temperature": effective_temp}
+        if effective_max is not None:
+            kwargs["max_completion_tokens"] = effective_max
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
+        if self.top_k is not None:
+            kwargs["top_k"] = self.top_k
+        return kwargs
+
     def complete(
         self,
         system_prompt: str,
@@ -157,13 +172,7 @@ class LLMClient:
             {"role": "user", "content": user_prompt},
         ]
 
-        extra_kwargs: dict[str, Any] = {"temperature": effective_temp}
-        if effective_max is not None:
-            extra_kwargs["max_completion_tokens"] = effective_max
-        if self.top_p is not None:
-            extra_kwargs["top_p"] = self.top_p
-        if self.top_k is not None:
-            extra_kwargs["top_k"] = self.top_k
+        extra_kwargs = self._build_extra_kwargs(effective_max, effective_temp)
 
         t0 = time.perf_counter_ns()
 
