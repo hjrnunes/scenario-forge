@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=5872ba70a55fc31d656fa28d476ad8fda9624034ecd73a87c3a936522224282a
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T09:07:27.151008Z","feature_name":"Model profiles with tunable parameters","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/model_profiles.feature","background_hash":"3fe69e6270199f792c03b94eb86eb3144469d42b2eb5853d73a1a83bca90b42d","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: Model profiles with tunable parameters
   The STPA pipeline loads LLM connection and generation parameters from
   named profiles in a YAML file. This replaces editing environment variables

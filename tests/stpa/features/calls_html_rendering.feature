@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=3d54e705c589404d8b8623913d4127b08693e32600594ab54a4bac3273dff79c
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T09:07:35.692694Z","feature_name":"HTML rendering of calls.jsonl","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/calls_html_rendering.feature","background_hash":"2b4230484f333c0cd6b2478e522c7eca3db322f5752e8fba4b7bf11254da08ba","implementation_hash":"unknown","scenarios":[{"index":5,"name":"CH-06 detail table includes expected columns","scenario_hash":"b7e2b4603ad7bf4b7bfd3d5956ae83761667b7f4e3fc2a622878babda59a2bd4","mutation_count":5,"result":{"Total":5,"Killed":5,"Survived":0,"Errors":0},"tested_at":"2026-08-09T09:07:35.692694Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: HTML rendering of calls.jsonl
   The STPA pipeline produces a calls.jsonl file with one JSON object per
   LLM call. A render function converts this file into a self-contained

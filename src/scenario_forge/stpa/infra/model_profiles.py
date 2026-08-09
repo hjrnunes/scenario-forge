@@ -103,3 +103,8 @@ def load_profile(profiles_path: Path | str, profile_name: str) -> dict[str, Any]
         _extract_required_fields(profile, profile_name, path)
         | _extract_optional_fields(profile)
     )
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T09:14:52Z","module_hash":"48c96c3023633fc3db6f4f3e4dc706f00937cb5f080264e152b2e6c6cff83fce","functions":[{"id":"func/_load_raw_profiles","name":"_load_raw_profiles","line":24,"end_line":32,"hash":"ff714750fe0041b0b6da7ec349da7bcc14766d59655e4536d289e1c0d6fc4cf4"},{"id":"func/_resolve_profile_dict","name":"_resolve_profile_dict","line":35,"end_line":51,"hash":"7f8ef73c2f1b0a7c086027ef8d87c8269586c4b66cba2e02d3da9b1c4c1d4a17"},{"id":"func/_extract_required_fields","name":"_extract_required_fields","line":54,"end_line":70,"hash":"3e51e29750c3c8be2322681e723f58543c9864284fcc95c18939d14f783c4145"},{"id":"func/_extract_optional_fields","name":"_extract_optional_fields","line":73,"end_line":79,"hash":"31c602779e4937352a8689dd491214f609f749c699e6b2383fb53e3a1d897478"},{"id":"func/load_profile","name":"load_profile","line":82,"end_line":105,"hash":"7456fd596395071d3ba836e477b68cc17573daa2fb96ac625b7c36f6be69f3dd"}]}
+# mutate4py-manifest-end

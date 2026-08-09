@@ -9,7 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from scenario_forge.stpa.infra.calls_html import render_calls_html
+from scenario_forge.stpa.infra.calls_html import (
+    _build_entry_cells,
+    _build_detail_html,
+    _compute_summary,
+    _read_calls,
+    render_calls_html,
+)
 
 
 def _write_calls_jsonl(path: Path, entries: list[dict]) -> Path:
@@ -172,3 +178,57 @@ class TestRenderCallsHtml:
         # Count occurrences of the model name — should be in all 4 rows
         count = html.count("gemma-4-26b-a4b-it")
         assert count >= 4
+
+    def test_missing_calls_file_is_treated_as_empty(self, tmp_path):
+        """A missing calls log produces the same empty input as an empty file."""
+        assert _read_calls(tmp_path / "missing.jsonl") == []
+
+    def test_summary_counts_success_failure_and_totals(self):
+        """Summary arithmetic preserves counts and token/duration totals."""
+        entries = [
+            {"success": True, "prompt_tokens": 2, "completion_tokens": 3,
+             "duration_ms": 5},
+            {"success": False, "prompt_tokens": 7, "completion_tokens": 11,
+             "duration_ms": 13},
+        ]
+        assert _compute_summary(entries) == {
+            "total_calls": 2,
+            "success_count": 1,
+            "failure_count": 1,
+            "total_prompt_tokens": 9,
+            "total_completion_tokens": 14,
+            "total_duration_ms": 18,
+        }
+
+    def test_summary_defaults_missing_success_and_metrics(self):
+        """Summary treats omitted success and metrics as successful zeroes."""
+        assert _compute_summary([{}]) == {
+            "total_calls": 1,
+            "success_count": 1,
+            "failure_count": 0,
+            "total_prompt_tokens": 0,
+            "total_completion_tokens": 0,
+            "total_duration_ms": 0,
+        }
+
+    def test_success_entry_uses_status_cell_and_default_values(self):
+        """Successful rows render the status column as OK."""
+        cells = _build_entry_cells({"success": True})
+        assert cells[-1] == "<td>OK</td>"
+        assert len(cells) == 8
+        assert "FAILED" not in "".join(cells)
+
+    def test_omitted_success_defaults_to_ok_in_detail_cells(self):
+        """Detail cells use the successful default when success is omitted."""
+        assert _build_entry_cells({})[-1] == "<td>OK</td>"
+
+    def test_success_detail_row_has_no_failure_class(self):
+        """Successful detail rows are not marked as failed."""
+        html = _build_detail_html([{}])
+        assert 'class="failed"' not in html
+
+    def test_empty_render_omits_detail_headers(self, tmp_path):
+        """An empty log has no fabricated detail rows or headers."""
+        html, _ = _render(tmp_path, [])
+        assert '<table class="detail">\n  </table>' in html
+        assert "<thead>" not in html

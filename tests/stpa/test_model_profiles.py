@@ -142,6 +142,14 @@ class TestLoadProfile:
         with pytest.raises(ValueError, match="base_url"):
             load_profile(profiles, "missing-url")
 
+    def test_profile_name_in_non_mapping_yaml_raises_keyerror(self, tmp_path):
+        """A profile name in a YAML sequence is still an invalid top-level profile."""
+        profiles = tmp_path / "sequence.yaml"
+        profiles.write_text("- sequence-profile\n", encoding="utf-8")
+
+        with pytest.raises(KeyError, match="sequence-profile"):
+            load_profile(profiles, "sequence-profile")
+
 
 class TestLLMClientTopPTopK:
     """MP-13, MP-14 — LLMClient top_p and top_k support."""
