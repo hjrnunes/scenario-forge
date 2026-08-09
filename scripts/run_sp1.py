@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Minimal SP1 runner script for lab-sp1-first-run.
+"""SP1 runner script — invokes the STPA SP1 pipeline against a real LLM endpoint.
 
-Invokes the SP1 pipeline against a real LLM endpoint.
+Supports two modes for LLM client configuration:
+  1. --profile <name>  : load parameters from ai/model-profiles.yaml (or --profiles-file)
+  2. Environment fallback: SCENARIO_FORGE_MODEL_BASE_URL, SCENARIO_FORGE_API_KEY,
+     SCENARIO_FORGE_MODEL_NAME (backwards compatible)
+
+After the pipeline run, automatically renders calls.jsonl to calls.html.
 """
 
 from __future__ import annotations
@@ -13,22 +18,50 @@ import sys
 from pathlib import Path
 
 from scenario_forge.data.loaders import load_risk_extraction
+from scenario_forge.stpa.infra.calls_html import render_calls_html
 from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.model_profiles import load_profile
 from scenario_forge.stpa.system_model.run import run_sp1
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
+DEFAULT_PROFILES_FILE = "ai/model-profiles.yaml"
 
-def resolve_llm_client() -> LLMClient:
-    """Create an LLMClient from environment variables.
 
-    Checks for SCENARIO_FORGE_* vars first, falls back to FG_* vars.
+def resolve_llm_client_from_profile(
+    profiles_file: str, profile_name: str
+) -> tuple[LLMClient, str]:
+    """Create an LLMClient from a named model profile.
+
+    Returns the client and the profile name (for manifest recording).
     """
+    profile = load_profile(profiles_file, profile_name)
+    logger.info(
+        "Loaded profile '%s' from %s: model=%s, base_url=%s",
+        profile_name,
+        profiles_file,
+        profile.get("model"),
+        profile.get("base_url"),
+    )
+    client = LLMClient(
+        base_url=profile.get("base_url"),
+        api_key=profile.get("api_key"),
+        model=profile.get("model"),
+        max_completion_tokens=profile.get("max_completion_tokens"),
+        temperature=profile.get("temperature"),
+        top_p=profile.get("top_p"),
+        top_k=profile.get("top_k"),
+        extra_headers=profile.get("headers"),
+    )
+    return client, profile_name
+
+
+def resolve_llm_client_from_env() -> LLMClient:
+    """Create an LLMClient from environment variables (backwards compatible)."""
     base_url = os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL") or os.environ.get(
         "FG_BASE_URL"
     )
@@ -36,29 +69,25 @@ def resolve_llm_client() -> LLMClient:
         "FG_MODEL_NAME", "gemma-4-26b-a4b-it"
     )
     api_key = os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
-
-    logger.info(f"Creating LLMClient: base_url={base_url}, model={model}")
+    logger.info("Creating LLMClient from env: base_url=%s, model=%s", base_url, model)
     return LLMClient(base_url=base_url, model=model, api_key=api_key)
 
 
 def read_use_case(path: str) -> str:
     """Read use-case text from file, stripping @ prefix if present."""
-    # Strip @ prefix if present
     if path.startswith("@"):
         path = path[1:]
-
     use_case_path = Path(path)
     if not use_case_path.exists():
         raise FileNotFoundError(f"Use-case file not found: {path}")
-
-    logger.info(f"Reading use-case from {path}")
+    logger.info("Reading use-case from %s", path)
     return use_case_path.read_text(encoding="utf-8")
 
 
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Minimal SP1 runner for lab-sp1-first-run"
+        description="SP1 runner script for the STPA pipeline"
     )
     parser.add_argument(
         "--use-case",
@@ -75,29 +104,60 @@ def main() -> int:
         required=True,
         help="Output directory for artifacts",
     )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Named model profile to load from the profiles file",
+    )
+    parser.add_argument(
+        "--profiles-file",
+        default=DEFAULT_PROFILES_FILE,
+        help=f"Path to model profiles YAML file (default: {DEFAULT_PROFILES_FILE})",
+    )
+    parser.add_argument(
+        "--capability-profile",
+        default=None,
+        help="Path to a pre-built capability-profile.yaml (skips Stage 1b)",
+    )
 
     args = parser.parse_args()
 
     try:
-        # Read inputs
         use_case_text = read_use_case(args.use_case)
         risk_cards = load_risk_extraction(args.risk_extraction)
         output_dir = Path(args.output_dir)
 
-        logger.info(f"Loaded {len(risk_cards)} risk cards")
-        logger.info(f"Output directory: {output_dir}")
+        logger.info("Loaded %d risk cards", len(risk_cards))
+        logger.info("Output directory: %s", output_dir)
 
-        # Create LLM client
-        llm_client = resolve_llm_client()
+        profile_name = None
+        if args.profile:
+            llm_client, profile_name = resolve_llm_client_from_profile(
+                args.profiles_file, args.profile
+            )
+        else:
+            llm_client = resolve_llm_client_from_env()
 
-        # Run SP1 pipeline
+        profile_path = (
+            Path(args.capability_profile) if args.capability_profile else None
+        )
+
         logger.info("Starting SP1 pipeline...")
         result = run_sp1(
             llm_client=llm_client,
             use_case_text=use_case_text,
             risk_cards=risk_cards,
             run_dir=output_dir,
+            profile_path=profile_path,
+            profile_name=profile_name,
         )
+
+        # Render calls.jsonl to calls.html
+        calls_jsonl = output_dir / "calls.jsonl"
+        if calls_jsonl.exists():
+            calls_html_path = output_dir / "calls.html"
+            render_calls_html(calls_jsonl, calls_html_path)
+            logger.info("Rendered calls.html to %s", calls_html_path)
 
         # Print summary
         print("\n" + "=" * 60)
@@ -140,7 +200,7 @@ def main() -> int:
         return 0
 
     except Exception as e:
-        logger.exception(f"SP1 pipeline failed: {e}")
+        logger.exception("SP1 pipeline failed: %s", e)
         return 1
 
 

@@ -10,16 +10,52 @@ vs "the control structure structural heuristics are checked".
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from scenario_forge.stpa.models._validation import check_duplicate_ids
 
 if TYPE_CHECKING:
     from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+
+
+def _validate_id_format(
+    value: str,
+    field_name: str,
+    format_spec: str,
+    example: str,
+    pattern: str,
+) -> str:
+    """Validate that *value* matches the expected ID format.
+
+    All control-structure ID fields share the same validation logic:
+    regex-check the value and raise a descriptive ValueError on mismatch.
+    This helper eliminates the per-field boilerplate while keeping each
+    field's error message specific.
+
+    Args:
+        value: The ID string to validate.
+        field_name: Human-readable field name for the error message.
+        format_spec: Format placeholder (e.g. ``"RC-X-Y"``).
+        example: Concrete example for the error message (e.g. ``"RC-1-1"``).
+        pattern: Anchored regex pattern the value must match.
+
+    Returns:
+        The validated value (unchanged).
+
+    Raises:
+        ValueError: If *value* does not match *pattern*.
+    """
+    if not re.match(pattern, value):
+        raise ValueError(
+            f"{field_name} must match format '{format_spec}' "
+            f"(e.g. '{example}'), got '{value}'"
+        )
+    return value
 
 
 class ReferenceType(str, Enum):
@@ -42,6 +78,11 @@ class ResponsibilityConstraint(BaseModel):
     rc_id: str  # RC-X-Y
     description: str
 
+    @field_validator("rc_id")
+    @classmethod
+    def validate_rc_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "rc_id", "RC-X-Y", "RC-1-1", r"^RC-\d+-\d+$")
+
 
 class ProcessModelPart(BaseModel):
     """A part of a controller's process model."""
@@ -49,6 +90,11 @@ class ProcessModelPart(BaseModel):
     pm_id: str  # PM-X-Y
     description: str
     feedback_source: ElementRef | None = None
+
+    @field_validator("pm_id")
+    @classmethod
+    def validate_pm_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "pm_id", "PM-X-Y", "PM-1-1", r"^PM-\d+-\d+$")
 
 
 class ControlAction(BaseModel):
@@ -58,6 +104,11 @@ class ControlAction(BaseModel):
     description: str
     target: ElementRef | None = None
 
+    @field_validator("ca_id")
+    @classmethod
+    def validate_ca_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "ca_id", "CA-X-Y", "CA-1-1", r"^CA-\d+-\d+$")
+
 
 class FeedbackChannel(BaseModel):
     """A feedback channel providing information to a controller."""
@@ -66,6 +117,11 @@ class FeedbackChannel(BaseModel):
     description: str
     updates: str  # pm_id ref
     source: ElementRef | None = None
+
+    @field_validator("fb_id")
+    @classmethod
+    def validate_fb_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "fb_id", "FB-X-Y", "FB-1-1", r"^FB-\d+-\d+$")
 
 
 class Responsibility(BaseModel):
@@ -80,12 +136,22 @@ class Responsibility(BaseModel):
     control_actions: list[ControlAction] = Field(default_factory=list)
     feedback_channels: list[FeedbackChannel] = Field(default_factory=list)
 
+    @field_validator("resp_id")
+    @classmethod
+    def validate_resp_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "resp_id", "RESP-N", "RESP-1", r"^RESP-\d+$")
+
 
 class ControlledProcess(BaseModel):
     """A controlled process in the control structure."""
 
     cp_id: str  # CP-1, CP-2, ...
     description: str
+
+    @field_validator("cp_id")
+    @classmethod
+    def validate_cp_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "cp_id", "CP-N", "CP-1", r"^CP-\d+$")
 
 
 class CoordinationMechanism(BaseModel):
@@ -94,6 +160,11 @@ class CoordinationMechanism(BaseModel):
     cm_id: str  # CM-X
     description: str
     payload: str
+
+    @field_validator("cm_id")
+    @classmethod
+    def validate_cm_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "cm_id", "CM-N", "CM-1", r"^CM-\d+$")
 
 
 class CoordinationLink(BaseModel):
@@ -105,6 +176,11 @@ class CoordinationLink(BaseModel):
     shared_pm: str  # pm_id ref
     coordination_mechanism: CoordinationMechanism
     description: str
+
+    @field_validator("link_id")
+    @classmethod
+    def validate_link_id_format(cls, v: str) -> str:
+        return _validate_id_format(v, "link_id", "CL-N", "CL-1", r"^CL-\d+$")
 
 
 class ControlStructure(BaseModel):
@@ -119,19 +195,21 @@ class ControlStructure(BaseModel):
         resp_ids = {r.resp_id for r in self.responsibilities}
         cp_ids = {cp.cp_id for cp in self.controlled_processes}
 
-        check_duplicate_ids([r.resp_id for r in self.responsibilities], "resp_id")
-        check_duplicate_ids([cp.cp_id for cp in self.controlled_processes], "cp_id")
-
-        all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = _collect_child_ids(
-            self.responsibilities
+        all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = (
+            _collect_child_ids(self.responsibilities)
         )
 
-        check_duplicate_ids(all_pm_ids, "pm_id")
-        check_duplicate_ids(all_ca_ids, "ca_id")
-        check_duplicate_ids(all_fb_ids, "fb_id")
-        check_duplicate_ids(
-            [cl.link_id for cl in self.coordination_links], "link_id"
+        _check_all_duplicate_ids(
+            self.responsibilities,
+            self.controlled_processes,
+            self.coordination_links,
+            all_rc_ids,
+            all_pm_ids,
+            all_ca_ids,
+            all_fb_ids,
         )
+
+        _check_cross_namespace_collision(self.responsibilities, self.controlled_processes)
 
         _validate_element_refs(self.responsibilities, resp_ids, cp_ids)
         _validate_feedback_updates(self.responsibilities, pm_by_resp)
@@ -140,6 +218,28 @@ class ControlStructure(BaseModel):
         )
 
         return self
+
+
+def _check_all_duplicate_ids(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+    coordination_links: list[CoordinationLink],
+    all_rc_ids: list[str],
+    all_pm_ids: list[str],
+    all_ca_ids: list[str],
+    all_fb_ids: list[str],
+) -> None:
+    """Check every ID type for duplicates at the control-structure level."""
+    check_duplicate_ids([r.resp_id for r in responsibilities], "resp_id")
+    check_duplicate_ids([cp.cp_id for cp in controlled_processes], "cp_id")
+    check_duplicate_ids(all_rc_ids, "rc_id")
+    check_duplicate_ids(all_pm_ids, "pm_id")
+    check_duplicate_ids(all_ca_ids, "ca_id")
+    check_duplicate_ids(all_fb_ids, "fb_id")
+    check_duplicate_ids([cl.link_id for cl in coordination_links], "link_id")
+    check_duplicate_ids(
+        [cl.coordination_mechanism.cm_id for cl in coordination_links], "cm_id"
+    )
 
 
 def _is_valid_element_ref(
@@ -157,32 +257,107 @@ def _is_valid_element_ref(
 
 def _collect_child_ids(
     responsibilities: list[Responsibility],
-) -> tuple[list[str], list[str], list[str], dict[str, set[str]]]:
-    """Collect all PM/CA/FB IDs and check for per-responsibility duplicates.
+) -> tuple[list[str], list[str], list[str], list[str], dict[str, set[str]]]:
+    """Collect all RC/PM/CA/FB IDs and check for per-responsibility duplicates.
 
     Returns:
-        A tuple of (all_pm_ids, all_ca_ids, all_fb_ids, pm_ids_by_resp).
+        A tuple of (all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_ids_by_resp).
     """
+    all_rc_ids: list[str] = []
     all_pm_ids: list[str] = []
     all_ca_ids: list[str] = []
     all_fb_ids: list[str] = []
     pm_by_resp: dict[str, set[str]] = {}
 
     for resp in responsibilities:
+        rc_list = [rc.rc_id for rc in resp.responsibility_constraints]
         pm_list = [pm.pm_id for pm in resp.process_model_parts]
         ca_list = [ca.ca_id for ca in resp.control_actions]
         fb_list = [fb.fb_id for fb in resp.feedback_channels]
 
         pm_by_resp[resp.resp_id] = set(pm_list)
+        all_rc_ids.extend(rc_list)
         all_pm_ids.extend(pm_list)
         all_ca_ids.extend(ca_list)
         all_fb_ids.extend(fb_list)
 
+        check_duplicate_ids(rc_list, "rc_id")
         check_duplicate_ids(pm_list, "pm_id")
         check_duplicate_ids(ca_list, "ca_id")
         check_duplicate_ids(fb_list, "fb_id")
 
-    return all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp
+    return all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp
+
+
+def _collect_all_id_sets(
+    responsibilities: list[Responsibility],
+) -> tuple[set[str], set[str], set[str], set[str], set[str]]:
+    """Collect all RC/PM/CA/FB/RESP ID sets across responsibilities.
+
+    Returns:
+        A tuple of (rc_ids, pm_ids, ca_ids, fb_ids, resp_ids).
+    """
+    rc_ids: set[str] = set()
+    pm_ids: set[str] = set()
+    ca_ids: set[str] = set()
+    fb_ids: set[str] = set()
+    resp_ids: set[str] = set()
+    for resp in responsibilities:
+        resp_ids.add(resp.resp_id)
+        rc_ids.update(rc.rc_id for rc in resp.responsibility_constraints)
+        pm_ids.update(pm.pm_id for pm in resp.process_model_parts)
+        ca_ids.update(ca.ca_id for ca in resp.control_actions)
+        fb_ids.update(fb.fb_id for fb in resp.feedback_channels)
+    return rc_ids, pm_ids, ca_ids, fb_ids, resp_ids
+
+
+def _collect_namespace_buckets(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> list[tuple[str, set[str]]]:
+    """Collect ID sets grouped by namespace name.
+
+    Returns a list of (namespace_name, id_set) pairs for every ID type
+    in the control structure.
+    """
+    rc_ids, pm_ids, ca_ids, fb_ids, resp_ids = _collect_all_id_sets(
+        responsibilities
+    )
+    cp_ids = {cp.cp_id for cp in controlled_processes}
+    return [
+        ("rc_id", rc_ids),
+        ("pm_id", pm_ids),
+        ("ca_id", ca_ids),
+        ("fb_id", fb_ids),
+        ("resp_id", resp_ids),
+        ("cp_id", cp_ids),
+    ]
+
+
+def _check_cross_namespace_collision(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> None:
+    """Detect IDs that appear in more than one ID namespace.
+
+    Collects every ID from each element type into a separate namespace
+    bucket, then checks whether any ID value appears in more than one
+    bucket.  This catches cross-namespace collisions that field
+    validators alone cannot detect when validators are bypassed (e.g.
+    an RC-1-1 value used as both rc_id and pm_id).
+    """
+    namespace_buckets = _collect_namespace_buckets(
+        responsibilities, controlled_processes
+    )
+    for i, (name_a, bucket_a) in enumerate(namespace_buckets):
+        for name_b, bucket_b in namespace_buckets[i + 1 :]:
+            shared = bucket_a & bucket_b
+            if shared:
+                raise ValueError(
+                    f"Cross-namespace collision: ID(s) {sorted(shared)} "
+                    f"appear in both {name_a} and {name_b} namespaces. "
+                    f"Each ID value must belong to exactly one namespace."
+                )
 
 
 def _validate_element_refs(
@@ -473,5 +648,5 @@ def _trace_responsibilities(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T20:34:54Z","module_hash":"6b95b77b8b2ae48d6a34b6b2dc3394c819840cbebd64f1bb570f8a9f4d69696d","functions":[{"id":"func/ControlStructure.validate_references_and_duplicates","name":"validate_references_and_duplicates","line":118,"end_line":142,"hash":"ae2be4642bc02df0fe418c61f4ae1575991784cd532cdc888554c20f0f666cb7"},{"id":"func/_is_valid_element_ref","name":"_is_valid_element_ref","line":145,"end_line":155,"hash":"227e60e3dcd0c7c5d2acfc7257a6309dabbd61e47ef3ef1a088d976cee8f1690"},{"id":"func/_collect_child_ids","name":"_collect_child_ids","line":158,"end_line":185,"hash":"1d2514387b25aa0ca151bb6c7a28e04b6117735cd790da9815806d8edeaa6ff7"},{"id":"func/_validate_element_refs","name":"_validate_element_refs","line":188,"end_line":197,"hash":"e0c8c05818efc09db79d465489e19d3d83e24ee3b36cc621e52a6caa823c5aaf"},{"id":"func/_validate_pm_refs","name":"_validate_pm_refs","line":200,"end_line":211,"hash":"dc5a93174935f8408b4f4040329a8913595b8518a611049d6f06b2f0f73dba3a"},{"id":"func/_validate_ca_refs","name":"_validate_ca_refs","line":214,"end_line":225,"hash":"89eaa7e89532b0507ba400c9e98a155fd7c5e071430673676e8c3eb9850de914"},{"id":"func/_validate_fb_source_refs","name":"_validate_fb_source_refs","line":228,"end_line":240,"hash":"208666dfa83b3616b832b56519682ff557b30bdf61d4970a48de48280bf197be"},{"id":"func/_validate_feedback_updates","name":"_validate_feedback_updates","line":243,"end_line":252,"hash":"ead7695af3cad8a3eeec9337851e7f0293648db9cfc705ffb7efcc2cb95134e7"},{"id":"func/_validate_fb_update_target","name":"_validate_fb_update_target","line":255,"end_line":273,"hash":"af14dcfbcd84a47350829354726c5e09db1507bc5ed28dc876d03c4ede86f1b3"},{"id":"func/_validate_coordination_links","name":"_validate_coordination_links","line":276,"end_line":298,"hash":"0243d2effd556e73b1e3258403b9b0bbab3977ad42dfdf3927e1103b403823b1"},{"id":"func/HeuristicResult.passed","name":"passed","line":314,"end_line":315,"hash":"0ef739a09d12644ab453fbf96631fafa8638030d29ebdf028b8f07cc66a72bf6"},{"id":"func/check_structural_heuristics","name":"check_structural_heuristics","line":318,"end_line":350,"hash":"0425800cf0961914dc2d73162a76855d0573d5f65e063e32e8086d1c4656cb8e"},{"id":"func/_check_responsibility_completeness","name":"_check_responsibility_completeness","line":353,"end_line":369,"hash":"56c2647038d9d38a898e9872c92966b4d10a28e4335b44cfa95f4e76dd6db907"},{"id":"func/_check_controlled_process_references","name":"_check_controlled_process_references","line":372,"end_line":382,"hash":"57aa22dbdc230d5cfea736813aaa233125a1298d646af2a48ef44c0c9de21152"},{"id":"func/_collect_referenced_cps","name":"_collect_referenced_cps","line":385,"end_line":391,"hash":"189e1f58a1ac90ef4f9d076aa85c7e6b42364d8e6c266f3f297059dd316c0e79"},{"id":"func/_add_cps_from_feedback","name":"_add_cps_from_feedback","line":394,"end_line":398,"hash":"872f65d602be3cdc07047f6770a0f2336f15d5b3de8405de75a18047e4cb4944"},{"id":"func/_add_cps_from_control_actions","name":"_add_cps_from_control_actions","line":401,"end_line":405,"hash":"ff5fba066edcbab037b9b5970162f225343e7159dd5579bd1451d4085b226cb2"},{"id":"func/_check_orphan_pms","name":"_check_orphan_pms","line":408,"end_line":417,"hash":"d247830f0ac1c81cbf42fecd7d4f6a48e37a6fb78237be832d7f99d7e5130aa3"},{"id":"func/_check_hazard_tracing","name":"_check_hazard_tracing","line":420,"end_line":439,"hash":"fa52fe48ef647ba233c3d88282fd1e776b12043388b10b5e51383a5e29abd2b0"},{"id":"func/_build_constraints_by_resp","name":"_build_constraints_by_resp","line":442,"end_line":450,"hash":"4d61e7f43dd8e76e17315c0ce0523c39899f89a773d8b5fbda879b0a46c323e5"},{"id":"func/_build_hazard_to_constraints","name":"_build_hazard_to_constraints","line":453,"end_line":461,"hash":"d6fec50df7df4548b0cd3e34b80c17c98534da2612a50acb2e788bb007c88745"},{"id":"func/_trace_responsibilities","name":"_trace_responsibilities","line":464,"end_line":472,"hash":"842c4546b7230d027a566e53ad355aed0aaeb5c9fc223b04a158962129f84871"}]}
+# {"version":1,"tested_at":"2026-08-09T00:23:11Z","module_hash":"6ee15fe07bafe91e841979b50f570d984e1e294151f1d3cc7d233a9d937a4d43","functions":[{"id":"func/_validate_id_format","name":"_validate_id_format","line":26,"end_line":58,"hash":"26d495ff08e46b0c213ae96829378a180cfd6e48c495e778b8f7b76db11529e2"},{"id":"func/ResponsibilityConstraint.validate_rc_id_format","name":"validate_rc_id_format","line":83,"end_line":84,"hash":"54934cf044471649b30037f15d5d6450e73dd342d7826283dc16e1191b0b3e8b"},{"id":"func/ProcessModelPart.validate_pm_id_format","name":"validate_pm_id_format","line":96,"end_line":97,"hash":"41664a8c35f693bb031497b8093da0328d8250071d92feb8ab5c2fe9aaed337d"},{"id":"func/ControlAction.validate_ca_id_format","name":"validate_ca_id_format","line":109,"end_line":110,"hash":"f1408b7395402c8bb293befed6aacad7a10ba40c05930e2cbdb29d84c642af30"},{"id":"func/FeedbackChannel.validate_fb_id_format","name":"validate_fb_id_format","line":123,"end_line":124,"hash":"acbdc8d5529b12d9c829e799581b09b727405cc8d78d2378be56d258b0e94205"},{"id":"func/Responsibility.validate_resp_id_format","name":"validate_resp_id_format","line":141,"end_line":142,"hash":"1ca47303034039184cdf16b8f57b0417337992c998c4a4e3c085826217ab6cef"},{"id":"func/ControlledProcess.validate_cp_id_format","name":"validate_cp_id_format","line":153,"end_line":154,"hash":"6685b9ef205e2b953f635e369651ec8b43e31aed8bc370c766a02e93d9344cec"},{"id":"func/CoordinationMechanism.validate_cm_id_format","name":"validate_cm_id_format","line":166,"end_line":167,"hash":"cbb8c84359382b0d74477b8b7ab765bc6886911e47f016282612eee10705e1ea"},{"id":"func/CoordinationLink.validate_link_id_format","name":"validate_link_id_format","line":182,"end_line":183,"hash":"287b79b0efaeae72ae65b88f1dc5cbb2810726d3ae8b54a6f5fe2f261b130d76"},{"id":"func/ControlStructure.validate_references_and_duplicates","name":"validate_references_and_duplicates","line":194,"end_line":220,"hash":"686ca9c8289bd4de370e01e5a2d71125ff4a1c25a1362961826f1746b5ec2955"},{"id":"func/_check_all_duplicate_ids","name":"_check_all_duplicate_ids","line":223,"end_line":242,"hash":"16bf688d86169963c8d652bae975f9110a12c6571c51564ee6b461cdacd3fe82"},{"id":"func/_is_valid_element_ref","name":"_is_valid_element_ref","line":245,"end_line":255,"hash":"227e60e3dcd0c7c5d2acfc7257a6309dabbd61e47ef3ef1a088d976cee8f1690"},{"id":"func/_collect_child_ids","name":"_collect_child_ids","line":258,"end_line":289,"hash":"98d6808433b292c6892fe8708073c231add122c1715a53d7cc90193206623925"},{"id":"func/_collect_all_id_sets","name":"_collect_all_id_sets","line":292,"end_line":311,"hash":"22dfac9a221bfd6ae639d5103b1f245446bb04da887f6e61db2926437b2a0ee7"},{"id":"func/_collect_namespace_buckets","name":"_collect_namespace_buckets","line":314,"end_line":334,"hash":"183476922d47aaf4f810fd09a0a766e20a0625ae5ea887bf54e11bd08711a0e9"},{"id":"func/_check_cross_namespace_collision","name":"_check_cross_namespace_collision","line":337,"end_line":360,"hash":"3ff945814004983296df6f0a3ac99f17e7035504545437673ad4882b2e53309a"},{"id":"func/_validate_element_refs","name":"_validate_element_refs","line":363,"end_line":372,"hash":"e0c8c05818efc09db79d465489e19d3d83e24ee3b36cc621e52a6caa823c5aaf"},{"id":"func/_validate_pm_refs","name":"_validate_pm_refs","line":375,"end_line":386,"hash":"dc5a93174935f8408b4f4040329a8913595b8518a611049d6f06b2f0f73dba3a"},{"id":"func/_validate_ca_refs","name":"_validate_ca_refs","line":389,"end_line":400,"hash":"89eaa7e89532b0507ba400c9e98a155fd7c5e071430673676e8c3eb9850de914"},{"id":"func/_validate_fb_source_refs","name":"_validate_fb_source_refs","line":403,"end_line":415,"hash":"208666dfa83b3616b832b56519682ff557b30bdf61d4970a48de48280bf197be"},{"id":"func/_validate_feedback_updates","name":"_validate_feedback_updates","line":418,"end_line":427,"hash":"ead7695af3cad8a3eeec9337851e7f0293648db9cfc705ffb7efcc2cb95134e7"},{"id":"func/_validate_fb_update_target","name":"_validate_fb_update_target","line":430,"end_line":448,"hash":"af14dcfbcd84a47350829354726c5e09db1507bc5ed28dc876d03c4ede86f1b3"},{"id":"func/_validate_coordination_links","name":"_validate_coordination_links","line":451,"end_line":473,"hash":"0243d2effd556e73b1e3258403b9b0bbab3977ad42dfdf3927e1103b403823b1"},{"id":"func/HeuristicResult.passed","name":"passed","line":489,"end_line":490,"hash":"0ef739a09d12644ab453fbf96631fafa8638030d29ebdf028b8f07cc66a72bf6"},{"id":"func/check_structural_heuristics","name":"check_structural_heuristics","line":493,"end_line":525,"hash":"0425800cf0961914dc2d73162a76855d0573d5f65e063e32e8086d1c4656cb8e"},{"id":"func/_check_responsibility_completeness","name":"_check_responsibility_completeness","line":528,"end_line":544,"hash":"56c2647038d9d38a898e9872c92966b4d10a28e4335b44cfa95f4e76dd6db907"},{"id":"func/_check_controlled_process_references","name":"_check_controlled_process_references","line":547,"end_line":557,"hash":"57aa22dbdc230d5cfea736813aaa233125a1298d646af2a48ef44c0c9de21152"},{"id":"func/_collect_referenced_cps","name":"_collect_referenced_cps","line":560,"end_line":566,"hash":"189e1f58a1ac90ef4f9d076aa85c7e6b42364d8e6c266f3f297059dd316c0e79"},{"id":"func/_add_cps_from_feedback","name":"_add_cps_from_feedback","line":569,"end_line":573,"hash":"872f65d602be3cdc07047f6770a0f2336f15d5b3de8405de75a18047e4cb4944"},{"id":"func/_add_cps_from_control_actions","name":"_add_cps_from_control_actions","line":576,"end_line":580,"hash":"ff5fba066edcbab037b9b5970162f225343e7159dd5579bd1451d4085b226cb2"},{"id":"func/_check_orphan_pms","name":"_check_orphan_pms","line":583,"end_line":592,"hash":"d247830f0ac1c81cbf42fecd7d4f6a48e37a6fb78237be832d7f99d7e5130aa3"},{"id":"func/_check_hazard_tracing","name":"_check_hazard_tracing","line":595,"end_line":614,"hash":"fa52fe48ef647ba233c3d88282fd1e776b12043388b10b5e51383a5e29abd2b0"},{"id":"func/_build_constraints_by_resp","name":"_build_constraints_by_resp","line":617,"end_line":625,"hash":"4d61e7f43dd8e76e17315c0ce0523c39899f89a773d8b5fbda879b0a46c323e5"},{"id":"func/_build_hazard_to_constraints","name":"_build_hazard_to_constraints","line":628,"end_line":636,"hash":"d6fec50df7df4548b0cd3e34b80c17c98534da2612a50acb2e788bb007c88745"},{"id":"func/_trace_responsibilities","name":"_trace_responsibilities","line":639,"end_line":647,"hash":"842c4546b7230d027a566e53ad355aed0aaeb5c9fc223b04a158962129f84871"}]}
 # mutate4py-manifest-end

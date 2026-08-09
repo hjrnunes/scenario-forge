@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 prompt quality fixes",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_prompt_quality_fixes.json",
+  "implementation_hash": "sha256:a14f1bf439e4462cfaf86cf87fee3db951f95f5510b35649b6aa388f07c71d54",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_prompt_quality_fixes_acceptance_test.py"
+  ]
+}

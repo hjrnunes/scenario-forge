@@ -103,7 +103,7 @@ def _valid_responsibility_set_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"}
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"}
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -288,6 +288,24 @@ class TestRunOrchestration:
         assert "stage_summary" in manifest
         assert "stage_1a" in manifest["stage_summary"]
         assert "stage_2" in manifest["stage_summary"]
+
+    def test_run_manifest_records_profile_name(self, tmp_path):
+        """A selected model profile is preserved in the manifest configuration."""
+        client = _setup_mock_client()
+        run_sp1(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=_make_risk_cards(),
+            run_dir=tmp_path,
+            profile_name="production-profile",
+        )
+
+        import yaml
+
+        manifest = yaml.safe_load(
+            (tmp_path / "run-manifest.yaml").read_text()
+        )
+        assert manifest["model_settings"]["profile"] == "production-profile"
 
     def test_run_05_manifest_records_critic_findings(self, tmp_path):
         """SP1-RUN-05: run manifest records critic findings count."""

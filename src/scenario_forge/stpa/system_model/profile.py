@@ -13,6 +13,7 @@ from pathlib import Path
 from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
+    inject_kc_subcodes_display,
 )
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import StageError, safe_llm_call
@@ -80,7 +81,11 @@ def derive_capability_profile(
         raise StageError(stage=STAGE, step=STEP, message=error_msg)
 
     capability_profile = stage1_profile.to_capability_profile()
-    write_yaml(capability_profile, run_dir / "capability-profile.yaml")
+    write_yaml(
+        capability_profile,
+        run_dir / "capability-profile.yaml",
+        post_process=inject_kc_subcodes_display,
+    )
     return capability_profile
 
 
@@ -99,5 +104,5 @@ def load_capability_profile(profile_path: Path) -> CapabilityProfile:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T18:00:08Z","module_hash":"03a6de03003ac6678d9292ab679913b7f8afd9bf539ca8971262febb8bafdbc4","functions":[{"id":"func/derive_capability_profile","name":"derive_capability_profile","line":29,"end_line":84,"hash":"1a1eab634d8bb16e680228e373c25c18ceb5f286b71d4aff6f807c7f272a3d2e"},{"id":"func/load_capability_profile","name":"load_capability_profile","line":87,"end_line":98,"hash":"879c915a125131af1cfb241df23ef326e72ed0742affe7d456dfc8ecb9658f89"}]}
+# {"version":1,"tested_at":"2026-08-09T00:32:22Z","module_hash":"9d74283244fdd5b0b4a102888721e83cd5c7afe89e59b70fc595e0e1739527a4","functions":[{"id":"func/derive_capability_profile","name":"derive_capability_profile","line":30,"end_line":89,"hash":"42508df14a55fd6c10b781ca826717e6c08b96838a5ede3aff00fd69cf89c0a4"},{"id":"func/load_capability_profile","name":"load_capability_profile","line":92,"end_line":103,"hash":"879c915a125131af1cfb241df23ef326e72ed0742affe7d456dfc8ecb9658f89"}]}
 # mutate4py-manifest-end

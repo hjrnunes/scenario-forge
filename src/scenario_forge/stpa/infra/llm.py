@@ -109,6 +109,8 @@ class LLMClient:
         max_completion_tokens: int | None = None,
         temperature: float | None = None,
         extra_headers: dict[str, str] | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
     ) -> None:
         self.base_url = _resolve_base_url(base_url)
         self.api_key = _resolve_api_key(api_key)
@@ -125,6 +127,8 @@ class LLMClient:
             extra_headers,
             os.environ.get("SCENARIO_FORGE_EXTRA_HEADERS"),
         )
+        self.top_p = top_p
+        self.top_k = top_k
 
         if not self.base_url:
             raise ValueError(
@@ -136,6 +140,21 @@ class LLMClient:
             api_key=self.api_key,
             default_headers=self.extra_headers or None,
         )
+
+    def _build_extra_kwargs(
+        self,
+        effective_max: int | None,
+        effective_temp: float,
+    ) -> dict[str, Any]:
+        """Build the extra kwargs dict for the OpenAI completion call."""
+        kwargs: dict[str, Any] = {"temperature": effective_temp}
+        if effective_max is not None:
+            kwargs["max_completion_tokens"] = effective_max
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
+        if self.top_k is not None:
+            kwargs["top_k"] = self.top_k
+        return kwargs
 
     def complete(
         self,
@@ -153,9 +172,7 @@ class LLMClient:
             {"role": "user", "content": user_prompt},
         ]
 
-        extra_kwargs: dict[str, Any] = {"temperature": effective_temp}
-        if effective_max is not None:
-            extra_kwargs["max_completion_tokens"] = effective_max
+        extra_kwargs = self._build_extra_kwargs(effective_max, effective_temp)
 
         t0 = time.perf_counter_ns()
 
@@ -192,5 +209,5 @@ class LLMClient:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T12:26:55Z","module_hash":"7c73ed1b6c6b80e6e2dd573bcd436c2b305ef194e1cf39f0cd0754b36ec568da","functions":[{"id":"func/_resolve_temperature","name":"_resolve_temperature","line":26,"end_line":35,"hash":"998ed6ac410ac249f9323306689e281049387bb4cdb7b40473aa70e8a12d5218"},{"id":"func/_resolve_max_tokens","name":"_resolve_max_tokens","line":38,"end_line":45,"hash":"cb0fddfec270db0947c9e4c4641ca1ab14a3a0840697f7b1d186b3f95bd4492c"},{"id":"func/_resolve_base_url","name":"_resolve_base_url","line":48,"end_line":50,"hash":"f49d568278a6d26ac457df37e5df8d5ec67f8e3fbf717ab6139b0868093eff26"},{"id":"func/_resolve_api_key","name":"_resolve_api_key","line":53,"end_line":55,"hash":"9d252c6a2c4627645193dc1d414b204a9fb0ae3ca6fbec47157ea6929db89a2e"},{"id":"func/_resolve_model","name":"_resolve_model","line":58,"end_line":62,"hash":"702c4a307f67d7519b9926c7cd7bcff24dd960c8d96239b4793cf9d1e670e506"},{"id":"func/_resolve_extra_headers","name":"_resolve_extra_headers","line":65,"end_line":74,"hash":"e60982eb84b4e3e6c180960e7bedb1b8fb5c8f4cf6c98d0632e8c673e10d0708"},{"id":"func/_inject_openrouter_headers","name":"_inject_openrouter_headers","line":77,"end_line":83,"hash":"7a170937e63ad4d1e269ef89e011e3003b8a7c8d66fe519abff1ab75995ac6eb"},{"id":"func/LLMClient.__init__","name":"__init__","line":104,"end_line":138,"hash":"130cf69fd18ba8aec2179e1162cf86cb42758c36793f6f9e7ef9ce96fb52c734"},{"id":"func/LLMClient.complete","name":"complete","line":140,"end_line":191,"hash":"62f6e29fb5c1757f3939fcf206ceabf3ab75a240ea94e62b87aed8955e485694"}]}
+# {"version":1,"tested_at":"2026-08-09T09:17:11Z","module_hash":"528b956b280f50fd4c551405e5f762eb6a4a55ac3295ae2aadf03f23d5776a57","functions":[{"id":"func/_resolve_temperature","name":"_resolve_temperature","line":26,"end_line":35,"hash":"998ed6ac410ac249f9323306689e281049387bb4cdb7b40473aa70e8a12d5218"},{"id":"func/_resolve_max_tokens","name":"_resolve_max_tokens","line":38,"end_line":45,"hash":"cb0fddfec270db0947c9e4c4641ca1ab14a3a0840697f7b1d186b3f95bd4492c"},{"id":"func/_resolve_base_url","name":"_resolve_base_url","line":48,"end_line":50,"hash":"f49d568278a6d26ac457df37e5df8d5ec67f8e3fbf717ab6139b0868093eff26"},{"id":"func/_resolve_api_key","name":"_resolve_api_key","line":53,"end_line":55,"hash":"9d252c6a2c4627645193dc1d414b204a9fb0ae3ca6fbec47157ea6929db89a2e"},{"id":"func/_resolve_model","name":"_resolve_model","line":58,"end_line":62,"hash":"702c4a307f67d7519b9926c7cd7bcff24dd960c8d96239b4793cf9d1e670e506"},{"id":"func/_resolve_extra_headers","name":"_resolve_extra_headers","line":65,"end_line":74,"hash":"e60982eb84b4e3e6c180960e7bedb1b8fb5c8f4cf6c98d0632e8c673e10d0708"},{"id":"func/_inject_openrouter_headers","name":"_inject_openrouter_headers","line":77,"end_line":83,"hash":"7a170937e63ad4d1e269ef89e011e3003b8a7c8d66fe519abff1ab75995ac6eb"},{"id":"func/LLMClient.__init__","name":"__init__","line":104,"end_line":142,"hash":"801cd57c4cdaeac3e1a0b63df68ccb744ca229266b7865dff3116beae87477b7"},{"id":"func/LLMClient._build_extra_kwargs","name":"_build_extra_kwargs","line":144,"end_line":157,"hash":"e3b9825ff56ede822b72547926586cfd8a4fbb59464e5ed5766b95f9c13b914a"},{"id":"func/LLMClient.complete","name":"complete","line":159,"end_line":208,"hash":"efd8693b01257982cf4a81fb5410cdaebd45fafe79e17d74ef2503ec43845b77"}]}
 # mutate4py-manifest-end
