@@ -182,6 +182,8 @@ def safe_llm_call(
         stage: Pipeline stage identifier.
         step: Sub-step within the stage.
         temperature: LLM temperature.
+        max_completion_tokens: Optional cap on completion tokens. When
+            provided, forwarded to ``llm_client.complete``.
 
     Returns:
         A tuple of (validated_model_or_None, llm_result_or_None, error_or_None).

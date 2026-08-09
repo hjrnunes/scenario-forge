@@ -38,6 +38,7 @@ STAGE = "stage_2"
 STEP_CRITIC = "critic"
 STEP_REVISION = "revision"
 DEFAULT_TEMPERATURE = 0.4
+REVISION_MAX_COMPLETION_TOKENS = 4096
 logger = logging.getLogger(__name__)
 
 
@@ -222,7 +223,7 @@ def run_revision(
         stage=STAGE,
         step=STEP_REVISION,
         temperature=temperature,
-        max_completion_tokens=4096,
+        max_completion_tokens=REVISION_MAX_COMPLETION_TOKENS,
     )
     if error_msg is not None:
         return control_structure, [f"Revision failed: {error_msg}"]
