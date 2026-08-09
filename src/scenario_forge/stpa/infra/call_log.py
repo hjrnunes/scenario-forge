@@ -26,9 +26,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_call_log_lock = threading.Lock()
 
 
 def _sha256(text: str) -> str:
@@ -100,13 +103,14 @@ def append_call_log(entries: list[dict], run_dir: Path) -> None:
     """
     if not entries:
         return
-    run_dir.mkdir(parents=True, exist_ok=True)
-    calls_path = run_dir / "calls.jsonl"
-    with calls_path.open("a", encoding="utf-8") as fh:
-        for entry in entries:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with _call_log_lock:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        calls_path = run_dir / "calls.jsonl"
+        with calls_path.open("a", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"8a4610943d4088e2012f52232d38bd8e6aeed0318dc2ac5ef45eed1b159c172d","functions":[{"id":"func/_sha256","name":"_sha256","line":34,"end_line":36,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":39,"end_line":92,"hash":"16b858e8b67017048297f4aa87efcc291df32ea992edc09cec06d14fce3ca016"},{"id":"func/append_call_log","name":"append_call_log","line":95,"end_line":107,"hash":"54c483e260f97b6586a87149e0a4913e941946248c8a5f8f16f8a4a3051f7f25"}]}
+# {"version":1,"tested_at":"2026-08-09T11:13:06Z","module_hash":"9e22c9b269d66c18d38d76d4d389257f2f02c19bef19dfc8439cbab181f57aaa","functions":[{"id":"func/_sha256","name":"_sha256","line":37,"end_line":39,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":42,"end_line":95,"hash":"16b858e8b67017048297f4aa87efcc291df32ea992edc09cec06d14fce3ca016"},{"id":"func/append_call_log","name":"append_call_log","line":98,"end_line":111,"hash":"5c770898b5ddec662466b41f29ab930af8034546067a37e0d08aa4c36b37bad2"}]}
 # mutate4py-manifest-end

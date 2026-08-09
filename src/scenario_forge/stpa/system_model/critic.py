@@ -19,7 +19,7 @@ from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
-from scenario_forge.stpa.models.control_structure import ControlStructure
+from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
@@ -198,6 +198,66 @@ def run_revision(
 
 
 # ---------------------------------------------------------------------------
+# Post-revision strip empty responsibilities
+# ---------------------------------------------------------------------------
+
+
+def _is_responsibility_empty(resp: Responsibility) -> bool:
+    """Check if a responsibility has no PM parts, CAs, or FB channels."""
+    return (
+        not resp.process_model_parts
+        and not resp.control_actions
+        and not resp.feedback_channels
+    )
+
+
+def strip_empty_responsibilities(
+    control_structure: ControlStructure,
+) -> tuple[ControlStructure, list[str]]:
+    """Strip responsibilities with no PM parts, CAs, or FB channels.
+
+    After revision, the LLM may produce skeleton responsibilities that
+    have a description but no process model parts, no control actions,
+    and no feedback channels. These would produce downstream heuristic
+    errors (every responsibility must have >=1 PM, CA, and FB). This
+    function detects and removes them.
+
+    A responsibility is considered empty when **all three** of
+    ``process_model_parts``, ``control_actions``, and
+    ``feedback_channels`` are empty. ``responsibility_constraints`` alone
+    do not prevent stripping.
+
+    Args:
+        control_structure: The (possibly revised) control structure.
+
+    Returns:
+        A tuple of (stripped ControlStructure, list of warning strings).
+        Each warning includes the resp_id and description of the
+        stripped responsibility.
+    """
+    kept: list[Responsibility] = []
+    warnings: list[str] = []
+
+    for resp in control_structure.responsibilities:
+        if _is_responsibility_empty(resp):
+            warnings.append(
+                f"Stripped empty responsibility {resp.resp_id} "
+                f"({resp.description}) after revision: no PM parts, "
+                f"control actions, or feedback channels."
+            )
+        else:
+            kept.append(resp)
+
+    if len(kept) == len(control_structure.responsibilities):
+        return control_structure, warnings
+
+    stripped_cs = control_structure.model_copy(
+        update={"responsibilities": kept},
+    )
+    return stripped_cs, warnings
+
+
+# ---------------------------------------------------------------------------
 # Taxonomy probe builder
 # ---------------------------------------------------------------------------
 
@@ -262,5 +322,5 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"3937c46ef93daf15a31477e584e03a938a3adeef2454423bae2b833ccad615f6","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":60,"end_line":117,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":120,"end_line":131,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":139,"end_line":197,"hash":"41295630fb7ee15d508592a6537affe8f226de5f8e7249eba52f33397b91594c"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":228,"end_line":233,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":236,"end_line":239,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":242,"end_line":261,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
+# {"version":1,"tested_at":"2026-08-09T13:59:33Z","module_hash":"3abb56d9356f1a80c146136fc62dea707f0df93bb0faa77dddf4c6bd176328f6","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":60,"end_line":117,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":120,"end_line":131,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":139,"end_line":197,"hash":"41295630fb7ee15d508592a6537affe8f226de5f8e7249eba52f33397b91594c"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":205,"end_line":211,"hash":"eba30b7fd7444c5cbcd3bc9618aa2c09835f7b83338adc7bde26dc7a4dd7c21b"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":214,"end_line":257,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":288,"end_line":293,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":296,"end_line":299,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":302,"end_line":321,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
 # mutate4py-manifest-end

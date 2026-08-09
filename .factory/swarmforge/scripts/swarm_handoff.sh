@@ -11,6 +11,7 @@
 #     priority: NN
 #     task: <short-stable-task-name>
 #     commit: <10-character-commit-abbrev>
+#     bead: <bead-id>            # optional; set by the orchestrator when Beads is active
 #   note:
 #     type: note
 #     to: <role>[,<role>...]
@@ -144,7 +145,7 @@ main() {
   fi
 
   # --- type-specific fields -------------------------------------------------
-  local task="" commit="" canonical="" message=""
+  local task="" commit="" canonical="" message="" bead=""
   if [ "$type" = "git_handoff" ]; then
     task="$(sf_get "$draft" task)"
     [ -n "$task" ] || add_err "git_handoff requires a 'task' header (short stable task name)"
@@ -159,6 +160,13 @@ main() {
       fi
     else
       add_err "git_handoff requires a 'commit' header (10-character commit abbrev)"
+    fi
+    # Optional Beads issue-tracker id. Light sanity check only; not required.
+    bead="$(sf_get "$draft" bead)"
+    if [ -n "$bead" ]; then
+      case "$bead" in
+        *[[:space:]]*) add_err "'bead' must be a single token (no spaces); got '$bead'" ;;
+      esac
     fi
   elif [ "$type" = "note" ]; then
     message="$(sf_get "$draft" message)"
@@ -175,7 +183,7 @@ main() {
   if [ -n "$errors" ]; then
     printf 'HANDOFF INVALID: %s\n\nErrors:\n' "$draft" >&2
     printf '%s' "$errors" >&2
-    printf 'Expected git_handoff format:\n\ntype: git_handoff\nto: <role>[,<role>...]\npriority: NN\ntask: <short-stable-task-name>\ncommit: <10-character-commit-abbrev>\n\nExpected note format:\n\ntype: note\nto: <role>[,<role>...]\npriority: NN\nmessage: <one line, max 80 chars>\n' >&2
+    printf 'Expected git_handoff format:\n\ntype: git_handoff\nto: <role>[,<role>...]\npriority: NN\ntask: <short-stable-task-name>\ncommit: <10-character-commit-abbrev>\nbead: <bead-id>  (optional)\n\nExpected note format:\n\ntype: note\nto: <role>[,<role>...]\npriority: NN\nmessage: <one line, max 80 chars>\n' >&2
     exit 1
   fi
 
@@ -204,6 +212,7 @@ main() {
     header+="role: ${role}"$'\n'
     header+="task: ${task}"$'\n'
     header+="commit: ${canonical}"$'\n'
+    [ -n "$bead" ] && header+="bead: ${bead}"$'\n'
   else
     header+="message: ${message}"$'\n'
   fi

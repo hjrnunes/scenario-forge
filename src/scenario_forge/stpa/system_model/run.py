@@ -19,6 +19,9 @@ from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.infra.manifest import STPARunManifest
+from scenario_forge.stpa.infra.parallel_llm import (  # noqa: F401 — imported for patchability
+    parallel_safe_llm_calls,
+)
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
@@ -32,6 +35,7 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
     run_completeness_critic,
     run_revision,
+    strip_empty_responsibilities,
 )
 from scenario_forge.stpa.system_model.heuristics import (
     check_solution_neutrality,
@@ -76,6 +80,7 @@ def run_sp1(
     profile_path: Path | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
     profile_name: str | None = None,
+    max_workers: int = 1,
 ) -> SP1RunResult:
     """Run the full SP1 pipeline: Stages 1a → 1b → 2.
 
@@ -88,6 +93,10 @@ def run_sp1(
             When provided, Stage 1b LLM call is skipped.
         temperature: LLM temperature (default 0.4).
         profile_name: Optional model profile name for manifest recording.
+        max_workers: Maximum parallel workers for LLM calls (default 1 =
+            sequential, backwards compatible). SP1's sequential stages do
+            not use parallel execution yet; this parameter is recorded in
+            the manifest and available for future use.
 
     Returns:
         SP1RunResult with all artifacts and diagnostic info. On partial
@@ -130,6 +139,7 @@ def run_sp1(
         profile_skipped=_profile_skipped,
         stage_errors=stage_errors,
         profile_name=profile_name,
+        max_workers=max_workers,
     )
 
     return SP1RunResult(
@@ -273,6 +283,11 @@ def _run_stage_2_block(
             template_loader=loader,
             temperature=temperature,
         )
+        # Strip empty responsibilities that revision may have introduced
+        control_structure, strip_warnings = strip_empty_responsibilities(
+            control_structure
+        )
+        post_revision_warnings.extend(strip_warnings)
         write_yaml(control_structure, run_dir / "control-structure.yaml")
 
     return _Stage2Result(
@@ -316,6 +331,7 @@ def _write_manifest(
     profile_skipped: bool,
     stage_errors: list[str] | None = None,
     profile_name: str | None = None,
+    max_workers: int = 1,
 ) -> None:
     """Write the run manifest with stage summary, input hashes, and prompt hashes."""
     input_hashes = _compute_input_hashes(use_case_text, risk_cards)
@@ -329,6 +345,7 @@ def _write_manifest(
         "model": llm_client.model,
         "base_url": llm_client.base_url,
         "temperature": temperature,
+        "max_workers": max_workers,
     }
     if profile_name is not None:
         model_config_dict["profile"] = profile_name
@@ -355,5 +372,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T09:15:52Z","module_hash":"0db11f3c1072ad5fb41be6e9ef1583ed704f4baa0ea64f7961bd72cb9bfcaea7","functions":[{"id":"func/run_sp1","name":"run_sp1","line":70,"end_line":146,"hash":"1a8791fb3099f697f4a66e06af811d6287abf6ba9b0ce49ae12aa6261e32b4ef"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":162,"end_line":183,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":186,"end_line":212,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":215,"end_line":286,"hash":"de649540395eec594dc7a62fd0b3bbb9cd829d383e1df7a4770e86b44c06ca4e"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":289,"end_line":297,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":300,"end_line":304,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":307,"end_line":354,"hash":"980d126d623fb180214a70637eee15fce74ec42a2a1ee7a67c7d997cb8a0a194"}]}
+# {"version":1,"tested_at":"2026-08-09T14:02:08Z","module_hash":"8844c39aeccd45f15b06adbdba70d3723418ce7ee59b46c0affe5739b4a0a47d","functions":[{"id":"func/run_sp1","name":"run_sp1","line":74,"end_line":156,"hash":"77e1bc86e75c51a5586e059c3b2227e37bd433d8f5899706bc95689e7d2a900b"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":172,"end_line":193,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":196,"end_line":222,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":225,"end_line":301,"hash":"47c05167b28bbe6f183f8a2f9e907efa50b073845d1be2dcefbb8a50561f0d98"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":304,"end_line":312,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":315,"end_line":319,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":322,"end_line":371,"hash":"be4e656263b39d4f4813f2264707da1516718602bf6f25af343e43aac0c89984"}]}
 # mutate4py-manifest-end

@@ -1,0 +1,107 @@
+{
+  "name" : "SP1 LLM client — top_k routed through extra_body",
+  "scenarios" : [ {
+    "name" : "LLM-TOPK-01 top_k is routed through extra_body not as top-level kwarg",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url http://test:8080 and top_k 40"
+    }, {
+      "keyword" : "When",
+      "text" : "the client builds extra kwargs"
+    }, {
+      "keyword" : "Then",
+      "text" : "the kwargs do not contain a top-level top_k key"
+    }, {
+      "keyword" : "And",
+      "text" : "the kwargs contain an extra_body key"
+    }, {
+      "keyword" : "And",
+      "text" : "the extra_body dict contains top_k with value 40"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LLM-TOPK-02 top_p remains a top-level kwarg",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url http://test:8080 and top_p 0.9 and top_k 40"
+    }, {
+      "keyword" : "When",
+      "text" : "the client builds extra kwargs"
+    }, {
+      "keyword" : "Then",
+      "text" : "the kwargs contain a top-level top_p key with value 0.9"
+    }, {
+      "keyword" : "And",
+      "text" : "the top_p key is not inside extra_body"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LLM-TOPK-03 temperature and max_completion_tokens remain top-level kwargs",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url http://test:8080 and top_k 40"
+    }, {
+      "keyword" : "When",
+      "text" : "the client builds extra kwargs with temperature 0.7 and max_completion_tokens 2048"
+    }, {
+      "keyword" : "Then",
+      "text" : "the kwargs contain a top-level temperature key with value 0.7"
+    }, {
+      "keyword" : "And",
+      "text" : "the kwargs contain a top-level max_completion_tokens key with value 2048"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LLM-TOPK-04 top_k None means no extra_body",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url http://test:8080 and top_k None"
+    }, {
+      "keyword" : "When",
+      "text" : "the client builds extra kwargs"
+    }, {
+      "keyword" : "Then",
+      "text" : "the kwargs do not contain an extra_body key"
+    }, {
+      "keyword" : "And",
+      "text" : "the kwargs do not contain a top-level top_k key"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LLM-TOPK-05 top_k value forwarded in extra_body for structured parse calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url http://test:8080 and top_k 40"
+    }, {
+      "keyword" : "When",
+      "text" : "the client completes a structured request with a response format"
+    }, {
+      "keyword" : "Then",
+      "text" : "the parse call includes extra_body with top_k 40"
+    }, {
+      "keyword" : "And",
+      "text" : "the parse call does not include a top-level top_k kwarg"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LLM-TOPK-06 top_k value forwarded in extra_body for unstructured create calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMClient constructed with base_url http://test:8080 and top_k 40"
+    }, {
+      "keyword" : "When",
+      "text" : "the client completes an unstructured request"
+    }, {
+      "keyword" : "Then",
+      "text" : "the create call includes extra_body with top_k 40"
+    }, {
+      "keyword" : "And",
+      "text" : "the create call does not include a top-level top_k kwarg"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA infra LLM module is importable"
+  } ]
+}

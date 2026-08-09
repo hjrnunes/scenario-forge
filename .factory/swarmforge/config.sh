@@ -12,3 +12,5 @@ SWARMFORGE_MUTATION_CMD="mutate4py src/ --test-command 'uv run pytest tests/ -x'
 SWARMFORGE_CRAP_THRESHOLD=6
 SWARMFORGE_MUTATION_SCORE_MIN=80
 SWARMFORGE_MUTATION_SITES_MAX=100
+SWARMFORGE_BEADS=true           # true | false (set by /swarmforge-setup; orchestrator uses Beads when .beads/ is present and this is true)
+SWARMFORGE_SPEC_REVIEW=false    # true | false (operator opt-in; true = orchestrator asks for spec approval before coding)
