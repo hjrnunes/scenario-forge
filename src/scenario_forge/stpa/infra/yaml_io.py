@@ -10,17 +10,26 @@ Follows the pattern in ``scenario_forge.pipeline.io`` but decoupled.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import yaml
 from pydantic import BaseModel
 
 
-def write_yaml(model: BaseModel, path: Path) -> Path:
+def write_yaml(
+    model: BaseModel,
+    path: Path,
+    post_process: Callable[[dict], dict] | None = None,
+) -> Path:
     """Serialize *model* to a YAML file at *path*.
 
     Args:
         model: A Pydantic model instance.
         path: Destination file path.
+        post_process: Optional callable that receives the dumped dict
+            and returns a (possibly modified) dict before YAML
+            serialization.  Used by callers to inject companion display
+            fields (e.g. ``kc_subcodes_display`` on CapabilityProfile).
 
     Returns:
         The path that was written.
@@ -28,6 +37,8 @@ def write_yaml(model: BaseModel, path: Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = model.model_dump(mode="json", exclude_none=True)
+    if post_process is not None:
+        data = post_process(data)
     path.write_text(
         yaml.dump(
             data,

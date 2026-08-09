@@ -179,12 +179,12 @@ class TestStructuralHeuristics:
 
     def test_heur_06_hazard_traced_passes(self):
         """SP1-HEUR-06: hazard traced to a responsibility passes."""
-        la = _make_loss_analysis_for_hazard("SC-1")
+        la = _make_loss_analysis_for_hazard("RC-1-1")
         resp = Responsibility(
             resp_id="RESP-1",
             description="Controller",
             responsibility_constraints=[
-                ResponsibilityConstraint(rc_id="SC-1", description="Must verify")
+                ResponsibilityConstraint(rc_id="RC-1-1", description="Must verify")
             ],
             process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
             control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],

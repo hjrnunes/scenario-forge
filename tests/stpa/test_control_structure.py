@@ -511,20 +511,20 @@ class TestControlStructureHeuristics:
             hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
             security_constraints=[
                 SecurityConstraint(
-                    constraint_id="SC-1",
+                    constraint_id="RC-1-1",
                     description="Constraint",
                     related_hazards=["H-1"],
                 )
             ],
         )
-        # The hazard is traced via SC-1 -> a responsibility_constraint whose
-        # rc_id matches SC-1 -> RESP-1.
+        # The hazard is traced via RC-1-1 -> a responsibility_constraint whose
+        # rc_id matches RC-1-1 -> RESP-1.
         cs = _make_cs(
             responsibilities=[
                 _make_resp(
                     constraints=[
                         ResponsibilityConstraint(
-                            rc_id="SC-1", description="Constraint"
+                            rc_id="RC-1-1", description="Constraint"
                         )
                     ]
                 )

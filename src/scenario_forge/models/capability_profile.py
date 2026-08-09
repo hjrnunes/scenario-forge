@@ -164,6 +164,30 @@ ZONE_DISPLAY_NAMES: dict[str, str] = {
 }
 
 
+def build_kc_subcodes_display(kc_subcodes: list[str]) -> dict[str, str]:
+    """Build a display dict mapping each KC sub-code to its description.
+
+    Looks up each code in ``KC_SUBCODE_NAMES`` (OWASP codes) and
+    ``KCX_SUBCODES`` (scenario-forge extensions).  Unknown codes fall
+    back to the code string itself.
+
+    Args:
+        kc_subcodes: List of KC sub-code strings.
+
+    Returns:
+        Dict mapping each code to its human-readable description.
+    """
+    display: dict[str, str] = {}
+    for code in kc_subcodes:
+        if code in KC_SUBCODE_NAMES:
+            display[code] = KC_SUBCODE_NAMES[code]
+        elif code in KCX_SUBCODES:
+            display[code] = KCX_SUBCODES[code]
+        else:
+            display[code] = code
+    return display
+
+
 # ---------------------------------------------------------------------------
 # Zone derivation from KC sub-codes
 # ---------------------------------------------------------------------------

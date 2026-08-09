@@ -19,7 +19,10 @@ from pathlib import Path
 
 import yaml
 
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    build_kc_subcodes_display,
+)
 from scenario_forge.pipeline.threats import ThreatSurface
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,9 @@ def write_capability_profile(profile: CapabilityProfile, run_dir: Path) -> Path:
     """
     profile_output_path = run_dir / "capability-profile.yaml"
     profile_data = profile.model_dump(mode="json", exclude_none=True)
+    profile_data["kc_subcodes_display"] = build_kc_subcodes_display(
+        profile_data.get("kc_subcodes", [])
+    )
     profile_output_path.write_text(
         yaml.dump(
             profile_data,

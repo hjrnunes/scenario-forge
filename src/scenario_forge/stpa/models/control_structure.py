@@ -10,11 +10,12 @@ vs "the control structure structural heuristics are checked".
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from scenario_forge.stpa.models._validation import check_duplicate_ids
 
@@ -42,6 +43,15 @@ class ResponsibilityConstraint(BaseModel):
     rc_id: str  # RC-X-Y
     description: str
 
+    @field_validator("rc_id")
+    @classmethod
+    def validate_rc_id_format(cls, v: str) -> str:
+        if not re.match(r"^RC-\d+-\d+$", v):
+            raise ValueError(
+                f"rc_id must match format 'RC-X-Y' (e.g. 'RC-1-1'), got '{v}'"
+            )
+        return v
+
 
 class ProcessModelPart(BaseModel):
     """A part of a controller's process model."""
@@ -49,6 +59,15 @@ class ProcessModelPart(BaseModel):
     pm_id: str  # PM-X-Y
     description: str
     feedback_source: ElementRef | None = None
+
+    @field_validator("pm_id")
+    @classmethod
+    def validate_pm_id_format(cls, v: str) -> str:
+        if not re.match(r"^PM-\d+-\d+$", v):
+            raise ValueError(
+                f"pm_id must match format 'PM-X-Y' (e.g. 'PM-1-1'), got '{v}'"
+            )
+        return v
 
 
 class ControlAction(BaseModel):
@@ -58,6 +77,15 @@ class ControlAction(BaseModel):
     description: str
     target: ElementRef | None = None
 
+    @field_validator("ca_id")
+    @classmethod
+    def validate_ca_id_format(cls, v: str) -> str:
+        if not re.match(r"^CA-\d+-\d+$", v):
+            raise ValueError(
+                f"ca_id must match format 'CA-X-Y' (e.g. 'CA-1-1'), got '{v}'"
+            )
+        return v
+
 
 class FeedbackChannel(BaseModel):
     """A feedback channel providing information to a controller."""
@@ -66,6 +94,15 @@ class FeedbackChannel(BaseModel):
     description: str
     updates: str  # pm_id ref
     source: ElementRef | None = None
+
+    @field_validator("fb_id")
+    @classmethod
+    def validate_fb_id_format(cls, v: str) -> str:
+        if not re.match(r"^FB-\d+-\d+$", v):
+            raise ValueError(
+                f"fb_id must match format 'FB-X-Y' (e.g. 'FB-1-1'), got '{v}'"
+            )
+        return v
 
 
 class Responsibility(BaseModel):
@@ -80,12 +117,30 @@ class Responsibility(BaseModel):
     control_actions: list[ControlAction] = Field(default_factory=list)
     feedback_channels: list[FeedbackChannel] = Field(default_factory=list)
 
+    @field_validator("resp_id")
+    @classmethod
+    def validate_resp_id_format(cls, v: str) -> str:
+        if not re.match(r"^RESP-\d+$", v):
+            raise ValueError(
+                f"resp_id must match format 'RESP-N' (e.g. 'RESP-1'), got '{v}'"
+            )
+        return v
+
 
 class ControlledProcess(BaseModel):
     """A controlled process in the control structure."""
 
     cp_id: str  # CP-1, CP-2, ...
     description: str
+
+    @field_validator("cp_id")
+    @classmethod
+    def validate_cp_id_format(cls, v: str) -> str:
+        if not re.match(r"^CP-\d+$", v):
+            raise ValueError(
+                f"cp_id must match format 'CP-N' (e.g. 'CP-1'), got '{v}'"
+            )
+        return v
 
 
 class CoordinationMechanism(BaseModel):
@@ -94,6 +149,15 @@ class CoordinationMechanism(BaseModel):
     cm_id: str  # CM-X
     description: str
     payload: str
+
+    @field_validator("cm_id")
+    @classmethod
+    def validate_cm_id_format(cls, v: str) -> str:
+        if not re.match(r"^CM-\d+$", v):
+            raise ValueError(
+                f"cm_id must match format 'CM-N' (e.g. 'CM-1'), got '{v}'"
+            )
+        return v
 
 
 class CoordinationLink(BaseModel):
@@ -105,6 +169,15 @@ class CoordinationLink(BaseModel):
     shared_pm: str  # pm_id ref
     coordination_mechanism: CoordinationMechanism
     description: str
+
+    @field_validator("link_id")
+    @classmethod
+    def validate_link_id_format(cls, v: str) -> str:
+        if not re.match(r"^CL-\d+$", v):
+            raise ValueError(
+                f"link_id must match format 'CL-N' (e.g. 'CL-1'), got '{v}'"
+            )
+        return v
 
 
 class ControlStructure(BaseModel):
@@ -122,16 +195,23 @@ class ControlStructure(BaseModel):
         check_duplicate_ids([r.resp_id for r in self.responsibilities], "resp_id")
         check_duplicate_ids([cp.cp_id for cp in self.controlled_processes], "cp_id")
 
-        all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = _collect_child_ids(
-            self.responsibilities
+        all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = (
+            _collect_child_ids(self.responsibilities)
         )
 
+        check_duplicate_ids(all_rc_ids, "rc_id")
         check_duplicate_ids(all_pm_ids, "pm_id")
         check_duplicate_ids(all_ca_ids, "ca_id")
         check_duplicate_ids(all_fb_ids, "fb_id")
         check_duplicate_ids(
             [cl.link_id for cl in self.coordination_links], "link_id"
         )
+        check_duplicate_ids(
+            [cl.coordination_mechanism.cm_id for cl in self.coordination_links],
+            "cm_id",
+        )
+
+        _check_cross_namespace_collision(self.responsibilities, self.controlled_processes)
 
         _validate_element_refs(self.responsibilities, resp_ids, cp_ids)
         _validate_feedback_updates(self.responsibilities, pm_by_resp)
@@ -157,32 +237,88 @@ def _is_valid_element_ref(
 
 def _collect_child_ids(
     responsibilities: list[Responsibility],
-) -> tuple[list[str], list[str], list[str], dict[str, set[str]]]:
-    """Collect all PM/CA/FB IDs and check for per-responsibility duplicates.
+) -> tuple[list[str], list[str], list[str], list[str], dict[str, set[str]]]:
+    """Collect all RC/PM/CA/FB IDs and check for per-responsibility duplicates.
 
     Returns:
-        A tuple of (all_pm_ids, all_ca_ids, all_fb_ids, pm_ids_by_resp).
+        A tuple of (all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_ids_by_resp).
     """
+    all_rc_ids: list[str] = []
     all_pm_ids: list[str] = []
     all_ca_ids: list[str] = []
     all_fb_ids: list[str] = []
     pm_by_resp: dict[str, set[str]] = {}
 
     for resp in responsibilities:
+        rc_list = [rc.rc_id for rc in resp.responsibility_constraints]
         pm_list = [pm.pm_id for pm in resp.process_model_parts]
         ca_list = [ca.ca_id for ca in resp.control_actions]
         fb_list = [fb.fb_id for fb in resp.feedback_channels]
 
         pm_by_resp[resp.resp_id] = set(pm_list)
+        all_rc_ids.extend(rc_list)
         all_pm_ids.extend(pm_list)
         all_ca_ids.extend(ca_list)
         all_fb_ids.extend(fb_list)
 
+        check_duplicate_ids(rc_list, "rc_id")
         check_duplicate_ids(pm_list, "pm_id")
         check_duplicate_ids(ca_list, "ca_id")
         check_duplicate_ids(fb_list, "fb_id")
 
-    return all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp
+    return all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp
+
+
+def _check_cross_namespace_collision(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> None:
+    """Detect IDs that appear in more than one ID namespace.
+
+    Collects every ID from each element type into a separate namespace
+    bucket, then checks whether any ID value appears in more than one
+    bucket.  This catches cross-namespace collisions that field
+    validators alone cannot detect when validators are bypassed (e.g.
+    an RC-1-1 value used as both rc_id and pm_id).
+    """
+    namespace_buckets: list[tuple[str, set[str]]] = []
+
+    rc_ids: set[str] = set()
+    pm_ids: set[str] = set()
+    ca_ids: set[str] = set()
+    fb_ids: set[str] = set()
+    resp_ids: set[str] = set()
+    for resp in responsibilities:
+        resp_ids.add(resp.resp_id)
+        for rc in resp.responsibility_constraints:
+            rc_ids.add(rc.rc_id)
+        for pm in resp.process_model_parts:
+            pm_ids.add(pm.pm_id)
+        for ca in resp.control_actions:
+            ca_ids.add(ca.ca_id)
+        for fb in resp.feedback_channels:
+            fb_ids.add(fb.fb_id)
+    cp_ids = {cp.cp_id for cp in controlled_processes}
+
+    namespace_buckets = [
+        ("rc_id", rc_ids),
+        ("pm_id", pm_ids),
+        ("ca_id", ca_ids),
+        ("fb_id", fb_ids),
+        ("resp_id", resp_ids),
+        ("cp_id", cp_ids),
+    ]
+
+    # Check every pair of namespace buckets for shared ID values.
+    for i, (name_a, bucket_a) in enumerate(namespace_buckets):
+        for name_b, bucket_b in namespace_buckets[i + 1 :]:
+            shared = bucket_a & bucket_b
+            if shared:
+                raise ValueError(
+                    f"Cross-namespace collision: ID(s) {sorted(shared)} "
+                    f"appear in both {name_a} and {name_b} namespaces. "
+                    f"Each ID value must belong to exactly one namespace."
+                )
 
 
 def _validate_element_refs(

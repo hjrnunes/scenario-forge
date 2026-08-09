@@ -920,7 +920,7 @@ def _invalid_coord_link_connection_set(n_resps: int) -> ConnectionSet:
     return ConnectionSet(
         coordination_links=[
             CoordinationLink(
-                link_id="CL-BAD",
+                link_id="CL-1",
                 source="RESP-999",
                 target=f"RESP-{n_resps}",
                 shared_pm=f"PM-{n_resps}-1",
@@ -945,7 +945,7 @@ def _invalid_shared_pm_connection_set() -> ConnectionSet:
     return ConnectionSet(
         coordination_links=[
             CoordinationLink(
-                link_id="CL-BAD",
+                link_id="CL-1",
                 source="RESP-1",
                 target="RESP-2",
                 shared_pm="PM-999-1",

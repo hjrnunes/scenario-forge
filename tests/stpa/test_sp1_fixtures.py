@@ -58,9 +58,9 @@ def _valid_resp_set_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"},
-                    {"rc_id": "SC-2", "description": "Must protect data"},
-                    {"rc_id": "SC-3", "description": "Must audit actions"},
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"},
+                    {"rc_id": "RC-1-2", "description": "Must protect data"},
+                    {"rc_id": "RC-1-3", "description": "Must audit actions"},
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -90,9 +90,9 @@ def _valid_cs_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"},
-                    {"rc_id": "SC-2", "description": "Must protect data"},
-                    {"rc_id": "SC-3", "description": "Must audit actions"},
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"},
+                    {"rc_id": "RC-1-2", "description": "Must protect data"},
+                    {"rc_id": "RC-1-3", "description": "Must audit actions"},
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -139,6 +139,11 @@ class TestSP1FixtureIntegration:
         la_path = FIXTURES_DIR / "loss_analysis_klarna.yaml"
         loss_analysis = read_yaml(la_path, LossAnalysis)
         assert isinstance(loss_analysis, LossAnalysis)
+
+        # Update security constraint IDs to match the mock CS rc_ids
+        # (RC-1-1, RC-1-2, RC-1-3) so hazard tracing can link them.
+        for i, sc in enumerate(loss_analysis.security_constraints):
+            sc.constraint_id = f"RC-1-{i + 1}"
 
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_req_set_dict())
