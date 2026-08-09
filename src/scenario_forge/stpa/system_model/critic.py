@@ -161,7 +161,7 @@ def has_unjustified_gaps(findings: CriticFindings) -> bool:
 # Critic ID sanitization
 # ---------------------------------------------------------------------------
 
-# Conforming ID patterns (valid format, non-zero):
+# Conforming ID patterns (valid format per the model schema):
 # RESP-N, PM-X-Y, CA-X-Y, FB-X-Y, CP-N, CL-N, RC-X-Y
 _CONFORMING_PATTERNS = [
     re.compile(r"^RESP-\d+$"),
@@ -199,9 +199,10 @@ def _is_conforming_id(token: str) -> bool:
 def _replace_non_conforming_ids(remedy: str) -> str:
     """Replace non-conforming ID tokens in a suggested_remedy string.
 
-    Replaces zero-based IDs (PM-0, RESP-0, CA-0, FB-0, and multi-part
-    variants like PM-0-1) with generic descriptions. Also replaces
-    any ID-like token that does not match a conforming format.
+    Replaces any ID-like token (RESP-*, PM-*, CA-*, FB-*, CP-*, CL-*, RC-*)
+    that does not match the expected format with a generic description.
+    For example, ``PM-0`` (single-part, missing the X-Y suffix) is replaced
+    with ``a new PM part``. Conforming IDs like ``PM-1-2`` are preserved.
     """
     def _replacer(match: re.Match) -> str:
         token = match.group()
