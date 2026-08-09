@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=5efb8ff744ffc2be3f1c083d9bfaf815338728000393ba2b6f2ceaf0b4b8aa05
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T19:57:45.125171Z","feature_name":"SP1 — Prevent RevisionDelta runaway output","feature_path":"../../../tests/stpa/features/sp1_revision_runaway_output.feature","background_hash":"d2c1bb399d1f338a359aea1d66186f71082f313642a60b85f65f7cf0ce4affd3","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Prevent RevisionDelta runaway output
   Gemma 4 generates 16384 tokens for revision runs despite the prompt saying
   "Do NOT restate the entire control structure". A valid delta is ~800

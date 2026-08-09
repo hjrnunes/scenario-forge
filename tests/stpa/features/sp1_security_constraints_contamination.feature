@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=a312820fa544bd3676a0cbc550c4a2e88b35cb6f6ee1b2a3c88803d3cbda739f
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T19:57:48.793172Z","feature_name":"SP1 — Prevent security constraints from contaminating tool inventory","feature_path":"../../../tests/stpa/features/sp1_security_constraints_contamination.feature","background_hash":"a7bc2ec77d4defafedaa1fd7aa346715ff439a68ae3d8c13e3a536e3d7527613","implementation_hash":"unknown","scenarios":[{"index":5,"name":"SecCon-06 stage1b_system.j2 preserves existing quality requirement sections","scenario_hash":"ac5931fd042d526f508fa692eb0c99418f370c01fd64299bb392228030bf26cd","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-09T19:57:48.793172Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Prevent security constraints from contaminating tool inventory
   The stage1b_user.j2 template includes the full LossAnalysis with security
   constraints. The LLM treats prescriptive security constraints ("must

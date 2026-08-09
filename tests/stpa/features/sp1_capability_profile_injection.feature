@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=4389f7ebba47bcabcb6b2f270f09f5158028ba1f8ac47207f115bd652e101079
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T19:57:41.900995Z","feature_name":"SP1 — Inject capability profile into Stage 2 Call 2 user prompt","feature_path":"../../../tests/stpa/features/sp1_capability_profile_injection.feature","background_hash":"ce613fef4022bae8aa0b1d8243e75577aee0d0e16dfb35d86864b5a33367cf99","implementation_hash":"unknown","scenarios":[{"index":6,"name":"CapProfInject-07 existing Call 2 user prompt sections remain present","scenario_hash":"7bce52931ec013b127392806a7ba628de05e717eacd0a1613be012c5cfb1f5d5","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-09T19:57:41.900995Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Inject capability profile into Stage 2 Call 2 user prompt
   The system prompt stage2_call2_system.j2 instructs the LLM to "Check the
   capability profile active zones" with mandatory per-zone responsibilities.

@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=de39709266515d43578e0a1f97795be3086d826e34de269ec276c5ae47e82845
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T19:57:53.598549Z","feature_name":"SP1 — Runner script resolves path references in use-case files","feature_path":"../../../tests/stpa/features/sp1_use_case_path_resolution.feature","background_hash":"bf1f14fd5a8d310fa5dfa4ed20beb3442162cd90020c1e4fa28264f9da9117a1","implementation_hash":"unknown","scenarios":[{"index":5,"name":"PathResolve-06 read_use_case resolves path references with supported extensions","scenario_hash":"005c217afbab2efbc9899de66b7a58d8c5cc03e093b532f65a7b3c52fc71e5c9","mutation_count":8,"result":{"Total":8,"Killed":8,"Survived":0,"Errors":0},"tested_at":"2026-08-09T19:57:53.598549Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Runner script resolves path references in use-case files
   The read_use_case() function in scripts/run_sp1.py reads a file directly
   with Path.read_text(). If the file contains a path reference (e.g.
