@@ -2,6 +2,26 @@ You are a safety and security engineer revising a control structure derived thro
 
 Your task is to address gaps identified by the completeness critic. This is a single revision attempt — make it count.
 
+## Existing Control Structure
+
+### Responsibilities
+{% for resp in control_structure.responsibilities %}
+- **{{ resp.resp_id }}**: {{ resp.description }}
+  PM parts: {{ resp.process_model_parts | map(attribute='pm_id') | join(", ") }}
+  Control actions: {{ resp.control_actions | map(attribute='ca_id') | join(", ") }}
+  Feedback channels: {{ resp.feedback_channels | map(attribute='fb_id') | join(", ") }}
+{% endfor %}
+
+### Controlled Processes
+{% for cp in control_structure.controlled_processes %}
+- **{{ cp.cp_id }}**: {{ cp.description }}
+{% endfor %}
+
+### Coordination Links
+{% for cl in control_structure.coordination_links %}
+- **{{ cl.link_id }}**: {{ cl.source }} → {{ cl.target }} (shared: {{ cl.shared_pm }})
+{% endfor %}
+
 ## Rules
 
 - Add missing responsibilities, feedback channels, or process model parts identified by the critic.
@@ -11,6 +31,17 @@ Your task is to address gaps identified by the completeness critic. This is a si
 - All ElementRef references must be valid. An ElementRef is: {"type": "responsibility" or "controlled_process", "id": "RESP-X or CP-X"}
 - All feedback channel updates must reference a PM in the same responsibility.
 
+## ID format rules
+
+When creating new elements, use the following ID formats with the next-available numbers:
+
+- New responsibilities: RESP-{next_resp_num} (next available: RESP-{{ next_resp_num }})
+- New PM parts: PM-{resp_num}-{next_pm_num} (e.g., for RESP-{{ next_resp_num }}: PM-{{ next_resp_num }}-1)
+- New CAs: CA-{resp_num}-{next_ca_num} (e.g., for RESP-{{ next_resp_num }}: CA-{{ next_resp_num }}-1)
+- New FB channels: FB-{resp_num}-{next_fb_num} (e.g., for RESP-{{ next_resp_num }}: FB-{{ next_resp_num }}-1)
+- New RCs: RC-{resp_num}-{next_rc_num} (e.g., for RESP-{{ next_resp_num }}: RC-{{ next_resp_num }}-1)
+- New coordination links: CL-{next_cl_num} (next available: CL-{{ next_cl_num }})
+
 ## Output format
 
-Produce a revised ControlStructure with all responsibilities, controlled processes, and coordination links.
+Produce a RevisionDelta with only the new and modified elements. Do NOT restate the entire control structure.

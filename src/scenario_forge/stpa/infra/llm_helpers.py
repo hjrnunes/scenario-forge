@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -32,6 +33,20 @@ class StageError(Exception):
         self.step = step
         self.message = message
         super().__init__(f"{stage}/{step}: {message}")
+
+
+def _stringify_response_content(content: Any) -> str:
+    """Convert LLM response content to a string for logging.
+
+    Handles Pydantic models, dicts, and raw strings.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, BaseModel):
+        return content.model_dump_json()
+    if isinstance(content, dict):
+        return json.dumps(content)
+    return str(content)
 
 
 def parse_llm_result(result: LLMResult, model_class: type[_T]) -> _T:
@@ -82,6 +97,7 @@ def log_llm_call(
         step: Sub-step within the stage (e.g. ``"loss_analysis"``).
     """
     _success = True
+    _response_content = _stringify_response_content(result.content)
     entry = make_call_log_entry(
         stage=stage,
         step=step,
@@ -92,6 +108,7 @@ def log_llm_call(
         completion_tokens=result.completion_tokens,
         duration_ms=result.duration_ms,
         success=_success,
+        response_content=_response_content,
     )
     append_call_log([entry], run_dir)
 
@@ -200,5 +217,5 @@ def safe_llm_call(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"f7d368492b85b923de1f1271ac7f8e467a037d2d65ea7d2b22cb0d1d42d2f2e9","functions":[{"id":"func/StageError.__init__","name":"__init__","line":30,"end_line":34,"hash":"4177d4e5e3c335fffd74f73fc638a1c010bb0f05f4b7e84916530ad1645c17d1"},{"id":"func/parse_llm_result","name":"parse_llm_result","line":37,"end_line":65,"hash":"f964028962706a4a0bac14d30116ce175f98f2d2aef982ba8ef8e645c97007e9"},{"id":"func/log_llm_call","name":"log_llm_call","line":68,"end_line":96,"hash":"5a09ff8b9a97e296d6d839a9e05ddd0ebcfc1ec975212a269489d36f59138903"},{"id":"func/log_llm_call_failure","name":"log_llm_call_failure","line":99,"end_line":139,"hash":"632647e67fc23888061cf77c9b9883892d59b9b33e1807a4b8cb535580329751"},{"id":"func/safe_llm_call","name":"safe_llm_call","line":142,"end_line":199,"hash":"ab6564f555f4b0c4238f11e716965aeb20123bd254f0236e603b75ac6219a932"}]}
+# {"version":1,"tested_at":"2026-08-09T17:33:19Z","module_hash":"a9545fefb6074e131851a42e118d754b7c5377a7d6b16917d358347553b80136","functions":[{"id":"func/StageError.__init__","name":"__init__","line":31,"end_line":35,"hash":"4177d4e5e3c335fffd74f73fc638a1c010bb0f05f4b7e84916530ad1645c17d1"},{"id":"func/_stringify_response_content","name":"_stringify_response_content","line":38,"end_line":49,"hash":"30a802977ac66248fc75381524437bf35ae060be960a6a1419ba85619bab2749"},{"id":"func/parse_llm_result","name":"parse_llm_result","line":52,"end_line":80,"hash":"f964028962706a4a0bac14d30116ce175f98f2d2aef982ba8ef8e645c97007e9"},{"id":"func/log_llm_call","name":"log_llm_call","line":83,"end_line":113,"hash":"fd1b0e43e50c09a009cc79191121c7382e9b9410f143dabb277bb2d73c0d5d28"},{"id":"func/log_llm_call_failure","name":"log_llm_call_failure","line":116,"end_line":156,"hash":"632647e67fc23888061cf77c9b9883892d59b9b33e1807a4b8cb535580329751"},{"id":"func/safe_llm_call","name":"safe_llm_call","line":159,"end_line":216,"hash":"ab6564f555f4b0c4238f11e716965aeb20123bd254f0236e603b75ac6219a932"}]}
 # mutate4py-manifest-end

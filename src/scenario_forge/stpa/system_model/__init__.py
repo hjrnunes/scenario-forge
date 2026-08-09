@@ -16,6 +16,7 @@ from scenario_forge.stpa.system_model.control_structure import (  # noqa: E402
 from scenario_forge.stpa.system_model.critic import (  # noqa: E402
     CriticFindings,
     CriticGap,
+    RevisionDelta,
     run_completeness_critic,
     run_revision,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "ConnectionSet",
     "CriticFindings",
     "CriticGap",
+    "RevisionDelta",
     # run result
     "SP1RunResult",
     # stage functions

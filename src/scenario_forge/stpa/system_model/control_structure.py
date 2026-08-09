@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -28,6 +28,7 @@ from scenario_forge.stpa.models.control_structure import (
     ControlledProcess,
     ElementRef,
     Responsibility,
+    _is_valid_element_ref,
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
@@ -172,6 +173,142 @@ def _merge_controlled_processes(
 # ---------------------------------------------------------------------------
 
 
+def _iter_resp_ref_fields(
+    resp: Responsibility,
+) -> list[tuple[str, str, Any]]:
+    """Yield (element_label, field_name, item) for each ElementRef-bearing field.
+
+    Each tuple identifies a single ElementRef slot inside the
+    responsibility: the PM feedback_source, CA target, and FB source.
+    The caller can ``getattr``/``setattr`` *field_name* on *item* to
+    read or nullify the ref.
+    """
+    return [
+        (f"PM {pm.pm_id}", "feedback_source", pm)
+        for pm in resp.process_model_parts
+    ] + [
+        (f"CA {ca.ca_id}", "target", ca)
+        for ca in resp.control_actions
+    ] + [
+        (f"FB {fb.fb_id}", "source", fb)
+        for fb in resp.feedback_channels
+    ]
+
+
+def _nullify_invalid_refs_in_resp(
+    resp: Responsibility,
+    resp_ids: set[str],
+    cp_ids: set[str],
+) -> list[str]:
+    """Nullify unresolvable ElementRefs in a single responsibility.
+
+    Returns a warning string for each stripped ref.
+    """
+    warnings: list[str] = []
+    for element_label, field_name, item in _iter_resp_ref_fields(resp):
+        ref = getattr(item, field_name)
+        if ref is not None and not _is_valid_element_ref(ref, resp_ids, cp_ids):
+            warnings.append(
+                f"Stripped invalid {field_name} from {element_label}: "
+                f"{ref.type.value} '{ref.id}' "
+                f"not found in responsibilities or controlled processes."
+            )
+            setattr(item, field_name, None)
+    return warnings
+
+
+def _sanitize_for_fallback(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> tuple[list[Responsibility], list[ControlledProcess], list[str]]:
+    """Nullify ElementRefs that cannot be resolved against available IDs.
+
+    Iterates deep-copied responsibilities and nullifies any
+    ``feedback_source``, ``control_action.target``, or
+    ``feedback_channel.source`` whose ElementRef id cannot be resolved
+    against the available resp_ids and cp_ids.
+
+    Args:
+        responsibilities: Responsibilities from the ResponsibilitySet.
+        controlled_processes: Controlled processes from the ResponsibilitySet.
+
+    Returns:
+        A tuple of (sanitized responsibilities, controlled processes,
+        warnings). The warnings list contains one entry per stripped
+        ElementRef.
+    """
+    resp_ids = {r.resp_id for r in responsibilities}
+    cp_ids = {cp.cp_id for cp in controlled_processes}
+    sanitized_resps = copy.deepcopy(responsibilities)
+    sanitized_cps = copy.deepcopy(controlled_processes)
+    warnings: list[str] = []
+
+    for resp in sanitized_resps:
+        warnings.extend(_nullify_invalid_refs_in_resp(resp, resp_ids, cp_ids))
+
+    return sanitized_resps, sanitized_cps, warnings
+
+
+def _strip_all_refs_in_resp(resp: Responsibility) -> list[str]:
+    """Strip ALL ElementRefs from a single responsibility, returning warnings."""
+    warnings: list[str] = []
+    for element_label, field_name, item in _iter_resp_ref_fields(resp):
+        ref = getattr(item, field_name)
+        if ref is not None:
+            warnings.append(
+                f"Further-degraded: stripped {field_name} from {element_label}."
+            )
+            setattr(item, field_name, None)
+    return warnings
+
+
+def _strip_all_element_refs(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> tuple[list[Responsibility], list[ControlledProcess], list[str]]:
+    """Strip ALL ElementRefs from responsibilities (further-degraded fallback).
+
+    Sets all feedback_source to None, removes all control_action targets,
+    and sets all feedback_channel.source to None. Also deduplicates
+    responsibilities by resp_id (keeping the first occurrence) so that
+    the resulting ControlStructure can pass validation even when the
+    original ResponsibilitySet had duplicate IDs.
+
+    Args:
+        responsibilities: Responsibilities to strip.
+        controlled_processes: Controlled processes (deduplicated by cp_id).
+
+    Returns:
+        A tuple of (stripped responsibilities, controlled processes,
+        warnings). The warnings list contains one entry per stripped
+        ElementRef and per duplicate responsibility.
+    """
+    stripped_resps: list[Responsibility] = []
+    seen_resp_ids: set[str] = set()
+    warnings: list[str] = []
+
+    for resp in copy.deepcopy(responsibilities):
+        if resp.resp_id in seen_resp_ids:
+            warnings.append(
+                f"Further-degraded: removed duplicate responsibility "
+                f"{resp.resp_id}."
+            )
+            continue
+        seen_resp_ids.add(resp.resp_id)
+        warnings.extend(_strip_all_refs_in_resp(resp))
+        stripped_resps.append(resp)
+
+    # Deduplicate controlled processes by cp_id
+    stripped_cps: list[ControlledProcess] = []
+    seen_cp_ids: set[str] = set()
+    for cp in copy.deepcopy(controlled_processes):
+        if cp.cp_id not in seen_cp_ids:
+            seen_cp_ids.add(cp.cp_id)
+            stripped_cps.append(cp)
+
+    return stripped_resps, stripped_cps, warnings
+
+
 def _merge_with_fallback(
     responsibility_set: ResponsibilitySet,
     connection_set: ConnectionSet,
@@ -183,6 +320,10 @@ def _merge_with_fallback(
     On merge failure (invalid cross-references in the ConnectionSet), the
     failure is logged to ``calls.jsonl`` and a fallback ControlStructure is
     built from the ResponsibilitySet alone (without coordination links).
+
+    The fallback path first sanitizes invalid ElementRefs via
+    ``_sanitize_for_fallback``. If sanitization still fails (e.g. duplicate
+    IDs), a further-degraded path strips ALL ElementRefs.
 
     This function is deterministic and has no LLM dependency, so it can be
     tested independently of the Stage 2 LLM call sequence.
@@ -209,12 +350,35 @@ def _merge_with_fallback(
             error_msg,
         )
         warnings = [f"{STAGE}/merge_connection_set: {error_msg}"]
-        # Deep-copy to match merge_connection_set's non-mutation contract
-        fallback = ControlStructure(
-            responsibilities=copy.deepcopy(responsibility_set.responsibilities),
-            controlled_processes=copy.deepcopy(responsibility_set.controlled_processes),
-        )
-        return fallback, warnings
+
+        # First fallback: sanitize invalid ElementRefs
+        try:
+            sanitized_resps, sanitized_cps, sanitize_warnings = (
+                _sanitize_for_fallback(
+                    responsibility_set.responsibilities,
+                    responsibility_set.controlled_processes,
+                )
+            )
+            warnings.extend(sanitize_warnings)
+            fallback = ControlStructure(
+                responsibilities=sanitized_resps,
+                controlled_processes=sanitized_cps,
+            )
+            return fallback, warnings
+        except Exception:
+            # Further-degraded fallback: strip ALL ElementRefs
+            stripped_resps, stripped_cps, strip_warnings = (
+                _strip_all_element_refs(
+                    responsibility_set.responsibilities,
+                    responsibility_set.controlled_processes,
+                )
+            )
+            warnings.extend(strip_warnings)
+            fallback = ControlStructure(
+                responsibilities=stripped_resps,
+                controlled_processes=stripped_cps,
+            )
+            return fallback, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -418,5 +582,5 @@ def _call_3_connections(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T13:27:20Z","module_hash":"a927b39cc912bcd17f4476519121fce422bbe2240942086838e5c06508d876d4","functions":[{"id":"func/merge_connection_set","name":"merge_connection_set","line":90,"end_line":115,"hash":"91401c9996d67d5255695a66ae446cf4a08e2ade63f41901d56d5ff07f0061e3"},{"id":"func/_apply_connection_assignment","name":"_apply_connection_assignment","line":118,"end_line":127,"hash":"4826885a653c30e772ae1c2a33be78235229c39814c0237dae054cdfd4723b92"},{"id":"func/_try_set_feedback_source","name":"_try_set_feedback_source","line":130,"end_line":140,"hash":"b570aa8dbc9545c3cb8e4e4bbc6c29415d0a1fc4411931cf0b89ec7cbe1730c0"},{"id":"func/_try_set_control_action_target","name":"_try_set_control_action_target","line":143,"end_line":153,"hash":"0f0ecda079875b1d7e7a0b35a2596c263a0df3a38060058645e132e5b42f6333"},{"id":"func/_merge_controlled_processes","name":"_merge_controlled_processes","line":156,"end_line":167,"hash":"b6e9a76bea5acbc4e6d1f164d2bab1edc9ed699e8512a42f90752025a74148e8"},{"id":"func/_merge_with_fallback","name":"_merge_with_fallback","line":175,"end_line":217,"hash":"69e88d52b93e18ce59aeb24efa7b31b80ed7cd4a94b9f9fac3d430010446813a"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":225,"end_line":291,"hash":"e7d15b2690c4c0191d38c1cf43747051d794840a90b1187f0cd18bfe7db857e2"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":299,"end_line":332,"hash":"fd9bc8ae6b88e5852532eecfc104323c9eedd2cea5c485991da751403cc39071"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":340,"end_line":373,"hash":"8af8c975b002066a88b41680d635114de89efa0669e9244f564329144365fb60"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":381,"end_line":417,"hash":"88f9e669aebbe55f102f1a491e96a23a31e806ef8785ee6ce67eefd866f03462"}]}
+# {"version":1,"tested_at":"2026-08-09T17:16:10Z","module_hash":"0a954d0444e2bb862e838e3aee0bcaf5e2505a6d07a7e76169fa41abe30c5657","functions":[{"id":"func/merge_connection_set","name":"merge_connection_set","line":91,"end_line":116,"hash":"91401c9996d67d5255695a66ae446cf4a08e2ade63f41901d56d5ff07f0061e3"},{"id":"func/_apply_connection_assignment","name":"_apply_connection_assignment","line":119,"end_line":128,"hash":"4826885a653c30e772ae1c2a33be78235229c39814c0237dae054cdfd4723b92"},{"id":"func/_try_set_feedback_source","name":"_try_set_feedback_source","line":131,"end_line":141,"hash":"b570aa8dbc9545c3cb8e4e4bbc6c29415d0a1fc4411931cf0b89ec7cbe1730c0"},{"id":"func/_try_set_control_action_target","name":"_try_set_control_action_target","line":144,"end_line":154,"hash":"0f0ecda079875b1d7e7a0b35a2596c263a0df3a38060058645e132e5b42f6333"},{"id":"func/_merge_controlled_processes","name":"_merge_controlled_processes","line":157,"end_line":168,"hash":"b6e9a76bea5acbc4e6d1f164d2bab1edc9ed699e8512a42f90752025a74148e8"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":176,"end_line":195,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":198,"end_line":217,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":220,"end_line":249,"hash":"6915f5c5c82fecb20e9fcff469fe980cb4bb7111158209e176ff983db23f1727"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":252,"end_line":262,"hash":"14f54711c6202a0ef276c6c0c7f6b5f27a33e3f4125758cb98fa94f78ea2bccf"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":265,"end_line":309,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_merge_with_fallback","name":"_merge_with_fallback","line":312,"end_line":381,"hash":"eeea88fa3c976c61f11e7d86432017510e0c28c913f260fbc33709e82ce25e82"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":389,"end_line":455,"hash":"e7d15b2690c4c0191d38c1cf43747051d794840a90b1187f0cd18bfe7db857e2"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":463,"end_line":496,"hash":"fd9bc8ae6b88e5852532eecfc104323c9eedd2cea5c485991da751403cc39071"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":504,"end_line":537,"hash":"8af8c975b002066a88b41680d635114de89efa0669e9244f564329144365fb60"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":545,"end_line":581,"hash":"88f9e669aebbe55f102f1a491e96a23a31e806ef8785ee6ce67eefd866f03462"}]}
 # mutate4py-manifest-end

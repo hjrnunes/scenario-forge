@@ -49,4 +49,9 @@
 
 ## Your Task
 
-Modify the control structure to address the identified gaps. Add missing responsibilities, feedback channels, or PM parts. Ensure new elements connect properly. Do not lose existing responsibilities.
+You MUST add at least one element for EACH finding:
+{% for gap in critic_findings.gaps %}
+{{ loop.index }}. [{{ gap.gap_type }}] {{ gap.description }} → action required: {{ gap.suggested_remedy }}
+{% endfor %}
+
+Add the missing responsibilities, feedback channels, or PM parts as a RevisionDelta. Ensure new elements connect properly. Do not lose existing responsibilities.

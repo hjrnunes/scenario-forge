@@ -107,7 +107,6 @@ _ZERO_VAR_SYSTEM_TEMPLATES = [
     "stage2_call1_system.j2",
     "stage2_call2_system.j2",
     "stage2_call3_system.j2",
-    "revision_system.j2",
 ]
 
 _SECTION_RE = re.compile(r"^(##+) .+$", re.MULTILINE)

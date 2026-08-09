@@ -6,10 +6,14 @@ The critic is a single LLM call with three probes:
   3. Adversarial probe (3 most obvious attack paths)
 
 Revision is a single LLM call (not a loop) if the critic finds unjustified gaps.
+The revision uses a RevisionDelta schema — only new and modified elements —
+which is merged programmatically into the existing ControlStructure.
 """
 
 from __future__ import annotations
 
+import copy
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -19,7 +23,12 @@ from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
-from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
+from scenario_forge.stpa.models.control_structure import (
+    ControlStructure,
+    ControlledProcess,
+    CoordinationLink,
+    Responsibility,
+)
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
@@ -50,6 +59,20 @@ class CriticFindings(BaseModel):
     gaps: list[CriticGap] = []
     checklist_results: dict[str, str] = {}
     taxonomy_probe_results: dict[str, str] = {}
+
+
+class RevisionDelta(BaseModel):
+    """Delta schema for the revision LLM call.
+
+    Instead of restating the entire ControlStructure, the LLM returns
+    only the new and modified elements. These are merged programmatically
+    into the existing ControlStructure.
+    """
+
+    new_responsibilities: list[Responsibility] = []
+    new_controlled_processes: list[ControlledProcess] = []
+    new_coordination_links: list[CoordinationLink] = []
+    modified_responsibilities: list[Responsibility] = []
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +172,11 @@ def run_revision(
 ) -> tuple[ControlStructure, list[str]]:
     """Run a single revision attempt on the control structure.
 
+    Requests a :class:`RevisionDelta` from the LLM (only new/modified
+    elements) and merges it programmatically into the existing
+    ControlStructure. After the merge, ``strip_empty_responsibilities``
+    runs as a safety net, and structural heuristics are re-run.
+
     This is NOT a loop — one revision attempt maximum. After revision,
     structural heuristics are re-run. If structural errors remain, they
     are returned as warnings (the pipeline proceeds).
@@ -169,7 +197,13 @@ def run_revision(
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
-    system_prompt = loader.render_prompt("revision_system.j2")
+    next_ids = _compute_next_ids(control_structure)
+
+    system_prompt = loader.render_prompt(
+        "revision_system.j2",
+        control_structure=control_structure,
+        **next_ids,
+    )
     user_prompt = loader.render_prompt(
         "revision_user.j2",
         use_case_text=use_case_text,
@@ -177,11 +211,11 @@ def run_revision(
         critic_findings=critic_findings,
     )
 
-    revised_cs, _, error_msg = safe_llm_call(
+    revision_delta, _, error_msg = safe_llm_call(
         llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        response_format=ControlStructure,
+        response_format=RevisionDelta,
         run_dir=run_dir,
         stage=STAGE,
         step=STEP_REVISION,
@@ -189,12 +223,131 @@ def run_revision(
     )
     if error_msg is not None:
         return control_structure, [f"Revision failed: {error_msg}"]
+    if revision_delta is None:
+        return control_structure, ["Revision failed: unexpected None response"]
+
+    # Merge the delta into the existing ControlStructure
+    revised_cs = _merge_revision_delta(control_structure, revision_delta)
+
+    # Strip empty responsibilities as a safety net
+    revised_cs, strip_warnings = strip_empty_responsibilities(revised_cs)
 
     # Re-run structural heuristics after revision
     post_revision = run_heuristics(revised_cs, loss_analysis)
-    post_warnings = post_revision.errors + post_revision.warnings
+    post_warnings = list(post_revision.errors) + list(post_revision.warnings)
+    post_warnings.extend(strip_warnings)
 
     return revised_cs, post_warnings
+
+
+def _compute_next_ids(
+    cs: ControlStructure,
+) -> dict[str, int]:
+    """Compute next-available ID numbers from an existing ControlStructure.
+
+    Returns a dict of template variables for the revision system prompt:
+    ``next_resp_num``, ``next_cl_num``, ``next_cp_num``.
+    """
+    return {
+        "next_resp_num": _next_num_from(cs.responsibilities, lambda r: r.resp_id),
+        "next_cl_num": _next_num_from(cs.coordination_links, lambda cl: cl.link_id),
+        "next_cp_num": _next_num_from(cs.controlled_processes, lambda cp: cp.cp_id),
+    }
+
+
+def _next_num_from(items: list, id_getter: Any) -> int:
+    """Return the next-available number from a list of items.
+
+    Extracts numeric suffixes from each item's ID via *id_getter* and
+    returns ``max(found) + 1``, or 1 when the list is empty.
+    """
+    nums = [_extract_num(id_getter(item)) for item in items]
+    valid_nums = [n for n in nums if n is not None]
+    return max(valid_nums, default=0) + 1
+
+
+def _extract_num(id_str: str) -> int | None:
+    """Extract the numeric suffix from an ID like 'RESP-3' or 'CL-1'.
+
+    For multi-part IDs like 'PM-1-2', returns the first number (1).
+    """
+    match = re.search(r"\d+", id_str)
+    return int(match.group()) if match else None
+
+
+def _add_new_items(
+    existing: list,
+    new_items: list,
+    existing_ids: set,
+    id_getter: Any,
+) -> list:
+    """Append new_items to a deep-copied existing list, skipping duplicate IDs.
+
+    Mutates *existing_ids* by adding each newly inserted item's ID.
+    """
+    merged = [copy.deepcopy(item) for item in existing]
+    for new_item in new_items:
+        item_id = id_getter(new_item)
+        if item_id not in existing_ids:
+            merged.append(copy.deepcopy(new_item))
+            existing_ids.add(item_id)
+    return merged
+
+
+def _replace_modified_resps(
+    resps: list[Responsibility],
+    modified: list[Responsibility],
+) -> list[Responsibility]:
+    """Replace responsibilities whose resp_id appears in *modified*.
+
+    Responsibilities not in the modified set are deep-copied as-is.
+    """
+    modified_map = {r.resp_id: r for r in modified}
+    return [
+        copy.deepcopy(modified_map.get(r.resp_id, r))
+        for r in resps
+    ]
+
+
+def _merge_revision_delta(
+    cs: ControlStructure,
+    delta: RevisionDelta,
+) -> ControlStructure:
+    """Merge a RevisionDelta into an existing ControlStructure.
+
+    - Replaces ``modified_responsibilities`` by resp_id.
+    - Adds ``new_responsibilities`` (skipping duplicate resp_ids).
+    - Adds ``new_controlled_processes`` (skipping duplicate cp_ids).
+    - Adds ``new_coordination_links`` (skipping duplicate link_ids).
+    - Validates the merged ControlStructure.
+    """
+    existing_resp_ids = {r.resp_id for r in cs.responsibilities}
+    existing_cp_ids = {cp.cp_id for cp in cs.controlled_processes}
+    existing_cl_ids = {cl.link_id for cl in cs.coordination_links}
+
+    merged_resps = _replace_modified_resps(
+        cs.responsibilities, delta.modified_responsibilities
+    )
+    merged_resps = _add_new_items(
+        merged_resps, delta.new_responsibilities,
+        existing_resp_ids, lambda r: r.resp_id,
+    )
+
+    merged_cps = _add_new_items(
+        cs.controlled_processes, delta.new_controlled_processes,
+        existing_cp_ids, lambda cp: cp.cp_id,
+    )
+
+    merged_cls = _add_new_items(
+        cs.coordination_links, delta.new_coordination_links,
+        existing_cl_ids, lambda cl: cl.link_id,
+    )
+
+    return ControlStructure(
+        responsibilities=merged_resps,
+        controlled_processes=merged_cps,
+        coordination_links=merged_cls,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -204,10 +357,8 @@ def run_revision(
 
 def _is_responsibility_empty(resp: Responsibility) -> bool:
     """Check if a responsibility has no PM parts, CAs, or FB channels."""
-    return (
-        not resp.process_model_parts
-        and not resp.control_actions
-        and not resp.feedback_channels
+    return not any(
+        [resp.process_model_parts, resp.control_actions, resp.feedback_channels]
     )
 
 
@@ -322,5 +473,5 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T13:59:33Z","module_hash":"3abb56d9356f1a80c146136fc62dea707f0df93bb0faa77dddf4c6bd176328f6","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":60,"end_line":117,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":120,"end_line":131,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":139,"end_line":197,"hash":"41295630fb7ee15d508592a6537affe8f226de5f8e7249eba52f33397b91594c"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":205,"end_line":211,"hash":"eba30b7fd7444c5cbcd3bc9618aa2c09835f7b83338adc7bde26dc7a4dd7c21b"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":214,"end_line":257,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":288,"end_line":293,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":296,"end_line":299,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":302,"end_line":321,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
+# {"version":1,"tested_at":"2026-08-09T17:26:33Z","module_hash":"8580c8ed1b11037a7bf0cddad01e817954f76d1eb5c29d8818f0773e0b01bcfe","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":83,"end_line":140,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":143,"end_line":154,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":162,"end_line":240,"hash":"81e6c5e324e2ce8ff85818f0b550e471486aae0033235516bf47d2e0b1d3fc08"},{"id":"func/_compute_next_ids","name":"_compute_next_ids","line":243,"end_line":255,"hash":"81a219ed24c1f3c420e4e47b0df9c72460d06c11c65398935fd419320b2f9e89"},{"id":"func/_next_num_from","name":"_next_num_from","line":258,"end_line":266,"hash":"7604f4ce687e1ec1d459143ec2b37c8b317573cbfd7b3eee0aaf78075c5cbe2a"},{"id":"func/_extract_num","name":"_extract_num","line":269,"end_line":275,"hash":"5762f14fc8d7f27355617700b71ae9cc6dfed5ee691c3315c44ca384557315d3"},{"id":"func/_add_new_items","name":"_add_new_items","line":278,"end_line":294,"hash":"f2c1b08976f7eb79a0bdbda4d2970879f906ba337cb6b748dd650756dfd18b93"},{"id":"func/_replace_modified_resps","name":"_replace_modified_resps","line":297,"end_line":309,"hash":"a7c3f7893c5e003f2a8bbcff960066069363b6a1ef59e4837a93adccf815f728"},{"id":"func/_merge_revision_delta","name":"_merge_revision_delta","line":312,"end_line":350,"hash":"cd3df3b2870c18cae0a822f4b185fb8959e228945b6a9c1261e943ebdcc62c6f"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":358,"end_line":362,"hash":"f0e3af6c54ff18f8eb0421cb7c1166cfc694589549bba28429d7791561eb4551"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":365,"end_line":408,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":439,"end_line":444,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":447,"end_line":450,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":453,"end_line":472,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
 # mutate4py-manifest-end

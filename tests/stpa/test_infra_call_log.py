@@ -79,3 +79,39 @@ class TestInfraCallLog:
         raw = (tmp_path / "calls.jsonl").read_text()
         # With ensure_ascii=False, non-ASCII chars appear directly in the file
         assert "tëst-mödél" in raw
+
+    def test_call_log_07_default_prompt_tokens_is_zero(self):
+        """Default prompt_tokens is 0."""
+        entry = make_call_log_entry(stage="s", step="c", model="m")
+        assert entry["prompt_tokens"] == 0
+
+    def test_call_log_08_default_completion_tokens_is_zero(self):
+        """Default completion_tokens is 0."""
+        entry = make_call_log_entry(stage="s", step="c", model="m")
+        assert entry["completion_tokens"] == 0
+
+    def test_call_log_09_default_duration_ms_is_zero(self):
+        """Default duration_ms is 0."""
+        entry = make_call_log_entry(stage="s", step="c", model="m")
+        assert entry["duration_ms"] == 0
+
+    def test_call_log_10_default_success_is_true(self):
+        """Default success is True."""
+        entry = make_call_log_entry(stage="s", step="c", model="m")
+        assert entry["success"] is True
+
+    def test_call_log_11_explicit_values_override_defaults(self):
+        """Explicit values override defaults for all numeric/bool fields."""
+        entry = make_call_log_entry(
+            stage="s",
+            step="c",
+            model="m",
+            prompt_tokens=100,
+            completion_tokens=50,
+            duration_ms=5000,
+            success=False,
+        )
+        assert entry["prompt_tokens"] == 100
+        assert entry["completion_tokens"] == 50
+        assert entry["duration_ms"] == 5000
+        assert entry["success"] is False

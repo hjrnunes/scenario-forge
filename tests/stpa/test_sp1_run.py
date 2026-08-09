@@ -15,7 +15,7 @@ from scenario_forge.models.capability_profile import (
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-from scenario_forge.stpa.system_model.critic import CriticFindings
+from scenario_forge.stpa.system_model.critic import CriticFindings, RevisionDelta
 from scenario_forge.stpa.system_model.run import run_sp1
 from tests.stpa.sp1_helpers import (
     MockLLMClient,
@@ -110,9 +110,16 @@ def _setup_mock_client(
         }
         client.set_response_for(CriticFindings, no_gap)
 
-    # Revision: ControlStructure (if needed)
+    # Revision: RevisionDelta (if needed)
     if revised_cs is not None:
-        client.set_response_for(ControlStructure, revised_cs)
+        # Convert the full CS dict to a RevisionDelta dict (new_responsibilities only)
+        delta_dict = {
+            "new_responsibilities": revised_cs.get("responsibilities", []),
+            "new_controlled_processes": revised_cs.get("controlled_processes", []),
+            "new_coordination_links": revised_cs.get("coordination_links", []),
+            "modified_responsibilities": [],
+        }
+        client.set_response_for(RevisionDelta, delta_dict)
 
     return client
 

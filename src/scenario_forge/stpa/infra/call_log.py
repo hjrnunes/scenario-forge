@@ -54,6 +54,7 @@ def make_call_log_entry(
     slot_id: str | None = None,
     scenario_id: str | None = None,
     timestamp: str | None = None,
+    response_content: str | None = None,
 ) -> dict[str, Any]:
     """Build a call-log entry dict following the STPA format (Section 6).
 
@@ -61,8 +62,8 @@ def make_call_log_entry(
         stage: Pipeline stage (e.g. ``stage_2``, ``stage_6_narrative``).
         step: Sub-step within the stage (e.g. ``call_1_requirements``).
         model: LLM model name.
-        system_prompt: System prompt text (hashed in the entry).
-        user_prompt: User prompt text (hashed in the entry).
+        system_prompt: System prompt text (hashed and stored full in the entry).
+        user_prompt: User prompt text (hashed and stored full in the entry).
         prompt_tokens: Prompt tokens consumed.
         completion_tokens: Completion tokens generated.
         duration_ms: Wall-clock duration in milliseconds.
@@ -71,6 +72,7 @@ def make_call_log_entry(
         slot_id: Stage 3 slot ID (e.g. ``RESP-1:CA-1-1:TYPE-1``), or None.
         scenario_id: Stage 5/6 scenario ID (e.g. ``SCN-001``), or None.
         timestamp: ISO 8601 timestamp; defaults to current UTC time.
+        response_content: Optional full response content (string representation).
 
     Returns:
         A dict suitable for JSONL serialization.
@@ -83,6 +85,8 @@ def make_call_log_entry(
         "scenario_id": scenario_id,
         "system_prompt_hash": _sha256(system_prompt) if system_prompt else "",
         "user_prompt_hash": _sha256(user_prompt) if user_prompt else "",
+        "system_prompt_text": system_prompt,
+        "user_prompt_text": user_prompt,
         "model": model,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
@@ -90,6 +94,8 @@ def make_call_log_entry(
         "timestamp": _timestamp,
         "success": success,
     }
+    if response_content is not None:
+        entry["response_content"] = response_content
     if error is not None:
         entry["error"] = error
     return entry
@@ -112,5 +118,5 @@ def append_call_log(entries: list[dict], run_dir: Path) -> None:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T11:13:06Z","module_hash":"9e22c9b269d66c18d38d76d4d389257f2f02c19bef19dfc8439cbab181f57aaa","functions":[{"id":"func/_sha256","name":"_sha256","line":37,"end_line":39,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":42,"end_line":95,"hash":"16b858e8b67017048297f4aa87efcc291df32ea992edc09cec06d14fce3ca016"},{"id":"func/append_call_log","name":"append_call_log","line":98,"end_line":111,"hash":"5c770898b5ddec662466b41f29ab930af8034546067a37e0d08aa4c36b37bad2"}]}
+# {"version":1,"tested_at":"2026-08-09T17:32:48Z","module_hash":"bdd4259849dc001e9ce50ac9e05f4af149ab09e2c47936e3cc4e6651abb12935","functions":[{"id":"func/_sha256","name":"_sha256","line":37,"end_line":39,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":42,"end_line":101,"hash":"853111b20a56322817d78971f08c532b5013bf36f41b60205fb169e0d396c09d"},{"id":"func/append_call_log","name":"append_call_log","line":104,"end_line":117,"hash":"5c770898b5ddec662466b41f29ab930af8034546067a37e0d08aa4c36b37bad2"}]}
 # mutate4py-manifest-end
