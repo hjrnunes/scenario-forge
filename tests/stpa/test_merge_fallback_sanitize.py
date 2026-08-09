@@ -384,6 +384,30 @@ class TestSanitize08FurtherDegradedPath:
             for fb in resp.feedback_channels:
                 assert fb.source is None
 
+    def test_duplicate_cps_deduplicated_on_further_degradation(self, tmp_path):
+        """CP dedup path in further-degraded fallback is exercised."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        resp1 = _make_resp(
+            pm_feedback_source={"type": "controlled_process", "id": "FB-1-1"},
+        )
+        resp2 = _make_resp(resp_id="RESP-1", description="Duplicate")
+        resp_set = _make_resp_set(
+            [resp1, resp2],
+            controlled_processes=[
+                ControlledProcess(cp_id="CP-1", description="Process A"),
+                ControlledProcess(cp_id="CP-1", description="Process A dup"),
+            ],
+        )
+        conn_set = _merge_failing_connection_set()
+
+        cs, _ = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+
+        cp_ids = [cp.cp_id for cp in cs.controlled_processes]
+        assert cp_ids.count("CP-1") == 1
+
 
 # ---------------------------------------------------------------------------
 # Sanitize-09: sanitized fallback preserves responsibilities and controlled processes

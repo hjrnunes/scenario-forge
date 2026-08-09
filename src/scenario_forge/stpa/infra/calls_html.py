@@ -192,10 +192,40 @@ def _build_collapsible_section(
     )
 
 
+def _build_prompt_section(label: str, content: str) -> str:
+    """Build a collapsible section for a raw text prompt.
+
+    Returns an empty string when *content* is empty.
+    """
+    if not content:
+        return ""
+    return _build_collapsible_section(
+        label,
+        f"<pre>{_html_escape(content)}</pre>",
+    )
+
+
+def _build_response_section(label: str, content: str) -> str:
+    """Build a collapsible section for response content (pretty-printed JSON).
+
+    Returns an empty string when *content* is empty.
+    """
+    if not content:
+        return ""
+    return _build_collapsible_section(label, _format_response_content(content))
+
+
+# (label, entry_key, section_builder) for each collapsible content section.
+_CONTENT_SECTIONS: tuple[tuple[str, str, Any], ...] = (
+    ("system_prompt", "system_prompt_text", _build_prompt_section),
+    ("user_prompt", "user_prompt_text", _build_prompt_section),
+    ("response_content", "response_content", _build_response_section),
+)
+
+
 def _build_call_entry_html(entry: dict[str, Any]) -> str:
     """Build a per-call collapsible entry with metadata, prompts, and response."""
     success = entry.get("success", True)
-    css_class = "" if success else " failed"
     stage = entry.get("stage", "")
     step = entry.get("step", "")
 
@@ -207,37 +237,19 @@ def _build_call_entry_html(entry: dict[str, Any]) -> str:
     prompt_tokens = entry.get("prompt_tokens", 0)
     completion_tokens = entry.get("completion_tokens", 0)
     summary_parts.append(f"tokens={prompt_tokens}+{completion_tokens}")
+    css_class = ""
     if not success:
+        css_class = " failed"
         error = entry.get("error", "")
         summary_parts.append(f"FAILED: {error}")
     summary_line = " ".join(summary_parts)
 
     # Build collapsible sections for full content
     sections: list[str] = []
-    system_prompt = entry.get("system_prompt_text", "")
-    if system_prompt:
-        sections.append(
-            _build_collapsible_section(
-                "system_prompt",
-                f"<pre>{_html_escape(system_prompt)}</pre>",
-            )
-        )
-    user_prompt = entry.get("user_prompt_text", "")
-    if user_prompt:
-        sections.append(
-            _build_collapsible_section(
-                "user_prompt",
-                f"<pre>{_html_escape(user_prompt)}</pre>",
-            )
-        )
-    response_content = entry.get("response_content", "")
-    if response_content:
-        sections.append(
-            _build_collapsible_section(
-                "response_content",
-                _format_response_content(response_content),
-            )
-        )
+    for label, entry_key, builder in _CONTENT_SECTIONS:
+        section = builder(label, entry.get(entry_key, ""))
+        if section:
+            sections.append(section)
 
     sections_html = "\n".join(sections)
     return (

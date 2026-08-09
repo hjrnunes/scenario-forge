@@ -13,6 +13,7 @@ which is merged programmatically into the existing ControlStructure.
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -243,37 +244,24 @@ def _compute_next_ids(
     """Compute next-available ID numbers from an existing ControlStructure.
 
     Returns a dict of template variables for the revision system prompt:
-    ``next_resp_num``, ``next_cl_num``, ``next_cp_num``, plus per-responsibility
-    next PM/CA/FB/RC numbers.
+    ``next_resp_num``, ``next_cl_num``, ``next_cp_num``.
     """
-    resp_nums: list[int] = []
-    cl_nums: list[int] = []
-    cp_nums: list[int] = []
-
-    for resp in cs.responsibilities:
-        num = _extract_num(resp.resp_id)
-        if num is not None:
-            resp_nums.append(num)
-
-    for cl in cs.coordination_links:
-        num = _extract_num(cl.link_id)
-        if num is not None:
-            cl_nums.append(num)
-
-    for cp in cs.controlled_processes:
-        num = _extract_num(cp.cp_id)
-        if num is not None:
-            cp_nums.append(num)
-
-    next_resp_num = max(resp_nums, default=0) + 1
-    next_cl_num = max(cl_nums, default=0) + 1
-    next_cp_num = max(cp_nums, default=0) + 1
-
     return {
-        "next_resp_num": next_resp_num,
-        "next_cl_num": next_cl_num,
-        "next_cp_num": next_cp_num,
+        "next_resp_num": _next_num_from(cs.responsibilities, lambda r: r.resp_id),
+        "next_cl_num": _next_num_from(cs.coordination_links, lambda cl: cl.link_id),
+        "next_cp_num": _next_num_from(cs.controlled_processes, lambda cp: cp.cp_id),
     }
+
+
+def _next_num_from(items: list, id_getter: Any) -> int:
+    """Return the next-available number from a list of items.
+
+    Extracts numeric suffixes from each item's ID via *id_getter* and
+    returns ``max(found) + 1``, or 1 when the list is empty.
+    """
+    nums = [_extract_num(id_getter(item)) for item in items]
+    valid_nums = [n for n in nums if n is not None]
+    return max(valid_nums, default=0) + 1
 
 
 def _extract_num(id_str: str) -> int | None:
@@ -281,10 +269,42 @@ def _extract_num(id_str: str) -> int | None:
 
     For multi-part IDs like 'PM-1-2', returns the first number (1).
     """
-    import re
-
     match = re.search(r"(\d+)", id_str)
     return int(match.group(1)) if match else None
+
+
+def _add_new_items(
+    existing: list,
+    new_items: list,
+    existing_ids: set,
+    id_getter: Any,
+) -> list:
+    """Append new_items to a deep-copied existing list, skipping duplicate IDs.
+
+    Mutates *existing_ids* by adding each newly inserted item's ID.
+    """
+    merged = [copy.deepcopy(item) for item in existing]
+    for new_item in new_items:
+        item_id = id_getter(new_item)
+        if item_id not in existing_ids:
+            merged.append(copy.deepcopy(new_item))
+            existing_ids.add(item_id)
+    return merged
+
+
+def _replace_modified_resps(
+    resps: list[Responsibility],
+    modified: list[Responsibility],
+) -> list[Responsibility]:
+    """Replace responsibilities whose resp_id appears in *modified*.
+
+    Responsibilities not in the modified set are deep-copied as-is.
+    """
+    modified_map = {r.resp_id: r for r in modified}
+    return [
+        copy.deepcopy(modified_map.get(r.resp_id, r))
+        for r in resps
+    ]
 
 
 def _merge_revision_delta(
@@ -293,51 +313,33 @@ def _merge_revision_delta(
 ) -> ControlStructure:
     """Merge a RevisionDelta into an existing ControlStructure.
 
-    - Adds ``new_responsibilities`` (with next-available IDs if needed).
-    - Adds ``new_controlled_processes``.
-    - Adds ``new_coordination_links``.
     - Replaces ``modified_responsibilities`` by resp_id.
+    - Adds ``new_responsibilities`` (skipping duplicate resp_ids).
+    - Adds ``new_controlled_processes`` (skipping duplicate cp_ids).
+    - Adds ``new_coordination_links`` (skipping duplicate link_ids).
     - Validates the merged ControlStructure.
     """
-    existing_resps = {r.resp_id for r in cs.responsibilities}
-    existing_cps = {cp.cp_id for cp in cs.controlled_processes}
-    existing_cls = {cl.link_id for cl in cs.coordination_links}
+    existing_resp_ids = {r.resp_id for r in cs.responsibilities}
+    existing_cp_ids = {cp.cp_id for cp in cs.controlled_processes}
+    existing_cl_ids = {cl.link_id for cl in cs.coordination_links}
 
-    # Build merged responsibilities: replace modified, add new
-    merged_resps: list[Responsibility] = []
-    modified_ids = {r.resp_id for r in delta.modified_responsibilities}
-    for resp in cs.responsibilities:
-        if resp.resp_id in modified_ids:
-            replacement = next(
-                r for r in delta.modified_responsibilities if r.resp_id == resp.resp_id
-            )
-            merged_resps.append(copy.deepcopy(replacement))
-        else:
-            merged_resps.append(copy.deepcopy(resp))
+    merged_resps = _replace_modified_resps(
+        cs.responsibilities, delta.modified_responsibilities
+    )
+    merged_resps = _add_new_items(
+        merged_resps, delta.new_responsibilities,
+        existing_resp_ids, lambda r: r.resp_id,
+    )
 
-    # Add new responsibilities (skip duplicates with existing IDs)
-    for new_resp in delta.new_responsibilities:
-        if new_resp.resp_id not in existing_resps:
-            merged_resps.append(copy.deepcopy(new_resp))
-            existing_resps.add(new_resp.resp_id)
+    merged_cps = _add_new_items(
+        cs.controlled_processes, delta.new_controlled_processes,
+        existing_cp_ids, lambda cp: cp.cp_id,
+    )
 
-    # Merge controlled processes
-    merged_cps: list[ControlledProcess] = [
-        copy.deepcopy(cp) for cp in cs.controlled_processes
-    ]
-    for new_cp in delta.new_controlled_processes:
-        if new_cp.cp_id not in existing_cps:
-            merged_cps.append(copy.deepcopy(new_cp))
-            existing_cps.add(new_cp.cp_id)
-
-    # Merge coordination links
-    merged_cls: list[CoordinationLink] = [
-        copy.deepcopy(cl) for cl in cs.coordination_links
-    ]
-    for new_cl in delta.new_coordination_links:
-        if new_cl.link_id not in existing_cls:
-            merged_cls.append(copy.deepcopy(new_cl))
-            existing_cls.add(new_cl.link_id)
+    merged_cls = _add_new_items(
+        cs.coordination_links, delta.new_coordination_links,
+        existing_cl_ids, lambda cl: cl.link_id,
+    )
 
     return ControlStructure(
         responsibilities=merged_resps,

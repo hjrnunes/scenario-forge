@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -173,6 +173,50 @@ def _merge_controlled_processes(
 # ---------------------------------------------------------------------------
 
 
+def _iter_resp_ref_fields(
+    resp: Responsibility,
+) -> list[tuple[str, str, Any]]:
+    """Yield (element_label, field_name, item) for each ElementRef-bearing field.
+
+    Each tuple identifies a single ElementRef slot inside the
+    responsibility: the PM feedback_source, CA target, and FB source.
+    The caller can ``getattr``/``setattr`` *field_name* on *item* to
+    read or nullify the ref.
+    """
+    return [
+        (f"PM {pm.pm_id}", "feedback_source", pm)
+        for pm in resp.process_model_parts
+    ] + [
+        (f"CA {ca.ca_id}", "target", ca)
+        for ca in resp.control_actions
+    ] + [
+        (f"FB {fb.fb_id}", "source", fb)
+        for fb in resp.feedback_channels
+    ]
+
+
+def _nullify_invalid_refs_in_resp(
+    resp: Responsibility,
+    resp_ids: set[str],
+    cp_ids: set[str],
+) -> list[str]:
+    """Nullify unresolvable ElementRefs in a single responsibility.
+
+    Returns a warning string for each stripped ref.
+    """
+    warnings: list[str] = []
+    for element_label, field_name, item in _iter_resp_ref_fields(resp):
+        ref = getattr(item, field_name)
+        if ref is not None and not _is_valid_element_ref(ref, resp_ids, cp_ids):
+            warnings.append(
+                f"Stripped invalid {field_name} from {element_label}: "
+                f"{ref.type.value} '{ref.id}' "
+                f"not found in responsibilities or controlled processes."
+            )
+            setattr(item, field_name, None)
+    return warnings
+
+
 def _sanitize_for_fallback(
     responsibilities: list[Responsibility],
     controlled_processes: list[ControlledProcess],
@@ -200,35 +244,22 @@ def _sanitize_for_fallback(
     warnings: list[str] = []
 
     for resp in sanitized_resps:
-        for pm in resp.process_model_parts:
-            if pm.feedback_source is not None:
-                if not _is_valid_element_ref(pm.feedback_source, resp_ids, cp_ids):
-                    warnings.append(
-                        f"Stripped invalid feedback_source from PM {pm.pm_id}: "
-                        f"{pm.feedback_source.type.value} '{pm.feedback_source.id}' "
-                        f"not found in responsibilities or controlled processes."
-                    )
-                    pm.feedback_source = None
-        for ca in resp.control_actions:
-            if ca.target is not None:
-                if not _is_valid_element_ref(ca.target, resp_ids, cp_ids):
-                    warnings.append(
-                        f"Stripped invalid target from CA {ca.ca_id}: "
-                        f"{ca.target.type.value} '{ca.target.id}' "
-                        f"not found in responsibilities or controlled processes."
-                    )
-                    ca.target = None
-        for fb in resp.feedback_channels:
-            if fb.source is not None:
-                if not _is_valid_element_ref(fb.source, resp_ids, cp_ids):
-                    warnings.append(
-                        f"Stripped invalid source from FB {fb.fb_id}: "
-                        f"{fb.source.type.value} '{fb.source.id}' "
-                        f"not found in responsibilities or controlled processes."
-                    )
-                    fb.source = None
+        warnings.extend(_nullify_invalid_refs_in_resp(resp, resp_ids, cp_ids))
 
     return sanitized_resps, sanitized_cps, warnings
+
+
+def _strip_all_refs_in_resp(resp: Responsibility) -> list[str]:
+    """Strip ALL ElementRefs from a single responsibility, returning warnings."""
+    warnings: list[str] = []
+    for element_label, field_name, item in _iter_resp_ref_fields(resp):
+        ref = getattr(item, field_name)
+        if ref is not None:
+            warnings.append(
+                f"Further-degraded: stripped {field_name} from {element_label}."
+            )
+            setattr(item, field_name, None)
+    return warnings
 
 
 def _strip_all_element_refs(
@@ -257,7 +288,6 @@ def _strip_all_element_refs(
     warnings: list[str] = []
 
     for resp in copy.deepcopy(responsibilities):
-        # Deduplicate by resp_id
         if resp.resp_id in seen_resp_ids:
             warnings.append(
                 f"Further-degraded: removed duplicate responsibility "
@@ -265,25 +295,7 @@ def _strip_all_element_refs(
             )
             continue
         seen_resp_ids.add(resp.resp_id)
-
-        for pm in resp.process_model_parts:
-            if pm.feedback_source is not None:
-                warnings.append(
-                    f"Further-degraded: stripped feedback_source from PM {pm.pm_id}."
-                )
-                pm.feedback_source = None
-        for ca in resp.control_actions:
-            if ca.target is not None:
-                warnings.append(
-                    f"Further-degraded: stripped target from CA {ca.ca_id}."
-                )
-                ca.target = None
-        for fb in resp.feedback_channels:
-            if fb.source is not None:
-                warnings.append(
-                    f"Further-degraded: stripped source from FB {fb.fb_id}."
-                )
-                fb.source = None
+        warnings.extend(_strip_all_refs_in_resp(resp))
         stripped_resps.append(resp)
 
     # Deduplicate controlled processes by cp_id

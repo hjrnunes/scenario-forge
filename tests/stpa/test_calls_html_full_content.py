@@ -298,6 +298,24 @@ class TestFullContent15MetadataColumns:
 
 
 # ---------------------------------------------------------------------------
+# FullContent-16: failed call entry shows error in call-entry section
+# ---------------------------------------------------------------------------
+
+
+class TestFullContent16FailedCallEntry:
+    """FullContent-16: failed call entry shows error in the collapsible call-entry section."""
+
+    def test_failed_entry_shows_error_in_summary(self, tmp_path):
+        entry = _make_basic_entry()
+        entry["success"] = False
+        entry["error"] = "Connection timeout"
+        html = _render(tmp_path, [entry])
+        assert "FAILED" in html
+        assert "Connection timeout" in html
+        assert 'class="call-entry failed"' in html or "call-entry failed" in html
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
