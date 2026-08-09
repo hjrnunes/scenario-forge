@@ -1,39 +1,42 @@
-Mutation Score Report — parallel-llm-calls
-============================================
+score: 100
+
+Mutation Score Report — sp1-prompt-bug-fixes
+=============================================
 
 Language mutation (mutate4py)
 -----------------------------
-Files tested:
-  src/scenario_forge/stpa/infra/parallel_llm.py
-  src/scenario_forge/stpa/infra/call_log.py
-  src/scenario_forge/stpa/system_model/run.py
+Files changed in this task (all Jinja2 templates, no Python source):
+  src/scenario_forge/stpa/system_model/prompts/stage1a_system.j2
+  src/scenario_forge/stpa/system_model/prompts/stage1b_system.j2
+  src/scenario_forge/stpa/system_model/prompts/stage2_call2_system.j2
+  src/scenario_forge/stpa/system_model/prompts/stage2_call3_system.j2
 
-Results:
-  parallel_llm.py: 1 site, 1 killed, 0 survived → 100%
-  call_log.py:     4 sites (changed), 4 killed, 0 survived → 100%
-  run.py:          7 sites (changed), 7 killed, 0 survived → 100%
+No Python source files changed. Differential mutation against manifest
+selected 0 changed mutation sites in the STPA system_model module.
 
-  Total: 12 selected, 12 killed, 0 survived, 0 errors
-  Mutation score: 100%
+  Total: 0 selected, 0 killed, 0 survived, 0 errors
+  Language mutation score: N/A (no changed Python source)
 
 Gherkin mutation (bb gherkin-mutator --level soft)
 --------------------------------------------------
-Features:
-  parallel_llm_calls.feature       — 0 mutations (no Examples tables)
-  parallel_max_workers_config.feature — 0 mutations (Examples table removed;
-    parametrized cases covered by unit test
-    test_parallel_config_06_cli_accepts_valid_values)
-  parallel_sp1_compatibility.feature — 0 mutations (no Examples tables)
-  parallel_sp2_sp3_design.feature    — 0 mutations (no Examples tables)
+Feature: tests/stpa/features/sp1_prompt_bug_fixes.feature (7 scenarios)
 
-  Total: 0 mutations, 0 killed, 0 survived, 0 errors
-  Gherkin mutation score: N/A (no example-cell mutations)
+Scenario 06 (Examples: template_name, rendered_text): 8 mutations, 8 killed
+Scenario 07 (Examples: template_name, section_header): 8 mutations, 8 killed
 
-  Note: The original ParallelConfig-06 Examples table produced 5 mutations
-  (3 killed, 2 survived). The 2 surviving mutations were equivalent
-  mutations (4→8, 16→7) in a tautological pass-through test. The Examples
-  table was removed per the no-op-step guidance; parametrized coverage is
-  retained in the unit test suite.
+  Total: 16 mutations, 16 killed, 0 survived, 0 errors
+  Gherkin mutation score: 100%
 
-Overall mutation score: 100% (12/12 language mutants killed)
+CRAP (crap4py)
+--------------
+All covered functions have CRAP ≤ 6. Exit code 0. PASS.
+
+DRY (drywall)
+-------------
+Pre-existing duplicates above 0.82 threshold in unrelated modules
+(catalog_lineage, taxonomy_pins, capability_profile, pipeline/generate,
+pipeline/io, llm/client, stpa/infra). None involve files changed in this
+task. No new duplicates introduced.
+
+Overall mutation score: 100% (16/16 Gherkin mutants killed; 0 language sites changed)
 Gate threshold: ≥ 80% — PASS

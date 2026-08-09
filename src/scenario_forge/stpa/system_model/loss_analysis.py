@@ -79,5 +79,5 @@ def derive_loss_analysis(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"6fbc1bb66686e3d234e6793037cfe366e7474d06e8e8bb49eaa4787708df5ca6","functions":[{"id":"func/derive_loss_analysis","name":"derive_loss_analysis","line":26,"end_line":78,"hash":"d4cb1ff4ffaa970b84b08020c7af05605109aadb8080ed9e8c06cd0036acae9d"}]}
+# {"version":1,"tested_at":"2026-08-09T13:27:21Z","module_hash":"6fbc1bb66686e3d234e6793037cfe366e7474d06e8e8bb49eaa4787708df5ca6","functions":[{"id":"func/derive_loss_analysis","name":"derive_loss_analysis","line":26,"end_line":78,"hash":"d4cb1ff4ffaa970b84b08020c7af05605109aadb8080ed9e8c06cd0036acae9d"}]}
 # mutate4py-manifest-end

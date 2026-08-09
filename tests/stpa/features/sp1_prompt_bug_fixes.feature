@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=0bcf1c02147657081ed1f0a56c8fda526bf5fab7938c921856cb590508b4e296
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T13:29:38.018279Z","feature_name":"SP1 prompt bug fixes","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_prompt_bug_fixes.feature","background_hash":"a7bc2ec77d4defafedaa1fd7aa346715ff439a68ae3d8c13e3a536e3d7527613","implementation_hash":"sha256:8541625e632df38d4f39832db786b407e4157f24d11ee7e03c7dfafdeb51130f","scenarios":[{"index":5,"name":"SP1 prompt bug fixes-06 updated system prompts render successfully","scenario_hash":"8795f5bfba5ba6954b393bf5558999ea46aa942911f618c0e2d831fb4d8b0e46","mutation_count":8,"result":{"Total":8,"Killed":8,"Survived":0,"Errors":0},"tested_at":"2026-08-09T13:29:38.018279Z"},{"index":6,"name":"SP1 prompt bug fixes-07 existing prompt sections remain present","scenario_hash":"30cf34caa8120e53d399095ee8cf33d6dc4286c86b675614b3d7c1356dcdca61","mutation_count":8,"result":{"Total":8,"Killed":8,"Survived":0,"Errors":0},"tested_at":"2026-08-09T13:29:38.018279Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 prompt bug fixes
   Stage 1 prompts constrain generated content to the use case, and Stage 2
   prompts require complete, discrete control-structure responsibilities and
