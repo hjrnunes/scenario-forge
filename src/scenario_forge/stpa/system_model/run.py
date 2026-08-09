@@ -244,6 +244,7 @@ def _run_stage_2_block(
             llm_client=llm_client,
             use_case_text=use_case_text,
             loss_analysis=loss_analysis,
+            capability_profile=capability_profile,
             run_dir=run_dir,
             template_loader=loader,
             temperature=temperature,

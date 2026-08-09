@@ -166,6 +166,7 @@ def safe_llm_call(
     stage: str,
     step: str,
     temperature: float = 0.4,
+    max_completion_tokens: int | None = None,
 ) -> tuple[_T | None, LLMResult | None, str | None]:
     """Wrap complete() + parse_llm_result() in a try/except.
 
@@ -187,12 +188,15 @@ def safe_llm_call(
     """
     result: LLMResult | None = None
     try:
-        result = llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_format=response_format,
-            temperature=temperature,
-        )
+        completion_kwargs: dict[str, Any] = {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "response_format": response_format,
+            "temperature": temperature,
+        }
+        if max_completion_tokens is not None:
+            completion_kwargs["max_completion_tokens"] = max_completion_tokens
+        result = llm_client.complete(**completion_kwargs)
         model = parse_llm_result(result, response_format)
         log_llm_call(result, llm_client.model, run_dir, stage, step)
         return model, result, None

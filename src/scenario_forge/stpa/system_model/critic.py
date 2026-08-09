@@ -13,6 +13,7 @@ which is merged programmatically into the existing ControlStructure.
 from __future__ import annotations
 
 import copy
+import logging
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -37,6 +38,7 @@ STAGE = "stage_2"
 STEP_CRITIC = "critic"
 STEP_REVISION = "revision"
 DEFAULT_TEMPERATURE = 0.4
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +222,7 @@ def run_revision(
         stage=STAGE,
         step=STEP_REVISION,
         temperature=temperature,
+        max_completion_tokens=4096,
     )
     if error_msg is not None:
         return control_structure, [f"Revision failed: {error_msg}"]
@@ -291,6 +294,8 @@ def _add_new_items(
         if item_id not in existing_ids:
             merged.append(copy.deepcopy(new_item))
             existing_ids.add(item_id)
+        else:
+            logger.warning("Skipping duplicate item %s from revision delta", item_id)
     return merged
 
 

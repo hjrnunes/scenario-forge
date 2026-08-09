@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import (
     StageError,
@@ -391,6 +392,7 @@ def derive_control_structure(
     llm_client: LLMClient,
     use_case_text: str,
     loss_analysis: LossAnalysis,
+    capability_profile: CapabilityProfile | None = None,
     run_dir: Path,
     template_loader: TemplateLoader | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
@@ -432,6 +434,7 @@ def derive_control_structure(
         llm_client=llm_client,
         use_case_text=use_case_text,
         requirement_set=requirement_set,
+        capability_profile=capability_profile,
         run_dir=run_dir,
         loader=loader,
         temperature=temperature,
@@ -506,6 +509,7 @@ def _call_2_responsibilities(
     llm_client: LLMClient,
     use_case_text: str,
     requirement_set: RequirementSet,
+    capability_profile: CapabilityProfile | None = None,
     run_dir: Path,
     loader: TemplateLoader,
     temperature: float,
@@ -520,6 +524,7 @@ def _call_2_responsibilities(
         "stage2_call2_user.j2",
         use_case_text=use_case_text,
         requirements=requirement_set.requirements,
+        capability_profile=capability_profile,
     )
 
     responsibility_set, _, error_msg = safe_llm_call(

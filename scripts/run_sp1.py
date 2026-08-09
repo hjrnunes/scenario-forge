@@ -81,7 +81,29 @@ def read_use_case(path: str) -> str:
     if not use_case_path.exists():
         raise FileNotFoundError(f"Use-case file not found: {path}")
     logger.info("Reading use-case from %s", path)
-    return use_case_path.read_text(encoding="utf-8")
+    content = use_case_path.read_text(encoding="utf-8")
+    reference = content.strip()
+    if (
+        len(reference) < 200
+        and "\n" not in reference
+        and "\r" not in reference
+        and reference.endswith((".txt", ".md"))
+    ):
+        reference_path = Path(reference)
+        candidates = (
+            [use_case_path.parent / reference_path, Path.cwd() / reference_path]
+            if not reference_path.is_absolute()
+            else [reference_path]
+        )
+        resolved_path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if resolved_path is None:
+            raise FileNotFoundError(
+                f"Use-case file {use_case_path} references unresolved path "
+                f"{reference!r}"
+            )
+        content = resolved_path.read_text(encoding="utf-8")
+    logger.info("Loaded use-case text: %s", content[:100])
+    return content
 
 
 def main() -> int:
