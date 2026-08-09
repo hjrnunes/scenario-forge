@@ -51,59 +51,59 @@ check "QA-PAR-STRUCT-03: parallel_llm reuses safe_llm_call from llm_helpers" \
 # --- 2. Parallel Execution ---
 
 check "QA-PAR-EXEC-01: Multiple calls execute and return results" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-01" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_01" -v --tb=short -q
 
 check "QA-PAR-EXEC-02: Results returned in input order" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-02" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_02" -v --tb=short -q
 
 check "QA-PAR-EXEC-03: Failed call does not affect other calls" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-03" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_03" -v --tb=short -q
 
 check "QA-PAR-EXEC-04: Thread-safe call log writing" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-04" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_04" -v --tb=short -q
 
 check "QA-PAR-EXEC-05: max_workers controls concurrency" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-05" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_05" -v --tb=short -q
 
 check "QA-PAR-EXEC-06: Single call degenerate case" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-06" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_06" -v --tb=short -q
 
 check "QA-PAR-EXEC-07: Empty call list returns empty results" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-07" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_07" -v --tb=short -q
 
 check "QA-PAR-EXEC-08: Temperature propagated to each call" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-12" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_12" -v --tb=short -q
 
 # --- 3. LLMCallSpec and LLMCallResult ---
 
 check "QA-PAR-SPEC-01: LLMCallSpec bundles call arguments" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-08" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_08" -v --tb=short -q
 
 check "QA-PAR-SPEC-02: LLMCallResult bundles result with call_spec" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-09 or ParallelLLM-10" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_09 or parallel_llm_10" -v --tb=short -q
 
 check "QA-PAR-SPEC-03: Call log entries distinguish success and failure" \
-    uv run pytest tests/stpa/ -k "ParallelLLM-11" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_llm_11" -v --tb=short -q
 
 # --- 4. max_workers Configuration ---
 
 check "QA-PAR-CONFIG-01: run_sp1 accepts max_workers parameter" \
-    uv run pytest tests/stpa/ -k "ParallelConfig-01" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_config_01" -v --tb=short -q
 
 check "QA-PAR-CONFIG-02: max_workers default is 1" \
-    uv run pytest tests/stpa/ -k "ParallelConfig-02" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_config_02" -v --tb=short -q
 
 check "QA-PAR-CONFIG-03: Run manifest records max_workers" \
-    uv run pytest tests/stpa/ -k "ParallelConfig-03" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_config_03" -v --tb=short -q
 
 check "QA-PAR-CONFIG-04: --max-workers CLI flag passes value" \
-    uv run pytest tests/stpa/ -k "ParallelConfig-04" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_config_04" -v --tb=short -q
 
 check "QA-PAR-CONFIG-05: --max-workers CLI flag defaults to 1" \
-    uv run pytest tests/stpa/ -k "ParallelConfig-05" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_config_05" -v --tb=short -q
 
 check "QA-PAR-CONFIG-06: --max-workers accepts valid values" \
-    uv run pytest tests/stpa/ -k "ParallelConfig-06" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_config_06" -v --tb=short -q
 
 check "QA-PAR-CONFIG-07: --max-workers flag visible in help output" \
     bash -c 'uv run python scripts/run_sp1.py --help 2>&1 | grep -q "\-\-max-workers" && echo "Flag present" || (echo "Flag missing" && false)'
@@ -111,13 +111,13 @@ check "QA-PAR-CONFIG-07: --max-workers flag visible in help output" \
 # --- 5. SP1 Backwards Compatibility ---
 
 check "QA-PAR-SP1-01: max_workers=1 produces identical output artifacts" \
-    uv run pytest tests/stpa/ -k "ParallelSP1-01" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp1_01" -v --tb=short -q
 
 check "QA-PAR-SP1-02: Stage execution order preserved with max_workers=1" \
-    uv run pytest tests/stpa/ -k "ParallelSP1-02" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp1_02" -v --tb=short -q
 
 check "QA-PAR-SP1-03: Call log identical with max_workers=1" \
-    uv run pytest tests/stpa/ -k "ParallelSP1-03" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp1_03" -v --tb=short -q
 
 check "QA-PAR-SP1-04: Existing SP1 tests pass with parallel module present" \
     uv run pytest tests/stpa/ -k "not Parallel" -v --tb=short -q
@@ -125,22 +125,22 @@ check "QA-PAR-SP1-04: Existing SP1 tests pass with parallel module present" \
 # --- 6. SP2/SP3 Design ---
 
 check "QA-PAR-SP2-01: SP2 Stage 3 parallel independence" \
-    uv run pytest tests/stpa/ -k "ParallelSP2-01" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp2_01" -v --tb=short -q
 
 check "QA-PAR-SP2-02: SP2 Stage 3 parallel equals sequential" \
-    uv run pytest tests/stpa/ -k "ParallelSP2-02" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp2_02" -v --tb=short -q
 
 check "QA-PAR-SP3-01: SP3 Stage 5 BDI independence" \
-    uv run pytest tests/stpa/ -k "ParallelSP3-01" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp3_01" -v --tb=short -q
 
 check "QA-PAR-SP3-02: SP3 Stage 6 calls independent within a scenario" \
-    uv run pytest tests/stpa/ -k "ParallelSP3-02" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp3_02" -v --tb=short -q
 
 check "QA-PAR-SP3-03: SP3 different scenarios can run concurrently" \
-    uv run pytest tests/stpa/ -k "ParallelSP3-03" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp3_03" -v --tb=short -q
 
 check "QA-PAR-SP3-04: SP3 Stage 5 failure isolation" \
-    uv run pytest tests/stpa/ -k "ParallelSP3-04" -v --tb=short -q
+    uv run pytest tests/stpa/ -k "parallel_sp3_04" -v --tb=short -q
 
 # --- 7. Full Suite ---
 
