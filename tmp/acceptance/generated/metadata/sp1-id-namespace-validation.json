@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 id namespace validation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_id_namespace_validation.json",
+  "implementation_hash": "sha256:127fbe2310b25e99f564e5c201bc4a01a59c23f62da798a691ccc6ad581cb88b",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_id_namespace_validation_acceptance_test.py"
+  ]
+}

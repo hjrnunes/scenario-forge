@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=a0d1ec2ec445afa56e8a80c4b7af349e1f1c5f35b4238d999151ce76945fdd79
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T00:39:39.734401Z","feature_name":"SP1 RC/PM ID namespace validation","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_id_namespace_validation.feature","background_hash":"3b11e0a71a5a91b57e0783abde6146fdb006c9cef91c58a10a243053735f1fc2","implementation_hash":"unknown","scenarios":[{"index":0,"name":"IDNS-01 rc_id with correct prefix and format passes validation","scenario_hash":"9d94dec79779a05df4858943d0b386adbeb6205b909890609fc6d347fd00d3be","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-08-09T00:39:39.734401Z"},{"index":1,"name":"IDNS-02 rc_id with wrong prefix or malformed format fails validation","scenario_hash":"b9dd9612e3472ce9311580b37d4d437c28b0539f8d104f029d55dfe434576a7b","mutation_count":5,"result":{"Total":5,"Killed":5,"Survived":0,"Errors":0},"tested_at":"2026-08-09T00:39:39.734401Z"},{"index":2,"name":"IDNS-03 non-rc ID fields with wrong prefix or format fail validation","scenario_hash":"4fad99bfbc746def8c3140437e7d0e5495a80ad1638150089a3fc1ac4fdffc49","mutation_count":42,"result":{"Total":42,"Killed":42,"Survived":0,"Errors":0},"tested_at":"2026-08-09T00:39:39.734401Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 RC/PM ID namespace validation
   Control structure ID fields must enforce their prefix conventions via
   regex field validators. A three-layer defense prevents ID namespace

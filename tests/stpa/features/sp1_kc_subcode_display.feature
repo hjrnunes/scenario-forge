@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=992e16532670b8bddca91d0fdf4d3530d327a7c6750f8951681477dd5e968df2
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T00:39:27.402779Z","feature_name":"SP1 KC sub-code display in serialized YAML","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_kc_subcode_display.feature","background_hash":"c6758f34f8b72f643e17dc8bc4241e4bd73160d17515accef566c9ee416f85f7","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 KC sub-code display in serialized YAML
   The capability-profile.yaml artifact should include a human-readable
   companion field kc_subcodes_display that maps each KC sub-code to its

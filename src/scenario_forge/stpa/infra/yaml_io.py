@@ -70,5 +70,5 @@ def read_yaml(path: Path, model_class: type[BaseModel]) -> BaseModel:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"c829bb176d33bc070908628a863d119d69fb6ad0c1ee64b9e348bf376bb6bd93","functions":[{"id":"func/write_yaml","name":"write_yaml","line":18,"end_line":40,"hash":"3c04f4cf25d7047b0bb45957e38140fa3d2ab5169c5ed7a79d8065d82ac7c1a0"},{"id":"func/read_yaml","name":"read_yaml","line":43,"end_line":58,"hash":"ff05853616a7dd881a650822852f4c42d1dee015ada855d8116699ae5d763209"}]}
+# {"version":1,"tested_at":"2026-08-09T00:31:41Z","module_hash":"e4223336446c8dabf9d1a065b733d02945a34bf089f09a63f1ae0e36e38232cf","functions":[{"id":"func/write_yaml","name":"write_yaml","line":19,"end_line":51,"hash":"9c701f2357e0581f43ad8f0e38eb3aeb355425e6cd09249b80e7a9b03f455ed4"},{"id":"func/read_yaml","name":"read_yaml","line":54,"end_line":69,"hash":"ff05853616a7dd881a650822852f4c42d1dee015ada855d8116699ae5d763209"}]}
 # mutate4py-manifest-end
