@@ -17,12 +17,25 @@ When two responsibilities share a process model part (PM) that is NOT connected 
 - coordination_mechanism: { cm_id: CM-N, description, payload }
 - description: what the coordination link does
 
+Coordination links capture dependencies between responsibilities that share state, data, or control flow but are not connected by a control action. They represent inter-controller coordination.
+
+Coordination links are required in these cases:
+- Two responsibilities sharing a process model part not connected by a control action
+- One responsibility's feedback channel updates a PM part that another responsibility controls
+- Two responsibilities need to agree on a shared resource (e.g., session state, rate limit counter)
+
+An empty coordination_links list is acceptable only when no two responsibilities share state, data, or control flow. If your control structure has multiple responsibilities, carefully check whether any share state before returning an empty list.
+
 ## Connection assignments
 
 For each feedback channel and control action, provide a connection assignment:
 - element_id: FB-X-Y or CA-X-Y (matching the element from Call 2)
 - source: { type: "responsibility" | "controlled_process", id: "RESP-*" | "CP-*" } — for feedback channels: which element provides the information
 - target: { type: "responsibility" | "controlled_process", id: "RESP-*" | "CP-*" } — for control actions: which element receives the action
+
+## Structural requirements
+
+Ensure all ElementRef references are valid and all cross-references are consistent.
 
 ## Controlled processes
 
