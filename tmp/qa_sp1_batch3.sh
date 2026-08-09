@@ -130,7 +130,7 @@ echo "--- Part 2: Unit and acceptance test execution ---"
 
 # Bug f29s — sanitize_critic_ids unit tests
 echo "  [f29s] Running sanitize_critic_ids unit tests..."
-if uv run pytest tests/stpa/system_model/test_critic.py -x -q --tb=short 2>&1 | tail -5; then
+if uv run pytest tests/stpa/test_critic_id_sanitization.py tests/stpa/test_sp1_critic.py -x -q --tb=short 2>&1 | tail -5; then
     check "critic unit tests pass" "true"
 else
     check "critic unit tests pass" "false"
@@ -138,7 +138,7 @@ fi
 
 # Bug ulc0 — repair_orphan_pms unit tests
 echo "  [ulc0] Running repair_orphan_pms unit tests..."
-if uv run pytest tests/stpa/system_model/test_control_structure.py -x -q --tb=short 2>&1 | tail -5; then
+if uv run pytest tests/stpa/test_orphan_pm_repair.py tests/stpa/test_sp1_control_structure.py -x -q --tb=short 2>&1 | tail -5; then
     check "control structure unit tests pass" "true"
 else
     check "control structure unit tests pass" "false"
