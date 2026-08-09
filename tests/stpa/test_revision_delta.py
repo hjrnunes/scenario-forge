@@ -23,12 +23,17 @@ from scenario_forge.stpa.models.control_structure import (
     ProcessModelPart,
     ReferenceType,
     Responsibility,
+    ResponsibilityConstraint,
 )
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.critic import (
     CriticFindings,
     CriticGap,
     RevisionDelta,
+    _compute_next_ids,
+    _extract_num,
+    _is_responsibility_empty,
+    _next_num_from,
     run_revision,
 )
 from tests.stpa.sp1_helpers import MockLLMClient
@@ -626,3 +631,229 @@ class TestRevisionDelta14PreservesExistingRules:
     def test_template_preserves_feedback_channel_rule(self):
         text = _load_template_text("revision_system.j2")
         assert "feedback channel updates must reference a PM in the same responsibility" in text
+
+
+# ---------------------------------------------------------------------------
+# Mutation hardening: _compute_next_ids / _next_num_from / _extract_num
+# ---------------------------------------------------------------------------
+
+
+class TestComputeNextIds:
+    """Verify _compute_next_ids correctly computes next-available ID numbers."""
+
+    def test_next_ids_from_populated_structure(self):
+        """RESP-1/RESP-3 -> next_resp_num=4; CL-1 -> next_cl_num=2."""
+        cs = _make_control_structure()
+        # RESP-1, RESP-2 -> max=2, next=3
+        # CL-1 -> max=1, next=2
+        ids = _compute_next_ids(cs)
+        assert ids["next_resp_num"] == 3
+        assert ids["next_cl_num"] == 2
+        # No controlled processes -> next_cp_num=1
+        assert ids["next_cp_num"] == 1
+
+    def test_next_ids_from_empty_structure(self):
+        """Empty lists -> all next numbers are 1 (via _next_num_from directly)."""
+        assert _next_num_from([], lambda x: x) == 1
+
+    def test_next_ids_with_high_numbers(self):
+        """RESP-10, RESP-25 -> next_resp_num=26."""
+        cs = ControlStructure(
+            responsibilities=[
+                Responsibility(
+                    resp_id="RESP-10",
+                    description="A",
+                    process_model_parts=[
+                        ProcessModelPart(pm_id="PM-10-1", description="S")
+                    ],
+                    control_actions=[
+                        ControlAction(ca_id="CA-10-1", description="A")
+                    ],
+                    feedback_channels=[
+                        FeedbackChannel(
+                            fb_id="FB-10-1",
+                            description="F",
+                            updates="PM-10-1",
+                            source=ElementRef(
+                                type=ReferenceType.responsibility, id="RESP-10"
+                            ),
+                        )
+                    ],
+                ),
+                Responsibility(
+                    resp_id="RESP-25",
+                    description="B",
+                    process_model_parts=[
+                        ProcessModelPart(pm_id="PM-25-1", description="S")
+                    ],
+                    control_actions=[
+                        ControlAction(ca_id="CA-25-1", description="A")
+                    ],
+                    feedback_channels=[
+                        FeedbackChannel(
+                            fb_id="FB-25-1",
+                            description="F",
+                            updates="PM-25-1",
+                            source=ElementRef(
+                                type=ReferenceType.responsibility, id="RESP-25"
+                            ),
+                        )
+                    ],
+                ),
+            ],
+        )
+        ids = _compute_next_ids(cs)
+        assert ids["next_resp_num"] == 26
+
+
+class TestNextNumFrom:
+    """Verify _next_num_from handles edge cases correctly."""
+
+    def test_numeric_ids(self):
+        """Items with numeric IDs return max+1."""
+        items = [{"id": "X-1"}, {"id": "X-3"}, {"id": "X-2"}]
+        result = _next_num_from(items, lambda item: item["id"])
+        assert result == 4  # max(1,2,3)+1
+
+    def test_empty_list_returns_one(self):
+        """Empty list returns 1 (default 0 + 1)."""
+        result = _next_num_from([], lambda item: item["id"])
+        assert result == 1
+
+    def test_non_numeric_ids_filtered(self):
+        """Non-numeric IDs are filtered out; only valid numbers used."""
+        items = [{"id": "X-5"}, {"id": "FOO"}, {"id": "BAR"}]
+        result = _next_num_from(items, lambda item: item["id"])
+        assert result == 6  # max(5)+1, FOO/BAR produce None which is filtered
+
+    def test_all_non_numeric_returns_one(self):
+        """All non-numeric IDs -> default 0 + 1 = 1."""
+        items = [{"id": "FOO"}, {"id": "BAR"}]
+        result = _next_num_from(items, lambda item: item["id"])
+        assert result == 1
+
+    def test_single_item(self):
+        """Single item with number 7 -> next is 8."""
+        items = [{"id": "X-7"}]
+        result = _next_num_from(items, lambda item: item["id"])
+        assert result == 8
+
+
+class TestExtractNum:
+    """Verify _extract_num extracts numeric suffixes correctly."""
+
+    def test_simple_id(self):
+        assert _extract_num("RESP-3") == 3
+
+    def test_multi_part_id(self):
+        """For 'PM-1-2', returns the first number (1)."""
+        assert _extract_num("PM-1-2") == 1
+
+    def test_no_number(self):
+        assert _extract_num("FOO") is None
+
+    def test_number_at_start(self):
+        assert _extract_num("123abc") == 123
+
+    def test_empty_string(self):
+        assert _extract_num("") is None
+
+
+# ---------------------------------------------------------------------------
+# Mutation hardening: _is_responsibility_empty with partial responsibilities
+# ---------------------------------------------------------------------------
+
+
+class TestIsResponsibilityEmpty:
+    """Verify _is_responsibility_empty correctly identifies partial vs empty."""
+
+    def test_all_fields_empty(self):
+        """All three fields empty -> True."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Empty",
+            process_model_parts=[],
+            control_actions=[],
+            feedback_channels=[],
+        )
+        assert _is_responsibility_empty(resp) is True
+
+    def test_all_fields_populated(self):
+        """All three fields populated -> False."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Full",
+            process_model_parts=[
+                ProcessModelPart(pm_id="PM-1-1", description="S")
+            ],
+            control_actions=[ControlAction(ca_id="CA-1-1", description="A")],
+            feedback_channels=[
+                FeedbackChannel(
+                    fb_id="FB-1-1",
+                    description="F",
+                    updates="PM-1-1",
+                    source=ElementRef(
+                        type=ReferenceType.responsibility, id="RESP-1"
+                    ),
+                )
+            ],
+        )
+        assert _is_responsibility_empty(resp) is False
+
+    def test_only_pm_populated(self):
+        """PM populated, CA and FB empty -> False (not ALL empty)."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Partial PM",
+            process_model_parts=[
+                ProcessModelPart(pm_id="PM-1-1", description="S")
+            ],
+            control_actions=[],
+            feedback_channels=[],
+        )
+        assert _is_responsibility_empty(resp) is False
+
+    def test_only_ca_populated(self):
+        """CA populated, PM and FB empty -> False."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Partial CA",
+            process_model_parts=[],
+            control_actions=[ControlAction(ca_id="CA-1-1", description="A")],
+            feedback_channels=[],
+        )
+        assert _is_responsibility_empty(resp) is False
+
+    def test_only_fb_populated(self):
+        """FB populated, PM and CA empty -> False."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Partial FB",
+            process_model_parts=[],
+            control_actions=[],
+            feedback_channels=[
+                FeedbackChannel(
+                    fb_id="FB-1-1",
+                    description="F",
+                    updates="PM-1-1",
+                    source=ElementRef(
+                        type=ReferenceType.responsibility, id="RESP-1"
+                    ),
+                )
+            ],
+        )
+        assert _is_responsibility_empty(resp) is False
+
+    def test_constraints_only_still_empty(self):
+        """Responsibility with only constraints but no PM/CA/FB -> True."""
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Constraints only",
+            responsibility_constraints=[
+                ResponsibilityConstraint(rc_id="RC-1-1", description="C")
+            ],
+            process_model_parts=[],
+            control_actions=[],
+            feedback_channels=[],
+        )
+        assert _is_responsibility_empty(resp) is True

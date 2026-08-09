@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=8417a533d509604f2df27ad4b6e06f5e9ad3deb85a11740fc6ec7ca0e9b21e98
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T17:44:52.224942Z","feature_name":"SP1 — Sanitize invalid ElementRefs in merge fallback path","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_merge_fallback_sanitize.feature","background_hash":"e49625a851f9d80ab3d4804bd5eb5fae48438f78dc69f92c30ff83ac2804cbc4","implementation_hash":"unknown","scenarios":[{"index":0,"name":"Sanitize-01 fallback nullifies unresolvable ElementRef in each ref field","scenario_hash":"7204f783cd5ce6874c2ca3b85568a1da894b54ae4d58ac607c78352ae23e1845","mutation_count":15,"result":{"Total":15,"Killed":15,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:44:52.224942Z"},{"index":1,"name":"Sanitize-04 valid ElementRefs are preserved during sanitization","scenario_hash":"42e462c4cb9adb56aa61bde96b259492609d7b6def70432d0459824316e0bcc1","mutation_count":9,"result":{"Total":9,"Killed":9,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:44:52.224942Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Sanitize invalid ElementRefs in merge fallback path
   The ResponsibilitySet from Call 2 has no model validator, so the LLM
   can produce ElementRef values (e.g. type controlled_process, id FB-1-1)

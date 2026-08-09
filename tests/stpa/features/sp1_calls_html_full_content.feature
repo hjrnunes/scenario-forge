@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=043af6ba76130d6c946df7fd3396310d014ce80d982ccf19be223cec18973392
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T17:45:23.429882Z","feature_name":"SP1 — Calls HTML report shows full prompts and responses","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_calls_html_full_content.feature","background_hash":"2c36ca7df697bb9ef1d5458a05d6e268df6314ba8efcd732a3fa21309030395e","implementation_hash":"unknown","scenarios":[{"index":0,"name":"FullContent-01 make_call_log_entry includes full content fields","scenario_hash":"6e470643dbc98e65493e06eedbde248b847295a21387e7d7159ba16937f758d1","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:45:23.429882Z"},{"index":3,"name":"FullContent-06 HTML report shows prompt content in collapsible sections","scenario_hash":"994032dbad090a67a9ccbb57c3e7767b9316587c46a383779db875669fb49cf0","mutation_count":8,"result":{"Total":8,"Killed":8,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:45:23.429882Z"},{"index":11,"name":"FullContent-15 existing metadata columns preserved in detail table","scenario_hash":"ba2c0b9966bce5742b4dfdb559d40dfc154b5b291da2004c6e40a90f7dd5a8b9","mutation_count":7,"result":{"Total":7,"Killed":7,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:45:23.429882Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Calls HTML report shows full prompts and responses
   The calls.html report shows only metadata (stage, step, model, tokens,
   duration, success/failure) and is useless for debugging. The fix adds

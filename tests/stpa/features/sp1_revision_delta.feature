@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=20b2e1db3d2abfcc0bbd85fa9e9f88b7c4cee39e519db7091d226f8f6ca6ebb5
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T17:44:59.924820Z","feature_name":"SP1 Stage 2 — RevisionDelta pattern for revision step","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_revision_delta.feature","background_hash":"c42e690021d0020f9a64a3dc0b7b3c75c268a2b316f6b739f401709926a7a073","implementation_hash":"unknown","scenarios":[{"index":7,"name":"RevisionDelta-08 revision_system.j2 contains ID format rules with next-available numbers","scenario_hash":"2c43e647fa37ca387576ada729ce889a798a4c144126db683b12e8deba111083","mutation_count":12,"result":{"Total":12,"Killed":12,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:44:59.924820Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 2 — RevisionDelta pattern for revision step
   The Stage 2 revision step has a 0/8 success rate because the LLM must
   restate the entire control structure before adding new elements, there

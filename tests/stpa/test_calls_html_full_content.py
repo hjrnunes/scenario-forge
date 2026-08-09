@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from scenario_forge.stpa.infra.call_log import make_call_log_entry
-from scenario_forge.stpa.infra.calls_html import render_calls_html
+from scenario_forge.stpa.infra.calls_html import _build_call_entry_html, _read_calls, render_calls_html
 from scenario_forge.stpa.infra.llm import LLMResult
 from scenario_forge.stpa.infra.llm_helpers import (
     log_llm_call,
@@ -349,3 +349,99 @@ def _render(tmp_path: Path, entries: list[dict]) -> str:
     output_path = tmp_path / "calls.html"
     render_calls_html(calls_path, output_path)
     return output_path.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Mutation hardening: _read_calls, _build_call_entry_html, render_calls_html
+# ---------------------------------------------------------------------------
+
+
+class TestReadCallsEmptyFile:
+    """Verify _read_calls handles empty (0-byte) files correctly."""
+
+    def test_empty_file_returns_empty_list(self, tmp_path):
+        """A 0-byte file should return []."""
+        calls_path = tmp_path / "empty.jsonl"
+        calls_path.write_bytes(b"")
+        assert _read_calls(calls_path) == []
+
+    def test_nonexistent_file_returns_empty_list(self, tmp_path):
+        """A nonexistent file should return []."""
+        calls_path = tmp_path / "missing.jsonl"
+        assert _read_calls(calls_path) == []
+
+    def test_single_byte_file_returns_empty_list(self, tmp_path):
+        """A file with just a newline (1 byte) should return []."""
+        calls_path = tmp_path / "newline.jsonl"
+        calls_path.write_bytes(b"\n")
+        assert _read_calls(calls_path) == []
+
+    def test_single_byte_json_content_is_parsed(self, tmp_path):
+        """A 1-byte file with valid JSON content should be parsed, not skipped."""
+        calls_path = tmp_path / "single.jsonl"
+        calls_path.write_bytes(b"1")
+        result = _read_calls(calls_path)
+        # Original: st_size==0 is False, reads file, json.loads("1")=1, returns [1]
+        # Mutant (0->1): st_size==1 is True, returns []
+        assert len(result) == 1
+
+
+class TestBuildCallEntryHtmlDefaults:
+    """Verify _build_call_entry_html handles missing fields with defaults."""
+
+    def test_entry_without_success_defaults_to_ok(self):
+        """Entry without 'success' key defaults to True (OK status)."""
+        entry = {
+            "stage": "stage_2",
+            "step": "call_1",
+            "model": "test-model",
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+        }
+        html = _build_call_entry_html(entry)
+        # Should NOT contain "failed" class (default is success)
+        assert "failed" not in html
+        # Should NOT contain "FAILED" in summary
+        assert "FAILED" not in html
+
+    def test_entry_without_prompt_tokens_defaults_to_zero(self):
+        """Entry without 'prompt_tokens' defaults to 0 in summary."""
+        entry = {
+            "stage": "stage_2",
+            "step": "call_1",
+            "model": "test-model",
+            "success": True,
+        }
+        html = _build_call_entry_html(entry)
+        # Summary line should show tokens=0+0
+        assert "tokens=0+0" in html
+
+    def test_entry_without_completion_tokens_defaults_to_zero(self):
+        """Entry without 'completion_tokens' defaults to 0 in summary."""
+        entry = {
+            "stage": "stage_2",
+            "step": "call_1",
+            "model": "test-model",
+            "prompt_tokens": 50,
+            "success": True,
+        }
+        html = _build_call_entry_html(entry)
+        # Summary line should show tokens=50+0
+        assert "tokens=50+0" in html
+
+
+class TestRenderCallsHtmlNestedOutput:
+    """Verify render_calls_html creates nested parent directories."""
+
+    def test_nested_output_path_created(self, tmp_path):
+        """Output path with nonexistent parent dir is created successfully."""
+        calls_path = tmp_path / "calls.jsonl"
+        calls_path.write_text(
+            json.dumps(_make_basic_entry()) + "\n", encoding="utf-8"
+        )
+        nested_output = tmp_path / "subdir" / "deeper" / "calls.html"
+        result = render_calls_html(calls_path, nested_output)
+        assert result == nested_output
+        assert nested_output.exists()
+        html = nested_output.read_text(encoding="utf-8")
+        assert "<html" in html

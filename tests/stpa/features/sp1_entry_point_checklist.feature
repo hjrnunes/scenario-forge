@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=f5a297c5735c5e864abacca623761698f2424a806d7dde2477be5bb96200d747
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T17:45:11.980066Z","feature_name":"SP1 Stage 1b — Entry point category checklist in stage1b_system.j2","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_entry_point_checklist.feature","background_hash":"a7bc2ec77d4defafedaa1fd7aa346715ff439a68ae3d8c13e3a536e3d7527613","implementation_hash":"unknown","scenarios":[{"index":1,"name":"EPCL-02 stage1b_system.j2 contains all five entry point categories with examples","scenario_hash":"afdea3ccecb0f9876615471989be04a11e99f57ff5a214cc141558f196f99c9f","mutation_count":10,"result":{"Total":10,"Killed":10,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:45:11.980066Z"},{"index":2,"name":"EPCL-03 each category specifies controllability and direction","scenario_hash":"404a2fdabf1e6d8819055a56bcc30b6399955f29329166def68fb686a08f27e8","mutation_count":10,"result":{"Total":10,"Killed":10,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:45:11.980066Z"},{"index":6,"name":"EPCL-07 checklist preserves existing template sections","scenario_hash":"a031414e4851ab1db941cc45af9f121bff192dcea460f3888265952218126e39","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:45:11.980066Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 1b — Entry point category checklist in stage1b_system.j2
   The stage1b_system.j2 prompt defines entry point fields structurally but
   provides no category checklist, no examples, and no guidance. All SP1

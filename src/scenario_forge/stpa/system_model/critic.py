@@ -221,8 +221,10 @@ def run_revision(
         step=STEP_REVISION,
         temperature=temperature,
     )
-    if error_msg is not None or revision_delta is None:
+    if error_msg is not None:
         return control_structure, [f"Revision failed: {error_msg}"]
+    if revision_delta is None:
+        return control_structure, ["Revision failed: unexpected None response"]
 
     # Merge the delta into the existing ControlStructure
     revised_cs = _merge_revision_delta(control_structure, revision_delta)
@@ -269,8 +271,8 @@ def _extract_num(id_str: str) -> int | None:
 
     For multi-part IDs like 'PM-1-2', returns the first number (1).
     """
-    match = re.search(r"(\d+)", id_str)
-    return int(match.group(1)) if match else None
+    match = re.search(r"\d+", id_str)
+    return int(match.group()) if match else None
 
 
 def _add_new_items(
@@ -355,10 +357,8 @@ def _merge_revision_delta(
 
 def _is_responsibility_empty(resp: Responsibility) -> bool:
     """Check if a responsibility has no PM parts, CAs, or FB channels."""
-    return (
-        not resp.process_model_parts
-        and not resp.control_actions
-        and not resp.feedback_channels
+    return not any(
+        [resp.process_model_parts, resp.control_actions, resp.feedback_channels]
     )
 
 
@@ -473,5 +473,5 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T13:59:33Z","module_hash":"3abb56d9356f1a80c146136fc62dea707f0df93bb0faa77dddf4c6bd176328f6","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":60,"end_line":117,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":120,"end_line":131,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":139,"end_line":197,"hash":"41295630fb7ee15d508592a6537affe8f226de5f8e7249eba52f33397b91594c"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":205,"end_line":211,"hash":"eba30b7fd7444c5cbcd3bc9618aa2c09835f7b83338adc7bde26dc7a4dd7c21b"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":214,"end_line":257,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":288,"end_line":293,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":296,"end_line":299,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":302,"end_line":321,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
+# {"version":1,"tested_at":"2026-08-09T17:26:33Z","module_hash":"8580c8ed1b11037a7bf0cddad01e817954f76d1eb5c29d8818f0773e0b01bcfe","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":83,"end_line":140,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":143,"end_line":154,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/run_revision","name":"run_revision","line":162,"end_line":240,"hash":"81e6c5e324e2ce8ff85818f0b550e471486aae0033235516bf47d2e0b1d3fc08"},{"id":"func/_compute_next_ids","name":"_compute_next_ids","line":243,"end_line":255,"hash":"81a219ed24c1f3c420e4e47b0df9c72460d06c11c65398935fd419320b2f9e89"},{"id":"func/_next_num_from","name":"_next_num_from","line":258,"end_line":266,"hash":"7604f4ce687e1ec1d459143ec2b37c8b317573cbfd7b3eee0aaf78075c5cbe2a"},{"id":"func/_extract_num","name":"_extract_num","line":269,"end_line":275,"hash":"5762f14fc8d7f27355617700b71ae9cc6dfed5ee691c3315c44ca384557315d3"},{"id":"func/_add_new_items","name":"_add_new_items","line":278,"end_line":294,"hash":"f2c1b08976f7eb79a0bdbda4d2970879f906ba337cb6b748dd650756dfd18b93"},{"id":"func/_replace_modified_resps","name":"_replace_modified_resps","line":297,"end_line":309,"hash":"a7c3f7893c5e003f2a8bbcff960066069363b6a1ef59e4837a93adccf815f728"},{"id":"func/_merge_revision_delta","name":"_merge_revision_delta","line":312,"end_line":350,"hash":"cd3df3b2870c18cae0a822f4b185fb8959e228945b6a9c1261e943ebdcc62c6f"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":358,"end_line":362,"hash":"f0e3af6c54ff18f8eb0421cb7c1166cfc694589549bba28429d7791561eb4551"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":365,"end_line":408,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":439,"end_line":444,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":447,"end_line":450,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":453,"end_line":472,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
 # mutate4py-manifest-end
