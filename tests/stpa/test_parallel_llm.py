@@ -10,20 +10,14 @@ Covers all scenarios from:
 
 from __future__ import annotations
 
-import json
 import threading
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
 from pydantic import BaseModel
 
-from scenario_forge.models.capability_profile import (
-    Stage1Profile,
-)
-from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMResult
 from scenario_forge.stpa.infra.parallel_llm import (
     LLMCallResult,
@@ -32,7 +26,13 @@ from scenario_forge.stpa.infra.parallel_llm import (
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.run import run_sp1
-from tests.stpa.sp1_helpers import MockCall, MockLLMClient, valid_empty_connection_set_dict
+from tests.stpa.sp1_helpers import (
+    MockCall,
+    MockLLMClient,
+    make_risk_cards,
+    read_calls_jsonl,
+    setup_sp1_mock_client,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -179,160 +179,60 @@ def _make_spec(
     )
 
 
-def _read_calls_jsonl(run_dir: Path) -> list[dict]:
-    calls_file = run_dir / "calls.jsonl"
-    if not calls_file.exists():
-        return []
-    return [json.loads(line) for line in calls_file.read_text().splitlines()]
-
-
 # ---------------------------------------------------------------------------
-# SP1 full-run helpers (reused from test_sp1_run.py patterns)
+# SP1 full-run helpers — use shared helpers from sp1_helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_risk_cards() -> list[RiskCard]:
-    return [
-        RiskCard(
-            risk_id="atlas-001",
-            risk_name="Prompt injection",
-            risk_description="Risk of prompt injection",
-            taxonomy="ibm-risk-atlas",
-            confidence=0.9,
-            grounding_confidence="high",
-        ),
-    ]
+def _run_cli_with_max_workers(max_workers_arg: str | None) -> int | None:
+    """Run run_sp1.main() with mocked deps and return the max_workers passed to run_sp1.
 
+    Args:
+        max_workers_arg: The --max-workers value, or None to omit the flag.
+    """
+    import sys
 
-def _valid_loss_analysis_dict() -> dict:
-    return {
-        "risk_card_losses": [
-            {
-                "loss_id": "L-1",
-                "description": "Unauthorized transaction",
-                "provenance": "risk_card",
-                "source_risk_cards": ["atlas-001"],
-            }
-        ],
-        "use_case_losses": [
-            {
-                "loss_id": "L-2",
-                "description": "Loss of trust",
-                "provenance": "use_case",
-                "source_risk_cards": [],
-            }
-        ],
-        "hazards": [
-            {
-                "hazard_id": "H-1",
-                "description": "Agent executes unintended action",
-                "related_losses": ["L-1", "L-2"],
-            }
-        ],
-        "security_constraints": [
-            {
-                "constraint_id": "SC-1",
-                "description": "Must confirm before action",
-                "related_hazards": ["H-1"],
-            }
-        ],
-    }
+    import scripts.run_sp1 as runner_mod
 
-
-def _valid_stage1_profile_dict() -> dict:
-    return {
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": False,
-        "entry_points": [
-            {"name": "User chat", "direction": "input", "controllability": "direct"},
-        ],
-        "confidence": "medium",
-        "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
-        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
-    }
-
-
-def _valid_requirement_set_dict() -> dict:
-    return {
-        "requirements": [
-            {
-                "req_id": "REQ-1",
-                "description": "Verify user identity",
-                "classification": "control",
-                "source_constraint": "SC-1",
-            }
-        ]
-    }
-
-
-def _valid_responsibility_set_dict() -> dict:
-    return {
-        "responsibilities": [
-            {
-                "resp_id": "RESP-1",
-                "description": "Authorization controller",
-                "responsibility_constraints": [
-                    {"rc_id": "RC-1-1", "description": "Must confirm before action"}
-                ],
-                "process_model_parts": [
-                    {"pm_id": "PM-1-1", "description": "User intent state"}
-                ],
-                "control_actions": [
-                    {"ca_id": "CA-1-1", "description": "Execute action"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-1-1",
-                        "description": "Action result",
-                        "updates": "PM-1-1",
-                        "source": {"type": "responsibility", "id": "RESP-1"},
-                    }
-                ],
-            }
-        ],
-        "controlled_processes": [],
-    }
-
-
-def _valid_critic_findings_dict_no_gaps() -> dict:
-    return {
-        "gaps": [],
-        "checklist_results": {
-            "Input validation": "present",
-            "Authorization": "present",
-            "Action selection": "present",
-            "Outcome verification": "present",
-            "Context management": "present",
-            "Multi-agent coordination": "present",
-            "Human-in-the-loop": "present",
+    fake_result = type(
+        "R",
+        (),
+        {
+            "loss_analysis": None,
+            "capability_profile": None,
+            "control_structure": None,
+            "heuristic_errors": [],
+            "heuristic_warnings": [],
+            "critic_findings": None,
+            "revised": False,
+            "stage_errors": [],
+            "solution_neutrality_warnings": [],
+            "post_revision_warnings": [],
         },
-        "taxonomy_probe_results": {},
-    }
+    )()
 
+    argv = [
+        "run_sp1.py",
+        "--use-case", "test.txt",
+        "--risk-extraction", "test.json",
+        "--output-dir", "output/test",
+    ]
+    if max_workers_arg is not None:
+        argv.extend(["--max-workers", max_workers_arg])
 
-def _setup_sp1_mock_client() -> MockLLMClient:
-    """Set up a mock LLM client with valid responses for all SP1 stages."""
-    from tests.stpa.sp1_helpers import MockLLMClient
-
-    client = MockLLMClient()
-    client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
-    client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
-
-    from scenario_forge.stpa.system_model.control_structure import (
-        ConnectionSet,
-        RequirementSet,
-        ResponsibilitySet,
-    )
-
-    client.set_response_for(RequirementSet, _valid_requirement_set_dict())
-    client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
-
-    from scenario_forge.stpa.system_model.critic import CriticFindings
-
-    client.set_response_for(CriticFindings, _valid_critic_findings_dict_no_gaps())
-    return client
+    with patch.object(runner_mod, "run_sp1") as mock_run, \
+         patch.object(runner_mod, "load_risk_extraction", return_value=[]), \
+         patch.object(runner_mod, "read_use_case", return_value="test"), \
+         patch.object(runner_mod, "resolve_llm_client_from_env", return_value=MockLLMClient()):
+        mock_run.return_value = fake_result
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            runner_mod.main()
+        finally:
+            sys.argv = old_argv
+        _, kwargs = mock_run.call_args
+        return kwargs.get("max_workers")
 
 
 # ===========================================================================
@@ -405,7 +305,7 @@ class TestParallelLLMCalls:
         parallel_safe_llm_calls(
             calls, llm_client=client, run_dir=tmp_path, max_workers=4
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         assert len(entries) == 5
         for entry in entries:
             assert "stage" in entry
@@ -508,7 +408,7 @@ class TestParallelLLMCalls:
         parallel_safe_llm_calls(
             calls, llm_client=client, run_dir=tmp_path, max_workers=2
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         assert len(entries) == 2
         success_steps = {e["step"] for e in entries if e["success"]}
         failure_entries = [e for e in entries if not e["success"]]
@@ -544,11 +444,11 @@ class TestParallelMaxWorkersConfig:
     # ParallelConfig-01
     def test_parallel_config_01_run_sp1_accepts_max_workers(self, tmp_path):
         """run_sp1 completes without error when max_workers=4."""
-        client = _setup_sp1_mock_client()
+        client = setup_sp1_mock_client()
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
             max_workers=4,
         )
@@ -557,11 +457,11 @@ class TestParallelMaxWorkersConfig:
     # ParallelConfig-02
     def test_parallel_config_02_max_workers_default_is_1(self, tmp_path):
         """Default max_workers is 1 (backwards compatible)."""
-        client = _setup_sp1_mock_client()
+        client = setup_sp1_mock_client()
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         manifest = yaml.safe_load((tmp_path / "run-manifest.yaml").read_text())
@@ -570,11 +470,11 @@ class TestParallelMaxWorkersConfig:
     # ParallelConfig-03
     def test_parallel_config_03_manifest_records_max_workers(self, tmp_path):
         """Run manifest records the max_workers value."""
-        client = _setup_sp1_mock_client()
+        client = setup_sp1_mock_client()
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
             max_workers=4,
         )
@@ -584,101 +484,18 @@ class TestParallelMaxWorkersConfig:
     # ParallelConfig-04
     def test_parallel_config_04_cli_flag_passes_value(self):
         """--max-workers 8 passes max_workers=8 to run_sp1."""
-        import scripts.run_sp1 as runner_mod
-
-        with patch.object(runner_mod, "run_sp1") as mock_run, \
-             patch.object(runner_mod, "load_risk_extraction", return_value=[]), \
-             patch.object(runner_mod, "read_use_case", return_value="test"), \
-             patch.object(runner_mod, "resolve_llm_client_from_env", return_value=MockLLMClient()):
-            mock_run.return_value = type(
-                "R", (), {"loss_analysis": None, "capability_profile": None,
-                          "control_structure": None, "heuristic_errors": [],
-                          "heuristic_warnings": [], "critic_findings": None,
-                          "revised": False, "stage_errors": [],
-                          "solution_neutrality_warnings": [],
-                          "post_revision_warnings": []}
-            )()
-            import sys
-            old_argv = sys.argv
-            sys.argv = [
-                "run_sp1.py",
-                "--use-case", "test.txt",
-                "--risk-extraction", "test.json",
-                "--output-dir", "output/test",
-                "--max-workers", "8",
-            ]
-            try:
-                runner_mod.main()
-            finally:
-                sys.argv = old_argv
-            _, kwargs = mock_run.call_args
-            assert kwargs.get("max_workers") == 8
+        assert _run_cli_with_max_workers("8") == 8
 
     # ParallelConfig-05
     def test_parallel_config_05_cli_flag_defaults_to_1(self):
         """Without --max-workers, run_sp1 is called with max_workers=1."""
-        import scripts.run_sp1 as runner_mod
-
-        with patch.object(runner_mod, "run_sp1") as mock_run, \
-             patch.object(runner_mod, "load_risk_extraction", return_value=[]), \
-             patch.object(runner_mod, "read_use_case", return_value="test"), \
-             patch.object(runner_mod, "resolve_llm_client_from_env", return_value=MockLLMClient()):
-            mock_run.return_value = type(
-                "R", (), {"loss_analysis": None, "capability_profile": None,
-                          "control_structure": None, "heuristic_errors": [],
-                          "heuristic_warnings": [], "critic_findings": None,
-                          "revised": False, "stage_errors": [],
-                          "solution_neutrality_warnings": [],
-                          "post_revision_warnings": []}
-            )()
-            import sys
-            old_argv = sys.argv
-            sys.argv = [
-                "run_sp1.py",
-                "--use-case", "test.txt",
-                "--risk-extraction", "test.json",
-                "--output-dir", "output/test",
-            ]
-            try:
-                runner_mod.main()
-            finally:
-                sys.argv = old_argv
-            _, kwargs = mock_run.call_args
-            assert kwargs.get("max_workers") == 1
+        assert _run_cli_with_max_workers(None) == 1
 
     # ParallelConfig-06 (parameterised)
     @pytest.mark.parametrize("workers", [1, 2, 4, 8, 16])
     def test_parallel_config_06_cli_accepts_valid_values(self, workers):
         """--max-workers accepts various valid values."""
-        import scripts.run_sp1 as runner_mod
-
-        with patch.object(runner_mod, "run_sp1") as mock_run, \
-             patch.object(runner_mod, "load_risk_extraction", return_value=[]), \
-             patch.object(runner_mod, "read_use_case", return_value="test"), \
-             patch.object(runner_mod, "resolve_llm_client_from_env", return_value=MockLLMClient()):
-            mock_run.return_value = type(
-                "R", (), {"loss_analysis": None, "capability_profile": None,
-                          "control_structure": None, "heuristic_errors": [],
-                          "heuristic_warnings": [], "critic_findings": None,
-                          "revised": False, "stage_errors": [],
-                          "solution_neutrality_warnings": [],
-                          "post_revision_warnings": []}
-            )()
-            import sys
-            old_argv = sys.argv
-            sys.argv = [
-                "run_sp1.py",
-                "--use-case", "test.txt",
-                "--risk-extraction", "test.json",
-                "--output-dir", "output/test",
-                "--max-workers", str(workers),
-            ]
-            try:
-                runner_mod.main()
-            finally:
-                sys.argv = old_argv
-            _, kwargs = mock_run.call_args
-            assert kwargs.get("max_workers") == workers
+        assert _run_cli_with_max_workers(str(workers)) == workers
 
 
 # ===========================================================================
@@ -692,11 +509,11 @@ class TestParallelSP1Compatibility:
     # ParallelSP1-01
     def test_parallel_sp1_01_max_workers_1_produces_artifacts(self, tmp_path):
         """max_workers=1 produces all output artifacts."""
-        client = _setup_sp1_mock_client()
+        client = setup_sp1_mock_client()
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
             max_workers=1,
         )
@@ -707,15 +524,15 @@ class TestParallelSP1Compatibility:
     # ParallelSP1-02
     def test_parallel_sp1_02_stage_execution_order_preserved(self, tmp_path):
         """Stage 1a → 1b → 2 order preserved with max_workers=1."""
-        client = _setup_sp1_mock_client()
+        client = setup_sp1_mock_client()
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
             max_workers=1,
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         stages = [e["stage"] for e in entries]
         assert "stage_1a" in stages
         assert "stage_1b" in stages
@@ -726,15 +543,15 @@ class TestParallelSP1Compatibility:
     # ParallelSP1-03
     def test_parallel_sp1_03_call_log_identical_with_max_workers_1(self, tmp_path):
         """calls.jsonl exists and contains entries for all stages in order."""
-        client = _setup_sp1_mock_client()
+        client = setup_sp1_mock_client()
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
             max_workers=1,
         )
-        entries = _read_calls_jsonl(tmp_path)
+        entries = read_calls_jsonl(tmp_path)
         assert len(entries) > 0
         stages = [e["stage"] for e in entries]
         assert "stage_1a" in stages
@@ -747,11 +564,11 @@ class TestParallelSP1Compatibility:
         with patch(
             "scenario_forge.stpa.system_model.run.parallel_safe_llm_calls"
         ) as mock_parallel:
-            client = _setup_sp1_mock_client()
+            client = setup_sp1_mock_client()
             run_sp1(
                 llm_client=client,
                 use_case_text="Test use case",
-                risk_cards=_make_risk_cards(),
+                risk_cards=make_risk_cards(),
                 run_dir=tmp_path,
                 max_workers=1,
             )

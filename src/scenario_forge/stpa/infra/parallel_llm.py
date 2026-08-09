@@ -130,16 +130,9 @@ def parallel_safe_llm_calls(
     if not calls:
         return []
 
-    results: list[LLMCallResult | None] = [None] * len(calls)
-
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(
-                _execute_single_call, spec, llm_client, run_dir
-            ): idx
-            for idx, spec in enumerate(calls)
-        }
-        for future, idx in futures.items():
-            results[idx] = future.result()
-
-    return [r for r in results if r is not None]  # type: ignore[list-item]
+        futures = [
+            executor.submit(_execute_single_call, spec, llm_client, run_dir)
+            for spec in calls
+        ]
+        return [f.result() for f in futures]

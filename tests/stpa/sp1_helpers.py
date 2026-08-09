@@ -186,6 +186,86 @@ def valid_stage1_profile_dict() -> dict:
     }
 
 
+def valid_loss_analysis_dict() -> dict:
+    """Return a valid LossAnalysis dict for SP1 pipeline tests."""
+    return {
+        "risk_card_losses": [
+            {
+                "loss_id": "L-1",
+                "description": "Unauthorized transaction",
+                "provenance": "risk_card",
+                "source_risk_cards": ["atlas-001"],
+            }
+        ],
+        "use_case_losses": [
+            {
+                "loss_id": "L-2",
+                "description": "Loss of trust",
+                "provenance": "use_case",
+                "source_risk_cards": [],
+            }
+        ],
+        "hazards": [
+            {
+                "hazard_id": "H-1",
+                "description": "Agent executes unintended action",
+                "related_losses": ["L-1", "L-2"],
+            }
+        ],
+        "security_constraints": [
+            {
+                "constraint_id": "SC-1",
+                "description": "Must confirm before action",
+                "related_hazards": ["H-1"],
+            }
+        ],
+    }
+
+
+def valid_requirement_set_dict() -> dict:
+    """Return a valid RequirementSet dict for Stage 2 Call 1."""
+    return {
+        "requirements": [
+            {
+                "req_id": "REQ-1",
+                "description": "Verify user identity",
+                "classification": "control",
+                "source_constraint": "SC-1",
+            }
+        ]
+    }
+
+
+def valid_responsibility_set_dict() -> dict:
+    """Return a valid ResponsibilitySet dict for Stage 2 Call 2."""
+    return {
+        "responsibilities": [
+            {
+                "resp_id": "RESP-1",
+                "description": "Authorization controller",
+                "responsibility_constraints": [
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"}
+                ],
+                "process_model_parts": [
+                    {"pm_id": "PM-1-1", "description": "User intent state"}
+                ],
+                "control_actions": [
+                    {"ca_id": "CA-1-1", "description": "Execute action"}
+                ],
+                "feedback_channels": [
+                    {
+                        "fb_id": "FB-1-1",
+                        "description": "Action result",
+                        "updates": "PM-1-1",
+                        "source": {"type": "responsibility", "id": "RESP-1"},
+                    }
+                ],
+            }
+        ],
+        "controlled_processes": [],
+    }
+
+
 def valid_critic_findings_dict_no_gaps() -> dict:
     """Return a CriticFindings dict with no gaps (all checklist items present)."""
     return {
@@ -193,6 +273,32 @@ def valid_critic_findings_dict_no_gaps() -> dict:
         "checklist_results": {
             "Input validation": "present",
             "Authorization": "present",
+            "Action selection": "present",
+            "Outcome verification": "present",
+            "Context management": "present",
+            "Multi-agent coordination": "present",
+            "Human-in-the-loop": "present",
         },
         "taxonomy_probe_results": {},
     }
+
+
+def setup_sp1_mock_client() -> MockLLMClient:
+    """Set up a mock LLM client with valid responses for all SP1 stages."""
+    from scenario_forge.models.capability_profile import Stage1Profile
+    from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+    from scenario_forge.stpa.system_model.control_structure import (
+        ConnectionSet,
+        RequirementSet,
+        ResponsibilitySet,
+    )
+    from scenario_forge.stpa.system_model.critic import CriticFindings
+
+    client = MockLLMClient()
+    client.set_response_for(LossAnalysis, valid_loss_analysis_dict())
+    client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
+    client.set_response_for(RequirementSet, valid_requirement_set_dict())
+    client.set_response_for(ResponsibilitySet, valid_responsibility_set_dict())
+    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    client.set_response_for(CriticFindings, valid_critic_findings_dict_no_gaps())
+    return client
