@@ -12,6 +12,7 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.models.risk_card import RiskCard
@@ -74,6 +75,7 @@ def run_sp1(
     run_dir: Path,
     profile_path: Path | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
+    profile_name: str | None = None,
 ) -> SP1RunResult:
     """Run the full SP1 pipeline: Stages 1a → 1b → 2.
 
@@ -85,6 +87,7 @@ def run_sp1(
         profile_path: Optional path to a pre-built capability-profile.yaml.
             When provided, Stage 1b LLM call is skipped.
         temperature: LLM temperature (default 0.4).
+        profile_name: Optional model profile name for manifest recording.
 
     Returns:
         SP1RunResult with all artifacts and diagnostic info. On partial
@@ -126,6 +129,7 @@ def run_sp1(
         temperature=temperature,
         profile_skipped=_profile_skipped,
         stage_errors=stage_errors,
+        profile_name=profile_name,
     )
 
     return SP1RunResult(
@@ -311,6 +315,7 @@ def _write_manifest(
     temperature: float,
     profile_skipped: bool,
     stage_errors: list[str] | None = None,
+    profile_name: str | None = None,
 ) -> None:
     """Write the run manifest with stage summary, input hashes, and prompt hashes."""
     input_hashes = _compute_input_hashes(use_case_text, risk_cards)
@@ -320,16 +325,20 @@ def _write_manifest(
     _stage_1a_call_count = 1
     _stage_2_call_count = 3
 
+    model_config_dict: dict[str, Any] = {
+        "model": llm_client.model,
+        "base_url": llm_client.base_url,
+        "temperature": temperature,
+    }
+    if profile_name is not None:
+        model_config_dict["profile"] = profile_name
+
     manifest = STPARunManifest(
         run_id=run_dir.name,
         run_dir=str(run_dir),
         created_at=datetime.now(timezone.utc).isoformat(),
         **{  # type: ignore[arg-type]
-            "model_config": {
-                "model": llm_client.model,
-                "base_url": llm_client.base_url,
-                "temperature": temperature,
-            }
+            "model_config": model_config_dict,
         },
         input_hashes=input_hashes,
         prompt_hashes=prompt_hashes,

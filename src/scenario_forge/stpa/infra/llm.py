@@ -109,6 +109,8 @@ class LLMClient:
         max_completion_tokens: int | None = None,
         temperature: float | None = None,
         extra_headers: dict[str, str] | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
     ) -> None:
         self.base_url = _resolve_base_url(base_url)
         self.api_key = _resolve_api_key(api_key)
@@ -125,6 +127,8 @@ class LLMClient:
             extra_headers,
             os.environ.get("SCENARIO_FORGE_EXTRA_HEADERS"),
         )
+        self.top_p = top_p
+        self.top_k = top_k
 
         if not self.base_url:
             raise ValueError(
@@ -156,6 +160,10 @@ class LLMClient:
         extra_kwargs: dict[str, Any] = {"temperature": effective_temp}
         if effective_max is not None:
             extra_kwargs["max_completion_tokens"] = effective_max
+        if self.top_p is not None:
+            extra_kwargs["top_p"] = self.top_p
+        if self.top_k is not None:
+            extra_kwargs["top_k"] = self.top_k
 
         t0 = time.perf_counter_ns()
 

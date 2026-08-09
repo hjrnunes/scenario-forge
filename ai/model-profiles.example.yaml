@@ -1,0 +1,19 @@
+# Model profiles for scenario-forge STPA pipeline.
+# Copy this file to ai/model-profiles.yaml and fill in your real API keys.
+gemma4-openrouter:
+  base_url: https://openrouter.ai/api/v1
+  model: google/gemma-4-26b-a4b-it
+  api_key: YOUR-API-KEY-HERE
+  max_completion_tokens: 16384
+  temperature: 0.4
+gemma4-local:
+  base_url: https://your-local-endpoint.example.com/v1
+  model: gemma-4-26b-a4b-it
+  api_key: unused
+  temperature: 0.4
+sonnet-4:
+  base_url: https://openrouter.ai/api/v1
+  model: anthropic/claude-sonnet-4
+  api_key: YOUR-API-KEY-HERE
+  max_completion_tokens: 16384
+  temperature: 0.3

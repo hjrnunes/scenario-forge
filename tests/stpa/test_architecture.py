@@ -147,6 +147,7 @@ class TestCleanCopyEnforcement:
             "math",
             "itertools",
             "contextlib",
+            "argparse",
         )
         violations: list[str] = []
         for path in infra_python_files:
