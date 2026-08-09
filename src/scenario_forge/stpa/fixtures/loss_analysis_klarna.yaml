@@ -1,59 +1,92 @@
 # Fixture: LossAnalysis for the Klarna agentic payment assistant.
-# Provenance: Handcrafted from manual prototype (Phase A) based on the
-# Klarna use case. Provides realistic loss-hazard-constraint structure
-# for SP2 and SP3 development against fixtures.
-# Schema: scenario_forge.stpa.models.loss_analysis.LossAnalysis
+# Provenance: LLM-generated (google/gemma-4-26b-a4b-it, t=1.0) from SP1 pipeline run 20260809-sp1v4-klarna.
+# QA: FAIL (3 Major) (25/3) — ai/lab-results/lab-sp1-first-run.md
 
 risk_card_losses:
-  - loss_id: L-1
-    description: Unauthorized financial transaction executed on behalf of a user
-    provenance: risk_card
-    source_risk_cards:
-      - atlas-prompt-injection
-      - atlas-tool-misuse
-  - loss_id: L-2
-    description: Sensitive user financial data exposed to unauthorized parties
-    provenance: risk_card
-    source_risk_cards:
-      - atlas-data-poisoning
-
+- loss_id: L-1
+  description: Reputational and financial harm to Klarna resulting from the generation
+    of biased, unethical, or inaccurate business practices.
+  provenance: risk_card
+  source_risk_cards:
+  - atlas-hallucination
+  - atlas-output-bias
+  - atlas-over-or-under-reliance
+- loss_id: L-2
+  description: Legal and regulatory non-compliance penalties resulting from the system
+    providing incorrect financial advice or policy interpretations.
+  provenance: risk_card
+  source_risk_cards:
+  - atlas-over-or-under-reliance
+  - atlas-data-privacy-rights
+- loss_id: L-3
+  description: Direct financial loss to Klarna due to fraudulent or erroneous execution
+    of financial transactions (e.g., incorrect refunds) via the AI agent.
+  provenance: risk_card
+  source_risk_cards:
+  - atlas-dangerous-use
+- loss_id: L-4
+  description: Unauthorized disclosure of Personally Identifiable Information (PII)
+    or Non-Public Personal Information (NPI) of Klarna customers through model outputs
+    or data breaches.
+  provenance: risk_card
+  source_risk_cards:
+  - atlas-personal-information-in-data
+  - atlas-exposing-personal-information
+  - atlas-revealing-confidential-information
 use_case_losses:
-  - loss_id: L-3
-    description: Loss of customer trust due to agent providing incorrect payment advice
-    provenance: use_case
-    source_risk_cards: []
-  - loss_id: L-4
-    description: Regulatory non-compliance from mishandling payment data
-    provenance: use_case
-    source_risk_cards: []
-
+- loss_id: L-5
+  description: Loss of customer trust and brand equity due to the 'walk-back' effect,
+    where customers receive generic or unhelpful responses for complex financial queries.
+  provenance: use_case
+  source_risk_cards: []
+- loss_id: L-6
+  description: Operational disruption and increased cost of service caused by the
+    failure of the AI agent to handle nuanced cases, necessitating a sudden mass-rehire
+    of human agents.
+  provenance: use_case
+  source_risk_cards: []
 hazards:
-  - hazard_id: H-1
-    description: Agent executes a payment action not intended by the user
-    related_losses:
-      - L-1
-      - L-3
-  - hazard_id: H-2
-    description: Agent exposes sensitive payment data in its response
-    related_losses:
-      - L-2
-      - L-4
-  - hazard_id: H-3
-    description: Agent provides incorrect payment advice due to missing context
-    related_losses:
-      - L-3
-      - L-4
-
+- hazard_id: H-1
+  description: The Klarna AI Assistant provides factually incorrect information regarding
+    fees, payment terms, or refund eligibility to a customer via the conversational
+    interface.
+  related_losses:
+  - L-1
+  - L-2
+- hazard_id: H-2
+  description: The Klarna AI Assistant executes an unauthorized or incorrect financial
+    transaction (e.g., an incorrect refund amount or an unrequested payment schedule
+    change) via the Klarna Backend System API integration.
+  related_losses:
+  - L-3
+- hazard_id: H-3
+  description: The Klarna AI Assistant leaks a customer's purchase history, merchant
+    information, or payment status to an unauthorized user through the authenticated
+    session context or model output.
+  related_losses:
+  - L-4
+- hazard_id: H-4
+  description: The RAG-style (Retrieval-Augmented Generation) knowledge-grounding
+    system retrieves and presents outdated or non-compliant policy information from
+    the Klarna knowledge base.
+  related_losses:
+  - L-2
 security_constraints:
-  - constraint_id: SC-1
-    description: The agent must not execute payment actions without explicit user confirmation
-    related_hazards:
-      - H-1
-  - constraint_id: SC-2
-    description: The agent must not include sensitive payment data in responses to unauthorized queries
-    related_hazards:
-      - H-2
-  - constraint_id: SC-3
-    description: The agent must verify payment context completeness before providing advice
-    related_hazards:
-      - H-3
+- constraint_id: SC-1
+  description: The Klarna AI Assistant must only provide policy and fee information
+    that is strictly verified against the approved knowledge-grounding whitelist.
+  related_hazards:
+  - H-1
+  - H-4
+- constraint_id: SC-2
+  description: The Klarna Backend System API integration must validate that any refund
+    or payment modification command issued by the AI Assistant matches the authenticated
+    user's session context and transaction history.
+  related_hazards:
+  - H-2
+- constraint_id: SC-3
+  description: The system must ensure that the injected authenticated user context
+    (purchase history, merchant info) is strictly scoped to the current authenticated
+    session and cannot be accessed or echoed by the model for other users.
+  related_hazards:
+  - H-3
