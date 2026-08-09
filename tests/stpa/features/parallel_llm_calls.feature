@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=5d64136c89e002a601a93900e4735c9db0879716bd466261fb971a24ee5a0709
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T11:27:43.223702Z","feature_name":"Parallel LLM call infrastructure","feature_path":"tests/stpa/features/parallel_llm_calls.feature","background_hash":"bf0860e283cbaeb15bb53b4f6fb541b10b8d12f2c260e0f79feca08df993ea87","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: Parallel LLM call infrastructure
   A new module `parallel_llm.py` in `stpa/infra/` provides
   `parallel_safe_llm_calls()`, which executes multiple independent

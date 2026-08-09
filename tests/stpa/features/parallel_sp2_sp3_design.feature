@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=39ea7db016dfc9c55ac82eea6b940217fdb2f338e91fab021b9758a0237cfd3d
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T11:27:44.485578Z","feature_name":"Parallel infrastructure design for SP2 and SP3","feature_path":"tests/stpa/features/parallel_sp2_sp3_design.feature","background_hash":"6a26a5a0bb987366fdf605765229a72fe30b81f3fbcce87cd1233f2be363ba42","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: Parallel infrastructure design for SP2 and SP3
   The parallel_safe_llm_calls infrastructure is designed to support
   future parallelization in SP2 and SP3. This feature specifies the

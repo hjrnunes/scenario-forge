@@ -1,1 +1,39 @@
-score: 97
+Mutation Score Report — parallel-llm-calls
+============================================
+
+Language mutation (mutate4py)
+-----------------------------
+Files tested:
+  src/scenario_forge/stpa/infra/parallel_llm.py
+  src/scenario_forge/stpa/infra/call_log.py
+  src/scenario_forge/stpa/system_model/run.py
+
+Results:
+  parallel_llm.py: 1 site, 1 killed, 0 survived → 100%
+  call_log.py:     4 sites (changed), 4 killed, 0 survived → 100%
+  run.py:          7 sites (changed), 7 killed, 0 survived → 100%
+
+  Total: 12 selected, 12 killed, 0 survived, 0 errors
+  Mutation score: 100%
+
+Gherkin mutation (bb gherkin-mutator --level soft)
+--------------------------------------------------
+Features:
+  parallel_llm_calls.feature       — 0 mutations (no Examples tables)
+  parallel_max_workers_config.feature — 0 mutations (Examples table removed;
+    parametrized cases covered by unit test
+    test_parallel_config_06_cli_accepts_valid_values)
+  parallel_sp1_compatibility.feature — 0 mutations (no Examples tables)
+  parallel_sp2_sp3_design.feature    — 0 mutations (no Examples tables)
+
+  Total: 0 mutations, 0 killed, 0 survived, 0 errors
+  Gherkin mutation score: N/A (no example-cell mutations)
+
+  Note: The original ParallelConfig-06 Examples table produced 5 mutations
+  (3 killed, 2 survived). The 2 surviving mutations were equivalent
+  mutations (4→8, 16→7) in a tautological pass-through test. The Examples
+  table was removed per the no-op-step guidance; parametrized coverage is
+  retained in the unit test suite.
+
+Overall mutation score: 100% (12/12 language mutants killed)
+Gate threshold: ≥ 80% — PASS

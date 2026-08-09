@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=5c1085977273c48b25dff7516ccf4f4c45911eca1b72c4dcb560bfb2883ac0ab
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T11:27:44.349587Z","feature_name":"Parallel infrastructure SP1 backwards compatibility","feature_path":"tests/stpa/features/parallel_sp1_compatibility.feature","background_hash":"93a4ff32b850b092ffae476f5b2cf2ed3be0d0926c0e21bf8b7b001706738bd9","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: Parallel infrastructure SP1 backwards compatibility
   SP1 calls remain sequential due to data dependencies between stages.
   With max_workers=1 (the default), the parallel infrastructure must
