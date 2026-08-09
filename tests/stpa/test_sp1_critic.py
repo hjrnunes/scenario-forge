@@ -32,6 +32,7 @@ from scenario_forge.stpa.models.loss_analysis import (
 )
 from scenario_forge.stpa.system_model.critic import (
     CriticFindings,
+    RevisionDelta,
     has_unjustified_gaps,
     run_completeness_critic,
     run_revision,
@@ -302,44 +303,8 @@ class TestRevision:
     def test_rev_01_revised_control_structure_valid(self, tmp_path):
         """SP1-REV-01: revision call produces a valid ControlStructure."""
         client = MockLLMClient()
-        revised_cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller 1",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State 1"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action 1"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB 1",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                },
-                {
-                    "resp_id": "RESP-2",
-                    "description": "Controller 2",
-                    "process_model_parts": [
-                        {"pm_id": "PM-2-1", "description": "State 2"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-2-1", "description": "Action 2"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-2-1",
-                            "description": "FB 2",
-                            "updates": "PM-2-1",
-                            "source": {"type": "responsibility", "id": "RESP-2"},
-                        }
-                    ],
-                },
+        revision_delta_dict = {
+            "new_responsibilities": [
                 {
                     "resp_id": "RESP-3",
                     "description": "Added input validation controller",
@@ -357,10 +322,13 @@ class TestRevision:
                             "source": {"type": "responsibility", "id": "RESP-3"},
                         }
                     ],
-                },
+                }
             ],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, revised_cs_dict)
+        client.set_response_for(RevisionDelta, revision_delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         revised, warnings = run_revision(
             llm_client=client,
@@ -376,30 +344,13 @@ class TestRevision:
     def test_rev_02_revision_logged(self, tmp_path):
         """SP1-REV-02: revision call logged with stage stage_2 and step revision."""
         client = MockLLMClient()
-        # Build a minimal valid CS dict
-        cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                }
-            ],
+        delta_dict = {
+            "new_responsibilities": [],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, cs_dict)
+        client.set_response_for(RevisionDelta, delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         run_revision(
             llm_client=client,
@@ -417,29 +368,13 @@ class TestRevision:
     def test_rev_03_prompt_contains_cs_and_findings(self, tmp_path):
         """SP1-REV-03: revision prompt contains current CS and critic findings."""
         client = MockLLMClient()
-        cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                }
-            ],
+        delta_dict = {
+            "new_responsibilities": [],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, cs_dict)
+        client.set_response_for(RevisionDelta, delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         run_revision(
             llm_client=client,
@@ -455,29 +390,13 @@ class TestRevision:
     def test_rev_04_heuristics_rerun_after_revision(self, tmp_path):
         """SP1-REV-04: structural heuristics are re-run after revision."""
         client = MockLLMClient()
-        cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                }
-            ],
+        delta_dict = {
+            "new_responsibilities": [],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, cs_dict)
+        client.set_response_for(RevisionDelta, delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         revised, warnings = run_revision(
             llm_client=client,
@@ -493,44 +412,8 @@ class TestRevision:
     def test_rev_08_revised_cs_replaces_original(self, tmp_path):
         """SP1-REV-08: revised control structure contains new responsibilities and keeps old ones."""
         client = MockLLMClient()
-        revised_cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller 1",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State 1"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action 1"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB 1",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                },
-                {
-                    "resp_id": "RESP-2",
-                    "description": "Controller 2",
-                    "process_model_parts": [
-                        {"pm_id": "PM-2-1", "description": "State 2"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-2-1", "description": "Action 2"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-2-1",
-                            "description": "FB 2",
-                            "updates": "PM-2-1",
-                            "source": {"type": "responsibility", "id": "RESP-2"},
-                        }
-                    ],
-                },
+        revision_delta_dict = {
+            "new_responsibilities": [
                 {
                     "resp_id": "RESP-3",
                     "description": "Added controller",
@@ -548,10 +431,13 @@ class TestRevision:
                             "source": {"type": "responsibility", "id": "RESP-3"},
                         }
                     ],
-                },
+                }
             ],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, revised_cs_dict)
+        client.set_response_for(RevisionDelta, revision_delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         revised, _ = run_revision(
             llm_client=client,

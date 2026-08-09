@@ -1,9 +1,10 @@
 """HTML rendering of calls.jsonl for the STPA pipeline.
 
 Converts a JSONL file of LLM call entries into a self-contained HTML
-file with inline CSS — no external dependencies. Includes a summary
-table (totals, success/failure counts) and a detail table with all
-call entries. Failed calls are highlighted in red.
+file with inline CSS and JavaScript — no external dependencies. Includes
+a summary table (totals, success/failure counts), a detail table with all
+call entries, collapsible sections for full prompt text and response
+content, and a search/filter box. Failed calls are highlighted in red.
 """
 
 from __future__ import annotations
@@ -24,6 +25,25 @@ th { background: #f5f5f5; }
 tr.failed { background: #fdd; }
 tr.failed td { color: #900; }
 .error-msg { color: #c00; font-style: italic; }
+.search-box { margin-bottom: 1em; padding: 6px 10px; width: 100%; max-width: 400px; font-size: 1em; }
+.call-entry { border: 1px solid #ddd; margin-bottom: 1em; padding: 0.5em 1em; }
+.call-entry.failed { background: #fdd; }
+.call-entry summary { cursor: pointer; font-weight: bold; padding: 4px 0; }
+details { margin: 4px 0; }
+details summary { cursor: pointer; color: #006; font-size: 0.9em; }
+pre { background: #f8f8f8; border: 1px solid #eee; padding: 8px; overflow-x: auto; font-size: 0.85em; white-space: pre-wrap; word-wrap: break-word; }
+.collapsible-label { font-size: 0.85em; color: #006; }
+"""
+
+_INLINE_JS = """\
+function filterCalls() {
+  var query = document.getElementById('call-search').value.toLowerCase();
+  var entries = document.getElementsByClassName('call-entry');
+  for (var i = 0; i < entries.length; i++) {
+    var text = entries[i].textContent.toLowerCase();
+    entries[i].style.display = text.indexOf(query) !== -1 ? '' : 'none';
+  }
+}
 """
 
 
@@ -143,6 +163,99 @@ def _build_detail_html(entries: list[dict[str, Any]]) -> str:
     )
 
 
+def _format_response_content(content: str) -> str:
+    """Format response content for display.
+
+    Pretty-prints JSON content; wraps non-JSON content in a pre block.
+    """
+    if not content:
+        return ""
+    try:
+        parsed = json.loads(content)
+        pretty = json.dumps(parsed, indent=2)
+        return f"<pre>{_html_escape(pretty)}</pre>"
+    except (json.JSONDecodeError, TypeError):
+        return f"<pre>{_html_escape(content)}</pre>"
+
+
+def _build_collapsible_section(
+    label: str,
+    content_html: str,
+) -> str:
+    """Build a collapsible <details> section for prompt or response content."""
+    if not content_html:
+        return ""
+    return (
+        f'<details><summary class="collapsible-label">{_html_escape(label)}</summary>\n'
+        f"{content_html}\n"
+        "</details>\n"
+    )
+
+
+def _build_call_entry_html(entry: dict[str, Any]) -> str:
+    """Build a per-call collapsible entry with metadata, prompts, and response."""
+    success = entry.get("success", True)
+    css_class = "" if success else " failed"
+    stage = entry.get("stage", "")
+    step = entry.get("step", "")
+
+    # Build the summary line
+    summary_parts = [f"{stage}/{step}"]
+    model = entry.get("model", "")
+    if model:
+        summary_parts.append(f"model={model}")
+    prompt_tokens = entry.get("prompt_tokens", 0)
+    completion_tokens = entry.get("completion_tokens", 0)
+    summary_parts.append(f"tokens={prompt_tokens}+{completion_tokens}")
+    if not success:
+        error = entry.get("error", "")
+        summary_parts.append(f"FAILED: {error}")
+    summary_line = " ".join(summary_parts)
+
+    # Build collapsible sections for full content
+    sections: list[str] = []
+    system_prompt = entry.get("system_prompt_text", "")
+    if system_prompt:
+        sections.append(
+            _build_collapsible_section(
+                "system_prompt",
+                f"<pre>{_html_escape(system_prompt)}</pre>",
+            )
+        )
+    user_prompt = entry.get("user_prompt_text", "")
+    if user_prompt:
+        sections.append(
+            _build_collapsible_section(
+                "user_prompt",
+                f"<pre>{_html_escape(user_prompt)}</pre>",
+            )
+        )
+    response_content = entry.get("response_content", "")
+    if response_content:
+        sections.append(
+            _build_collapsible_section(
+                "response_content",
+                _format_response_content(response_content),
+            )
+        )
+
+    sections_html = "\n".join(sections)
+    return (
+        f'<div class="call-entry{css_class}">\n'
+        f'<details open><summary>{_html_escape(summary_line)}</summary>\n'
+        f"{sections_html}\n"
+        "</details>\n"
+        "</div>\n"
+    )
+
+
+def _build_call_entries_html(entries: list[dict[str, Any]]) -> str:
+    """Build per-call collapsible entries with full content sections."""
+    if not entries:
+        return ""
+    return "\n".join(_build_call_entry_html(entry) for entry in entries)
+
+
 def render_calls_html(calls_jsonl_path: Path, output_path: Path) -> Path:
     """Render a calls.jsonl file into a self-contained HTML file.
 
@@ -159,8 +272,10 @@ def render_calls_html(calls_jsonl_path: Path, output_path: Path) -> Path:
     summary_html = _build_summary_html(summary)
     if entries:
         detail_html = _build_detail_html(entries)
+        call_entries_html = _build_call_entries_html(entries)
     else:
         detail_html = '  <table class="detail">\n  </table>'
+        call_entries_html = ""
 
     html = (
         "<!DOCTYPE html>\n"
@@ -174,8 +289,13 @@ def render_calls_html(calls_jsonl_path: Path, output_path: Path) -> Path:
         "<h1>LLM Calls Report</h1>\n"
         "<h2>Summary</h2>\n"
         f"{summary_html}\n"
-        "<h2>Call Details</h2>\n"
+        '<h2>Call Details</h2>\n'
+        f'<input type="text" id="call-search" class="search-box" '
+        'placeholder="Filter calls by text..." onkeyup="filterCalls()">\n'
         f"{detail_html}\n"
+        '<h2>Full Call Content</h2>\n'
+        f"{call_entries_html}\n"
+        f"<script>\n{_INLINE_JS}</script>\n"
         "</body>\n"
         "</html>\n"
     )
@@ -201,8 +321,3 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
-
-
-# mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T09:12:57Z","module_hash":"1c83d3edc57a036ad8a75c2c665980840d31f970ee58ee6647e7cb83e39eba63","functions":[{"id":"func/_read_calls","name":"_read_calls","line":30,"end_line":39,"hash":"97b7cc0d899bae210d8a4e486a9984fe9b45f48322b07e2edd897e8d46f93527"},{"id":"func/_compute_summary","name":"_compute_summary","line":42,"end_line":57,"hash":"9c8251543992b54eeea58e1d5099c97839b087be963d898d8a77dd83b8d534d3"},{"id":"func/_html_escape","name":"_html_escape","line":60,"end_line":67,"hash":"7fec88fe405896f9ac61ebb977248558c0765cfb5e4811110b6735f09093b891"},{"id":"func/_build_summary_html","name":"_build_summary_html","line":70,"end_line":90,"hash":"f3eb70d2d0aa71b548d2b1963417452f6990cd7102227b5623f98ed2f223b385"},{"id":"func/_build_status_cell","name":"_build_status_cell","line":99,"end_line":104,"hash":"ed7d954efce1f8daa2610a230e1b5080eee12896d4dc00e056f1578218341f89"},{"id":"func/_build_entry_cells","name":"_build_entry_cells","line":107,"end_line":117,"hash":"094f316f76ab144ec22a1f5134117276dca359fec969133740ad092e1f42e633"},{"id":"func/_build_detail_html","name":"_build_detail_html","line":120,"end_line":143,"hash":"335e88a0e2f2ad1708c24f6e5d94504cec9a488436f90d17a084bf4011244d12"},{"id":"func/render_calls_html","name":"render_calls_html","line":146,"end_line":186,"hash":"1b550a0822c38b1a3f27d6f206b9a430e5bbe944df3274bcf5b7b4e07bfbc38f"},{"id":"func/_main","name":"_main","line":189,"end_line":199,"hash":"e1e7953f9dde4f1cf8c798bdd46750515d2bd8b16e6c47f070149aa616884d50"}]}
-# mutate4py-manifest-end

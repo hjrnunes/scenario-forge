@@ -28,6 +28,7 @@ from scenario_forge.stpa.models.control_structure import (
     ControlledProcess,
     ElementRef,
     Responsibility,
+    _is_valid_element_ref,
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
@@ -172,6 +173,130 @@ def _merge_controlled_processes(
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_for_fallback(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> tuple[list[Responsibility], list[ControlledProcess], list[str]]:
+    """Nullify ElementRefs that cannot be resolved against available IDs.
+
+    Iterates deep-copied responsibilities and nullifies any
+    ``feedback_source``, ``control_action.target``, or
+    ``feedback_channel.source`` whose ElementRef id cannot be resolved
+    against the available resp_ids and cp_ids.
+
+    Args:
+        responsibilities: Responsibilities from the ResponsibilitySet.
+        controlled_processes: Controlled processes from the ResponsibilitySet.
+
+    Returns:
+        A tuple of (sanitized responsibilities, controlled processes,
+        warnings). The warnings list contains one entry per stripped
+        ElementRef.
+    """
+    resp_ids = {r.resp_id for r in responsibilities}
+    cp_ids = {cp.cp_id for cp in controlled_processes}
+    sanitized_resps = copy.deepcopy(responsibilities)
+    sanitized_cps = copy.deepcopy(controlled_processes)
+    warnings: list[str] = []
+
+    for resp in sanitized_resps:
+        for pm in resp.process_model_parts:
+            if pm.feedback_source is not None:
+                if not _is_valid_element_ref(pm.feedback_source, resp_ids, cp_ids):
+                    warnings.append(
+                        f"Stripped invalid feedback_source from PM {pm.pm_id}: "
+                        f"{pm.feedback_source.type.value} '{pm.feedback_source.id}' "
+                        f"not found in responsibilities or controlled processes."
+                    )
+                    pm.feedback_source = None
+        for ca in resp.control_actions:
+            if ca.target is not None:
+                if not _is_valid_element_ref(ca.target, resp_ids, cp_ids):
+                    warnings.append(
+                        f"Stripped invalid target from CA {ca.ca_id}: "
+                        f"{ca.target.type.value} '{ca.target.id}' "
+                        f"not found in responsibilities or controlled processes."
+                    )
+                    ca.target = None
+        for fb in resp.feedback_channels:
+            if fb.source is not None:
+                if not _is_valid_element_ref(fb.source, resp_ids, cp_ids):
+                    warnings.append(
+                        f"Stripped invalid source from FB {fb.fb_id}: "
+                        f"{fb.source.type.value} '{fb.source.id}' "
+                        f"not found in responsibilities or controlled processes."
+                    )
+                    fb.source = None
+
+    return sanitized_resps, sanitized_cps, warnings
+
+
+def _strip_all_element_refs(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> tuple[list[Responsibility], list[ControlledProcess], list[str]]:
+    """Strip ALL ElementRefs from responsibilities (further-degraded fallback).
+
+    Sets all feedback_source to None, removes all control_action targets,
+    and sets all feedback_channel.source to None. Also deduplicates
+    responsibilities by resp_id (keeping the first occurrence) so that
+    the resulting ControlStructure can pass validation even when the
+    original ResponsibilitySet had duplicate IDs.
+
+    Args:
+        responsibilities: Responsibilities to strip.
+        controlled_processes: Controlled processes (deduplicated by cp_id).
+
+    Returns:
+        A tuple of (stripped responsibilities, controlled processes,
+        warnings). The warnings list contains one entry per stripped
+        ElementRef and per duplicate responsibility.
+    """
+    stripped_resps: list[Responsibility] = []
+    seen_resp_ids: set[str] = set()
+    warnings: list[str] = []
+
+    for resp in copy.deepcopy(responsibilities):
+        # Deduplicate by resp_id
+        if resp.resp_id in seen_resp_ids:
+            warnings.append(
+                f"Further-degraded: removed duplicate responsibility "
+                f"{resp.resp_id}."
+            )
+            continue
+        seen_resp_ids.add(resp.resp_id)
+
+        for pm in resp.process_model_parts:
+            if pm.feedback_source is not None:
+                warnings.append(
+                    f"Further-degraded: stripped feedback_source from PM {pm.pm_id}."
+                )
+                pm.feedback_source = None
+        for ca in resp.control_actions:
+            if ca.target is not None:
+                warnings.append(
+                    f"Further-degraded: stripped target from CA {ca.ca_id}."
+                )
+                ca.target = None
+        for fb in resp.feedback_channels:
+            if fb.source is not None:
+                warnings.append(
+                    f"Further-degraded: stripped source from FB {fb.fb_id}."
+                )
+                fb.source = None
+        stripped_resps.append(resp)
+
+    # Deduplicate controlled processes by cp_id
+    stripped_cps: list[ControlledProcess] = []
+    seen_cp_ids: set[str] = set()
+    for cp in copy.deepcopy(controlled_processes):
+        if cp.cp_id not in seen_cp_ids:
+            seen_cp_ids.add(cp.cp_id)
+            stripped_cps.append(cp)
+
+    return stripped_resps, stripped_cps, warnings
+
+
 def _merge_with_fallback(
     responsibility_set: ResponsibilitySet,
     connection_set: ConnectionSet,
@@ -183,6 +308,10 @@ def _merge_with_fallback(
     On merge failure (invalid cross-references in the ConnectionSet), the
     failure is logged to ``calls.jsonl`` and a fallback ControlStructure is
     built from the ResponsibilitySet alone (without coordination links).
+
+    The fallback path first sanitizes invalid ElementRefs via
+    ``_sanitize_for_fallback``. If sanitization still fails (e.g. duplicate
+    IDs), a further-degraded path strips ALL ElementRefs.
 
     This function is deterministic and has no LLM dependency, so it can be
     tested independently of the Stage 2 LLM call sequence.
@@ -209,12 +338,35 @@ def _merge_with_fallback(
             error_msg,
         )
         warnings = [f"{STAGE}/merge_connection_set: {error_msg}"]
-        # Deep-copy to match merge_connection_set's non-mutation contract
-        fallback = ControlStructure(
-            responsibilities=copy.deepcopy(responsibility_set.responsibilities),
-            controlled_processes=copy.deepcopy(responsibility_set.controlled_processes),
-        )
-        return fallback, warnings
+
+        # First fallback: sanitize invalid ElementRefs
+        try:
+            sanitized_resps, sanitized_cps, sanitize_warnings = (
+                _sanitize_for_fallback(
+                    responsibility_set.responsibilities,
+                    responsibility_set.controlled_processes,
+                )
+            )
+            warnings.extend(sanitize_warnings)
+            fallback = ControlStructure(
+                responsibilities=sanitized_resps,
+                controlled_processes=sanitized_cps,
+            )
+            return fallback, warnings
+        except Exception:
+            # Further-degraded fallback: strip ALL ElementRefs
+            stripped_resps, stripped_cps, strip_warnings = (
+                _strip_all_element_refs(
+                    responsibility_set.responsibilities,
+                    responsibility_set.controlled_processes,
+                )
+            )
+            warnings.extend(strip_warnings)
+            fallback = ControlStructure(
+                responsibilities=stripped_resps,
+                controlled_processes=stripped_cps,
+            )
+            return fallback, warnings
 
 
 # ---------------------------------------------------------------------------

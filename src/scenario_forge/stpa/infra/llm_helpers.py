@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -32,6 +33,20 @@ class StageError(Exception):
         self.step = step
         self.message = message
         super().__init__(f"{stage}/{step}: {message}")
+
+
+def _stringify_response_content(content: Any) -> str:
+    """Convert LLM response content to a string for logging.
+
+    Handles Pydantic models, dicts, and raw strings.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, BaseModel):
+        return content.model_dump_json()
+    if isinstance(content, dict):
+        return json.dumps(content)
+    return str(content)
 
 
 def parse_llm_result(result: LLMResult, model_class: type[_T]) -> _T:
@@ -82,6 +97,7 @@ def log_llm_call(
         step: Sub-step within the stage (e.g. ``"loss_analysis"``).
     """
     _success = True
+    _response_content = _stringify_response_content(result.content)
     entry = make_call_log_entry(
         stage=stage,
         step=step,
@@ -92,6 +108,7 @@ def log_llm_call(
         completion_tokens=result.completion_tokens,
         duration_ms=result.duration_ms,
         success=_success,
+        response_content=_response_content,
     )
     append_call_log([entry], run_dir)
 

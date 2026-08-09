@@ -6,10 +6,13 @@ The critic is a single LLM call with three probes:
   3. Adversarial probe (3 most obvious attack paths)
 
 Revision is a single LLM call (not a loop) if the critic finds unjustified gaps.
+The revision uses a RevisionDelta schema — only new and modified elements —
+which is merged programmatically into the existing ControlStructure.
 """
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any, Literal
 
@@ -19,7 +22,12 @@ from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
-from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
+from scenario_forge.stpa.models.control_structure import (
+    ControlStructure,
+    ControlledProcess,
+    CoordinationLink,
+    Responsibility,
+)
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
@@ -50,6 +58,20 @@ class CriticFindings(BaseModel):
     gaps: list[CriticGap] = []
     checklist_results: dict[str, str] = {}
     taxonomy_probe_results: dict[str, str] = {}
+
+
+class RevisionDelta(BaseModel):
+    """Delta schema for the revision LLM call.
+
+    Instead of restating the entire ControlStructure, the LLM returns
+    only the new and modified elements. These are merged programmatically
+    into the existing ControlStructure.
+    """
+
+    new_responsibilities: list[Responsibility] = []
+    new_controlled_processes: list[ControlledProcess] = []
+    new_coordination_links: list[CoordinationLink] = []
+    modified_responsibilities: list[Responsibility] = []
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +171,11 @@ def run_revision(
 ) -> tuple[ControlStructure, list[str]]:
     """Run a single revision attempt on the control structure.
 
+    Requests a :class:`RevisionDelta` from the LLM (only new/modified
+    elements) and merges it programmatically into the existing
+    ControlStructure. After the merge, ``strip_empty_responsibilities``
+    runs as a safety net, and structural heuristics are re-run.
+
     This is NOT a loop — one revision attempt maximum. After revision,
     structural heuristics are re-run. If structural errors remain, they
     are returned as warnings (the pipeline proceeds).
@@ -169,7 +196,13 @@ def run_revision(
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
-    system_prompt = loader.render_prompt("revision_system.j2")
+    next_ids = _compute_next_ids(control_structure)
+
+    system_prompt = loader.render_prompt(
+        "revision_system.j2",
+        control_structure=control_structure,
+        **next_ids,
+    )
     user_prompt = loader.render_prompt(
         "revision_user.j2",
         use_case_text=use_case_text,
@@ -177,24 +210,140 @@ def run_revision(
         critic_findings=critic_findings,
     )
 
-    revised_cs, _, error_msg = safe_llm_call(
+    revision_delta, _, error_msg = safe_llm_call(
         llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        response_format=ControlStructure,
+        response_format=RevisionDelta,
         run_dir=run_dir,
         stage=STAGE,
         step=STEP_REVISION,
         temperature=temperature,
     )
-    if error_msg is not None:
+    if error_msg is not None or revision_delta is None:
         return control_structure, [f"Revision failed: {error_msg}"]
+
+    # Merge the delta into the existing ControlStructure
+    revised_cs = _merge_revision_delta(control_structure, revision_delta)
+
+    # Strip empty responsibilities as a safety net
+    revised_cs, strip_warnings = strip_empty_responsibilities(revised_cs)
 
     # Re-run structural heuristics after revision
     post_revision = run_heuristics(revised_cs, loss_analysis)
-    post_warnings = post_revision.errors + post_revision.warnings
+    post_warnings = list(post_revision.errors) + list(post_revision.warnings)
+    post_warnings.extend(strip_warnings)
 
     return revised_cs, post_warnings
+
+
+def _compute_next_ids(
+    cs: ControlStructure,
+) -> dict[str, int]:
+    """Compute next-available ID numbers from an existing ControlStructure.
+
+    Returns a dict of template variables for the revision system prompt:
+    ``next_resp_num``, ``next_cl_num``, ``next_cp_num``, plus per-responsibility
+    next PM/CA/FB/RC numbers.
+    """
+    resp_nums: list[int] = []
+    cl_nums: list[int] = []
+    cp_nums: list[int] = []
+
+    for resp in cs.responsibilities:
+        num = _extract_num(resp.resp_id)
+        if num is not None:
+            resp_nums.append(num)
+
+    for cl in cs.coordination_links:
+        num = _extract_num(cl.link_id)
+        if num is not None:
+            cl_nums.append(num)
+
+    for cp in cs.controlled_processes:
+        num = _extract_num(cp.cp_id)
+        if num is not None:
+            cp_nums.append(num)
+
+    next_resp_num = max(resp_nums, default=0) + 1
+    next_cl_num = max(cl_nums, default=0) + 1
+    next_cp_num = max(cp_nums, default=0) + 1
+
+    return {
+        "next_resp_num": next_resp_num,
+        "next_cl_num": next_cl_num,
+        "next_cp_num": next_cp_num,
+    }
+
+
+def _extract_num(id_str: str) -> int | None:
+    """Extract the numeric suffix from an ID like 'RESP-3' or 'CL-1'.
+
+    For multi-part IDs like 'PM-1-2', returns the first number (1).
+    """
+    import re
+
+    match = re.search(r"(\d+)", id_str)
+    return int(match.group(1)) if match else None
+
+
+def _merge_revision_delta(
+    cs: ControlStructure,
+    delta: RevisionDelta,
+) -> ControlStructure:
+    """Merge a RevisionDelta into an existing ControlStructure.
+
+    - Adds ``new_responsibilities`` (with next-available IDs if needed).
+    - Adds ``new_controlled_processes``.
+    - Adds ``new_coordination_links``.
+    - Replaces ``modified_responsibilities`` by resp_id.
+    - Validates the merged ControlStructure.
+    """
+    existing_resps = {r.resp_id for r in cs.responsibilities}
+    existing_cps = {cp.cp_id for cp in cs.controlled_processes}
+    existing_cls = {cl.link_id for cl in cs.coordination_links}
+
+    # Build merged responsibilities: replace modified, add new
+    merged_resps: list[Responsibility] = []
+    modified_ids = {r.resp_id for r in delta.modified_responsibilities}
+    for resp in cs.responsibilities:
+        if resp.resp_id in modified_ids:
+            replacement = next(
+                r for r in delta.modified_responsibilities if r.resp_id == resp.resp_id
+            )
+            merged_resps.append(copy.deepcopy(replacement))
+        else:
+            merged_resps.append(copy.deepcopy(resp))
+
+    # Add new responsibilities (skip duplicates with existing IDs)
+    for new_resp in delta.new_responsibilities:
+        if new_resp.resp_id not in existing_resps:
+            merged_resps.append(copy.deepcopy(new_resp))
+            existing_resps.add(new_resp.resp_id)
+
+    # Merge controlled processes
+    merged_cps: list[ControlledProcess] = [
+        copy.deepcopy(cp) for cp in cs.controlled_processes
+    ]
+    for new_cp in delta.new_controlled_processes:
+        if new_cp.cp_id not in existing_cps:
+            merged_cps.append(copy.deepcopy(new_cp))
+            existing_cps.add(new_cp.cp_id)
+
+    # Merge coordination links
+    merged_cls: list[CoordinationLink] = [
+        copy.deepcopy(cl) for cl in cs.coordination_links
+    ]
+    for new_cl in delta.new_coordination_links:
+        if new_cl.link_id not in existing_cls:
+            merged_cls.append(copy.deepcopy(new_cl))
+            existing_cls.add(new_cl.link_id)
+
+    return ControlStructure(
+        responsibilities=merged_resps,
+        controlled_processes=merged_cps,
+        coordination_links=merged_cls,
+    )
 
 
 # ---------------------------------------------------------------------------

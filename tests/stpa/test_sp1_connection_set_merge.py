@@ -490,35 +490,21 @@ class TestConnSet10Call3PromptContainsResponsibilities:
 # ---------------------------------------------------------------------------
 
 
-class TestConnSet11RevisionUsesControlStructure:
-    """ConnSet-11: revision still uses ControlStructure as response format."""
+class TestConnSet11RevisionUsesRevisionDelta:
+    """ConnSet-11: revision uses RevisionDelta as response format."""
 
-    def test_connset_11_revision_uses_control_structure(self, tmp_path):
-        """run_revision uses response_format=ControlStructure, not ConnectionSet."""
+    def test_connset_11_revision_uses_revision_delta(self, tmp_path):
+        """run_revision uses response_format=RevisionDelta, not ControlStructure."""
+        from scenario_forge.stpa.system_model.critic import RevisionDelta
+
         client = MockLLMClient()
-        revised_cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller 1",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State 1"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action 1"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB 1",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                },
-            ],
+        delta_dict = {
+            "new_responsibilities": [],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, revised_cs_dict)
+        client.set_response_for(RevisionDelta, delta_dict)
 
         cs = ControlStructure(
             responsibilities=[
@@ -564,8 +550,8 @@ class TestConnSet11RevisionUsesControlStructure:
             run_dir=tmp_path,
         )
         assert isinstance(revised, ControlStructure)
-        # The revision call used response_format=ControlStructure
-        assert client.calls[0].response_format is ControlStructure
+        # The revision call used response_format=RevisionDelta
+        assert client.calls[0].response_format is RevisionDelta
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,30 @@ Your task is to extract a capability profile that captures the system's structur
 - kc_subcodes: OWASP KC sub-codes identifying the system's capabilities. Select ALL that apply.
 - tool_inventory: tools and APIs the system can invoke. Be thorough — these feed the completeness critic.
 
+## Entry point category checklist
+
+When identifying entry_points, systematically check each of these five categories. A component can appear in both tool_inventory and entry_points — if a tool or API also serves as an attacker-accessible ingress path, list it in both.
+
+1. **User input surfaces** (controllability: direct, direction: input)
+   - Examples: chat interface, file upload form, voice input, command-line argument.
+   - These are direct ingress paths where the user explicitly provides input.
+
+2. **RAG/retrieval data sources** (controllability: indirect, direction: input)
+   - Examples: knowledge base, document store, vector database, web search results.
+   - These are indirect ingress paths: an attacker can place poisoned content into the data store that the system retrieves, so the retrieved data becomes an indirect ingress vector even though the attacker does not directly interact with the system at retrieval time.
+
+3. **Tool execution results** (controllability: indirect, direction: input)
+   - Examples: API call responses, database query results, code execution output, web scraper output.
+   - Tool outputs that flow back into the controller are indirect ingress paths; a compromised or malicious external service can inject content through tool results.
+
+4. **External data feeds** (controllability: indirect, direction: input or bidirectional)
+   - Examples: third-party data feeds, market data streams, SIEM alerts, webhook callbacks.
+   - External feeds may be input-only or bidirectional. Mark direction accordingly.
+
+5. **Admin/config interfaces** (controllability: direct or system, direction: input)
+   - Examples: admin dashboard, configuration API, model update endpoint, environment variable injection.
+   - Administrative interfaces are high-privilege entry points. Use "direct" for human-facing admin panels and "system" for programmatic config interfaces.
+
 ## Emphasis
 
 Since this profile feeds a control structure completeness critic, emphasize:

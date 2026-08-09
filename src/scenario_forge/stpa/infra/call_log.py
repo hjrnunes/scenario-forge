@@ -54,6 +54,7 @@ def make_call_log_entry(
     slot_id: str | None = None,
     scenario_id: str | None = None,
     timestamp: str | None = None,
+    response_content: str | None = None,
 ) -> dict[str, Any]:
     """Build a call-log entry dict following the STPA format (Section 6).
 
@@ -61,8 +62,8 @@ def make_call_log_entry(
         stage: Pipeline stage (e.g. ``stage_2``, ``stage_6_narrative``).
         step: Sub-step within the stage (e.g. ``call_1_requirements``).
         model: LLM model name.
-        system_prompt: System prompt text (hashed in the entry).
-        user_prompt: User prompt text (hashed in the entry).
+        system_prompt: System prompt text (hashed and stored full in the entry).
+        user_prompt: User prompt text (hashed and stored full in the entry).
         prompt_tokens: Prompt tokens consumed.
         completion_tokens: Completion tokens generated.
         duration_ms: Wall-clock duration in milliseconds.
@@ -71,6 +72,7 @@ def make_call_log_entry(
         slot_id: Stage 3 slot ID (e.g. ``RESP-1:CA-1-1:TYPE-1``), or None.
         scenario_id: Stage 5/6 scenario ID (e.g. ``SCN-001``), or None.
         timestamp: ISO 8601 timestamp; defaults to current UTC time.
+        response_content: Optional full response content (string representation).
 
     Returns:
         A dict suitable for JSONL serialization.
@@ -83,6 +85,8 @@ def make_call_log_entry(
         "scenario_id": scenario_id,
         "system_prompt_hash": _sha256(system_prompt) if system_prompt else "",
         "user_prompt_hash": _sha256(user_prompt) if user_prompt else "",
+        "system_prompt_text": system_prompt,
+        "user_prompt_text": user_prompt,
         "model": model,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
@@ -90,6 +94,8 @@ def make_call_log_entry(
         "timestamp": _timestamp,
         "success": success,
     }
+    if response_content is not None:
+        entry["response_content"] = response_content
     if error is not None:
         entry["error"] = error
     return entry
