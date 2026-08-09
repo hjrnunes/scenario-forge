@@ -19,35 +19,18 @@ from scenario_forge.stpa.infra.llm import LLMClient
 
 
 class _DummyResponse:
-    """Minimal mock response object for the OpenAI SDK."""
+    """Minimal mock response object for the OpenAI SDK.
 
-    class _Msg:
-        parsed: Any = None
-        content: str = "response text"
+    ``parsed`` is returned for structured (parse) calls; ``content`` for
+    unstructured (create) calls.
+    """
 
-    class _Usage:
-        prompt_tokens = 10
-        completion_tokens = 20
-
-    def __init__(self) -> None:
-        self.choices = [type("C", (), {"message": _DummyResponse._Msg()})()]
-        self.usage = _DummyResponse._Usage()
-
-
-class _DummyParsedResponse:
-    """Mock response for structured (parse) calls."""
-
-    class _Msg:
-        parsed: Any = {"val": 1}
-        content: str = ""
-
-    class _Usage:
-        prompt_tokens = 10
-        completion_tokens = 20
-
-    def __init__(self) -> None:
-        self.choices = [type("C", (), {"message": _DummyParsedResponse._Msg()})()]
-        self.usage = _DummyParsedResponse._Usage()
+    def __init__(
+        self, *, parsed: Any = None, content: str = "response text"
+    ) -> None:
+        message = type("M", (), {"parsed": parsed, "content": content})()
+        self.choices = [type("C", (), {"message": message})()]
+        self.usage = type("U", (), {"prompt_tokens": 10, "completion_tokens": 20})()
 
 
 def _make_client(
@@ -147,7 +130,9 @@ class TestTopKInStructuredParseCall:
         client = _make_client(top_k=top_k_value)
 
         mock_client = MagicMock()
-        mock_client.beta.chat.completions.parse.return_value = _DummyParsedResponse()
+        mock_client.beta.chat.completions.parse.return_value = _DummyResponse(
+            parsed={"val": 1}, content=""
+        )
         client._client = mock_client
 
         class _Model(BaseModel):

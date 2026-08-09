@@ -202,6 +202,15 @@ def run_revision(
 # ---------------------------------------------------------------------------
 
 
+def _is_responsibility_empty(resp: Responsibility) -> bool:
+    """Check if a responsibility has no PM parts, CAs, or FB channels."""
+    return (
+        not resp.process_model_parts
+        and not resp.control_actions
+        and not resp.feedback_channels
+    )
+
+
 def strip_empty_responsibilities(
     control_structure: ControlStructure,
 ) -> tuple[ControlStructure, list[str]]:
@@ -230,11 +239,7 @@ def strip_empty_responsibilities(
     warnings: list[str] = []
 
     for resp in control_structure.responsibilities:
-        if (
-            not resp.process_model_parts
-            and not resp.control_actions
-            and not resp.feedback_channels
-        ):
+        if _is_responsibility_empty(resp):
             warnings.append(
                 f"Stripped empty responsibility {resp.resp_id} "
                 f"({resp.description}) after revision: no PM parts, "

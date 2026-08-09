@@ -152,7 +152,7 @@ class TestPartialResponsibilityNotStripped:
 class TestWarningForStrippedResponsibilities:
     """SP1-STRIP-04: a warning is logged for each stripped responsibility."""
 
-    def test_strip_04_warnings_for_each_stipped_resp(self):
+    def test_strip_04_warnings_for_each_stripped_resp(self):
         """Warnings for RESP-2 and RESP-4 include resp_id and description."""
         cs = _make_cs(
             [
