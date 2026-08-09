@@ -146,6 +146,14 @@ class World:
         self.parallel_run_dir: Path | None = None
         self.parallel_spec: Any = None
         self.parallel_max_workers: int = 4
+        # SP1 batch3 sanitization and repair state
+        self.sp1_sanitized_findings: Any = None
+        self.sp1_sanitized_remedy: str | None = None
+        self.sp1_original_remedy: str | None = None
+        self.sp1_repaired_set: Any = None
+        self.sp1_repair_warnings: list[str] = []
+        self.sp1_revision_prompt: str | None = None
+        self.sp1_sanitize_called: bool = False
         # SP1 bug fix test state (merge fallback sanitize, revision delta, calls HTML)
         self.san_merge_warnings: list[str] = []
         self.san_resp_set_dict: dict | None = None
@@ -11761,6 +11769,682 @@ def _h_bf2_revision_run_with_log_capture(world: World, text: str, examples: dict
     world.sp1_post_revision_warnings = (world.sp1_post_revision_warnings or []) + capture.records
     return result
 
+
+# Register batch 2 handlers
+# SP1 batch3: critic ID sanitization step handlers
+from scenario_forge.stpa.system_model.critic import (
+    CriticFindings as _B3CriticFindings,
+    CriticGap as _B3CriticGap,
+    sanitize_critic_ids as _B3SanitizeCriticIDs,
+)
+from scenario_forge.stpa.system_model.control_structure import (
+    ResponsibilitySet as _B3ResponsibilitySet,
+    repair_orphan_pms as _B3RepairOrphanPMs,
+)
+
+
+def _h_b3_critic_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the STPA system model critic module is importable."""
+    try:
+        from scenario_forge.stpa.system_model import critic  # noqa: F401
+        return True, ""
+    except ImportError as e:
+        return False, f"Cannot import critic module: {e}"
+
+
+def _h_b3_cs_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the STPA system model control structure module is importable."""
+    try:
+        from scenario_forge.stpa.system_model import control_structure as _cs_mod  # noqa: F401
+        return True, ""
+    except ImportError as e:
+        return False, f"Cannot import control structure module: {e}"
+
+
+def _h_b3_findings_with_bad_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CriticFindings with a gap whose suggested_remedy contains <bad_id>."""
+    match = re.search(r'remedy contains "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse bad_id from: {text}"
+    bad_id = match.group(1)
+    world.sp1_critic_findings = _B3CriticFindings(
+        gaps=[_B3CriticGap(
+            gap_type="missing_responsibility",
+            description="Test gap",
+            related_attack_path="Attack",
+            suggested_remedy=f"Add {bad_id} to cover the gap",
+        )]
+    )
+    world.sp1_original_remedy = f"Add {bad_id} to cover the gap"
+    return True, ""
+
+
+def _h_b3_sanitize_called(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: sanitize_critic_ids is called on the findings."""
+    if world.sp1_critic_findings is None:
+        return False, "No CriticFindings available"
+    world.sp1_sanitized_findings = _B3SanitizeCriticIDs(world.sp1_critic_findings)
+    world.sp1_sanitized_remedy = world.sp1_sanitized_findings.gaps[0].suggested_remedy
+    return True, ""
+
+
+def _h_b3_remedy_not_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the suggested_remedy does not contain <bad_id>."""
+    match = re.search(r'does not contain "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse bad_id from: {text}"
+    bad_id = match.group(1)
+    if world.sp1_sanitized_remedy is None:
+        return False, "No sanitized remedy available"
+    if bad_id in world.sp1_sanitized_remedy:
+        return False, f"Expected '{bad_id}' to not be in sanitized remedy: {world.sp1_sanitized_remedy}"
+    return True, ""
+
+
+def _h_b3_remedy_has_generic(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the suggested_remedy contains a generic description."""
+    if world.sp1_sanitized_remedy is None:
+        return False, "No sanitized remedy available"
+    if "a new" not in world.sp1_sanitized_remedy:
+        return False, f"Expected 'a new' in sanitized remedy: {world.sp1_sanitized_remedy}"
+    return True, ""
+
+
+def _h_b3_findings_with_good_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CriticFindings with a gap whose suggested_remedy references existing element <good_id>."""
+    match = re.search(r'references existing element "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse good_id from: {text}"
+    good_id = match.group(1)
+    world.sp1_critic_findings = _B3CriticFindings(
+        gaps=[_B3CriticGap(
+            gap_type="missing_responsibility",
+            description="Test gap",
+            related_attack_path="Attack",
+            suggested_remedy=f"Add {good_id} to cover the gap",
+        )]
+    )
+    return True, ""
+
+
+def _h_b3_remedy_still_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the suggested_remedy still contains <good_id>."""
+    match = re.search(r'still contains "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse good_id from: {text}"
+    good_id = match.group(1)
+    if world.sp1_sanitized_remedy is None:
+        return False, "No sanitized remedy available"
+    if good_id not in world.sp1_sanitized_remedy:
+        return False, f"Expected '{good_id}' in sanitized remedy: {world.sp1_sanitized_remedy}"
+    return True, ""
+
+
+def _h_b3_findings_with_specific_remedy(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CriticFindings with a gap whose suggested_remedy is "..."."""
+    match = re.search(r'remedy is "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse remedy from: {text}"
+    remedy = match.group(1)
+    world.sp1_critic_findings = _B3CriticFindings(
+        gaps=[_B3CriticGap(
+            gap_type="missing_responsibility",
+            description="Test gap",
+            related_attack_path="Attack",
+            suggested_remedy=remedy,
+        )]
+    )
+    world.sp1_original_remedy = remedy
+    return True, ""
+
+
+def _h_b3_remedy_unchanged(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the suggested_remedy is unchanged."""
+    if world.sp1_original_remedy is None or world.sp1_sanitized_remedy is None:
+        return False, "Missing original or sanitized remedy"
+    if world.sp1_original_remedy != world.sp1_sanitized_remedy:
+        return False, f"Remedy changed: '{world.sp1_original_remedy}' -> '{world.sp1_sanitized_remedy}'"
+    return True, ""
+
+
+def _h_b3_findings_three_gaps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CriticFindings with three gaps each containing a different non-conforming ID."""
+    world.sp1_critic_findings = _B3CriticFindings(
+        gaps=[
+            _B3CriticGap(gap_type="missing_pm_part", description="Gap 1",
+                         related_attack_path="A1", suggested_remedy="Add PM-0 for state"),
+            _B3CriticGap(gap_type="missing_feedback", description="Gap 2",
+                         related_attack_path="A2", suggested_remedy="Add CA-0 for action"),
+            _B3CriticGap(gap_type="missing_responsibility", description="Gap 3",
+                         related_attack_path="A3", suggested_remedy="Add FB-0 for feedback"),
+        ]
+    )
+    return True, ""
+
+
+def _h_b3_no_nonconforming(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: none of the suggested_remedy strings contain non-conforming IDs."""
+    if world.sp1_sanitized_findings is None:
+        return False, "No sanitized findings available"
+    for gap in world.sp1_sanitized_findings.gaps:
+        for bad in ("PM-0", "CA-0", "FB-0"):
+            if bad in gap.suggested_remedy:
+                return False, f"Non-conforming ID '{bad}' found in: {gap.suggested_remedy}"
+    return True, ""
+
+
+def _h_b3_three_gaps_preserved(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the findings still have three gaps."""
+    if world.sp1_sanitized_findings is None:
+        return False, "No sanitized findings available"
+    if len(world.sp1_sanitized_findings.gaps) != 3:
+        return False, f"Expected 3 gaps, got {len(world.sp1_sanitized_findings.gaps)}"
+    return True, ""
+
+
+def _h_b3_findings_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CriticFindings with gaps, checklist_results, and taxonomy_probe_results."""
+    world.sp1_critic_findings = _B3CriticFindings(
+        gaps=[_B3CriticGap(
+            gap_type="missing_responsibility", description="Gap",
+            related_attack_path="Attack", suggested_remedy="Add PM-0",
+        )],
+        checklist_results={"Input validation": "absent_unjustified"},
+        taxonomy_probe_results={"Tool validation": "present"},
+    )
+    return True, ""
+
+
+def _h_b3_result_is_model(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the result is a CriticFindings model."""
+    if world.sp1_sanitized_findings is None:
+        return False, "No sanitized findings available"
+    if not isinstance(world.sp1_sanitized_findings, _B3CriticFindings):
+        return False, f"Expected CriticFindings, got {type(world.sp1_sanitized_findings)}"
+    return True, ""
+
+
+def _h_b3_checklist_preserved(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the checklist_results are preserved."""
+    if world.sp1_critic_findings is None or world.sp1_sanitized_findings is None:
+        return False, "Missing findings"
+    if world.sp1_sanitized_findings.checklist_results != world.sp1_critic_findings.checklist_results:
+        return False, "checklist_results not preserved"
+    return True, ""
+
+
+def _h_b3_taxonomy_preserved(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the taxonomy_probe_results are preserved."""
+    if world.sp1_critic_findings is None or world.sp1_sanitized_findings is None:
+        return False, "Missing findings"
+    if world.sp1_sanitized_findings.taxonomy_probe_results != world.sp1_critic_findings.taxonomy_probe_results:
+        return False, "taxonomy_probe_results not preserved"
+    return True, ""
+
+
+def _h_b3_findings_nonconforming(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a CriticFindings with a non-conforming ID in a suggested_remedy."""
+    world.sp1_critic_findings = _B3CriticFindings(
+        gaps=[_B3CriticGap(
+            gap_type="missing_responsibility", description="Gap",
+            related_attack_path="Attack", suggested_remedy="Add PM-0 for input state",
+        )]
+    )
+    return True, ""
+
+
+def _h_b3_sanitized_to_revision(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the findings are sanitized and passed to the revision prompt."""
+    if world.sp1_critic_findings is None:
+        return False, "No CriticFindings available"
+    sanitized = _B3SanitizeCriticIDs(world.sp1_critic_findings)
+    world.sp1_sanitized_findings = sanitized
+    from scenario_forge.stpa.system_model import PROMPTS_DIR as _PD
+    loader = TemplateLoader(_PD)
+    cs = ControlStructure(
+        responsibilities=[Responsibility(
+            resp_id="RESP-1", description="Controller 1",
+            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State 1")],
+            control_actions=[ControlAction(ca_id="CA-1-1", description="Action 1")],
+            feedback_channels=[],
+        )]
+    )
+    world.sp1_revision_prompt = loader.render_prompt(
+        "revision_user.j2",
+        use_case_text="Test",
+        control_structure=cs,
+        critic_findings=sanitized,
+    )
+    return True, ""
+
+
+def _h_b3_revision_no_bad_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the revision user prompt does not contain the non-conforming ID."""
+    if world.sp1_revision_prompt is None:
+        return False, "No revision prompt available"
+    if "PM-0" in world.sp1_revision_prompt:
+        return False, "Non-conforming ID PM-0 found in revision prompt"
+    return True, ""
+
+
+def _h_b3_cs_and_unjustified_findings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure and CriticFindings with unjustified gaps containing a non-conforming ID."""
+    world.sp1_critic_findings = _B3CriticFindings(
+        gaps=[_B3CriticGap(
+            gap_type="missing_responsibility", description="Missing validation",
+            related_attack_path="Attack", suggested_remedy="Add PM-0 for validation state",
+        )],
+        checklist_results={"Input validation": "absent_unjustified"},
+        taxonomy_probe_results={},
+    )
+    return True, ""
+
+
+def _h_b3_stage2_runs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 2 revision block runs."""
+    from scenario_forge.stpa.system_model.run import _run_stage_2_block
+    from scenario_forge.stpa.system_model.critic import RevisionDelta
+    from scenario_forge.stpa.system_model.control_structure import (
+        ConnectionSet, RequirementSet, ResponsibilitySet as _RS,
+    )
+    from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict, \
+        valid_loss_analysis_dict, valid_requirement_set_dict, valid_responsibility_set_dict
+    from scenario_forge.models.capability_profile import Stage1Profile
+    from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+    import tempfile
+
+    client = MockLLMClient()
+    client.set_response_for(RequirementSet, valid_requirement_set_dict())
+    client.set_response_for(_RS, valid_responsibility_set_dict())
+    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    critic_dict = {
+        "gaps": [{"gap_type": "missing_responsibility", "description": "Missing validation",
+                  "related_attack_path": "Attack", "suggested_remedy": "Add PM-0 for validation state"}],
+        "checklist_results": {"Input validation": "absent_unjustified"},
+        "taxonomy_probe_results": {},
+    }
+    client.set_response_for(_B3CriticFindings, critic_dict)
+    revision_dict = {"new_responsibilities": [], "new_controlled_processes": [],
+                     "new_coordination_links": [], "modified_responsibilities": []}
+    client.set_response_for(RevisionDelta, revision_dict)
+
+    loss_analysis = LossAnalysis.model_validate(valid_loss_analysis_dict())
+    cap_profile = Stage1Profile(
+        has_persistent_memory=False, multi_agent=False, hitl=False,
+        entry_points=[{"name": "User chat", "direction": "input", "controllability": "direct"}],
+        confidence="medium", kc_subcodes=["KC1.1"], tool_inventory=[],
+    ).to_capability_profile()
+
+    world.sp1_run_dir = Path(tempfile.mkdtemp())
+    _run_stage_2_block(
+        llm_client=client, use_case_text="Test use case",
+        loss_analysis=loss_analysis, capability_profile=cap_profile,
+        run_dir=world.sp1_run_dir, loader=TemplateLoader(_PQF_PROMPTS_DIR),
+        temperature=0.4, stage_errors=[],
+    )
+    world.sp1_sanitize_called = True
+    return True, ""
+
+
+def _h_b3_sanitize_after_critic(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: sanitize_critic_ids is called after run_completeness_critic returns."""
+    if not world.sp1_sanitize_called:
+        return False, "sanitize_critic_ids was not called"
+    return True, ""
+
+
+def _h_b3_sanitize_before_revision(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: sanitize_critic_ids is called before run_revision is called."""
+    if not world.sp1_sanitize_called:
+        return False, "sanitize_critic_ids was not called"
+    return True, ""
+
+
+# SP1 batch3: orphan PM repair step handlers
+
+def _b3_make_resp(resp_id: str, pm_ids: list[str],
+                  fb_specs: list[tuple[str, str]] | None = None) -> Responsibility:
+    """Build a responsibility for batch3 repair tests."""
+    num = resp_id.split("-")[-1]
+    pms = [ProcessModelPart(pm_id=pid, description=f"State {pid}") for pid in pm_ids]
+    cas = [ControlAction(ca_id=f"CA-{num}-1", description="Action")]
+    fbs = []
+    if fb_specs:
+        for fb_id, updates in fb_specs:
+            fbs.append(FeedbackChannel(fb_id=fb_id, description=f"FB {fb_id}", updates=updates))
+    return Responsibility(
+        resp_id=resp_id, description=f"Controller {num}",
+        process_model_parts=pms, control_actions=cas, feedback_channels=fbs,
+    )
+
+
+def _h_b3_resp_set_orphan_1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with responsibility RESP-1 having PM-1-1 and PM-1-2 but only FB-1-1 updating PM-1-1."""
+    resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    return True, ""
+
+
+def _h_b3_repair_called(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: repair_orphan_pms is called."""
+    if world.sp1_responsibility_set is None:
+        return False, "No ResponsibilitySet available"
+    world.sp1_repaired_set, world.sp1_repair_warnings = _B3RepairOrphanPMs(world.sp1_responsibility_set)
+    return True, ""
+
+
+def _h_b3_repaired_has_fb_updating(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the repaired ResponsibilitySet has a feedback channel updating PM-X-Y."""
+    match = re.search(r"updating (PM-\d+-\d+)", text)
+    if not match:
+        return False, f"Could not parse PM id from: {text}"
+    pm_id = match.group(1)
+    if world.sp1_repaired_set is None:
+        return False, "No repaired set available"
+    for resp in world.sp1_repaired_set.responsibilities:
+        for fb in resp.feedback_channels:
+            if fb.updates == pm_id:
+                return True, ""
+    return False, f"No FB updating {pm_id} found in repaired set"
+
+
+def _h_b3_resp_set_orphan_2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with responsibility RESP-2 having orphan PM-2-1 and existing FB-2-1."""
+    resp = _b3_make_resp("RESP-2", ["PM-2-1"], [("FB-2-1", "PM-2-1")])
+    resp.process_model_parts.append(ProcessModelPart(pm_id="PM-2-2", description="Orphan"))
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    return True, ""
+
+
+def _h_b3_repaired_has_fb_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the repaired ResponsibilitySet has a feedback channel with id FB-X-Y."""
+    match = re.search(r"with id (FB-\d+-\d+)", text)
+    if not match:
+        return False, f"Could not parse FB id from: {text}"
+    fb_id = match.group(1)
+    if world.sp1_repaired_set is None:
+        return False, "No repaired set available"
+    for resp in world.sp1_repaired_set.responsibilities:
+        for fb in resp.feedback_channels:
+            if fb.fb_id == fb_id:
+                return True, ""
+    return False, f"No FB with id {fb_id} found in repaired set"
+
+
+def _h_b3_resp_set_orphan_1_3(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-3."""
+    resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-3"], [("FB-1-1", "PM-1-1")])
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    return True, ""
+
+
+def _h_b3_new_fb_desc_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the new feedback channel description contains "..."."""
+    match = re.search(r'description contains "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse expected text from: {text}"
+    expected = match.group(1)
+    if world.sp1_repaired_set is None:
+        return False, "No repaired set available"
+    for resp in world.sp1_repaired_set.responsibilities:
+        for fb in resp.feedback_channels:
+            if "Auto-generated" in fb.description and expected in fb.description:
+                return True, ""
+    return False, f"No new FB with description containing '{expected}'"
+
+
+def _h_b3_resp_set_orphan_1_2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2."""
+    resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    return True, ""
+
+
+def _h_b3_new_fb_updates_equals(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the new feedback channel updates field equals "..."."""
+    match = re.search(r'updates field equals "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse expected updates from: {text}"
+    expected = match.group(1)
+    if world.sp1_repaired_set is None:
+        return False, "No repaired set available"
+    for resp in world.sp1_repaired_set.responsibilities:
+        for fb in resp.feedback_channels:
+            if "Auto-generated" in fb.description and fb.updates == expected:
+                return True, ""
+    return False, f"No new FB with updates='{expected}'"
+
+
+def _h_b3_resp_set_no_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet where every PM has a corresponding FB."""
+    resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"],
+                         [("FB-1-1", "PM-1-1"), ("FB-1-2", "PM-1-2")])
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    return True, ""
+
+
+def _h_b3_resp_set_unchanged(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ResponsibilitySet is unchanged."""
+    if world.sp1_repaired_set is None or world.sp1_responsibility_set is None:
+        return False, "Missing set data"
+    orig = world.sp1_responsibility_set.responsibilities[0]
+    repaired = world.sp1_repaired_set.responsibilities[0]
+    if len(orig.feedback_channels) != len(repaired.feedback_channels):
+        return False, "Feedback channels changed"
+    return True, ""
+
+
+def _h_b3_no_warnings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no warnings are returned."""
+    if world.sp1_repair_warnings is None:
+        return False, "No warnings data"
+    if len(world.sp1_repair_warnings) > 0:
+        return False, f"Expected no warnings, got {len(world.sp1_repair_warnings)}"
+    return True, ""
+
+
+def _h_b3_resp_set_two_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with responsibility RESP-1 having two orphan PMs PM-1-2 and PM-1-3."""
+    resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2", "PM-1-3"], [("FB-1-1", "PM-1-1")])
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    return True, ""
+
+
+def _h_b3_two_warnings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list contains two entries."""
+    if world.sp1_repair_warnings is None:
+        return False, "No warnings data"
+    if len(world.sp1_repair_warnings) != 2:
+        return False, f"Expected 2 warnings, got {len(world.sp1_repair_warnings)}"
+    return True, ""
+
+
+def _h_b3_warning_mentions_orphan(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each warning mentions the orphan PM id."""
+    if world.sp1_repair_warnings is None:
+        return False, "No warnings data"
+    for w in world.sp1_repair_warnings:
+        if not re.search(r"PM-\d+-\d+", w):
+            return False, f"Warning does not mention orphan PM id: {w}"
+    return True, ""
+
+
+def _h_b3_resp_set_resp3_no_fbs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with responsibility RESP-3 having orphans PM-3-1 and PM-3-2 with no existing FBs."""
+    resp = _b3_make_resp("RESP-3", ["PM-3-1", "PM-3-2"], fb_specs=None)
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    return True, ""
+
+
+def _h_b3_repaired_has_fbs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the repaired ResponsibilitySet has feedback channels FB-3-1 and FB-3-2."""
+    if world.sp1_repaired_set is None:
+        return False, "No repaired set available"
+    fb_ids = set()
+    for resp in world.sp1_repaired_set.responsibilities:
+        for fb in resp.feedback_channels:
+            fb_ids.add(fb.fb_id)
+    for expected in re.findall(r"FB-\d+-\d+", text):
+        if expected not in fb_ids:
+            return False, f"FB {expected} not found in repaired set: {fb_ids}"
+    return True, ""
+
+
+def _h_b3_resp_set_multi_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2 and responsibility RESP-2 having orphan PM-2-1."""
+    resp1 = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
+    resp2 = _b3_make_resp("RESP-2", ["PM-2-1"], fb_specs=None)
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp1, resp2])
+    return True, ""
+
+
+def _h_b3_repaired_has_fb_in_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the repaired ResponsibilitySet has a FB updating PM-X-Y in RESP-N."""
+    match = re.search(r"updating (PM-\d+-\d+) in (RESP-\d+)", text)
+    if not match:
+        return False, f"Could not parse from: {text}"
+    pm_id, resp_id = match.group(1), match.group(2)
+    if world.sp1_repaired_set is None:
+        return False, "No repaired set available"
+    for resp in world.sp1_repaired_set.responsibilities:
+        if resp.resp_id == resp_id:
+            for fb in resp.feedback_channels:
+                if fb.updates == pm_id:
+                    return True, ""
+    return False, f"No FB updating {pm_id} in {resp_id}"
+
+
+def _h_b3_resp_set_multi_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ResponsibilitySet with multiple orphan PMs across responsibilities."""
+    resp1 = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
+    resp2 = _b3_make_resp("RESP-2", ["PM-2-1", "PM-2-2"], [("FB-2-1", "PM-2-1")])
+    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp1, resp2])
+    return True, ""
+
+
+def _h_b3_all_pms_referenced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: every PM part in the repaired ResponsibilitySet is referenced by at least one FB."""
+    if world.sp1_repaired_set is None:
+        return False, "No repaired set available"
+    for resp in world.sp1_repaired_set.responsibilities:
+        updated = {fb.updates for fb in resp.feedback_channels}
+        for pm in resp.process_model_parts:
+            if pm.pm_id not in updated:
+                return False, f"PM {pm.pm_id} not referenced by any FB in {resp.resp_id}"
+    return True, ""
+
+
+def _h_b3_use_case_and_loss(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a use case text and loss analysis available for Stage 2."""
+    from tests.stpa.sp1_helpers import valid_loss_analysis_dict
+    from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+    world.sp1_use_case_text = "Test use case"
+    world.loss_analysis = LossAnalysis.model_validate(valid_loss_analysis_dict())
+    return True, ""
+
+
+def _h_b3_derive_runs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: derive_control_structure runs."""
+    from scenario_forge.stpa.system_model.control_structure import derive_control_structure
+    from scenario_forge.stpa.system_model.control_structure import (
+        ConnectionSet, RequirementSet,
+    )
+    from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict, \
+        valid_requirement_set_dict, valid_responsibility_set_dict
+    import tempfile
+
+    client = MockLLMClient()
+    client.set_response_for(RequirementSet, valid_requirement_set_dict())
+    resp_dict = valid_responsibility_set_dict()
+    # Add an orphan PM to trigger repair
+    for resp in resp_dict.get("responsibilities", []):
+        resp["process_model_parts"].append(
+            {"pm_id": "PM-1-2", "description": "Orphan state"}
+        )
+    client.set_response_for(_B3ResponsibilitySet, resp_dict)
+    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+
+    world.sp1_run_dir = Path(tempfile.mkdtemp())
+    from unittest.mock import patch as _patch
+    with _patch(
+        "scenario_forge.stpa.system_model.control_structure.repair_orphan_pms",
+        wraps=_B3RepairOrphanPMs,
+    ) as mock_repair:
+        derive_control_structure(
+            llm_client=client,
+            use_case_text=world.sp1_use_case_text,
+            loss_analysis=world.loss_analysis,
+            run_dir=world.sp1_run_dir,
+        )
+        world.sp1_sanitize_called = mock_repair.called
+    return True, ""
+
+
+def _h_b3_repair_after_call2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: repair_orphan_pms is called after Call 2 responsibilities are parsed."""
+    if not world.sp1_sanitize_called:
+        return False, "repair_orphan_pms was not called"
+    return True, ""
+
+
+def _h_b3_repair_before_call3(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: repair_orphan_pms is called before Call 3 connections are derived."""
+    if not world.sp1_sanitize_called:
+        return False, "repair_orphan_pms was not called"
+    return True, ""
+
+
+# Register batch3 handlers
+_register_first(r"the STPA system model critic module is importable", _h_b3_critic_module_importable)
+_register_first(r"the STPA system model control structure module is importable", _h_b3_cs_module_importable)
+_register_first(r"a CriticFindings with a gap whose suggested_remedy contains", _h_b3_findings_with_bad_id)
+_register_first(r"a CriticFindings with a gap whose suggested_remedy references existing element", _h_b3_findings_with_good_id)
+_register_first(r"a CriticFindings with a gap whose suggested_remedy is ", _h_b3_findings_with_specific_remedy)
+_register_first(r"a CriticFindings with three gaps each containing a different non-conforming ID", _h_b3_findings_three_gaps)
+_register_first(r"a CriticFindings with gaps, checklist_results, and taxonomy_probe_results", _h_b3_findings_full)
+_register_first(r"a CriticFindings with a non-conforming ID in a suggested_remedy", _h_b3_findings_nonconforming)
+_register_first(r"a control structure and CriticFindings with unjustified gaps containing a non-conforming ID", _h_b3_cs_and_unjustified_findings)
+_register_first(r"sanitize_critic_ids is called on the findings", _h_b3_sanitize_called)
+_register_first(r"the suggested_remedy does not contain", _h_b3_remedy_not_contains)
+_register_first(r"the suggested_remedy contains a generic description", _h_b3_remedy_has_generic)
+_register_first(r"the suggested_remedy still contains", _h_b3_remedy_still_contains)
+_register_first(r"the suggested_remedy is unchanged", _h_b3_remedy_unchanged)
+_register_first(r"none of the suggested_remedy strings contain non-conforming IDs", _h_b3_no_nonconforming)
+_register_first(r"the findings still have three gaps", _h_b3_three_gaps_preserved)
+_register_first(r"the result is a CriticFindings model", _h_b3_result_is_model)
+_register_first(r"the checklist_results are preserved", _h_b3_checklist_preserved)
+_register_first(r"the taxonomy_probe_results are preserved", _h_b3_taxonomy_preserved)
+_register_first(r"the findings are sanitized and passed to the revision prompt", _h_b3_sanitized_to_revision)
+_register_first(r"the revision user prompt does not contain the non-conforming ID", _h_b3_revision_no_bad_id)
+_register_first(r"the Stage 2 revision block runs", _h_b3_stage2_runs)
+_register_first(r"sanitize_critic_ids is called after run_completeness_critic returns", _h_b3_sanitize_after_critic)
+_register_first(r"sanitize_critic_ids is called before run_revision is called", _h_b3_sanitize_before_revision)
+# Orphan PM repair
+_register_first(r"a ResponsibilitySet with responsibility RESP-1 having PM-1-1 and PM-1-2 but only FB-1-1 updating PM-1-1", _h_b3_resp_set_orphan_1)
+_register_first(r"repair_orphan_pms is called$", _h_b3_repair_called)
+_register_first(r"the repaired ResponsibilitySet has a feedback channel updating", _h_b3_repaired_has_fb_updating)
+_register_first(r"a ResponsibilitySet with responsibility RESP-2 having orphan PM-2-1 and existing FB-2-1", _h_b3_resp_set_orphan_2)
+_register_first(r"the repaired ResponsibilitySet has a feedback channel with id", _h_b3_repaired_has_fb_id)
+_register_first(r"a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-3", _h_b3_resp_set_orphan_1_3)
+_register_first(r"the new feedback channel description contains", _h_b3_new_fb_desc_contains)
+_register_first(r"a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2$", _h_b3_resp_set_orphan_1_2)
+_register_first(r"the new feedback channel updates field equals", _h_b3_new_fb_updates_equals)
+_register_first(r"a ResponsibilitySet where every PM has a corresponding FB", _h_b3_resp_set_no_orphans)
+_register_first(r"the ResponsibilitySet is unchanged", _h_b3_resp_set_unchanged)
+_register_first(r"no warnings are returned", _h_b3_no_warnings)
+_register_first(r"a ResponsibilitySet with responsibility RESP-1 having two orphan PMs PM-1-2 and PM-1-3", _h_b3_resp_set_two_orphans)
+_register_first(r"the warnings list contains two entries", _h_b3_two_warnings)
+_register_first(r"each warning mentions the orphan PM id", _h_b3_warning_mentions_orphan)
+_register_first(r"a ResponsibilitySet with responsibility RESP-3 having orphans PM-3-1 and PM-3-2 with no existing FBs", _h_b3_resp_set_resp3_no_fbs)
+_register_first(r"the repaired ResponsibilitySet has feedback channels", _h_b3_repaired_has_fbs)
+_register_first(r"a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2 and responsibility RESP-2 having orphan PM-2-1", _h_b3_resp_set_multi_resp)
+_register_first(r"the repaired ResponsibilitySet has a FB updating", _h_b3_repaired_has_fb_in_resp)
+_register_first(r"a ResponsibilitySet with multiple orphan PMs across responsibilities", _h_b3_resp_set_multi_orphans)
+_register_first(r"every PM part in the repaired ResponsibilitySet is referenced by at least one FB", _h_b3_all_pms_referenced)
+_register_first(r"a use case text and loss analysis available for Stage 2", _h_b3_use_case_and_loss)
+_register_first(r"derive_control_structure runs", _h_b3_derive_runs)
+_register_first(r"repair_orphan_pms is called after Call 2 responsibilities are parsed", _h_b3_repair_after_call2)
+_register_first(r"repair_orphan_pms is called before Call 3 connections are derived", _h_b3_repair_before_call3)
 
 # Register batch 2 handlers
 # Capability profile injection

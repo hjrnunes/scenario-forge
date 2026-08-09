@@ -97,6 +97,26 @@ class TestSanitizeCriticIDs:
         # Generic description should be present
         assert "a new" in sanitized.gaps[0].suggested_remedy
 
+    @pytest.mark.parametrize(
+        ("bad_id", "expected_replacement"),
+        [
+            ("PM-0", "a new PM part"),
+            ("CA-0", "a new control action"),
+            ("FB-0", "a new feedback channel"),
+            ("RC-0", "a new responsibility constraint"),
+        ],
+    )
+    def test_san_03b_specific_replacement_text(self, bad_id: str, expected_replacement: str):
+        """Each known prefix is replaced with its specific generic description.
+
+        This also guards against the ``[0]`` → ``[1]`` index mutation in
+        ``_replace_non_conforming_ids``: if the wrong split part is used as
+        the prefix lookup key, the specific replacement text will be missing.
+        """
+        findings = _make_findings_with_remedy(f"Add {bad_id} to cover the gap")
+        sanitized = sanitize_critic_ids(findings)
+        assert expected_replacement in sanitized.gaps[0].suggested_remedy
+
     @pytest.mark.parametrize("good_id", ["RESP-1", "PM-1-2", "CA-2-1", "FB-3-1"])
     def test_san_04_conforming_ids_are_preserved(self, good_id: str):
         """SP1-CRITIC-SAN-04: conforming IDs are preserved."""

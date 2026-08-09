@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=47af4e0289b22ee91d5d9ee95f8aa292233fc252df507d1356eb313aa5f97411
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T22:07:09.027540Z","feature_name":"SP1 critic ID sanitization before revision","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_critic_id_sanitization.feature","background_hash":"48917530b22a6e97df9bfe29a88e3499d5782b99c9596768c5a6e221894c7f13","implementation_hash":"unknown","scenarios":[{"index":2,"name":"SP1-CRITIC-SAN-03 non-conforming IDs are stripped from suggested_remedy","scenario_hash":"b7bfe05128b7e25b91dfa263d9f488d0953d333813d2e95a6b24ddf8aa794846","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-09T22:07:09.027540Z"},{"index":3,"name":"SP1-CRITIC-SAN-04 conforming IDs are preserved in suggested_remedy","scenario_hash":"3c9b51dcd64e450d1682812ffc327222dfe290fa50e992845164b82bcbdee5ff","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-09T22:07:09.027540Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 critic ID sanitization before revision
   The completeness critic's suggested_remedy field is free-text and may
   contain non-conforming IDs (e.g., PM-0, RESP-0). These are passed

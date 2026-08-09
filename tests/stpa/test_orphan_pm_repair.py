@@ -18,13 +18,16 @@ from unittest.mock import patch
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import (
     ControlAction,
+    ElementRef,
     FeedbackChannel,
     ProcessModelPart,
+    ReferenceType,
     Responsibility,
 )
 from scenario_forge.stpa.system_model import PROMPTS_DIR
 from scenario_forge.stpa.system_model.control_structure import (
     ResponsibilitySet,
+    _extract_resp_num,
     repair_orphan_pms,
 )
 
@@ -228,6 +231,52 @@ class TestRepairOrphanPMs:
             updated_pms = {fb.updates for fb in resp.feedback_channels}
             for pm in resp.process_model_parts:
                 assert pm.pm_id in updated_pms
+
+    def test_pmfb_12b_stub_fb_reuses_existing_source(self):
+        """Stub FB reuses an existing feedback channel's source reference.
+
+        Guards against the ``fb.source is not None`` → ``fb.source is None``
+        mutation in ``_create_stub_fb``.
+        """
+        existing_source = ElementRef(
+            type=ReferenceType.responsibility, id="RESP-2"
+        )
+        resp = Responsibility(
+            resp_id="RESP-1",
+            description="Controller 1",
+            process_model_parts=[
+                ProcessModelPart(pm_id="PM-1-1", description="State 1"),
+                ProcessModelPart(pm_id="PM-1-2", description="Orphan"),
+            ],
+            control_actions=[
+                ControlAction(ca_id="CA-1-1", description="Action")
+            ],
+            feedback_channels=[
+                FeedbackChannel(
+                    fb_id="FB-1-1",
+                    description="FB 1",
+                    updates="PM-1-1",
+                    source=existing_source,
+                ),
+            ],
+        )
+        resp_set = _make_resp_set([resp])
+        repaired, _ = repair_orphan_pms(resp_set)
+        r0 = repaired.responsibilities[0]
+        stub = [fb for fb in r0.feedback_channels if fb.updates == "PM-1-2"][0]
+        assert stub.source is not None
+        assert stub.source == existing_source
+
+    def test_pmfb_12c_extract_resp_num_defaults_to_zero(self):
+        """_extract_resp_num returns 0 (not 1) for a resp_id with no digits.
+
+        Guards against the ``0 → 1`` default-value mutation.
+        The ``else 0`` branch handles malformed resp_ids that bypass
+        Pydantic validation (e.g. from deserialized JSON).
+        """
+        assert _extract_resp_num("RESP-abc") == 0
+        assert _extract_resp_num("RESP-") == 0
+        assert _extract_resp_num("") == 0
 
 
 # ---------------------------------------------------------------------------

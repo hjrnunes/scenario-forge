@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=b441d31cfca7f9a659d3acd6c5987438713169a97953b8ecddcec53f5cd59c31
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T22:07:12.415819Z","feature_name":"SP1 orphan PM repair and PM-FB correspondence","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_orphan_pm_repair.feature","background_hash":"c6df38b85fa703573d71d942f46439097f2759d8b0123031e17deef752748362","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 orphan PM repair and PM-FB correspondence
   Every process model part (PM-X-Y) must have at least one feedback
   channel (FB-X-Y) whose updates field references that PM. When the
