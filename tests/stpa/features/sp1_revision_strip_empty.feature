@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=cd4be15b6d7d29b0367c98f1b0a7b4af88edd1c9c6634beba15ccfe230420b01
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-09T14:08:22.997321Z","feature_name":"SP1 Stage 2 — Strip empty responsibilities after revision","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_revision_strip_empty.feature","background_hash":"b2838428c5ee6100a5e0ca6fd3f797e33e40020e1fea2b569761006d26a65fe9","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 Stage 2 — Strip empty responsibilities after revision
   The Stage 2 revision step sometimes produces skeleton responsibilities
   with a description but no process model parts, no control actions, and

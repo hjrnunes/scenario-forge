@@ -62,6 +62,7 @@ from scenario_forge.stpa.models.scenario_spec import (
     ThreatSource,
 )
 from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
+from scenario_forge.stpa.system_model.critic import strip_empty_responsibilities
 from scenario_forge.stpa.infra.call_log import make_call_log_entry, append_call_log
 from scenario_forge.stpa.infra.yaml_io import write_yaml, read_yaml
 from scenario_forge.stpa.infra.templates import TemplateLoader, hash_prompt_templates
@@ -4903,6 +4904,10 @@ def _h_sp1_rev_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
         la = world.loss_analysis
         post_result = _sp1_run_heuristics(revised_cs, la)
         world.sp1_post_revision_warnings = post_result.errors + post_result.warnings
+        # Strip empty responsibilities (mirrors _run_stage_2_block in run.py)
+        stripped_cs, strip_warnings = strip_empty_responsibilities(revised_cs)
+        world.control_structure = stripped_cs
+        world.sp1_post_revision_warnings.extend(strip_warnings)
     except (ValidationError, ValueError) as e:
         # Graceful degradation: validation failure returns pre-revision CS
         world.validation_error = e
@@ -9329,6 +9334,517 @@ _register_first(r"the SP1 runner script is available", _h_pll_runner_available)
 _register_first(r"the runner is invoked with --max-workers", _h_pll_runner_invoked_with_max_workers)
 _register_first(r"the runner is invoked without --max-workers", _h_pll_runner_invoked_with_max_workers)
 _register_first(r"run_sp1 is called with max_workers", _h_pll_run_sp1_called_with_max_workers)
+
+
+# ============================================================
+# Revision strip empty — step handlers
+# ============================================================
+
+def _h_strip_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the STPA system model revision module is importable."""
+    from scenario_forge.stpa.system_model import critic  # noqa: F401
+    return True, ""
+
+
+def _h_strip_llm_returns_full_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised CS with a responsibility having PM, CAs, and FB."""
+    d = _sp1_valid_cs_dict()
+    # Ensure RESP-1 has PM, CA, FB (it already does from _sp1_valid_cs_dict)
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_strip_llm_also_has_empty_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the revised CS also has an empty responsibility RESP-N."""
+    # Extract RESP-ID from text
+    m = re.search(r"responsibility (RESP-\d+)", text)
+    resp_id = m.group(1) if m else "RESP-2"
+    num = resp_id.split("-")[-1]
+    d = world.sp1_llm_content if isinstance(world.sp1_llm_content, dict) else _sp1_valid_cs_dict()
+    d["responsibilities"].append({
+        "resp_id": resp_id,
+        "description": f"Empty {resp_id}",
+        "responsibility_constraints": [],
+        "process_model_parts": [],
+        "control_actions": [],
+        "feedback_channels": [],
+    })
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_strip_llm_all_have_parts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised CS where every responsibility has at least one PM, CA, FB."""
+    d = _sp1_valid_cs_dict()
+    # Both responsibilities in _sp1_valid_cs_dict have PM, CA, FB
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_strip_llm_partial_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised CS with a responsibility having PM but no CA/FB."""
+    m = re.search(r"responsibility (RESP-\d+)", text)
+    resp_id = m.group(1) if m else "RESP-3"
+    num = resp_id.split("-")[-1]
+    d = _sp1_valid_cs_dict()
+    d["responsibilities"].append({
+        "resp_id": resp_id,
+        "description": f"Partial {resp_id}",
+        "responsibility_constraints": [],
+        "process_model_parts": [{"pm_id": f"PM-{num}-1", "description": "State"}],
+        "control_actions": [],
+        "feedback_channels": [],
+    })
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_strip_llm_two_empty(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised CS with two empty responsibilities."""
+    d = _sp1_valid_cs_dict()
+    # Remove existing RESP-2 (which has parts) and replace with empty version
+    d["responsibilities"] = [r for r in d["responsibilities"] if r["resp_id"] != "RESP-2"]
+    d["responsibilities"].append({
+        "resp_id": "RESP-2",
+        "description": "Empty A",
+        "responsibility_constraints": [],
+        "process_model_parts": [],
+        "control_actions": [],
+        "feedback_channels": [],
+    })
+    d["responsibilities"].append({
+        "resp_id": "RESP-4",
+        "description": "Empty B",
+        "responsibility_constraints": [],
+        "process_model_parts": [],
+        "control_actions": [],
+        "feedback_channels": [],
+    })
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_strip_llm_one_empty(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised CS with one empty responsibility."""
+    m = re.search(r"responsibility (RESP-\d+)", text)
+    resp_id = m.group(1) if m else "RESP-7"
+    d = _sp1_valid_cs_dict()
+    d["responsibilities"].append({
+        "resp_id": resp_id,
+        "description": f"Empty {resp_id}",
+        "responsibility_constraints": [],
+        "process_model_parts": [],
+        "control_actions": [],
+        "feedback_channels": [],
+    })
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_strip_llm_constraints_only(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a revised CS with a responsibility having constraints but no PM/CA/FB."""
+    m = re.search(r"responsibility (RESP-\d+)", text)
+    resp_id = m.group(1) if m else "RESP-5"
+    num = resp_id.split("-")[-1]
+    d = _sp1_valid_cs_dict()
+    d["responsibilities"].append({
+        "resp_id": resp_id,
+        "description": f"Constraints only {resp_id}",
+        "responsibility_constraints": [{"rc_id": f"RC-{num}-1", "description": "Constraint"}],
+        "process_model_parts": [],
+        "control_actions": [],
+        "feedback_channels": [],
+    })
+    world.sp1_llm_content = d
+    return True, ""
+
+
+def _h_strip_cs_does_not_contain(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the resulting control structure does not contain RESP-N."""
+    m = re.search(r"does not contain (RESP-\d+)", text)
+    if not m:
+        return False, f"Could not parse RESP-ID from: {text}"
+    resp_id = m.group(1)
+    if world.control_structure is None:
+        return False, "No control structure available"
+    resp_ids = {r.resp_id for r in world.control_structure.responsibilities}
+    if resp_id in resp_ids:
+        return False, f"Expected {resp_id} to be stripped but it is still present"
+    return True, ""
+
+
+def _h_strip_cs_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the resulting control structure contains RESP-N."""
+    m = re.search(r"contains (RESP-\d+)", text)
+    if not m:
+        return False, f"Could not parse RESP-ID from: {text}"
+    resp_id = m.group(1)
+    if world.control_structure is None:
+        return False, "No control structure available"
+    resp_ids = {r.resp_id for r in world.control_structure.responsibilities}
+    if resp_id not in resp_ids:
+        return False, f"Expected {resp_id} to be present but it is not"
+    return True, ""
+
+
+def _h_strip_all_preserved(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: all responsibilities are preserved in the resulting control structure."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    # If no warnings were produced, all were preserved
+    strip_warnings = [w for w in world.sp1_post_revision_warnings if "Stripped empty" in w]
+    if strip_warnings:
+        return False, f"Expected all preserved but got strip warnings: {strip_warnings}"
+    return True, ""
+
+
+def _h_strip_warnings_include(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the post-revision warnings include a warning for RESP-N."""
+    m = re.search(r"warning for (RESP-\d+)", text)
+    if not m:
+        return False, f"Could not parse RESP-ID from: {text}"
+    resp_id = m.group(1)
+    warning_text = " | ".join(world.sp1_post_revision_warnings)
+    if resp_id not in warning_text:
+        return False, f"Expected warning for {resp_id} but not found in: {warning_text}"
+    return True, ""
+
+
+def _h_strip_warning_has_id_and_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each warning contains the resp_id and description."""
+    for w in world.sp1_post_revision_warnings:
+        if "Stripped empty" not in w:
+            continue
+        # Check that resp_id is in the warning
+        if not re.search(r"RESP-\d+", w):
+            return False, f"Warning missing resp_id: {w}"
+        # Check that a description is in the warning (text after resp_id in parens)
+        if not re.search(r"\(.*?\)", w):
+            return False, f"Warning missing description: {w}"
+    return True, ""
+
+
+def _h_strip_cs_has_at_least_one(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the resulting control structure has at least one responsibility."""
+    if world.control_structure is None:
+        return False, "No control structure available"
+    if len(world.control_structure.responsibilities) < 1:
+        return False, "Expected at least one responsibility but got none"
+    return True, ""
+
+
+# --- Register revision strip handlers ---
+_register_first(r"the STPA system model revision module is importable", _h_strip_module_importable)
+_register_first(r"an LLM that returns a revised ControlStructure with responsibility RESP-\d+ having responsibility_constraints but no PM", _h_strip_llm_constraints_only)
+_register_first(r"an LLM that returns a revised ControlStructure with two empty responsibilities", _h_strip_llm_two_empty)
+_register_first(r"an LLM that returns a revised ControlStructure with responsibility RESP-\d+ having PM parts but no CAs", _h_strip_llm_partial_resp)
+_register_first(r"an LLM that returns a revised ControlStructure where every responsibility has at least one", _h_strip_llm_all_have_parts)
+_register_first(r"an LLM that returns a revised ControlStructure with responsibility RESP-\d+ having PM parts, CAs, and FB channels", _h_strip_llm_returns_full_resp)
+_register_first(r"the revised ControlStructure also has responsibility RESP-\d+ with no PM parts", _h_strip_llm_also_has_empty_resp)
+_register_first(r"an LLM that returns a revised ControlStructure with empty responsibility RESP-\d+", _h_strip_llm_one_empty)
+_register_first(r"the resulting control structure does not contain RESP-\d+", _h_strip_cs_does_not_contain)
+_register_first(r"the resulting control structure contains RESP-\d+", _h_strip_cs_contains)
+_register_first(r"all responsibilities are preserved in the resulting control structure", _h_strip_all_preserved)
+_register_first(r"the post-revision warnings include a warning for RESP-\d+", _h_strip_warnings_include)
+_register_first(r"each warning contains the resp_id and description", _h_strip_warning_has_id_and_desc)
+_register_first(r"the resulting control structure has at least one responsibility", _h_strip_cs_has_at_least_one)
+
+
+# ============================================================
+# LLM top_k extra_body — step handlers
+# ============================================================
+
+def _h_topk_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the STPA infra LLM module is importable."""
+    from scenario_forge.stpa.infra import llm  # noqa: F401
+    return True, ""
+
+
+def _h_topk_construct_client(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLMClient constructed with base_url ... and top_k N."""
+    from unittest.mock import patch
+    # Parse base_url
+    m_url = re.search(r"base_url (\S+)", text)
+    base_url = m_url.group(1) if m_url else "http://test:8080"
+    # Parse top_k
+    top_k: int | None = None
+    m_tk = re.search(r"top_k (\d+)", text)
+    if m_tk:
+        top_k = int(m_tk.group(1))
+    elif "top_k None" in text:
+        top_k = None
+    # Parse top_p
+    top_p: float | None = None
+    m_tp = re.search(r"top_p (\d+\.\d+)", text)
+    if m_tp:
+        top_p = float(m_tp.group(1))
+    with patch("scenario_forge.stpa.infra.llm.OpenAI"):
+        world.runner_llm_client = LLMClient(
+            base_url=base_url,
+            api_key="unused",
+            model="test",
+            top_k=top_k,
+            top_p=top_p,
+        )
+    return True, ""
+
+
+def _h_topk_build_extra_kwargs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the client builds extra kwargs (optionally with temperature and max_completion_tokens)."""
+    if world.runner_llm_client is None:
+        return False, "No LLMClient available"
+    effective_max: int | None = None
+    effective_temp: float = 0.4
+    m_temp = re.search(r"temperature (\d+\.\d+)", text)
+    if m_temp:
+        effective_temp = float(m_temp.group(1))
+    m_max = re.search(r"max_completion_tokens (\d+)", text)
+    if m_max:
+        effective_max = int(m_max.group(1))
+    world.sp1_extra_kwargs = world.runner_llm_client._build_extra_kwargs(effective_max, effective_temp)
+    return True, ""
+
+
+def _h_topk_kwargs_no_top_level_top_k(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the kwargs do not contain a top-level top_k key."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    if "top_k" in kwargs:
+        return False, f"Expected no top-level top_k but found: {kwargs['top_k']}"
+    return True, ""
+
+
+def _h_topk_kwargs_has_extra_body(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the kwargs contain an extra_body key."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    if "extra_body" not in kwargs:
+        return False, f"Expected extra_body key but not found in: {list(kwargs.keys())}"
+    return True, ""
+
+
+def _h_topk_extra_body_has_top_k(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the extra_body dict contains top_k with value N."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    extra_body = kwargs.get("extra_body")
+    if extra_body is None:
+        return False, "No extra_body in kwargs"
+    m = re.search(r"top_k with value (\d+)", text)
+    if not m:
+        return False, f"Could not parse expected top_k value from: {text}"
+    expected = int(m.group(1))
+    actual = extra_body.get("top_k")
+    if actual != expected:
+        return False, f"Expected top_k={expected} in extra_body, got {actual}"
+    return True, ""
+
+
+def _h_topk_kwargs_has_top_level_top_p(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the kwargs contain a top-level top_p key with value V."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    m = re.search(r"top_p key with value (\d+\.\d+)", text)
+    if not m:
+        return False, f"Could not parse expected top_p value from: {text}"
+    expected = float(m.group(1))
+    actual = kwargs.get("top_p")
+    if actual is None or abs(actual - expected) > 1e-9:
+        return False, f"Expected top_p={expected}, got {actual}"
+    return True, ""
+
+
+def _h_topk_top_p_not_in_extra_body(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the top_p key is not inside extra_body."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    extra_body = kwargs.get("extra_body", {})
+    if "top_p" in extra_body:
+        return False, f"Expected top_p not in extra_body but found: {extra_body['top_p']}"
+    return True, ""
+
+
+def _h_topk_kwargs_has_temperature(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the kwargs contain a top-level temperature key with value V."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    m = re.search(r"temperature key with value (\d+\.\d+)", text)
+    if not m:
+        return False, f"Could not parse expected temperature value from: {text}"
+    expected = float(m.group(1))
+    actual = kwargs.get("temperature")
+    if actual is None or abs(actual - expected) > 1e-9:
+        return False, f"Expected temperature={expected}, got {actual}"
+    return True, ""
+
+
+def _h_topk_kwargs_has_max_tokens(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the kwargs contain a top-level max_completion_tokens key with value N."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    m = re.search(r"max_completion_tokens key with value (\d+)", text)
+    if not m:
+        return False, f"Could not parse expected max_completion_tokens value from: {text}"
+    expected = int(m.group(1))
+    actual = kwargs.get("max_completion_tokens")
+    if actual != expected:
+        return False, f"Expected max_completion_tokens={expected}, got {actual}"
+    return True, ""
+
+
+def _h_topk_kwargs_no_extra_body(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the kwargs do not contain an extra_body key."""
+    kwargs = getattr(world, "sp1_extra_kwargs", None)
+    if kwargs is None:
+        return False, "No kwargs available"
+    if "extra_body" in kwargs:
+        return False, f"Expected no extra_body but found: {kwargs['extra_body']}"
+    return True, ""
+
+
+def _h_topk_complete_structured(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the client completes a structured request with a response format."""
+    from unittest.mock import MagicMock, patch
+    from pydantic import BaseModel as _BM
+
+    class _DummyModel(_BM):
+        val: int = 0
+
+    class _DummyResponse:
+        class _Msg:
+            parsed = {"val": 1}
+            content = ""
+        choices = [type("C", (), {"message": _Msg()})()]
+        usage = type("U", (), {"prompt_tokens": 10, "completion_tokens": 20})()
+
+    mock_client = MagicMock()
+    mock_client.beta.chat.completions.parse.return_value = _DummyResponse()
+    world.runner_llm_client._client = mock_client
+    world.runner_llm_client.complete(
+        system_prompt="s", user_prompt="u", response_format=_DummyModel,
+    )
+    world.sp1_last_mock_client = mock_client
+    return True, ""
+
+
+def _h_topk_parse_call_has_extra_body_top_k(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the parse call includes extra_body with top_k N."""
+    mock_client = getattr(world, "sp1_last_mock_client", None)
+    if mock_client is None:
+        return False, "No mock client available"
+    parse_call = mock_client.beta.chat.completions.parse
+    if not parse_call.called:
+        return False, "Parse call was not made"
+    call_kwargs = parse_call.call_args.kwargs
+    if "extra_body" not in call_kwargs:
+        return False, f"Expected extra_body in parse call but not found: {list(call_kwargs.keys())}"
+    m = re.search(r"top_k (\d+)", text)
+    if not m:
+        # Try examples
+        top_k_val = examples.get("top_k_value", "")
+        if top_k_val:
+            expected = int(top_k_val)
+        else:
+            return False, f"Could not parse expected top_k from: {text}"
+    else:
+        expected = int(m.group(1))
+    actual = call_kwargs["extra_body"].get("top_k")
+    if actual != expected:
+        return False, f"Expected top_k={expected} in extra_body, got {actual}"
+    return True, ""
+
+
+def _h_topk_parse_call_no_top_level_top_k(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the parse call does not include a top-level top_k kwarg."""
+    mock_client = getattr(world, "sp1_last_mock_client", None)
+    if mock_client is None:
+        return False, "No mock client available"
+    parse_call = mock_client.beta.chat.completions.parse
+    call_kwargs = parse_call.call_args.kwargs
+    if "top_k" in call_kwargs:
+        return False, f"Expected no top-level top_k but found: {call_kwargs['top_k']}"
+    return True, ""
+
+
+def _h_topk_complete_unstructured(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the client completes an unstructured request."""
+    from unittest.mock import MagicMock
+
+    class _DummyResponse:
+        class _Msg:
+            parsed = None
+            content = "response text"
+        choices = [type("C", (), {"message": _Msg()})()]
+        usage = type("U", (), {"prompt_tokens": 10, "completion_tokens": 20})()
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = _DummyResponse()
+    world.runner_llm_client._client = mock_client
+    world.runner_llm_client.complete(
+        system_prompt="s", user_prompt="u", response_format=None,
+    )
+    world.sp1_last_mock_client = mock_client
+    return True, ""
+
+
+def _h_topk_create_call_has_extra_body_top_k(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the create call includes extra_body with top_k N."""
+    mock_client = getattr(world, "sp1_last_mock_client", None)
+    if mock_client is None:
+        return False, "No mock client available"
+    create_call = mock_client.chat.completions.create
+    if not create_call.called:
+        return False, "Create call was not made"
+    call_kwargs = create_call.call_args.kwargs
+    if "extra_body" not in call_kwargs:
+        return False, f"Expected extra_body in create call but not found: {list(call_kwargs.keys())}"
+    m = re.search(r"top_k (\d+)", text)
+    if not m:
+        return False, f"Could not parse expected top_k from: {text}"
+    expected = int(m.group(1))
+    actual = call_kwargs["extra_body"].get("top_k")
+    if actual != expected:
+        return False, f"Expected top_k={expected} in extra_body, got {actual}"
+    return True, ""
+
+
+def _h_topk_create_call_no_top_level_top_k(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the create call does not include a top-level top_k kwarg."""
+    mock_client = getattr(world, "sp1_last_mock_client", None)
+    if mock_client is None:
+        return False, "No mock client available"
+    create_call = mock_client.chat.completions.create
+    call_kwargs = create_call.call_args.kwargs
+    if "top_k" in call_kwargs:
+        return False, f"Expected no top-level top_k but found: {call_kwargs['top_k']}"
+    return True, ""
+
+
+# --- Register top_k handlers ---
+_register_first(r"the STPA infra LLM module is importable", _h_topk_module_importable)
+_register_first(r"an LLMClient constructed with base_url.*and top_k", _h_topk_construct_client)
+_register_first(r"the client builds extra kwargs", _h_topk_build_extra_kwargs)
+_register_first(r"the kwargs do not contain a top-level top_k key", _h_topk_kwargs_no_top_level_top_k)
+_register_first(r"the kwargs contain an extra_body key", _h_topk_kwargs_has_extra_body)
+_register_first(r"the extra_body dict contains top_k with value", _h_topk_extra_body_has_top_k)
+_register_first(r"the kwargs contain a top-level top_p key with value", _h_topk_kwargs_has_top_level_top_p)
+_register_first(r"the top_p key is not inside extra_body", _h_topk_top_p_not_in_extra_body)
+_register_first(r"the kwargs contain a top-level temperature key with value", _h_topk_kwargs_has_temperature)
+_register_first(r"the kwargs contain a top-level max_completion_tokens key with value", _h_topk_kwargs_has_max_tokens)
+_register_first(r"the kwargs do not contain an extra_body key", _h_topk_kwargs_no_extra_body)
+_register_first(r"the client completes a structured request with a response format", _h_topk_complete_structured)
+_register_first(r"the parse call includes extra_body with top_k", _h_topk_parse_call_has_extra_body_top_k)
+_register_first(r"the parse call does not include a top-level top_k kwarg", _h_topk_parse_call_no_top_level_top_k)
+_register_first(r"the client completes an unstructured request", _h_topk_complete_unstructured)
+_register_first(r"the create call includes extra_body with top_k", _h_topk_create_call_has_extra_body_top_k)
+_register_first(r"the create call does not include a top-level top_k kwarg", _h_topk_create_call_no_top_level_top_k)
 
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
