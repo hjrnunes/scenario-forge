@@ -35,6 +35,7 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
     run_completeness_critic,
     run_revision,
+    strip_empty_responsibilities,
 )
 from scenario_forge.stpa.system_model.heuristics import (
     check_solution_neutrality,
@@ -282,6 +283,11 @@ def _run_stage_2_block(
             template_loader=loader,
             temperature=temperature,
         )
+        # Strip empty responsibilities that revision may have introduced
+        control_structure, strip_warnings = strip_empty_responsibilities(
+            control_structure
+        )
+        post_revision_warnings.extend(strip_warnings)
         write_yaml(control_structure, run_dir / "control-structure.yaml")
 
     return _Stage2Result(

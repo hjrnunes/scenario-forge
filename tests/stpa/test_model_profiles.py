@@ -169,7 +169,8 @@ class TestLLMClientTopPTopK:
         assert client.top_k is None
 
     def test_llmclient_passes_top_p_and_top_k_to_complete(self, monkeypatch):
-        """When top_p and top_k are set, complete() passes them to the SDK."""
+        """When top_p and top_k are set, complete() passes top_p as a
+        top-level kwarg and top_k through extra_body."""
         monkeypatch.setenv("SCENARIO_FORGE_MODEL_BASE_URL", "http://test:8080")
         client = LLMClient(top_p=0.9, top_k=40)
 
@@ -187,7 +188,8 @@ class TestLLMClientTopPTopK:
         client.complete("s", "u")
         call_kwargs = client._client.chat.completions.create.call_args
         assert call_kwargs.kwargs["top_p"] == 0.9
-        assert call_kwargs.kwargs["top_k"] == 40
+        assert call_kwargs.kwargs["extra_body"]["top_k"] == 40
+        assert "top_k" not in call_kwargs.kwargs
 
     def test_llmclient_without_top_p_top_k_does_not_pass_them(self, monkeypatch):
         """When top_p and top_k are None, complete() does not pass them."""

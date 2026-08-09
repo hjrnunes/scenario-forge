@@ -146,14 +146,19 @@ class LLMClient:
         effective_max: int | None,
         effective_temp: float,
     ) -> dict[str, Any]:
-        """Build the extra kwargs dict for the OpenAI completion call."""
+        """Build the extra kwargs dict for the OpenAI completion call.
+
+        ``top_k`` is not a standard OpenAI API parameter and raises
+        ``TypeError`` on non-OpenAI providers (e.g. OpenRouter). It is
+        routed through ``extra_body`` instead of as a top-level kwarg.
+        """
         kwargs: dict[str, Any] = {"temperature": effective_temp}
         if effective_max is not None:
             kwargs["max_completion_tokens"] = effective_max
         if self.top_p is not None:
             kwargs["top_p"] = self.top_p
         if self.top_k is not None:
-            kwargs["top_k"] = self.top_k
+            kwargs["extra_body"] = {"top_k": self.top_k}
         return kwargs
 
     def complete(

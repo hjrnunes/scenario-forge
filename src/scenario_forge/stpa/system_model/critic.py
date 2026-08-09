@@ -19,7 +19,7 @@ from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
-from scenario_forge.stpa.models.control_structure import ControlStructure
+from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
@@ -195,6 +195,61 @@ def run_revision(
     post_warnings = post_revision.errors + post_revision.warnings
 
     return revised_cs, post_warnings
+
+
+# ---------------------------------------------------------------------------
+# Post-revision strip empty responsibilities
+# ---------------------------------------------------------------------------
+
+
+def strip_empty_responsibilities(
+    control_structure: ControlStructure,
+) -> tuple[ControlStructure, list[str]]:
+    """Strip responsibilities with no PM parts, CAs, or FB channels.
+
+    After revision, the LLM may produce skeleton responsibilities that
+    have a description but no process model parts, no control actions,
+    and no feedback channels. These would produce downstream heuristic
+    errors (every responsibility must have >=1 PM, CA, and FB). This
+    function detects and removes them.
+
+    A responsibility is considered empty when **all three** of
+    ``process_model_parts``, ``control_actions``, and
+    ``feedback_channels`` are empty. ``responsibility_constraints`` alone
+    do not prevent stripping.
+
+    Args:
+        control_structure: The (possibly revised) control structure.
+
+    Returns:
+        A tuple of (stripped ControlStructure, list of warning strings).
+        Each warning includes the resp_id and description of the
+        stripped responsibility.
+    """
+    kept: list[Responsibility] = []
+    warnings: list[str] = []
+
+    for resp in control_structure.responsibilities:
+        if (
+            not resp.process_model_parts
+            and not resp.control_actions
+            and not resp.feedback_channels
+        ):
+            warnings.append(
+                f"Stripped empty responsibility {resp.resp_id} "
+                f"({resp.description}) after revision: no PM parts, "
+                f"control actions, or feedback channels."
+            )
+        else:
+            kept.append(resp)
+
+    if len(kept) == len(control_structure.responsibilities):
+        return control_structure, warnings
+
+    stripped_cs = control_structure.model_copy(
+        update={"responsibilities": kept},
+    )
+    return stripped_cs, warnings
 
 
 # ---------------------------------------------------------------------------
