@@ -12,6 +12,16 @@
 Source constraint: {{ req.source_constraint }}
 {% endfor %}
 
+{% if capability_profile %}
+## Capability Profile Context
+
+Active zones: {{ capability_profile.zones_active | join(", ") }}
+Multi-agent: {{ capability_profile.multi_agent }}
+Human-in-the-loop: {{ capability_profile.hitl }}
+Persistent memory: {{ capability_profile.has_persistent_memory }}
+
+{% endif %}
+
 ---
 
 ## Your Task

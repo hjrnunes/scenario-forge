@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import (
     StageError,
@@ -391,6 +392,7 @@ def derive_control_structure(
     llm_client: LLMClient,
     use_case_text: str,
     loss_analysis: LossAnalysis,
+    capability_profile: CapabilityProfile | None = None,
     run_dir: Path,
     template_loader: TemplateLoader | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
@@ -432,6 +434,7 @@ def derive_control_structure(
         llm_client=llm_client,
         use_case_text=use_case_text,
         requirement_set=requirement_set,
+        capability_profile=capability_profile,
         run_dir=run_dir,
         loader=loader,
         temperature=temperature,
@@ -506,6 +509,7 @@ def _call_2_responsibilities(
     llm_client: LLMClient,
     use_case_text: str,
     requirement_set: RequirementSet,
+    capability_profile: CapabilityProfile | None = None,
     run_dir: Path,
     loader: TemplateLoader,
     temperature: float,
@@ -520,6 +524,7 @@ def _call_2_responsibilities(
         "stage2_call2_user.j2",
         use_case_text=use_case_text,
         requirements=requirement_set.requirements,
+        capability_profile=capability_profile,
     )
 
     responsibility_set, _, error_msg = safe_llm_call(
@@ -582,5 +587,5 @@ def _call_3_connections(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T17:16:10Z","module_hash":"0a954d0444e2bb862e838e3aee0bcaf5e2505a6d07a7e76169fa41abe30c5657","functions":[{"id":"func/merge_connection_set","name":"merge_connection_set","line":91,"end_line":116,"hash":"91401c9996d67d5255695a66ae446cf4a08e2ade63f41901d56d5ff07f0061e3"},{"id":"func/_apply_connection_assignment","name":"_apply_connection_assignment","line":119,"end_line":128,"hash":"4826885a653c30e772ae1c2a33be78235229c39814c0237dae054cdfd4723b92"},{"id":"func/_try_set_feedback_source","name":"_try_set_feedback_source","line":131,"end_line":141,"hash":"b570aa8dbc9545c3cb8e4e4bbc6c29415d0a1fc4411931cf0b89ec7cbe1730c0"},{"id":"func/_try_set_control_action_target","name":"_try_set_control_action_target","line":144,"end_line":154,"hash":"0f0ecda079875b1d7e7a0b35a2596c263a0df3a38060058645e132e5b42f6333"},{"id":"func/_merge_controlled_processes","name":"_merge_controlled_processes","line":157,"end_line":168,"hash":"b6e9a76bea5acbc4e6d1f164d2bab1edc9ed699e8512a42f90752025a74148e8"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":176,"end_line":195,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":198,"end_line":217,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":220,"end_line":249,"hash":"6915f5c5c82fecb20e9fcff469fe980cb4bb7111158209e176ff983db23f1727"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":252,"end_line":262,"hash":"14f54711c6202a0ef276c6c0c7f6b5f27a33e3f4125758cb98fa94f78ea2bccf"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":265,"end_line":309,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_merge_with_fallback","name":"_merge_with_fallback","line":312,"end_line":381,"hash":"eeea88fa3c976c61f11e7d86432017510e0c28c913f260fbc33709e82ce25e82"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":389,"end_line":455,"hash":"e7d15b2690c4c0191d38c1cf43747051d794840a90b1187f0cd18bfe7db857e2"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":463,"end_line":496,"hash":"fd9bc8ae6b88e5852532eecfc104323c9eedd2cea5c485991da751403cc39071"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":504,"end_line":537,"hash":"8af8c975b002066a88b41680d635114de89efa0669e9244f564329144365fb60"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":545,"end_line":581,"hash":"88f9e669aebbe55f102f1a491e96a23a31e806ef8785ee6ce67eefd866f03462"}]}
+# {"version":1,"tested_at":"2026-08-09T20:00:56Z","module_hash":"260f67c06079521252e5276385d750754426c8fe89264a978cede8ed6a01978b","functions":[{"id":"func/merge_connection_set","name":"merge_connection_set","line":92,"end_line":117,"hash":"91401c9996d67d5255695a66ae446cf4a08e2ade63f41901d56d5ff07f0061e3"},{"id":"func/_apply_connection_assignment","name":"_apply_connection_assignment","line":120,"end_line":129,"hash":"4826885a653c30e772ae1c2a33be78235229c39814c0237dae054cdfd4723b92"},{"id":"func/_try_set_feedback_source","name":"_try_set_feedback_source","line":132,"end_line":142,"hash":"b570aa8dbc9545c3cb8e4e4bbc6c29415d0a1fc4411931cf0b89ec7cbe1730c0"},{"id":"func/_try_set_control_action_target","name":"_try_set_control_action_target","line":145,"end_line":155,"hash":"0f0ecda079875b1d7e7a0b35a2596c263a0df3a38060058645e132e5b42f6333"},{"id":"func/_merge_controlled_processes","name":"_merge_controlled_processes","line":158,"end_line":169,"hash":"b6e9a76bea5acbc4e6d1f164d2bab1edc9ed699e8512a42f90752025a74148e8"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":177,"end_line":196,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":199,"end_line":218,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":221,"end_line":250,"hash":"6915f5c5c82fecb20e9fcff469fe980cb4bb7111158209e176ff983db23f1727"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":253,"end_line":263,"hash":"14f54711c6202a0ef276c6c0c7f6b5f27a33e3f4125758cb98fa94f78ea2bccf"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":266,"end_line":310,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_merge_with_fallback","name":"_merge_with_fallback","line":313,"end_line":382,"hash":"eeea88fa3c976c61f11e7d86432017510e0c28c913f260fbc33709e82ce25e82"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":390,"end_line":458,"hash":"cbff22d938269a25adbb30762c2c50f058f9ea1b65ecde14672e3d0152dfeb94"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":466,"end_line":499,"hash":"fd9bc8ae6b88e5852532eecfc104323c9eedd2cea5c485991da751403cc39071"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":507,"end_line":542,"hash":"0b200435fbb5d1f73446ae42cafbf55a652db2c3635f432d8e18d59c2d020d53"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":550,"end_line":586,"hash":"88f9e669aebbe55f102f1a491e96a23a31e806ef8785ee6ce67eefd866f03462"}]}
 # mutate4py-manifest-end
