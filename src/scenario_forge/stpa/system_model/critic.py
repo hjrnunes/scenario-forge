@@ -161,21 +161,6 @@ def has_unjustified_gaps(findings: CriticFindings) -> bool:
 # Critic ID sanitization
 # ---------------------------------------------------------------------------
 
-# Patterns for non-conforming IDs: any ID-like token that uses ID 0.
-# These are IDs the critic might suggest that would cause the revision
-# LLM to produce invalid Pydantic ValidationError on the RevisionDelta.
-_ID_ZERO_PATTERNS: dict[str, str] = {
-    "PM-0": "a new PM part",
-    "RESP-0": "a new responsibility",
-    "CA-0": "a new control action",
-    "FB-0": "a new feedback channel",
-}
-
-# Also catch multi-part zero IDs like PM-0-1, CA-0-1, FB-0-1
-_MULTIPART_ZERO_PATTERN = re.compile(
-    r"\b(PM|RESP|CA|FB)-0(?:-\d+)?\b"
-)
-
 # Conforming ID patterns (valid format, non-zero):
 # RESP-N, PM-X-Y, CA-X-Y, FB-X-Y, CP-N, CL-N, RC-X-Y
 _CONFORMING_PATTERNS = [
@@ -193,10 +178,17 @@ _ID_LIKE_PATTERN = re.compile(
     r"\b(?:RESP|PM|CA|FB|CP|CL|RC)-\d+(?:-\d+)?\b"
 )
 
-# Zero-number detection for non-conforming IDs
-_ZERO_ID_PATTERN = re.compile(
-    r"\b(?:RESP|PM|CA|FB|CP|CL|RC)-0(?:-\d+)?\b"
-)
+# Generic descriptions for non-conforming ID prefixes, used as replacements
+# in suggested_remedy strings so the revision model never sees invalid IDs.
+_ID_REPLACEMENTS: dict[str, str] = {
+    "PM": "a new PM part",
+    "RESP": "a new responsibility",
+    "CA": "a new control action",
+    "FB": "a new feedback channel",
+    "CP": "a new controlled process",
+    "CL": "a new coordination link",
+    "RC": "a new responsibility constraint",
+}
 
 
 def _is_conforming_id(token: str) -> bool:
@@ -217,16 +209,7 @@ def _replace_non_conforming_ids(remedy: str) -> str:
             return token
         # Non-conforming: determine replacement
         prefix = token.split("-")[0]
-        generic_map = {
-            "PM": "a new PM part",
-            "RESP": "a new responsibility",
-            "CA": "a new control action",
-            "FB": "a new feedback channel",
-            "CP": "a new controlled process",
-            "CL": "a new coordination link",
-            "RC": "a new responsibility constraint",
-        }
-        return generic_map.get(prefix, "a new element")
+        return _ID_REPLACEMENTS.get(prefix, "a new element")
 
     return _ID_LIKE_PATTERN.sub(_replacer, remedy)
 
