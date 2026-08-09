@@ -148,6 +148,8 @@ class TestCleanCopyEnforcement:
             "itertools",
             "contextlib",
             "argparse",
+            "threading",
+            "concurrent",
         )
         violations: list[str] = []
         for path in infra_python_files:
@@ -183,6 +185,7 @@ class TestNoImportCycles:
             "scenario_forge.stpa.infra.yaml_io",
             "scenario_forge.stpa.infra.templates",
             "scenario_forge.stpa.infra.manifest",
+            "scenario_forge.stpa.infra.parallel_llm",
             "scenario_forge.stpa.models",
             "scenario_forge.stpa.models._validation",
             "scenario_forge.stpa.models.loss_analysis",

@@ -26,9 +26,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_call_log_lock = threading.Lock()
 
 
 def _sha256(text: str) -> str:
@@ -100,11 +103,12 @@ def append_call_log(entries: list[dict], run_dir: Path) -> None:
     """
     if not entries:
         return
-    run_dir.mkdir(parents=True, exist_ok=True)
-    calls_path = run_dir / "calls.jsonl"
-    with calls_path.open("a", encoding="utf-8") as fh:
-        for entry in entries:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with _call_log_lock:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        calls_path = run_dir / "calls.jsonl"
+        with calls_path.open("a", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # mutate4py-manifest-begin

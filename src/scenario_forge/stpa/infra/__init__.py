@@ -15,6 +15,11 @@ from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
 from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
 from scenario_forge.stpa.infra.manifest import STPARunManifest
 from scenario_forge.stpa.infra.model_profiles import load_profile
+from scenario_forge.stpa.infra.parallel_llm import (
+    LLMCallResult,
+    LLMCallSpec,
+    parallel_safe_llm_calls,
+)
 from scenario_forge.stpa.infra.templates import (
     TemplateLoader,
     hash_prompt_templates,
@@ -43,6 +48,10 @@ __all__ = [
     "hash_prompt_templates",
     # manifest
     "STPARunManifest",
+    # parallel_llm
+    "LLMCallSpec",
+    "LLMCallResult",
+    "parallel_safe_llm_calls",
 ]
 
 

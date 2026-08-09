@@ -119,6 +119,12 @@ def main() -> int:
         default=None,
         help="Path to a pre-built capability-profile.yaml (skips Stage 1b)",
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=1,
+        help="Maximum parallel workers for LLM calls (default: 1 = sequential)",
+    )
 
     args = parser.parse_args()
 
@@ -150,6 +156,7 @@ def main() -> int:
             run_dir=output_dir,
             profile_path=profile_path,
             profile_name=profile_name,
+            max_workers=args.max_workers,
         )
 
         # Render calls.jsonl to calls.html

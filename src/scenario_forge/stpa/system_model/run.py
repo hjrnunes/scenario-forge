@@ -19,6 +19,9 @@ from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.infra.manifest import STPARunManifest
+from scenario_forge.stpa.infra.parallel_llm import (  # noqa: F401 — imported for patchability
+    parallel_safe_llm_calls,
+)
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
@@ -76,6 +79,7 @@ def run_sp1(
     profile_path: Path | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
     profile_name: str | None = None,
+    max_workers: int = 1,
 ) -> SP1RunResult:
     """Run the full SP1 pipeline: Stages 1a → 1b → 2.
 
@@ -88,6 +92,10 @@ def run_sp1(
             When provided, Stage 1b LLM call is skipped.
         temperature: LLM temperature (default 0.4).
         profile_name: Optional model profile name for manifest recording.
+        max_workers: Maximum parallel workers for LLM calls (default 1 =
+            sequential, backwards compatible). SP1's sequential stages do
+            not use parallel execution yet; this parameter is recorded in
+            the manifest and available for future use.
 
     Returns:
         SP1RunResult with all artifacts and diagnostic info. On partial
@@ -130,6 +138,7 @@ def run_sp1(
         profile_skipped=_profile_skipped,
         stage_errors=stage_errors,
         profile_name=profile_name,
+        max_workers=max_workers,
     )
 
     return SP1RunResult(
@@ -316,6 +325,7 @@ def _write_manifest(
     profile_skipped: bool,
     stage_errors: list[str] | None = None,
     profile_name: str | None = None,
+    max_workers: int = 1,
 ) -> None:
     """Write the run manifest with stage summary, input hashes, and prompt hashes."""
     input_hashes = _compute_input_hashes(use_case_text, risk_cards)
@@ -329,6 +339,7 @@ def _write_manifest(
         "model": llm_client.model,
         "base_url": llm_client.base_url,
         "temperature": temperature,
+        "max_workers": max_workers,
     }
     if profile_name is not None:
         model_config_dict["profile"] = profile_name
