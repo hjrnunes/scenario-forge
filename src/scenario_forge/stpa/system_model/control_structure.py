@@ -9,6 +9,7 @@ Three sequential LLM calls applying Poh's Behavioral Design Process:
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,6 +29,7 @@ from scenario_forge.stpa.models.control_structure import (
     CoordinationLink,
     ControlledProcess,
     ElementRef,
+    FeedbackChannel,
     Responsibility,
     _is_valid_element_ref,
 )
@@ -383,6 +385,125 @@ def _merge_with_fallback(
 
 
 # ---------------------------------------------------------------------------
+# Orphan PM repair — deterministic, no LLM dependency
+# ---------------------------------------------------------------------------
+
+
+def _extract_resp_num(resp_id: str) -> int:
+    """Extract the numeric suffix from a resp_id like 'RESP-3'."""
+    match = re.search(r"\d+", resp_id)
+    return int(match.group()) if match else 0
+
+
+def _next_fb_num(resp: Responsibility) -> int:
+    """Return the next available FB number for a responsibility.
+
+    Scans existing feedback_channels and returns ``max(fb_nums) + 1``,
+    or 1 when the responsibility has no feedback channels.
+    """
+    nums = []
+    for fb in resp.feedback_channels:
+        match = re.match(r"FB-\d+-(\d+)", fb.fb_id)
+        if match:
+            nums.append(int(match.group(1)))
+    return max(nums, default=0) + 1
+
+
+def _find_orphan_pms(resp: Responsibility) -> list[str]:
+    """Return PM IDs in *resp* that no feedback channel updates."""
+    updated_pms = {fb.updates for fb in resp.feedback_channels}
+    return [
+        pm.pm_id for pm in resp.process_model_parts
+        if pm.pm_id not in updated_pms
+    ]
+
+
+def _create_stub_fb(
+    resp: Responsibility,
+    pm_id: str,
+    fb_num: int,
+) -> FeedbackChannel:
+    """Create a stub FeedbackChannel for an orphan PM.
+
+    Args:
+        resp: The responsibility containing the orphan PM.
+        pm_id: The orphan PM's ID (e.g. 'PM-1-3').
+        fb_num: The FB number to assign (e.g. 2 → 'FB-1-2').
+
+    Returns:
+        A FeedbackChannel with auto-generated description and updates
+        referencing the orphan PM.
+    """
+    resp_num = _extract_resp_num(resp.resp_id)
+    fb_id = f"FB-{resp_num}-{fb_num}"
+    # Reuse an existing feedback_source if any FB has one
+    source = None
+    for fb in resp.feedback_channels:
+        if fb.source is not None:
+            source = fb.source
+            break
+    return FeedbackChannel(
+        fb_id=fb_id,
+        description=f"Auto-generated feedback for orphan {pm_id}",
+        updates=pm_id,
+        source=source,
+    )
+
+
+def repair_orphan_pms(
+    responsibility_set: ResponsibilitySet,
+) -> tuple[ResponsibilitySet, list[str]]:
+    """Repair orphan PM parts by auto-generating stub feedback channels.
+
+    For each responsibility, finds PM parts where no feedback channel has
+    that PM in its ``updates`` list. For each orphan PM, creates a stub
+    feedback channel:
+      - ``fb_id``: ``FB-{resp_num}-{next_fb_num}``
+      - ``description``: ``"Auto-generated feedback for orphan PM {pm_id}"``
+      - ``updates``: ``[pm_id]``
+      - ``source``: reuses an existing FB source if available, else None
+
+    Args:
+        responsibility_set: The ResponsibilitySet from Call 2.
+
+    Returns:
+        A tuple of (repaired ResponsibilitySet, warnings). Each warning
+        mentions the orphan PM ID. If no orphans exist, the set is
+        returned unchanged with an empty warnings list.
+    """
+    warnings: list[str] = []
+    any_repaired = False
+    repaired_resps: list[Responsibility] = []
+
+    for resp in responsibility_set.responsibilities:
+        orphan_pm_ids = _find_orphan_pms(resp)
+        if not orphan_pm_ids:
+            repaired_resps.append(resp)
+            continue
+
+        any_repaired = True
+        resp_copy = copy.deepcopy(resp)
+        next_num = _next_fb_num(resp_copy)
+        for pm_id in orphan_pm_ids:
+            stub = _create_stub_fb(resp_copy, pm_id, next_num)
+            resp_copy.feedback_channels.append(stub)
+            warnings.append(
+                f"Auto-generated feedback channel {stub.fb_id} "
+                f"for orphan PM {pm_id} in responsibility {resp.resp_id}."
+            )
+            next_num += 1
+        repaired_resps.append(resp_copy)
+
+    if not any_repaired:
+        return responsibility_set, warnings
+
+    repaired_set = responsibility_set.model_copy(
+        update={"responsibilities": repaired_resps},
+    )
+    return repaired_set, warnings
+
+
+# ---------------------------------------------------------------------------
 # Stage 2 — three sequential LLM calls
 # ---------------------------------------------------------------------------
 
@@ -440,6 +561,9 @@ def derive_control_structure(
         temperature=temperature,
     )
 
+    # Repair orphan PMs — auto-generate stub FB channels before Call 3
+    responsibility_set, repair_warnings = repair_orphan_pms(responsibility_set)
+
     # Call 3 — Connections
     connection_set = _call_3_connections(
         llm_client=llm_client,
@@ -455,7 +579,7 @@ def derive_control_structure(
     )
 
     write_yaml(control_structure, run_dir / "control-structure.yaml")
-    return control_structure, merge_warnings
+    return control_structure, merge_warnings + repair_warnings
 
 
 # ---------------------------------------------------------------------------
@@ -587,5 +711,5 @@ def _call_3_connections(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T20:00:56Z","module_hash":"260f67c06079521252e5276385d750754426c8fe89264a978cede8ed6a01978b","functions":[{"id":"func/merge_connection_set","name":"merge_connection_set","line":92,"end_line":117,"hash":"91401c9996d67d5255695a66ae446cf4a08e2ade63f41901d56d5ff07f0061e3"},{"id":"func/_apply_connection_assignment","name":"_apply_connection_assignment","line":120,"end_line":129,"hash":"4826885a653c30e772ae1c2a33be78235229c39814c0237dae054cdfd4723b92"},{"id":"func/_try_set_feedback_source","name":"_try_set_feedback_source","line":132,"end_line":142,"hash":"b570aa8dbc9545c3cb8e4e4bbc6c29415d0a1fc4411931cf0b89ec7cbe1730c0"},{"id":"func/_try_set_control_action_target","name":"_try_set_control_action_target","line":145,"end_line":155,"hash":"0f0ecda079875b1d7e7a0b35a2596c263a0df3a38060058645e132e5b42f6333"},{"id":"func/_merge_controlled_processes","name":"_merge_controlled_processes","line":158,"end_line":169,"hash":"b6e9a76bea5acbc4e6d1f164d2bab1edc9ed699e8512a42f90752025a74148e8"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":177,"end_line":196,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":199,"end_line":218,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":221,"end_line":250,"hash":"6915f5c5c82fecb20e9fcff469fe980cb4bb7111158209e176ff983db23f1727"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":253,"end_line":263,"hash":"14f54711c6202a0ef276c6c0c7f6b5f27a33e3f4125758cb98fa94f78ea2bccf"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":266,"end_line":310,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_merge_with_fallback","name":"_merge_with_fallback","line":313,"end_line":382,"hash":"eeea88fa3c976c61f11e7d86432017510e0c28c913f260fbc33709e82ce25e82"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":390,"end_line":458,"hash":"cbff22d938269a25adbb30762c2c50f058f9ea1b65ecde14672e3d0152dfeb94"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":466,"end_line":499,"hash":"fd9bc8ae6b88e5852532eecfc104323c9eedd2cea5c485991da751403cc39071"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":507,"end_line":542,"hash":"0b200435fbb5d1f73446ae42cafbf55a652db2c3635f432d8e18d59c2d020d53"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":550,"end_line":586,"hash":"88f9e669aebbe55f102f1a491e96a23a31e806ef8785ee6ce67eefd866f03462"}]}
+# {"version":1,"tested_at":"2026-08-09T21:58:37Z","module_hash":"a0f80807bfc4fd0049deb40007f6490421e620554cb03770f26e5eabc570f810","functions":[{"id":"func/merge_connection_set","name":"merge_connection_set","line":94,"end_line":119,"hash":"91401c9996d67d5255695a66ae446cf4a08e2ade63f41901d56d5ff07f0061e3"},{"id":"func/_apply_connection_assignment","name":"_apply_connection_assignment","line":122,"end_line":131,"hash":"4826885a653c30e772ae1c2a33be78235229c39814c0237dae054cdfd4723b92"},{"id":"func/_try_set_feedback_source","name":"_try_set_feedback_source","line":134,"end_line":144,"hash":"b570aa8dbc9545c3cb8e4e4bbc6c29415d0a1fc4411931cf0b89ec7cbe1730c0"},{"id":"func/_try_set_control_action_target","name":"_try_set_control_action_target","line":147,"end_line":157,"hash":"0f0ecda079875b1d7e7a0b35a2596c263a0df3a38060058645e132e5b42f6333"},{"id":"func/_merge_controlled_processes","name":"_merge_controlled_processes","line":160,"end_line":171,"hash":"b6e9a76bea5acbc4e6d1f164d2bab1edc9ed699e8512a42f90752025a74148e8"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":179,"end_line":198,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":201,"end_line":220,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":223,"end_line":252,"hash":"6915f5c5c82fecb20e9fcff469fe980cb4bb7111158209e176ff983db23f1727"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":255,"end_line":265,"hash":"14f54711c6202a0ef276c6c0c7f6b5f27a33e3f4125758cb98fa94f78ea2bccf"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":268,"end_line":312,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_merge_with_fallback","name":"_merge_with_fallback","line":315,"end_line":384,"hash":"eeea88fa3c976c61f11e7d86432017510e0c28c913f260fbc33709e82ce25e82"},{"id":"func/_extract_resp_num","name":"_extract_resp_num","line":392,"end_line":395,"hash":"c60c17bbd15fed1d2c23c18c009e959d98aad10f2483586f45376e2e2040a07b"},{"id":"func/_next_fb_num","name":"_next_fb_num","line":398,"end_line":409,"hash":"9cb65fc906923ba464247da1827ef99279c6681dc8bd9a336a2a7b50817c86c8"},{"id":"func/_find_orphan_pms","name":"_find_orphan_pms","line":412,"end_line":418,"hash":"0e41d0d10fcfc7d0b5b6d7ac81657b077239b0a2a6b6b5b13924221a1f5e3b18"},{"id":"func/_create_stub_fb","name":"_create_stub_fb","line":421,"end_line":450,"hash":"78fc6869e1c08b137ede0c35ca809bae8b70ab9ef4fcca809688233f60c57d4b"},{"id":"func/repair_orphan_pms","name":"repair_orphan_pms","line":453,"end_line":503,"hash":"5e492cbf68051d9d09c65c6cc299d12f33c68a0299070cec7e88de60f1bf0e06"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":511,"end_line":582,"hash":"d3bf1a6aa69e55ad6883d3dacbdb54daaf1f2e8680fed6b94bcd5ed2a9838200"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":590,"end_line":623,"hash":"fd9bc8ae6b88e5852532eecfc104323c9eedd2cea5c485991da751403cc39071"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":631,"end_line":666,"hash":"0b200435fbb5d1f73446ae42cafbf55a652db2c3635f432d8e18d59c2d020d53"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":674,"end_line":710,"hash":"88f9e669aebbe55f102f1a491e96a23a31e806ef8785ee6ce67eefd866f03462"}]}
 # mutate4py-manifest-end

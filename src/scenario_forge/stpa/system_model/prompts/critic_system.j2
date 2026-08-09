@@ -37,3 +37,5 @@ Produce a CriticFindings with:
 - gaps: list of CriticGap objects (gap_type: "missing_responsibility", "missing_feedback", or "missing_pm_part"; description; related_attack_path; suggested_remedy)
 - checklist_results: dict mapping responsibility name to "present", "absent_justified", or "absent_unjustified"
 - taxonomy_probe_results: dict mapping probe name to status
+
+Do NOT suggest specific IDs in remedies. Describe WHAT should be added (e.g., 'a responsibility for input validation'), not what ID it should have (e.g., not 'add RESP-5' and not 'add PM-0-1'). Let the revision model assign IDs using the provided ID format rules.

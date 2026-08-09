@@ -35,6 +35,7 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
     run_completeness_critic,
     run_revision,
+    sanitize_critic_ids,
     strip_empty_responsibilities,
 )
 from scenario_forge.stpa.system_model.heuristics import (
@@ -269,6 +270,9 @@ def _run_stage_2_block(
         temperature=temperature,
     )
 
+    # Sanitize non-conforming IDs from critic remedies before revision
+    critic_findings = sanitize_critic_ids(critic_findings)
+
     # Revision (single attempt if unjustified gaps; graceful on failure)
     post_revision_warnings: list[str] = []
     revised = False
@@ -373,5 +377,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T14:02:08Z","module_hash":"8844c39aeccd45f15b06adbdba70d3723418ce7ee59b46c0affe5739b4a0a47d","functions":[{"id":"func/run_sp1","name":"run_sp1","line":74,"end_line":156,"hash":"77e1bc86e75c51a5586e059c3b2227e37bd433d8f5899706bc95689e7d2a900b"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":172,"end_line":193,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":196,"end_line":222,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":225,"end_line":301,"hash":"47c05167b28bbe6f183f8a2f9e907efa50b073845d1be2dcefbb8a50561f0d98"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":304,"end_line":312,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":315,"end_line":319,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":322,"end_line":371,"hash":"be4e656263b39d4f4813f2264707da1516718602bf6f25af343e43aac0c89984"}]}
+# {"version":1,"tested_at":"2026-08-09T22:00:26Z","module_hash":"f58c450cc9d6b7d6002731c0f387f178aa5ec4b067c5983470c95be30e8925e4","functions":[{"id":"func/run_sp1","name":"run_sp1","line":75,"end_line":157,"hash":"77e1bc86e75c51a5586e059c3b2227e37bd433d8f5899706bc95689e7d2a900b"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":173,"end_line":194,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":197,"end_line":223,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":226,"end_line":306,"hash":"94e5849c052aa1f15ecddd7aa6a36632a9d3f8a665bdb5186aaad7660de7da06"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":309,"end_line":317,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":320,"end_line":324,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":327,"end_line":376,"hash":"be4e656263b39d4f4813f2264707da1516718602bf6f25af343e43aac0c89984"}]}
 # mutate4py-manifest-end
