@@ -994,10 +994,15 @@ def _build_scenario_card(
     if envelope is not None:
         body_parts.extend(_build_scenario_envelope_body(envelope))
 
-    # Gherkin section — prefer feature_text, fall back to envelope.gherkin_raw
+    # Gherkin section — prefer feature_text, then gherkin_raw, then
+    # gherkin_spec.to_feature_text() as a final fallback.
     gherkin_text = feature_text
     if not gherkin_text and envelope is not None:
         gherkin_text = getattr(envelope, "gherkin_raw", None) or ""
+    if not gherkin_text and envelope is not None:
+        spec = getattr(envelope, "gherkin_spec", None)
+        if spec is not None and hasattr(spec, "to_feature_text"):
+            gherkin_text = spec.to_feature_text()
     if gherkin_text:
         highlighted = _highlight_gherkin(gherkin_text)
         body_parts.append('      <div class="scenario-section">')

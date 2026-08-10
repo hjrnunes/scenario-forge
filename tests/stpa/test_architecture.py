@@ -273,6 +273,64 @@ class TestModelDependencyDirection:
         assert not imports, f"enriched_threat_set.py imports stpa models: {imports}"
 
 
+class TestModelsDoNotImportHigherLayers:
+    """Boundary schema models must not import from scenario_prod, report,
+    or any other higher-level stpa module.
+
+    Models are the lowest-level architectural layer in stpa/; they must
+    remain free of dependencies on the pipeline that consumes them.
+    """
+
+    @pytest.fixture
+    def model_python_files(self) -> list[Path]:
+        return sorted(
+            p for p in MODELS_DIR.glob("*.py")
+            if p.name != "__init__.py"
+        )
+
+    def test_no_scenario_prod_imports(self, model_python_files):
+        """No model file imports from scenario_forge.stpa.scenario_prod."""
+        violations: list[str] = []
+        for path in model_python_files:
+            for imp in _extract_imports(path):
+                if imp.startswith("scenario_forge.stpa.scenario_prod"):
+                    violations.append(
+                        f"{path.name}: imports '{imp}' — "
+                        f"models must not depend on scenario_prod"
+                    )
+        assert not violations, (
+            "Model → scenario_prod dependency violations:\n" + "\n".join(violations)
+        )
+
+    def test_no_report_imports(self, model_python_files):
+        """No model file imports from scenario_forge.stpa.report."""
+        violations: list[str] = []
+        for path in model_python_files:
+            for imp in _extract_imports(path):
+                if imp.startswith("scenario_forge.stpa.report"):
+                    violations.append(
+                        f"{path.name}: imports '{imp}' — "
+                        f"models must not depend on report"
+                    )
+        assert not violations, (
+            "Model → report dependency violations:\n" + "\n".join(violations)
+        )
+
+    def test_no_system_model_imports(self, model_python_files):
+        """No model file imports from scenario_forge.stpa.system_model."""
+        violations: list[str] = []
+        for path in model_python_files:
+            for imp in _extract_imports(path):
+                if imp.startswith("scenario_forge.stpa.system_model"):
+                    violations.append(
+                        f"{path.name}: imports '{imp}' — "
+                        f"models must not depend on system_model"
+                    )
+        assert not violations, (
+            "Model → system_model dependency violations:\n" + "\n".join(violations)
+        )
+
+
 # ---------------------------------------------------------------------------
 # System Model architecture guards
 # ---------------------------------------------------------------------------
