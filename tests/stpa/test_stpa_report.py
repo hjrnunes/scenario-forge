@@ -137,10 +137,10 @@ def _make_ica_slot(
     slot_id: str = "S-1",
     uca_type: str = "Provided",
     is_na: bool = False,
-    ics=None,
+    icas=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        slot_id=slot_id, uca_type=uca_type, is_na=is_na, ics=ics or [],
+        slot_id=slot_id, uca_type=uca_type, is_na=is_na, icas=icas or [],
     )
 
 

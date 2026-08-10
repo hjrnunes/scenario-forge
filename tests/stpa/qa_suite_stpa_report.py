@@ -18,8 +18,6 @@ runs the CLI, and inspects the output HTML.
 from __future__ import annotations
 
 import argparse
-import html.parser
-import json
 import re
 import shutil
 import subprocess
@@ -32,8 +30,19 @@ from pathlib import Path
 # Test fixture builder
 # ---------------------------------------------------------------------------
 
-FIXTURE_DIR = Path(__file__).resolve().parents[3] / "src" / "scenario_forge" / "stpa" / "fixtures"
-SP3_OUTPUT = Path(__file__).resolve().parents[3] / "output" / "runs" / "20260810-sp3-occiai-or"
+def _find_project_root() -> Path:
+    """Find the project root by searching for pyproject.toml."""
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / "pyproject.toml").exists():
+            return p
+        p = p.parent
+    return Path.cwd()
+
+
+PROJECT_ROOT = _find_project_root()
+FIXTURE_DIR = PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "fixtures"
+SP3_OUTPUT = PROJECT_ROOT / "output" / "runs" / "20260810-sp3-occiai-or"
 
 
 def _build_combined_output_dir(tmpdir: Path) -> Path:
@@ -43,19 +52,20 @@ def _build_combined_output_dir(tmpdir: Path) -> Path:
     scenarios_dir = combined / "scenarios"
     scenarios_dir.mkdir(parents=True, exist_ok=True)
 
-    # SP1 artifacts from fixtures
+    # SP1 artifacts from fixtures (convert underscores to hyphens for
+    # the filenames the generator expects)
     for name in ("loss_analysis_occiai.yaml", "capability_profile_occiai.yaml",
                  "control_structure_occiai.yaml"):
         src = FIXTURE_DIR / name
         if src.exists():
-            dest_name = name.replace("_occiai", "")
+            dest_name = name.replace("_occiai", "").replace("_", "-")
             shutil.copy2(src, combined / dest_name)
 
     # SP2 artifacts from fixtures
     for name in ("ica_enumeration_occiai.yaml", "enriched_threats_occiai.yaml"):
         src = FIXTURE_DIR / name
         if src.exists():
-            dest_name = name.replace("_occiai", "")
+            dest_name = name.replace("_occiai", "").replace("_", "-")
             shutil.copy2(src, combined / dest_name)
 
     # SP3 artifacts from output runs
@@ -89,8 +99,8 @@ class HTMLInspector:
     def contains(self, pattern: str) -> bool:
         return pattern in self.html
 
-    def contains_regex(self, pattern: str) -> bool:
-        return re.search(pattern, self.html, re.IGNORECASE) is not None
+    def contains_regex(self, pattern: str, flags: int = 0) -> bool:
+        return re.search(pattern, self.html, flags | re.IGNORECASE) is not None
 
     def count_occurrences(self, pattern: str) -> int:
         return len(re.findall(pattern, self.html, re.IGNORECASE))
@@ -591,6 +601,10 @@ def main() -> int:
         help="Override fixture directory",
     )
     args = parser.parse_args()
+
+    global FIXTURE_DIR
+    if args.fixture_dir is not None:
+        FIXTURE_DIR = args.fixture_dir
 
     result = TestResult()
 

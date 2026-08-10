@@ -730,7 +730,7 @@ def _build_sp2_ica_section(ica_enumeration: Any) -> str:
     if ica_enumeration.slots:
         rows = "\n".join(
             f'      <tr><td>{_esc(s.slot_id)}</td><td>{_esc(s.uca_type.value if hasattr(s.uca_type, "value") else s.uca_type)}</td>'
-            f'<td>{"N/A" if s.is_na else str(len(s.ics))}</td></tr>'
+            f'<td>{"N/A" if s.is_na else str(len(s.icas))}</td></tr>'
             for s in ica_enumeration.slots
         )
         parts.append(
@@ -957,6 +957,32 @@ def _build_bdi_section(scenario_spec: Any) -> str:
     return "\n".join(parts)
 
 
+def _build_scenario_envelope_body(envelope: Any) -> list[str]:
+    """Build the HTML body parts from a scenario envelope's attributes."""
+    parts: list[str] = []
+    spec = getattr(envelope, "scenario_spec", None)
+
+    # BDI section
+    if spec is not None:
+        parts.append(_build_bdi_section(spec))
+
+    # Narrative section
+    narrative = getattr(envelope, "narrative", "") or ""
+    if narrative:
+        parts.append('      <div class="scenario-section">')
+        parts.append('        <div class="scenario-section-title">Narrative</div>')
+        parts.append(f'        <div class="narrative-text">{_esc(narrative)}</div>')
+        parts.append('      </div>')
+
+    # Attack tree section
+    attack_tree = getattr(envelope, "attack_tree", None)
+    parts.append('      <div class="scenario-section">')
+    parts.append('        <div class="scenario-section-title">Attack Tree</div>')
+    parts.append(f'        {_build_attack_tree_visual(attack_tree)}')
+    parts.append('      </div>')
+    return parts
+
+
 def _build_scenario_card(
     scenario_id: str,
     envelope: Any | None,
@@ -966,26 +992,7 @@ def _build_scenario_card(
     body_parts: list[str] = []
 
     if envelope is not None:
-        spec = getattr(envelope, "scenario_spec", None)
-
-        # BDI section
-        if spec is not None:
-            body_parts.append(_build_bdi_section(spec))
-
-        # Narrative section
-        narrative = getattr(envelope, "narrative", "") or ""
-        if narrative:
-            body_parts.append('      <div class="scenario-section">')
-            body_parts.append('        <div class="scenario-section-title">Narrative</div>')
-            body_parts.append(f'        <div class="narrative-text">{_esc(narrative)}</div>')
-            body_parts.append('      </div>')
-
-        # Attack tree section
-        attack_tree = getattr(envelope, "attack_tree", None)
-        body_parts.append('      <div class="scenario-section">')
-        body_parts.append('        <div class="scenario-section-title">Attack Tree</div>')
-        body_parts.append(f'        {_build_attack_tree_visual(attack_tree)}')
-        body_parts.append('      </div>')
+        body_parts.extend(_build_scenario_envelope_body(envelope))
 
     # Gherkin section
     if feature_text:

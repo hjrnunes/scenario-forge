@@ -19,6 +19,7 @@ from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
 from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
 from scenario_forge.stpa.report.template import (
     build_html,
     build_llm_call_inspector,
@@ -84,7 +85,11 @@ def _read_calls_jsonl(path: Path) -> list[dict]:
 def _load_scenarios(scenarios_dir: Path) -> list[tuple[str, Any, str | None]]:
     """Load all scenario envelopes and feature files from a scenarios directory.
 
-    Returns a list of (scenario_id, envelope_dict, feature_text) tuples
+    Each scenario YAML is parsed into a :class:`ScenarioEnvelope` model so
+    that template builders can use attribute access.  If parsing fails the
+    envelope is ``None`` (the Gherkin feature file is still loaded).
+
+    Returns a list of (scenario_id, envelope, feature_text) tuples
     sorted by scenario_id.
     """
     if not scenarios_dir.exists():
@@ -95,12 +100,14 @@ def _load_scenarios(scenarios_dir: Path) -> list[tuple[str, Any, str | None]]:
 
     for yaml_path in yaml_files:
         scenario_id = yaml_path.stem
-        envelope_data = _read_yaml_dict(yaml_path)
+        envelope = _load_model_artifact(
+            yaml_path, {}, ScenarioEnvelope, yaml_path.name,
+        )
         feature_path = scenarios_dir / f"{scenario_id}.feature"
         feature_text = None
         if feature_path.exists():
             feature_text = feature_path.read_text(encoding="utf-8")
-        result.append((scenario_id, envelope_data, feature_text))
+        result.append((scenario_id, envelope, feature_text))
 
     return result
 
