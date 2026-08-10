@@ -809,6 +809,7 @@ class TestScenarioProdNoImportCycles:
         [
             "scenario_forge.stpa.scenario_prod",
             "scenario_forge.stpa.scenario_prod._constants",
+            "scenario_forge.stpa.scenario_prod.enrichment",
             "scenario_forge.stpa.scenario_prod.assembly",
             "scenario_forge.stpa.scenario_prod.bdi_generation",
             "scenario_forge.stpa.scenario_prod.narrative",
@@ -958,3 +959,65 @@ class TestScenarioProdNoDirectCompleteCalls:
             "Direct .complete() calls in scenario_prod/:\n"
             + "\n".join(violations)
         )
+
+
+class TestEnrichmentModuleBoundary:
+    """Enrichment module must be a pure, leaf-level computation module.
+
+    ``enrichment.py`` computes deterministic enrichment blocks from
+    models and capability-profile data.  It must not depend on the
+    orchestrator (``run.py``) or any other scenario_prod module —
+    only on the model layer and the capability profile.
+    """
+
+    def test_enrichment_does_not_import_run(self):
+        """enrichment.py must not import from run.py (orchestrator)."""
+        path = SCENARIO_PROD_DIR / "enrichment.py"
+        imports = _extract_imports(path)
+        violations = [imp for imp in imports if "run" in imp.split(".")[-1]]
+        assert not violations, (
+            f"enrichment.py imports orchestrator module(s): {violations}"
+        )
+
+    def test_enrichment_does_not_import_scenario_prod_siblings(self):
+        """enrichment.py must not import from other scenario_prod modules.
+
+        It is a leaf module (layer 0) — only model-layer imports allowed.
+        """
+        path = SCENARIO_PROD_DIR / "enrichment.py"
+        internal = _scenario_prod_internal_imports(path)
+        # Filter out self-imports (shouldn't happen, but be safe)
+        siblings = [m for m in internal if m != "enrichment"]
+        assert not siblings, (
+            f"enrichment.py imports scenario_prod sibling(s): {siblings}"
+        )
+
+    def test_enrichment_imports_only_model_layer(self):
+        """enrichment.py may only import from stpa.models or models packages."""
+        path = SCENARIO_PROD_DIR / "enrichment.py"
+        imports = _extract_imports(path)
+        allowed_prefixes = (
+            "scenario_forge.stpa.models",
+            "scenario_forge.models.capability_profile",
+            "__future__",
+        )
+        violations = [
+            imp for imp in imports
+            if not imp.startswith(allowed_prefixes)
+            and imp not in ("typing", "pydantic")
+        ]
+        assert not violations, (
+            f"enrichment.py imports non-model module(s): {violations}"
+        )
+
+    def test_enrichment_exports_compute_functions(self):
+        """enrichment.py must export compute_system_context and compute_consumer_hints."""
+        mod = importlib.import_module(
+            "scenario_forge.stpa.scenario_prod.enrichment"
+        )
+        assert hasattr(mod, "compute_system_context")
+        assert hasattr(mod, "compute_consumer_hints")
+        assert callable(mod.compute_system_context)
+        assert callable(mod.compute_consumer_hints)
+        assert "compute_system_context" in mod.__all__
+        assert "compute_consumer_hints" in mod.__all__

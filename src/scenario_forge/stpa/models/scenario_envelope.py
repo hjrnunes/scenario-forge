@@ -6,6 +6,8 @@ plus the ScenarioSpec and faceting metadata.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 from scenario_forge.stpa.models.enriched_threat_set import CatalogMapping
@@ -74,8 +76,8 @@ class ConsumerHints(BaseModel):
     requires_multi_turn: bool
     requires_multi_agent: bool
     requires_persistent_state: bool
-    garak_testability: str  # "high", "medium", "low"
-    midojo_testability: str  # "high", "medium", "low"
+    garak_testability: Literal["high", "medium", "low"]
+    midojo_testability: Literal["high", "medium", "low"]
 
 
 class ScenarioEnvelope(BaseModel):

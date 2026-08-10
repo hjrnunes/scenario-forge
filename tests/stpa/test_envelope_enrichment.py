@@ -446,8 +446,8 @@ class TestConsumerHintsModel:
             ("requires_multi_turn", "bool"),
             ("requires_multi_agent", "bool"),
             ("requires_persistent_state", "bool"),
-            ("garak_testability", "str"),
-            ("midojo_testability", "str"),
+            ("garak_testability", "Literal"),
+            ("midojo_testability", "Literal"),
         ],
     )
     def test_field_exists_with_correct_type(self, field, expected_type):

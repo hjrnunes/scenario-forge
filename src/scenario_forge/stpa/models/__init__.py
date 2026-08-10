@@ -39,7 +39,12 @@ from scenario_forge.stpa.models.loss_analysis import (
     LossProvenance,
     SecurityConstraint,
 )
-from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import (
+    ConsumerHints,
+    GherkinSpec,
+    ScenarioEnvelope,
+    SystemContext,
+)
 from scenario_forge.stpa.models.scenario_spec import (
     AttackerBDI,
     DefenderBDI,
@@ -90,8 +95,10 @@ __all__ = [
     "ScenarioSpec",
     "ThreatSource",
     # scenario_envelope
+    "ConsumerHints",
     "GherkinSpec",
     "ScenarioEnvelope",
+    "SystemContext",
 ]
 
 
