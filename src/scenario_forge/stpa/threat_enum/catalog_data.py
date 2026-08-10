@@ -177,41 +177,46 @@ def match_catalog(ica_text: str, loss_scenario: str) -> list[CatalogMapping]:
         catalog entry. An empty list means the ICA is unmapped.
     """
     combined_text = (ica_text + " " + loss_scenario).lower()
-    mappings: list[CatalogMapping] = []
 
-    _match_atlas(combined_text, mappings)
-    _match_owasp(combined_text, mappings)
-
+    mappings = _match_keyword_set(
+        combined_text, "ATLAS", ATLAS_KEYWORDS, ATLAS_TECHNIQUE_NAMES
+    )
+    mappings.extend(
+        _match_keyword_set(
+            combined_text, "OWASP_AGENTIC", OWASP_AGENTIC_KEYWORDS, OWASP_AGENTIC_NAMES
+        )
+    )
     return mappings
 
 
-def _match_atlas(combined_text: str, mappings: list[CatalogMapping]) -> None:
-    """Match combined text against ATLAS keyword sets."""
-    for atlas_id, keywords in ATLAS_KEYWORDS.items():
+def _match_keyword_set(
+    combined_text: str,
+    catalog: str,
+    keywords_by_id: dict[str, list[str]],
+    names_by_id: dict[str, str],
+) -> list[CatalogMapping]:
+    """Match combined text against a single catalog's keyword sets.
+
+    Args:
+        combined_text: Lowercased text to search for keyword matches.
+        catalog: Catalog label (e.g. ``"ATLAS"``).
+        keywords_by_id: Mapping from entry ID to list of keywords.
+        names_by_id: Mapping from entry ID to human-readable name.
+
+    Returns:
+        A list of :class:`CatalogMapping` objects for matched entries.
+    """
+    mappings: list[CatalogMapping] = []
+    for entry_id, keywords in keywords_by_id.items():
         matches = sum(1 for kw in keywords if kw in combined_text)
         if matches > 0:
             confidence = "high" if matches >= 2 else "low"
             mappings.append(
                 CatalogMapping(
-                    catalog="ATLAS",
-                    id=atlas_id,
-                    name=ATLAS_TECHNIQUE_NAMES.get(atlas_id, atlas_id),
+                    catalog=catalog,
+                    id=entry_id,
+                    name=names_by_id.get(entry_id, entry_id),
                     confidence=confidence,
                 )
             )
-
-
-def _match_owasp(combined_text: str, mappings: list[CatalogMapping]) -> None:
-    """Match combined text against OWASP Agentic keyword sets."""
-    for threat_id, keywords in OWASP_AGENTIC_KEYWORDS.items():
-        matches = sum(1 for kw in keywords if kw in combined_text)
-        if matches > 0:
-            confidence = "high" if matches >= 2 else "low"
-            mappings.append(
-                CatalogMapping(
-                    catalog="OWASP_AGENTIC",
-                    id=threat_id,
-                    name=OWASP_AGENTIC_NAMES.get(threat_id, threat_id),
-                    confidence=confidence,
-                )
-            )
+    return mappings

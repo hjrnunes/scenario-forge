@@ -12,6 +12,8 @@ block.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from scenario_forge.models.capability_profile import CapabilityProfile
 
 __all__ = ["build_technology_context"]
@@ -35,6 +37,38 @@ _ZONE_FAILURE_MODES: dict[str, str] = {
         "impersonation, message tampering, coordination desynchronization"
     ),
 }
+
+# KC sub-code failure mode rules: each entry is (predicate, failure-mode text).
+# The predicate receives the set of active KC sub-codes and returns True when
+# the rule applies.  This table replaces a chain of if-statements so the
+# function's cyclomatic complexity stays low even as new rules are added.
+_KC_FAILURE_MODE_RULES: list[tuple[Callable[[set[str]], bool], str]] = [
+    (
+        lambda kc: "KC6.3.3" in kc,
+        "- Uses RAG → susceptible to retrieval poisoning, "
+        "knowledge base injection, retrieval manipulation",
+    ),
+    (
+        lambda kc: any(k.startswith("KC4.3") for k in kc),
+        "- Has cross-session memory → susceptible to persistent "
+        "context poisoning, cross-user data leakage",
+    ),
+    (
+        lambda kc: "KC2.3" in kc or "KCX-MAGENT" in kc,
+        "- Has multi-agent collaboration → susceptible to agent "
+        "rogue behavior, conflicting directives, shared state corruption",
+    ),
+    (
+        lambda kc: "KCX-HITL" in kc,
+        "- Has human-in-the-loop → susceptible to alert fatigue, "
+        "escalation bypass, human manipulation",
+    ),
+    (
+        lambda kc: any(k.startswith("KC6.2") for k in kc),
+        "- Has code execution → susceptible to arbitrary code "
+        "execution, sandbox escape",
+    ),
+]
 
 
 def build_technology_context(profile: CapabilityProfile) -> str:
@@ -74,34 +108,16 @@ def _emit_zone_failure_modes(lines: list[str], profile: CapabilityProfile) -> No
 
 
 def _emit_kc_failure_modes(lines: list[str], profile: CapabilityProfile) -> None:
-    """Emit failure modes based on KC sub-codes."""
-    kc = set(profile.kc_subcodes)
+    """Emit failure modes based on KC sub-codes.
 
-    if "KC6.3.3" in kc:
-        lines.append(
-            "- Uses RAG → susceptible to retrieval poisoning, "
-            "knowledge base injection, retrieval manipulation"
-        )
-    if any(k.startswith("KC4.3") for k in kc):
-        lines.append(
-            "- Has cross-session memory → susceptible to persistent "
-            "context poisoning, cross-user data leakage"
-        )
-    if "KC2.3" in kc or "KCX-MAGENT" in kc:
-        lines.append(
-            "- Has multi-agent collaboration → susceptible to agent "
-            "rogue behavior, conflicting directives, shared state corruption"
-        )
-    if "KCX-HITL" in kc:
-        lines.append(
-            "- Has human-in-the-loop → susceptible to alert fatigue, "
-            "escalation bypass, human manipulation"
-        )
-    if any(k.startswith("KC6.2") for k in kc):
-        lines.append(
-            "- Has code execution → susceptible to arbitrary code "
-            "execution, sandbox escape"
-        )
+    Iterates over the ``_KC_FAILURE_MODE_RULES`` table and appends the
+    failure-mode text for each rule whose predicate matches the profile's
+    active KC sub-codes.
+    """
+    kc = set(profile.kc_subcodes)
+    for predicate, text in _KC_FAILURE_MODE_RULES:
+        if predicate(kc):
+            lines.append(text)
 
 
 def _emit_entry_point_failure_modes(

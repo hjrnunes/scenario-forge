@@ -36,10 +36,6 @@ __all__ = [
     "build_slot_filling_prompts",
 ]
 
-# Re-export for test access
-PROMPTS_DIR_LOCAL = PROMPTS_DIR
-
-
 class ICASlotFillResult(BaseModel):
     """LLM response model: a list of filled ICA slots.
 
@@ -212,14 +208,45 @@ def fill_all_slots(
         loader = TemplateLoader(PROMPTS_DIR)
 
     technology_context = build_technology_context(capability_profile)
+    resp_slots = _group_resp_slots(slots)
+    call_specs = _build_slot_fill_call_specs(
+        resp_slots, control_structure, loss_analysis, technology_context, temperature, loader
+    )
 
-    # Group responsibility slots by resp_id
+    results = parallel_safe_llm_calls(
+        call_specs,
+        llm_client=llm_client,
+        run_dir=run_dir,
+        max_workers=max_workers,
+    )
+
+    filled_by_id = _collect_filled_slots(results)
+    return _merge_filled_slots(slots, filled_by_id)
+
+
+def _group_resp_slots(
+    slots: list[SlotPlaceholder],
+) -> dict[str, list[SlotPlaceholder]]:
+    """Group responsibility slots by resp_id.
+
+    Coordination link slots (``responsibility=None``) are excluded.
+    """
     resp_slots: dict[str, list[SlotPlaceholder]] = {}
     for slot in slots:
         if slot.responsibility:
             resp_slots.setdefault(slot.responsibility, []).append(slot)
+    return resp_slots
 
-    # Build call specs for each responsibility
+
+def _build_slot_fill_call_specs(
+    resp_slots: dict[str, list[SlotPlaceholder]],
+    control_structure: ControlStructure,
+    loss_analysis: LossAnalysis,
+    technology_context: str,
+    temperature: float,
+    loader: TemplateLoader,
+) -> list[LLMCallSpec]:
+    """Build one :class:`LLMCallSpec` per responsibility."""
     call_specs: list[LLMCallSpec] = []
     for resp_id, resp_slot_list in resp_slots.items():
         system_prompt, user_prompt = build_slot_filling_prompts(
@@ -240,29 +267,35 @@ def fill_all_slots(
                 temperature=temperature,
             )
         )
+    return call_specs
 
-    # Execute calls (parallel or sequential)
-    results = parallel_safe_llm_calls(
-        call_specs,
-        llm_client=llm_client,
-        run_dir=run_dir,
-        max_workers=max_workers,
-    )
 
-    # Build a lookup of filled slots by slot_id
+def _collect_filled_slots(
+    results: list,
+) -> dict[str, ICASlot]:
+    """Build a lookup of filled slots by slot_id from LLM call results."""
     filled_by_id: dict[str, ICASlot] = {}
     for result in results:
         if result.result is not None and isinstance(result.result, ICASlotFillResult):
             for filled_slot in result.result.filled_slots:
                 filled_by_id[filled_slot.slot_id] = filled_slot
+    return filled_by_id
 
-    # Merge filled slots back into the full list, converting to ICASlot
+
+def _merge_filled_slots(
+    slots: list[SlotPlaceholder],
+    filled_by_id: dict[str, ICASlot],
+) -> list[ICASlot]:
+    """Merge LLM-filled slots back into the full slot list.
+
+    Unfilled slots (coordination links or LLM failures) are returned as
+    N/A with a default justification.
+    """
     merged: list[ICASlot] = []
     for slot in slots:
         if slot.slot_id in filled_by_id:
             merged.append(filled_by_id[slot.slot_id])
         else:
-            # Unfilled slot (coordination link or LLM failure) → N/A with default
             merged.append(
                 ICASlot(
                     slot_id=slot.slot_id,
@@ -275,5 +308,4 @@ def fill_all_slots(
                     na_justification="Coordination link slot not filled by LLM in MVP",
                 )
             )
-
     return merged

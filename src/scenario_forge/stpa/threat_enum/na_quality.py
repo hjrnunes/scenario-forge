@@ -89,10 +89,7 @@ def check_na_ratio(slots: list[ICASlot], threshold: float = 0.75) -> list[str]:
     Returns:
         A list of flag messages, one per flagged responsibility.
     """
-    by_resp: dict[str, list[ICASlot]] = {}
-    for slot in slots:
-        if slot.responsibility:
-            by_resp.setdefault(slot.responsibility, []).append(slot)
+    by_resp = _group_slots_by_responsibility(slots)
 
     flags: list[str] = []
     for resp_id, resp_slots in by_resp.items():
@@ -104,6 +101,21 @@ def check_na_ratio(slots: list[ICASlot], threshold: float = 0.75) -> list[str]:
                 f"({ratio:.0%}) — exceeds {threshold:.0%} threshold"
             )
     return flags
+
+
+def _group_slots_by_responsibility(
+    slots: list[ICASlot],
+) -> dict[str, list[ICASlot]]:
+    """Group responsibility slots by their responsibility ID.
+
+    Coordination link slots (where ``responsibility`` is ``None``) are
+    excluded from the result.
+    """
+    by_resp: dict[str, list[ICASlot]] = {}
+    for slot in slots:
+        if slot.responsibility:
+            by_resp.setdefault(slot.responsibility, []).append(slot)
+    return by_resp
 
 
 def check_all_na_quality(

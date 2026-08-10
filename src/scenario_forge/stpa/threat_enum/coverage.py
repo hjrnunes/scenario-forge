@@ -122,17 +122,29 @@ def _compute_uncovered_owasp(
     structural_threats: list[StructuralThreat],
 ) -> tuple[list[str], str | None]:
     """Find OWASP Agentic threats with no structural or catalog correspondent."""
-    covered_ids: set[str] = set()
-    for threat in structural_threats:
-        for mapping in threat.catalog_mappings:
-            if mapping.catalog == "OWASP_AGENTIC":
-                covered_ids.add(mapping.id)
-
+    covered_ids = _collect_covered_owasp_ids(structural_threats)
     uncovered = [tid for tid in OWASP_AGENTIC_THREAT_IDS if tid not in covered_ids]
 
     if not uncovered:
         return [], None
     return uncovered, "No structural slot matched these OWASP agentic threats"
+
+
+def _collect_covered_owasp_ids(
+    structural_threats: list[StructuralThreat],
+) -> set[str]:
+    """Collect all OWASP Agentic threat IDs covered by structural threats."""
+    covered_ids: set[str] = set()
+    for threat in structural_threats:
+        for mapping in threat.catalog_mappings:
+            if mapping.catalog == "OWASP_AGENTIC":
+                covered_ids.add(mapping.id)
+    return covered_ids
+
+
+def _is_slot_considered(slot: ICASlot) -> bool:
+    """Return True if a slot has ICAs or a justified N/A."""
+    return slot.is_na or bool(slot.icas)
 
 
 def metric_structural_consideration(slots: list[ICASlot]) -> dict:
@@ -148,13 +160,13 @@ def metric_structural_consideration(slots: list[ICASlot]) -> dict:
         ``by_ica_type``, and ``by_responsibility``.
     """
     total = len(slots)
-    considered = sum(1 for s in slots if s.is_na or s.icas)
+    considered = sum(1 for s in slots if _is_slot_considered(s))
     return {
         "total_slots": total,
         "considered": considered,
         "rate": considered / total if total else 0.0,
-        "by_ica_type": _breakdown_by_type(slots, lambda s: s.is_na or bool(s.icas)),
-        "by_responsibility": _breakdown_by_resp(slots, lambda s: s.is_na or bool(s.icas)),
+        "by_ica_type": _breakdown_by_type(slots, _is_slot_considered),
+        "by_responsibility": _breakdown_by_resp(slots, _is_slot_considered),
     }
 
 
