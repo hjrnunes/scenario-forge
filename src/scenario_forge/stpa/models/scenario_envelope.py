@@ -110,5 +110,5 @@ class ScenarioEnvelope(BaseModel):
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T14:18:22Z","module_hash":"ce4fc3e45ba1e5b8e8d313bee01b0cf971129aec1c68d3eac7096b6d5dec9a19","functions":[{"id":"func/GherkinSpec.to_feature_text","name":"to_feature_text","line":33,"end_line":45,"hash":"863c912640ed8326c91760dd6ec973f91472da7c7ab6243f15a4a3e320dea85f"},{"id":"func/ScenarioEnvelope.validate_scenario_id_match","name":"validate_scenario_id_match","line":64,"end_line":71,"hash":"ae66e01ea20d4bafb634c17253dfa96bea6a31c8e839f07ca0ec5a5c316bdbf4"}]}
+# {"version":1,"tested_at":"2026-08-10T15:27:50Z","module_hash":"4151755d97363724212ccd6f663f4031db284a406a354345c9731848d3f3a193","functions":[{"id":"func/GherkinSpec.to_feature_text","name":"to_feature_text","line":35,"end_line":47,"hash":"863c912640ed8326c91760dd6ec973f91472da7c7ab6243f15a4a3e320dea85f"},{"id":"func/ScenarioEnvelope.validate_scenario_id_match","name":"validate_scenario_id_match","line":102,"end_line":109,"hash":"ae66e01ea20d4bafb634c17253dfa96bea6a31c8e839f07ca0ec5a5c316bdbf4"}]}
 # mutate4py-manifest-end

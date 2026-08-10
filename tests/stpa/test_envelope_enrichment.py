@@ -789,6 +789,108 @@ class TestReportDisplaysEnrichment:
         assert "Orchestrate tool calls safely" in html_text
         assert "tool_execution" in html_text or "input" in html_text
 
+    def test_umcf_15_report_displays_control_action_description(self):
+        """System Context section must render the control action description value."""
+        from scenario_forge.stpa.report.template import _build_scenario_envelope_body
+
+        ctx = SystemContext(
+            target_responsibility_description="Resp desc",
+            target_control_action_description="Execute requested tool",
+            tool_inventory=[],
+            active_zones=[],
+            multi_agent=False,
+            has_persistent_memory=False,
+        )
+        envelope = _make_envelope(system_context=ctx)
+        parts = _build_scenario_envelope_body(envelope)
+        html_text = "\n".join(parts)
+        assert "Execute requested tool" in html_text
+
+    def test_umcf_15_report_displays_tool_inventory_names(self):
+        """System Context section must render tool names from the inventory."""
+        from scenario_forge.stpa.report.template import _build_scenario_envelope_body
+
+        ctx = SystemContext(
+            target_responsibility_description="",
+            target_control_action_description="",
+            tool_inventory=["database_query", "web_search"],
+            active_zones=[],
+            multi_agent=False,
+            has_persistent_memory=False,
+        )
+        envelope = _make_envelope(system_context=ctx)
+        parts = _build_scenario_envelope_body(envelope)
+        html_text = "\n".join(parts)
+        assert "database_query" in html_text
+        assert "web_search" in html_text
+
+    def test_umcf_15_report_displays_multi_agent_true(self):
+        """System Context section must render multi_agent=True as 'True'."""
+        from scenario_forge.stpa.report.template import _build_scenario_envelope_body
+
+        ctx = SystemContext(
+            target_responsibility_description="",
+            target_control_action_description="",
+            tool_inventory=[],
+            active_zones=[],
+            multi_agent=True,
+            has_persistent_memory=False,
+        )
+        envelope = _make_envelope(system_context=ctx)
+        parts = _build_scenario_envelope_body(envelope)
+        html_text = "\n".join(parts)
+        assert "True" in html_text
+
+    def test_umcf_15_report_displays_persistent_memory_true(self):
+        """System Context section must render has_persistent_memory=True as 'True'."""
+        from scenario_forge.stpa.report.template import _build_scenario_envelope_body
+
+        ctx = SystemContext(
+            target_responsibility_description="",
+            target_control_action_description="",
+            tool_inventory=[],
+            active_zones=[],
+            multi_agent=False,
+            has_persistent_memory=True,
+        )
+        envelope = _make_envelope(system_context=ctx)
+        parts = _build_scenario_envelope_body(envelope)
+        html_text = "\n".join(parts)
+        assert "True" in html_text
+
+    def test_umcf_15_report_multi_agent_false_not_true(self):
+        """System Context with multi_agent=False must NOT render 'True' in that field."""
+        from scenario_forge.stpa.report.template import _build_system_context_section
+
+        ctx = SystemContext(
+            target_responsibility_description="",
+            target_control_action_description="",
+            tool_inventory=[],
+            active_zones=[],
+            multi_agent=False,
+            has_persistent_memory=False,
+        )
+        parts = _build_system_context_section(ctx)
+        html_text = "\n".join(parts)
+        # The multi_agent value should be 'False', not 'True'
+        assert "False" in html_text
+
+    def test_umcf_15_report_persistent_memory_false_not_true(self):
+        """System Context with has_persistent_memory=False must render 'False'."""
+        from scenario_forge.stpa.report.template import _build_system_context_section
+
+        ctx = SystemContext(
+            target_responsibility_description="",
+            target_control_action_description="",
+            tool_inventory=[],
+            active_zones=[],
+            multi_agent=False,
+            has_persistent_memory=False,
+        )
+        parts = _build_system_context_section(ctx)
+        html_text = "\n".join(parts)
+        assert "False" in html_text
+
     def test_8b06_17_report_displays_consumer_hints(self):
         from scenario_forge.stpa.report.template import _build_scenario_envelope_body
 
@@ -807,6 +909,148 @@ class TestReportDisplaysEnrichment:
         assert "Consumer Hints" in html_text
         assert "garak_testability" in html_text or "Garak" in html_text
         assert "midojo_testability" in html_text or "Midojo" in html_text
+
+    def test_8b06_17_report_displays_primary_attack_zone_value(self):
+        """Consumer Hints section must render the primary_attack_zone value."""
+        from scenario_forge.stpa.report.template import _build_consumer_hints_section
+
+        hints = ConsumerHints(
+            primary_attack_zone="tool_execution",
+            requires_tool_execution=True,
+            requires_multi_turn=False,
+            requires_multi_agent=False,
+            requires_persistent_state=False,
+            garak_testability="low",
+            midojo_testability="high",
+        )
+        parts = _build_consumer_hints_section(hints)
+        html_text = "\n".join(parts)
+        assert "tool_execution" in html_text
+
+    def test_8b06_17_report_displays_garak_testability_value(self):
+        """Consumer Hints section must render the actual garak_testability value."""
+        from scenario_forge.stpa.report.template import _build_consumer_hints_section
+
+        hints = ConsumerHints(
+            primary_attack_zone="input",
+            requires_tool_execution=False,
+            requires_multi_turn=False,
+            requires_multi_agent=False,
+            requires_persistent_state=False,
+            garak_testability="high",
+            midojo_testability="low",
+        )
+        parts = _build_consumer_hints_section(hints)
+        html_text = "\n".join(parts)
+        # Must contain the value 'high' (not just the label 'Garak Testability')
+        assert "high" in html_text
+
+    def test_8b06_17_report_displays_midojo_testability_value(self):
+        """Consumer Hints section must render the actual midojo_testability value."""
+        from scenario_forge.stpa.report.template import _build_consumer_hints_section
+
+        hints = ConsumerHints(
+            primary_attack_zone="input",
+            requires_tool_execution=False,
+            requires_multi_turn=False,
+            requires_multi_agent=False,
+            requires_persistent_state=False,
+            garak_testability="high",
+            midojo_testability="medium",
+        )
+        parts = _build_consumer_hints_section(hints)
+        html_text = "\n".join(parts)
+        assert "medium" in html_text
+
+    @pytest.mark.parametrize(
+        "field, value, expected_str",
+        [
+            ("requires_tool_execution", True, "True"),
+            ("requires_tool_execution", False, "False"),
+            ("requires_multi_turn", True, "True"),
+            ("requires_multi_turn", False, "False"),
+            ("requires_multi_agent", True, "True"),
+            ("requires_multi_agent", False, "False"),
+            ("requires_persistent_state", True, "True"),
+            ("requires_persistent_state", False, "False"),
+        ],
+    )
+    def test_8b06_17_report_displays_boolean_flag_values(
+        self, field, value, expected_str
+    ):
+        """Consumer Hints section must render correct boolean flag values."""
+        from scenario_forge.stpa.report.template import _build_consumer_hints_section
+
+        kwargs = dict(
+            primary_attack_zone="input",
+            requires_tool_execution=False,
+            requires_multi_turn=False,
+            requires_multi_agent=False,
+            requires_persistent_state=False,
+            garak_testability="high",
+            midojo_testability="low",
+        )
+        kwargs[field] = value
+        hints = ConsumerHints(**kwargs)
+        parts = _build_consumer_hints_section(hints)
+        html_text = "\n".join(parts)
+        assert expected_str in html_text
+
+    def test_report_displays_bdi_section_when_spec_present(self):
+        """_build_scenario_envelope_body must include BDI section when spec is present."""
+        from scenario_forge.stpa.report.template import _build_scenario_envelope_body
+
+        envelope = _make_envelope()
+        parts = _build_scenario_envelope_body(envelope)
+        html_text = "\n".join(parts)
+        # The BDI section renders beliefs — check for the belief content
+        assert "Belief" in html_text
+
+    def test_report_displays_narrative_text(self):
+        """_build_scenario_envelope_body must render narrative content."""
+        from scenario_forge.stpa.report.template import _build_scenario_envelope_body
+
+        envelope = _make_envelope()
+        envelope = envelope.model_copy(update={"narrative": "Unique narrative XYZ"})
+        parts = _build_scenario_envelope_body(envelope)
+        html_text = "\n".join(parts)
+        assert "Unique narrative XYZ" in html_text
+
+
+class TestGherkinSpecToFeatureText:
+    """Tests for GherkinSpec.to_feature_text — kills trailing newline mutant."""
+
+    def test_to_feature_text_ends_with_newline(self):
+        """to_feature_text output must end with a trailing newline."""
+        spec = GherkinSpec(
+            feature="Test Feature",
+            scenario="Test Scenario",
+            given=["Given a condition"],
+            when=["When an action"],
+            then_expected=["Then expected result"],
+            then_actual=["But actual result"],
+        )
+        text = spec.to_feature_text()
+        assert text.endswith("\n"), "to_feature_text must end with a trailing newline"
+
+    def test_to_feature_text_contains_all_steps(self):
+        """to_feature_text must render all given/when/then/but steps."""
+        spec = GherkinSpec(
+            feature="My Feature",
+            scenario="My Scenario",
+            given=["Given step 1", "Given step 2"],
+            when=["When step 1"],
+            then_expected=["Then should do X"],
+            then_actual=["But does Y"],
+        )
+        text = spec.to_feature_text()
+        assert "Feature: My Feature" in text
+        assert "Scenario: My Scenario" in text
+        assert "Given step 1" in text
+        assert "Given step 2" in text
+        assert "When step 1" in text
+        assert "Then should do X" in text
+        assert "But does Y" in text
 
 
 # ---------------------------------------------------------------------------

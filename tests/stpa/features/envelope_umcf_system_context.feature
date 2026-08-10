@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=4959a3a794f009be490eab0895aa2eaca94307a0f5fa1d211536e02441f8266b
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T15:36:17.490382Z","feature_name":"Envelope system_context block (umcf)","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/envelope_umcf_system_context.feature","background_hash":"75d296120ab18c01c871945301a352361787bffd456b3d2f285be4d8b769f3f1","implementation_hash":"unknown","scenarios":[{"index":0,"name":"UMCF-01 SystemContext model has required fields","scenario_hash":"4092ea928d9ee0ea151920bfab1bbcce6e706987cb54c15f565779d450080390","mutation_count":12,"result":{"Total":12,"Killed":12,"Survived":0,"Errors":0},"tested_at":"2026-08-10T15:36:17.490382Z"},{"index":6,"name":"UMCF-07 system_context inlines active_zones from capability profile","scenario_hash":"9f77b2539403b10df41ebf15c2f192c61d19a5e62397ce6ee62e90e4c04cb5e8","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-10T15:36:17.490382Z"},{"index":7,"name":"UMCF-08 system_context inlines boolean flags from capability profile","scenario_hash":"42c7b4f4dbff48f5af44c947d1e864f441fee21df9bdc2a26897e1f979fe7846","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-10T15:36:17.490382Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: Envelope system_context block (umcf)
   The ScenarioEnvelope gains an optional system_context block that inlines
   SP1 data so adapters can interpret scenarios without separate SP1

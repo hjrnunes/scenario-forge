@@ -1,3 +1,7 @@
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T15:37:04.011563Z","feature_name":"Envelope consumer_hints filtering metadata (8b06)","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/envelope_8b06_consumer_hints.feature","background_hash":"f0f9074ca8df46fcace42eb51905a1f263cc0f996230c7a0b7e87abf27ca6cab","implementation_hash":"unknown","scenarios":[{"index":0,"name":"8B06-01 ConsumerHints model has required fields","scenario_hash":"112ec72f12be62ee6308d408ff06fcde85807f06a8e1af5188e62b93df6f86cd","mutation_count":14,"result":{"Total":14,"Killed":14,"Survived":0,"Errors":0},"tested_at":"2026-08-10T15:36:45.661633Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: Envelope consumer_hints filtering metadata (8b06)
   The ScenarioEnvelope gains an optional consumer_hints block with
   deterministic, rule-based fields that let adapters self-select

@@ -90,5 +90,5 @@ def assemble_envelope(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T14:20:09Z","module_hash":"d8e76de06d1345632e26d6399fc19b7dbf275d3591022628a9699f73a1083f17","functions":[{"id":"func/assemble_envelope","name":"assemble_envelope","line":15,"end_line":47,"hash":"1fde56b2fa7bb139523b67322735564bac123fbaa7cb2892bb855017194e2faf"}]}
+# {"version":1,"tested_at":"2026-08-10T15:23:00Z","module_hash":"077bc29cba8e4487d48c5b53107caa8a1a8e8f92a20711012a1b121655d4246e","functions":[{"id":"func/assemble_envelope","name":"assemble_envelope","line":26,"end_line":89,"hash":"85e02f9cc6ea6fd619fe565c6899f1abf9c7c29156f3cb8c2df9ac260a986bb0"}]}
 # mutate4py-manifest-end
