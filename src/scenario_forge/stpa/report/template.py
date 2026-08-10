@@ -957,6 +957,60 @@ def _build_bdi_section(scenario_spec: Any) -> str:
     return "\n".join(parts)
 
 
+def _build_system_context_section(ctx: Any) -> list[str]:
+    """Build the System Context enrichment section HTML parts."""
+    parts: list[str] = []
+    parts.append('      <div class="scenario-section">')
+    parts.append('        <div class="scenario-section-title">System Context</div>')
+    parts.append('        <div class="metadata-grid">')
+
+    resp_desc = getattr(ctx, "target_responsibility_description", "") or ""
+    ca_desc = getattr(ctx, "target_control_action_description", "") or ""
+    tool_inventory = getattr(ctx, "tool_inventory", []) or []
+    active_zones = getattr(ctx, "active_zones", []) or []
+    multi_agent = getattr(ctx, "multi_agent", False)
+    has_persistent_memory = getattr(ctx, "has_persistent_memory", False)
+
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Target Responsibility</span><span class="metadata-value">{_esc(resp_desc)}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Target Control Action</span><span class="metadata-value">{_esc(ca_desc)}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Tool Inventory</span><span class="metadata-value">{_esc(", ".join(tool_inventory))}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Active Zones</span><span class="metadata-value">{_esc(", ".join(active_zones))}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Multi-Agent</span><span class="metadata-value">{_esc(str(multi_agent))}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Persistent Memory</span><span class="metadata-value">{_esc(str(has_persistent_memory))}</span></div>')
+
+    parts.append('        </div>')
+    parts.append('      </div>')
+    return parts
+
+
+def _build_consumer_hints_section(hints: Any) -> list[str]:
+    """Build the Consumer Hints enrichment section HTML parts."""
+    parts: list[str] = []
+    parts.append('      <div class="scenario-section">')
+    parts.append('        <div class="scenario-section-title">Consumer Hints</div>')
+    parts.append('        <div class="metadata-grid">')
+
+    primary_attack_zone = getattr(hints, "primary_attack_zone", "") or ""
+    requires_tool_execution = getattr(hints, "requires_tool_execution", False)
+    requires_multi_turn = getattr(hints, "requires_multi_turn", False)
+    requires_multi_agent = getattr(hints, "requires_multi_agent", False)
+    requires_persistent_state = getattr(hints, "requires_persistent_state", False)
+    garak_testability = getattr(hints, "garak_testability", "") or ""
+    midojo_testability = getattr(hints, "midojo_testability", "") or ""
+
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Primary Attack Zone</span><span class="metadata-value">{_esc(primary_attack_zone)}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Tool Execution</span><span class="metadata-value">{_esc(str(requires_tool_execution))}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Multi-Turn</span><span class="metadata-value">{_esc(str(requires_multi_turn))}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Multi-Agent</span><span class="metadata-value">{_esc(str(requires_multi_agent))}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Persistent State</span><span class="metadata-value">{_esc(str(requires_persistent_state))}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Garak Testability</span><span class="metadata-value">{_esc(garak_testability)}</span></div>')
+    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Midojo Testability</span><span class="metadata-value">{_esc(midojo_testability)}</span></div>')
+
+    parts.append('        </div>')
+    parts.append('      </div>')
+    return parts
+
+
 def _build_scenario_envelope_body(envelope: Any) -> list[str]:
     """Build the HTML body parts from a scenario envelope's attributes."""
     parts: list[str] = []
@@ -980,6 +1034,17 @@ def _build_scenario_envelope_body(envelope: Any) -> list[str]:
     parts.append('        <div class="scenario-section-title">Attack Tree</div>')
     parts.append(f'        {_build_attack_tree_visual(attack_tree)}')
     parts.append('      </div>')
+
+    # System Context section (enrichment)
+    system_context = getattr(envelope, "system_context", None)
+    if system_context is not None:
+        parts.extend(_build_system_context_section(system_context))
+
+    # Consumer Hints section (enrichment)
+    consumer_hints = getattr(envelope, "consumer_hints", None)
+    if consumer_hints is not None:
+        parts.extend(_build_consumer_hints_section(consumer_hints))
+
     return parts
 
 

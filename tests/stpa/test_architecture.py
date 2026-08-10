@@ -722,6 +722,7 @@ SCENARIO_PROD_DIR = STPA_ROOT / "scenario_prod"
 # A module at layer N may import from modules at layer <= N.
 _SCENARIO_PROD_LAYERS: dict[str, int] = {
     "_constants": 0,
+    "enrichment": 0,
     "assembly": 1,
     "bdi_generation": 1,
     "narrative": 1,

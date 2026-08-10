@@ -24,6 +24,7 @@ from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call_raw
 from scenario_forge.stpa.infra.manifest_helpers import count_calls_by_stage, hash_model
 from scenario_forge.stpa.infra.templates import TemplateLoader, hash_prompt_templates
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
@@ -91,6 +92,7 @@ def run_sp3(
     control_structure: ControlStructure,
     loss_analysis: LossAnalysis,
     run_dir: Path,
+    capability_profile: CapabilityProfile | None = None,
     max_workers: int = 1,
     temperature: float = DEFAULT_TEMPERATURE,
 ) -> SP3RunResult:
@@ -102,6 +104,9 @@ def run_sp3(
         control_structure: SP1 control structure.
         loss_analysis: SP1 loss analysis.
         run_dir: Directory for output artifacts.
+        capability_profile: Optional SP1 capability profile for envelope
+            enrichment.  When provided, envelopes are enriched with
+            ``system_context`` and ``consumer_hints`` blocks.
         max_workers: Maximum parallel workers for LLM calls.
         temperature: LLM temperature.
 
@@ -130,7 +135,8 @@ def run_sp3(
     for spec in scenario_specs:
         envelope = _run_stage6_for_spec(
             llm_client, spec, control_structure, loss_analysis,
-            run_dir, loader, temperature, max_workers, stage_errors
+            run_dir, loader, temperature, max_workers, stage_errors,
+            capability_profile=capability_profile,
         )
         if envelope is not None:
             scenario_envelopes.append(envelope)
@@ -254,6 +260,8 @@ def _run_stage6_for_spec(
     temperature: float,
     max_workers: int,
     stage_errors: list[str],
+    *,
+    capability_profile: CapabilityProfile | None = None,
 ) -> ScenarioEnvelope | None:
     """Run Stage 6 concretization for a single scenario spec."""
     prompts = _build_stage6_prompts(spec, control_structure, loss_analysis, loader)
@@ -282,6 +290,8 @@ def _run_stage6_for_spec(
         attack_tree=attack_tree,
         gherkin_spec=gherkin_spec,
         gherkin_raw=gherkin_raw,
+        capability_profile=capability_profile,
+        control_structure=control_structure,
     )
 
 

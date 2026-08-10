@@ -327,9 +327,8 @@ env = assemble_envelope(
     capability_profile=profile, control_structure=cs,
 )
 sc = env.system_context
-# tool_inventory
-tool_names = [t.name if hasattr(t, 'name') else t.get('name', '') for t in sc.tool_inventory]
-assert 'database_query' in tool_names, f'tool_inventory missing database_query: {tool_names}'
+# tool_inventory — list[str] of tool names
+assert 'database_query' in sc.tool_inventory, f'tool_inventory missing database_query: {sc.tool_inventory}'
 # active_zones
 for z in ['input', 'reasoning', 'tool_execution']:
     assert z in sc.active_zones, f'active_zones missing {z}: {sc.active_zones}'
