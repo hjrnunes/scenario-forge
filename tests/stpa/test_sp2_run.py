@@ -557,3 +557,141 @@ class TestCLIScript:
         assert "--loss-analysis" in result.stdout
         assert "--output-dir" in result.stdout
         assert "--max-workers" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Mutation hardening tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunMutationHardening:
+    """Additional tests to kill surviving mutants in run.py."""
+
+    def test_run_creates_nested_directory(self):
+        """run_sp2 creates nested run_dir even when parent does not exist."""
+        cs = _make_test_control_structure()
+        la = _make_test_loss_analysis()
+        cp = _make_test_capability_profile()
+        client = _setup_mock_client()
+
+        with TemporaryDirectory() as tmpdir:
+            nested_dir = Path(tmpdir) / "nonexistent_parent" / "sp2-run"
+            run_sp2(
+                llm_client=client,
+                control_structure=cs,
+                capability_profile=cp,
+                loss_analysis=la,
+                run_dir=nested_dir,
+            )
+            assert nested_dir.exists()
+            assert (nested_dir / "ica-enumeration.yaml").exists()
+
+    def test_manifest_na_count_correct(self):
+        """Manifest na_count matches actual N/A slot count."""
+        cs = _make_test_control_structure()
+        la = _make_test_loss_analysis()
+        cp = _make_test_capability_profile()
+
+        # RESP-1 all N/A, RESP-2 non-N/A
+        filled_slots = []
+        for ca_id in ["CA-1-1", "CA-1-2"]:
+            for uca_type in UCAType:
+                slot_id = f"RESP-1:{ca_id}:{uca_type.value}"
+                filled_slots.append({
+                    "slot_id": slot_id,
+                    "responsibility": "RESP-1",
+                    "coordination_link": None,
+                    "control_action": ca_id,
+                    "uca_type": uca_type.value,
+                    "is_na": True,
+                    "icas": [],
+                    "na_justification": "Action is atomic with no duration component",
+                })
+        client = MockLLMClient()
+        client.set_response_queue([
+            ICASlotFillResult.model_validate({"filled_slots": filled_slots}),
+            ICASlotFillResult.model_validate(
+                _make_valid_slot_fill_result("RESP-2", ["CA-2-1", "CA-2-2"])
+            ),
+        ])
+
+        with TemporaryDirectory() as tmpdir:
+            run_sp2(
+                llm_client=client,
+                control_structure=cs,
+                capability_profile=cp,
+                loss_analysis=la,
+                run_dir=Path(tmpdir),
+            )
+            manifest = yaml.safe_load(
+                (Path(tmpdir) / "run-manifest.yaml").read_text()
+            )
+            # RESP-1 has 8 N/A + RESP-2 has 2 wrong_duration N/A + CL-1 has 4 N/A = 14
+            assert manifest["na_count"] == 14
+
+    def test_manifest_stage_summary_call_count(self):
+        """Manifest stage_summary has exact call_count for stage_3."""
+        cs = _make_test_control_structure()
+        la = _make_test_loss_analysis()
+        cp = _make_test_capability_profile()
+        client = _setup_mock_client()
+
+        with TemporaryDirectory() as tmpdir:
+            run_sp2(
+                llm_client=client,
+                control_structure=cs,
+                capability_profile=cp,
+                loss_analysis=la,
+                run_dir=Path(tmpdir),
+            )
+            manifest = yaml.safe_load(
+                (Path(tmpdir) / "run-manifest.yaml").read_text()
+            )
+            assert manifest["stage_summary"]["stage_3"]["call_count"] == 2
+
+    def test_manifest_stage_summary_total_tokens(self):
+        """Manifest stage_summary total_tokens is non-negative."""
+        cs = _make_test_control_structure()
+        la = _make_test_loss_analysis()
+        cp = _make_test_capability_profile()
+        client = _setup_mock_client()
+
+        with TemporaryDirectory() as tmpdir:
+            run_sp2(
+                llm_client=client,
+                control_structure=cs,
+                capability_profile=cp,
+                loss_analysis=la,
+                run_dir=Path(tmpdir),
+            )
+            manifest = yaml.safe_load(
+                (Path(tmpdir) / "run-manifest.yaml").read_text()
+            )
+            # total_tokens should be exactly 300 (2 calls × 150 tokens from MockLLMClient)
+            # Must be exact to kill 0→1 initialization mutant
+            assert manifest["stage_summary"]["stage_3"]["total_tokens"] == 300
+
+    def test_manifest_slot_count_and_fill_rate(self):
+        """Manifest slot_count and fill_rate are correct."""
+        cs = _make_test_control_structure()
+        la = _make_test_loss_analysis()
+        cp = _make_test_capability_profile()
+        client = _setup_mock_client()
+
+        with TemporaryDirectory() as tmpdir:
+            run_sp2(
+                llm_client=client,
+                control_structure=cs,
+                capability_profile=cp,
+                loss_analysis=la,
+                run_dir=Path(tmpdir),
+            )
+            manifest = yaml.safe_load(
+                (Path(tmpdir) / "run-manifest.yaml").read_text()
+            )
+            # 2 resp × 2 CA × 4 + 1 link × 4 = 20 total
+            assert manifest["slot_count"] == 20
+            # RESP-1: 6 non-N/A + 2 N/A; RESP-2: 6 non-N/A + 2 N/A; CL-1: 4 N/A
+            # na_count = 2 + 2 + 4 = 8; non_na = 12; fill_rate = 12/20 = 0.6
+            assert manifest["na_count"] == 8
+            assert manifest["fill_rate"] == 0.6

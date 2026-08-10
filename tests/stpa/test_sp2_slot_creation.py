@@ -15,7 +15,7 @@ from scenario_forge.stpa.models.control_structure import (
     ControlledProcess,
 )
 from scenario_forge.stpa.models.ica_enumeration import UCAType
-from scenario_forge.stpa.threat_enum.slot_creation import create_slots
+from scenario_forge.stpa.threat_enum.slot_creation import SlotPlaceholder, create_slots
 
 
 def _make_control_structure(
@@ -274,6 +274,42 @@ class TestInitialSlotState:
             assert slot.is_na is False
             assert slot.icas == []
             assert slot.na_justification is None
+
+
+# ---------------------------------------------------------------------------
+# SlotPlaceholder model defaults
+# ---------------------------------------------------------------------------
+
+
+class TestSlotPlaceholderDefaults:
+    """SlotPlaceholder model defaults are correct (mutation hardening)."""
+
+    def test_is_na_defaults_to_false(self):
+        """is_na must default to False when not explicitly passed."""
+        slot = SlotPlaceholder(
+            slot_id="RESP-1:CA-1:NOT_PROVIDED",
+            control_action="CA-1",
+            uca_type=UCAType.not_provided,
+        )
+        assert slot.is_na is False
+
+    def test_icas_defaults_to_empty_list(self):
+        """icas must default to an empty list when not explicitly passed."""
+        slot = SlotPlaceholder(
+            slot_id="RESP-1:CA-1:NOT_PROVIDED",
+            control_action="CA-1",
+            uca_type=UCAType.not_provided,
+        )
+        assert slot.icas == []
+
+    def test_na_justification_defaults_to_none(self):
+        """na_justification must default to None when not explicitly passed."""
+        slot = SlotPlaceholder(
+            slot_id="RESP-1:CA-1:NOT_PROVIDED",
+            control_action="CA-1",
+            uca_type=UCAType.not_provided,
+        )
+        assert slot.na_justification is None
 
 
 # ---------------------------------------------------------------------------

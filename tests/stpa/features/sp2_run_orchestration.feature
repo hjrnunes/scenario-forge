@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=c6e0b3a1b28487b681eb722b454f81413b4ee56f1927a9e2c3d54fb59b117b64
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T00:47:13.666443Z","feature_name":"SP2 — Run orchestration","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp2_run_orchestration.feature","background_hash":"1563755e4e2524464cf2f71f549f69d5210644131eb79fec82e3484105e20250","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP2 — Run orchestration
   The SP2 run orchestrates Stage 3 (ICA enumeration) and Stage 4 (catalog
   enrichment) in sequence. Stage 3 produces ICAEnumeration via deterministic

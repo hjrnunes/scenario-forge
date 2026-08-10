@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=58225feab0d309003d740a6eb0c4469075da6ae38c4abac9b4cd17922406f56c
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T00:47:13.529274Z","feature_name":"SP2 Stage 3 Phase 2 — LLM slot-filling","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp2_slot_filling.feature","background_hash":"78c579d3454939fdd22b22277ab2b196f7ade85adce774d5d169e46b3d8bf14e","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP2 Stage 3 Phase 2 — LLM slot-filling
   Slot-filling is the LLM-driven phase where each responsibility's slots are
   filled with concrete ICAs or N/A justifications. One LLM call per

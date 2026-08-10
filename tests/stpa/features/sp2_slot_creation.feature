@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=96a8b0e02088bfd2d7f7283681bbcaddfb790e392f1860174538f2e2470de503
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T00:46:55.802082Z","feature_name":"SP2 Stage 3 Phase 1 — Deterministic slot creation","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp2_slot_creation.feature","background_hash":"8b96eb41e136c97d33b635137ba044434be1f4fa8da4ad8be19c87c685dbc647","implementation_hash":"unknown","scenarios":[{"index":0,"name":"SP2-SLOT-01 responsibility slot count matches the formula","scenario_hash":"2ac703d0eb1c4d94177620ec01e54a9f76dc9e384d6a7ba3b80b6056ea535ec1","mutation_count":16,"result":{"Total":16,"Killed":16,"Survived":0,"Errors":0},"tested_at":"2026-08-10T00:46:55.802082Z"},{"index":1,"name":"SP2-SLOT-02 coordination link slot count matches the formula","scenario_hash":"593bded25bc8d8748884827301cf11eb8685107b4b05cddf93a46724bf9a803c","mutation_count":12,"result":{"Total":12,"Killed":12,"Survived":0,"Errors":0},"tested_at":"2026-08-10T00:46:55.802082Z"},{"index":2,"name":"SP2-SLOT-03 total slot count is responsibility slots plus coordination link slots","scenario_hash":"86d164717f0839d0d2610b419b61950f76ac253e609c8c031ea5a516d80f8bdd","mutation_count":16,"result":{"Total":16,"Killed":16,"Survived":0,"Errors":0},"tested_at":"2026-08-10T00:46:55.802082Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP2 Stage 3 Phase 1 — Deterministic slot creation
   Slot creation is a deterministic mechanical process that creates one slot per
   (responsibility × control_action × UCA_type) triple plus one slot per

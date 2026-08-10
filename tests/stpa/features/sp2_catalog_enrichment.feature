@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=2cfd966dd1d37856bd8cc324ea1e94884854d20033d23283f7bd954bea0201ba
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T07:32:42.820782Z","feature_name":"SP2 Stage 4 — Catalog enrichment and coverage analysis","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp2_catalog_enrichment.feature","background_hash":"9c09a8d73ef873d3159b2eec45a4da425dd05bf46dd0391dcc9c6808edf6d559","implementation_hash":"unknown","scenarios":[{"index":2,"name":"SP2-CAT-03 confidence level depends on keyword match count","scenario_hash":"9fa29db477465e6012211b56457c3a8f2df616bcd8545586ffd7e55c9e59fac5","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-10T00:47:06.479582Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP2 Stage 4 — Catalog enrichment and coverage analysis
   Catalog enrichment is a deterministic reverse lookup that matches ICA text and
   loss scenarios against ATLAS and OWASP Agentic catalog entries via keyword

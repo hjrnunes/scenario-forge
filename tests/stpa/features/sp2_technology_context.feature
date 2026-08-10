@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=bb6dda7200703b92d461c9201a7dbab8bdb0e5db193d9776b72f615940d4c1e6
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T07:32:43.112123Z","feature_name":"SP2 Stage 3 — Technology context block","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp2_technology_context.feature","background_hash":"767c6f3282d92270bee5fbd1778a0e37ceddc0cf76c0cb61e141ab10a5ba7807","implementation_hash":"unknown","scenarios":[{"index":0,"name":"SP2-TECH-01 zone-based failure modes are emitted","scenario_hash":"39e25f0b3ea41a38972fe1206467d673ef51bbcde95234654a6fa7ceb7bbf28e","mutation_count":8,"result":{"Total":8,"Killed":8,"Survived":0,"Errors":0},"tested_at":"2026-08-10T00:47:13.389384Z"},{"index":1,"name":"SP2-TECH-02 KC sub-code specific failure modes are emitted","scenario_hash":"ba97828bcdf083935ea6bf50fa94a7a20cc9e7f9a3e7342107977eb5c6a49def","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-10T00:47:13.389384Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP2 Stage 3 — Technology context block
   The technology context block is a deterministic mapping from a CapabilityProfile
   to implementation-specific failure mode text. It is the mechanism by which

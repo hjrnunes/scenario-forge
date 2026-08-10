@@ -43,8 +43,10 @@ from scenario_forge.stpa.threat_enum.slot_filling import (
     ICASlotFillResult,
     build_slot_filling_prompts,
     fill_all_slots,
+    _collect_filled_slots,
 )
 
+from scenario_forge.stpa.infra.parallel_llm import LLMCallResult, LLMCallSpec
 from tests.stpa.sp1_helpers import MockLLMClient
 
 
@@ -617,3 +619,97 @@ class TestHazardIDValidation:
             assert False, "Should have raised ValueError"
         except ValueError as e:
             assert "related_hazards" in str(e) or "H-99" in str(e)
+
+
+# ---------------------------------------------------------------------------
+# Mutation hardening: _collect_filled_slots type check
+# ---------------------------------------------------------------------------
+
+
+class TestCollectFilledSlotsTypeCheck:
+    """_collect_filled_slots must filter by ICASlotFillResult type."""
+
+    def test_non_icaslotfillresult_is_skipped(self):
+        """A result whose .result is not None but not ICASlotFillResult is skipped."""
+        from pydantic import BaseModel as PydanticBaseModel
+
+        class OtherResult(PydanticBaseModel):
+            name: str = "irrelevant"
+
+        spec = LLMCallSpec(
+            system_prompt="",
+            user_prompt="",
+            response_format=OtherResult,
+            stage="test",
+            step="test",
+        )
+        results = [
+            LLMCallResult(
+                model="test",
+                result=OtherResult(name="not-an-icaslotfillresult"),
+                error=None,
+                call_spec=spec,
+            ),
+        ]
+        filled = _collect_filled_slots(results)
+        assert filled == {}
+
+    def test_none_result_is_skipped(self):
+        """A result whose .result is None is skipped."""
+        spec = LLMCallSpec(
+            system_prompt="",
+            user_prompt="",
+            response_format=ICASlotFillResult,
+            stage="test",
+            step="test",
+        )
+        results = [
+            LLMCallResult(
+                model=None,
+                result=None,
+                error="some error",
+                call_spec=spec,
+            ),
+        ]
+        filled = _collect_filled_slots(results)
+        assert filled == {}
+
+    def test_valid_icaslotfillresult_is_collected(self):
+        """A valid ICASlotFillResult is collected into the lookup."""
+        slot = ICASlot(
+            slot_id="RESP-1:CA-1-1:NOT_PROVIDED",
+            responsibility="RESP-1",
+            control_action="CA-1-1",
+            uca_type=UCAType.not_provided,
+            is_na=False,
+            icas=[_make_ica()],
+        )
+        fill_result = ICASlotFillResult(filled_slots=[slot])
+        spec = LLMCallSpec(
+            system_prompt="",
+            user_prompt="",
+            response_format=ICASlotFillResult,
+            stage="test",
+            step="test",
+        )
+        results = [
+            LLMCallResult(
+                model="test",
+                result=fill_result,
+                error=None,
+                call_spec=spec,
+            ),
+        ]
+        filled = _collect_filled_slots(results)
+        assert "RESP-1:CA-1-1:NOT_PROVIDED" in filled
+
+
+def _make_ica() -> ICA:
+    return ICA(
+        ica_id="RESP-1:CA-1-1:NOT_PROVIDED:1",
+        ica_text="The agent fails to validate input",
+        hazardous_context="Context",
+        loss_scenario="Scenario",
+        related_hazards=[],
+        related_constraints=[],
+    )

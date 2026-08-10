@@ -148,3 +148,8 @@ def _emit_tool_inventory_failure_modes(
             f"- Tool '{tool.name}': {tool.description} → "
             f"susceptible to parameter manipulation, output fabrication"
         )
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T00:25:25Z","module_hash":"5e5b4039c9d6ea0d57675832aafa606c76ab3e68b454c62fab744c8b12207fa9","functions":[{"id":"func/build_technology_context","name":"build_technology_context","line":74,"end_line":99,"hash":"8635b66655e37525365de7b4d7ffda7dfd888f6d2c6b7359e96fd06a5f911b99"},{"id":"func/_emit_zone_failure_modes","name":"_emit_zone_failure_modes","line":102,"end_line":107,"hash":"bd88a9c679ee0285671255a2653c85ec37fb3d71e51a631ddca9f51e8fc9944e"},{"id":"func/_emit_kc_failure_modes","name":"_emit_kc_failure_modes","line":110,"end_line":120,"hash":"49b0651a494ef5c76f46015379d4ae1ed50c6095fe224b74ffb5661bf90bb4a5"},{"id":"func/_emit_entry_point_failure_modes","name":"_emit_entry_point_failure_modes","line":123,"end_line":137,"hash":"b007dad48da85924be6041f9c517082d0dda3e5fc84301a24f90d8e56ec93d88"},{"id":"func/_emit_tool_inventory_failure_modes","name":"_emit_tool_inventory_failure_modes","line":140,"end_line":150,"hash":"eab800ce106a8b37ef541b98132069501df3402c6a0ab0919d44128e40fcf90f"}]}
+# mutate4py-manifest-end

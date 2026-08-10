@@ -215,6 +215,21 @@ class TestNAReconciliation:
         flags = reconcile_na_slots([slot], cs)
         assert len(flags) == 0
 
+    def test_na_justification_provides_matching_keywords(self):
+        """N/A justification text with catalog keywords triggers contradiction.
+
+        The na_justification is the only source of matching keywords in
+        the context string — if it is dropped (e.g. by an `and` mutation),
+        the catalog would not match and no flag would be raised.
+        """
+        cs = _make_minimal_cs(ca_desc="routine status check")
+        slot = _make_na_slot(
+            na_justification="no prompt injection hazard applicable here",
+        )
+        flags = reconcile_na_slots([slot], cs)
+        assert len(flags) == 1
+        assert slot.slot_id in flags[0]
+
 
 # ---------------------------------------------------------------------------
 # Coverage analysis (SP2-CAT-06 through SP2-CAT-11)
@@ -403,6 +418,76 @@ class TestCoverageAnalysis:
         assert "T10" in coverage.uncovered_owasp_threats
         assert "T15" in coverage.uncovered_owasp_threats
         assert coverage.uncovered_reason is not None
+
+    def test_covered_owasp_threat_not_in_uncovered(self):
+        """A covered OWASP threat ID must NOT appear in uncovered list."""
+        threat = StructuralThreat(
+            ica_slot_id="RESP-1:CA-1-1:NOT_PROVIDED",
+            ica_id="RESP-1:CA-1-1:NOT_PROVIDED:1",
+            ica_text="prompt injection",
+            hazardous_context="ctx",
+            loss_scenario="scenario",
+            catalog_mappings=[
+                CatalogMapping(
+                    catalog="OWASP_AGENTIC", id="T1", name="Prompt Injection", confidence="high"
+                ),
+            ],
+        )
+        coverage = compute_coverage([], [threat])
+        assert "T1" not in coverage.uncovered_owasp_threats
+
+    def test_structural_consideration_by_ica_type_breakdown(self):
+        """by_ica_type breakdown in structural_consideration has exact counts."""
+        slots = [
+            _make_non_na_slot("S1", uca_type=UCAType.not_provided),
+            _make_non_na_slot("S2", uca_type=UCAType.not_provided),
+            _make_non_na_slot("S3", uca_type=UCAType.incorrect),
+        ]
+        result = metric_structural_consideration(slots)
+        assert result["by_ica_type"]["NOT_PROVIDED"] == 2
+        assert result["by_ica_type"]["INCORRECT"] == 1
+        assert result["by_ica_type"]["WRONG_TIMING"] == 0
+        assert result["by_ica_type"]["WRONG_DURATION"] == 0
+
+    def test_structural_consideration_by_resp_breakdown(self):
+        """by_responsibility breakdown in structural_consideration has exact counts."""
+        slots = [
+            _make_non_na_slot("S1", responsibility="RESP-1"),
+            _make_non_na_slot("S2", responsibility="RESP-1"),
+            _make_non_na_slot("S3", responsibility="RESP-2"),
+        ]
+        result = metric_structural_consideration(slots)
+        assert result["by_responsibility"]["RESP-1"] == 2
+        assert result["by_responsibility"]["RESP-2"] == 1
+        assert "UNKNOWN" not in result["by_responsibility"]
+
+    def test_structural_consideration_by_resp_with_coord_link(self):
+        """Coordination link slots are attributed to the link, not UNKNOWN."""
+        slots = [
+            _make_non_na_slot("S1", responsibility="RESP-1"),
+            ICASlot(
+                slot_id="CL-1:CM-1:NOT_PROVIDED:0",
+                responsibility=None,
+                coordination_link="CL-1",
+                control_action="CM-1",
+                uca_type=UCAType.not_provided,
+                is_na=False,
+                icas=[_make_ica(ica_id="CL-1:CM-1:NOT_PROVIDED:1")],
+            ),
+        ]
+        result = metric_structural_consideration(slots)
+        assert result["by_responsibility"]["RESP-1"] == 1
+        assert result["by_responsibility"]["CL-1"] == 1
+
+    def test_na_quality_no_na_slots(self):
+        """N/A quality with no N/A slots returns na_count=0, quality_rate=None."""
+        slots = [
+            _make_non_na_slot("S1"),
+            _make_non_na_slot("S2", uca_type=UCAType.incorrect),
+        ]
+        result = metric_na_quality(slots)
+        assert result["na_count"] == 0
+        assert result["quality_rate"] is None
 
 
 # ---------------------------------------------------------------------------

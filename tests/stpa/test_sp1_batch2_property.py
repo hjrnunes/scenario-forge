@@ -21,7 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, assume, given, settings, strategies as st
 from pydantic import BaseModel
 
 from scenario_forge.models.capability_profile import CapabilityProfile
@@ -91,6 +91,9 @@ class TestLooksLikePathReference:
     def test_long_content_always_false(self, body: str) -> None:
         """Content >= 200 chars (after strip) is never a path reference."""
         # body is >= 196 chars; appending ".txt" (4 chars) gives >= 200
+        # Ensure no leading/trailing whitespace that .strip() would remove,
+        # which would make the stripped content < 200 chars.
+        assume(body.strip() == body)
         content = body + ".txt"
         assert _looks_like_path_reference(content) is False
 
