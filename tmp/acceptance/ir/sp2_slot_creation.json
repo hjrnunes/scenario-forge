@@ -1,0 +1,254 @@
+{
+  "name" : "SP2 Stage 3 Phase 1 — Deterministic slot creation",
+  "scenarios" : [ {
+    "name" : "SP2-SLOT-01 responsibility slot count matches the formula",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with <n_responsibilities> responsibilities having <cas_per_resp> control actions each",
+      "parameters" : [ "n_responsibilities", "cas_per_resp" ]
+    }, {
+      "keyword" : "And",
+      "text" : "<n_coord_links> coordination links in the control structure",
+      "parameters" : [ "n_coord_links" ]
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the number of responsibility slots is <expected_resp_slots>",
+      "parameters" : [ "expected_resp_slots" ]
+    } ],
+    "examples" : [ {
+      "n_responsibilities" : "1",
+      "cas_per_resp" : "1",
+      "n_coord_links" : "0",
+      "expected_resp_slots" : "4"
+    }, {
+      "n_responsibilities" : "2",
+      "cas_per_resp" : "3",
+      "n_coord_links" : "0",
+      "expected_resp_slots" : "24"
+    }, {
+      "n_responsibilities" : "4",
+      "cas_per_resp" : "2",
+      "n_coord_links" : "0",
+      "expected_resp_slots" : "32"
+    }, {
+      "n_responsibilities" : "5",
+      "cas_per_resp" : "3",
+      "n_coord_links" : "2",
+      "expected_resp_slots" : "60"
+    } ]
+  }, {
+    "name" : "SP2-SLOT-02 coordination link slot count matches the formula",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with <n_responsibilities> responsibilities having <cas_per_resp> control actions each",
+      "parameters" : [ "n_responsibilities", "cas_per_resp" ]
+    }, {
+      "keyword" : "And",
+      "text" : "<n_coord_links> coordination links in the control structure",
+      "parameters" : [ "n_coord_links" ]
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the number of coordination link slots is <expected_link_slots>",
+      "parameters" : [ "expected_link_slots" ]
+    } ],
+    "examples" : [ {
+      "n_responsibilities" : "1",
+      "cas_per_resp" : "1",
+      "n_coord_links" : "1",
+      "expected_link_slots" : "4"
+    }, {
+      "n_responsibilities" : "2",
+      "cas_per_resp" : "3",
+      "n_coord_links" : "2",
+      "expected_link_slots" : "8"
+    }, {
+      "n_responsibilities" : "4",
+      "cas_per_resp" : "2",
+      "n_coord_links" : "3",
+      "expected_link_slots" : "12"
+    } ]
+  }, {
+    "name" : "SP2-SLOT-03 total slot count is responsibility slots plus coordination link slots",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with <n_responsibilities> responsibilities having <cas_per_resp> control actions each",
+      "parameters" : [ "n_responsibilities", "cas_per_resp" ]
+    }, {
+      "keyword" : "And",
+      "text" : "<n_coord_links> coordination links in the control structure",
+      "parameters" : [ "n_coord_links" ]
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the total number of slots is <expected_total_slots>",
+      "parameters" : [ "expected_total_slots" ]
+    } ],
+    "examples" : [ {
+      "n_responsibilities" : "1",
+      "cas_per_resp" : "1",
+      "n_coord_links" : "0",
+      "expected_total_slots" : "4"
+    }, {
+      "n_responsibilities" : "2",
+      "cas_per_resp" : "2",
+      "n_coord_links" : "1",
+      "expected_total_slots" : "20"
+    }, {
+      "n_responsibilities" : "4",
+      "cas_per_resp" : "2",
+      "n_coord_links" : "2",
+      "expected_total_slots" : "40"
+    }, {
+      "n_responsibilities" : "5",
+      "cas_per_resp" : "3",
+      "n_coord_links" : "2",
+      "expected_total_slots" : "68"
+    } ]
+  }, {
+    "name" : "SP2-SLOT-04 each control action produces all four UCA types",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with 1 responsibility having 1 control action and 0 coordination links"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the slots include UCA types NOT_PROVIDED, INCORRECT, WRONG_TIMING, and WRONG_DURATION"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-SLOT-05 responsibility slot_id format is RESP-X:CA-Y:UCA_TYPE",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibility RESP-1 and control action CA-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "a slot has slot_id RESP-1:CA-1-1:NOT_PROVIDED"
+    }, {
+      "keyword" : "And",
+      "text" : "the slot has responsibility RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the slot has coordination_link null"
+    }, {
+      "keyword" : "And",
+      "text" : "the slot has control_action CA-1-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-SLOT-06 coordination link slot_id format is CL-X:CM-Y:UCA_TYPE",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with coordination link CL-1 and coordination mechanism CM-1"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "a slot has slot_id CL-1:CM-1:NOT_PROVIDED"
+    }, {
+      "keyword" : "And",
+      "text" : "the slot has responsibility null"
+    }, {
+      "keyword" : "And",
+      "text" : "the slot has coordination_link CL-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the slot has control_action CM-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-SLOT-07 initial slot state has is_na false and empty icas",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with 2 responsibilities having 2 control actions each and 1 coordination link"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "every slot has is_na false"
+    }, {
+      "keyword" : "And",
+      "text" : "every slot has an empty icas list"
+    }, {
+      "keyword" : "And",
+      "text" : "every slot has na_justification null"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-SLOT-08 slot creation makes no LLM calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with 2 responsibilities having 2 control actions each and 1 coordination link"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "no LLM calls are made"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-SLOT-09 slot creation is deterministic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with 2 responsibilities having 2 control actions each and 1 coordination link"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure twice"
+    }, {
+      "keyword" : "Then",
+      "text" : "both runs produce identical slot lists"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-SLOT-10 no duplicate slot IDs",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with 3 responsibilities having 2 control actions each and 2 coordination links"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "all slot IDs are unique"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-SLOT-11 responsibilities with different control action counts",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibility RESP-1 having 3 control actions and responsibility RESP-2 having 1 control action and 0 coordination links"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are created from the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the number of responsibility slots is 16"
+    }, {
+      "keyword" : "And",
+      "text" : "12 slots have responsibility RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "4 slots have responsibility RESP-2"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the SP2 slot creation module is importable"
+  } ]
+}

@@ -1,0 +1,231 @@
+"""SP2 run orchestration — Stage 3 → Stage 4.
+
+Orchestrates the full SP2 pipeline:
+  Stage 3: Deterministic slot creation → LLM slot-filling → N/A quality gates
+  Stage 4: Deterministic catalog enrichment + coverage analysis
+
+All LLM calls are logged to ``calls.jsonl``. A run manifest is written
+at run end with stage summary, N/A quality flags, coverage analysis,
+input hashes, and prompt hashes.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.templates import TemplateLoader, hash_prompt_templates
+from scenario_forge.stpa.infra.yaml_io import write_yaml
+from scenario_forge.stpa.models.control_structure import ControlStructure
+from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
+from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
+from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+
+from ._constants import PROMPTS_DIR
+from .catalog_enrichment import enrich_threats
+from .na_quality import check_all_na_quality
+from .slot_creation import create_slots
+from .slot_filling import fill_all_slots
+
+DEFAULT_TEMPERATURE = 0.4
+
+__all__ = ["SP2RunResult", "run_sp2"]
+
+
+@dataclass
+class SP2RunResult:
+    """Result of a full SP2 run.
+
+    Attributes:
+        ica_enumeration: The ICA enumeration from Stage 3 (or None on failure).
+        enriched_threat_set: The enriched threat set from Stage 4 (or None).
+        na_quality_result: N/A quality check results.
+        stage_errors: List of stage failure messages.
+    """
+
+    ica_enumeration: ICAEnumeration | None = None
+    enriched_threat_set: EnrichedThreatSet | None = None
+    na_quality_result: Any = None
+    stage_errors: list[str] = field(default_factory=list)
+
+
+def run_sp2(
+    *,
+    llm_client: LLMClient,
+    control_structure: ControlStructure,
+    capability_profile: CapabilityProfile,
+    loss_analysis: LossAnalysis,
+    run_dir: Path,
+    max_workers: int = 1,
+    temperature: float = DEFAULT_TEMPERATURE,
+) -> SP2RunResult:
+    """Run the full SP2 pipeline: Stage 3 → Stage 4.
+
+    Args:
+        llm_client: LLM client for slot-filling calls.
+        control_structure: SP1 control structure.
+        capability_profile: SP1 capability profile.
+        loss_analysis: SP1 loss analysis.
+        run_dir: Directory for output artifacts.
+        max_workers: Maximum parallel workers for LLM calls.
+        temperature: LLM temperature.
+
+    Returns:
+        An :class:`SP2RunResult` with artifacts and diagnostics.
+    """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    loader = TemplateLoader(PROMPTS_DIR)
+
+    stage_errors: list[str] = []
+
+    # --- Stage 3 Phase 1: Deterministic slot creation ---
+    slots = create_slots(control_structure)
+
+    # --- Stage 3 Phase 2: LLM slot-filling ---
+    filled_slots = fill_all_slots(
+        llm_client=llm_client,
+        control_structure=control_structure,
+        loss_analysis=loss_analysis,
+        capability_profile=capability_profile,
+        slots=slots,
+        run_dir=run_dir,
+        max_workers=max_workers,
+        temperature=temperature,
+        loader=loader,
+    )
+
+    ica_enumeration = ICAEnumeration(slots=filled_slots)
+
+    # --- N/A quality gates ---
+    na_quality_result = check_all_na_quality(filled_slots)
+
+    # --- Stage 4: Catalog enrichment + coverage analysis ---
+    enriched_threat_set = enrich_threats(ica_enumeration, control_structure)
+
+    # --- Write output artifacts ---
+    write_yaml(ica_enumeration, run_dir / "ica-enumeration.yaml")
+    write_yaml(enriched_threat_set, run_dir / "enriched-threats.yaml")
+
+    # --- Write run manifest ---
+    _write_manifest(
+        run_dir=run_dir,
+        llm_client=llm_client,
+        control_structure=control_structure,
+        capability_profile=capability_profile,
+        loss_analysis=loss_analysis,
+        loader=loader,
+        ica_enumeration=ica_enumeration,
+        enriched_threat_set=enriched_threat_set,
+        na_quality_result=na_quality_result,
+        max_workers=max_workers,
+        stage_errors=stage_errors,
+    )
+
+    return SP2RunResult(
+        ica_enumeration=ica_enumeration,
+        enriched_threat_set=enriched_threat_set,
+        na_quality_result=na_quality_result,
+        stage_errors=stage_errors,
+    )
+
+
+def _write_manifest(
+    run_dir: Path,
+    llm_client: LLMClient,
+    control_structure: ControlStructure,
+    capability_profile: CapabilityProfile,
+    loss_analysis: LossAnalysis,
+    loader: TemplateLoader,
+    ica_enumeration: ICAEnumeration,
+    enriched_threat_set: EnrichedThreatSet,
+    na_quality_result: Any,
+    max_workers: int,
+    stage_errors: list[str],
+) -> None:
+    """Write the run manifest YAML."""
+    input_hashes = {
+        "control_structure": _hash_model(control_structure),
+        "capability_profile": _hash_model(capability_profile),
+        "loss_analysis": _hash_model(loss_analysis),
+    }
+    prompt_hashes = hash_prompt_templates(PROMPTS_DIR)
+
+    # Count calls by stage from calls.jsonl
+    stage_summary = _count_calls_by_stage(run_dir)
+
+    na_count = sum(1 for s in ica_enumeration.slots if s.is_na)
+    total_slots = len(ica_enumeration.slots)
+
+    manifest = {
+        "run_id": f"sp2-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+        "run_dir": str(run_dir),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "model_config": {
+            "model": llm_client.model,
+            "base_url": llm_client.base_url,
+            "temperature": llm_client.temperature,
+        },
+        "input_hashes": input_hashes,
+        "prompt_hashes": prompt_hashes,
+        "stage_summary": stage_summary,
+        "slot_count": total_slots,
+        "na_count": na_count,
+        "fill_rate": (total_slots - na_count) / total_slots if total_slots else 0.0,
+        "na_quality_flags": {
+            "flagged_slots": na_quality_result.flagged_slots,
+            "ratio_flags": na_quality_result.ratio_flags,
+        },
+        "coverage_analysis": enriched_threat_set.coverage_analysis.model_dump(
+            mode="json"
+        ),
+        "max_workers": max_workers,
+        "stage_errors": stage_errors,
+    }
+
+    manifest_path = run_dir / "run-manifest.yaml"
+    manifest_path.write_text(
+        yaml.dump(manifest, default_flow_style=False, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+def _hash_model(model: Any) -> str:
+    """Compute SHA-256 hash of a Pydantic model's YAML representation."""
+    content = yaml.dump(
+        model.model_dump(mode="json", exclude_none=True),
+        default_flow_style=False,
+        sort_keys=True,
+        allow_unicode=True,
+    )
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _count_calls_by_stage(run_dir: Path) -> dict[str, dict[str, int]]:
+    """Count calls by stage from calls.jsonl."""
+    import json
+
+    calls_file = run_dir / "calls.jsonl"
+    if not calls_file.exists():
+        return {}
+
+    counts: dict[str, dict[str, int]] = {}
+    for line in calls_file.read_text().splitlines():
+        if not line.strip():
+            continue
+        entry = json.loads(line)
+        stage = entry.get("stage", "unknown")
+        if stage not in counts:
+            counts[stage] = {"call_count": 0, "total_tokens": 0}
+        counts[stage]["call_count"] += 1
+        counts[stage]["total_tokens"] += (
+            entry.get("prompt_tokens", 0) + entry.get("completion_tokens", 0)
+        )
+
+    return counts
