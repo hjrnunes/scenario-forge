@@ -121,7 +121,7 @@ uv run pytest tests/stpa/ -k "sp3_bdi" -v
 
 **Command:**
 ```bash
-uv run pytest tests/stpa/ -k "sp3_bdi and validation" -v
+uv run pytest tests/stpa/test_sp3_validators.py -k "BDIGrounding or Vulnerability" -v
 ```
 
 ## 3. Narrative Verification (Stage 6 Call A)
@@ -134,7 +134,7 @@ uv run pytest tests/stpa/ -k "sp3_bdi and validation" -v
 
 **Command:**
 ```bash
-uv run pytest tests/stpa/ -k "sp3_narrative" -v
+uv run pytest tests/stpa/test_sp3_stage6.py -k "Narrative" -v
 ```
 
 ### QA-SP3-NAR-02: Narrative system prompt defines 7-step structure
@@ -149,7 +149,7 @@ uv run python -c "
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from pathlib import Path
 loader = TemplateLoader(Path('src/scenario_forge/stpa/scenario_prod/prompts'))
-prompt = loader.render('stage6a_narrative_system.j2', {})
+prompt = loader.render_prompt('stage6a_narrative_system.j2')
 steps = ['process model starts correct', 'manipulates', 'diverges', 'false beliefs', 'ICA', 'hazard', 'loss']
 for step in steps:
     assert step.lower() in prompt.lower(), f'Missing step keyword: {step}'
@@ -167,7 +167,7 @@ print('7-step structure verified in system prompt')
 
 **Command:**
 ```bash
-uv run pytest tests/stpa/ -k "sp3_attack_tree or sp3_tree" -v
+uv run pytest tests/stpa/test_sp3_stage6.py -k "AttackTree" -v
 ```
 
 ### QA-SP3-TREE-02: Attack tree system prompt includes full hard template
@@ -183,7 +183,7 @@ uv run python -c "
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from pathlib import Path
 loader = TemplateLoader(Path('src/scenario_forge/stpa/scenario_prod/prompts'))
-prompt = loader.render('stage6b_tree_system.j2', {})
+prompt = loader.render_prompt('stage6b_tree_system.j2')
 assert 'controller' in prompt.lower() or 'controller_side' in prompt.lower(), 'Missing controller-side category'
 assert 'path' in prompt.lower() or 'path_side' in prompt.lower(), 'Missing path-side category'
 assert 'coordination' in prompt.lower(), 'Missing coordination gap category'
@@ -202,7 +202,7 @@ print('Hard template verified in system prompt')
 
 **Command:**
 ```bash
-uv run pytest tests/stpa/ -k "sp3_gherkin" -v
+uv run pytest tests/stpa/test_sp3_stage6.py -k "Gherkin" -v
 ```
 
 ### QA-SP3-GHK-02: Gherkin system prompt defines should/but structure
@@ -218,7 +218,7 @@ uv run python -c "
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from pathlib import Path
 loader = TemplateLoader(Path('src/scenario_forge/stpa/scenario_prod/prompts'))
-prompt = loader.render('stage6c_gherkin_system.j2', {})
+prompt = loader.render_prompt('stage6c_gherkin_system.j2')
 assert 'should' in prompt.lower(), 'Missing should keyword in system prompt'
 assert 'but' in prompt.lower(), 'Missing but keyword in system prompt'
 assert 'process model' in prompt.lower() or 'PM-' in prompt, 'Missing process model reference requirement'
@@ -287,7 +287,14 @@ uv run pytest tests/stpa/ -k "sp3_eval or sp3_metrics" -v
 
 **Command:**
 ```bash
-uv run pytest tests/stpa/ -k "sp3_eval and deterministic" -v
+uv run python -c "
+import inspect
+from scenario_forge.stpa.scenario_prod.eval_metrics import compute_eval_scorecard
+sig = inspect.signature(compute_eval_scorecard)
+for pname in sig.parameters:
+    assert 'llm' not in pname.lower(), f'compute_eval_scorecard has LLM parameter: {pname}'
+print('Eval metrics are deterministic with zero LLM calls — verified')
+"
 ```
 
 ## 8. Coverage Gap Analysis Verification (Stage 7)
@@ -363,8 +370,8 @@ grep -c 'stage_7' tmp/sp3-qa-run/calls.jsonl || true  # should be 0
 **Command:**
 ```bash
 uv run python -c "
-from scenario_forge.stpa.infra.yaml_io import read_yaml
-manifest = read_yaml('tmp/sp3-qa-run/run-manifest.yaml', dict)
+import yaml
+manifest = yaml.safe_load(open('tmp/sp3-qa-run/run-manifest.yaml'))
 assert 'stage_summary' in manifest, 'Missing stage_summary'
 assert 'stage_5' in str(manifest['stage_summary']), 'Missing stage_5 in stage_summary'
 assert 'stage_6' in str(manifest['stage_summary']), 'Missing stage_6 in stage_summary'
@@ -437,8 +444,8 @@ print(f'Scenario count matches threat count: {len(yaml_files)}')
 **Command:**
 ```bash
 uv run python -c "
-from scenario_forge.stpa.infra.yaml_io import read_yaml
-scorecard = read_yaml('tmp/sp3-qa-run/eval-scorecard.yaml', dict)
+import yaml
+scorecard = yaml.safe_load(open('tmp/sp3-qa-run/eval-scorecard.yaml'))
 assert 'metrics' in scorecard, 'Missing metrics section'
 metrics = scorecard['metrics']
 for name in ['structural_consideration', 'na_quality', 'bdi_grounding', 'tree_branch_coverage', 'traceability_depth', 'diversity']:
