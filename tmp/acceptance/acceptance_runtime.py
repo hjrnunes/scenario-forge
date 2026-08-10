@@ -170,6 +170,10 @@ class World:
         self.fc_entry: dict | None = None
         self.fc_calls_path: Path | None = None
         self.fc_llm_result: Any = None
+        # STPA report test state
+        self.report_tmpdir: Path | None = None
+        self.report_html_path: Path | None = None
+        self.report_html_content: str | None = None
 
 
 def _resolve_value(text: str, examples: dict[str, str]) -> str:
@@ -17897,6 +17901,108 @@ _register(r"the run manifest records the number of validation errors", _h_sp3_ma
 
 _set_feature(None)
 
+# ---------------------------------------------------------------------------
+# STPA Report step handlers
+# ---------------------------------------------------------------------------
+
+_set_feature("stpa_report")
+
+
+def _h_report_combined_dir_with_eval(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a combined output directory containing eval-scorecard.yaml with metrics: (data table)."""
+    import tempfile
+    world.report_tmpdir = Path(tempfile.mkdtemp(prefix="stpa_report_"))
+    (world.report_tmpdir / "run-manifest.yaml").write_text("run_id: test-run\n")
+
+    data_table = world.current_data_table
+    if data_table:
+        metrics_yaml = "metrics:\n"
+        for row in data_table[1:]:  # skip header
+            if len(row) >= 2:
+                metrics_yaml += f"  {row[0].strip()}:\n    rate: {row[1].strip()}\n"
+        (world.report_tmpdir / "eval-scorecard.yaml").write_text(metrics_yaml)
+    return True, ""
+
+
+def _h_report_eval_metric(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: eval-scorecard.yaml contains a metric "<metric>" with rate "<rate>"."""
+    import tempfile
+    metric = examples.get("metric", "")
+    rate = examples.get("rate", "")
+    world.report_tmpdir = Path(tempfile.mkdtemp(prefix="stpa_report_"))
+    (world.report_tmpdir / "run-manifest.yaml").write_text("run_id: test-run\n")
+    (world.report_tmpdir / "eval-scorecard.yaml").write_text(
+        f"metrics:\n  {metric}:\n    rate: {rate}\n"
+    )
+    return True, ""
+
+
+def _h_report_generate(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: I generate the STPA report."""
+    from scenario_forge.stpa.report import generate_report
+    if not hasattr(world, "report_tmpdir") or world.report_tmpdir is None:
+        import tempfile
+        world.report_tmpdir = Path(tempfile.mkdtemp(prefix="stpa_report_"))
+        (world.report_tmpdir / "run-manifest.yaml").write_text("run_id: test-run\n")
+    world.report_html_path = generate_report(world.report_tmpdir)
+    world.report_html_content = world.report_html_path.read_text(encoding="utf-8")
+    return True, ""
+
+
+def _h_report_gauge_colored(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the eval scorecard gauge for "<metric>" is colored "<color>"."""
+    metric = examples.get("metric", "")
+    color = examples.get("color", "")
+    if not hasattr(world, "report_html_content") or world.report_html_content is None:
+        return False, "No report HTML generated"
+    html_content = world.report_html_content
+    if metric not in html_content:
+        return False, f"Metric '{metric}' not found in report HTML"
+    if color not in html_content.lower():
+        return False, f"Color '{color}' not found in report HTML"
+    expected_class = f"eval-gauge-fill {color}"
+    if expected_class not in html_content:
+        return False, f"Expected gauge fill class '{expected_class}' not found"
+    return True, ""
+
+
+def _h_report_gauge_colored_literal(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the eval scorecard gauge for "..." is colored green/yellow/red."""
+    match = re.search(r'gauge for "([^"]+)" is colored (\w+)', text)
+    if not match:
+        return False, f"Could not parse gauge color step: {text}"
+    metric = match.group(1)
+    color = match.group(2)
+    if not hasattr(world, "report_html_content") or world.report_html_content is None:
+        return False, "No report HTML generated"
+    html_content = world.report_html_content
+    if metric not in html_content:
+        return False, f"Metric '{metric}' not found in report HTML"
+    expected_class = f"eval-gauge-fill {color}"
+    if expected_class not in html_content:
+        return False, f"Expected gauge fill class '{expected_class}' not found"
+    return True, ""
+
+
+def _h_report_gauge_shown(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the eval scorecard shows a gauge for "...". """
+    match = re.search(r'shows a gauge for "([^"]+)"', text)
+    if not match:
+        return False, f"Could not parse gauge step: {text}"
+    metric = match.group(1)
+    if not hasattr(world, "report_html_content") or world.report_html_content is None:
+        return False, "No report HTML generated"
+    if metric not in world.report_html_content:
+        return False, f"Metric '{metric}' not found in report HTML"
+    return True, ""
+
+
+_register_first(r"a combined output directory containing eval-scorecard\.yaml with metrics:", _h_report_combined_dir_with_eval)
+_register_first(r"eval-scorecard\.yaml contains a metric .* with rate .*", _h_report_eval_metric)
+_register_first(r"I generate the STPA report", _h_report_generate)
+_register_first(r"the eval scorecard gauge for .* is colored .*", _h_report_gauge_colored)
+_register_first(r"the eval scorecard shows a gauge for .*", _h_report_gauge_shown)
+
 _set_feature(None)
 
 
@@ -17944,6 +18050,8 @@ def _derive_feature_tag(ir_path: str) -> str | None:
         return "sp2"
     if stem.startswith("sp3_"):
         return "sp3"
+    if stem.startswith("stpa_report"):
+        return "stpa_report"
     return None
 
 
@@ -18004,57 +18112,7 @@ if __name__ == "__main__":
 
     ir_path = sys.argv[1]
     try:
-        # First, try to construct the models to trigger validation
-        with open(ir_path) as f:
-            ir = json.load(f)
-
-        # For scenarios that involve model construction, we need to actually
-        # construct the models to trigger Pydantic validation
-        all_passed = True
-        output_lines: list[str] = []
-
-        background_steps = ir.get("background", [])
-        scenarios = ir.get("scenarios", [])
-
-        for s_idx, scenario in enumerate(scenarios):
-            scenario_name = scenario.get("name", f"scenario_{s_idx}")
-            steps = scenario.get("steps", [])
-            examples = scenario.get("examples", [])
-
-            if not examples:
-                examples = [{}]
-
-            for e_idx, example in enumerate(examples):
-                exec_name = f"{scenario_name}/example_{e_idx + 1}"
-                world = World()
-
-                # Execute background steps
-                bg_failed = False
-                for bg_step in background_steps:
-                    success, error = execute_step(world, bg_step, example)
-                    if not success:
-                        output_lines.append(f"FAIL {exec_name}: background: {error}")
-                        all_passed = False
-                        bg_failed = True
-                        break
-
-                if bg_failed:
-                    continue
-
-                # Execute scenario steps
-                step_failed = False
-                for step in steps:
-                    success, error = execute_step(world, step, example)
-                    if not success:
-                        output_lines.append(f"FAIL {exec_name}: {error}")
-                        all_passed = False
-                        step_failed = True
-                        break
-
-                if not step_failed:
-                    output_lines.append(f"PASS {exec_name}")
-
-        output = "\n".join(output_lines)
+        all_passed, output = execute_ir(ir_path)
         print(output)
         sys.exit(0 if all_passed else 1)
     except Exception as e:
