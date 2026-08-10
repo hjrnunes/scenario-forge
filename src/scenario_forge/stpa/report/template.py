@@ -50,20 +50,33 @@ def _highlight_yaml(text: str) -> str:
     return "\n".join(result)
 
 
+def _is_quoted_string(v: str) -> bool:
+    """Check if *v* is a single- or double-quoted YAML string."""
+    return (v.startswith("'") and v.endswith("'")) or (
+        v.startswith('"') and v.endswith('"')
+    )
+
+
+def _yaml_value_class(v: str) -> str | None:
+    """Return the CSS class for a YAML scalar value, or None."""
+    if v in ("null", "~"):
+        return "yaml-null"
+    if v in ("true", "false"):
+        return "yaml-bool"
+    if re.match(r"^-?\d+(\.\d+)?$", v):
+        return "yaml-number"
+    if _is_quoted_string(v):
+        return "yaml-string"
+    return None
+
+
 def _highlight_yaml_value(value: str) -> str:
     v = value.strip()
     if not v:
         return value
-    if v in ("null", "~"):
-        return f'<span class="yaml-null">{value}</span>'
-    if v in ("true", "false"):
-        return f'<span class="yaml-bool">{value}</span>'
-    if re.match(r"^-?\d+(\.\d+)?$", v):
-        return f'<span class="yaml-number">{value}</span>'
-    if (v.startswith("'") and v.endswith("'")) or (
-        v.startswith('"') and v.endswith('"')
-    ):
-        return f'<span class="yaml-string">{value}</span>'
+    css = _yaml_value_class(v)
+    if css:
+        return f'<span class="{css}">{value}</span>'
     return value
 
 
@@ -79,6 +92,21 @@ _GHERKIN_KEYWORDS = [
     "But ",
     "* ",
 ]
+
+
+def _apply_gherkin_keyword_highlight(escaped: str) -> str:
+    """Apply keyword highlighting to a single escaped Gherkin line."""
+    for kw in _GHERKIN_KEYWORDS:
+        ekw = _esc(kw)
+        if escaped.strip().startswith(ekw):
+            idx = escaped.index(ekw)
+            css = _gherkin_keyword_class(kw.strip())
+            return (
+                escaped[:idx]
+                + f'<span class="{css}">{ekw}</span>'
+                + escaped[idx + len(ekw):]
+            )
+    return escaped
 
 
 def _highlight_gherkin(text: str) -> str:
@@ -97,17 +125,7 @@ def _highlight_gherkin(text: str) -> str:
         if escaped.strip().startswith("@"):
             result.append(f'<span class="gherkin-tag">{escaped}</span>')
             continue
-        for kw in _GHERKIN_KEYWORDS:
-            ekw = _esc(kw)
-            if escaped.strip().startswith(ekw):
-                idx = escaped.index(ekw)
-                css = _gherkin_keyword_class(kw.strip())
-                escaped = (
-                    escaped[:idx]
-                    + f'<span class="{css}">{ekw}</span>'
-                    + escaped[idx + len(ekw):]
-                )
-                break
+        escaped = _apply_gherkin_keyword_highlight(escaped)
         if "&quot;&quot;&quot;" in escaped:
             escaped = escaped.replace(
                 "&quot;&quot;&quot;",
@@ -520,6 +538,117 @@ def _build_raw_yaml_section(filename: str, raw_text: str) -> str:
     )
 
 
+def _build_raw_yaml_sections(
+    raw_texts: dict[str, str] | None, filenames: tuple[str, ...],
+) -> list[str]:
+    """Build raw YAML sections for the given filenames if present."""
+    if not raw_texts:
+        return []
+    return [
+        _build_raw_yaml_section(fname, raw_texts[fname])
+        for fname in filenames
+        if fname in raw_texts
+    ]
+
+
+def _build_table_rows(rows_data: list[tuple], cell_count: int) -> str:
+    """Build ``<tr>`` elements from a list of tuples."""
+    return "\n".join(
+        "      " + "".join(f"<td>{_esc(cell)}</td>" for cell in row)
+        for row in rows_data
+    )
+
+
+def _build_data_table(
+    headers: list[str], rows: str, table_id: str = "",
+) -> str:
+    """Build a complete ``<table class="data-table">`` element."""
+    th = "".join(f"<th>{_esc(h)}</th>" for h in headers)
+    return (
+        f'    <table class="data-table"><thead><tr>{th}</tr></thead>\n'
+        f'    <tbody>\n{rows}\n    </tbody></table>'
+    )
+
+
+def _build_losses_table(losses: list[dict]) -> str:
+    """Build the losses data table, or empty string if no losses."""
+    if not losses:
+        return ""
+    rows = _build_table_rows(
+        [(loss["id"], loss["description"], loss.get("provenance", "")) for loss in losses], 3,
+    )
+    return _build_data_table(["ID", "Description", "Provenance"], rows)
+
+
+def _build_hazards_table(hazards: list) -> str:
+    """Build the hazards data table, or empty string if no hazards."""
+    if not hazards:
+        return ""
+    rows = _build_table_rows(
+        [(h.hazard_id, h.description) for h in hazards], 2,
+    )
+    return _build_data_table(["Hazard ID", "Description"], rows)
+
+
+def _build_constraints_table(constraints: list) -> str:
+    """Build the constraints data table, or empty string if no constraints."""
+    if not constraints:
+        return ""
+    rows = _build_table_rows(
+        [(sc.constraint_id, sc.description) for sc in constraints], 2,
+    )
+    return _build_data_table(["Constraint ID", "Description"], rows)
+
+
+def _build_sp1_losses_section(loss_analysis: Any) -> str:
+    """Build the losses, hazards, and constraints subsection of SP1."""
+    parts: list[str] = ['<div class="subsection">']
+    parts.append('  <div class="subsection-title">Losses, Hazards & Constraints</div>')
+
+    for table in (
+        _build_losses_table(list(_loss_analysis_losses(loss_analysis))),
+        _build_hazards_table(loss_analysis.hazards),
+        _build_constraints_table(loss_analysis.security_constraints),
+    ):
+        if table:
+            parts.append(table)
+
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
+def _build_sp1_capability_section(capability_profile: Any) -> str:
+    """Build the capability profile subsection of SP1."""
+    parts: list[str] = ['<div class="subsection">']
+    parts.append('  <div class="subsection-title">Capability Profile</div>')
+    zones = getattr(capability_profile, "zones_active", [])
+    if zones:
+        chips = " ".join(f'<span class="zone-chip">{_esc(z)}</span>' for z in zones)
+        parts.append(f'    <div>{chips}</div>')
+    kcs = getattr(capability_profile, "kc_subcodes", [])
+    if kcs:
+        parts.append(
+            f'    <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">'
+            f'KC: {_esc(", ".join(kcs))}</p>'
+        )
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
+def _build_sp1_control_section(control_structure: Any) -> str:
+    """Build the control structure subsection of SP1."""
+    parts: list[str] = ['<div class="subsection">']
+    parts.append('  <div class="subsection-title">Control Structure</div>')
+    if control_structure.responsibilities:
+        rows = _build_table_rows(
+            [(r.resp_id, r.description) for r in control_structure.responsibilities],
+            2,
+        )
+        parts.append(_build_data_table(["Responsibility", "Description"], rows))
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
 def _build_sp1_card(
     loss_analysis: Any | None,
     capability_profile: Any | None,
@@ -529,73 +658,19 @@ def _build_sp1_card(
     """Build the SP1 flow card."""
     body_parts: list[str] = []
 
-    # Losses / hazards / constraints
     if loss_analysis is not None:
-        body_parts.append('<div class="subsection">')
-        body_parts.append('  <div class="subsection-title">Losses, Hazards & Constraints</div>')
-        all_losses = list(_loss_analysis_losses(loss_analysis))
-        if all_losses:
-            rows = "\n".join(
-                f'      <tr><td>{_esc(loss["id"])}</td><td>{_esc(loss["description"])}</td><td>{_esc(loss.get("provenance", ""))}</td></tr>'
-                for loss in all_losses
-            )
-            body_parts.append(
-                f'    <table class="data-table"><thead><tr><th>ID</th><th>Description</th><th>Provenance</th></tr></thead>\n'
-                f'    <tbody>\n{rows}\n    </tbody></table>'
-            )
-        if loss_analysis.hazards:
-            rows = "\n".join(
-                f'      <tr><td>{_esc(h.hazard_id)}</td><td>{_esc(h.description)}</td></tr>'
-                for h in loss_analysis.hazards
-            )
-            body_parts.append(
-                f'    <table class="data-table"><thead><tr><th>Hazard ID</th><th>Description</th></tr></thead>\n'
-                f'    <tbody>\n{rows}\n    </tbody></table>'
-            )
-        if loss_analysis.security_constraints:
-            rows = "\n".join(
-                f'      <tr><td>{_esc(sc.constraint_id)}</td><td>{_esc(sc.description)}</td></tr>'
-                for sc in loss_analysis.security_constraints
-            )
-            body_parts.append(
-                f'    <table class="data-table"><thead><tr><th>Constraint ID</th><th>Description</th></tr></thead>\n'
-                f'    <tbody>\n{rows}\n    </tbody></table>'
-            )
-        body_parts.append('</div>')
+        body_parts.append(_build_sp1_losses_section(loss_analysis))
 
-    # Capability profile
     if capability_profile is not None:
-        body_parts.append('<div class="subsection">')
-        body_parts.append('  <div class="subsection-title">Capability Profile</div>')
-        zones = getattr(capability_profile, "zones_active", [])
-        if zones:
-            chips = " ".join(f'<span class="zone-chip">{_esc(z)}</span>' for z in zones)
-            body_parts.append(f'    <div>{chips}</div>')
-        kcs = getattr(capability_profile, "kc_subcodes", [])
-        if kcs:
-            body_parts.append(f'    <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">KC: {_esc(", ".join(kcs))}</p>')
-        body_parts.append('</div>')
+        body_parts.append(_build_sp1_capability_section(capability_profile))
 
-    # Control structure
     if control_structure is not None:
-        body_parts.append('<div class="subsection">')
-        body_parts.append('  <div class="subsection-title">Control Structure</div>')
-        if control_structure.responsibilities:
-            rows = "\n".join(
-                f'      <tr><td>{_esc(r.resp_id)}</td><td>{_esc(r.description)}</td></tr>'
-                for r in control_structure.responsibilities
-            )
-            body_parts.append(
-                f'    <table class="data-table"><thead><tr><th>Responsibility</th><th>Description</th></tr></thead>\n'
-                f'    <tbody>\n{rows}\n    </tbody></table>'
-            )
-        body_parts.append('</div>')
+        body_parts.append(_build_sp1_control_section(control_structure))
 
-    # Raw YAML
-    if raw_texts:
-        for fname in ("loss-analysis.yaml", "capability-profile.yaml", "control-structure.yaml"):
-            if fname in raw_texts:
-                body_parts.append(_build_raw_yaml_section(fname, raw_texts[fname]))
+    body_parts.extend(_build_raw_yaml_sections(
+        raw_texts,
+        ("loss-analysis.yaml", "capability-profile.yaml", "control-structure.yaml"),
+    ))
 
     body = "\n".join(body_parts)
     return (
@@ -606,22 +681,76 @@ def _build_sp1_card(
     )
 
 
+def _loss_to_dict(loss: Any) -> dict[str, str]:
+    """Convert a loss model to a flat dict for rendering."""
+    provenance = (
+        loss.provenance.value if hasattr(loss.provenance, "value") else str(loss.provenance)
+    )
+    return {
+        "id": loss.loss_id,
+        "description": loss.description,
+        "provenance": provenance,
+    }
+
+
 def _loss_analysis_losses(loss_analysis: Any) -> list[dict[str, str]]:
     """Extract all losses from a LossAnalysis as flat dicts."""
     result: list[dict[str, str]] = []
     for loss in getattr(loss_analysis, "risk_card_losses", []) or []:
-        result.append({
-            "id": loss.loss_id,
-            "description": loss.description,
-            "provenance": loss.provenance.value if hasattr(loss.provenance, "value") else str(loss.provenance),
-        })
+        result.append(_loss_to_dict(loss))
     for loss in getattr(loss_analysis, "use_case_losses", []) or []:
-        result.append({
-            "id": loss.loss_id,
-            "description": loss.description,
-            "provenance": loss.provenance.value if hasattr(loss.provenance, "value") else str(loss.provenance),
-        })
+        result.append(_loss_to_dict(loss))
     return result
+
+
+def _build_sp2_ica_section(ica_enumeration: Any) -> str:
+    """Build the ICA enumeration subsection of SP2."""
+    parts: list[str] = ['<div class="subsection">']
+    parts.append('  <div class="subsection-title">ICA Enumeration</div>')
+    if ica_enumeration.slots:
+        rows = "\n".join(
+            f'      <tr><td>{_esc(s.slot_id)}</td><td>{_esc(s.uca_type.value if hasattr(s.uca_type, "value") else s.uca_type)}</td>'
+            f'<td>{"N/A" if s.is_na else str(len(s.ics))}</td></tr>'
+            for s in ica_enumeration.slots
+        )
+        parts.append(
+            f'    <table class="data-table"><thead><tr><th>Slot ID</th><th>UCA Type</th><th>ICAs</th></tr></thead>\n'
+            f'    <tbody>\n{rows}\n    </tbody></table>'
+        )
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
+def _build_sp2_enrichment_section(enriched_threats: Any) -> str:
+    """Build the catalog enrichment subsection of SP2."""
+    parts: list[str] = ['<div class="subsection">']
+    parts.append('  <div class="subsection-title">Catalog Enrichment</div>')
+    if enriched_threats.structural_threats:
+        rows: list[str] = []
+        for t in enriched_threats.structural_threats:
+            mappings = ", ".join(m.id for m in (t.catalog_mappings or []))
+            rows.append(f'      <tr><td>{_esc(t.ica_slot_id)}</td><td>{_esc(mappings)}</td></tr>')
+        parts.append(
+            f'    <table class="data-table"><thead><tr><th>ICA Slot</th><th>Catalog Mappings</th></tr></thead>\n'
+            f'    <tbody>\n{chr(10).join(rows)}\n    </tbody></table>'
+        )
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
+def _build_sp2_coverage_section(enriched_threats: Any) -> str:
+    """Build the coverage analysis subsection of SP2."""
+    parts: list[str] = ['<div class="subsection">']
+    parts.append('  <div class="subsection-title">Coverage Analysis</div>')
+    cov = enriched_threats.coverage_analysis
+    sc = getattr(cov, "structural_coverage", {}) or {}
+    if isinstance(sc, dict):
+        rate = sc.get("coverage_rate")
+        if rate is not None:
+            pct = f"{float(rate) * 100:.1f}%"
+            parts.append(f'    <p class="coverage-rate">{_esc(pct)}</p>')
+    parts.append('</div>')
+    return "\n".join(parts)
 
 
 def _build_sp2_card(
@@ -632,58 +761,17 @@ def _build_sp2_card(
     """Build the SP2 flow card."""
     body_parts: list[str] = []
 
-    # ICA enumeration
     if ica_enumeration is not None:
-        body_parts.append('<div class="subsection">')
-        body_parts.append('  <div class="subsection-title">ICA Enumeration</div>')
-        if ica_enumeration.slots:
-            rows = "\n".join(
-                f'      <tr><td>{_esc(s.slot_id)}</td><td>{_esc(s.uca_type.value if hasattr(s.uca_type, "value") else s.uca_type)}</td>'
-                f'<td>{"N/A" if s.is_na else str(len(s.ics))}</td></tr>'
-                for s in ica_enumeration.slots
-            )
-            body_parts.append(
-                f'    <table class="data-table"><thead><tr><th>Slot ID</th><th>UCA Type</th><th>ICAs</th></tr></thead>\n'
-                f'    <tbody>\n{rows}\n    </tbody></table>'
-            )
-        body_parts.append('</div>')
+        body_parts.append(_build_sp2_ica_section(ica_enumeration))
 
-    # Catalog enrichment
     if enriched_threats is not None:
-        body_parts.append('<div class="subsection">')
-        body_parts.append('  <div class="subsection-title">Catalog Enrichment</div>')
-        if enriched_threats.structural_threats:
-            rows: list[str] = []
-            for t in enriched_threats.structural_threats:
-                mappings = ", ".join(
-                    m.id for m in (t.catalog_mappings or [])
-                )
-                rows.append(
-                    f'      <tr><td>{_esc(t.ica_slot_id)}</td><td>{_esc(mappings)}</td></tr>'
-                )
-            body_parts.append(
-                f'    <table class="data-table"><thead><tr><th>ICA Slot</th><th>Catalog Mappings</th></tr></thead>\n'
-                f'    <tbody>\n{chr(10).join(rows)}\n    </tbody></table>'
-            )
-        body_parts.append('</div>')
+        body_parts.append(_build_sp2_enrichment_section(enriched_threats))
+        body_parts.append(_build_sp2_coverage_section(enriched_threats))
 
-        # Coverage analysis
-        body_parts.append('<div class="subsection">')
-        body_parts.append('  <div class="subsection-title">Coverage Analysis</div>')
-        cov = enriched_threats.coverage_analysis
-        sc = getattr(cov, "structural_coverage", {}) or {}
-        if isinstance(sc, dict):
-            rate = sc.get("coverage_rate")
-            if rate is not None:
-                pct = f"{float(rate) * 100:.1f}%"
-                body_parts.append(f'    <p class="coverage-rate">{_esc(pct)}</p>')
-        body_parts.append('</div>')
-
-    # Raw YAML
-    if raw_texts:
-        for fname in ("ica-enumeration.yaml", "enriched-threats.yaml"):
-            if fname in raw_texts:
-                body_parts.append(_build_raw_yaml_section(fname, raw_texts[fname]))
+    body_parts.extend(_build_raw_yaml_sections(
+        raw_texts,
+        ("ica-enumeration.yaml", "enriched-threats.yaml"),
+    ))
 
     body = "\n".join(body_parts)
     return (
@@ -692,6 +780,19 @@ def _build_sp2_card(
         f'  <div class="flow-card-body">\n{body}\n  </div>\n'
         f'</details>'
     )
+
+
+def _parse_tree_dict(tree_dict: dict) -> tuple[str, list, list]:
+    """Extract root, branches, and leaves from a tree dict."""
+    root = tree_dict.get("root", "")
+    branches = tree_dict.get("branches") or []
+    leaves = tree_dict.get("leaves") or []
+    return root, branches, leaves
+
+
+def _has_tree_content(root: str, branches: list, leaves: list) -> bool:
+    """Check if a parsed tree has any non-empty content."""
+    return bool(root or branches or leaves)
 
 
 def _build_attack_tree_visual(tree_dict: dict | None) -> str:
@@ -705,16 +806,13 @@ def _build_attack_tree_visual(tree_dict: dict | None) -> str:
     if not tree_dict:
         return '<div class="tree-empty">No attack tree data available.</div>'
 
-    root = tree_dict.get("root", "")
-    branches = tree_dict.get("branches", []) or []
-    leaves = tree_dict.get("leaves", []) or []
+    root, branches, leaves = _parse_tree_dict(tree_dict)
 
-    if not root and not branches and not leaves:
+    if not _has_tree_content(root, branches, leaves):
         return '<div class="tree-empty">No attack tree data available.</div>'
 
     parts: list[str] = ['<div class="attack-tree">']
 
-    # Root node (OR gate)
     if root:
         parts.append(
             f'  <div class="attack-tree-node connector">'
@@ -722,23 +820,9 @@ def _build_attack_tree_visual(tree_dict: dict | None) -> str:
             f'<span class="tree-node-label">{_esc(root)}</span></div>'
         )
 
-    # Branch nodes (AND gate)
     for branch in branches:
-        category = branch.get("category", "")
-        label = branch.get("label", "")
-        cat_class = f"cat-{category}" if category else ""
-        parts.append(
-            f'  <div class="attack-tree-node connector {cat_class}" '
-            f'data-category="{_esc(category)}">'
-            f'<span class="gate-badge gate-and">AND</span>'
-            f'<span class="tree-node-label">{_esc(label)}</span>'
-        )
-        children = branch.get("children", []) or []
-        for child in children:
-            parts.extend(_render_tree_child(child))
-        parts.append('  </div>')
+        parts.extend(_build_tree_branch_node(branch))
 
-    # Leaf nodes
     for leaf in leaves:
         parts.append(
             f'  <div class="attack-tree-node connector">'
@@ -748,6 +832,24 @@ def _build_attack_tree_visual(tree_dict: dict | None) -> str:
 
     parts.append('</div>')
     return "\n".join(parts)
+
+
+def _build_tree_branch_node(branch: dict) -> list[str]:
+    """Build HTML for a single branch node with its children."""
+    category = branch.get("category", "")
+    label = branch.get("label", "")
+    cat_class = f"cat-{category}" if category else ""
+    parts: list[str] = [
+        f'  <div class="attack-tree-node connector {cat_class}" '
+        f'data-category="{_esc(category)}">'
+        f'<span class="gate-badge gate-and">AND</span>'
+        f'<span class="tree-node-label">{_esc(label)}</span>'
+    ]
+    children = branch.get("children", []) or []
+    for child in children:
+        parts.extend(_render_tree_child(child))
+    parts.append('  </div>')
+    return parts
 
 
 def _render_tree_child(child: dict, depth: int = 0) -> list[str]:
@@ -777,41 +879,56 @@ def _render_tree_child(child: dict, depth: int = 0) -> list[str]:
     return parts
 
 
+def _attr_list(obj: Any, name: str) -> list:
+    """Get a list attribute from an object, defaulting to empty list."""
+    return getattr(obj, name, []) or []
+
+
+def _build_defender_bdi_block(defender: Any) -> str:
+    """Build the defender BDI block HTML."""
+    parts: list[str] = ['          <div class="bdi-block">']
+    parts.append('            <h4>Defender BDI</h4>')
+    for b in _attr_list(defender, "beliefs"):
+        parts.append(f'            <div class="bdi-item"><strong>{_esc(b.pm_id)}</strong>: {_esc(b.content)}</div>')
+        if hasattr(b, "vulnerability") and b.vulnerability:
+            parts.append(f'            <div class="bdi-item-vuln">Vulnerability: {_esc(b.vulnerability)}</div>')
+    for d in _attr_list(defender, "desires"):
+        parts.append(f'            <div class="bdi-item"><strong>Desire</strong> ({_esc(d.resp_id)}): {_esc(d.content)}</div>')
+    for i in _attr_list(defender, "intentions"):
+        parts.append(f'            <div class="bdi-item"><strong>Intention</strong> ({_esc(i.ca_id)}): {_esc(i.content)}</div>')
+    parts.append('          </div>')
+    return "\n".join(parts)
+
+
+def _build_attacker_bdi_block(attacker: Any) -> str:
+    """Build the attacker BDI block HTML."""
+    parts: list[str] = ['          <div class="bdi-block">']
+    parts.append('            <h4>Attacker BDI</h4>')
+    for b in _attr_list(attacker, "beliefs"):
+        parts.append(f'            <div class="bdi-item"><strong>Belief</strong>: {_esc(b)}</div>')
+    for d in _attr_list(attacker, "desires"):
+        parts.append(f'            <div class="bdi-item"><strong>Desire</strong>: {_esc(d)}</div>')
+    for i in _attr_list(attacker, "intentions"):
+        parts.append(f'            <div class="bdi-item"><strong>Intention</strong>: {_esc(i)}</div>')
+    parts.append('          </div>')
+    return "\n".join(parts)
+
+
 def _build_bdi_section(scenario_spec: Any) -> str:
     """Build the BDI section for a scenario."""
     parts: list[str] = ['      <div class="scenario-section">']
     parts.append('        <div class="scenario-section-title">BDI Models</div>')
     parts.append('        <div class="bdi-grid">')
 
-    # Defender BDI
     defender = getattr(scenario_spec, "defender_bdi", None)
     if defender:
-        parts.append('          <div class="bdi-block">')
-        parts.append('            <h4>Defender BDI</h4>')
-        for b in getattr(defender, "beliefs", []) or []:
-            parts.append(f'            <div class="bdi-item"><strong>{_esc(b.pm_id)}</strong>: {_esc(b.content)}</div>')
-            if hasattr(b, "vulnerability") and b.vulnerability:
-                parts.append(f'            <div class="bdi-item-vuln">Vulnerability: {_esc(b.vulnerability)}</div>')
-        for d in getattr(defender, "desires", []) or []:
-            parts.append(f'            <div class="bdi-item"><strong>Desire</strong> ({_esc(d.resp_id)}): {_esc(d.content)}</div>')
-        for i in getattr(defender, "intentions", []) or []:
-            parts.append(f'            <div class="bdi-item"><strong>Intention</strong> ({_esc(i.ca_id)}): {_esc(i.content)}</div>')
-        parts.append('          </div>')
+        parts.append(_build_defender_bdi_block(defender))
     else:
         parts.append('          <div class="bdi-block"><h4>Defender BDI</h4><p class="bdi-item">No data</p></div>')
 
-    # Attacker BDI
     attacker = getattr(scenario_spec, "attacker_bdi", None)
     if attacker:
-        parts.append('          <div class="bdi-block">')
-        parts.append('            <h4>Attacker BDI</h4>')
-        for b in getattr(attacker, "beliefs", []) or []:
-            parts.append(f'            <div class="bdi-item"><strong>Belief</strong>: {_esc(b)}</div>')
-        for d in getattr(attacker, "desires", []) or []:
-            parts.append(f'            <div class="bdi-item"><strong>Desire</strong>: {_esc(d)}</div>')
-        for i in getattr(attacker, "intentions", []) or []:
-            parts.append(f'            <div class="bdi-item"><strong>Intention</strong>: {_esc(i)}</div>')
-        parts.append('          </div>')
+        parts.append(_build_attacker_bdi_block(attacker))
     else:
         parts.append('          <div class="bdi-block"><h4>Attacker BDI</h4><p class="bdi-item">No data</p></div>')
 
@@ -867,6 +984,27 @@ def _build_scenario_card(
     )
 
 
+def _rate_field_values(metric_data: dict) -> list:
+    """Extract all ``*_rate`` field values from a metric dict."""
+    return [v for k, v in metric_data.items() if k.endswith("_rate")]
+
+
+def _safe_floats(values: list) -> list[float]:
+    """Convert values to floats, dropping any that fail."""
+    return [r for r in (_safe_float(v) for v in values) if r is not None]
+
+
+def _average_rate_fields(metric_data: dict) -> float | None:
+    """Average all ``*_rate`` fields in a metric dict."""
+    rate_fields = _rate_field_values(metric_data)
+    if not rate_fields:
+        return None
+    floats = _safe_floats(rate_fields)
+    if not floats:
+        return None
+    return sum(floats) / len(floats)
+
+
 def _extract_metric_rate(metric_data: dict) -> float | None:
     """Extract a single rate from a metric dict.
 
@@ -876,12 +1014,7 @@ def _extract_metric_rate(metric_data: dict) -> float | None:
         return None
     if "rate" in metric_data:
         return _safe_float(metric_data["rate"])
-    rate_fields = [v for k, v in metric_data.items() if k.endswith("_rate")]
-    if rate_fields:
-        floats = [r for r in (_safe_float(v) for v in rate_fields) if r is not None]
-        if floats:
-            return sum(floats) / len(floats)
-    return None
+    return _average_rate_fields(metric_data)
 
 
 def _safe_float(val: Any) -> float | None:
@@ -1047,6 +1180,47 @@ def _build_call_entry_html(entry: dict, index: int) -> str:
     )
 
 
+def _build_manifest_grid(run_id: Any, created_at: Any, model_name: Any, max_workers: Any) -> str:
+    """Build the manifest metadata grid."""
+    return (
+        '    <div class="manifest-grid">\n'
+        f'      <div class="manifest-item"><div class="manifest-label">Run ID</div><div class="manifest-value">{_esc(str(run_id))}</div></div>\n'
+        f'      <div class="manifest-item"><div class="manifest-label">Created At</div><div class="manifest-value">{_esc(str(created_at))}</div></div>\n'
+        f'      <div class="manifest-item"><div class="manifest-label">Model</div><div class="manifest-value">{_esc(str(model_name))}</div></div>\n'
+        f'      <div class="manifest-item"><div class="manifest-label">Max Workers</div><div class="manifest-value">{_esc(str(max_workers))}</div></div>\n'
+        '    </div>'
+    )
+
+
+def _build_manifest_hashes_table(input_hashes: dict) -> str:
+    """Build the input hashes table for the manifest section."""
+    rows = "\n".join(
+        f'        <tr><td>{_esc(str(name))}</td><td>{_esc(str(hash_val))}</td></tr>'
+        for name, hash_val in input_hashes.items()
+    )
+    return (
+        '    <div class="subsection">\n'
+        '      <div class="subsection-title">Input Hashes</div>\n'
+        '      <table class="data-table"><thead><tr><th>Artifact</th><th>Hash</th></tr></thead><tbody>\n'
+        f'{rows}\n'
+        '      </tbody></table>\n'
+        '    </div>'
+    )
+
+
+def _resolve_model_name(manifest: dict) -> str:
+    """Extract the model name from manifest model_config."""
+    model_config = manifest.get("model_config", {}) or {}
+    if isinstance(model_config, dict):
+        return model_config.get("model", "N/A")
+    return "N/A"
+
+
+def _is_valid_hashes(input_hashes: Any) -> bool:
+    """Check if input_hashes is a non-empty dict."""
+    return bool(input_hashes and isinstance(input_hashes, dict))
+
+
 def _build_run_manifest(
     manifest: dict | None,
     raw_texts: dict[str, str] | None,
@@ -1057,34 +1231,18 @@ def _build_run_manifest(
 
     run_id = manifest.get("run_id", "N/A")
     created_at = manifest.get("created_at", "N/A")
-    model_config = manifest.get("model_config", {}) or {}
-    model_name = model_config.get("model", "N/A") if isinstance(model_config, dict) else "N/A"
+    model_name = _resolve_model_name(manifest)
     max_workers = manifest.get("max_workers", "N/A")
     input_hashes = manifest.get("input_hashes", {}) or {}
 
     parts: list[str] = ['<section id="manifest" class="flow-card">']
     parts.append('  <summary>Manifest</summary>')
     parts.append('  <div class="flow-card-body">')
+    parts.append(_build_manifest_grid(run_id, created_at, model_name, max_workers))
 
-    # Metadata grid
-    parts.append('    <div class="manifest-grid">')
-    parts.append(f'      <div class="manifest-item"><div class="manifest-label">Run ID</div><div class="manifest-value">{_esc(str(run_id))}</div></div>')
-    parts.append(f'      <div class="manifest-item"><div class="manifest-label">Created At</div><div class="manifest-value">{_esc(str(created_at))}</div></div>')
-    parts.append(f'      <div class="manifest-item"><div class="manifest-label">Model</div><div class="manifest-value">{_esc(str(model_name))}</div></div>')
-    parts.append(f'      <div class="manifest-item"><div class="manifest-label">Max Workers</div><div class="manifest-value">{_esc(str(max_workers))}</div></div>')
-    parts.append('    </div>')
+    if _is_valid_hashes(input_hashes):
+        parts.append(_build_manifest_hashes_table(input_hashes))
 
-    # Input hashes
-    if input_hashes and isinstance(input_hashes, dict):
-        parts.append('    <div class="subsection">')
-        parts.append('      <div class="subsection-title">Input Hashes</div>')
-        parts.append('      <table class="data-table"><thead><tr><th>Artifact</th><th>Hash</th></tr></thead><tbody>')
-        for name, hash_val in input_hashes.items():
-            parts.append(f'        <tr><td>{_esc(str(name))}</td><td>{_esc(str(hash_val))}</td></tr>')
-        parts.append('      </tbody></table>')
-        parts.append('    </div>')
-
-    # Raw YAML
     if raw_texts and "run-manifest.yaml" in raw_texts:
         parts.append(_build_raw_yaml_section("run-manifest.yaml", raw_texts["run-manifest.yaml"]))
 
