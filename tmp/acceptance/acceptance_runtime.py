@@ -19963,6 +19963,485 @@ def _derive_feature_tag(ir_path: str) -> str | None:
     return None
 
 
+# ============= sp1_revision_cmid_dedup handlers =============
+
+
+def _h_cmidup_cs_with_two_cls(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the control structure has coordination links CL-1 with CM-1 and CL-2 with CM-2."""
+    if world.control_structure is None:
+        world.control_structure = ControlStructure.model_validate(_sp1_valid_cs_dict())
+    cs = world.control_structure
+    world.control_structure = cs.model_copy(update={
+        "coordination_links": [
+            CoordinationLink(
+                link_id="CL-1", source="RESP-1", target="RESP-2", shared_pm="PM-1-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-1", description="Shared state", payload="Payload"),
+                description="Coordination link 1",
+            ),
+            CoordinationLink(
+                link_id="CL-2", source="RESP-2", target="RESP-1", shared_pm="PM-2-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-2", description="Shared state 2", payload="Payload 2"),
+                description="Coordination link 2",
+            ),
+        ],
+    })
+    return True, ""
+
+
+def _h_cmidup_llm_delta_with_new_cls(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a RevisionDelta with new_coordination_links containing CL-X whose cm_id is CM-Y.
+
+    Also handles variants with source, target, shared_pm, description, and payload.
+    """
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    # Parse link_id and cm_id
+    m_link = re.search(r"containing (CL-\d+) whose cm_id is (CM-\d+)", text)
+    if not m_link:
+        return False, f"Could not parse link_id/cm_id from: {text}"
+    link_id = m_link.group(1)
+    cm_id = m_link.group(2)
+    # Parse optional attributes
+    source = "RESP-1"
+    m_src = re.search(r"source (RESP-\d+)", text)
+    if m_src:
+        source = m_src.group(1)
+    target = "RESP-2"
+    m_tgt = re.search(r"target (RESP-\d+)", text)
+    if m_tgt:
+        target = m_tgt.group(1)
+    shared_pm = "PM-1-1"
+    m_pm = re.search(r"shared_pm (PM-\d+-\d+)", text)
+    if m_pm:
+        shared_pm = m_pm.group(1)
+    description = "shared validation"
+    m_desc = re.search(r'description "([^"]+)"', text)
+    if m_desc:
+        description = m_desc.group(1)
+    payload = "sync"
+    m_payload = re.search(r'payload "([^"]+)"', text)
+    if m_payload:
+        payload = m_payload.group(1)
+
+    new_links = [{
+        "link_id": link_id, "source": source, "target": target,
+        "shared_pm": shared_pm,
+        "coordination_mechanism": {"cm_id": cm_id, "description": "Shared state", "payload": payload},
+        "description": description,
+    }]
+    # Check for a second new link (CmDedup-06)
+    m_link2 = re.search(r"and (CL-\d+) whose cm_id is (CM-\d+)", text[text.index(link_id) + len(link_id):])
+    if m_link2:
+        link_id2 = m_link2.group(1)
+        cm_id2 = m_link2.group(2)
+        src2 = "RESP-2"
+        tgt2 = "RESP-1"
+        pm2 = "PM-2-1"
+        new_links.append({
+            "link_id": link_id2, "source": src2, "target": tgt2, "shared_pm": pm2,
+            "coordination_mechanism": {"cm_id": cm_id2, "description": "Shared state", "payload": "Payload 2"},
+            "description": "Coordination link 2",
+        })
+
+    delta_dict: dict[str, Any] = {"new_coordination_links": new_links}
+    client.set_response_for(_FCRevisionDelta, delta_dict)
+    return True, ""
+
+
+def _h_cmidup_llm_delta_validation_error(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a RevisionDelta that causes a ValidationError during merge."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    # A new responsibility with duplicate pm_id causes ValidationError
+    delta_dict: dict[str, Any] = {
+        "new_responsibilities": [{
+            "resp_id": "RESP-3", "description": "Dup PM",
+            "process_model_parts": [{"pm_id": "PM-1-1", "description": "Dup"}],
+            "control_actions": [{"ca_id": "CA-3-1", "description": "Act"}],
+            "feedback_channels": [{"fb_id": "FB-3-1", "description": "FB", "updates": "PM-1-1",
+                                   "source": {"type": "responsibility", "id": "RESP-3"}}],
+        }]
+    }
+    client.set_response_for(_FCRevisionDelta, delta_dict)
+    return True, ""
+
+
+def _h_cmidup_llm_delta_dup_pm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a RevisionDelta with new_responsibilities containing RESP-3 whose PM part has pm_id PM-1-1 which duplicates an existing PM."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    delta_dict: dict[str, Any] = {
+        "new_responsibilities": [{
+            "resp_id": "RESP-3", "description": "Dup PM",
+            "process_model_parts": [{"pm_id": "PM-1-1", "description": "Dup"}],
+            "control_actions": [{"ca_id": "CA-3-1", "description": "Act"}],
+            "feedback_channels": [{"fb_id": "FB-3-1", "description": "FB", "updates": "PM-1-1",
+                                   "source": {"type": "responsibility", "id": "RESP-3"}}],
+        }]
+    }
+    client.set_response_for(_FCRevisionDelta, delta_dict)
+    return True, ""
+
+
+def _h_cmidup_cl_cm_id_not(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has a cm_id that is not CM-Y."""
+    m = re.search(r"link (CL-\d+) has a cm_id that is not (CM-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, cm_id = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.coordination_mechanism.cm_id == cm_id:
+        return False, f"Expected {link_id} cm_id to not be {cm_id} but it was"
+    return True, ""
+
+
+def _h_cmidup_cl_cm_id_is(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has cm_id CM-Y."""
+    m = re.search(r"link (CL-\d+) has cm_id (CM-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, cm_id = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.coordination_mechanism.cm_id != cm_id:
+        return False, f"Expected {link_id} cm_id to be {cm_id} but got {cl.coordination_mechanism.cm_id}"
+    return True, ""
+
+
+def _h_cmidup_cl_cm_id_format(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has a cm_id matching the format CM-N."""
+    m = re.search(r"link (CL-\d+) has a cm_id matching the format CM-N", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id = m.group(1)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if not re.match(r"^CM-\d+$", cl.coordination_mechanism.cm_id):
+        return False, f"Expected {link_id} cm_id to match CM-N but got {cl.coordination_mechanism.cm_id}"
+    return True, ""
+
+
+def _h_cmidup_cl_cm_id_pattern(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has a cm_id matching the pattern ^CM-\\d+$."""
+    m = re.search(r"link (CL-\d+) has a cm_id matching the pattern", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id = m.group(1)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if not re.match(r"^CM-\d+$", cl.coordination_mechanism.cm_id):
+        return False, f"Expected {link_id} cm_id to match ^CM-\\d+$ but got {cl.coordination_mechanism.cm_id}"
+    return True, ""
+
+
+def _h_cmidup_cl_cm_id_different(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has a cm_id different from CL-Y cm_id."""
+    m = re.search(r"link (CL-\d+) has a cm_id different from (CL-\d+) cm_id", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id1, link_id2 = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl1 = next((c for c in cs.coordination_links if c.link_id == link_id1), None)
+    cl2 = next((c for c in cs.coordination_links if c.link_id == link_id2), None)
+    if cl1 is None:
+        return False, f"Coordination link {link_id1} not found"
+    if cl2 is None:
+        return False, f"Coordination link {link_id2} not found"
+    if cl1.coordination_mechanism.cm_id == cl2.coordination_mechanism.cm_id:
+        return False, f"Expected different cm_ids but both are {cl1.coordination_mechanism.cm_id}"
+    return True, ""
+
+
+def _h_cmidup_cl_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has source RESP-Y."""
+    m = re.search(r"link (CL-\d+) has source (RESP-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, source = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.source != source:
+        return False, f"Expected {link_id} source {source} but got {cl.source}"
+    return True, ""
+
+
+def _h_cmidup_cl_target(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has target RESP-Y."""
+    m = re.search(r"link (CL-\d+) has target (RESP-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, target = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.target != target:
+        return False, f"Expected {link_id} target {target} but got {cl.target}"
+    return True, ""
+
+
+def _h_cmidup_cl_shared_pm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has shared_pm PM-Y."""
+    m = re.search(r"link (CL-\d+) has shared_pm (PM-\d+-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, shared_pm = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.shared_pm != shared_pm:
+        return False, f"Expected {link_id} shared_pm {shared_pm} but got {cl.shared_pm}"
+    return True, ""
+
+
+def _h_cmidup_cl_description(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has description "Y"."""
+    m = re.search(r'link (CL-\d+) has description "([^"]+)"', text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, description = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.description != description:
+        return False, f"Expected {link_id} description '{description}' but got '{cl.description}'"
+    return True, ""
+
+
+def _h_cmidup_cl_payload(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the coordination link CL-X has coordination_mechanism payload "Y"."""
+    m = re.search(r'link (CL-\d+) has coordination_mechanism payload "([^"]+)"', text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, payload = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.coordination_mechanism.payload != payload:
+        return False, f"Expected {link_id} payload '{payload}' but got '{cl.coordination_mechanism.payload}'"
+    return True, ""
+
+
+def _h_cmidup_no_duplicate_cm_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the final control structure has no duplicate cm_id values."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cm_ids = [cl.coordination_mechanism.cm_id for cl in cs.coordination_links]
+    if len(cm_ids) != len(set(cm_ids)):
+        return False, f"Duplicate cm_ids found: {cm_ids}"
+    return True, ""
+
+
+def _h_cmidup_passes_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the final control structure passes foundation validation."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    # If ControlStructure was constructed, it passed validation
+    if not isinstance(cs, ControlStructure):
+        return False, "Control structure is not a ControlStructure instance"
+    return True, ""
+
+
+def _h_cmidup_warning_mentions(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list includes a warning that mentions X."""
+    m = re.search(r"includes a warning that mentions (\S+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    token = m.group(1)
+    warnings = world.sp1_post_revision_warnings or []
+    wtext = " ".join(warnings)
+    if token not in wtext:
+        return False, f"Expected warnings to mention '{token}' but got: {wtext}"
+    return True, ""
+
+
+def _h_cmidup_degradation_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list includes a degradation warning."""
+    warnings = world.sp1_post_revision_warnings or []
+    if not any("degrad" in w.lower() for w in warnings):
+        return False, f"Expected degradation warning but got: {warnings}"
+    return True, ""
+
+
+def _h_cmidup_no_renumber_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list does not include a renumber warning (for CM-X)."""
+    warnings = world.sp1_post_revision_warnings or []
+    m = re.search(r"for (CM-\d+)", text)
+    if m:
+        cm_id = m.group(1)
+        renumber_warnings = [w for w in warnings if "Renumber" in w]
+        if any(cm_id in w for w in renumber_warnings):
+            return False, f"Expected no renumber warning for {cm_id} but found one: {warnings}"
+    else:
+        if any("Renumber" in w for w in warnings):
+            return False, f"Expected no renumber warning but found: {warnings}"
+    return True, ""
+
+
+def _h_cmidup_no_degradation_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list does not include a degradation warning."""
+    warnings = world.sp1_post_revision_warnings or []
+    if any("degrad" in w.lower() for w in warnings):
+        return False, f"Expected no degradation warning but found: {warnings}"
+    return True, ""
+
+
+def _h_cmidup_warning_mentioning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list includes a warning mentioning X."""
+    m = re.search(r"includes a warning mentioning (.+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    fragment = m.group(1).strip()
+    warnings = world.sp1_post_revision_warnings or []
+    wtext = " ".join(warnings)
+    # Special case: "the error type" means the warning should contain
+    # an actual exception type name like ValidationError or ValueError.
+    if fragment.lower() == "the error type":
+        if "ValidationError" not in wtext and "ValueError" not in wtext:
+            return False, f"Expected warnings to mention an error type but got: {wtext}"
+        return True, ""
+    if fragment.lower() not in wtext.lower():
+        return False, f"Expected warnings to mention '{fragment}' but got: {wtext}"
+    return True, ""
+
+
+def _h_cmidup_pre_revision_cs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the returned ControlStructure is the pre-revision control structure."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    # The degradation guard returns the pre-revision CS, so RESP-3 should
+    # NOT be present (it was in the delta but rejected).
+    resp_ids = {r.resp_id for r in cs.responsibilities}
+    if "RESP-3" in resp_ids:
+        return False, "Expected pre-revision CS but RESP-3 is present (merge was applied)"
+    return True, ""
+
+
+def _h_cmidup_pipeline_no_crash(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the pipeline does not crash."""
+    if world.validation_error is not None:
+        return False, f"Pipeline crashed with: {world.validation_error}"
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure after revision"
+    return True, ""
+
+
+def _h_cmidup_returned_contains_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the returned ControlStructure contains RESP-X."""
+    m = re.search(r"contains (RESP-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    resp_id = m.group(1)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    resp_ids = {r.resp_id for r in cs.responsibilities}
+    if resp_id not in resp_ids:
+        return False, f"Expected {resp_id} in control structure but got: {resp_ids}"
+    return True, ""
+
+
+def _h_cmidup_returned_contains_cl(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the returned ControlStructure contains coordination link CL-X."""
+    m = re.search(r"contains coordination link (CL-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id = m.group(1)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl_ids = {cl.link_id for cl in cs.coordination_links}
+    if link_id not in cl_ids:
+        return False, f"Expected {link_id} in control structure but got: {cl_ids}"
+    return True, ""
+
+
+def _h_cmidup_final_cl_with_cm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the final control structure contains coordination link CL-X with cm_id CM-Y."""
+    m = re.search(r"contains coordination link (CL-\d+) with cm_id (CM-\d+)", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    link_id, cm_id = m.group(1), m.group(2)
+    cs = world.control_structure
+    if cs is None:
+        return False, "No control structure"
+    cl = next((c for c in cs.coordination_links if c.link_id == link_id), None)
+    if cl is None:
+        return False, f"Coordination link {link_id} not found"
+    if cl.coordination_mechanism.cm_id != cm_id:
+        return False, f"Expected {link_id} cm_id {cm_id} but got {cl.coordination_mechanism.cm_id}"
+    return True, ""
+
+
+# Register cm_id dedup handlers
+_register(r"the control structure has coordination links CL-1 with CM-1 and CL-2 with CM-2", _h_cmidup_cs_with_two_cls)
+_register_first(r"an LLM that returns a RevisionDelta with new_coordination_links containing CL-\d+ whose cm_id is", _h_cmidup_llm_delta_with_new_cls)
+_register_first(r"an LLM that returns a RevisionDelta that causes a ValidationError during merge", _h_cmidup_llm_delta_validation_error)
+_register_first(r"an LLM that returns a RevisionDelta with new_responsibilities containing RESP-3 whose PM part has pm_id", _h_cmidup_llm_delta_dup_pm)
+_register(r"the coordination link CL-\d+ has a cm_id that is not CM-\d+", _h_cmidup_cl_cm_id_not)
+_register(r"the coordination link CL-\d+ has cm_id CM-\d+", _h_cmidup_cl_cm_id_is)
+_register(r"the coordination link CL-\d+ has a cm_id matching the format CM-N", _h_cmidup_cl_cm_id_format)
+_register(r"the coordination link CL-\d+ has a cm_id matching the pattern", _h_cmidup_cl_cm_id_pattern)
+_register(r"the coordination link CL-\d+ has a cm_id different from CL-\d+ cm_id", _h_cmidup_cl_cm_id_different)
+_register(r"the coordination link CL-\d+ has source RESP-\d+", _h_cmidup_cl_source)
+_register(r"the coordination link CL-\d+ has target RESP-\d+", _h_cmidup_cl_target)
+_register(r"the coordination link CL-\d+ has shared_pm PM-\d+-\d+", _h_cmidup_cl_shared_pm)
+_register(r'the coordination link CL-\d+ has description "([^"]+)"', _h_cmidup_cl_description)
+_register(r'the coordination link CL-\d+ has coordination_mechanism payload "([^"]+)"', _h_cmidup_cl_payload)
+_register(r"the final control structure has no duplicate cm_id values", _h_cmidup_no_duplicate_cm_ids)
+_register(r"the final control structure passes foundation validation", _h_cmidup_passes_validation)
+_register(r"the warnings list includes a warning that mentions", _h_cmidup_warning_mentions)
+_register(r"the warnings list includes a degradation warning", _h_cmidup_degradation_warning)
+_register(r"the warnings list does not include a renumber warning", _h_cmidup_no_renumber_warning)
+_register(r"the warnings list does not include a degradation warning", _h_cmidup_no_degradation_warning)
+_register(r"the warnings list includes a warning mentioning", _h_cmidup_warning_mentioning)
+_register(r"the returned ControlStructure is the pre-revision control structure", _h_cmidup_pre_revision_cs)
+_register(r"the pipeline does not crash", _h_cmidup_pipeline_no_crash)
+_register(r"the returned ControlStructure contains RESP-\d+", _h_cmidup_returned_contains_resp)
+_register(r"the returned ControlStructure contains coordination link CL-\d+", _h_cmidup_returned_contains_cl)
+_register(r"the final control structure contains coordination link CL-\d+ with cm_id CM-\d+", _h_cmidup_final_cl_with_cm)
+
+
 def execute_ir(ir_path: str) -> tuple[bool, str]:
     """Execute all scenarios in a JSON IR file.
 

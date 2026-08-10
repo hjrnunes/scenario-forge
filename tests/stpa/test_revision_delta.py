@@ -34,7 +34,9 @@ from scenario_forge.stpa.system_model.critic import (
     _compute_next_ids,
     _extract_num,
     _is_responsibility_empty,
+    _next_free_cm_id,
     _next_num_from,
+    _renumber_colliding_cm_ids,
     run_revision,
 )
 from tests.stpa.sp1_helpers import MockLLMClient
@@ -1393,3 +1395,188 @@ class TestCmDedup14NoCollisionsNoWarnings:
         cs, _ = _run_rev(tmp_path, delta)
         cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
         assert cl3.coordination_mechanism.cm_id == "CM-3"
+
+
+# ---------------------------------------------------------------------------
+# Mutation hardening: direct unit tests for _next_free_cm_id
+# ---------------------------------------------------------------------------
+
+
+class TestNextFreeCmId:
+    """Direct unit tests for _next_free_cm_id to kill surviving mutants."""
+
+    def test_empty_set_returns_cm1(self):
+        """Empty used_cm_ids -> CM-1 (default=0 + 1 = 1)."""
+        assert _next_free_cm_id(set()) == "CM-1"
+
+    def test_single_cm_id_returns_next(self):
+        """{'CM-1'} -> CM-2."""
+        assert _next_free_cm_id({"CM-1"}) == "CM-2"
+
+    def test_multiple_cm_ids_returns_max_plus_one(self):
+        """{'CM-1', 'CM-3', 'CM-5'} -> CM-6."""
+        assert _next_free_cm_id({"CM-1", "CM-3", "CM-5"}) == "CM-6"
+
+    def test_non_numeric_cm_ids_filtered(self):
+        """Non-numeric cm_ids are filtered out; default=0+1=1."""
+        assert _next_free_cm_id({"FOO", "BAR"}) == "CM-1"
+
+    def test_mixed_numeric_and_non_numeric(self):
+        """{'CM-2', 'FOO'} -> CM-3 (only CM-2 contributes a number)."""
+        assert _next_free_cm_id({"CM-2", "FOO"}) == "CM-3"
+
+    def test_high_number(self):
+        """{'CM-99'} -> CM-100."""
+        assert _next_free_cm_id({"CM-99"}) == "CM-100"
+
+
+# ---------------------------------------------------------------------------
+# Mutation hardening: direct unit tests for _renumber_colliding_cm_ids
+# ---------------------------------------------------------------------------
+
+
+def _make_cl(link_id: str, cm_id: str) -> CoordinationLink:
+    """Build a minimal CoordinationLink for renumber tests."""
+    return CoordinationLink(
+        link_id=link_id,
+        source="RESP-1",
+        target="RESP-2",
+        shared_pm="PM-1-1",
+        coordination_mechanism=CoordinationMechanism(
+            cm_id=cm_id,
+            description="Mechanism",
+            payload="Payload",
+        ),
+        description="Link",
+    )
+
+
+class TestRenumberCollidingCmIds:
+    """Direct unit tests for _renumber_colliding_cm_ids."""
+
+    def test_existing_links_not_modified(self):
+        """Existing links keep their cm_ids (the link_id membership guard)."""
+        existing = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-2")]
+        merged = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-2"),
+                  _make_cl("CL-3", "CM-3")]
+        result, warnings = _renumber_colliding_cm_ids(existing, merged)
+        cl1 = next(cl for cl in result if cl.link_id == "CL-1")
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        assert cl1.coordination_mechanism.cm_id == "CM-1"
+        assert cl2.coordination_mechanism.cm_id == "CM-2"
+        assert warnings == []
+
+    def test_new_link_with_duplicate_cm_id_is_renumbered(self):
+        """New link whose cm_id collides with existing is renumbered."""
+        existing = [_make_cl("CL-1", "CM-1")]
+        merged = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-1")]
+        result, warnings = _renumber_colliding_cm_ids(existing, merged)
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        assert cl2.coordination_mechanism.cm_id == "CM-2"
+        assert len(warnings) == 1
+        assert "CM-1" in warnings[0]
+        assert "CL-2" in warnings[0]
+
+    def test_new_link_with_unique_cm_id_not_renumbered(self):
+        """New link with unique cm_id is left unchanged."""
+        existing = [_make_cl("CL-1", "CM-1")]
+        merged = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-3")]
+        result, warnings = _renumber_colliding_cm_ids(existing, merged)
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        assert cl2.coordination_mechanism.cm_id == "CM-3"
+        assert warnings == []
+
+    def test_new_vs_new_collision_is_detected(self):
+        """Two new links with the same cm_id: second one is renumbered.
+
+        This exercises the else-branch ``used_cm_ids.add(cm_id)`` —
+        the first new link's cm_id is added to used_cm_ids, so the
+        second new link's same cm_id triggers renumbering.
+        """
+        existing = [_make_cl("CL-1", "CM-1")]
+        merged = [_make_cl("CL-1", "CM-1"),
+                  _make_cl("CL-2", "CM-5"),
+                  _make_cl("CL-3", "CM-5")]
+        result, warnings = _renumber_colliding_cm_ids(existing, merged)
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        cl3 = next(cl for cl in result if cl.link_id == "CL-3")
+        assert cl2.coordination_mechanism.cm_id == "CM-5"
+        assert cl3.coordination_mechanism.cm_id != "CM-5"
+        assert cl3.coordination_mechanism.cm_id == "CM-6"
+        assert len(warnings) == 1
+        assert "CL-3" in warnings[0]
+
+    def test_multiple_collisions_each_renumbered_uniquely(self):
+        """Multiple new links each colliding get unique renumbered cm_ids.
+
+        This exercises the ``used_cm_ids.add(new_cm_id)`` after
+        renumbering — without it, two colliding links could be
+        renumbered to the same ID.
+        """
+        existing = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-2")]
+        merged = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-2"),
+                  _make_cl("CL-3", "CM-1"), _make_cl("CL-4", "CM-1")]
+        result, warnings = _renumber_colliding_cm_ids(existing, merged)
+        cl3 = next(cl for cl in result if cl.link_id == "CL-3")
+        cl4 = next(cl for cl in result if cl.link_id == "CL-4")
+        assert cl3.coordination_mechanism.cm_id != "CM-1"
+        assert cl4.coordination_mechanism.cm_id != "CM-1"
+        assert cl3.coordination_mechanism.cm_id != cl4.coordination_mechanism.cm_id
+        assert len(warnings) == 2
+
+    def test_no_existing_links_all_new_unique(self):
+        """No existing links, all new links have unique cm_ids -> no renumber."""
+        existing: list[CoordinationLink] = []
+        merged = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-2")]
+        result, warnings = _renumber_colliding_cm_ids(existing, merged)
+        cl1 = next(cl for cl in result if cl.link_id == "CL-1")
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        assert cl1.coordination_mechanism.cm_id == "CM-1"
+        assert cl2.coordination_mechanism.cm_id == "CM-2"
+        assert warnings == []
+
+    def test_no_existing_links_new_vs_new_collision(self):
+        """No existing links but two new links share a cm_id -> second renumbered."""
+        existing: list[CoordinationLink] = []
+        merged = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-1")]
+        result, warnings = _renumber_colliding_cm_ids(existing, merged)
+        cl1 = next(cl for cl in result if cl.link_id == "CL-1")
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        assert cl1.coordination_mechanism.cm_id == "CM-1"
+        assert cl2.coordination_mechanism.cm_id == "CM-2"
+        assert len(warnings) == 1
+        assert "CL-2" in warnings[0]
+
+    def test_renumbered_cm_id_conforms_to_format(self):
+        """Renumbered cm_id matches ^CM-\\d+$."""
+        existing = [_make_cl("CL-1", "CM-1")]
+        merged = [_make_cl("CL-1", "CM-1"), _make_cl("CL-2", "CM-1")]
+        result, _ = _renumber_colliding_cm_ids(existing, merged)
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        assert re.match(r"^CM-\d+$", cl2.coordination_mechanism.cm_id)
+
+    def test_non_cm_id_content_preserved_after_renumber(self):
+        """Renumbering only changes cm_id, not other link fields."""
+        existing = [_make_cl("CL-1", "CM-1")]
+        new_cl = CoordinationLink(
+            link_id="CL-2",
+            source="RESP-2",
+            target="RESP-1",
+            shared_pm="PM-2-1",
+            coordination_mechanism=CoordinationMechanism(
+                cm_id="CM-1",
+                description="Unique mechanism",
+                payload="Unique payload",
+            ),
+            description="Unique link",
+        )
+        merged = [_make_cl("CL-1", "CM-1"), new_cl]
+        result, _ = _renumber_colliding_cm_ids(existing, merged)
+        cl2 = next(cl for cl in result if cl.link_id == "CL-2")
+        assert cl2.source == "RESP-2"
+        assert cl2.target == "RESP-1"
+        assert cl2.shared_pm == "PM-2-1"
+        assert cl2.description == "Unique link"
+        assert cl2.coordination_mechanism.description == "Unique mechanism"
+        assert cl2.coordination_mechanism.payload == "Unique payload"
+        assert cl2.coordination_mechanism.cm_id != "CM-1"
