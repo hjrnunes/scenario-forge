@@ -46,9 +46,13 @@ from scenario_forge.stpa.system_model.control_structure import (
     _strip_all_element_refs,
 )
 from scenario_forge.stpa.system_model.critic import (
+    CriticFindings,
+    CriticGap,
     RevisionDelta,
     _merge_revision_delta,
+    run_revision,
 )
+from tests.stpa.sp1_helpers import MockLLMClient
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +565,245 @@ class TestMergeRevisionDeltaProperties:
         merged, _ = _merge_revision_delta(cs, delta)
         # Should still have only n_existing responsibilities
         assert len(merged.responsibilities) == n_existing
+
+
+# ---------------------------------------------------------------------------
+# 2b. cm_id renumbering property tests
+# ---------------------------------------------------------------------------
+
+
+def _make_cs_with_cls(n_cls: int = 2) -> ControlStructure:
+    """Build a ControlStructure with two responsibilities and n coordination links.
+
+    Links use CM-1, CM-2, ... so new links with those cm_ids will collide.
+    """
+    resps = [
+        Responsibility(
+            resp_id=f"RESP-{i}",
+            description=f"Controller {i}",
+            process_model_parts=[
+                ProcessModelPart(pm_id=f"PM-{i}-1", description=f"State {i}")
+            ],
+            control_actions=[
+                ControlAction(ca_id=f"CA-{i}-1", description=f"Action {i}")
+            ],
+            feedback_channels=[
+                FeedbackChannel(
+                    fb_id=f"FB-{i}-1",
+                    description=f"FB {i}",
+                    updates=f"PM-{i}-1",
+                    source=ElementRef(
+                        type=ReferenceType.responsibility, id=f"RESP-{i}"
+                    ),
+                )
+            ],
+        )
+        for i in range(1, 3)
+    ]
+    links = [
+        CoordinationLink(
+            link_id=f"CL-{i}",
+            source="RESP-1",
+            target="RESP-2",
+            shared_pm="PM-2-1" if i % 2 == 0 else "PM-1-1",
+            coordination_mechanism=CoordinationMechanism(
+                cm_id=f"CM-{i}",
+                description=f"Mechanism {i}",
+                payload=f"Payload {i}",
+            ),
+            description=f"Link {i}",
+        )
+        for i in range(1, n_cls + 1)
+    ]
+    return ControlStructure(
+        responsibilities=resps, coordination_links=links
+    )
+
+
+def _make_new_cl(
+    cl_num: int,
+    cm_id: str,
+    *,
+    source: str = "RESP-1",
+    target: str = "RESP-2",
+    shared_pm: str = "PM-1-1",
+    description: str = "New link",
+    payload: str = "new payload",
+    mech_desc: str = "New mechanism",
+) -> CoordinationLink:
+    """Build a new CoordinationLink with the given link_id and cm_id."""
+    return CoordinationLink(
+        link_id=f"CL-{cl_num}",
+        source=source,
+        target=target,
+        shared_pm=shared_pm,
+        coordination_mechanism=CoordinationMechanism(
+            cm_id=cm_id,
+            description=mech_desc,
+            payload=payload,
+        ),
+        description=description,
+    )
+
+
+def _make_critic_findings() -> CriticFindings:
+    """Build minimal critic findings for run_revision."""
+    return CriticFindings(
+        gaps=[
+            CriticGap(
+                gap_type="missing_responsibility",
+                description="Missing validation",
+                related_attack_path="Attacker sends crafted input",
+                suggested_remedy="Add input validation responsibility",
+            )
+        ],
+        checklist_results={"input_validation": "absent_unjustified"},
+    )
+
+
+class TestCmIdRenumberingProperties:
+    """Property tests for cm_id collision renumbering invariants."""
+
+    @given(
+        n_existing_cls=st.integers(min_value=1, max_value=4),
+        n_new_cls=st.integers(min_value=1, max_value=4),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_no_duplicate_cm_ids_after_merge(self, n_existing_cls, n_new_cls):
+        """Invariant: the merged structure never contains duplicate cm_ids.
+
+        New links all use CM-1 (guaranteed collision with the first
+        existing link). After merge + renumbering, every cm_id is unique.
+        """
+        cs = _make_cs_with_cls(n_existing_cls)
+        new_cls = [
+            _make_new_cl(n_existing_cls + i + 1, "CM-1")
+            for i in range(n_new_cls)
+        ]
+        delta = RevisionDelta(new_coordination_links=new_cls)
+        merged, _ = _merge_revision_delta(cs, delta)
+        cm_ids = [cl.coordination_mechanism.cm_id for cl in merged.coordination_links]
+        assert len(cm_ids) == len(set(cm_ids)), (
+            f"Duplicate cm_ids found: {cm_ids}"
+        )
+
+    @given(
+        n_existing_cls=st.integers(min_value=1, max_value=3),
+        n_new=st.integers(min_value=1, max_value=3),
+    )
+    @settings(max_examples=25, deadline=None)
+    def test_renumbering_preserves_non_cm_id_content(self, n_existing_cls, n_new):
+        """Invariant: renumbering never alters a link's non-cm_id content.
+
+        Each new link gets distinct source/target/shared_pm/description/
+        payload so we can verify they survive renumbering unchanged.
+        """
+        cs = _make_cs_with_cls(n_existing_cls)
+        new_cls = [
+            _make_new_cl(
+                n_existing_cls + i + 1,
+                "CM-1",  # collides with existing CM-1
+                source="RESP-2",
+                target="RESP-1",
+                shared_pm="PM-2-1",
+                description=f"Unique desc {i}",
+                payload=f"Unique payload {i}",
+                mech_desc=f"Unique mech {i}",
+            )
+            for i in range(n_new)
+        ]
+        delta = RevisionDelta(new_coordination_links=new_cls)
+        merged, _ = _merge_revision_delta(cs, delta)
+
+        # Find the new links by link_id
+        new_link_ids = {cl.link_id for cl in new_cls}
+        merged_new = [
+            cl for cl in merged.coordination_links if cl.link_id in new_link_ids
+        ]
+        assert len(merged_new) == n_new
+
+        for original, renumbered in zip(new_cls, merged_new, strict=False):
+            assert renumbered.source == original.source
+            assert renumbered.target == original.target
+            assert renumbered.shared_pm == original.shared_pm
+            assert renumbered.description == original.description
+            assert renumbered.coordination_mechanism.description == (
+                original.coordination_mechanism.description
+            )
+            assert renumbered.coordination_mechanism.payload == (
+                original.coordination_mechanism.payload
+            )
+            # cm_id should have changed (was CM-1, now something else)
+            assert renumbered.coordination_mechanism.cm_id != "CM-1"
+
+    @given(
+        n_existing_cls=st.integers(min_value=0, max_value=3),
+        n_new=st.integers(min_value=0, max_value=4),
+        collide=st.booleans(),
+    )
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_run_revision_never_raises(self, tmp_path, n_existing_cls, n_new, collide):
+        """Invariant: run_revision never raises regardless of delta shape.
+
+        Uses a mock LLM client that returns a RevisionDelta with new
+        coordination links. When *collide* is True, all new links use
+        CM-1 (which collides if existing links have CM-1). When False,
+        new links use unique cm_ids starting after the existing max.
+        """
+        n_resps = max(n_existing_cls, 2)  # need >=2 resps for valid CLs
+        cs = _make_cs(n_resps)
+        if n_existing_cls > 0:
+            # Rebuild with coordination links
+            cs = _make_cs_with_cls(n_existing_cls)
+            # _make_cs_with_cls always creates 2 responsibilities
+            n_resps = 2
+
+        if collide and n_existing_cls > 0:
+            cm_start = 1  # CM-1 collides
+        else:
+            cm_start = n_existing_cls + 1
+
+        new_cls = [
+            _make_new_cl(n_existing_cls + i + 1, f"CM-{cm_start + i}")
+            for i in range(n_new)
+        ]
+        # Wrap new links in dicts for the mock client ( RevisionDelta
+        # is parsed from dict by safe_llm_call).
+        new_cl_dicts = [
+            {
+                "link_id": cl.link_id,
+                "source": cl.source,
+                "target": cl.target,
+                "shared_pm": cl.shared_pm,
+                "coordination_mechanism": {
+                    "cm_id": cl.coordination_mechanism.cm_id,
+                    "description": cl.coordination_mechanism.description,
+                    "payload": cl.coordination_mechanism.payload,
+                },
+                "description": cl.description,
+            }
+            for cl in new_cls
+        ]
+        delta_dict = {"new_coordination_links": new_cl_dicts}
+
+        client = MockLLMClient()
+        client.set_response_for(RevisionDelta, delta_dict)
+
+        # run_revision must not raise — the degradation guard catches
+        # any merge exception and returns (pre-revision-cs, [warning]).
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=cs,
+            critic_findings=_make_critic_findings(),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+        assert isinstance(revised, ControlStructure)
+        assert isinstance(warnings, list)
 
 
 # ---------------------------------------------------------------------------
