@@ -1,0 +1,638 @@
+"""End-to-end STPA pipeline runner: SP1 → SP2 → SP3 → report.
+
+Orchestrates the full STPA pipeline in a single call, with per-stage
+LLM client resolution, resume support, and degraded-result handling.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from scenario_forge.data.loaders import load_risk_extraction
+from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.stpa.infra.calls_html import render_calls_html
+from scenario_forge.stpa.infra.yaml_io import read_yaml
+from scenario_forge.stpa.models.control_structure import ControlStructure
+from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
+from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.pipeline.llm_config import (
+    read_use_case,
+    resolve_llm_client,
+)
+from scenario_forge.stpa.report import generate_report
+from scenario_forge.stpa.scenario_prod.run import SP3RunResult, run_sp3
+from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
+from scenario_forge.stpa.threat_enum.run import SP2RunResult, run_sp2
+
+logger = logging.getLogger(__name__)
+
+SP1_ARTIFACT_NAMES = (
+    "loss-analysis.yaml",
+    "capability-profile.yaml",
+    "control-structure.yaml",
+)
+
+SP2_ARTIFACT_NAMES = (
+    "ica-enumeration.yaml",
+    "enriched-threats.yaml",
+)
+
+
+@dataclass
+class STPARunResult:
+    """Result of a full STPA pipeline run.
+
+    Each stage result may be ``None`` when the stage was skipped (resume)
+    or failed. ``stage_errors`` collects error messages from all stages.
+    """
+
+    sp1_result: SP1RunResult | None = None
+    sp2_result: SP2RunResult | None = None
+    sp3_result: SP3RunResult | None = None
+    report_path: Path | None = None
+    stage_errors: list[str] = field(default_factory=list)
+
+
+def run_stpa_pipeline(
+    *,
+    use_case_path: str,
+    risk_extraction_path: str,
+    output_dir: Path,
+    profile: str | None = None,
+    sp1_profile: str | None = None,
+    sp2_profile: str | None = None,
+    sp3_profile: str | None = None,
+    profiles_file: str = "ai/model-profiles.yaml",
+    capability_profile_path: Path | None = None,
+    max_workers: int = 1,
+    resume: bool = False,
+) -> STPARunResult:
+    """Run the full STPA pipeline: SP1 → SP2 → SP3 → report.
+
+    Args:
+        use_case_path: Path to the use-case text file (``@`` prefix optional).
+        risk_extraction_path: Path to the risk extraction JSON file.
+        output_dir: Directory for all pipeline artifacts.
+        profile: Default model profile name for all stages.
+        sp1_profile: SP1-specific model profile override.
+        sp2_profile: SP2-specific model profile override.
+        sp3_profile: SP3-specific model profile override.
+        profiles_file: Path to the model profiles YAML file.
+        capability_profile_path: Path to a pre-built capability-profile.yaml.
+            When provided, SP1 Stage 1b is skipped and the profile is
+            passed to SP3 for envelope enrichment.
+        max_workers: Parallel workers for LLM calls within stages.
+        resume: When True, skip stages whose artifacts already exist.
+
+    Returns:
+        An :class:`STPARunResult` with per-stage results and the report path.
+    """
+    output_dir = Path(output_dir)
+    stage_errors: list[str] = []
+
+    # --- Step 0: Input validation ---
+    _validate_inputs(
+        use_case_path=use_case_path,
+        risk_extraction_path=risk_extraction_path,
+        capability_profile_path=capability_profile_path,
+        profiles_file=profiles_file,
+        profile=profile,
+        sp1_profile=sp1_profile,
+        sp2_profile=sp2_profile,
+        sp3_profile=sp3_profile,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    sp1_result: SP1RunResult | None = None
+    sp2_result: SP2RunResult | None = None
+    sp3_result: SP3RunResult | None = None
+
+    # --- Step 1: SP1 ---
+    skip_sp1 = resume and _sp1_artifacts_exist(output_dir)
+    if skip_sp1:
+        logger.info("Resume: SP1 artifacts exist, skipping SP1")
+    else:
+        sp1_result = _run_sp1_stage(
+            use_case_path=use_case_path,
+            risk_extraction_path=risk_extraction_path,
+            output_dir=output_dir,
+            profile=profile,
+            sp1_profile=sp1_profile,
+            profiles_file=profiles_file,
+            capability_profile_path=capability_profile_path,
+            max_workers=max_workers,
+            stage_errors=stage_errors,
+        )
+
+    # Load SP1 artifacts from disk (needed for SP2/SP3 and for resume)
+    control_structure = _load_sp1_artifact(
+        output_dir, "control-structure.yaml", ControlStructure,
+    )
+    if control_structure is None and not skip_sp1:
+        _abort_missing_artifact(
+            "SP1", "control-structure.yaml", stage_errors, output_dir,
+        )
+        return STPARunResult(sp1_result=sp1_result, stage_errors=stage_errors)
+
+    capability_profile = _load_sp1_artifact(
+        output_dir, "capability-profile.yaml", CapabilityProfile,
+    )
+    loss_analysis = _load_sp1_artifact(
+        output_dir, "loss-analysis.yaml", LossAnalysis,
+    )
+
+    # --- Step 2: SP2 ---
+    skip_sp2 = resume and _sp2_artifacts_exist(output_dir)
+    if skip_sp2:
+        logger.info("Resume: SP2 artifacts exist, skipping SP2")
+    elif control_structure is not None:
+        sp2_result = _run_sp2_stage(
+            output_dir=output_dir,
+            control_structure=control_structure,
+            capability_profile=capability_profile,
+            loss_analysis=loss_analysis,
+            profile=profile,
+            sp2_profile=sp2_profile,
+            profiles_file=profiles_file,
+            max_workers=max_workers,
+            stage_errors=stage_errors,
+        )
+
+    # Load SP2 artifacts from disk
+    enriched_threat_set = _load_sp1_artifact(
+        output_dir, "enriched-threats.yaml", EnrichedThreatSet,
+    )
+    if enriched_threat_set is None and not skip_sp2:
+        _abort_missing_artifact(
+            "SP2", "enriched-threats.yaml", stage_errors, output_dir,
+        )
+        return STPARunResult(
+            sp1_result=sp1_result,
+            sp2_result=sp2_result,
+            stage_errors=stage_errors,
+        )
+
+    # --- Step 3: SP3 ---
+    skip_sp3 = resume and _sp3_artifacts_exist(output_dir)
+    if skip_sp3:
+        logger.info("Resume: SP3 artifacts exist, skipping SP3")
+    elif enriched_threat_set is not None and control_structure is not None:
+        sp3_result = _run_sp3_stage(
+            output_dir=output_dir,
+            enriched_threat_set=enriched_threat_set,
+            control_structure=control_structure,
+            loss_analysis=loss_analysis,
+            profile=profile,
+            sp3_profile=sp3_profile,
+            profiles_file=profiles_file,
+            capability_profile_path=capability_profile_path,
+            max_workers=max_workers,
+            stage_errors=stage_errors,
+        )
+
+    # --- Step 4: Report (always) ---
+    report_path = _generate_report(output_dir)
+
+    # --- Step 5: Summary ---
+    _print_summary(
+        sp1_result=sp1_result,
+        sp2_result=sp2_result,
+        sp3_result=sp3_result,
+        report_path=report_path,
+        output_dir=output_dir,
+        stage_errors=stage_errors,
+    )
+
+    return STPARunResult(
+        sp1_result=sp1_result,
+        sp2_result=sp2_result,
+        sp3_result=sp3_result,
+        report_path=report_path,
+        stage_errors=stage_errors,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_inputs(
+    *,
+    use_case_path: str,
+    risk_extraction_path: str,
+    capability_profile_path: Path | None,
+    profiles_file: str,
+    profile: str | None,
+    sp1_profile: str | None,
+    sp2_profile: str | None,
+    sp3_profile: str | None,
+) -> None:
+    """Validate that all required input files exist before starting."""
+    raw_use_case = use_case_path[1:] if use_case_path.startswith("@") else use_case_path
+    if not Path(raw_use_case).exists():
+        raise FileNotFoundError(f"Use-case file not found: {use_case_path}")
+    if not Path(risk_extraction_path).exists():
+        raise FileNotFoundError(
+            f"Risk extraction file not found: {risk_extraction_path}"
+        )
+    if capability_profile_path is not None and not Path(capability_profile_path).exists():
+        raise FileNotFoundError(
+            f"Capability profile file not found: {capability_profile_path}"
+        )
+    _validate_profiles_file(
+        profiles_file, profile, sp1_profile, sp2_profile, sp3_profile,
+    )
+
+
+def _validate_profiles_file(
+    profiles_file: str,
+    profile: str | None,
+    sp1_profile: str | None,
+    sp2_profile: str | None,
+    sp3_profile: str | None,
+) -> None:
+    """Validate that the profiles file exists when a profile is requested."""
+    if profile is None and sp1_profile is None and sp2_profile is None and sp3_profile is None:
+        return
+    if not Path(profiles_file).exists():
+        raise FileNotFoundError(f"Model profiles file not found: {profiles_file}")
+
+
+# ---------------------------------------------------------------------------
+# SP1
+# ---------------------------------------------------------------------------
+
+
+def _run_sp1_stage(
+    *,
+    use_case_path: str,
+    risk_extraction_path: str,
+    output_dir: Path,
+    profile: str | None,
+    sp1_profile: str | None,
+    profiles_file: str,
+    capability_profile_path: Path | None,
+    max_workers: int,
+    stage_errors: list[str],
+) -> SP1RunResult:
+    """Run SP1 and render calls.html."""
+    llm_client, profile_name = resolve_llm_client(
+        profile, sp1_profile, profiles_file,
+    )
+    use_case_text = read_use_case(use_case_path)
+    risk_cards = load_risk_extraction(risk_extraction_path)
+
+    logger.info("Starting SP1 pipeline...")
+    result = run_sp1(
+        llm_client=llm_client,
+        use_case_text=use_case_text,
+        risk_cards=risk_cards,
+        run_dir=output_dir,
+        profile_path=capability_profile_path,
+        profile_name=profile_name,
+        max_workers=max_workers,
+    )
+
+    # Render calls.html
+    calls_jsonl = output_dir / "calls.jsonl"
+    if calls_jsonl.exists():
+        render_calls_html(calls_jsonl, output_dir / "calls.html")
+        logger.info("Rendered calls.html to %s", output_dir / "calls.html")
+
+    if result.stage_errors:
+        logger.warning("SP1 completed with %d stage errors", len(result.stage_errors))
+        stage_errors.extend(result.stage_errors)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# SP2
+# ---------------------------------------------------------------------------
+
+
+def _run_sp2_stage(
+    *,
+    output_dir: Path,
+    control_structure: ControlStructure,
+    capability_profile: CapabilityProfile | None,
+    loss_analysis: LossAnalysis | None,
+    profile: str | None,
+    sp2_profile: str | None,
+    profiles_file: str,
+    max_workers: int,
+    stage_errors: list[str],
+) -> SP2RunResult:
+    """Run SP2 using SP1 artifacts loaded from disk."""
+    llm_client, _ = resolve_llm_client(profile, sp2_profile, profiles_file)
+
+    logger.info("Starting SP2 pipeline...")
+    result = run_sp2(
+        llm_client=llm_client,
+        control_structure=control_structure,
+        capability_profile=capability_profile,  # type: ignore[arg-type]
+        loss_analysis=loss_analysis,  # type: ignore[arg-type]
+        run_dir=output_dir,
+        max_workers=max_workers,
+    )
+
+    if result.stage_errors:
+        logger.warning("SP2 completed with %d stage errors", len(result.stage_errors))
+        stage_errors.extend(result.stage_errors)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# SP3
+# ---------------------------------------------------------------------------
+
+
+def _run_sp3_stage(
+    *,
+    output_dir: Path,
+    enriched_threat_set: EnrichedThreatSet,
+    control_structure: ControlStructure,
+    loss_analysis: LossAnalysis | None,
+    profile: str | None,
+    sp3_profile: str | None,
+    profiles_file: str,
+    capability_profile_path: Path | None,
+    max_workers: int,
+    stage_errors: list[str],
+) -> SP3RunResult:
+    """Run SP3 using SP1/SP2 artifacts loaded from disk."""
+    llm_client, _ = resolve_llm_client(profile, sp3_profile, profiles_file)
+
+    # Pass capability_profile to SP3 only when --capability-profile was
+    # explicitly provided by the user. When SP1 generates the profile,
+    # don't pass it to SP3.
+    capability_profile: CapabilityProfile | None = None
+    if capability_profile_path is not None:
+        capability_profile = read_yaml(
+            Path(capability_profile_path), CapabilityProfile,
+        )
+
+    logger.info("Starting SP3 pipeline...")
+    result = run_sp3(
+        llm_client=llm_client,
+        enriched_threat_set=enriched_threat_set,
+        control_structure=control_structure,
+        loss_analysis=loss_analysis,  # type: ignore[arg-type]
+        run_dir=output_dir,
+        capability_profile=capability_profile,
+        max_workers=max_workers,
+    )
+
+    if result.stage_errors:
+        logger.warning("SP3 completed with %d stage errors", len(result.stage_errors))
+        stage_errors.extend(result.stage_errors)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Resume helpers
+# ---------------------------------------------------------------------------
+
+
+def _sp1_artifacts_exist(output_dir: Path) -> bool:
+    """Check whether all SP1 artifacts exist in *output_dir*."""
+    return all((output_dir / name).exists() for name in SP1_ARTIFACT_NAMES)
+
+
+def _sp2_artifacts_exist(output_dir: Path) -> bool:
+    """Check whether all SP2 artifacts exist in *output_dir*."""
+    return all((output_dir / name).exists() for name in SP2_ARTIFACT_NAMES)
+
+
+def _sp3_artifacts_exist(output_dir: Path) -> bool:
+    """Check whether SP3 scenarios directory has .yaml files."""
+    scenarios_dir = output_dir / "scenarios"
+    if not scenarios_dir.exists():
+        return False
+    return any(scenarios_dir.glob("*.yaml"))
+
+
+# ---------------------------------------------------------------------------
+# Artifact loading
+# ---------------------------------------------------------------------------
+
+
+def _load_sp1_artifact(
+    output_dir: Path,
+    filename: str,
+    model_class: type,
+) -> object | None:
+    """Load an artifact from *output_dir*, returning None if missing or invalid."""
+    path = output_dir / filename
+    if not path.exists():
+        return None
+    try:
+        return read_yaml(path, model_class)  # type: ignore[return-value]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load %s: %s", path, exc)
+        return None
+
+
+def _abort_missing_artifact(
+    stage: str,
+    artifact_name: str,
+    stage_errors: list[str],
+    output_dir: Path,
+) -> None:
+    """Log an error and record a stage error for a missing critical artifact."""
+    msg = f"{stage} did not produce {artifact_name}; stopping pipeline"
+    logger.error(msg)
+    stage_errors.append(msg)
+
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
+
+
+def _generate_report(output_dir: Path) -> Path:
+    """Generate the STPA HTML report (always, even on degraded results)."""
+    logger.info("Generating STPA report...")
+    try:
+        return generate_report(output_dir)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Report generation failed: %s", exc)
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+
+def _print_summary(
+    *,
+    sp1_result: SP1RunResult | None,
+    sp2_result: SP2RunResult | None,
+    sp3_result: SP3RunResult | None,
+    report_path: Path,
+    output_dir: Path,
+    stage_errors: list[str],
+) -> None:
+    """Print a combined summary table to stdout."""
+    print("")
+    print("=" * 60)
+    print("STPA PIPELINE SUMMARY")
+    print("=" * 60)
+
+    _print_sp1_summary(sp1_result, output_dir)
+    _print_sp2_summary(sp2_result, output_dir)
+    _print_sp3_summary(sp3_result)
+    _print_report_summary(report_path)
+    _print_stage_errors_summary(stage_errors)
+
+    print("=" * 60)
+
+
+def _print_sp1_summary(
+    sp1_result: SP1RunResult | None,
+    output_dir: Path,
+) -> None:
+    """Print SP1 metrics, loading from disk if the result is not in-memory."""
+    print("")
+    print("--- SP1: System Model ---")
+
+    loss_analysis: LossAnalysis | None = None
+    control_structure: ControlStructure | None = None
+
+    if sp1_result is not None:
+        loss_analysis = sp1_result.loss_analysis
+        control_structure = sp1_result.control_structure
+    else:
+        # Resume: load from disk
+        loss_analysis = _load_sp1_artifact(  # type: ignore[assignment]
+            output_dir, "loss-analysis.yaml", LossAnalysis,
+        )
+        control_structure = _load_sp1_artifact(  # type: ignore[assignment]
+            output_dir, "control-structure.yaml", ControlStructure,
+        )
+
+    if loss_analysis is not None:
+        all_losses = (
+            loss_analysis.risk_card_losses + loss_analysis.use_case_losses
+        )
+        print(f"  Losses:           {len(all_losses)}")
+        print(f"  Hazards:          {len(loss_analysis.hazards)}")
+        print(f"  Constraints:      {len(loss_analysis.security_constraints)}")
+    else:
+        print("  Loss Analysis:    DEGRADED — not produced")
+
+    if control_structure is not None:
+        total_ca = sum(
+            len(r.control_actions) for r in control_structure.responsibilities
+        )
+        print(f"  Responsibilities: {len(control_structure.responsibilities)}")
+        print(f"  Control Actions:  {total_ca}")
+    else:
+        print("  Control Structure: DEGRADED — not produced")
+
+
+def _print_sp2_summary(
+    sp2_result: SP2RunResult | None,
+    output_dir: Path,
+) -> None:
+    """Print SP2 metrics, loading from disk if the result is not in-memory."""
+    from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
+
+    print("")
+    print("--- SP2: Threat Enumeration ---")
+
+    ica_enumeration = None
+    enriched_threat_set: EnrichedThreatSet | None = None
+
+    if sp2_result is not None:
+        ica_enumeration = sp2_result.ica_enumeration
+        enriched_threat_set = sp2_result.enriched_threat_set
+    else:
+        # Resume: load from disk
+        ica_enumeration = _load_sp1_artifact(
+            output_dir, "ica-enumeration.yaml", ICAEnumeration,
+        )
+        enriched_threat_set = _load_sp1_artifact(  # type: ignore[assignment]
+            output_dir, "enriched-threats.yaml", EnrichedThreatSet,
+        )
+
+    if ica_enumeration is not None:
+        total = len(ica_enumeration.slots)
+        na = sum(1 for s in ica_enumeration.slots if s.is_na)
+        print(f"  Total slots:        {total}")
+        print(f"  N/A slots:          {na}")
+        if total:
+            print(f"  Fill rate:          {(total - na) / total:.1%}")
+        else:
+            print("  Fill rate:          N/A")
+    else:
+        print("  ICA Enumeration:    DEGRADED — not produced")
+
+    if enriched_threat_set is not None:
+        threats = enriched_threat_set.structural_threats
+        print(f"  Structural threats: {len(threats)}")
+        mapped = sum(1 for t in threats if t.catalog_mappings)
+        print(f"  Mapped:             {mapped}")
+        print(f"  Unmapped:           {len(threats) - mapped}")
+    else:
+        print("  Enriched Threat Set: DEGRADED — not produced")
+
+
+def _print_sp3_summary(sp3_result: SP3RunResult | None) -> None:
+    """Print SP3 metrics."""
+    print("")
+    print("--- SP3: Scenario Production ---")
+
+    if sp3_result is not None:
+        print(f"  Scenario specs:     {len(sp3_result.scenario_specs)}")
+        print(f"  Scenario envelopes: {len(sp3_result.scenario_envelopes)}")
+        print(f"  Validation errors:  {len(sp3_result.validation_errors)}")
+        if sp3_result.eval_scorecard:
+            _print_eval_metrics_summary(sp3_result.eval_scorecard)
+    else:
+        print("  SP3: SKIPPED or not produced")
+
+
+def _print_eval_metrics_summary(eval_scorecard: dict) -> None:
+    """Print a one-line summary of eval metrics."""
+    metrics = eval_scorecard.get("metrics", eval_scorecard)
+    if not isinstance(metrics, dict):
+        return
+    rates: list[str] = []
+    for name, data in metrics.items():
+        rate = _extract_rate(data)
+        if rate is not None:
+            rates.append(f"{name}={rate}")
+    if rates:
+        print(f"  Eval metrics:       {', '.join(rates)}")
+
+
+def _extract_rate(data: object) -> str | None:
+    """Extract a rate string from a metric entry (dict or scalar)."""
+    if isinstance(data, dict):
+        rate = data.get("rate")
+        if rate is not None:
+            return f"{float(rate):.1%}"
+    return None
+
+
+def _print_report_summary(report_path: Path) -> None:
+    """Print the report path."""
+    print("")
+    print(f"  Report: {report_path}")
+
+
+def _print_stage_errors_summary(stage_errors: list[str]) -> None:
+    """Print stage error counts when errors are present."""
+    if not stage_errors:
+        return
+    print("")
+    print(f"  Stage Errors: {len(stage_errors)}")
+    for err in stage_errors:
+        print(f"    - {err}")

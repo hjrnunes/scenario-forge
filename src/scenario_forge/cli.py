@@ -520,3 +520,77 @@ def stpa_report_cmd(
             msg += f"\n  Caused by: {exc.__cause__}"
         typer.echo(msg, err=True)
         raise typer.Exit(code=1)
+
+
+@app.command(name="stpa-run")
+def stpa_run_cmd(
+    use_case: str = typer.Option(
+        ...,
+        help="Path to use-case text file (@ prefix optional).",
+    ),
+    risk_extraction: Path = typer.Option(
+        ...,
+        help="Path to risk extraction JSON file.",
+    ),
+    output_dir: Path = typer.Option(
+        ...,
+        help="Output directory for all artifacts.",
+    ),
+    profile: str | None = typer.Option(
+        None,
+        help="Default model profile name.",
+    ),
+    sp1_profile: str | None = typer.Option(
+        None,
+        help="SP1 model profile override.",
+    ),
+    sp2_profile: str | None = typer.Option(
+        None,
+        help="SP2 model profile override.",
+    ),
+    sp3_profile: str | None = typer.Option(
+        None,
+        help="SP3 model profile override.",
+    ),
+    profiles_file: str = typer.Option(
+        "ai/model-profiles.yaml",
+        help="Path to model profiles YAML file.",
+    ),
+    capability_profile: Path | None = typer.Option(
+        None,
+        help="Pre-built capability profile path.",
+    ),
+    max_workers: int = typer.Option(
+        1,
+        help="Parallel workers for LLM calls.",
+    ),
+    resume: bool = typer.Option(
+        False,
+        help="Skip completed stages if artifacts exist.",
+    ),
+) -> None:
+    """Run the full STPA pipeline: SP1 → SP2 → SP3 → report."""
+    from scenario_forge.stpa.pipeline import run_stpa_pipeline
+
+    try:
+        run_stpa_pipeline(
+            use_case_path=use_case,
+            risk_extraction_path=str(risk_extraction),
+            output_dir=output_dir,
+            profile=profile,
+            sp1_profile=sp1_profile,
+            sp2_profile=sp2_profile,
+            sp3_profile=sp3_profile,
+            profiles_file=profiles_file,
+            capability_profile_path=capability_profile,
+            max_workers=max_workers,
+            resume=resume,
+        )
+
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
