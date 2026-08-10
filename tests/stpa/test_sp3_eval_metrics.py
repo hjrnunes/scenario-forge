@@ -28,7 +28,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     LossProvenance,
     SecurityConstraint,
 )
-from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import (
     AttackerBDI,
     DefenderBDI,
@@ -144,7 +144,14 @@ def _make_envelope(
         scenario_spec=s,
         narrative="narrative",
         attack_tree=tree,
-        gherkin_spec="Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n",
+        gherkin_spec=GherkinSpec(
+            feature="Test",
+            scenario="Test",
+            given=["Given PM-1-1 is valid"],
+            when=["When x"],
+            then_expected=["Then should reject"],
+            then_actual=["But approves"],
+        ),
         target_responsibility=s.target_controller,
         ica_type=s.ica_type,
         provenance="structural",

@@ -24,6 +24,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     LossProvenance,
     SecurityConstraint,
 )
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
 from scenario_forge.stpa.models.scenario_spec import (
     AttackerBDI,
     DefenderBDI,
@@ -359,15 +360,27 @@ class TestAttackTree:
 class TestGherkin:
     """SP3-GHK-01 through SP3-GHK-12."""
 
+    _GHERKIN_YAML = (
+        "feature: Test\n"
+        "scenario: Test\n"
+        "given:\n"
+        "  - Given PM-1-1 is valid\n"
+        "when:\n"
+        "  - When x\n"
+        "then_expected:\n"
+        "  - Then should reject\n"
+        "then_actual:\n"
+        "  - But approves\n"
+    )
+
     def test_one_llm_call(self):
         spec = _make_scenario_spec()
         la = _make_loss_analysis()
-        gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
         client = MockLLMClient()
-        client.set_response_for(None, gherkin)
+        client.set_response_for(None, self._GHERKIN_YAML)
 
         with TemporaryDirectory() as tmpdir:
-            result, error = generate_gherkin(client, spec, la, Path(tmpdir))
+            result, raw, error = generate_gherkin(client, spec, la, Path(tmpdir))
             assert error is None
             assert result is not None
             assert client.call_count == 1
@@ -375,9 +388,8 @@ class TestGherkin:
     def test_call_logged_with_stage_6(self):
         spec = _make_scenario_spec()
         la = _make_loss_analysis()
-        gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
         client = MockLLMClient()
-        client.set_response_for(None, gherkin)
+        client.set_response_for(None, self._GHERKIN_YAML)
 
         with TemporaryDirectory() as tmpdir:
             generate_gherkin(client, spec, la, Path(tmpdir))
@@ -386,23 +398,22 @@ class TestGherkin:
             assert calls[0]["stage"] == "stage_6"
             assert calls[0]["step"] == "gherkin"
 
-    def test_result_is_non_empty_string(self):
+    def test_result_is_gherkin_spec(self):
         spec = _make_scenario_spec()
         la = _make_loss_analysis()
-        gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n"
         client = MockLLMClient()
-        client.set_response_for(None, gherkin)
+        client.set_response_for(None, self._GHERKIN_YAML)
 
         with TemporaryDirectory() as tmpdir:
-            result, _ = generate_gherkin(client, spec, la, Path(tmpdir))
-            assert isinstance(result, str)
-            assert len(result) > 0
+            result, _, _ = generate_gherkin(client, spec, la, Path(tmpdir))
+            assert isinstance(result, GherkinSpec)
+            assert result.feature == "Test"
 
     def test_system_prompt_contains_should_but_structure(self):
         spec = _make_scenario_spec()
         la = _make_loss_analysis()
         client = MockLLMClient()
-        client.set_response_for(None, "Gherkin text")
+        client.set_response_for(None, self._GHERKIN_YAML)
 
         with TemporaryDirectory() as tmpdir:
             generate_gherkin(client, spec, la, Path(tmpdir))
@@ -414,7 +425,7 @@ class TestGherkin:
         spec = _make_scenario_spec()
         la = _make_loss_analysis()
         client = MockLLMClient()
-        client.set_response_for(None, "Gherkin text")
+        client.set_response_for(None, self._GHERKIN_YAML)
 
         with TemporaryDirectory() as tmpdir:
             generate_gherkin(client, spec, la, Path(tmpdir))
@@ -426,7 +437,7 @@ class TestGherkin:
         spec = _make_scenario_spec()
         la = _make_loss_analysis()
         client = MockLLMClient()
-        client.set_response_for(None, "Gherkin text")
+        client.set_response_for(None, self._GHERKIN_YAML)
 
         with TemporaryDirectory() as tmpdir:
             generate_gherkin(client, spec, la, Path(tmpdir))
@@ -442,14 +453,25 @@ class TestAssembly:
         spec = _make_scenario_spec()
         narrative = "A narrative text."
         attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}
-        gherkin_spec = "Scenario: Test\n  Given PM-1-1 is valid\n"
+        gherkin_spec = GherkinSpec(
+            feature="Test",
+            scenario="Test",
+            given=["Given PM-1-1 is valid"],
+            when=["When x"],
+            then_expected=["Then should reject"],
+            then_actual=["But approves"],
+        )
+        gherkin_raw = "feature: Test\nscenario: Test\n"
 
-        envelope = assemble_envelope("SCN-001", spec, narrative, attack_tree, gherkin_spec)
+        envelope = assemble_envelope(
+            "SCN-001", spec, narrative, attack_tree, gherkin_spec, gherkin_raw,
+        )
         assert envelope.scenario_id == "SCN-001"
         assert envelope.scenario_spec.scenario_id == "SCN-001"
         assert envelope.narrative == narrative
         assert envelope.attack_tree == attack_tree
         assert envelope.gherkin_spec == gherkin_spec
+        assert envelope.gherkin_raw == gherkin_raw
         assert envelope.target_responsibility == "RESP-1"
         assert envelope.ica_type == UCAType.not_provided
         assert envelope.provenance == "structural"

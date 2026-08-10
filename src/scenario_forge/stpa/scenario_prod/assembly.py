@@ -6,7 +6,7 @@ into a ScenarioEnvelope with faceting metadata.
 
 from __future__ import annotations
 
-from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
 __all__ = ["assemble_envelope"]
@@ -17,7 +17,8 @@ def assemble_envelope(
     scenario_spec: ScenarioSpec,
     narrative: str,
     attack_tree: dict,
-    gherkin_spec: str,
+    gherkin_spec: GherkinSpec,
+    gherkin_raw: str = "",
 ) -> ScenarioEnvelope:
     """Assemble a ScenarioEnvelope from its components.
 
@@ -26,7 +27,8 @@ def assemble_envelope(
         scenario_spec: The scenario specification from Stage 5.
         narrative: The attack narrative text from Stage 6 Call A.
         attack_tree: The attack tree dict from Stage 6 Call B.
-        gherkin_spec: The Gherkin text from Stage 6 Call C.
+        gherkin_spec: The structured Gherkin spec from Stage 6 Call C.
+        gherkin_raw: The raw Gherkin text from Stage 6 Call C.
 
     Returns:
         A :class:`ScenarioEnvelope`.
@@ -37,6 +39,7 @@ def assemble_envelope(
         narrative=narrative,
         attack_tree=attack_tree,
         gherkin_spec=gherkin_spec,
+        gherkin_raw=gherkin_raw,
         target_responsibility=scenario_spec.target_controller,
         ica_type=scenario_spec.ica_type,
         catalog_mappings=scenario_spec.catalog_context,

@@ -172,6 +172,8 @@ def build_attack_tree_prompts(
         "stage6b_tree_user.j2",
         scenario_spec_yaml=scenario_spec_yaml,
         control_structure_yaml=control_structure_yaml,
+        ica_type=scenario_spec.ica_type.value,
+        control_action=scenario_spec.target_control_action,
     )
 
     return system_prompt, user_prompt

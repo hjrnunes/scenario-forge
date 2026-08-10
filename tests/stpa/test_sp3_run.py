@@ -132,14 +132,19 @@ def _setup_mock_client(num_threats: int = 2) -> MockLLMClient:
             ],
             "leaves": ["Poison PM-1-1 via FB-1-1", "Tool fails"],
         }))
-        # Gherkin (raw text)
+        # Gherkin (YAML format)
         stage6_responses.append(
-            f"Scenario: Attack scenario {i+1}\n"
-            f"  Given PM-1-1 is in a valid state\n"
-            f"  When the attacker sends a malicious request\n"
-            f"  Then the system should reject the request\n"
-            f"  But the system approves the request (ICA NOT_PROVIDED on CA-1-1)\n"
-            f"  And loss L-1 is realized\n"
+            "feature: Attack scenario\n"
+            f"scenario: Attack scenario {i+1}\n"
+            "given:\n"
+            "  - Given PM-1-1 is in a valid state\n"
+            "when:\n"
+            "  - When the attacker sends a malicious request\n"
+            "then_expected:\n"
+            "  - Then the system should reject the request\n"
+            "then_actual:\n"
+            "  - But the system approves the request (ICA NOT_PROVIDED on CA-1-1)\n"
+            "  - And loss L-1 is realized\n"
         )
 
     # Set the response queue: Stage 5 responses first, then Stage 6
@@ -519,5 +524,6 @@ class TestErrorPaths:
             env = result.scenario_envelopes[0]
             assert env.narrative == ""
             assert env.attack_tree == {"root": "", "branches": [], "leaves": []}
-            assert env.gherkin_spec == ""
+            assert env.gherkin_raw == ""
+            assert env.gherkin_spec is not None
             assert any("Stage 6" in e for e in result.stage_errors)

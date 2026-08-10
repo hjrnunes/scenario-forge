@@ -29,7 +29,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     LossProvenance,
     SecurityConstraint,
 )
-from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import (
     AttackerBDI,
     DefenderBDI,
@@ -127,7 +127,14 @@ def _make_envelope(spec: ScenarioSpec | None = None) -> ScenarioEnvelope:
             {"category": "controller_side", "label": "l", "children": []},
             {"category": "path_side", "label": "l", "children": []},
         ], "leaves": []},
-        gherkin_spec="Scenario: T\n  Given PM-1-1\n  When x\n  Then should r\n  But a\n",
+        gherkin_spec=GherkinSpec(
+            feature="T",
+            scenario="T",
+            given=["Given PM-1-1"],
+            when=["When x"],
+            then_expected=["Then should r"],
+            then_actual=["But a"],
+        ),
         target_responsibility="RESP-1",
         ica_type=UCAType.not_provided,
         provenance="structural",

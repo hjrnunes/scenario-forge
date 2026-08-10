@@ -28,7 +28,7 @@ from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
 from ._constants import PROMPTS_DIR
@@ -42,12 +42,14 @@ from .bdi_generation import (
 )
 from .coverage import compute_coverage_gaps, write_coverage_gaps
 from .eval_metrics import compute_eval_scorecard, write_eval_scorecard
-from .gherkin import build_gherkin_prompts, find_security_constraint
+from .gherkin import build_gherkin_prompts, find_security_constraint, parse_gherkin_spec
 from .narrative import build_narrative_prompts
 from .validators import (
     TraceabilityError,
+    validate_attack_tree_root_label,
     validate_bdi_grounding,
     validate_gherkin_structure,
+    validate_loss_hazard_id_references,
     validate_traceability,
     validate_tree_branch_coverage,
     validate_tree_id_references,
@@ -59,6 +61,14 @@ DEFAULT_TEMPERATURE = 0.4
 __all__ = ["SP3RunResult", "run_sp3"]
 
 _EMPTY_ATTACK_TREE: dict = {"root": "", "branches": [], "leaves": []}
+_EMPTY_GHERKIN_SPEC = GherkinSpec(
+    feature="",
+    scenario="",
+    given=[],
+    when=[],
+    then_expected=[],
+    then_actual=[],
+)
 
 
 @dataclass
@@ -127,7 +137,8 @@ def run_sp3(
 
     # --- Stage 7: Validation + eval metrics + coverage gaps ---
     _run_stage7_validations(
-        scenario_envelopes, scenario_specs, control_structure, validation_errors
+        scenario_envelopes, scenario_specs, control_structure,
+        loss_analysis, validation_errors,
     )
 
     trace_errors = validate_traceability(
@@ -256,16 +267,20 @@ def _run_stage6_for_spec(
 
     _collect_stage6_errors(spec.scenario_id, results, stage_errors)
 
-    narrative_text, attack_tree, gherkin_text = _parse_stage6_results(results)
+    narrative_text, attack_tree, gherkin_spec, gherkin_raw = _parse_stage6_results(results)
 
-    _validate_stage6_artifacts(attack_tree, gherkin_text, control_structure, stage_errors)
+    _validate_stage6_artifacts(
+        attack_tree, gherkin_spec, gherkin_raw,
+        control_structure, loss_analysis, spec, stage_errors,
+    )
 
     return assemble_envelope(
         scenario_id=spec.scenario_id,
         scenario_spec=spec,
         narrative=narrative_text,
         attack_tree=attack_tree,
-        gherkin_spec=gherkin_text,
+        gherkin_spec=gherkin_spec,
+        gherkin_raw=gherkin_raw,
     )
 
 
@@ -288,7 +303,7 @@ def _build_stage6_prompts(
     nar_prompts = build_narrative_prompts(spec, loader)
     tree_prompts = build_attack_tree_prompts(spec, control_structure, loader)
     sc = find_security_constraint(spec, loss_analysis)
-    ghk_prompts = build_gherkin_prompts(spec, sc, loader)
+    ghk_prompts = build_gherkin_prompts(spec, sc, loss_analysis, loader)
 
     return _Stage6Prompts(
         narrative=nar_prompts,
@@ -311,7 +326,7 @@ def _collect_stage6_errors(
 
 def _parse_stage6_results(
     results: dict[str, tuple[Any | None, str | None]],
-) -> tuple[str, dict, str]:
+) -> tuple[str, dict, GherkinSpec | None, str]:
     """Parse Stage 6 call results with fallbacks for missing artifacts."""
     narrative_raw, _ = results["narrative"]
     attack_tree_raw, _ = results["attack_tree"]
@@ -321,23 +336,42 @@ def _parse_stage6_results(
     gherkin_text = gherkin_raw or ""
     attack_tree = parse_attack_tree(attack_tree_raw) or dict(_EMPTY_ATTACK_TREE)
 
-    return narrative_text, attack_tree, gherkin_text
+    gherkin_spec = parse_gherkin_spec(gherkin_text) or _EMPTY_GHERKIN_SPEC
+
+    return narrative_text, attack_tree, gherkin_spec, gherkin_text
 
 
 def _validate_stage6_artifacts(
     attack_tree: dict,
-    gherkin_text: str,
+    gherkin_spec: GherkinSpec | None,
+    gherkin_raw: str,
     control_structure: ControlStructure,
+    loss_analysis: LossAnalysis,
+    spec: ScenarioSpec,
     stage_errors: list[str],
 ) -> None:
     """Run stage-local validators for Stage 6 artifacts."""
     for result in (
         validate_tree_branch_coverage(attack_tree),
-        validate_gherkin_structure(gherkin_text),
         validate_tree_id_references(attack_tree, control_structure),
+        validate_attack_tree_root_label(
+            attack_tree, spec.ica_type.value, spec.target_control_action,
+        ),
     ):
         if not result.passed:
             stage_errors.extend(result.errors)
+
+    # Validate Gherkin structure (use spec if parsed, else raw text)
+    gherkin_for_validation: GherkinSpec | str = gherkin_spec if gherkin_spec is not None else gherkin_raw
+    ghk_result = validate_gherkin_structure(gherkin_for_validation)
+    if not ghk_result.passed:
+        stage_errors.extend(ghk_result.errors)
+
+    # Validate Loss/Hazard ID references
+    if gherkin_raw:
+        id_result = validate_loss_hazard_id_references(gherkin_raw, loss_analysis)
+        if not id_result.passed:
+            stage_errors.extend(id_result.errors)
 
 
 def _parallel_stage6_calls(
@@ -390,6 +424,7 @@ def _run_stage7_validations(
     envelopes: list[ScenarioEnvelope],
     specs: list[ScenarioSpec],
     control_structure: ControlStructure,
+    loss_analysis: LossAnalysis,
     validation_errors: list[str],
 ) -> None:
     """Run Stage 7 validations on all specs and envelopes."""
@@ -397,7 +432,7 @@ def _run_stage7_validations(
         _validate_spec_stage7(spec, control_structure, validation_errors)
 
     for env in envelopes:
-        _validate_envelope_stage7(env, validation_errors)
+        _validate_envelope_stage7(env, loss_analysis, validation_errors)
 
 
 def _validate_spec_stage7(
@@ -416,15 +451,41 @@ def _validate_spec_stage7(
 
 def _validate_envelope_stage7(
     envelope: ScenarioEnvelope,
+    loss_analysis: LossAnalysis,
     validation_errors: list[str],
 ) -> None:
     """Run stage-local validators for a single envelope in Stage 7."""
     for result in (
         validate_tree_branch_coverage(envelope.attack_tree),
-        validate_gherkin_structure(envelope.gherkin_spec),
+        validate_attack_tree_root_label(
+            envelope.attack_tree,
+            envelope.ica_type.value,
+            envelope.scenario_spec.target_control_action,
+        ),
     ):
         if not result.passed:
             validation_errors.extend(result.errors)
+
+    # Validate Gherkin structure
+    ghk_for_validation: GherkinSpec | str = (
+        envelope.gherkin_spec
+        if isinstance(envelope.gherkin_spec, GherkinSpec)
+        else envelope.gherkin_raw
+    )
+    ghk_result = validate_gherkin_structure(ghk_for_validation)
+    if not ghk_result.passed:
+        validation_errors.extend(ghk_result.errors)
+
+    # Validate Loss/Hazard ID references
+    id_text = envelope.gherkin_raw or (
+        envelope.gherkin_spec.to_feature_text()
+        if isinstance(envelope.gherkin_spec, GherkinSpec)
+        else ""
+    )
+    if id_text:
+        id_result = validate_loss_hazard_id_references(id_text, loss_analysis)
+        if not id_result.passed:
+            validation_errors.extend(id_result.errors)
 
 
 def _write_scenario_artifacts(
@@ -433,8 +494,13 @@ def _write_scenario_artifacts(
 ) -> None:
     """Write scenario YAML and .feature files."""
     write_yaml(envelope, scenarios_dir / f"{envelope.scenario_id}.yaml")
+    feature_text = envelope.gherkin_raw or (
+        envelope.gherkin_spec.to_feature_text()
+        if isinstance(envelope.gherkin_spec, GherkinSpec)
+        else ""
+    )
     (scenarios_dir / f"{envelope.scenario_id}.feature").write_text(
-        envelope.gherkin_spec, encoding="utf-8"
+        feature_text, encoding="utf-8"
     )
 
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
 from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet, StructuralThreat
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
 __all__ = [
@@ -25,6 +25,8 @@ __all__ = [
     "validate_vulnerability_completeness",
     "validate_tree_branch_coverage",
     "validate_gherkin_structure",
+    "validate_loss_hazard_id_references",
+    "validate_attack_tree_root_label",
     "validate_tree_id_references",
     "validate_traceability",
     "detect_orphan_elements",
@@ -157,20 +159,65 @@ def validate_tree_branch_coverage(attack_tree: dict) -> ValidationResult:
     return ValidationResult.success()
 
 
-def validate_gherkin_structure(gherkin_text: str) -> ValidationResult:
-    """Validate that Gherkin text has should/but structure and PM references.
+def validate_gherkin_structure(gherkin: GherkinSpec | str) -> ValidationResult:
+    """Validate that Gherkin has should/but structure and PM references.
 
-    Checks:
+    Accepts either a structured :class:`GherkinSpec` or a raw Gherkin
+    string (for backward compatibility).
+
+    When given a :class:`GherkinSpec`, validates the structured fields:
+    - ``given`` is non-empty and references process model states (PM-*).
+    - ``then_expected`` is non-empty and contains a "should" step.
+    - ``then_actual`` is non-empty and contains a "but" step.
+
+    When given a ``str``, validates the text for:
     - Contains a `Then ... should ...` line.
     - Contains a `But` line.
     - Given steps reference process model states (PM-* IDs or descriptions).
 
     Args:
-        gherkin_text: The Gherkin text to validate.
+        gherkin: The Gherkin spec (structured or raw text) to validate.
 
     Returns:
         A :class:`ValidationResult`.
     """
+    if isinstance(gherkin, GherkinSpec):
+        return _validate_gherkin_spec(gherkin)
+    return _validate_gherkin_text(gherkin)
+
+
+def _validate_gherkin_spec(spec: GherkinSpec) -> ValidationResult:
+    """Validate a structured :class:`GherkinSpec`."""
+    errors: list[str] = []
+
+    if not spec.then_expected:
+        errors.append("Gherkin missing a 'Then ... should ...' step (then_expected is empty).")
+    elif not any("should" in step.lower() for step in spec.then_expected):
+        errors.append("Gherkin then_expected missing a 'should' clause.")
+
+    if not spec.then_actual:
+        errors.append("Gherkin missing a 'But' step (then_actual is empty).")
+    elif not any(
+        step.lower().startswith("but") for step in spec.then_actual
+    ):
+        errors.append("Gherkin then_actual missing a 'But' clause.")
+
+    if not spec.given:
+        errors.append(
+            "Gherkin Given steps do not reference a process model state (PM-*)."
+        )
+    elif not any(
+        re.search(r"PM-\d+-\d+", step) for step in spec.given
+    ):
+        errors.append(
+            "Gherkin Given steps do not reference a process model state (PM-*)."
+        )
+
+    return ValidationResult(passed=len(errors) == 0, errors=errors)
+
+
+def _validate_gherkin_text(gherkin_text: str) -> ValidationResult:
+    """Validate raw Gherkin text for should/but structure and PM references."""
     errors: list[str] = []
     text_lower = gherkin_text.lower()
 
@@ -189,6 +236,102 @@ def validate_gherkin_structure(gherkin_text: str) -> ValidationResult:
         )
 
     return ValidationResult(passed=len(errors) == 0, errors=errors)
+
+
+# Regex patterns for Loss and Hazard ID extraction
+_LOSS_ID_RE = re.compile(r"L-\d+")
+_HAZARD_ID_RE = re.compile(r"H-\d+")
+
+
+def validate_loss_hazard_id_references(
+    gherkin: GherkinSpec | str,
+    loss_analysis: LossAnalysis,
+) -> ValidationResult:
+    """Check that all L-* and H-* references in Gherkin are valid.
+
+    Extracts all L-\\* and H-\\* patterns from the Gherkin text (using
+    ``gherkin_raw`` for :class:`GherkinSpec` input, or the text directly
+    for ``str`` input) and checks each against the valid IDs from the
+    loss analysis.
+
+    Args:
+        gherkin: The Gherkin spec (structured or raw text) to check.
+        loss_analysis: The loss analysis with valid Loss and Hazard IDs.
+
+    Returns:
+        A :class:`ValidationResult` with errors for hallucinated IDs.
+    """
+    if isinstance(gherkin, GherkinSpec):
+        text = gherkin.to_feature_text()
+    else:
+        text = gherkin
+
+    valid_loss_ids = {
+        loss.loss_id
+        for loss in loss_analysis.risk_card_losses + loss_analysis.use_case_losses
+    }
+    valid_hazard_ids = {hazard.hazard_id for hazard in loss_analysis.hazards}
+
+    errors: list[str] = []
+    for match in _LOSS_ID_RE.finditer(text):
+        loss_id = match.group()
+        if loss_id not in valid_loss_ids:
+            errors.append(f"Gherkin references hallucinated Loss ID '{loss_id}'.")
+
+    for match in _HAZARD_ID_RE.finditer(text):
+        hazard_id = match.group()
+        if hazard_id not in valid_hazard_ids:
+            errors.append(f"Gherkin references hallucinated Hazard ID '{hazard_id}'.")
+
+    return ValidationResult(passed=len(errors) == 0, errors=errors)
+
+
+def validate_attack_tree_root_label(
+    attack_tree: dict,
+    ica_type: str,
+    ca_id: str,
+) -> ValidationResult:
+    """Check that attack tree root matches the expected format.
+
+    Expected root label: ``f"Induce ICA {ica_type} on {ca_id}"``.
+
+    The check is case-insensitive on "Induce ICA" but exact on the
+    ICA type enum value and the CA ID.
+
+    Args:
+        attack_tree: The attack tree dict with a ``root`` key.
+        ica_type: The expected UCAType value (e.g. ``NOT_PROVIDED``).
+        ca_id: The expected control action ID (e.g. ``CA-1-1``).
+
+    Returns:
+        A :class:`ValidationResult`.
+    """
+    root = attack_tree.get("root", "") if isinstance(attack_tree, dict) else ""
+    expected = f"Induce ICA {ica_type} on {ca_id}"
+
+    if not root or not root.strip():
+        return ValidationResult.failure([
+            f"Attack tree root is empty; expected '{expected}'."
+        ])
+
+    # Case-insensitive on "Induce ICA", exact on type and CA
+    root_lower = root.lower().strip()
+    prefix = "induce ica "
+    if not root_lower.startswith(prefix):
+        return ValidationResult.failure([
+            f"Attack tree root '{root}' does not start with 'Induce ICA'; "
+            f"expected '{expected}'."
+        ])
+
+    remainder = root.strip()[len("Induce ICA "):]
+    expected_suffix = f"{ica_type} on {ca_id}"
+    if remainder != expected_suffix:
+        return ValidationResult.failure([
+            f"Attack tree root '{root}' does not match expected '{expected}' "
+            f"(ICA type or CA ID mismatch)."
+        ])
+
+    return ValidationResult.success()
 
 
 def validate_tree_id_references(

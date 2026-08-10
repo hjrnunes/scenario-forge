@@ -13,6 +13,38 @@ from scenario_forge.stpa.models.ica_enumeration import UCAType
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
 
+class GherkinSpec(BaseModel):
+    """Structured Gherkin behavior specification (Stage 6 Call C output).
+
+    The fields capture the should/but structure:
+    - ``given`` — Given steps (process model state references).
+    - ``when`` — When steps (triggering event).
+    - ``then_expected`` — Then ... should ... steps (expected safe behavior).
+    - ``then_actual`` — But ... steps (what actually happens — the ICA).
+    """
+
+    feature: str
+    scenario: str
+    given: list[str]
+    when: list[str]
+    then_expected: list[str]
+    then_actual: list[str]
+
+    def to_feature_text(self) -> str:
+        """Render the structured spec to Gherkin ``.feature`` text."""
+        lines: list[str] = [f"Feature: {self.feature}"]
+        lines.append(f"Scenario: {self.scenario}")
+        for step in self.given:
+            lines.append(f"  {step}")
+        for step in self.when:
+            lines.append(f"  {step}")
+        for step in self.then_expected:
+            lines.append(f"  {step}")
+        for step in self.then_actual:
+            lines.append(f"  {step}")
+        return "\n".join(lines) + "\n"
+
+
 class ScenarioEnvelope(BaseModel):
     """Scenario envelope wrapping Stage 6 artifacts and faceting metadata."""
 
@@ -20,7 +52,8 @@ class ScenarioEnvelope(BaseModel):
     scenario_spec: ScenarioSpec
     narrative: str  # Stage 6 Call A output
     attack_tree: dict  # Stage 6 Call B output (YAML-serializable tree)
-    gherkin_spec: str  # Stage 6 Call C output
+    gherkin_spec: GherkinSpec  # Stage 6 Call C output (structured)
+    gherkin_raw: str = ""  # Raw LLM text for .feature file generation
     # Faceting metadata for querying/filtering
     target_responsibility: str
     ica_type: UCAType

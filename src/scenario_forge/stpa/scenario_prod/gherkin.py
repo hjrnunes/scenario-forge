@@ -1,11 +1,12 @@
 """Stage 6 Call C — Gherkin behavior specification.
 
-One LLM call per scenario produces Gherkin .feature text with the
-should/but structure mapping to control structure state transitions.
+One LLM call per scenario produces a structured Gherkin spec (YAML)
+with the should/but structure mapping to control structure state transitions.
 """
 
 from __future__ import annotations
 
+import re
 import yaml
 from pathlib import Path
 
@@ -13,11 +14,23 @@ from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call_raw
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis, SecurityConstraint
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
 from ._constants import PROMPTS_DIR
 
-__all__ = ["generate_gherkin", "build_gherkin_prompts", "find_security_constraint"]
+__all__ = [
+    "generate_gherkin",
+    "build_gherkin_prompts",
+    "find_security_constraint",
+    "parse_gherkin_spec",
+]
+
+# Matches markdown code fences: ```yaml ... ``` or ``` ... ```
+_CODE_FENCE_RE = re.compile(
+    r"```(?:[a-zA-Z]+)?\s*\n(.*?)\n\s*```",
+    re.DOTALL,
+)
 
 
 def generate_gherkin(
@@ -29,13 +42,14 @@ def generate_gherkin(
     stage: str = "stage_6",
     step: str = "gherkin",
     temperature: float = 0.4,
-) -> tuple[str | None, str | None]:
+) -> tuple[GherkinSpec | None, str | None, str | None]:
     """Execute the Gherkin LLM call.
 
     Args:
         llm_client: LLM client for making the completion call.
         scenario_spec: The scenario specification.
-        loss_analysis: The loss analysis for security constraint lookup.
+        loss_analysis: The loss analysis for security constraint lookup
+            and valid Loss/Hazard ID extraction.
         run_dir: Directory for call logging.
         loader: Template loader (default: SP3 prompts directory).
         stage: Pipeline stage label.
@@ -43,14 +57,14 @@ def generate_gherkin(
         temperature: LLM temperature.
 
     Returns:
-        A tuple of (gherkin_text or None, error_message or None).
+        A tuple of (gherkin_spec or None, raw_text or None, error_message or None).
     """
     if loader is None:
         loader = TemplateLoader(PROMPTS_DIR)
 
     security_constraint = find_security_constraint(scenario_spec, loss_analysis)
     system_prompt, user_prompt = build_gherkin_prompts(
-        scenario_spec, security_constraint, loader
+        scenario_spec, security_constraint, loss_analysis, loader
     )
 
     text, _result, error = safe_llm_call_raw(
@@ -64,8 +78,50 @@ def generate_gherkin(
     )
 
     if error is not None:
-        return None, error
-    return text, None
+        return None, None, error
+
+    raw_text = text or ""
+    spec = parse_gherkin_spec(raw_text)
+    if spec is None:
+        return None, raw_text, "Failed to parse Gherkin YAML from LLM response"
+    return spec, raw_text, None
+
+
+def parse_gherkin_spec(content: str) -> GherkinSpec | None:
+    """Parse LLM response content into a :class:`GherkinSpec`.
+
+    Strips markdown code fences before parsing YAML. Handles responses
+    that contain a YAML block embedded in prose.
+
+    Args:
+        content: The LLM response text.
+
+    Returns:
+        A :class:`GherkinSpec` or None if parsing fails.
+    """
+    if not isinstance(content, str):
+        return None
+    cleaned = _strip_code_fences(content)
+    return _parse_gherkin_yaml(cleaned)
+
+
+def _strip_code_fences(text: str) -> str:
+    """Extract content from markdown code fences if present."""
+    match = _CODE_FENCE_RE.search(text)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+def _parse_gherkin_yaml(text: str) -> GherkinSpec | None:
+    """Try parsing text as YAML into a :class:`GherkinSpec`."""
+    try:
+        parsed = yaml.safe_load(text)
+        if not isinstance(parsed, dict):
+            return None
+        return GherkinSpec.model_validate(parsed)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def find_security_constraint(
@@ -83,9 +139,23 @@ def find_security_constraint(
     return None
 
 
+def _extract_valid_loss_ids(loss_analysis: LossAnalysis) -> list[str]:
+    """Extract all valid Loss IDs from a loss analysis."""
+    return [
+        loss.loss_id
+        for loss in loss_analysis.risk_card_losses + loss_analysis.use_case_losses
+    ]
+
+
+def _extract_valid_hazard_ids(loss_analysis: LossAnalysis) -> list[str]:
+    """Extract all valid Hazard IDs from a loss analysis."""
+    return [hazard.hazard_id for hazard in loss_analysis.hazards]
+
+
 def build_gherkin_prompts(
     scenario_spec: ScenarioSpec,
     security_constraint: SecurityConstraint | None,
+    loss_analysis: LossAnalysis,
     loader: TemplateLoader,
 ) -> tuple[str, str]:
     """Build the system and user prompts for the Gherkin call.
@@ -93,6 +163,7 @@ def build_gherkin_prompts(
     Args:
         scenario_spec: The scenario specification.
         security_constraint: The security constraint for the should clause.
+        loss_analysis: The loss analysis for valid Loss/Hazard ID extraction.
         loader: Template loader.
 
     Returns:
@@ -113,6 +184,9 @@ def build_gherkin_prompts(
 
     ica_text = f"ICA type: {scenario_spec.ica_type.value} on {scenario_spec.target_control_action}"
 
+    valid_loss_ids = _extract_valid_loss_ids(loss_analysis)
+    valid_hazard_ids = _extract_valid_hazard_ids(loss_analysis)
+
     system_prompt = loader.render_prompt("stage6c_gherkin_system.j2")
     user_prompt = loader.render_prompt(
         "stage6c_gherkin_user.j2",
@@ -121,6 +195,8 @@ def build_gherkin_prompts(
         ica_type=scenario_spec.ica_type.value,
         control_action=scenario_spec.target_control_action,
         ica_text=ica_text,
+        valid_loss_ids=", ".join(valid_loss_ids),
+        valid_hazard_ids=", ".join(valid_hazard_ids),
     )
 
     return system_prompt, user_prompt

@@ -994,9 +994,12 @@ def _build_scenario_card(
     if envelope is not None:
         body_parts.extend(_build_scenario_envelope_body(envelope))
 
-    # Gherkin section
-    if feature_text:
-        highlighted = _highlight_gherkin(feature_text)
+    # Gherkin section — prefer feature_text, fall back to envelope.gherkin_raw
+    gherkin_text = feature_text
+    if not gherkin_text and envelope is not None:
+        gherkin_text = getattr(envelope, "gherkin_raw", None) or ""
+    if gherkin_text:
+        highlighted = _highlight_gherkin(gherkin_text)
         body_parts.append('      <div class="scenario-section">')
         body_parts.append('        <div class="scenario-section-title">Gherkin Spec</div>')
         body_parts.append(f'        <div class="gherkin-block">{highlighted}</div>')

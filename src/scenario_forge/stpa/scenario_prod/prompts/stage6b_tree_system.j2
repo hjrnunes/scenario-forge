@@ -6,6 +6,10 @@ Your task is to produce an attack tree using the STPA two-level causal taxonomy.
 
 The attack tree MUST use the following 3 branch categories. Not every branch applies to every scenario — prune irrelevant branches based on the specific control structure.
 
+## Root Node Constraint
+
+The root node MUST use the exact ICA type enum value from the scenario seed. Format: "Induce ICA {ica_type} on {ca_id}". Do not substitute, paraphrase, or abbreviate the ICA type.
+
 ```
 Root: Induce ICA [type] on [control action]
 │
