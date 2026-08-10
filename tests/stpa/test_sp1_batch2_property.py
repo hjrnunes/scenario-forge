@@ -3,8 +3,8 @@
 Covers three feature areas:
 
 1. **Path reference detection and resolution** — ``_looks_like_path_reference``
-   and ``_resolve_reference_path`` in ``scripts/run_sp1.py``: invariant
-   boundaries (newlines, length, extensions), round-trip resolution,
+   and ``_resolve_reference_path`` in ``scenario_forge.stpa.pipeline.llm_config``:
+   invariant boundaries (newlines, length, extensions), round-trip resolution,
    absolute/relative path handling, and non-existent path rejection.
 
 2. **max_completion_tokens threading** — ``safe_llm_call`` forwards the
@@ -34,12 +34,12 @@ from tests.stpa.sp1_helpers import MockLLMClient
 # Path reference detection — _looks_like_path_reference
 # ---------------------------------------------------------------------------
 
-# Import from the script module (same pattern as test_parallel_llm.py)
-import scripts.run_sp1 as runner_mod
-
-_looks_like_path_reference = runner_mod._looks_like_path_reference
-_resolve_reference_path = runner_mod._resolve_reference_path
-read_use_case = runner_mod.read_use_case
+# Import from the canonical llm_config module (extracted from scripts/run_sp1.py)
+from scenario_forge.stpa.pipeline.llm_config import (
+    _looks_like_path_reference,
+    _resolve_reference_path,
+    read_use_case,
+)
 
 
 class TestLooksLikePathReference:

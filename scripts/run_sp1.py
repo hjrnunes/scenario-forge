@@ -13,14 +13,17 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 
 from scenario_forge.data.loaders import load_risk_extraction
 from scenario_forge.stpa.infra.calls_html import render_calls_html
-from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.model_profiles import load_profile
+from scenario_forge.stpa.pipeline.llm_config import (
+    DEFAULT_PROFILES_FILE,
+    read_use_case,
+    resolve_llm_client_from_env,
+    resolve_llm_client_from_profile,
+)
 from scenario_forge.stpa.system_model.run import run_sp1
 
 logging.basicConfig(
@@ -28,117 +31,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-DEFAULT_PROFILES_FILE = "ai/model-profiles.yaml"
-
-
-def resolve_llm_client_from_profile(
-    profiles_file: str, profile_name: str
-) -> tuple[LLMClient, str]:
-    """Create an LLMClient from a named model profile.
-
-    Returns the client and the profile name (for manifest recording).
-    """
-    profile = load_profile(profiles_file, profile_name)
-    logger.info(
-        "Loaded profile '%s' from %s: model=%s, base_url=%s",
-        profile_name,
-        profiles_file,
-        profile.get("model"),
-        profile.get("base_url"),
-    )
-    client = LLMClient(
-        base_url=profile.get("base_url"),
-        api_key=profile.get("api_key"),
-        model=profile.get("model"),
-        max_completion_tokens=profile.get("max_completion_tokens"),
-        temperature=profile.get("temperature"),
-        top_p=profile.get("top_p"),
-        top_k=profile.get("top_k"),
-        extra_headers=profile.get("headers"),
-    )
-    return client, profile_name
-
-
-def resolve_llm_client_from_env() -> LLMClient:
-    """Create an LLMClient from environment variables (backwards compatible)."""
-    base_url = os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL") or os.environ.get(
-        "FG_BASE_URL"
-    )
-    model = os.environ.get("SCENARIO_FORGE_MODEL_NAME") or os.environ.get(
-        "FG_MODEL_NAME", "gemma-4-26b-a4b-it"
-    )
-    api_key = os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
-    logger.info("Creating LLMClient from env: base_url=%s, model=%s", base_url, model)
-    return LLMClient(base_url=base_url, model=model, api_key=api_key)
-
-
-def _looks_like_path_reference(content: str) -> bool:
-    """Check whether stripped content looks like a file-path reference.
-
-    Returns True when the content is short (< 200 chars), has no
-    newlines, and ends with ``.txt`` or ``.md`` — a heuristic for
-    detecting a use-case file that contains a path to the real
-    use-case file instead of actual content.
-    """
-    reference = content.strip()
-    return (
-        len(reference) < 200
-        and "\n" not in reference
-        and "\r" not in reference
-        and reference.endswith((".txt", ".md"))
-    )
-
-
-def _resolve_reference_path(
-    reference: str, source_file: Path
-) -> Path:
-    """Resolve a path reference found inside a use-case file.
-
-    Searches the source file's parent directory first, then the
-    current working directory (for relative paths). Absolute paths
-    are used as-is.
-
-    Raises:
-        FileNotFoundError: When no candidate file exists.
-    """
-    reference_path = Path(reference)
-    if reference_path.is_absolute():
-        candidates = [reference_path]
-    else:
-        candidates = [
-            source_file.parent / reference_path,
-            Path.cwd() / reference_path,
-        ]
-    resolved = next((c for c in candidates if c.exists()), None)
-    if resolved is None:
-        raise FileNotFoundError(
-            f"Use-case file {source_file} references unresolved path "
-            f"{reference!r}"
-        )
-    return resolved
-
-
-def read_use_case(path: str) -> str:
-    """Read use-case text from file, stripping @ prefix if present.
-
-    If the file content itself looks like a path reference (short, no
-    newlines, ends with ``.txt`` or ``.md``), resolves and reads the
-    referenced file instead.
-    """
-    if path.startswith("@"):
-        path = path[1:]
-    use_case_path = Path(path)
-    if not use_case_path.exists():
-        raise FileNotFoundError(f"Use-case file not found: {path}")
-    logger.info("Reading use-case from %s", path)
-    content = use_case_path.read_text(encoding="utf-8")
-    if _looks_like_path_reference(content):
-        reference = content.strip()
-        resolved_path = _resolve_reference_path(reference, use_case_path)
-        content = resolved_path.read_text(encoding="utf-8")
-    logger.info("Loaded use-case text: %s", content[:100])
-    return content
 
 
 def main() -> int:

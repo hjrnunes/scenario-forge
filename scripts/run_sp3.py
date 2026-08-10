@@ -15,16 +15,18 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 
-from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.model_profiles import load_profile
 from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.pipeline.llm_config import (
+    DEFAULT_PROFILES_FILE,
+    resolve_llm_client_from_env,
+    resolve_llm_client_from_profile,
+)
 from scenario_forge.stpa.scenario_prod.run import run_sp3
 
 logging.basicConfig(
@@ -32,42 +34,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-DEFAULT_PROFILES_FILE = "ai/model-profiles.yaml"
-
-
-def resolve_llm_client_from_profile(
-    profiles_file: str, profile_name: str
-) -> tuple[LLMClient, str]:
-    """Create an LLMClient from a named model profile."""
-    profile = load_profile(profiles_file, profile_name)
-    logger.info(
-        "Loaded profile '%s' from %s: model=%s, base_url=%s",
-        profile_name,
-        profiles_file,
-        profile.get("model"),
-        profile.get("base_url"),
-    )
-    client = LLMClient(
-        base_url=profile.get("base_url"),
-        api_key=profile.get("api_key"),
-        model=profile.get("model"),
-        max_completion_tokens=profile.get("max_completion_tokens"),
-        temperature=profile.get("temperature"),
-        top_p=profile.get("top_p"),
-        top_k=profile.get("top_k"),
-        extra_headers=profile.get("headers"),
-    )
-    return client, profile_name
-
-
-def resolve_llm_client_from_env() -> LLMClient:
-    """Create an LLMClient from environment variables."""
-    base_url = os.environ.get("SCENARIO_FORGE_MODEL_BASE_URL")
-    model = os.environ.get("SCENARIO_FORGE_MODEL_NAME", "gemma-4-26b-a4b-it")
-    api_key = os.environ.get("SCENARIO_FORGE_API_KEY", "unused")
-    logger.info("Creating LLMClient from env: base_url=%s, model=%s", base_url, model)
-    return LLMClient(base_url=base_url, model=model, api_key=api_key)
 
 
 def main() -> int:
